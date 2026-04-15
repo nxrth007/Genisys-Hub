@@ -1,42 +1,46 @@
 /**
- * Twilio SMS wrapper — used by the scheduled brief cron to text team members.
+ * Twilio SMS wrapper.
  *
- * On the trial plan, the destination number must be verified as a Caller ID
- * in the Twilio console. Messages will include a "Sent from your Twilio trial
- * account" prefix until the account is upgraded.
+ * Credentials come from the vault (via name lookup), not env vars — that's
+ * the whole point of building the vault first. The outbound phone number
+ * stays in env (TWILIO_FROM_NUMBER) because it's not sensitive.
+ *
+ * Vault entries this module expects (names must match exactly):
+ *   - "Twilio Account SID"
+ *   - "Twilio Auth Token"
  */
 import twilio from 'twilio'
-
-let cachedClient: ReturnType<typeof twilio> | null = null
-
-function getClient() {
-  if (cachedClient) return cachedClient
-  const sid = process.env.TWILIO_ACCOUNT_SID
-  const token = process.env.TWILIO_AUTH_TOKEN
-  if (!sid || !token) {
-    throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN must be set to send SMS.')
-  }
-  cachedClient = twilio(sid, token)
-  return cachedClient
-}
+import { getSecretByName } from './vault-service'
 
 export async function sendSms(params: {
-  to: string // E.164 format, e.g. +16035026226
+  to: string // E.164, e.g. +16035026226
   body: string
-}): Promise<{ sid: string; status: string }> {
+}): Promise<{ sid: string; status: string; from: string }> {
   const from = process.env.TWILIO_FROM_NUMBER
-  if (!from) throw new Error('TWILIO_FROM_NUMBER is not set.')
+  if (!from) {
+    throw new Error('TWILIO_FROM_NUMBER env var is not set.')
+  }
 
-  const client = getClient()
+  const [sid, token] = await Promise.all([
+    getSecretByName('Twilio Account SID'),
+    getSecretByName('Twilio Auth Token'),
+  ])
+
+  const client = twilio(sid, token)
   const message = await client.messages.create({
     to: params.to,
     from,
     body: params.body,
   })
 
-  return { sid: message.sid, status: message.status }
+  return { sid: message.sid, status: message.status, from }
 }
 
-export function isTwilioConfigured(): boolean {
-  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER)
+/**
+ * Lightweight E.164 validation — Twilio rejects malformed numbers, but
+ * surfacing a clean error here avoids a round-trip and a less friendly
+ * Twilio response.
+ */
+export function isValidE164(phone: string): boolean {
+  return /^\+[1-9]\d{1,14}$/.test(phone)
 }

@@ -109,6 +109,34 @@ export async function deleteEntry(entryId: string, userId: string) {
   await prisma.vaultEntry.delete({ where: { id: entryId } })
 }
 
+/**
+ * Server-side lookup for integration code. Decrypts and returns the value
+ * of a vault entry by its name. Does NOT log the access — system/integration
+ * use happens on every request and would flood the audit log with noise.
+ * User-initiated reveals go through revealEntry() which IS logged.
+ *
+ * Throws if the entry doesn't exist. Callers should catch and return a
+ * user-friendly "you need to add this to the vault" error.
+ */
+export async function getSecretByName(name: string): Promise<string> {
+  const entry = await prisma.vaultEntry.findFirst({
+    where: { name },
+    select: { id: true, ciphertext: true, nonce: true },
+  })
+  if (!entry) {
+    throw new Error(
+      `Vault entry "${name}" not found. Add it in /vault before using this integration.`
+    )
+  }
+  // Bump lastUsedAt so the UI reflects actual integration usage even though
+  // we skip the individual-access audit row.
+  await prisma.vaultEntry.update({
+    where: { id: entry.id },
+    data: { lastUsedAt: new Date() },
+  })
+  return decryptSecret(entry.ciphertext, entry.nonce)
+}
+
 export async function getAuditLog(entryId: string) {
   return prisma.vaultAccessLog.findMany({
     where: { entryId },
