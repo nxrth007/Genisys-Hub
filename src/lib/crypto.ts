@@ -22,23 +22,41 @@ function getMasterKey(): Uint8Array {
   if (key.length !== 32) {
     throw new Error(`VAULT_MASTER_KEY must decode to 32 bytes, got ${key.length}`)
   }
-  return new Uint8Array(key)
+  // Copy into a plain Uint8Array (not a Buffer view) so downstream consumers
+  // like Prisma's Bytes field get the exact type they expect.
+  return Uint8Array.from(key)
 }
 
-export function encryptSecret(plaintext: string): { ciphertext: Buffer; nonce: Buffer } {
+export function encryptSecret(plaintext: string): {
+  ciphertext: Uint8Array<ArrayBuffer>
+  nonce: Uint8Array<ArrayBuffer>
+} {
   const key = getMasterKey()
   const nonce = new Uint8Array(randomBytes(24))
   const cipher = xchacha20poly1305(key, nonce)
-  const ciphertext = cipher.encrypt(new TextEncoder().encode(plaintext))
+  const encrypted = cipher.encrypt(new TextEncoder().encode(plaintext))
+  // Wrap in a fresh Uint8Array so the type is Uint8Array<ArrayBuffer> (what
+  // Prisma's Bytes field expects) rather than Uint8Array<ArrayBufferLike>.
   return {
-    ciphertext: Buffer.from(ciphertext),
-    nonce: Buffer.from(nonce),
+    ciphertext: new Uint8Array(encrypted),
+    nonce,
   }
 }
 
-export function decryptSecret(ciphertext: Buffer | Uint8Array, nonce: Buffer | Uint8Array): string {
+export function decryptSecret(
+  ciphertext: Uint8Array | Buffer,
+  nonce: Uint8Array | Buffer
+): string {
   const key = getMasterKey()
-  const cipher = xchacha20poly1305(key, new Uint8Array(nonce))
-  const plaintext = cipher.decrypt(new Uint8Array(ciphertext))
+  // Normalize inputs — Prisma returns Buffers for Bytes fields.
+  const ct = ciphertext instanceof Uint8Array && !Buffer.isBuffer(ciphertext)
+    ? ciphertext
+    : Uint8Array.from(ciphertext)
+  const nc = nonce instanceof Uint8Array && !Buffer.isBuffer(nonce)
+    ? nonce
+    : Uint8Array.from(nonce)
+
+  const cipher = xchacha20poly1305(key, nc)
+  const plaintext = cipher.decrypt(ct)
   return new TextDecoder().decode(plaintext)
 }
