@@ -38,6 +38,10 @@ export default auth((req) => {
 })
 
 export const config = {
+  // Auth.js's PrismaAdapter transitively uses Node builtins (node:path, etc.)
+  // that aren't available in the Edge runtime, so we explicitly run middleware
+  // on the Node runtime. Slightly heavier cold start, but correct.
+  runtime: 'nodejs',
   // Skip static assets and Next.js internals.
   matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp)).*)'],
 }
