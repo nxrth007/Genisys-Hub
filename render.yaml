@@ -1,0 +1,55 @@
+# Render Blueprint for Genisys Hub
+# Deploys: 1 web service (Next.js + in-process cron) + 1 managed Postgres.
+# See https://render.com/docs/blueprint-spec
+#
+# Usage:
+#   1. Push this file to the main branch on GitHub.
+#   2. In Render, click "New" → "Blueprint" and select this repo.
+#   3. Render detects this file, creates both services, and wires them together.
+#   4. Add the remaining env vars (Google, Twilio, Anthropic, etc.) in the
+#      web service's Environment tab after the first deploy.
+
+services:
+  - type: web
+    name: genisys-hub
+    runtime: node
+    plan: starter # $7/mo — 512MB RAM, always on. Upgrade later if needed.
+    region: oregon
+    branch: main
+    buildCommand: npm install && npm run build && npx prisma migrate deploy
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: genisys-hub-db
+          property: connectionString
+      - key: AUTH_URL
+        sync: false # paste your Render-assigned hostname after first deploy
+      - key: AUTH_SECRET
+        generateValue: true # Render generates a random value on first deploy
+      - key: VAULT_MASTER_KEY
+        generateValue: true # IMPORTANT: back this up. If lost, vault entries are unrecoverable.
+      - key: AUTH_GOOGLE_ID
+        sync: false
+      - key: AUTH_GOOGLE_SECRET
+        sync: false
+      - key: AUTH_ALLOWED_DOMAINS
+        value: leadgenisys.com,trustware.io
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        value: "+18772573649"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+databases:
+  - name: genisys-hub-db
+    plan: basic-256mb # $7/mo. Free tier available for dev, but sleeps after 90 days idle.
+    region: oregon
+    databaseName: genisys_hub
+    user: genisys_hub
