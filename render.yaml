@@ -16,7 +16,10 @@ services:
     plan: starter # $7/mo — 512MB RAM, always on. Upgrade later if needed.
     region: oregon
     branch: main
-    buildCommand: npm install && npm run build && npx prisma migrate deploy
+    # NODE_ENV=production tells npm to skip devDependencies by default, but
+    # Next.js + Prisma + Tailwind need their build-time tools. `--include=dev`
+    # overrides that just for install, without affecting runtime behavior.
+    buildCommand: npm install --include=dev && npm run build && npx prisma migrate deploy
     startCommand: npm run start
     healthCheckPath: /api/health
     envVars:
