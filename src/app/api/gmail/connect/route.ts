@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { getAuthUrl } from '@/lib/gmail'
+import { getAuthUrl, getPublicOrigin } from '@/lib/gmail'
 
 /**
  * GET /api/gmail/connect
- * Starts the Gmail OAuth flow. Derives the redirect URI from the incoming
- * request origin so it always matches the actual deployment host.
+ * Starts the Gmail OAuth flow. Uses proxy headers (host + x-forwarded-proto)
+ * to derive the public origin, so the redirect URI matches the registered
+ * Cloud Console URI regardless of Render's internal port assignment.
  */
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const origin = req.nextUrl.origin // e.g. "https://genisys-hub.onrender.com"
+    const origin = getPublicOrigin(req)
     const url = getAuthUrl(origin)
     return NextResponse.redirect(url)
   } catch (err) {

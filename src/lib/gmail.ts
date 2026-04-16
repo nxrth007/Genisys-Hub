@@ -15,13 +15,25 @@ import { prisma } from './prisma'
 import { extractEmailAddress, extractEmailName } from './utils'
 
 /**
- * Build the redirect URI from an explicit base URL. Falls back to AUTH_URL
- * env var, then localhost. The connect + callback routes pass the request
- * origin so the URI always matches the actual deployment host.
+ * Build the redirect URI. Accepts an explicit base URL from the route handler
+ * (derived from proxy headers). Falls back to AUTH_URL, then localhost.
  */
 function getRedirectUri(baseUrl?: string): string {
   const base = baseUrl || process.env.AUTH_URL || 'http://localhost:3000'
   return `${base}/api/gmail/callback`
+}
+
+/**
+ * Derive the public-facing origin from a request, accounting for Render's
+ * (or any) reverse proxy. `req.nextUrl.origin` returns the INTERNAL origin
+ * (e.g. http://localhost:10000) behind a proxy. The real hostname lives in
+ * the `host` header, and the protocol in `x-forwarded-proto`.
+ */
+export function getPublicOrigin(req: { headers: { get(name: string): string | null } }): string {
+  const proto = req.headers.get('x-forwarded-proto') || 'https'
+  const host = req.headers.get('host')
+  if (host) return `${proto}://${host}`
+  return process.env.AUTH_URL || 'http://localhost:3000'
 }
 
 function getOAuth2Client(baseUrl?: string) {

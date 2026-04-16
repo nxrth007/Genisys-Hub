@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exchangeCode } from '@/lib/gmail'
+import { exchangeCode, getPublicOrigin } from '@/lib/gmail'
 
 /**
  * GET /api/gmail/callback
- * Google redirects here after the user consents. Derives the base URL from
- * the request origin so the OAuth2 client uses the correct redirect_uri
- * during code exchange (Google validates it matches the auth request).
+ * Google redirects here after consent. Uses the same public-origin derivation
+ * as the connect route so the redirect_uri matches during code exchange
+ * (Google validates it against what was used in the authorization request).
  */
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const origin = req.nextUrl.origin
+    const origin = getPublicOrigin(req)
     const account = await exchangeCode(code, origin)
     return NextResponse.redirect(
       new URL(`/settings?gmail_connected=${encodeURIComponent(account.email)}`, req.url)
