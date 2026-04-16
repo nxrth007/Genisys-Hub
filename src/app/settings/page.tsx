@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'next/navigation'
+// Note: useSearchParams avoided here — causes Next.js 16 prerender OOM/failure.
+// Reading query params via window.location.search in useEffect instead.
 import {
   Settings,
   MessageSquare,
@@ -44,7 +45,6 @@ export default function SettingsPage() {
 
 function GmailConnectSection() {
   const qc = useQueryClient()
-  const searchParams = useSearchParams()
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const { data } = useQuery<{
@@ -85,13 +85,17 @@ function GmailConnectSection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gmail-accounts'] }),
   })
 
-  // Surface callback query params from the OAuth redirect
+  // Surface callback query params from the Gmail OAuth redirect.
+  // Using window.location instead of useSearchParams to avoid Next.js 16
+  // prerender failures (useSearchParams requires Suspense boundaries).
   useEffect(() => {
-    const connected = searchParams.get('gmail_connected')
-    const error = searchParams.get('gmail_error')
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('gmail_connected')
+    const error = params.get('gmail_error')
     if (connected) setNotice({ type: 'success', text: `Connected ${connected}` })
     if (error) setNotice({ type: 'error', text: `Gmail connect failed: ${error}` })
-  }, [searchParams])
+  }, [])
 
   const accounts = data?.accounts ?? []
 
