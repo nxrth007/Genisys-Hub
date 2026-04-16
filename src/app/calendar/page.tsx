@@ -24,6 +24,9 @@ type CalendarEvent = {
   subAccountName?: string
   vaultName?: string
   contactId?: string
+  contactName?: string
+  contactEmail?: string
+  contactPhone?: string
   status?: string
   notes?: string
   appointmentStatus?: string
@@ -265,6 +268,11 @@ export default function CalendarPage() {
                           <div className="font-medium truncate">
                             {ev.title || ev.name || 'Untitled'}
                           </div>
+                          {ev.contactName && (
+                            <div className="truncate opacity-80 mt-0.5">
+                              w/ {ev.contactName}
+                            </div>
+                          )}
                           <div className="opacity-75 mt-0.5 flex items-center gap-1">
                             <Clock className="h-2.5 w-2.5" />
                             {formatTime(ev.startTime)}
@@ -323,6 +331,18 @@ function EventDetailModal({
           {event.calendarName && (
             <DetailRow icon={Calendar} label="Calendar">
               {event.calendarName}
+            </DetailRow>
+          )}
+
+          {event.contactName && (
+            <DetailRow icon={User} label="Contact">
+              <div>{event.contactName}</div>
+              {event.contactEmail && (
+                <div className="text-xs text-zinc-500">{event.contactEmail}</div>
+              )}
+              {event.contactPhone && (
+                <div className="text-xs text-zinc-500">{event.contactPhone}</div>
+              )}
             </DetailRow>
           )}
 

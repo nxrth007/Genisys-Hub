@@ -278,23 +278,30 @@ export async function getCalendarEvents(
   return ghlFetch(`/calendars/events?${params}`, vaultEntryName)
 }
 
+type EnrichedEvent = Record<string, unknown> & {
+  subAccountName: string
+  vaultName: string
+  contactName?: string
+  contactEmail?: string
+  contactPhone?: string
+}
+
 /**
- * Fetch events from every GHL sub-account in a given date range.
- * Returns events tagged with their sub-account name + color for the UI.
- * Failures on individual sub-accounts don't block the others.
+ * Fetch events from every GHL sub-account in a given date range, then
+ * enrich each event with its contact's name/email/phone (if the event
+ * has a contactId). Contact lookups are batched 5 at a time per sub-account
+ * to avoid rate limits, and a per-request cache prevents duplicate fetches.
  */
 export async function getEventsAcrossSubAccounts(
   startTime: string,
   endTime: string
 ): Promise<{
-  events: Array<Record<string, unknown> & { subAccountName: string; vaultName: string }>
+  events: EnrichedEvent[]
   subAccounts: SubAccount[]
 }> {
   const { subaccounts } = await listSubAccounts()
 
-  const allEvents: Array<
-    Record<string, unknown> & { subAccountName: string; vaultName: string }
-  > = []
+  const allEvents: EnrichedEvent[] = []
 
   await Promise.all(
     subaccounts.map(async (sub) => {
@@ -326,6 +333,59 @@ export async function getEventsAcrossSubAccounts(
       }
     })
   )
+
+  // Contact enrichment — batch by sub-account, 5 at a time. Cache by
+  // "vaultName:contactId" so repeat contacts across events are fetched once.
+  const contactCache = new Map<
+    string,
+    { name: string; email: string; phone: string }
+  >()
+
+  // Group events by sub-account so contact lookups use the correct token.
+  const byVault = new Map<string, EnrichedEvent[]>()
+  for (const ev of allEvents) {
+    if (!ev.contactId) continue
+    const list = byVault.get(ev.vaultName) || []
+    list.push(ev)
+    byVault.set(ev.vaultName, list)
+  }
+
+  for (const [vaultName, eventsForSub] of byVault) {
+    // Walk events in batches of 5 for this sub-account
+    for (let i = 0; i < eventsForSub.length; i += 5) {
+      const batch = eventsForSub.slice(i, i + 5)
+      await Promise.all(
+        batch.map(async (ev) => {
+          const cid = String(ev.contactId)
+          const cacheKey = `${vaultName}:${cid}`
+
+          let info = contactCache.get(cacheKey)
+          if (!info) {
+            try {
+              const data = await getContact(cid, vaultName)
+              const contact =
+                ((data.contact as Record<string, unknown>) || data) as Record<string, unknown>
+              info = {
+                name:
+                  (contact.name as string) ||
+                  [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
+                  '',
+                email: (contact.email as string) || '',
+                phone: (contact.phone as string) || '',
+              }
+              contactCache.set(cacheKey, info)
+            } catch {
+              return // skip enrichment on lookup failure
+            }
+          }
+
+          ev.contactName = info.name || undefined
+          ev.contactEmail = info.email || undefined
+          ev.contactPhone = info.phone || undefined
+        })
+      )
+    }
+  }
 
   // Sort earliest first
   allEvents.sort((a, b) => {
