@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Settings, MessageSquare, Send, Check, AlertCircle } from 'lucide-react'
+import { Settings, MessageSquare, Hash, Send, Check, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function SettingsPage() {
@@ -20,10 +20,107 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      <SlackTestSection />
+
       <TwilioTestSection />
 
       <ComingSoonSection />
     </div>
+  )
+}
+
+function SlackTestSection() {
+  const [email, setEmail] = useState('')
+  const [message, setMessage] = useState(
+    'Test from Genisys Hub — if you see this DM, the vault → Slack path is working.'
+  )
+
+  const mutation = useMutation({
+    mutationFn: async (params: { email: string; message: string }) => {
+      const res = await fetch('/api/slack/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(params),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Send failed')
+      return data as { ok: true; channel: string; ts: string }
+    },
+  })
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    mutation.mutate({ email: email.trim(), message: message.trim() })
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center gap-3 mb-1">
+        <Hash className="h-5 w-5 text-blue-600" />
+        <h3 className="font-semibold">Slack — Send test DM</h3>
+      </div>
+      <p className="text-sm text-zinc-500 mb-4">
+        Uses <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">Slack Bot Token</code>{' '}
+        from the vault. Looks up the user by email in your Slack workspace and sends a direct message.
+        This is how morning briefs will be delivered.
+      </p>
+
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium">Recipient email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="ethan@leadgenisys.com"
+            required
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          />
+          <p className="mt-1 text-xs text-zinc-400">
+            Must match the email the person uses to sign into your Slack workspace.
+          </p>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium">Message</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={3}
+            required
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={mutation.isPending || !email || !message}
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" />
+            {mutation.isPending ? 'Sending…' : 'Send test DM'}
+          </button>
+        </div>
+      </form>
+
+      {mutation.isSuccess && (
+        <Alert variant="success">
+          <div className="font-medium">DM sent.</div>
+          <div className="text-xs mt-1 space-y-0.5">
+            <div>Channel: <code className="text-xs">{mutation.data.channel}</code></div>
+            <div>Timestamp: <code className="text-xs">{mutation.data.ts}</code></div>
+          </div>
+        </Alert>
+      )}
+
+      {mutation.isError && (
+        <Alert variant="error">
+          <div className="font-medium">Failed to send DM</div>
+          <div className="text-xs mt-1">{(mutation.error as Error).message}</div>
+        </Alert>
+      )}
+    </section>
   )
 }
 
