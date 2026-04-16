@@ -37,8 +37,17 @@ type Group = {
   error: string | null
 }
 
+type ResolutionError = {
+  vaultName: string
+  error: string
+}
+
 export default function CrmPage() {
-  const { data, isLoading, error } = useQuery<{ groups: Group[] }>({
+  const { data, isLoading, error } = useQuery<{
+    groups: Group[]
+    resolutionErrors?: ResolutionError[]
+    discoveredEntries?: number
+  }>({
     queryKey: ['crm-groups'],
     queryFn: async () => {
       const res = await fetch('/api/crm/conversations')
@@ -51,6 +60,8 @@ export default function CrmPage() {
   })
 
   const groups = data?.groups ?? []
+  const resolutionErrors = data?.resolutionErrors ?? []
+  const discoveredEntries = data?.discoveredEntries ?? 0
   const totalConvos = groups.reduce((acc, g) => acc + g.conversations.length, 0)
 
   return (
@@ -90,11 +101,35 @@ export default function CrmPage() {
           </div>
         </div>
       ) : groups.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
-          <Building2 className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
-          <p className="text-sm text-zinc-500">
-            No GHL sub-accounts found. Add vault entries tagged <code>ghl</code> to get started.
-          </p>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
+            <Building2 className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
+            <p className="text-sm text-zinc-500">
+              {discoveredEntries === 0 ? (
+                <>No vault entries tagged <code>ghl</code> were found.</>
+              ) : (
+                <>
+                  Found {discoveredEntries} vault {discoveredEntries === 1 ? 'entry' : 'entries'} tagged <code>ghl</code>,
+                  but none could be resolved to a GHL sub-account. See errors below.
+                </>
+              )}
+            </p>
+          </div>
+
+          {resolutionErrors.length > 0 && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+              <h3 className="font-semibold text-sm text-red-900 dark:text-red-200 mb-2">
+                Resolution errors
+              </h3>
+              <ul className="space-y-2 text-xs">
+                {resolutionErrors.map((re) => (
+                  <li key={re.vaultName} className="text-red-800 dark:text-red-300">
+                    <span className="font-mono font-semibold">{re.vaultName}</span>: {re.error}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

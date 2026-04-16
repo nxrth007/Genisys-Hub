@@ -18,12 +18,12 @@ export async function GET(req: NextRequest) {
   const limit = Number(req.nextUrl.searchParams.get('limit') || '20')
 
   try {
-    const subs = await listSubAccounts()
+    const { subaccounts, errors, discoveredEntries } = await listSubAccounts()
 
     // Fetch all sub-accounts in parallel — don't let one slow/broken
     // sub-account block the others.
     const results = await Promise.all(
-      subs.map(async (sub) => {
+      subaccounts.map(async (sub) => {
         try {
           const data = await getConversations(sub.vaultName, { limit })
           const conversations = (data.conversations || []) as Record<string, unknown>[]
@@ -42,7 +42,11 @@ export async function GET(req: NextRequest) {
       })
     )
 
-    return NextResponse.json({ groups: results })
+    return NextResponse.json({
+      groups: results,
+      resolutionErrors: errors,
+      discoveredEntries,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to fetch conversations'
     return NextResponse.json({ error: message }, { status: 500 })

@@ -139,27 +139,34 @@ export type SubAccount = {
 /**
  * List all GHL sub-accounts discovered from vault entries tagged "ghl".
  * Each entry is resolved to its GHL location (id + name). Failed lookups
- * (invalid token, etc.) are skipped rather than throwing the whole list.
+ * (invalid token, etc.) are reported separately instead of hiding the
+ * whole list — UI can display per-entry errors.
  */
-export async function listSubAccounts(): Promise<SubAccount[]> {
+export async function listSubAccounts(): Promise<{
+  subaccounts: SubAccount[]
+  errors: Array<{ vaultName: string; error: string }>
+  discoveredEntries: number
+}> {
   const entries = await listEntriesByTag('ghl')
-  const results: SubAccount[] = []
+  const subaccounts: SubAccount[] = []
+  const errors: Array<{ vaultName: string; error: string }> = []
 
   for (const entry of entries) {
     try {
       const { locationId, locationName } = await resolveToken(entry.name)
-      results.push({
+      subaccounts.push({
         vaultName: entry.name,
         locationId,
         locationName,
       })
     } catch (err) {
-      // Log but don't throw — one bad token shouldn't hide the others.
-      console.warn(`[ghl] Failed to resolve "${entry.name}":`, err)
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(`[ghl] Failed to resolve "${entry.name}": ${msg}`)
+      errors.push({ vaultName: entry.name, error: msg })
     }
   }
 
-  return results
+  return { subaccounts, errors, discoveredEntries: entries.length }
 }
 
 // -------------------------------------------------------------------------

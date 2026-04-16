@@ -5,6 +5,8 @@ import { listSubAccounts } from '@/lib/ghl'
 /**
  * GET /api/crm/subaccounts
  * Auto-discovers all GHL sub-accounts from vault entries tagged "ghl".
+ * Returns verbose diagnostics: discovered entries, resolved sub-accounts,
+ * and per-entry errors — so a silent "nothing found" can be debugged.
  */
 export async function GET() {
   const session = await auth()
@@ -13,8 +15,8 @@ export async function GET() {
   }
 
   try {
-    const subaccounts = await listSubAccounts()
-    return NextResponse.json({ subaccounts })
+    const result = await listSubAccounts()
+    return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to list sub-accounts'
     return NextResponse.json({ error: message }, { status: 500 })
