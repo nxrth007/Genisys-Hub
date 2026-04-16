@@ -186,23 +186,54 @@ export default function CalendarPage() {
     })
   }, [allEvents, filter, subFilters, nowMs])
 
-  // Group by date
+  // Group by date, then order day-blocks so:
+  //   1. Today appears first
+  //   2. Future days follow ascending (tomorrow → day after → ...)
+  //   3. Past days descending at the bottom (yesterday → day before → ...)
   const grouped = useMemo(() => {
-    const g: Record<string, CalendarEvent[]> = {}
+    const buckets = new Map<
+      string, // date key (formatted)
+      {
+        key: string
+        events: CalendarEvent[]
+        dayStart: number // ms at 00:00 of that day, for sorting
+      }
+    >()
+
     for (const ev of events) {
       if (!ev.startTime) continue
+      const d = new Date(ev.startTime)
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
       const key = formatEventDate(ev.startTime)
-      if (!g[key]) g[key] = []
-      g[key].push(ev)
+      if (!buckets.has(key)) buckets.set(key, { key, events: [], dayStart })
+      buckets.get(key)!.events.push(ev)
     }
-    // Sort events within each day by time
-    for (const key of Object.keys(g)) {
-      g[key].sort(
+
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const todayMs = todayStart.getTime()
+
+    const entries = Array.from(buckets.values())
+    entries.sort((a, b) => {
+      const aIsToday = a.dayStart === todayMs
+      const bIsToday = b.dayStart === todayMs
+      if (aIsToday !== bIsToday) return aIsToday ? -1 : 1
+      const aFuture = a.dayStart > todayMs
+      const bFuture = b.dayStart > todayMs
+      if (aFuture !== bFuture) return aFuture ? -1 : 1 // future before past
+      if (aFuture) return a.dayStart - b.dayStart // future ascending
+      return b.dayStart - a.dayStart // past descending
+    })
+
+    // Sort events within each day by time (earliest first)
+    for (const entry of entries) {
+      entry.events.sort(
         (a, b) =>
           new Date(a.startTime || 0).getTime() - new Date(b.startTime || 0).getTime()
       )
     }
-    return g
+
+    return entries
   }, [events])
 
   // Stats
@@ -371,20 +402,42 @@ export default function CalendarPage() {
           </div>
         ) : (
           <div>
-            {Object.entries(grouped).map(([dateKey, dayEvents]) => (
-              <div key={dateKey}>
-                <div className="sticky top-0 z-10 bg-zinc-50 border-b border-zinc-200 px-6 py-2 dark:bg-zinc-800 dark:border-zinc-700">
-                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                    {dateKey}
-                  </p>
+            {grouped.map((group) => {
+              const isToday =
+                group.dayStart ===
+                new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+              return (
+                <div key={group.key}>
+                  <div
+                    className={cn(
+                      'sticky top-0 z-10 border-b px-6 py-2',
+                      isToday
+                        ? 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
+                        : 'bg-zinc-50 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700'
+                    )}
+                  >
+                    <p
+                      className={cn(
+                        'text-xs font-semibold uppercase tracking-wide',
+                        isToday ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-500'
+                      )}
+                    >
+                      {isToday ? 'Today · ' : ''}
+                      {group.key}
+                    </p>
+                  </div>
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {group.events.map((event) => (
+                      <EventRow
+                        key={event.id || event.startTime}
+                        event={event}
+                        nowMs={nowMs}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {dayEvents.map((event) => (
-                    <EventRow key={event.id || event.startTime} event={event} nowMs={nowMs} />
-                  ))}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
