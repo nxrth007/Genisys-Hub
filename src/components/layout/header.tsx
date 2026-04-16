@@ -78,7 +78,7 @@ export function Header() {
           <div className="absolute left-0 top-0 h-full w-64 bg-white dark:bg-zinc-950 shadow-xl">
             <div className="flex h-16 items-center justify-between border-b px-6">
               <div className="flex items-center gap-2">
-                <Target className="h-6 w-6 text-blue-600" />
+                <Target className="h-6 w-6 text-purple-600" />
                 <span className="text-lg font-bold">Genisys Hub</span>
               </div>
               <button
@@ -102,7 +102,7 @@ export function Header() {
                     className={cn(
                       'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                       isActive
-                        ? 'bg-blue-50 text-blue-700'
+                        ? 'bg-purple-50 text-purple-700'
                         : 'text-zinc-600 hover:bg-zinc-100'
                     )}
                   >

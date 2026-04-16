@@ -68,8 +68,8 @@ export default function CrmPage() {
     <div className="max-w-5xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <MessageSquare className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
+            <MessageSquare className="h-6 w-6 text-purple-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">CRM — GoHighLevel</h2>
@@ -158,7 +158,7 @@ function SubAccountGroup({ group }: { group: Group }) {
           ) : (
             <ChevronRight className="h-4 w-4 text-zinc-400" />
           )}
-          <Building2 className="h-4 w-4 text-blue-600" />
+          <Building2 className="h-4 w-4 text-purple-600" />
           <h3 className="font-semibold text-sm">{group.subAccount.locationName}</h3>
           <span className="text-xs text-zinc-400">
             ({convos.length} {convos.length === 1 ? 'conversation' : 'conversations'})
@@ -217,7 +217,7 @@ function ConversationRow({
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{name}</span>
           {(conversation.unreadCount ?? 0) > 0 && (
-            <span className="inline-flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            <span className="inline-flex items-center rounded-full bg-purple-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
               {conversation.unreadCount}
             </span>
           )}

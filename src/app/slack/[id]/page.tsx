@@ -121,7 +121,7 @@ export default function SlackChannelPage() {
                   <div className="text-sm text-zinc-700 dark:text-zinc-300 pl-0 leading-relaxed">
                     <SlackText text={msg.text} />
                     {msg.replyCount && msg.replyCount > 0 && (
-                      <span className="ml-2 text-xs text-blue-500">
+                      <span className="ml-2 text-xs text-purple-500">
                         {msg.replyCount} {msg.replyCount === 1 ? 'reply' : 'replies'}
                       </span>
                     )}
@@ -141,14 +141,14 @@ export default function SlackChannelPage() {
           value={reply}
           onChange={(e) => setReply(e.target.value)}
           placeholder={`Message #${channelName}…`}
-          className="flex-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="flex-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
           disabled={sendMutation.isPending}
         />
         <button
           type="submit"
           disabled={sendMutation.isPending || !reply.trim()}
           className={cn(
-            'rounded-lg bg-blue-600 px-4 py-2.5 text-white transition-colors hover:bg-blue-700 disabled:opacity-50',
+            'rounded-lg bg-purple-600 px-4 py-2.5 text-white transition-colors hover:bg-purple-700 disabled:opacity-50',
             'inline-flex items-center gap-2 text-sm font-medium'
           )}
         >

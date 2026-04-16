@@ -100,7 +100,7 @@ export default function ConversationDetailPage() {
       <div className="space-y-4">
         <button
           onClick={() => router.push('/crm')}
-          className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+          className="flex items-center gap-2 text-sm text-purple-600 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" /> Back to CRM
         </button>
@@ -126,7 +126,7 @@ export default function ConversationDetailPage() {
     <div className="space-y-4">
       <button
         onClick={() => router.push('/crm')}
-        className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+        className="flex items-center gap-2 text-sm text-purple-600 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" /> Back to CRM
       </button>
@@ -166,7 +166,7 @@ export default function ConversationDetailPage() {
                     className={cn(
                       'rounded-full px-3 py-1 text-xs font-medium',
                       replyType === t
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-purple-600 text-white'
                         : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
                     )}
                   >
@@ -179,14 +179,14 @@ export default function ConversationDetailPage() {
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder={`Type your ${replyType.toLowerCase()} reply…`}
                 rows={3}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <div className="flex justify-between items-center mt-2">
                 <span className="text-xs text-zinc-400">Sending via GoHighLevel</span>
                 <button
                   onClick={() => sendMutation.mutate()}
                   disabled={sendMutation.isPending || !replyText.trim()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
                   {sendMutation.isPending ? 'Sending…' : `Send ${replyType}`}
@@ -243,7 +243,7 @@ export default function ConversationDetailPage() {
                     {contact.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                        className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] text-purple-700 dark:bg-purple-900 dark:text-purple-300"
                       >
                         {tag}
                       </span>
@@ -286,7 +286,7 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
     label = 'Email sent'
     align = 'ml-auto'
   } else if (isOut && isSms) {
-    bg = 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-900'
+    bg = 'bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-900'
     label = 'SMS sent'
     align = 'ml-auto'
   } else if (isCall) {

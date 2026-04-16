@@ -47,9 +47,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Setup checklist */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 dark:border-blue-900 dark:bg-blue-950">
-        <h3 className="font-semibold text-blue-900 dark:text-blue-100">Initial setup</h3>
-        <ol className="mt-3 space-y-2 text-sm text-blue-800 dark:text-blue-200">
+      <div className="rounded-xl border border-purple-200 bg-purple-50 p-6 dark:border-purple-900 dark:bg-purple-950">
+        <h3 className="font-semibold text-purple-900 dark:text-purple-100">Initial setup</h3>
+        <ol className="mt-3 space-y-2 text-sm text-purple-800 dark:text-purple-200">
           <li>1. Go to <Link href="/settings" className="underline font-medium">Settings</Link> and connect your Google account (alex@leadgenisys.com)</li>
           <li>2. Invite Ethan and Garrett (they sign in with their @leadgenisys.com Google accounts)</li>
           <li>3. Add the 4 GoHighLevel Private Integration tokens to the <Link href="/vault" className="underline font-medium">Vault</Link></li>
@@ -75,13 +75,13 @@ function QuickTile({
   return (
     <Link
       href={href}
-      className="group rounded-xl border border-zinc-200 bg-white p-5 transition-all hover:border-blue-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+      className="group rounded-xl border border-zinc-200 bg-white p-5 transition-all hover:border-purple-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-purple-700"
     >
       <div className="flex items-start justify-between">
-        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-          <Icon className="h-5 w-5 text-blue-600" />
+        <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
+          <Icon className="h-5 w-5 text-purple-600" />
         </div>
-        <ArrowRight className="h-4 w-4 text-zinc-300 transition-colors group-hover:text-blue-600" />
+        <ArrowRight className="h-4 w-4 text-zinc-300 transition-colors group-hover:text-purple-600" />
       </div>
       <p className="mt-3 font-semibold">{label}</p>
       <p className="text-sm text-zinc-500">{description}</p>

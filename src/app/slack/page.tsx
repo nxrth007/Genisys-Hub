@@ -33,8 +33,8 @@ export default function SlackPage() {
     <div className="max-w-4xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Hash className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
+            <Hash className="h-6 w-6 text-purple-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Slack</h2>

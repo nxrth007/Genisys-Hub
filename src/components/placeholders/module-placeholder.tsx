@@ -19,8 +19,8 @@ export function ModulePlaceholder({
   return (
     <div className="max-w-2xl">
       <div className="flex items-center gap-3 mb-4">
-        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-          <Icon className="h-6 w-6 text-blue-600" />
+        <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
+          <Icon className="h-6 w-6 text-purple-600" />
         </div>
         <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
       </div>
@@ -33,7 +33,7 @@ export function ModulePlaceholder({
         <ul className="space-y-2">
           {features.map((feature) => (
             <li key={feature} className="flex items-start gap-2 text-sm">
-              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-600" />
+              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-purple-600" />
               <span>{feature}</span>
             </li>
           ))}

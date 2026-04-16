@@ -10,8 +10,8 @@ export default function SettingsPage() {
     <div className="max-w-3xl space-y-8">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Settings className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
+            <Settings className="h-6 w-6 text-purple-600" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         </div>
@@ -56,7 +56,7 @@ function SlackTestSection() {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
-        <Hash className="h-5 w-5 text-blue-600" />
+        <Hash className="h-5 w-5 text-purple-600" />
         <h3 className="font-semibold">Slack — Send test DM</h3>
       </div>
       <p className="text-sm text-zinc-500 mb-4">
@@ -74,7 +74,7 @@ function SlackTestSection() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="ethan@leadgenisys.com"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             Must match the email the person uses to sign into your Slack workspace.
@@ -88,7 +88,7 @@ function SlackTestSection() {
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
         </div>
 
@@ -96,7 +96,7 @@ function SlackTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !email || !message}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test DM'}
@@ -149,7 +149,7 @@ function TwilioTestSection() {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
-        <MessageSquare className="h-5 w-5 text-blue-600" />
+        <MessageSquare className="h-5 w-5 text-purple-600" />
         <h3 className="font-semibold">Twilio — Send test SMS</h3>
       </div>
       <p className="text-sm text-zinc-500 mb-4">
@@ -167,7 +167,7 @@ function TwilioTestSection() {
             onChange={(e) => setTo(e.target.value)}
             placeholder="+16035026226"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             Include the <code>+</code> and country code. Ethan: <code>+16035026226</code>. Alex: <code>+16034185315</code>.
@@ -181,7 +181,7 @@ function TwilioTestSection() {
             onChange={(e) => setBody(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             {body.length} / 1600 characters. Trial messages are prefixed with &quot;Sent from your Twilio trial account -&quot;.
@@ -192,7 +192,7 @@ function TwilioTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !to || !body}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test SMS'}
