@@ -14,24 +14,29 @@ import { google } from 'googleapis'
 import { prisma } from './prisma'
 import { extractEmailAddress, extractEmailName } from './utils'
 
-function getRedirectUri(): string {
-  const base = process.env.AUTH_URL || 'http://localhost:3000'
+/**
+ * Build the redirect URI from an explicit base URL. Falls back to AUTH_URL
+ * env var, then localhost. The connect + callback routes pass the request
+ * origin so the URI always matches the actual deployment host.
+ */
+function getRedirectUri(baseUrl?: string): string {
+  const base = baseUrl || process.env.AUTH_URL || 'http://localhost:3000'
   return `${base}/api/gmail/callback`
 }
 
-function getOAuth2Client() {
+function getOAuth2Client(baseUrl?: string) {
   return new google.auth.OAuth2(
     process.env.AUTH_GOOGLE_ID,
     process.env.AUTH_GOOGLE_SECRET,
-    getRedirectUri()
+    getRedirectUri(baseUrl)
   )
 }
 
-export function getAuthUrl(state?: string) {
-  const oauth2Client = getOAuth2Client()
+export function getAuthUrl(baseUrl?: string, state?: string) {
+  const oauth2Client = getOAuth2Client(baseUrl)
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent', // force refresh token issuance
+    prompt: 'consent',
     scope: [
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/gmail.send',
@@ -42,8 +47,8 @@ export function getAuthUrl(state?: string) {
   })
 }
 
-export async function exchangeCode(code: string) {
-  const oauth2Client = getOAuth2Client()
+export async function exchangeCode(code: string, baseUrl?: string) {
+  const oauth2Client = getOAuth2Client(baseUrl)
   const { tokens } = await oauth2Client.getToken(code)
   oauth2Client.setCredentials(tokens)
 

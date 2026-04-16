@@ -3,8 +3,9 @@ import { exchangeCode } from '@/lib/gmail'
 
 /**
  * GET /api/gmail/callback
- * Google redirects here after the user consents. We exchange the code for
- * tokens and save/update the GmailAccount row.
+ * Google redirects here after the user consents. Derives the base URL from
+ * the request origin so the OAuth2 client uses the correct redirect_uri
+ * during code exchange (Google validates it matches the auth request).
  */
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -13,7 +14,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const account = await exchangeCode(code)
+    const origin = req.nextUrl.origin
+    const account = await exchangeCode(code, origin)
     return NextResponse.redirect(
       new URL(`/settings?gmail_connected=${encodeURIComponent(account.email)}`, req.url)
     )
