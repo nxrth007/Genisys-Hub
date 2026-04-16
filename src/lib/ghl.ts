@@ -23,35 +23,78 @@ type TokenInfo = {
 const tokenCache = new Map<string, TokenInfo>()
 const CACHE_TTL_MS = 5 * 60 * 1000
 
+/**
+ * GHL Private Integration tokens are JWTs that encode the locationId in
+ * their payload. Decode the middle segment (base64url) to extract it —
+ * no API call required. Much more reliable than /locations/search, which
+ * has inconsistent behavior across account tiers.
+ */
+function decodeJwtLocationId(token: string): string | null {
+  const parts = token.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = Buffer.from(b64, 'base64').toString('utf8')
+    const payload = JSON.parse(decoded) as Record<string, unknown>
+    const loc = payload.location_id ?? payload.locationId
+    return typeof loc === 'string' ? loc : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Derive a human-friendly display name from the vault entry name.
+ * "GHL Spring Solar Token" → "Spring Solar"
+ * "GHL Genisys Token"     → "Genisys"
+ */
+function friendlyNameFromVaultName(vaultName: string): string {
+  return vaultName
+    .replace(/^GHL\s+/i, '')
+    .replace(/\s+Token$/i, '')
+    .trim() || vaultName
+}
+
 async function resolveToken(vaultEntryName: string): Promise<TokenInfo> {
   const cached = tokenCache.get(vaultEntryName)
   if (cached && Date.now() < cached.expiresAt) return cached
 
   const token = await getSecretByName(vaultEntryName)
 
-  const locRes = await fetch(`${BASE_URL}/locations/search`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Version: API_VERSION,
-    },
-  })
+  // Try JWT decode first (Private Integration tokens).
+  let locationId = decodeJwtLocationId(token)
 
-  if (!locRes.ok) {
-    const text = await locRes.text()
-    throw new Error(`GHL location discovery failed (${locRes.status}): ${text}`)
+  // If the token isn't a JWT, fall back to /locations/search (legacy API keys).
+  if (!locationId) {
+    const locRes = await fetch(`${BASE_URL}/locations/search`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Version: API_VERSION,
+      },
+    })
+    if (!locRes.ok) {
+      const text = await locRes.text()
+      throw new Error(
+        `GHL token "${vaultEntryName}" is neither a Private Integration JWT nor accepted by /locations/search (${locRes.status}): ${text}`
+      )
+    }
+    const locData = await locRes.json()
+    const locations = locData.locations || []
+    if (locations.length === 0) {
+      throw new Error(`No locations found for GHL token "${vaultEntryName}".`)
+    }
+    locationId = locations[0].id
   }
 
-  const locData = await locRes.json()
-  const locations = locData.locations || []
-  if (locations.length === 0) {
-    throw new Error(`No locations found for GHL token "${vaultEntryName}".`)
+  if (!locationId) {
+    throw new Error(`Could not determine locationId for GHL token "${vaultEntryName}".`)
   }
 
   const info: TokenInfo = {
     token,
-    locationId: locations[0].id,
-    locationName: locations[0].name || vaultEntryName,
+    locationId,
+    locationName: friendlyNameFromVaultName(vaultEntryName),
     expiresAt: Date.now() + CACHE_TTL_MS,
   }
   tokenCache.set(vaultEntryName, info)
@@ -110,8 +153,9 @@ export async function listSubAccounts(): Promise<SubAccount[]> {
         locationId,
         locationName,
       })
-    } catch {
-      // Skip entries that fail to resolve
+    } catch (err) {
+      // Log but don't throw — one bad token shouldn't hide the others.
+      console.warn(`[ghl] Failed to resolve "${entry.name}":`, err)
     }
   }
 
