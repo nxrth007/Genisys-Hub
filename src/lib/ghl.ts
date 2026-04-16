@@ -24,22 +24,58 @@ const tokenCache = new Map<string, TokenInfo>()
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 /**
- * GHL Private Integration tokens are JWTs that encode the locationId in
- * their payload. Decode the middle segment (base64url) to extract it —
- * no API call required. Much more reliable than /locations/search, which
- * has inconsistent behavior across account tiers.
+ * GHL tokens (Private Integration, Company-level, sub-account) are JWTs
+ * encoding location/company identifiers in their payload. Field names vary
+ * between token types — we try the known variants. Returns both the found
+ * locationId and the payload structure (keys only, for diagnostics).
  */
-function decodeJwtLocationId(token: string): string | null {
+function decodeJwtPayload(token: string): {
+  locationId: string | null
+  keys: string[]
+  companyId: string | null
+} {
   const parts = token.split('.')
-  if (parts.length !== 3) return null
+  if (parts.length !== 3) return { locationId: null, keys: [], companyId: null }
   try {
     const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
     const decoded = Buffer.from(b64, 'base64').toString('utf8')
     const payload = JSON.parse(decoded) as Record<string, unknown>
-    const loc = payload.location_id ?? payload.locationId
-    return typeof loc === 'string' ? loc : null
+
+    // Try every known GHL field that might hold a location ID.
+    const candidateFields = [
+      'location_id',
+      'locationId',
+      'locId',
+      'primaryAuthClassId', // used by some OAuth-style GHL tokens
+      'authClassId',
+      'sub', // fallback
+    ]
+    let locationId: string | null = null
+    for (const field of candidateFields) {
+      const val = payload[field]
+      if (typeof val === 'string' && val.length > 0) {
+        locationId = val
+        break
+      }
+    }
+
+    const companyCandidates = ['company_id', 'companyId']
+    let companyId: string | null = null
+    for (const field of companyCandidates) {
+      const val = payload[field]
+      if (typeof val === 'string' && val.length > 0) {
+        companyId = val
+        break
+      }
+    }
+
+    return {
+      locationId,
+      keys: Object.keys(payload),
+      companyId,
+    }
   } catch {
-    return null
+    return { locationId: null, keys: [], companyId: null }
   }
 }
 
@@ -55,16 +91,48 @@ function friendlyNameFromVaultName(vaultName: string): string {
     .trim() || vaultName
 }
 
+/**
+ * Extract an explicit locationId from the vault entry's description field.
+ * Escape hatch for tokens whose JWT doesn't expose one and whose scopes
+ * don't allow /locations/search. User writes `locationId=abc123` or just
+ * `abc123` in the description.
+ */
+async function locationIdFromDescription(vaultEntryName: string): Promise<string | null> {
+  const { prisma } = await import('./prisma')
+  const entry = await prisma.vaultEntry.findFirst({
+    where: { name: vaultEntryName },
+    select: { description: true },
+  })
+  const desc = entry?.description?.trim() || ''
+  if (!desc) return null
+
+  // Try "locationId=..." or "location_id=..." patterns first
+  const explicit = desc.match(/location[_-]?id\s*[=:]\s*([A-Za-z0-9_-]+)/i)
+  if (explicit) return explicit[1]
+
+  // Otherwise, if the description looks like a single GHL-style ID token,
+  // use it as-is (alphanumeric, ~18 chars or UUID-ish).
+  if (/^[A-Za-z0-9_-]{10,40}$/.test(desc)) return desc
+
+  return null
+}
+
 async function resolveToken(vaultEntryName: string): Promise<TokenInfo> {
   const cached = tokenCache.get(vaultEntryName)
   if (cached && Date.now() < cached.expiresAt) return cached
 
   const token = await getSecretByName(vaultEntryName)
 
-  // Try JWT decode first (Private Integration tokens).
-  let locationId = decodeJwtLocationId(token)
+  // Try 1: decode JWT, look for known location field names
+  const jwt = decodeJwtPayload(token)
+  let locationId: string | null = jwt.locationId
 
-  // If the token isn't a JWT, fall back to /locations/search (legacy API keys).
+  // Try 2: explicit locationId in the vault entry's description field
+  if (!locationId) {
+    locationId = await locationIdFromDescription(vaultEntryName)
+  }
+
+  // Try 3: fall back to /locations/search (requires locations.readonly scope)
   if (!locationId) {
     const locRes = await fetch(`${BASE_URL}/locations/search`, {
       headers: {
@@ -73,22 +141,31 @@ async function resolveToken(vaultEntryName: string): Promise<TokenInfo> {
         Version: API_VERSION,
       },
     })
-    if (!locRes.ok) {
-      const text = await locRes.text()
-      throw new Error(
-        `GHL token "${vaultEntryName}" is neither a Private Integration JWT nor accepted by /locations/search (${locRes.status}): ${text}`
-      )
+    if (locRes.ok) {
+      const locData = await locRes.json()
+      const locations = locData.locations || []
+      if (locations.length > 0) locationId = locations[0].id
     }
-    const locData = await locRes.json()
-    const locations = locData.locations || []
-    if (locations.length === 0) {
-      throw new Error(`No locations found for GHL token "${vaultEntryName}".`)
-    }
-    locationId = locations[0].id
   }
 
   if (!locationId) {
-    throw new Error(`Could not determine locationId for GHL token "${vaultEntryName}".`)
+    // Build a diagnostic message naming what we actually saw.
+    const hints: string[] = []
+    if (jwt.keys.length > 0) {
+      hints.push(`JWT payload fields: [${jwt.keys.join(', ')}]`)
+    } else {
+      hints.push('token is not a JWT')
+    }
+    if (jwt.companyId) {
+      hints.push(`token is company-scoped (company_id=${jwt.companyId}), not location-scoped`)
+    }
+    hints.push('fallback /locations/search also failed (403 or empty)')
+    throw new Error(
+      `Cannot determine locationId for "${vaultEntryName}". ${hints.join('. ')}. ` +
+        `Fix: edit the vault entry and put the locationId in the Description field ` +
+        `(either "locationId=YOUR_ID" or just the raw ID). Find it in GHL under ` +
+        `Sub-account → Settings → Business Profile → Location Id.`
+    )
   }
 
   const info: TokenInfo = {
