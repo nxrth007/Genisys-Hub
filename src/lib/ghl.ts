@@ -1,30 +1,34 @@
 /**
- * GoHighLevel API helper — vault-aware.
+ * GoHighLevel API helper — vault-aware, multi-sub-account.
  *
- * Pulls tokens from the vault by name. For the Genisys sub-account the
- * expected vault entry name is "GHL Genisys Token".
+ * Every vault entry tagged "ghl" is treated as a distinct GHL sub-account.
+ * Each function takes a vault entry name (e.g. "GHL Genisys Token") to
+ * identify which sub-account to hit.
  *
- * LocationId is auto-discovered from the token on first call and cached
- * in-memory for the lifetime of the server process.
+ * LocationId + location name are auto-discovered from the token on first
+ * call and cached in-memory for 5 minutes.
  */
-import { getSecretByName } from './vault-service'
+import { getSecretByName, listEntriesByTag } from './vault-service'
 
 const BASE_URL = 'https://services.leadconnectorhq.com'
 const API_VERSION = '2021-07-28'
 
-// In-memory cache: vault entry name → { token, locationId }
-const tokenCache = new Map<string, { token: string; locationId: string; expiresAt: number }>()
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+// In-memory cache: vault entry name → resolved token + location info
+type TokenInfo = {
+  token: string
+  locationId: string
+  locationName: string
+  expiresAt: number
+}
+const tokenCache = new Map<string, TokenInfo>()
+const CACHE_TTL_MS = 5 * 60 * 1000
 
-async function resolveToken(vaultEntryName: string): Promise<{ token: string; locationId: string }> {
+async function resolveToken(vaultEntryName: string): Promise<TokenInfo> {
   const cached = tokenCache.get(vaultEntryName)
-  if (cached && Date.now() < cached.expiresAt) {
-    return { token: cached.token, locationId: cached.locationId }
-  }
+  if (cached && Date.now() < cached.expiresAt) return cached
 
   const token = await getSecretByName(vaultEntryName)
 
-  // Auto-discover locationId from the token.
   const locRes = await fetch(`${BASE_URL}/locations/search`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -41,18 +45,17 @@ async function resolveToken(vaultEntryName: string): Promise<{ token: string; lo
   const locData = await locRes.json()
   const locations = locData.locations || []
   if (locations.length === 0) {
-    throw new Error(`No locations found for GHL token "${vaultEntryName}". Is the Private Integration token valid?`)
+    throw new Error(`No locations found for GHL token "${vaultEntryName}".`)
   }
 
-  const locationId = locations[0].id as string
-
-  tokenCache.set(vaultEntryName, {
+  const info: TokenInfo = {
     token,
-    locationId,
+    locationId: locations[0].id,
+    locationName: locations[0].name || vaultEntryName,
     expiresAt: Date.now() + CACHE_TTL_MS,
-  })
-
-  return { token, locationId }
+  }
+  tokenCache.set(vaultEntryName, info)
+  return info
 }
 
 async function ghlFetch(
@@ -81,6 +84,41 @@ async function ghlFetch(
 }
 
 // -------------------------------------------------------------------------
+// Sub-account discovery
+// -------------------------------------------------------------------------
+
+export type SubAccount = {
+  vaultName: string
+  locationId: string
+  locationName: string
+}
+
+/**
+ * List all GHL sub-accounts discovered from vault entries tagged "ghl".
+ * Each entry is resolved to its GHL location (id + name). Failed lookups
+ * (invalid token, etc.) are skipped rather than throwing the whole list.
+ */
+export async function listSubAccounts(): Promise<SubAccount[]> {
+  const entries = await listEntriesByTag('ghl')
+  const results: SubAccount[] = []
+
+  for (const entry of entries) {
+    try {
+      const { locationId, locationName } = await resolveToken(entry.name)
+      results.push({
+        vaultName: entry.name,
+        locationId,
+        locationName,
+      })
+    } catch {
+      // Skip entries that fail to resolve
+    }
+  }
+
+  return results
+}
+
+// -------------------------------------------------------------------------
 // Calendar
 // -------------------------------------------------------------------------
 
@@ -100,10 +138,6 @@ export async function getCalendarEvents(
   return ghlFetch(`/calendars/events?${params}`, vaultEntryName)
 }
 
-/**
- * Fetch today's events across all calendars for a given GHL sub-account.
- * Returns events sorted by start time (ascending — earliest first).
- */
 export async function getTodayEvents(vaultEntryName = 'GHL Genisys Token') {
   const now = new Date()
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -132,11 +166,10 @@ export async function getTodayEvents(vaultEntryName = 'GHL Genisys Token') {
         }))
       )
     } catch {
-      // Skip calendars that error
+      // skip
     }
   }
 
-  // Sort by start time ascending (earliest first for a "today" view)
   allEvents.sort((a, b) => {
     const dateA = new Date(String(a.startTime || '1970-01-01')).getTime()
     const dateB = new Date(String(b.startTime || '1970-01-01')).getTime()
@@ -147,7 +180,7 @@ export async function getTodayEvents(vaultEntryName = 'GHL Genisys Token') {
 }
 
 // -------------------------------------------------------------------------
-// Contacts (for enriching calendar events)
+// Contacts
 // -------------------------------------------------------------------------
 
 export async function getContact(contactId: string, vaultEntryName = 'GHL Genisys Token') {
@@ -155,14 +188,54 @@ export async function getContact(contactId: string, vaultEntryName = 'GHL Genisy
 }
 
 // -------------------------------------------------------------------------
-// Conversations (for the CRM module later)
+// Conversations
 // -------------------------------------------------------------------------
 
 export async function getConversations(
-  limit = 20,
-  vaultEntryName = 'GHL Genisys Token'
+  vaultEntryName: string,
+  params: { limit?: number; cursor?: string } = {}
 ) {
   const { locationId } = await resolveToken(vaultEntryName)
-  const params = new URLSearchParams({ locationId, limit: limit.toString() })
-  return ghlFetch(`/conversations/search?${params}`, vaultEntryName)
+  const search = new URLSearchParams({
+    locationId,
+    limit: String(params.limit ?? 20),
+  })
+  if (params.cursor) search.set('startAfterDate', params.cursor)
+  return ghlFetch(`/conversations/search?${search}`, vaultEntryName)
+}
+
+export async function getConversation(
+  conversationId: string,
+  vaultEntryName: string
+) {
+  return ghlFetch(`/conversations/${conversationId}`, vaultEntryName)
+}
+
+export async function getConversationMessages(
+  conversationId: string,
+  vaultEntryName: string,
+  limit = 50
+) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  return ghlFetch(`/conversations/${conversationId}/messages?${params}`, vaultEntryName)
+}
+
+export async function sendMessage(
+  vaultEntryName: string,
+  params: {
+    conversationId: string
+    contactId?: string
+    message: string
+    type?: 'Email' | 'SMS'
+  }
+) {
+  return ghlFetch(`/conversations/messages`, vaultEntryName, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: params.type ?? 'Email',
+      conversationId: params.conversationId,
+      contactId: params.contactId,
+      message: params.message,
+    }),
+  })
 }

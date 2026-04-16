@@ -137,6 +137,24 @@ export async function getSecretByName(name: string): Promise<string> {
   return decryptSecret(entry.ciphertext, entry.nonce)
 }
 
+/**
+ * List vault entries that have a specific tag — used by integrations to
+ * enumerate all configured sub-accounts (e.g. all GHL tokens tagged "ghl").
+ * Returns metadata only, no ciphertext.
+ */
+export async function listEntriesByTag(tag: string) {
+  return prisma.vaultEntry.findMany({
+    where: { tags: { has: tag } },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      tags: true,
+    },
+    orderBy: { name: 'asc' },
+  })
+}
+
 export async function getAuditLog(entryId: string) {
   return prisma.vaultAccessLog.findMany({
     where: { entryId },
