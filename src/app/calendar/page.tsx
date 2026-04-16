@@ -3,13 +3,21 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Calendar,
+  Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
   Clock,
   User,
-  X,
+  Mail,
+  Phone,
+  MapPin,
+  Video,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Clock3,
   AlertCircle,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -28,8 +36,8 @@ type CalendarEvent = {
   contactEmail?: string
   contactPhone?: string
   status?: string
-  notes?: string
   appointmentStatus?: string
+  notes?: string
   address?: string
 }
 
@@ -39,7 +47,9 @@ type SubAccount = {
   locationName: string
 }
 
-// Stable color palette per sub-account (hash-based)
+type Filter = 'all' | 'upcoming' | 'past'
+
+// Color palette per sub-account (hash-based, stable)
 const COLORS = [
   { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-800', dot: 'bg-blue-500' },
   { bg: 'bg-emerald-50', border: 'border-emerald-300', text: 'text-emerald-800', dot: 'bg-emerald-500' },
@@ -55,64 +65,181 @@ function colorForSub(subName: string): typeof COLORS[number] {
   return COLORS[hash % COLORS.length]
 }
 
-export default function CalendarPage() {
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
+function getMonthRange(year: number, month: number) {
+  const start = new Date(year, month, 1)
+  const end = new Date(year, month + 1, 0, 23, 59, 59)
+  return {
+    startMs: start.getTime().toString(),
+    endMs: end.getTime().toString(),
+    label: start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+  }
+}
 
-  const weekEnd = useMemo(() => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + 7)
-    return d
-  }, [weekStart])
+function getStatusStyle(status: string | undefined) {
+  const s = status?.toLowerCase() || ''
+  switch (s) {
+    case 'confirmed':
+      return {
+        icon: CheckCircle2,
+        color: 'text-green-600',
+        bg: 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800',
+        label: 'Confirmed',
+      }
+    case 'cancelled':
+      return {
+        icon: XCircle,
+        color: 'text-red-600',
+        bg: 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800',
+        label: 'Cancelled',
+      }
+    case 'showed':
+      return {
+        icon: CheckCircle2,
+        color: 'text-blue-600',
+        bg: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800',
+        label: 'Showed',
+      }
+    case 'noshow':
+    case 'no_show':
+      return {
+        icon: XCircle,
+        color: 'text-orange-600',
+        bg: 'bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800',
+        label: 'No Show',
+      }
+    default:
+      return {
+        icon: Clock3,
+        color: 'text-zinc-500',
+        bg: 'bg-zinc-50 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700',
+        label: status || 'Pending',
+      }
+  }
+}
+
+function formatEventDate(dateStr: string) {
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  } catch {
+    return dateStr
+  }
+}
+
+function formatEventTime(dateStr: string) {
+  try {
+    const d = new Date(dateStr)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
+export default function CalendarPage() {
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth())
+  const [filter, setFilter] = useState<Filter>('all')
+  const [subFilters, setSubFilters] = useState<Set<string>>(new Set())
+
+  const range = useMemo(() => getMonthRange(year, month), [year, month])
 
   const { data, isLoading, error } = useQuery<{
     events: CalendarEvent[]
     subAccounts: SubAccount[]
   }>({
-    queryKey: ['calendar-events', weekStart.toISOString(), weekEnd.toISOString()],
+    queryKey: ['calendar-events', year, month],
     queryFn: async () => {
       const params = new URLSearchParams({
-        startTime: weekStart.toISOString(),
-        endTime: weekEnd.toISOString(),
+        startTime: range.startMs,
+        endTime: range.endMs,
       })
       const res = await fetch(`/api/calendar/events?${params}`)
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || 'Failed to load events')
+        throw new Error(d.error || 'Failed to load calendar')
       }
       return res.json()
     },
   })
 
-  const subAccounts = data?.subAccounts ?? []
   const allEvents = data?.events ?? []
+  const subAccounts = data?.subAccounts ?? []
+  const nowMs = Date.now()
 
-  // Apply sub-account filter (empty filter set = show all)
+  // Apply filters
   const events = useMemo(() => {
-    if (activeFilters.size === 0) return allEvents
-    return allEvents.filter((e) => e.vaultName && activeFilters.has(e.vaultName))
-  }, [allEvents, activeFilters])
+    return allEvents.filter((e) => {
+      // Sub-account filter
+      if (subFilters.size > 0 && e.vaultName && !subFilters.has(e.vaultName)) return false
+      // Time filter
+      if (!e.startTime) return filter === 'all'
+      const ms = new Date(e.startTime).getTime()
+      if (filter === 'upcoming') return ms >= nowMs
+      if (filter === 'past') return ms < nowMs
+      return true
+    })
+  }, [allEvents, filter, subFilters, nowMs])
 
-  // Group events by day of the week
-  const eventsByDay = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>()
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(weekStart)
-      day.setDate(day.getDate() + i)
-      map.set(day.toDateString(), [])
-    }
+  // Group by date
+  const grouped = useMemo(() => {
+    const g: Record<string, CalendarEvent[]> = {}
     for (const ev of events) {
       if (!ev.startTime) continue
-      const key = new Date(ev.startTime).toDateString()
-      const list = map.get(key)
-      if (list) list.push(ev)
+      const key = formatEventDate(ev.startTime)
+      if (!g[key]) g[key] = []
+      g[key].push(ev)
     }
-    return map
-  }, [events, weekStart])
+    // Sort events within each day by time
+    for (const key of Object.keys(g)) {
+      g[key].sort(
+        (a, b) =>
+          new Date(a.startTime || 0).getTime() - new Date(b.startTime || 0).getTime()
+      )
+    }
+    return g
+  }, [events])
 
-  function toggleFilter(vaultName: string) {
-    setActiveFilters((prev) => {
+  // Stats
+  const stats = useMemo(() => {
+    const statusCount = (s: string) =>
+      allEvents.filter(
+        (e) => (e.appointmentStatus || e.status || '').toLowerCase() === s
+      ).length
+    return {
+      total: allEvents.length,
+      confirmed: statusCount('confirmed'),
+      showed: statusCount('showed'),
+      cancelled: statusCount('cancelled') + statusCount('noshow') + statusCount('no_show'),
+    }
+  }, [allEvents])
+
+  function prevMonth() {
+    if (month === 0) {
+      setMonth(11)
+      setYear(year - 1)
+    } else setMonth(month - 1)
+  }
+
+  function nextMonth() {
+    if (month === 11) {
+      setMonth(0)
+      setYear(year + 1)
+    } else setMonth(month + 1)
+  }
+
+  function goToday() {
+    setYear(now.getFullYear())
+    setMonth(now.getMonth())
+  }
+
+  function toggleSubFilter(vaultName: string) {
+    setSubFilters((prev) => {
       const next = new Set(prev)
       if (next.has(vaultName)) next.delete(vaultName)
       else next.add(vaultName)
@@ -120,331 +247,279 @@ export default function CalendarPage() {
     })
   }
 
-  function goPrev() {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() - 7)
-    setWeekStart(d)
-  }
-
-  function goNext() {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + 7)
-    setWeekStart(d)
-  }
-
-  function goToday() {
-    setWeekStart(startOfWeek(new Date()))
-  }
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Calendar className="h-6 w-6 text-blue-600" />
+            <CalendarIcon className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
-            <p className="text-sm text-zinc-500">
-              Events from all your GHL sub-accounts. Google Calendar events sync into GHL automatically.
-            </p>
+            <p className="text-sm text-zinc-500">Appointments from all GHL sub-accounts</p>
           </div>
         </div>
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={goPrev}
-              className="rounded-md border border-zinc-200 p-2 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              onClick={goToday}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
-            >
-              Today
-            </button>
-            <button
-              onClick={goNext}
-              className="rounded-md border border-zinc-200 p-2 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <span className="ml-3 text-sm font-semibold">{formatWeekRange(weekStart)}</span>
-          </div>
-
-          {subAccounts.length > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              {subAccounts.map((sub) => {
-                const color = colorForSub(sub.locationName)
-                const active = activeFilters.size === 0 || activeFilters.has(sub.vaultName)
-                return (
-                  <button
-                    key={sub.vaultName}
-                    onClick={() => toggleFilter(sub.vaultName)}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                      active
-                        ? `${color.bg} ${color.border} ${color.text}`
-                        : 'border-zinc-200 text-zinc-400 opacity-50 dark:border-zinc-800'
-                    )}
-                  >
-                    <span className={cn('h-2 w-2 rounded-full', color.dot)} />
-                    {sub.locationName}
-                  </button>
-                )
-              })}
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={prevMonth}
+            className="rounded-lg border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-semibold min-w-[160px] text-center">{range.label}</span>
+          <button
+            onClick={nextMonth}
+            className="rounded-lg border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <button
+            onClick={goToday}
+            className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+          >
+            Today
+          </button>
         </div>
       </div>
 
-      {/* Week grid */}
-      {isLoading ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          Loading events…
+      {/* Stats */}
+      {!isLoading && allEvents.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard label="Total" value={stats.total} className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900" />
+          <StatCard
+            label="Confirmed"
+            value={stats.confirmed}
+            className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400"
+          />
+          <StatCard
+            label="Showed"
+            value={stats.showed}
+            className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400"
+          />
+          <StatCard
+            label="Cancelled / No Show"
+            value={stats.cancelled}
+            className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400"
+          />
         </div>
-      ) : error ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
-          <div className="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
-            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-            <div>
-              <div className="font-medium">Could not load calendar</div>
-              <div className="text-xs mt-1">{(error as Error).message}</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-7 gap-2">
-          {Array.from(eventsByDay.entries()).map(([dayKey, dayEvents]) => {
-            const day = new Date(dayKey)
-            const isToday = day.toDateString() === new Date().toDateString()
+      )}
 
-            return (
-              <div
-                key={dayKey}
-                className={cn(
-                  'rounded-xl border bg-white overflow-hidden min-h-[300px] flex flex-col dark:bg-zinc-900',
-                  isToday
-                    ? 'border-blue-400 dark:border-blue-600'
-                    : 'border-zinc-200 dark:border-zinc-800'
-                )}
-              >
-                <div
+      {/* Filters row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        {/* Time filter */}
+        <div className="flex gap-2">
+          {(['all', 'upcoming', 'past'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                filter === f
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+              )}
+            >
+              {f === 'all' ? 'All' : f === 'upcoming' ? 'Upcoming' : 'Past'}
+            </button>
+          ))}
+        </div>
+
+        {/* Sub-account filter */}
+        {subAccounts.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {subAccounts.map((sub) => {
+              const color = colorForSub(sub.locationName)
+              const active = subFilters.size === 0 || subFilters.has(sub.vaultName)
+              return (
+                <button
+                  key={sub.vaultName}
+                  onClick={() => toggleSubFilter(sub.vaultName)}
                   className={cn(
-                    'px-3 py-2 text-center border-b',
-                    isToday
-                      ? 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
-                      : 'border-zinc-100 dark:border-zinc-800'
+                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all',
+                    active
+                      ? `${color.bg} ${color.border} ${color.text}`
+                      : 'border-zinc-200 text-zinc-400 opacity-50 dark:border-zinc-800'
                   )}
                 >
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                    {day.toLocaleDateString('en-US', { weekday: 'short' })}
-                  </div>
-                  <div className={cn('text-lg font-semibold', isToday && 'text-blue-600')}>
-                    {day.getDate()}
-                  </div>
+                  <span className={cn('h-2 w-2 rounded-full', color.dot)} />
+                  {sub.locationName}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Events list */}
+      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+          </div>
+        ) : error ? (
+          <div className="px-6 py-12 text-center">
+            <AlertCircle className="mx-auto h-8 w-8 text-red-400 mb-3" />
+            <p className="text-sm font-medium text-red-700 dark:text-red-300">Could not load appointments</p>
+            <p className="text-xs text-zinc-500 mt-1">{(error as Error).message}</p>
+          </div>
+        ) : events.length === 0 ? (
+          <div className="px-6 py-12 text-center text-zinc-500">
+            <CalendarIcon className="mx-auto h-10 w-10 mb-3 text-zinc-300" />
+            <p className="font-medium">No appointments for {range.label}</p>
+            <p className="text-sm mt-1">Try a different month or clear filters.</p>
+          </div>
+        ) : (
+          <div>
+            {Object.entries(grouped).map(([dateKey, dayEvents]) => (
+              <div key={dateKey}>
+                <div className="sticky top-0 z-10 bg-zinc-50 border-b border-zinc-200 px-6 py-2 dark:bg-zinc-800 dark:border-zinc-700">
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                    {dateKey}
+                  </p>
                 </div>
-                <div className="flex-1 p-1.5 space-y-1.5 overflow-y-auto">
-                  {dayEvents.length === 0 ? (
-                    <div className="text-[10px] text-zinc-300 text-center py-4">—</div>
-                  ) : (
-                    dayEvents.map((ev) => {
-                      const color = colorForSub(ev.subAccountName || '')
-                      return (
-                        <button
-                          key={ev.id || ev.startTime}
-                          onClick={() => setSelectedEvent(ev)}
-                          className={cn(
-                            'w-full rounded-md border px-2 py-1.5 text-left text-[11px] leading-tight transition-all hover:shadow-sm',
-                            color.bg,
-                            color.border,
-                            color.text
-                          )}
-                        >
-                          <div className="font-medium truncate">
-                            {ev.title || ev.name || 'Untitled'}
-                          </div>
-                          {ev.contactName && (
-                            <div className="truncate opacity-80 mt-0.5">
-                              w/ {ev.contactName}
-                            </div>
-                          )}
-                          <div className="opacity-75 mt-0.5 flex items-center gap-1">
-                            <Clock className="h-2.5 w-2.5" />
-                            {formatTime(ev.startTime)}
-                          </div>
-                        </button>
-                      )
-                    })
-                  )}
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {dayEvents.map((event) => (
+                    <EventRow key={event.id || event.startTime} event={event} nowMs={nowMs} />
+                  ))}
                 </div>
               </div>
-            )
-          })}
-        </div>
-      )}
-
-      {selectedEvent && (
-        <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-function EventDetailModal({
-  event,
-  onClose,
+function StatCard({
+  label,
+  value,
+  className,
 }: {
-  event: CalendarEvent
-  onClose: () => void
+  label: string
+  value: number
+  className?: string
 }) {
+  return (
+    <div className={cn('rounded-lg border p-3', className)}>
+      <p className="text-xs">{label}</p>
+      <p className="text-xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
+  const status = getStatusStyle(event.appointmentStatus || event.status)
+  const StatusIcon = status.icon
+  const isPast = event.startTime ? new Date(event.startTime).getTime() < nowMs : false
   const color = colorForSub(event.subAccountName || '')
+  const duration =
+    event.endTime && event.startTime
+      ? Math.round(
+          (new Date(event.endTime).getTime() - new Date(event.startTime).getTime()) / 60000
+        )
+      : 0
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-xl bg-white shadow-xl dark:bg-zinc-900">
-        <div className={cn('flex items-start justify-between p-5 border-b', color.border)}>
-          <div className="flex items-center gap-2">
-            <span className={cn('h-3 w-3 rounded-full', color.dot)} />
-            <span className="text-xs text-zinc-500">{event.subAccountName}</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <div className={cn('px-6 py-4', isPast && 'opacity-60')}>
+      <div className="flex items-start gap-4">
+        {/* Time column */}
+        <div className="w-24 shrink-0">
+          <p className="text-sm font-bold">{formatEventTime(event.startTime || '')}</p>
+          {event.endTime && (
+            <p className="text-xs text-zinc-500">{formatEventTime(event.endTime)}</p>
+          )}
+          {duration > 0 && <p className="text-[10px] text-zinc-400 mt-0.5">{duration} min</p>}
         </div>
-        <div className="p-5 space-y-3">
-          <h3 className="text-lg font-semibold">{event.title || event.name || 'Untitled'}</h3>
 
-          <DetailRow icon={Clock} label="Time">
-            {formatDateTime(event.startTime)}
-            {event.endTime && ` — ${formatTime(event.endTime)}`}
-          </DetailRow>
+        {/* Status indicator */}
+        <div className={cn('rounded-full p-1.5 flex-shrink-0', status.bg)}>
+          <StatusIcon className={cn('h-4 w-4', status.color)} />
+        </div>
 
-          {event.calendarName && (
-            <DetailRow icon={Calendar} label="Calendar">
-              {event.calendarName}
-            </DetailRow>
-          )}
-
-          {event.contactName && (
-            <DetailRow icon={User} label="Contact">
-              <div>{event.contactName}</div>
-              {event.contactEmail && (
-                <div className="text-xs text-zinc-500">{event.contactEmail}</div>
+        {/* Details */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium text-sm">{event.title || event.name || 'Appointment'}</p>
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-xs font-medium border',
+                status.bg
               )}
-              {event.contactPhone && (
-                <div className="text-xs text-zinc-500">{event.contactPhone}</div>
-              )}
-            </DetailRow>
-          )}
-
-          {(event.appointmentStatus || event.status) && (
-            <DetailRow icon={User} label="Status">
-              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">
-                {event.appointmentStatus || event.status}
+            >
+              {status.label}
+            </span>
+            {event.subAccountName && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                  color.bg,
+                  color.border,
+                  color.text
+                )}
+              >
+                <span className={cn('h-1.5 w-1.5 rounded-full', color.dot)} />
+                {event.subAccountName}
               </span>
-            </DetailRow>
+            )}
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+            {event.contactName && (
+              <span className="flex items-center gap-1">
+                <User className="h-3 w-3" /> {event.contactName}
+              </span>
+            )}
+            {event.contactEmail && (
+              <span className="flex items-center gap-1">
+                <Mail className="h-3 w-3" /> {event.contactEmail}
+              </span>
+            )}
+            {event.contactPhone && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3" /> {event.contactPhone}
+              </span>
+            )}
+            {event.calendarName && (
+              <span className="flex items-center gap-1">
+                <CalendarIcon className="h-3 w-3" /> {event.calendarName}
+              </span>
+            )}
+          </div>
+
+          {/* Google Meet / URL-based meeting link */}
+          {event.address && event.address.startsWith('http') && (
+            <div className="mt-2">
+              <a
+                href={event.address}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors"
+              >
+                <Video className="h-3.5 w-3.5" />
+                Join Meeting
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           )}
 
-          {event.address && (
-            <DetailRow icon={User} label="Location">
-              {event.address}
-            </DetailRow>
+          {/* Physical address */}
+          {event.address && !event.address.startsWith('http') && (
+            <p className="mt-1 text-xs text-zinc-500 flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> {event.address}
+            </p>
           )}
 
           {event.notes && (
-            <div>
-              <div className="text-xs font-medium text-zinc-500 mb-1">Notes</div>
-              <p className="text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
-                {event.notes}
-              </p>
-            </div>
+            <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
+              {String(event.notes).replace(/<[^>]*>/g, ' ').trim()}
+            </p>
           )}
         </div>
+
+        <Clock className="h-3 w-3 text-zinc-300 flex-shrink-0 mt-1" />
       </div>
     </div>
   )
-}
-
-function DetailRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start gap-2 text-sm">
-      <Icon className="h-4 w-4 text-zinc-400 mt-0.5 flex-shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-zinc-500">{label}</div>
-        <div className="text-zinc-700 dark:text-zinc-300 break-words">{children}</div>
-      </div>
-    </div>
-  )
-}
-
-// ---- helpers ----
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay() // 0 = Sunday
-  const diff = day === 0 ? -6 : 1 - day // treat Monday as start
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function formatWeekRange(start: Date): string {
-  const end = new Date(start)
-  end.setDate(end.getDate() + 6)
-  const sameMonth = start.getMonth() === end.getMonth()
-  const startStr = start.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
-  const endStr = end.toLocaleDateString('en-US', {
-    month: sameMonth ? undefined : 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-  return `${startStr} – ${endStr}`
-}
-
-function formatTime(iso: string | undefined): string {
-  if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-  } catch {
-    return iso
-  }
-}
-
-function formatDateTime(iso: string | undefined): string {
-  if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
 }

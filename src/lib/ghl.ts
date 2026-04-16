@@ -267,6 +267,19 @@ export async function getCalendars(vaultEntryName = 'GHL Genisys Token') {
   return ghlFetch(`/calendars/?locationId=${locationId}`, vaultEntryName)
 }
 
+/**
+ * Converts an ISO datetime string to a Unix-ms string if needed.
+ * GHL's /calendars/events endpoint requires startTime/endTime as
+ * Unix milliseconds strings, NOT ISO. Accept either input format here.
+ */
+function toGhlTime(value: string): string {
+  // Already numeric? Use as-is.
+  if (/^\d+$/.test(value)) return value
+  const ms = new Date(value).getTime()
+  if (isNaN(ms)) throw new Error(`Invalid date: ${value}`)
+  return ms.toString()
+}
+
 export async function getCalendarEvents(
   calendarId: string,
   startTime: string,
@@ -274,7 +287,12 @@ export async function getCalendarEvents(
   vaultEntryName = 'GHL Genisys Token'
 ) {
   const { locationId } = await resolveToken(vaultEntryName)
-  const params = new URLSearchParams({ locationId, calendarId, startTime, endTime })
+  const params = new URLSearchParams({
+    locationId,
+    calendarId,
+    startTime: toGhlTime(startTime),
+    endTime: toGhlTime(endTime),
+  })
   return ghlFetch(`/calendars/events?${params}`, vaultEntryName)
 }
 
