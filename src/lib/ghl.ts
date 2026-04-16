@@ -278,6 +278,65 @@ export async function getCalendarEvents(
   return ghlFetch(`/calendars/events?${params}`, vaultEntryName)
 }
 
+/**
+ * Fetch events from every GHL sub-account in a given date range.
+ * Returns events tagged with their sub-account name + color for the UI.
+ * Failures on individual sub-accounts don't block the others.
+ */
+export async function getEventsAcrossSubAccounts(
+  startTime: string,
+  endTime: string
+): Promise<{
+  events: Array<Record<string, unknown> & { subAccountName: string; vaultName: string }>
+  subAccounts: SubAccount[]
+}> {
+  const { subaccounts } = await listSubAccounts()
+
+  const allEvents: Array<
+    Record<string, unknown> & { subAccountName: string; vaultName: string }
+  > = []
+
+  await Promise.all(
+    subaccounts.map(async (sub) => {
+      try {
+        const calData = await getCalendars(sub.vaultName)
+        const calendars = (calData.calendars || []) as Array<{ id: string; name: string }>
+
+        await Promise.all(
+          calendars.map(async (cal) => {
+            try {
+              const evData = await getCalendarEvents(cal.id, startTime, endTime, sub.vaultName)
+              const events = (evData.events || []) as Record<string, unknown>[]
+              for (const ev of events) {
+                allEvents.push({
+                  ...ev,
+                  calendarName: cal.name,
+                  calendarId: cal.id,
+                  subAccountName: sub.locationName,
+                  vaultName: sub.vaultName,
+                })
+              }
+            } catch {
+              // Skip calendars that error
+            }
+          })
+        )
+      } catch {
+        // Skip sub-accounts that error
+      }
+    })
+  )
+
+  // Sort earliest first
+  allEvents.sort((a, b) => {
+    const da = new Date(String(a.startTime || '1970-01-01')).getTime()
+    const db = new Date(String(b.startTime || '1970-01-01')).getTime()
+    return da - db
+  })
+
+  return { events: allEvents, subAccounts: subaccounts }
+}
+
 export async function getTodayEvents(vaultEntryName = 'GHL Genisys Token') {
   const now = new Date()
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
