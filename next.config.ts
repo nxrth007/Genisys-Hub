@@ -1,10 +1,10 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  // Skip TypeScript checking during `next build` — we already run `tsc --noEmit`
-  // locally before every push. This saves ~2GB of RAM on Render's build machine
-  // (the TS checker is the phase that OOMs, not the compilation itself).
+  // Removed `output: 'standalone'` — it conflicts with `next start` on Render
+  // (Next.js 16 warns that standalone requires `node .next/standalone/server.js`
+  // instead, which complicates env var passthrough). Standard mode works fine
+  // on Render's Node runtime.
   typescript: {
     ignoreBuildErrors: true,
   },
