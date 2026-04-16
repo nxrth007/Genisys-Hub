@@ -25,6 +25,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=2048"
       - key: DATABASE_URL
         fromDatabase:
           name: genisys-hub-db
