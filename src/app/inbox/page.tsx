@@ -13,6 +13,11 @@ import {
   X,
 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
+import { RichEditor } from '@/components/email/rich-editor'
+
+function wrapEmailHtml(html: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px;">${html}</body></html>`
+}
 
 type EmailRow = {
   id: string
@@ -322,7 +327,7 @@ function EmailDetailModal({
           accountEmail: email.account.email,
           to: email.from,
           subject: email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`,
-          body: replyBody,
+          body: wrapEmailHtml(replyBody),
           inReplyTo: email.gmailMessageId,
           threadId: email.threadId,
         }),
@@ -404,12 +409,10 @@ function EmailDetailModal({
             </button>
           ) : (
             <div className="space-y-2">
-              <textarea
-                value={replyBody}
-                onChange={(e) => setReplyBody(e.target.value)}
+              <RichEditor
+                onChange={setReplyBody}
                 placeholder="Type your reply…"
-                rows={5}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                minHeight="160px"
               />
               <div className="flex items-center justify-end gap-2">
                 <button
@@ -423,7 +426,7 @@ function EmailDetailModal({
                 </button>
                 <button
                   onClick={() => sendMutation.mutate()}
-                  disabled={sendMutation.isPending || !replyBody.trim()}
+                  disabled={sendMutation.isPending || !replyBody.trim() || replyBody === '<p></p>'}
                   className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
                 >
                   {sendMutation.isPending ? 'Sending…' : 'Send reply'}

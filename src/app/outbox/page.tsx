@@ -13,6 +13,11 @@ import {
   X,
 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
+import { RichEditor } from '@/components/email/rich-editor'
+
+function wrapEmailHtml(html: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px;">${html}</body></html>`
+}
 
 type EmailRow = {
   id: string
@@ -252,7 +257,7 @@ function ComposeModal({
           accountEmail: fromAccount,
           to: to.trim(),
           subject: subject.trim(),
-          body: body.trim(),
+          body: wrapEmailHtml(body),
         }),
       })
       if (!res.ok) {
@@ -313,12 +318,10 @@ function ComposeModal({
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium">Body</label>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={10}
-              placeholder="Write your email… markdown supported (bold, italic, lists, links)"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            <RichEditor
+              onChange={setBody}
+              placeholder="Write your email…"
+              minHeight="250px"
             />
           </div>
           {sendMutation.isError && (
