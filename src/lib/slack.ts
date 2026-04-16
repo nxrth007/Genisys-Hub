@@ -18,6 +18,24 @@ async function getClient(): Promise<WebClient> {
 }
 
 /**
+ * Slack returns `missing_scope` errors with `needed` / `provided` fields
+ * in the response body. By default the SDK surfaces only the top-level
+ * error code ("missing_scope"), which is useless for debugging. This
+ * extracts the specific scope that's required.
+ */
+export function formatSlackError(err: unknown): string {
+  if (err && typeof err === 'object' && 'data' in err) {
+    const data = (err as { data?: { error?: string; needed?: string; provided?: string } }).data
+    if (data?.error === 'missing_scope' && data.needed) {
+      return `Slack bot is missing scope: ${data.needed}. Reinstall the app at api.slack.com/apps → your app → Install App → Reinstall to Workspace.`
+    }
+    if (data?.error) return `Slack API: ${data.error}`
+  }
+  if (err instanceof Error) return err.message
+  return 'Unknown Slack error'
+}
+
+/**
  * Look up a Slack user by their email address. Returns the Slack user ID
  * (e.g. "U12345ABC") or null if the email isn't found in the workspace.
  */

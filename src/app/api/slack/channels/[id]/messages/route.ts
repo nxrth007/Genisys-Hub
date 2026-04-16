@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { auth } from '@/auth'
-import { getChannelMessages, postChannelMessage, joinChannel } from '@/lib/slack'
+import { getChannelMessages, postChannelMessage, joinChannel, formatSlackError } from '@/lib/slack'
 
 /**
  * GET /api/slack/channels/[id]/messages
@@ -22,8 +22,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const data = await getChannelMessages(id)
     return NextResponse.json(data)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to fetch messages'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: formatSlackError(err) }, { status: 500 })
   }
 }
 
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const result = await postChannelMessage(id, parsed.data.text, parsed.data.threadTs)
     return NextResponse.json(result)
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to send message'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: formatSlackError(err) }, { status: 500 })
   }
 }

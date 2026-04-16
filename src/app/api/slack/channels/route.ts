@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { listChannels } from '@/lib/slack'
+import { listChannels, formatSlackError } from '@/lib/slack'
 
 /**
  * GET /api/slack/channels
@@ -16,7 +16,6 @@ export async function GET() {
     const channels = await listChannels()
     return NextResponse.json({ channels })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to list channels'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ error: formatSlackError(err) }, { status: 500 })
   }
 }
