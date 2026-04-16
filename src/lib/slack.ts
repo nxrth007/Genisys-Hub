@@ -101,5 +101,125 @@ export async function listChannels(): Promise<
     name: ch.name ?? '',
     topic: ch.topic?.value ?? '',
     memberCount: ch.num_members ?? 0,
+    isPrivate: ch.is_private ?? false,
+    isMember: ch.is_member ?? false,
   }))
+}
+
+// -------------------------------------------------------------------------
+// Channel messages — for the /slack module
+// -------------------------------------------------------------------------
+
+export type SlackMsg = {
+  ts: string
+  userId: string
+  userName: string
+  text: string
+  threadTs?: string
+  replyCount?: number
+  timestamp: string // ISO string
+}
+
+/**
+ * Fetch recent messages from a channel. The bot must be a member of the
+ * channel — call joinChannel() first if needed.
+ */
+export async function getChannelMessages(
+  channelId: string,
+  limit = 50
+): Promise<{ messages: SlackMsg[]; channelName: string }> {
+  const client = await getClient()
+
+  // Get channel info for the name
+  let channelName = channelId
+  try {
+    const info = await client.conversations.info({ channel: channelId })
+    channelName = info.channel?.name ?? channelId
+  } catch {
+    // fallback to ID
+  }
+
+  const result = await client.conversations.history({
+    channel: channelId,
+    limit,
+  })
+
+  // Batch resolve user IDs to display names
+  const userIds = new Set<string>()
+  for (const msg of result.messages ?? []) {
+    if (msg.user) userIds.add(msg.user)
+  }
+
+  const userNames = new Map<string, string>()
+  const userIdArray = Array.from(userIds)
+  // Resolve in batches of 10 to avoid rate limits
+  for (let i = 0; i < userIdArray.length; i += 10) {
+    const batch = userIdArray.slice(i, i + 10)
+    await Promise.all(
+      batch.map(async (uid) => {
+        try {
+          const info = await client.users.info({ user: uid })
+          userNames.set(
+            uid,
+            info.user?.profile?.display_name ||
+              info.user?.real_name ||
+              info.user?.name ||
+              uid
+          )
+        } catch {
+          userNames.set(uid, uid)
+        }
+      })
+    )
+  }
+
+  const messages: SlackMsg[] = (result.messages ?? [])
+    .filter((m) => m.subtype !== 'channel_join' && m.subtype !== 'channel_leave')
+    .map((m) => ({
+      ts: m.ts ?? '',
+      userId: m.user ?? '',
+      userName: userNames.get(m.user ?? '') ?? m.user ?? 'Unknown',
+      text: m.text ?? '',
+      threadTs: m.thread_ts,
+      replyCount: m.reply_count,
+      timestamp: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : '',
+    }))
+    .reverse() // Slack returns newest first; we want oldest first (chat order)
+
+  return { messages, channelName }
+}
+
+/**
+ * Post a message to a channel (as the bot).
+ */
+export async function postChannelMessage(
+  channelId: string,
+  text: string,
+  threadTs?: string
+): Promise<{ ok: boolean; ts: string }> {
+  const client = await getClient()
+  const msg = await client.chat.postMessage({
+    channel: channelId,
+    text,
+    ...(threadTs ? { thread_ts: threadTs } : {}),
+  })
+  return { ok: msg.ok ?? false, ts: msg.ts ?? '' }
+}
+
+/**
+ * Join a public channel. Required before the bot can read messages.
+ * No-ops if already a member. Throws for private channels (bot must be invited).
+ */
+export async function joinChannel(channelId: string): Promise<void> {
+  const client = await getClient()
+  try {
+    await client.conversations.join({ channel: channelId })
+  } catch (err: unknown) {
+    // already_in_channel is fine
+    if (err && typeof err === 'object' && 'data' in err) {
+      const data = (err as { data?: { error?: string } }).data
+      if (data?.error === 'already_in_channel') return
+    }
+    throw err
+  }
 }
