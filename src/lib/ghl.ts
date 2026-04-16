@@ -224,7 +224,19 @@ export async function listSubAccounts(): Promise<{
   errors: Array<{ vaultName: string; error: string }>
   discoveredEntries: number
 }> {
-  const entries = await listEntriesByTag('ghl')
+  const rawEntries = await listEntriesByTag('ghl')
+
+  // Sort so the agency's own sub-account (tagged "primary" or "Genisys", or
+  // simply not tagged "client") comes first, then clients alphabetically.
+  const entries = [...rawEntries].sort((a, b) => {
+    const tagsA = a.tags.map((t) => t.toLowerCase())
+    const tagsB = b.tags.map((t) => t.toLowerCase())
+    const isClientA = tagsA.includes('client')
+    const isClientB = tagsB.includes('client')
+    if (isClientA !== isClientB) return isClientA ? 1 : -1
+    return a.name.localeCompare(b.name)
+  })
+
   const subaccounts: SubAccount[] = []
   const errors: Array<{ vaultName: string; error: string }> = []
 
