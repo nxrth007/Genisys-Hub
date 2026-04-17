@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const files = await listFilesAll(opts)
-    return NextResponse.json({ files })
+    const result = await listFilesAll(opts)
+    return NextResponse.json(result)
   } catch (err) {
     console.error('[drive/files] list failed:', err)
     const message = err instanceof Error ? err.message : 'Failed to list files'

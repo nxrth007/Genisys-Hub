@@ -103,7 +103,10 @@ export default function DrivePage() {
     },
   })
 
-  const filesQuery = useQuery<{ files: DriveFileResponse[] }>({
+  const filesQuery = useQuery<{
+    files: DriveFileResponse[]
+    errors: Array<{ account: string; message: string }>
+  }>({
     queryKey: ['drive-files', submitted, kind, ownership, accountFilter],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -123,6 +126,7 @@ export default function DrivePage() {
 
   const accounts = accountsQuery.data?.accounts ?? []
   const files = useMemo(() => filesQuery.data?.files ?? [], [filesQuery.data])
+  const accountErrors = filesQuery.data?.errors ?? []
 
   const resultMeta = useMemo(() => {
     if (!filesQuery.isSuccess) return null
@@ -239,6 +243,32 @@ export default function DrivePage() {
               </div>
             )}
           </div>
+
+          {accountErrors.length > 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-amber-900 dark:text-amber-200">
+                    {accountErrors.length === 1
+                      ? '1 account returned an error'
+                      : `${accountErrors.length} accounts returned errors`}
+                  </div>
+                  <ul className="mt-1 space-y-0.5 text-xs text-amber-800 dark:text-amber-300">
+                    {accountErrors.map((e) => (
+                      <li key={e.account}>
+                        <span className="font-medium">{e.account}:</span> {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                    Most common fix: disconnect the account in Settings, then click Connect and
+                    grant the Drive scope on Google&apos;s consent screen.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {resultMeta && (
             <div className="flex items-center gap-3 text-xs text-zinc-500">

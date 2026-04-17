@@ -204,7 +204,7 @@ function buildQ(opts: ListOptions): string {
 
   switch (opts.ownership) {
     case 'mine':
-      clauses.push('"me" in owners')
+      clauses.push("'me' in owners")
       break
     case 'shared':
       clauses.push('sharedWithMe = true')
@@ -242,36 +242,74 @@ export async function listFilesForAccount(
   return files.map((f) => normalize(f, accountEmail)).filter((f): f is DriveFile => f !== null)
 }
 
+export type AccountError = { account: string; message: string }
+export type ListAllResult = { files: DriveFile[]; errors: AccountError[] }
+
+/**
+ * Extract the most useful bit of a googleapis error. The SDK throws a GaxiosError
+ * whose `.message` is often the full HTML; the real message lives in
+ * `.response.data.error.message`. Fall back through increasingly generic fields.
+ */
+function extractErrorMessage(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as {
+      response?: { data?: { error?: { message?: string; errors?: Array<{ message?: string }> } } }
+      errors?: Array<{ message?: string }>
+      message?: string
+    }
+    const fromResponse = e.response?.data?.error?.message
+    if (fromResponse) return fromResponse
+    const fromErrors = e.response?.data?.error?.errors?.[0]?.message || e.errors?.[0]?.message
+    if (fromErrors) return fromErrors
+    if (e.message) return e.message
+  }
+  return 'Unknown error'
+}
+
 /**
  * List files across ALL connected Drive accounts, merged and deduped by file id.
  * When the same file is visible to both Alex and Ethan, the first hit wins — so
  * sourceAccount reflects whichever account returned it first.
+ *
+ * Per-account failures are collected in `errors` so the UI can explain why a
+ * mailbox returned zero files (scope issue, revoked consent, quota, etc.)
+ * instead of showing a blank list.
  */
-export async function listFilesAll(opts: ListOptions = {}): Promise<DriveFile[]> {
+export async function listFilesAll(opts: ListOptions = {}): Promise<ListAllResult> {
   const accounts = await prisma.driveAccount.findMany({
     where: opts.accountEmail ? { email: opts.accountEmail } : undefined,
     select: { email: true },
   })
 
-  if (accounts.length === 0) return []
+  if (accounts.length === 0) return { files: [], errors: [] }
 
-  const results = await Promise.allSettled(
+  const settled = await Promise.allSettled(
     accounts.map((a) => listFilesForAccount(a.email, opts))
   )
 
   const merged = new Map<string, DriveFile>()
-  for (const r of results) {
-    if (r.status !== 'fulfilled') continue
-    for (const f of r.value) {
-      if (!merged.has(f.id)) merged.set(f.id, f)
-    }
-  }
+  const errors: AccountError[] = []
 
-  return Array.from(merged.values()).sort((a, b) => {
+  settled.forEach((r, i) => {
+    const email = accounts[i].email
+    if (r.status === 'fulfilled') {
+      for (const f of r.value) {
+        if (!merged.has(f.id)) merged.set(f.id, f)
+      }
+    } else {
+      const message = extractErrorMessage(r.reason)
+      console.error(`[drive] list failed for ${email}:`, message)
+      errors.push({ account: email, message })
+    }
+  })
+
+  const files = Array.from(merged.values()).sort((a, b) => {
     const ma = a.modifiedTime ? new Date(a.modifiedTime).getTime() : 0
     const mb = b.modifiedTime ? new Date(b.modifiedTime).getTime() : 0
     return mb - ma
   })
+
+  return { files, errors }
 }
 
 export async function getFile(accountEmail: string, fileId: string): Promise<DriveFile | null> {
