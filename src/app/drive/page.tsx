@@ -461,12 +461,15 @@ function PreviewModal({
   // Chrome loading the iframe as the wrong multi-logged-in account.
   const [viewAs, setViewAs] = useState(file.sourceAccount)
 
-  // View vs Edit. View uses our backend stream (guaranteed access, read-only).
-  // Edit iframes Google's real editor (needs Chrome to be signed into the
-  // right Google account for the cookie session to have edit permission).
+  // View vs Edit vs Data. View uses our backend stream (guaranteed access,
+  // read-only). Edit iframes Google's real editor (needs Chrome to be signed
+  // into the right Google account). Data is a Sheets-only mode that pulls
+  // structured data via the Sheets API and renders a real interactive table
+  // — ideal for wide operational spreadsheets that don't survive PDF export.
   const editorPath = EDITOR_PATH[file.mimeType]
   const canEdit = Boolean(editorPath)
-  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const isSheet = file.mimeType === 'application/vnd.google-apps.spreadsheet'
+  const [mode, setMode] = useState<'view' | 'edit' | 'data'>(isSheet ? 'data' : 'view')
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow
@@ -554,29 +557,26 @@ function PreviewModal({
 
         {canEdit && (
           <div className="flex overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-            <button
+            {isSheet && (
+              <ModeButton
+                label="Data"
+                active={mode === 'data'}
+                onClick={() => setMode('data')}
+                title="Interactive table view via Sheets API — works regardless of Chrome session."
+              />
+            )}
+            <ModeButton
+              label="View"
+              active={mode === 'view'}
               onClick={() => setMode('view')}
-              className={cn(
-                'px-3 py-1 text-xs font-medium transition-colors',
-                mode === 'view'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
-              )}
-            >
-              View
-            </button>
-            <button
+              title="PDF export of the file."
+            />
+            <ModeButton
+              label="Edit"
+              active={mode === 'edit'}
               onClick={() => setMode('edit')}
-              className={cn(
-                'px-3 py-1 text-xs font-medium transition-colors',
-                mode === 'edit'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
-              )}
-              title="Opens Google's real editor inline. Requires Chrome to be signed into the right Google account."
-            >
-              Edit
-            </button>
+              title="Google's real editor. Needs Chrome signed into the right account."
+            />
           </div>
         )}
 
@@ -616,28 +616,244 @@ function PreviewModal({
         </a>
       </div>
 
-      <iframe
-        // Key includes mode + viewAs so switching them forces a fresh iframe load.
-        key={`${file.id}-${mode}-${viewAs}`}
-        src={iframeUrl}
-        title={file.name}
-        className="flex-1 w-full bg-white dark:bg-zinc-950"
-        allow="autoplay; clipboard-read; clipboard-write; fullscreen"
-        // Sandbox only for third-party iframes (drive.google.com, docs.google.com).
-        // Our own same-origin stream runs unsandboxed so Chrome's built-in PDF
-        // viewer extension works. allow-top-navigation-by-user-activation lets
-        // the real Google editor open links when the user clicks them.
-        sandbox={
-          iframeNeedsSandbox
-            ? 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-top-navigation-by-user-activation allow-presentation'
-            : undefined
-        }
-      />
+      {mode === 'data' && isSheet ? (
+        <SheetsTable spreadsheetId={file.id} account={viewAs} />
+      ) : (
+        <iframe
+          // Key includes mode + viewAs so switching them forces a fresh iframe load.
+          key={`${file.id}-${mode}-${viewAs}`}
+          src={iframeUrl}
+          title={file.name}
+          className="flex-1 w-full bg-white dark:bg-zinc-950"
+          allow="autoplay; clipboard-read; clipboard-write; fullscreen"
+          // Sandbox only for third-party iframes (drive.google.com, docs.google.com).
+          // Our own same-origin stream runs unsandboxed so Chrome's built-in PDF
+          // viewer extension works. allow-top-navigation-by-user-activation lets
+          // the real Google editor open links when the user clicks them.
+          sandbox={
+            iframeNeedsSandbox
+              ? 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-top-navigation-by-user-activation allow-presentation'
+              : undefined
+          }
+        />
+      )}
 
       {!canStream && (
         <div className="flex-shrink-0 border-t border-zinc-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-800 dark:border-zinc-800 dark:bg-amber-950/50 dark:text-amber-300">
           This file type can&apos;t be rendered through the Hub. Showing Drive&apos;s native preview —
           if you see &quot;You need access&quot;, switch the account or open in Drive.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModeButton({
+  label,
+  active,
+  onClick,
+  title,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+  title?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'px-3 py-1 text-xs font-medium transition-colors',
+        active
+          ? 'bg-purple-600 text-white'
+          : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
+type SheetDataResponse = {
+  title: string
+  tabs: Array<{ id: number; title: string; rowCount: number; columnCount: number; gridIndex: number }>
+  activeTab: string
+  values: string[][]
+}
+
+function SheetsTable({
+  spreadsheetId,
+  account,
+}: {
+  spreadsheetId: string
+  account: string
+}) {
+  const [activeTab, setActiveTab] = useState<string | undefined>(undefined)
+  const [search, setSearch] = useState('')
+  // Client-side sort: null = sheet order, else { col, dir }.
+  const [sort, setSort] = useState<{ col: number; dir: 'asc' | 'desc' } | null>(null)
+
+  const query = useQuery<SheetDataResponse>({
+    queryKey: ['drive-sheet', spreadsheetId, account, activeTab],
+    queryFn: async () => {
+      const params = new URLSearchParams({ id: spreadsheetId, account })
+      if (activeTab) params.set('tab', activeTab)
+      const res = await fetch(`/api/drive/sheet?${params.toString()}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load sheet')
+      return data
+    },
+  })
+
+  const values = query.data?.values ?? []
+  // Treat the first row as headers for display. If someone has a sheet without
+  // headers, they still get a usable table — the header row is just row 1.
+  const headerRow = values[0] ?? []
+  const dataRows = values.slice(1)
+
+  const displayRows = useMemo(() => {
+    let rows = dataRows
+    const q = search.trim().toLowerCase()
+    if (q) {
+      rows = rows.filter((row) => row.some((cell) => cell.toLowerCase().includes(q)))
+    }
+    if (sort) {
+      const { col, dir } = sort
+      rows = [...rows].sort((a, b) => {
+        const av = a[col] ?? ''
+        const bv = b[col] ?? ''
+        // Try numeric sort first, fall back to locale compare.
+        const an = Number(av.replace(/[,$%]/g, ''))
+        const bn = Number(bv.replace(/[,$%]/g, ''))
+        if (Number.isFinite(an) && Number.isFinite(bn)) {
+          return dir === 'asc' ? an - bn : bn - an
+        }
+        return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      })
+    }
+    return rows
+  }, [dataRows, search, sort])
+
+  function toggleSort(col: number) {
+    setSort((prev) => {
+      if (!prev || prev.col !== col) return { col, dir: 'asc' }
+      if (prev.dir === 'asc') return { col, dir: 'desc' }
+      return null
+    })
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-950">
+      <div className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+        {query.data && query.data.tabs.length > 1 && (
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {query.data.tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.title)
+                  setSort(null)
+                }}
+                className={cn(
+                  'flex-shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                  (activeTab ?? query.data!.activeTab) === tab.title
+                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                    : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                )}
+              >
+                {tab.title}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="relative ml-auto">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter rows…"
+            className="w-56 rounded-md border border-zinc-200 bg-white py-1 pl-7 pr-2 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          />
+        </div>
+        {query.data && (
+          <span className="flex-shrink-0 text-xs text-zinc-500">
+            {displayRows.length} / {dataRows.length}
+            {' row'}
+            {dataRows.length === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
+
+      {query.isLoading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+        </div>
+      ) : query.isError ? (
+        <div className="m-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <div>
+            <div className="font-medium">Couldn&apos;t load sheet data</div>
+            <div className="mt-1 text-xs">{(query.error as Error).message}</div>
+            <div className="mt-2 text-xs text-red-700 dark:text-red-300">
+              If this says &quot;insufficient scopes&quot;, reconnect the account in Settings
+              to grant the Sheets permission.
+            </div>
+          </div>
+        </div>
+      ) : values.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+          This tab is empty.
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="w-max min-w-full border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-zinc-50 shadow-[0_1px_0_0_rgba(0,0,0,0.06)] dark:bg-zinc-900">
+              <tr>
+                <th className="sticky left-0 z-20 w-10 border-r border-zinc-200 bg-zinc-50 px-2 py-2 text-right font-medium text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900">
+                  #
+                </th>
+                {headerRow.map((cell, i) => {
+                  const sorted = sort?.col === i
+                  return (
+                    <th
+                      key={i}
+                      onClick={() => toggleSort(i)}
+                      className="cursor-pointer select-none border-r border-zinc-200 px-3 py-2 text-left font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {cell || <span className="italic text-zinc-400">col {i + 1}</span>}
+                        {sorted && (
+                          <span className="text-purple-600">
+                            {sort!.dir === 'asc' ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </span>
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {displayRows.map((row, r) => (
+                <tr key={r} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+                  <td className="sticky left-0 z-10 w-10 border-r border-b border-zinc-200 bg-white px-2 py-1.5 text-right text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950">
+                    {r + 2}
+                  </td>
+                  {headerRow.map((_, c) => (
+                    <td
+                      key={c}
+                      className="max-w-[320px] truncate border-r border-b border-zinc-100 px-3 py-1.5 text-zinc-800 dark:border-zinc-800 dark:text-zinc-100"
+                      title={row[c] || ''}
+                    >
+                      {row[c] ?? ''}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

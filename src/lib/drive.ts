@@ -361,3 +361,110 @@ export async function listConnectedAccounts() {
 export async function disconnectAccount(email: string) {
   return prisma.driveAccount.delete({ where: { email } })
 }
+
+// ---------------------------------------------------------------------------
+// Sheets API — structured read of spreadsheet tabs + values.
+// ---------------------------------------------------------------------------
+
+export type SheetTab = {
+  id: number
+  title: string
+  rowCount: number
+  columnCount: number
+  gridIndex: number
+}
+
+export type SheetData = {
+  title: string
+  tabs: SheetTab[]
+  /** Which tab these values belong to. */
+  activeTab: string
+  /** 2D array of stringified cell values, row-major. */
+  values: string[][]
+}
+
+async function getAuthenticatedSheets(accountEmail: string) {
+  const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
+  if (!account) throw new Error(`No Drive account found for ${accountEmail}`)
+
+  const oauth2Client = getOAuth2Client()
+  oauth2Client.setCredentials({
+    access_token: account.accessToken,
+    refresh_token: account.refreshToken,
+    expiry_date: account.tokenExpiry.getTime(),
+  })
+
+  oauth2Client.on('tokens', async (newTokens) => {
+    await prisma.driveAccount.update({
+      where: { email: accountEmail },
+      data: {
+        accessToken: newTokens.access_token || account.accessToken,
+        tokenExpiry: newTokens.expiry_date
+          ? new Date(newTokens.expiry_date)
+          : account.tokenExpiry,
+      },
+    })
+  })
+
+  return google.sheets({ version: 'v4', auth: oauth2Client })
+}
+
+/**
+ * Fetch a spreadsheet's tab list + the values of one tab (default: first tab).
+ * Values come back as `FORMATTED_VALUE` so numbers/dates match what the user
+ * sees in Google Sheets rather than raw serial numbers.
+ */
+export async function getSheetData(
+  accountEmail: string,
+  spreadsheetId: string,
+  tabTitle?: string
+): Promise<SheetData> {
+  const sheets = await getAuthenticatedSheets(accountEmail)
+
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'properties.title,sheets.properties',
+  })
+
+  const tabs: SheetTab[] = (meta.data.sheets || []).map((s, i) => ({
+    id: s.properties?.sheetId ?? i,
+    title: s.properties?.title || `Sheet${i + 1}`,
+    rowCount: s.properties?.gridProperties?.rowCount ?? 0,
+    columnCount: s.properties?.gridProperties?.columnCount ?? 0,
+    gridIndex: s.properties?.index ?? i,
+  }))
+
+  if (tabs.length === 0) {
+    return {
+      title: meta.data.properties?.title || 'Spreadsheet',
+      tabs: [],
+      activeTab: '',
+      values: [],
+    }
+  }
+
+  // Pick requested tab, or fall back to the one Sheets treats as "first".
+  const target =
+    (tabTitle && tabs.find((t) => t.title === tabTitle)) ||
+    tabs.slice().sort((a, b) => a.gridIndex - b.gridIndex)[0]
+
+  // Range = the whole tab by name. Sheets auto-trims to the used region.
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${target.title.replace(/'/g, "''")}'`,
+    valueRenderOption: 'FORMATTED_VALUE',
+    dateTimeRenderOption: 'FORMATTED_STRING',
+  })
+
+  // values may be undefined for empty tabs; normalize to 2D of strings.
+  const values: string[][] = (resp.data.values || []).map((row) =>
+    (row as unknown[]).map((cell) => (cell == null ? '' : String(cell)))
+  )
+
+  return {
+    title: meta.data.properties?.title || 'Spreadsheet',
+    tabs,
+    activeTab: target.title,
+    values,
+  }
+}
