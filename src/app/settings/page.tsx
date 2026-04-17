@@ -15,6 +15,7 @@ import {
   Calendar,
   Plus,
   Trash2,
+  HardDrive,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -34,6 +35,8 @@ export default function SettingsPage() {
       </div>
 
       <GmailConnectSection />
+
+      <DriveConnectSection />
 
       <CalendarConnectionsSection />
 
@@ -162,6 +165,96 @@ function GmailConnectSection() {
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function DriveConnectSection() {
+  const qc = useQueryClient()
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const { data } = useQuery<{
+    accounts: Array<{ id: string; email: string; lastSyncedAt: string | null }>
+  }>({
+    queryKey: ['drive-accounts'],
+    queryFn: async () => {
+      const res = await fetch('/api/drive/accounts')
+      if (!res.ok) throw new Error('Failed to load accounts')
+      return res.json()
+    },
+  })
+
+  const disconnectMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await fetch(`/api/drive/accounts?email=${encodeURIComponent(email)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Disconnect failed')
+      return res.json()
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['drive-accounts'] }),
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('drive_connected')
+    const error = params.get('drive_error')
+    if (connected) setNotice({ type: 'success', text: `Connected ${connected}` })
+    if (error) setNotice({ type: 'error', text: `Drive connect failed: ${error}` })
+  }, [])
+
+  const accounts = data?.accounts ?? []
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-3">
+          <HardDrive className="h-5 w-5 text-purple-600" />
+          <h3 className="font-semibold">Google Drive accounts</h3>
+        </div>
+        <a
+          href="/api/drive/connect"
+          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+        >
+          <Plus className="h-3.5 w-3.5" /> Connect account
+        </a>
+      </div>
+      <p className="text-sm text-zinc-500 mb-4">
+        Read-only access to files owned by or shared with{' '}
+        <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">alex@leadgenisys.com</code>{' '}
+        and{' '}
+        <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">ethan@leadgenisys.com</code>.
+        Connect both accounts — the Drive page merges results so you see every file either of you can reach.
+      </p>
+
+      {notice && <Alert variant={notice.type}>{notice.text}</Alert>}
+
+      {accounts.length === 0 ? (
+        <p className="text-xs text-zinc-400 py-2">No Drive accounts connected yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {accounts.map((a) => (
+            <div
+              key={a.id}
+              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{a.email}</p>
+                <p className="text-xs text-zinc-500">Read-only Drive access</p>
+              </div>
+              <button
+                onClick={() => disconnectMutation.mutate(a.email)}
+                disabled={disconnectMutation.isPending}
+                className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                title="Disconnect"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           ))}
         </div>

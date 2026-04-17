@@ -158,6 +158,23 @@ model Lead {
 }
 
 // -----------------------------------------------------------------------------
+// Google Drive — per-mailbox connections (alex@, ethan@leadgenisys.com)
+// -----------------------------------------------------------------------------
+
+model DriveAccount {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  accessToken    String    @db.Text
+  refreshToken   String    @db.Text
+  tokenExpiry    DateTime
+  // Reserved for future incremental sync via Drive Changes API.
+  startPageToken String?
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// -----------------------------------------------------------------------------
 // GoHighLevel — 4 sub-accounts
 // -----------------------------------------------------------------------------
 

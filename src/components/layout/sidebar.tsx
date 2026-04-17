@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Key,
   Hash,
+  HardDrive,
   Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/notion', label: 'Notion', icon: BookOpen },
+  { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/slack', label: 'Slack', icon: Hash },
   { href: '/vault', label: 'Vault', icon: Key },
   { href: '/settings', label: 'Settings', icon: Settings },
