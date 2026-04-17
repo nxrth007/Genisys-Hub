@@ -564,7 +564,16 @@ function PreviewModal({
         title={file.name}
         className="flex-1 w-full bg-white dark:bg-zinc-950"
         allow="autoplay; fullscreen"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+        // Sandbox only applies to the third-party drive.google.com fallback.
+        // Our own same-origin stream runs unsandboxed so Chrome's built-in
+        // PDF viewer extension can load correctly (sandbox conflicts with
+        // the viewer's nested extension iframe and triggers "This page has
+        // been blocked by Chrome" errors).
+        sandbox={
+          canStream
+            ? undefined
+            : 'allow-scripts allow-same-origin allow-popups allow-forms allow-downloads'
+        }
       />
 
       {!canStream && (

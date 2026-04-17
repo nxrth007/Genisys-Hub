@@ -97,6 +97,13 @@ export async function GET(req: NextRequest) {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `inline; filename*=UTF-8''${safeName}`,
+        // Prevent Chrome from MIME-sniffing and reclassifying our response as
+        // a download — a common cause of "This page has been blocked by Chrome"
+        // when the iframe loads. Paired with a correct, explicit Content-Type.
+        'X-Content-Type-Options': 'nosniff',
+        // Explicit same-origin frame-ancestors — allows embedding from our own
+        // pages and nothing else.
+        'Content-Security-Policy': "frame-ancestors 'self'",
         // Short private cache — lets quick re-opens skip the Drive round-trip
         // but doesn't stale on edits.
         'Cache-Control': 'private, max-age=60',
