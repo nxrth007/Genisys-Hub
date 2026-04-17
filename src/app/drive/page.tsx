@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, FormEvent, useMemo } from 'react'
+import { useState, FormEvent, useMemo, useEffect } from 'react'
 import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,6 +20,8 @@ import {
   Users,
   User as UserIcon,
   Filter,
+  X,
+  Maximize2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn, formatDate, truncate } from '@/lib/utils'
@@ -93,6 +95,7 @@ export default function DrivePage() {
   const [kind, setKind] = useState<KindFilter>('all')
   const [ownership, setOwnership] = useState<OwnershipFilter>('any')
   const [accountFilter, setAccountFilter] = useState<string>('all')
+  const [previewFile, setPreviewFile] = useState<DriveFileResponse | null>(null)
 
   const accountsQuery = useQuery<{ accounts: Array<{ email: string }> }>({
     queryKey: ['drive-accounts'],
@@ -300,9 +303,17 @@ export default function DrivePage() {
               No files match these filters.
             </div>
           ) : (
-            <FileList files={files} multipleAccounts={accounts.length > 1} />
+            <FileList
+              files={files}
+              multipleAccounts={accounts.length > 1}
+              onPreview={setPreviewFile}
+            />
           )}
         </>
+      )}
+
+      {previewFile && (
+        <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
       )}
     </div>
   )
@@ -311,15 +322,22 @@ export default function DrivePage() {
 function FileList({
   files,
   multipleAccounts,
+  onPreview,
 }: {
   files: DriveFileResponse[]
   multipleAccounts: boolean
+  onPreview: (file: DriveFileResponse) => void
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
         {files.map((f) => (
-          <FileRow key={f.id} file={f} multipleAccounts={multipleAccounts} />
+          <FileRow
+            key={f.id}
+            file={f}
+            multipleAccounts={multipleAccounts}
+            onPreview={onPreview}
+          />
         ))}
       </div>
     </div>
@@ -329,18 +347,42 @@ function FileList({
 function FileRow({
   file,
   multipleAccounts,
+  onPreview,
 }: {
   file: DriveFileResponse
   multipleAccounts: boolean
+  onPreview: (file: DriveFileResponse) => void
 }) {
   const owner = file.owners?.[0]?.displayName || file.owners?.[0]?.emailAddress
+  const isFolder = file.mimeType === 'application/vnd.google-apps.folder'
+  const driveUrl =
+    file.webViewLink ||
+    (isFolder
+      ? `https://drive.google.com/drive/folders/${file.id}`
+      : `https://drive.google.com/file/d/${file.id}/view`)
+
+  // Folders don't render in the iframe preview — Drive responds with a download
+  // prompt for their zip. Click behavior: folders open in Drive, files preview in-Hub.
+  const handleClick = () => {
+    if (isFolder) {
+      window.open(driveUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      onPreview(file)
+    }
+  }
 
   return (
-    <a
-      href={file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleClick()
+        }
+      }}
+      className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:hover:bg-zinc-800/50 dark:focus:bg-zinc-800/50"
     >
       <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
         {file.iconLink ? (
@@ -381,8 +423,111 @@ function FileRow({
         </div>
       </div>
 
-      <ExternalLink className="h-4 w-4 flex-shrink-0 text-zinc-300 group-hover:text-purple-600" />
-    </a>
+      {/* Separate button: open in Drive in a new tab, bypassing the preview. */}
+      <a
+        href={driveUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        title="Open in Drive"
+        className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
+      >
+        <ExternalLink className="h-4 w-4" />
+      </a>
+    </div>
+  )
+}
+
+function PreviewModal({
+  file,
+  onClose,
+}: {
+  file: DriveFileResponse
+  onClose: () => void
+}) {
+  // Close on Escape. Lock body scroll while open so the background list
+  // doesn't scroll underneath the modal.
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const previewUrl = `https://drive.google.com/file/d/${file.id}/preview`
+  const driveUrl =
+    file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+            {file.iconLink ? (
+              <Image
+                src={file.iconLink}
+                alt=""
+                width={16}
+                height={16}
+                className="h-4 w-4"
+                unoptimized
+              />
+            ) : (
+              <MimeIcon mime={file.mimeType} className="h-4 w-4 text-zinc-500" />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{file.name}</p>
+            <p className="truncate text-xs text-zinc-500">
+              {file.sourceAccount}
+              {file.modifiedTime ? ` · modified ${formatDate(file.modifiedTime)}` : ''}
+            </p>
+          </div>
+
+          <a
+            href={driveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in Drive"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            Open in Drive
+          </a>
+
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <iframe
+          key={file.id}
+          src={previewUrl}
+          title={file.name}
+          className="flex-1 w-full bg-white dark:bg-zinc-950"
+          // Allow Google's viewer to run its scripts + fullscreen button.
+          allow="autoplay; fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+        />
+      </div>
+    </div>
   )
 }
 
