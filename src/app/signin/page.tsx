@@ -1,7 +1,8 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { Target } from 'lucide-react'
+import Link from 'next/link'
+import { Target, Headphones } from 'lucide-react'
 
 export default function SignInPage() {
   return (
@@ -23,6 +24,20 @@ export default function SignInPage() {
         <p className="mt-4 text-center text-xs text-zinc-400">
           Only @leadgenisys.com and @trustware.io accounts can sign in.
         </p>
+
+        <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
+          <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          <span>or</span>
+          <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+        </div>
+
+        <Link
+          href="/signin/agent"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          <Headphones className="h-4 w-4 text-purple-600" />
+          If you are an agent please click here to sign in
+        </Link>
       </div>
     </div>
   )
