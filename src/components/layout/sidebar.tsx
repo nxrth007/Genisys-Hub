@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Inbox,
@@ -14,11 +15,19 @@ import {
   Key,
   Hash,
   HardDrive,
+  Headphones,
   Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const navItems = [
+type NavItem = {
+  href: string
+  label: string
+  icon: typeof LayoutDashboard
+  adminOnly?: boolean
+}
+
+const navItems: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/today', label: 'Today', icon: CheckCircle2 },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
@@ -29,11 +38,26 @@ const navItems = [
   { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/slack', label: 'Slack', icon: Hash },
   { href: '/vault', label: 'Vault', icon: Key },
+  { href: '/agents', label: 'Agents', icon: Headphones, adminOnly: true },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
+
+  // Pull session so we can hide admin-only nav items from non-admins. If the
+  // query is still loading we optimistically show all items — middleware
+  // blocks non-admin access at the route level anyway, so this is just UX.
+  const { data: session } = useQuery<{ user?: { role?: string } }>({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/session')
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  const role = session?.user?.role
+  const visibleNav = navItems.filter((n) => !n.adminOnly || role === 'admin')
 
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col border-r border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
@@ -42,7 +66,7 @@ export function Sidebar() {
         <span className="text-lg font-bold tracking-tight">Genisys Hub</span>
       </div>
       <nav className="flex-1 space-y-1 p-4">
-        {navItems.map((item) => {
+        {visibleNav.map((item) => {
           const isActive =
             item.href === '/'
               ? pathname === '/'

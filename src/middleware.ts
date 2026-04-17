@@ -38,6 +38,9 @@ const AGENT_ALLOWED_PREFIXES = [
 const ADMIN_ONLY_PREFIXES = [
   '/admin',
   '/api/admin',
+  // /agents is the admin agent-management section in the main Hub sidebar.
+  // /agent (singular) is the agent-facing portal and is gated separately above.
+  '/agents',
 ]
 
 function isPublic(pathname: string): boolean {
