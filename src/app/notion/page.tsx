@@ -8,6 +8,7 @@ import {
   FileText,
   ExternalLink,
   Table,
+  LayoutGrid,
   Loader2,
   BookOpen,
   AlertCircle,
@@ -181,13 +182,28 @@ export default function NotionPage() {
                         Edited {formatDate(db.last_edited_time)}
                       </p>
                     )}
-                    <Link
-                      href={`/notion/db/${stripDashes(db.id)}`}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
-                    >
-                      <Table className="h-3 w-3" />
-                      Table View
-                    </Link>
+                    <div className="flex gap-2">
+                      {(() => {
+                        const title = extractTitle(db).toLowerCase()
+                        const isTaskDb = title.includes('task') || title.includes('tracker') || title.includes('board') || title.includes('todo') || title.includes('sprint')
+                        return isTaskDb ? (
+                          <Link
+                            href={`/notion/tasks/${stripDashes(db.id)}`}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
+                          >
+                            <LayoutGrid className="h-3 w-3" />
+                            Board View
+                          </Link>
+                        ) : null
+                      })()}
+                      <Link
+                        href={`/notion/db/${stripDashes(db.id)}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+                      >
+                        <Table className="h-3 w-3" />
+                        Table View
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>
