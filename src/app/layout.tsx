@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
-import { AppShell } from '@/components/layout/app-shell'
+import { RootShell } from '@/components/layout/root-shell'
 import { QueryProvider } from '@/providers/query-provider'
 
 const geistSans = Geist({
@@ -28,7 +28,7 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="h-full">
         <QueryProvider>
-          <AppShell>{children}</AppShell>
+          <RootShell>{children}</RootShell>
         </QueryProvider>
       </body>
     </html>
