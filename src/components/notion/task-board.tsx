@@ -26,7 +26,6 @@ import {
   ExternalLink,
   LayoutGrid,
   List,
-  GripVertical,
   Plus,
   Check,
   Trash2,
@@ -166,7 +165,10 @@ function DroppableColumn({
     <div
       className={cn(
         'flex-shrink-0 flex flex-col',
-        compact ? 'w-[240px] max-h-[calc(100vh-340px)]' : 'w-[280px] max-h-[calc(100vh-240px)]'
+        // Slightly narrower in embed to fit ~5 columns on a 1440px Today
+        // page. Height capped to ~55vh there so the page doesn't scroll far
+        // just because one column is long.
+        compact ? 'w-[260px] max-h-[55vh]' : 'w-[280px] max-h-[calc(100vh-240px)]'
       )}
     >
       {/* Column Header — sticky at top of the column */}
@@ -288,26 +290,23 @@ function SortableTaskCard({
   const priBadge = priority ? getPriorityBadge(priority) : null
 
   return (
+    // Whole card is the drag source — PointerSensor's 5px distance threshold
+    // keeps normal clicks (Edit button, external link, trash) from triggering
+    // a drag. Much cleaner than a dedicated grip handle, matches Trello/Linear
+    // interaction model.
     <div
       ref={setNodeRef}
       style={transformStyle}
+      {...attributes}
+      {...listeners}
       className={cn(
-        'rounded-lg bg-white border border-zinc-200 shadow-sm transition-all dark:bg-zinc-900 dark:border-zinc-700',
+        'rounded-lg bg-white border border-zinc-200 shadow-sm transition-all cursor-grab active:cursor-grabbing dark:bg-zinc-900 dark:border-zinc-700',
         isDragging && 'opacity-50 shadow-lg scale-105',
       )}
     >
-      {/* Drag handle + Title */}
+      {/* Title */}
       <div className="px-3 pt-3 pb-1">
-        <div className="flex items-start gap-1.5">
-          <button
-            {...attributes}
-            {...listeners}
-            className="mt-0.5 cursor-grab active:cursor-grabbing text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400"
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-          <p className="text-sm font-medium leading-snug flex-1">{title || 'Untitled'}</p>
-        </div>
+        <p className="text-sm font-medium leading-snug">{title || 'Untitled'}</p>
       </div>
 
       {/* Description preview */}
@@ -996,7 +995,7 @@ export function TaskBoard({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className={cn('flex overflow-x-auto pb-4', variant === 'embed' ? 'gap-2' : 'gap-3')}>
+          <div className="flex gap-3 overflow-x-auto pb-4">
             {statusOptions.map((statusOpt) => (
               <DroppableColumn
                 key={statusOpt.name}

@@ -154,14 +154,15 @@ export default function TodayPage() {
   })
   const pinnedDbId = pinnedBoardQuery.data?.dbId
 
-  // When a Kanban is embedded, the Tasks section breaks out to full width so
-  // all status columns fit on screen. The rest of the page keeps a readable
-  // max-width constraint.
-  const constrainedWidth = pinnedDbId ? '' : 'max-w-4xl'
+  // Whole page centers on wide displays. Sections that shouldn't stretch full
+  // width (header row, meetings list) get their own max-w-3xl so reading
+  // widths stay comfortable while the Kanban can use all available horizontal
+  // space. mx-auto on those centers them within the wider page container.
+  const constrainedSection = 'max-w-3xl mx-auto w-full'
 
   return (
-    <div className={cn('space-y-6', !pinnedDbId && 'max-w-4xl')}>
-      <div className={cn('flex items-center justify-between', constrainedWidth)}>
+    <div className="mx-auto max-w-screen-xl space-y-6">
+      <div className={cn('flex items-center justify-between', constrainedSection)}>
         <div>
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
@@ -195,7 +196,7 @@ export default function TodayPage() {
       </div>
 
       {/* Meetings section */}
-      <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedWidth)}>
+      <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>
         <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
           <Calendar className="h-4 w-4 text-purple-600" />
           <h3 className="font-semibold text-sm">
@@ -262,14 +263,15 @@ export default function TodayPage() {
       </section>
 
       {/* Tasks section — Notion Kanban when a DB is pinned, otherwise the
-           built-in local task list. Kanban spans the full page width so all
-           status columns fit without horizontal scroll on normal monitors. */}
+           built-in local task list. When pinned we drop the wrapper card
+           entirely: column chrome already gives each status its own card
+           appearance, and the outer section box doubled it up visually. */}
       {pinnedDbId ? (
-        <section className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="-mx-1">
           <TaskBoard dbId={pinnedDbId} variant="embed" defaultView="board" />
-        </section>
+        </div>
       ) : (
-        <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedWidth)}>
+        <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>
           <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
             <CheckCircle2 className="h-4 w-4 text-purple-600" />
             <h3 className="font-semibold text-sm">
