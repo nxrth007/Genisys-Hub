@@ -159,10 +159,19 @@ function DroppableColumn({
   const taskIds = tasks.map((t) => t.id)
 
   return (
-    <div className={cn('flex-shrink-0', compact ? 'w-[240px]' : 'w-[280px]')}>
-      {/* Column Header */}
+    // Column is a flex column with a bounded max-height so a "To Do" with
+    // 30 tasks stays the same visual height as "Done" with 3. The header
+    // stays pinned at the top; only the task list + new-task button scroll
+    // inside. Height is viewport-relative minus rough chrome allowance.
+    <div
+      className={cn(
+        'flex-shrink-0 flex flex-col',
+        compact ? 'w-[240px] max-h-[calc(100vh-340px)]' : 'w-[280px] max-h-[calc(100vh-240px)]'
+      )}
+    >
+      {/* Column Header — sticky at top of the column */}
       <div className={cn(
-        'rounded-t-xl px-4 py-3 flex items-center justify-between',
+        'flex-shrink-0 rounded-t-xl px-4 py-3 flex items-center justify-between',
         style.light.headerBg, 'dark:' + style.dark.headerBg.replace('bg-', 'bg-')
       )}
         style={{ background: undefined }}
@@ -176,11 +185,11 @@ function DroppableColumn({
         </span>
       </div>
 
-      {/* Column Body */}
+      {/* Column Body — scrollable when content exceeds max-height */}
       <div
         ref={setNodeRef}
         className={cn(
-          'rounded-b-xl border border-t-0 p-2 space-y-2 min-h-[120px] transition-colors',
+          'flex-1 min-h-0 overflow-y-auto rounded-b-xl border border-t-0 p-2 space-y-2 transition-colors',
           isOver ? 'bg-blue-100/50 border-purple-300 dark:bg-blue-900/30 dark:border-purple-600' : cn(style.light.bg, 'border-zinc-200 dark:border-zinc-700'),
         )}
       >
@@ -591,6 +600,8 @@ export function TaskBoard({
     },
   })
 
+  type BoardData = { database: unknown; results: TaskItem[] } & Record<string, unknown>
+
   const updateMutation = useMutation({
     mutationFn: async ({ pageId, properties }: { pageId: string; properties: Record<string, unknown> }) => {
       const res = await fetch('/api/notion/pages/' + pageId + '/properties', {
@@ -601,7 +612,41 @@ export function TaskBoard({
       if (!res.ok) throw new Error((await res.json()).error || 'Update failed')
       return res.json()
     },
-    onSuccess: () => {
+    // Optimistic update — immediately reflect the change in the board UI so
+    // drag-and-drop feels instant. The Notion round-trip (~300-500ms) happens
+    // in the background; on failure we revert to the snapshot we took.
+    onMutate: async ({ pageId, properties }) => {
+      await queryClient.cancelQueries({ queryKey: ['notion-tasks', dbId] })
+      const previous = queryClient.getQueryData<BoardData>(['notion-tasks', dbId])
+      queryClient.setQueryData<BoardData>(['notion-tasks', dbId], (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          results: old.results.map((task) => {
+            if (task.id !== pageId) return task
+            const mergedProps: Record<string, Record<string, unknown>> = { ...task.properties }
+            for (const [key, partial] of Object.entries(properties)) {
+              // Merge so we preserve .type (needed by extractPropValue) and
+              // only override the value shape the mutation sent.
+              mergedProps[key] = {
+                ...(task.properties[key] || {}),
+                ...(partial as Record<string, unknown>),
+              }
+            }
+            return { ...task, properties: mergedProps }
+          }),
+        }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['notion-tasks', dbId], context.previous)
+      }
+    },
+    // Always refetch at the end so any server-side transformations (e.g.
+    // timestamps, rollups) reconcile with our optimistic assumption.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })
     },
   })
@@ -612,7 +657,23 @@ export function TaskBoard({
       if (!res.ok) throw new Error((await res.json()).error || 'Delete failed')
       return res.json()
     },
-    onSuccess: () => {
+    // Optimistic remove — card disappears immediately on click. Reverted if
+    // Notion rejects the archive call.
+    onMutate: async (pageId) => {
+      await queryClient.cancelQueries({ queryKey: ['notion-tasks', dbId] })
+      const previous = queryClient.getQueryData<BoardData>(['notion-tasks', dbId])
+      queryClient.setQueryData<BoardData>(['notion-tasks', dbId], (old) => {
+        if (!old) return old
+        return { ...old, results: old.results.filter((t) => t.id !== pageId) }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['notion-tasks', dbId], context.previous)
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })
     },
   })
@@ -918,9 +979,12 @@ export function TaskBoard({
         </div>
       </div>
 
-      {updateMutation.isPending && (
-        <div className="flex items-center gap-2 text-xs text-purple-600">
-          <Loader2 className="h-3 w-3 animate-spin" /> Saving to Notion...
+      {/* Subtle floating pill — optimistic UI already reflects the change,
+           this just confirms a sync is in flight. Positioned so it doesn't
+           reserve layout space (avoids a jumpy board on every drop). */}
+      {(updateMutation.isPending || deleteMutation.isPending) && (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3 py-1.5 text-xs font-medium text-purple-700 shadow-sm dark:border-purple-800 dark:bg-zinc-900 dark:text-purple-300">
+          <Loader2 className="h-3 w-3 animate-spin" /> Syncing with Notion
         </div>
       )}
 
