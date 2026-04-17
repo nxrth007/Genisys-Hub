@@ -113,7 +113,7 @@ export async function exchangeCode(code: string, baseUrl?: string) {
   return account
 }
 
-async function getAuthenticatedClient(accountEmail: string) {
+export async function getAuthenticatedClient(accountEmail: string) {
   const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
   if (!account) throw new Error(`No Drive account found for ${accountEmail}`)
 

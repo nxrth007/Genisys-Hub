@@ -465,10 +465,22 @@ function PreviewModal({
     }
   }, [onClose])
 
-  // ?authuser=<email> tells Google Drive which multi-logged-in account's
-  // permissions to apply when rendering the iframe, overriding Chrome's
-  // default primary-account behavior.
-  const previewUrl = `https://drive.google.com/file/d/${file.id}/preview?authuser=${encodeURIComponent(viewAs)}`
+  // Non-streamable Google-native types (folders, forms, sites, shortcuts, maps)
+  // have no renderable export format. Fall back to Drive's own iframe for those.
+  const GOOGLE_NATIVE_NOT_STREAMABLE = [
+    'application/vnd.google-apps.folder',
+    'application/vnd.google-apps.shortcut',
+    'application/vnd.google-apps.form',
+    'application/vnd.google-apps.site',
+    'application/vnd.google-apps.map',
+  ]
+  const canStream = !GOOGLE_NATIVE_NOT_STREAMABLE.includes(file.mimeType)
+
+  // Stream through our backend using the stored OAuth token — bypasses Chrome's
+  // cookie-session auth entirely. "Viewing as" picks which token to use.
+  const previewUrl = canStream
+    ? `/api/drive/stream?id=${encodeURIComponent(file.id)}&account=${encodeURIComponent(viewAs)}`
+    : `https://drive.google.com/file/d/${file.id}/preview?authuser=${encodeURIComponent(viewAs)}`
   const driveUrl = `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
 
   return (
@@ -555,9 +567,10 @@ function PreviewModal({
         sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
       />
 
-      {file.visibleToAccounts.length > 1 && (
-        <div className="flex-shrink-0 border-t border-zinc-200 bg-zinc-50/50 px-4 py-1.5 text-center text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50">
-          Seeing &quot;You need access&quot;? Switch the viewing account above.
+      {!canStream && (
+        <div className="flex-shrink-0 border-t border-zinc-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-800 dark:border-zinc-800 dark:bg-amber-950/50 dark:text-amber-300">
+          This file type can&apos;t be rendered through the Hub. Showing Drive&apos;s native preview —
+          if you see &quot;You need access&quot;, switch the account or open in Drive.
         </div>
       )}
     </div>
