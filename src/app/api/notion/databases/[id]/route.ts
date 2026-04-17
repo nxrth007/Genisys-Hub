@@ -16,6 +16,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     ])
     return NextResponse.json({
       schema,
+      database: schema, // alias — task board reads "database", table view reads "schema"
       results: (data as { results?: unknown[] }).results || [],
       hasMore: (data as { has_more?: boolean }).has_more || false,
       nextCursor: (data as { next_cursor?: string | null }).next_cursor || null,
