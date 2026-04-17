@@ -907,6 +907,17 @@ type SheetDataResponse = {
   values: string[][]
 }
 
+/** Spreadsheet-style column label: 0→A, 25→Z, 26→AA, 701→ZZ, 702→AAA. */
+function columnLetter(n: number): string {
+  let s = ''
+  let i = n
+  while (i >= 0) {
+    s = String.fromCharCode(65 + (i % 26)) + s
+    i = Math.floor(i / 26) - 1
+  }
+  return s
+}
+
 function SheetsTable({
   spreadsheetId,
   account,
@@ -931,9 +942,20 @@ function SheetsTable({
     },
   })
 
-  const values = query.data?.values ?? []
-  // Treat the first row as headers for display. If someone has a sheet without
-  // headers, they still get a usable table — the header row is just row 1.
+  const values = useMemo(() => query.data?.values ?? [], [query.data])
+
+  // Column count = widest row in the sheet, not just the header row.
+  // Sheets API truncates trailing empty cells per-row, and some templates
+  // have sparse or empty leading rows — so iterating columns off
+  // `values[0].length` would miss cells and render a blank table.
+  const columnCount = useMemo(
+    () => values.reduce((m, r) => Math.max(m, r.length), 0),
+    [values]
+  )
+
+  // Treat the first row as headers by convention. If it's empty or sparse,
+  // we fall back to A/B/C column letters in the header render so the table
+  // never looks blank just because row 1 is a spacer or title row.
   const headerRow = values[0] ?? []
   const dataRows = values.slice(1)
 
@@ -1027,7 +1049,7 @@ function SheetsTable({
             </div>
           </div>
         </div>
-      ) : values.length === 0 ? (
+      ) : columnCount === 0 ? (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
           This tab is empty.
         </div>
@@ -1039,8 +1061,9 @@ function SheetsTable({
                 <th className="sticky left-0 z-20 w-10 border-r border-zinc-200 bg-zinc-50 px-2 py-2 text-right font-medium text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900">
                   #
                 </th>
-                {headerRow.map((cell, i) => {
+                {Array.from({ length: columnCount }, (_, i) => {
                   const sorted = sort?.col === i
+                  const cell = headerRow[i]
                   return (
                     <th
                       key={i}
@@ -1048,7 +1071,11 @@ function SheetsTable({
                       className="cursor-pointer select-none border-r border-zinc-200 px-3 py-2 text-left font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     >
                       <span className="inline-flex items-center gap-1">
-                        {cell || <span className="italic text-zinc-400">col {i + 1}</span>}
+                        {cell ? (
+                          cell
+                        ) : (
+                          <span className="font-mono text-zinc-400">{columnLetter(i)}</span>
+                        )}
                         {sorted && (
                           <span className="text-purple-600">
                             {sort!.dir === 'asc' ? '↑' : '↓'}
@@ -1066,7 +1093,7 @@ function SheetsTable({
                   <td className="sticky left-0 z-10 w-10 border-r border-b border-zinc-200 bg-white px-2 py-1.5 text-right text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950">
                     {r + 2}
                   </td>
-                  {headerRow.map((_, c) => (
+                  {Array.from({ length: columnCount }, (_, c) => (
                     <td
                       key={c}
                       className="max-w-[320px] truncate border-r border-b border-zinc-100 px-3 py-1.5 text-zinc-800 dark:border-zinc-800 dark:text-zinc-100"
