@@ -12,6 +12,7 @@ import {
   Check,
   AlertCircle,
   Mail,
+  Calendar,
   Plus,
   Trash2,
 } from 'lucide-react'
@@ -33,6 +34,8 @@ export default function SettingsPage() {
       </div>
 
       <GmailConnectSection />
+
+      <CalendarConnectionsSection />
 
       <SlackTestSection />
 
@@ -159,6 +162,145 @@ function GmailConnectSection() {
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CalendarConnectionsSection() {
+  const qc = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [label, setLabel] = useState('')
+  const [icalUrl, setIcalUrl] = useState('')
+
+  const { data } = useQuery<{
+    connections: Array<{ id: string; label: string; provider: string; email: string | null; icalUrl: string | null; createdAt: string }>
+  }>({
+    queryKey: ['calendar-connections'],
+    queryFn: async () => {
+      const res = await fetch('/api/calendar/connections')
+      if (!res.ok) throw new Error('Failed')
+      return res.json()
+    },
+  })
+
+  const addMutation = useMutation({
+    mutationFn: async (params: { label: string; icalUrl: string }) => {
+      const res = await fetch('/api/calendar/connections', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(params),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar-connections'] })
+      setShowAdd(false)
+      setLabel('')
+      setIcalUrl('')
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/calendar/connections?id=${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed')
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendar-connections'] }),
+  })
+
+  const connections = data?.connections ?? []
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-3">
+          <Calendar className="h-5 w-5 text-purple-600" />
+          <h3 className="font-semibold">Calendar connections</h3>
+        </div>
+        <button
+          onClick={() => setShowAdd(!showAdd)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add iCal feed
+        </button>
+      </div>
+      <p className="text-sm text-zinc-500 mb-4">
+        Add external calendars via iCal URL. Events appear on the Calendar page with their own color.
+        Get the URL from Google Calendar → Settings → Integrate calendar → Secret address in iCal format.
+      </p>
+
+      {showAdd && (
+        <div className="mb-4 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/30 space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium">Label</label>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder='e.g. "Solar Meetings" or "Trustware (Ethan)"'
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium">iCal URL</label>
+            <input
+              type="url"
+              value={icalUrl}
+              onChange={(e) => setIcalUrl(e.target.value)}
+              placeholder="https://calendar.google.com/calendar/ical/..."
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => addMutation.mutate({ label, icalUrl })}
+              disabled={addMutation.isPending || !label || !icalUrl}
+              className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              {addMutation.isPending ? 'Adding…' : 'Add'}
+            </button>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+          </div>
+          {addMutation.isError && (
+            <p className="text-xs text-red-600">{(addMutation.error as Error).message}</p>
+          )}
+        </div>
+      )}
+
+      {connections.length === 0 ? (
+        <p className="text-xs text-zinc-400 py-2">No external calendars connected yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {connections.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{c.label}</p>
+                <p className="text-xs text-zinc-500 truncate">{c.provider === 'ical' ? 'iCal feed' : c.provider}</p>
+              </div>
+              <button
+                onClick={() => deleteMutation.mutate(c.id)}
+                disabled={deleteMutation.isPending}
+                className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                title="Remove"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </div>
           ))}
         </div>
