@@ -728,19 +728,46 @@ function PreviewModal({
     : `https://drive.google.com/file/d/${file.id}/preview?authuser=${encodeURIComponent(viewAs)}`
 
   // Edit URL: Google's real editor. Requires the iframe's Chrome cookie
-  // session to be signed in as the account with edit permission — the
-  // authuser hint helps when multiple accounts are signed in at once, but
-  // if the account isn't signed in at all, Google shows a login inside
-  // the frame.
-  const editUrl = canEdit
-    ? `https://docs.google.com/${editorPath}/d/${file.id}/edit?authuser=${encodeURIComponent(viewAs)}&rm=embedded`
+  // session to be signed in as the account with edit permission. The
+  // /a/{workspaceDomain}/ path variant forces Google to scope the session
+  // to that Workspace, which resolves authuser=email more reliably than
+  // the non-domain URL. Falls back to the plain form if we don't know
+  // a domain (shouldn't happen — both connected accounts are leadgenisys).
+  const domain = viewAs.split('@')[1]
+  const editUrlBase = domain
+    ? `https://docs.google.com/a/${domain}/${editorPath}/d/${file.id}/edit`
+    : `https://docs.google.com/${editorPath}/d/${file.id}/edit`
+  const editUrlIframe = canEdit
+    ? `${editUrlBase}?authuser=${encodeURIComponent(viewAs)}&rm=embedded`
+    : null
+  // For top-level navigation (new tab or pop-out), skip rm=embedded so the
+  // user gets the full Google chrome, and use AccountChooser on the outside
+  // so a missing session redirects to Google's sign-in instead of the
+  // confusing "request access" page.
+  const editUrlNewTab = canEdit
+    ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(viewAs)}&continue=${encodeURIComponent(
+        `${editUrlBase}?authuser=${encodeURIComponent(viewAs)}`
+      )}`
     : null
 
   // Actually-rendered iframe URL, based on selected mode.
-  const iframeUrl = mode === 'edit' && editUrl ? editUrl : viewUrl
+  const iframeUrl = mode === 'edit' && editUrlIframe ? editUrlIframe : viewUrl
   const iframeNeedsSandbox = mode === 'edit' || !canStream
 
-  const driveUrl = `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
+  // "Add Google session" URL — lands the user on Google's sign-in for the
+  // specific account, then continues to the editor. Use this when the
+  // iframe shows "request access" because that Google account isn't signed
+  // into Chrome at all.
+  const addSessionUrl = canEdit
+    ? `https://accounts.google.com/AddSession?Email=${encodeURIComponent(viewAs)}&continue=${encodeURIComponent(
+        `${editUrlBase}?authuser=${encodeURIComponent(viewAs)}`
+      )}`
+    : null
+
+  const driveUrl =
+    mode === 'edit' && editUrlNewTab
+      ? editUrlNewTab
+      : `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-zinc-950">
@@ -833,13 +860,45 @@ function PreviewModal({
           href={driveUrl}
           target="_blank"
           rel="noopener noreferrer"
-          title="Open in Drive"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          title={mode === 'edit' ? 'Open the editor in a new tab' : 'Open in Drive'}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium',
+            mode === 'edit'
+              ? 'border border-purple-600 bg-purple-600 text-white hover:bg-purple-700'
+              : 'border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+          )}
         >
           <Maximize2 className="h-3.5 w-3.5" />
-          Open in Drive
+          {mode === 'edit' ? 'Pop out editor' : 'Open in Drive'}
         </a>
       </div>
+
+      {mode === 'edit' && canEdit && addSessionUrl && (
+        <div className="flex flex-shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs dark:border-amber-900 dark:bg-amber-950">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1 text-amber-900 dark:text-amber-200">
+            Seeing <span className="font-medium">&quot;You need access&quot;</span> or a login
+            screen below? Chrome isn&apos;t signed into Google as{' '}
+            <span className="font-mono">{viewAs}</span>. One-click fixes:
+          </div>
+          <a
+            href={addSessionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+          >
+            Sign in to Google
+          </a>
+          <a
+            href={editUrlNewTab || driveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+          >
+            Edit in new tab
+          </a>
+        </div>
+      )}
 
       {mode === 'data' && isSheet ? (
         <SheetsTable spreadsheetId={file.id} account={viewAs} />
