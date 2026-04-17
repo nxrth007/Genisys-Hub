@@ -439,6 +439,15 @@ function FileRow({
   )
 }
 
+// Maps the Google Workspace mimeType to its editable web URL path segment.
+// When present here, a file can be opened in Google's real editor via iframe.
+const EDITOR_PATH: Record<string, string> = {
+  'application/vnd.google-apps.document': 'document',
+  'application/vnd.google-apps.spreadsheet': 'spreadsheets',
+  'application/vnd.google-apps.presentation': 'presentation',
+  'application/vnd.google-apps.drawing': 'drawings',
+}
+
 function PreviewModal({
   file,
   onClose,
@@ -451,6 +460,13 @@ function PreviewModal({
   // mailboxes have access. Fixes "you need access" errors that come from
   // Chrome loading the iframe as the wrong multi-logged-in account.
   const [viewAs, setViewAs] = useState(file.sourceAccount)
+
+  // View vs Edit. View uses our backend stream (guaranteed access, read-only).
+  // Edit iframes Google's real editor (needs Chrome to be signed into the
+  // right Google account for the cookie session to have edit permission).
+  const editorPath = EDITOR_PATH[file.mimeType]
+  const canEdit = Boolean(editorPath)
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow
@@ -476,11 +492,26 @@ function PreviewModal({
   ]
   const canStream = !GOOGLE_NATIVE_NOT_STREAMABLE.includes(file.mimeType)
 
-  // Stream through our backend using the stored OAuth token — bypasses Chrome's
-  // cookie-session auth entirely. "Viewing as" picks which token to use.
-  const previewUrl = canStream
+  // View URL: stream through our backend using the stored OAuth token —
+  // bypasses Chrome's cookie-session auth entirely. "Viewing as" picks which
+  // token to use.
+  const viewUrl = canStream
     ? `/api/drive/stream?id=${encodeURIComponent(file.id)}&account=${encodeURIComponent(viewAs)}`
     : `https://drive.google.com/file/d/${file.id}/preview?authuser=${encodeURIComponent(viewAs)}`
+
+  // Edit URL: Google's real editor. Requires the iframe's Chrome cookie
+  // session to be signed in as the account with edit permission — the
+  // authuser hint helps when multiple accounts are signed in at once, but
+  // if the account isn't signed in at all, Google shows a login inside
+  // the frame.
+  const editUrl = canEdit
+    ? `https://docs.google.com/${editorPath}/d/${file.id}/edit?authuser=${encodeURIComponent(viewAs)}&rm=embedded`
+    : null
+
+  // Actually-rendered iframe URL, based on selected mode.
+  const iframeUrl = mode === 'edit' && editUrl ? editUrl : viewUrl
+  const iframeNeedsSandbox = mode === 'edit' || !canStream
+
   const driveUrl = `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
 
   return (
@@ -521,9 +552,37 @@ function PreviewModal({
           </p>
         </div>
 
+        {canEdit && (
+          <div className="flex overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+            <button
+              onClick={() => setMode('view')}
+              className={cn(
+                'px-3 py-1 text-xs font-medium transition-colors',
+                mode === 'view'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+              )}
+            >
+              View
+            </button>
+            <button
+              onClick={() => setMode('edit')}
+              className={cn(
+                'px-3 py-1 text-xs font-medium transition-colors',
+                mode === 'edit'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+              )}
+              title="Opens Google's real editor inline. Requires Chrome to be signed into the right Google account."
+            >
+              Edit
+            </button>
+          </div>
+        )}
+
         {file.visibleToAccounts.length > 1 ? (
           <div className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900">
-            <span className="text-zinc-500">Viewing as</span>
+            <span className="text-zinc-500">{mode === 'edit' ? 'Edit as' : 'View as'}</span>
             <select
               value={viewAs}
               onChange={(e) => setViewAs(e.target.value)}
@@ -558,21 +617,20 @@ function PreviewModal({
       </div>
 
       <iframe
-        // Key includes viewAs so switching accounts forces a fresh iframe load.
-        key={`${file.id}-${viewAs}`}
-        src={previewUrl}
+        // Key includes mode + viewAs so switching them forces a fresh iframe load.
+        key={`${file.id}-${mode}-${viewAs}`}
+        src={iframeUrl}
         title={file.name}
         className="flex-1 w-full bg-white dark:bg-zinc-950"
-        allow="autoplay; fullscreen"
-        // Sandbox only applies to the third-party drive.google.com fallback.
-        // Our own same-origin stream runs unsandboxed so Chrome's built-in
-        // PDF viewer extension can load correctly (sandbox conflicts with
-        // the viewer's nested extension iframe and triggers "This page has
-        // been blocked by Chrome" errors).
+        allow="autoplay; clipboard-read; clipboard-write; fullscreen"
+        // Sandbox only for third-party iframes (drive.google.com, docs.google.com).
+        // Our own same-origin stream runs unsandboxed so Chrome's built-in PDF
+        // viewer extension works. allow-top-navigation-by-user-activation lets
+        // the real Google editor open links when the user clicks them.
         sandbox={
-          canStream
-            ? undefined
-            : 'allow-scripts allow-same-origin allow-popups allow-forms allow-downloads'
+          iframeNeedsSandbox
+            ? 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-downloads allow-top-navigation-by-user-activation allow-presentation'
+            : undefined
         }
       />
 

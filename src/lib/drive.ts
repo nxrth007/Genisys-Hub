@@ -75,9 +75,14 @@ export function getAuthUrl(baseUrl?: string, state?: string) {
     // Force consent so we always get a refresh_token on re-connects.
     prompt: 'consent',
     scope: [
-      // Read-only covers file content + metadata. Swap to
-      // 'https://www.googleapis.com/auth/drive' later if we need write access.
-      'https://www.googleapis.com/auth/drive.readonly',
+      // Full Drive access — required for create/rename/trash/upload operations
+      // and for Sheets API read/write on arbitrary existing files. Previously
+      // drive.readonly; anyone who connected before this change must reconnect
+      // for write features to work.
+      'https://www.googleapis.com/auth/drive',
+      // Explicit Sheets scope so the Sheets API calls don't rely on Drive
+      // scope inheritance (and so future scope narrowing is easier).
+      'https://www.googleapis.com/auth/spreadsheets',
       'https://www.googleapis.com/auth/userinfo.email',
     ],
     state,
