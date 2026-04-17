@@ -20,6 +20,7 @@ type Appointment = {
   roofType: string | null
   roofAge: string | null
   status: string
+  estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
 }
@@ -79,6 +80,7 @@ export default function EditAppointmentPage({
     roofType: appt.roofType || '',
     roofAge: appt.roofAge || '',
     status: appt.status,
+    estimatedDealValue: appt.estimatedDealValue || '',
     notes: appt.notes || '',
     callRecordingLink: appt.callRecordingLink || '',
   }

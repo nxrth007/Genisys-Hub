@@ -37,6 +37,7 @@ type AppointmentInput = {
   roofType?: string | null
   roofAge?: string | null
   status?: string
+  estimatedDealValue?: string | null
   notes?: string | null
   callRecordingLink?: string | null
 }
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
       roofType: body.roofType?.trim() || null,
       roofAge: body.roofAge?.trim() || null,
       status,
+      estimatedDealValue: body.estimatedDealValue?.trim() || null,
       notes: body.notes?.trim() || null,
       callRecordingLink: body.callRecordingLink?.trim() || null,
     },

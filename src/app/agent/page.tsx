@@ -29,6 +29,7 @@ type Appointment = {
   roofType: string | null
   roofAge: string | null
   status: string
+  estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
   lastSyncedAt: string | null

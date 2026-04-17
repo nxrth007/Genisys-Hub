@@ -586,11 +586,17 @@ export async function getSheetData(
 // Appointments sheet sync — write path for the /agent portal.
 //
 // Design:
-// - One "master" spreadsheet (id from env MASTER_APPOINTMENTS_SHEET_ID) holds
-//   every agent's bookings.
-// - One tab per agent, named after the agent on approval (ensureAgentTab),
-//   plus a rollup "Master Table" tab that every appointment also lands in.
-// - Column order matches what the call center already uses on Google Sheets.
+// - One "master" spreadsheet (id from env MASTER_APPOINTMENTS_SHEET_ID)
+//   holds every agent's bookings. Alex curates the column layout of its
+//   "Master Table" tab manually.
+// - One tab per agent, named after the agent on approval (ensureAgentTab).
+//
+// The sync is SCHEMA-AWARE: on every write we read the target tab's header
+// row, figure out each column's meaning by matching the header text
+// against a set of aliases, and build a row that slots each value into
+// the right column. Unknown columns get blank cells so row alignment
+// stays intact. We never overwrite headers that already exist — only
+// the first newly-created agent tab gets seeded.
 // ---------------------------------------------------------------------------
 
 /** Env-sourced spreadsheet id. Falls back to the one Alex shared on 2026-04-17. */
@@ -601,36 +607,184 @@ export function getMasterSpreadsheetId(): string {
   )
 }
 
-export const APPOINTMENT_COLUMN_ORDER: Array<{ key: string; header: string }> = [
-  { key: 'apptDateTime', header: 'Appt Date and Time' },
-  { key: 'customerName', header: "Customer's Name" },
-  { key: 'customerPhone', header: "Customer's Phone Number" },
-  { key: 'address', header: 'Address' },
-  { key: 'email', header: 'Email' },
-  { key: 'monthlyBill', header: 'Monthly Bill' },
-  { key: 'utilityProvider', header: 'Utility Provider' },
-  { key: 'roofType', header: 'Roof Type' },
-  { key: 'roofAge', header: 'Roof Age' },
-  { key: 'status', header: 'Appointment Status' },
-  { key: 'notes', header: 'NOTES' },
-  { key: 'callRecordingLink', header: 'Call Recording Link' },
-  // Extra columns for provenance tracking in the master rollup. Per-agent
-  // tabs skip these (they're implied).
-  { key: 'agentName', header: 'Agent Name' },
-  { key: 'agentEmail', header: 'Agent Email' },
-  { key: 'createdAt', header: 'Logged At' },
+export const MASTER_TAB_TITLE = 'Master Table'
+
+// ---- Canonical keys + alias → key map ----------------------------------
+
+type CanonicalKey =
+  | 'apptDate'
+  | 'apptTime'
+  | 'apptDateTime'
+  | 'customerName'
+  | 'customerPhone'
+  | 'address'
+  | 'email'
+  | 'monthlyBill'
+  | 'utilityProvider'
+  | 'roofType'
+  | 'roofAge'
+  | 'status'
+  | 'estimatedDealValue'
+  | 'notes'
+  | 'callRecordingLink'
+  | 'agentName'
+  | 'agentEmail'
+  | 'loggedAt'
+
+// Normalized alias → canonical key. Normalization lowercases + strips
+// punctuation and whitespace, so "Customer's Phone Number" and
+// "customer phone number" both map to the same canonical.
+const COLUMN_ALIASES: Record<string, CanonicalKey> = {
+  // Date / time
+  appointmentdate: 'apptDate',
+  apptdate: 'apptDate',
+  date: 'apptDate',
+  appointmenttime: 'apptTime',
+  appttime: 'apptTime',
+  time: 'apptTime',
+  appointmentdateandtime: 'apptDateTime',
+  apptdateandtime: 'apptDateTime',
+  dateandtime: 'apptDateTime',
+  datetime: 'apptDateTime',
+  // Customer
+  clientname: 'customerName',
+  customername: 'customerName',
+  customersname: 'customerName',
+  name: 'customerName',
+  phonenumber: 'customerPhone',
+  customerphonenumber: 'customerPhone',
+  customersphonenumber: 'customerPhone',
+  customerphone: 'customerPhone',
+  phone: 'customerPhone',
+  address: 'address',
+  email: 'email',
+  customeremail: 'email',
+  // Solar-specific
+  monthlybill: 'monthlyBill',
+  bill: 'monthlyBill',
+  utilityprovider: 'utilityProvider',
+  utility: 'utilityProvider',
+  rooftype: 'roofType',
+  roofage: 'roofAge',
+  // Status + value
+  appointmentstatus: 'status',
+  status: 'status',
+  estimateddealvalue: 'estimatedDealValue',
+  dealvalue: 'estimatedDealValue',
+  estdealvalue: 'estimatedDealValue',
+  // Notes + recording
+  notes: 'notes',
+  callrecordinglink: 'callRecordingLink',
+  recordinglink: 'callRecordingLink',
+  recording: 'callRecordingLink',
+  // Provenance (optional — populated only if Alex adds these columns)
+  agentname: 'agentName',
+  agent: 'agentName',
+  agentemail: 'agentEmail',
+  loggedat: 'loggedAt',
+  logged: 'loggedAt',
+  createdat: 'loggedAt',
+  timestamp: 'loggedAt',
+}
+
+function normalizeHeader(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function canonicalize(headerText: string): CanonicalKey | null {
+  if (!headerText) return null
+  return COLUMN_ALIASES[normalizeHeader(headerText)] || null
+}
+
+export type TableSchema = {
+  tabTitle: string
+  headerRowNumber: number // 1-based
+  columns: Array<{ header: string; canonical: CanonicalKey | null; columnIndex: number }>
+}
+
+// Default layout — matches Alex's existing Master Table (14 columns, split
+// date+time, includes Estimated Deal Value). Used only when seeding a
+// freshly-created agent tab AND Master Table itself had no detectable
+// schema.
+const DEFAULT_HEADER_ROW = [
+  'Appointment Date',
+  'Appointment Time',
+  'Client Name',
+  'Phone Number',
+  'Address',
+  'Email',
+  'Monthly Bill',
+  'Utility Provider',
+  'Roof Type',
+  'Roof Age',
+  'Appointment Status',
+  'Estimated Deal Value',
+  'Notes',
+  'Call Recording Link',
 ]
 
-/** Columns that appear in the per-agent tabs (drop agent* provenance). */
-const AGENT_TAB_COLUMNS = APPOINTMENT_COLUMN_ORDER.filter(
-  (c) => !['agentName', 'agentEmail'].includes(c.key)
-)
+function buildSchemaFromHeaderRow(
+  tabTitle: string,
+  headerValues: string[],
+  headerRowNumber: number
+): TableSchema {
+  return {
+    tabTitle,
+    headerRowNumber,
+    columns: headerValues.map((h, i) => ({
+      header: h,
+      canonical: canonicalize(h),
+      columnIndex: i,
+    })),
+  }
+}
 
-/** Columns that appear in the master rollup tab (all of them). */
-const MASTER_TAB_COLUMNS = APPOINTMENT_COLUMN_ORDER
+/**
+ * Scan the first 15 rows of a tab for a header row. A row qualifies if at
+ * least 3 of its cells match known canonical keys — enough signal to
+ * distinguish a real header from a random data row or a decorative title.
+ * Returns null if none found.
+ */
+async function detectTableSchema(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabTitle: string
+): Promise<TableSchema | null> {
+  const range = `'${tabTitle.replace(/'/g, "''")}'!A1:Z15`
+  let res
+  try {
+    res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+  } catch {
+    return null
+  }
+  const rows = (res.data.values || []) as unknown[][]
+  for (let i = 0; i < rows.length; i++) {
+    const row = (rows[i] || []).map((c) => (c == null ? '' : String(c)))
+    const matches = row.filter((c) => canonicalize(c) != null).length
+    if (matches >= 3) return buildSchemaFromHeaderRow(tabTitle, row, i + 1)
+  }
+  return null
+}
 
-/** Default master rollup tab title. Matches the existing sheet. */
-export const MASTER_TAB_TITLE = 'Master Table'
+// ---- Value formatters --------------------------------------------------
+
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString('en-US')
+}
+
+function fmtTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour12: true })
+}
+
+function fmtDateTime(d: Date): string {
+  return `${fmtDate(d)} ${fmtTime(d)}`
+}
+
+// ---- Appointment payload + row building --------------------------------
 
 export type AppointmentSyncData = {
   apptDateTime: Date | string
@@ -643,6 +797,7 @@ export type AppointmentSyncData = {
   roofType: string | null
   roofAge: string | null
   status: string
+  estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
   agentName: string | null
@@ -650,30 +805,64 @@ export type AppointmentSyncData = {
   createdAt: Date | string
 }
 
-function formatCell(value: unknown): string {
-  if (value == null) return ''
-  if (value instanceof Date) {
-    // Human-readable local-ish format. Sheets will parse back into a date
-    // when possible; for our purposes plain string is safest.
-    return value.toISOString().replace('T', ' ').replace(/:\d{2}\.\d+Z$/, '')
-  }
-  return String(value)
+function toDate(v: Date | string): Date {
+  return v instanceof Date ? v : new Date(v)
 }
 
-function buildRow(
-  appt: AppointmentSyncData,
-  columns: typeof APPOINTMENT_COLUMN_ORDER
-): string[] {
-  const row: Record<string, unknown> = { ...appt }
-  return columns.map((c) => formatCell(row[c.key]))
+function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null): string {
+  if (!key) return '' // unknown column — leave blank so row alignment holds
+  const when = toDate(appt.apptDateTime)
+  switch (key) {
+    case 'apptDate':
+      return fmtDate(when)
+    case 'apptTime':
+      return fmtTime(when)
+    case 'apptDateTime':
+      return fmtDateTime(when)
+    case 'customerName':
+      return appt.customerName || ''
+    case 'customerPhone':
+      return appt.customerPhone || ''
+    case 'address':
+      return appt.address || ''
+    case 'email':
+      return appt.email || ''
+    case 'monthlyBill':
+      return appt.monthlyBill || ''
+    case 'utilityProvider':
+      return appt.utilityProvider || ''
+    case 'roofType':
+      return appt.roofType || ''
+    case 'roofAge':
+      return appt.roofAge || ''
+    case 'status':
+      return appt.status || ''
+    case 'estimatedDealValue':
+      return appt.estimatedDealValue || ''
+    case 'notes':
+      return appt.notes || ''
+    case 'callRecordingLink':
+      return appt.callRecordingLink || ''
+    case 'agentName':
+      return appt.agentName || ''
+    case 'agentEmail':
+      return appt.agentEmail || ''
+    case 'loggedAt':
+      return fmtDateTime(toDate(appt.createdAt))
+    default:
+      return ''
+  }
 }
+
+function buildRowForSchema(schema: TableSchema, appt: AppointmentSyncData): string[] {
+  return schema.columns.map((col) => valueForCanonical(appt, col.canonical))
+}
+
+// ---- Auth + tab helpers -------------------------------------------------
 
 async function getSheetsClient(accountEmail: string) {
-  // Reuse the Sheets client we already wire up for the read-only Data view.
-  // (Internal helper defined inline to avoid exporting the low-level auth.)
   const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
   if (!account) throw new Error(`No Drive account for ${accountEmail}`)
-
   const oauth2Client = new google.auth.OAuth2(
     process.env.AUTH_GOOGLE_ID,
     process.env.AUTH_GOOGLE_SECRET
@@ -697,12 +886,7 @@ async function getSheetsClient(accountEmail: string) {
   return google.sheets({ version: 'v4', auth: oauth2Client })
 }
 
-/**
- * Picks a connected Drive account that has access to the master spreadsheet.
- * We prefer alex@leadgenisys.com (the owner per Alex's setup); if not
- * connected, fall back to any connected account. Caller handles the "no
- * accounts connected" case.
- */
+/** Prefer alex@leadgenisys.com (sheet owner), fall back to any Drive account. */
 async function getWriterAccountEmail(): Promise<string> {
   const preferred = await prisma.driveAccount.findUnique({
     where: { email: 'alex@leadgenisys.com' },
@@ -718,7 +902,6 @@ async function getWriterAccountEmail(): Promise<string> {
 }
 
 function sanitizeTabName(raw: string): string {
-  // Google Sheets tab names: max 100 chars; no [ ] * ? / \. Trim + replace.
   return raw.replace(/[[\]*?/\\]/g, '').slice(0, 100).trim()
 }
 
@@ -738,27 +921,52 @@ async function findTabByTitle(
   return { sheetId: found.sheetId, title: found.title }
 }
 
-async function writeHeaderRow(
+/** 1-based column index → spreadsheet letter (1→A, 14→N, 27→AA). */
+function colLetter(n: number): string {
+  let s = ''
+  let i = n
+  while (i > 0) {
+    const m = (i - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    i = Math.floor((i - 1) / 26)
+  }
+  return s || 'A'
+}
+
+async function ensureTabExists(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  title: string
+): Promise<void> {
+  const existing = await findTabByTitle(sheets, spreadsheetId, title)
+  if (existing) return
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  })
+}
+
+async function seedHeaderRow(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string,
   tabTitle: string,
-  columns: typeof APPOINTMENT_COLUMN_ORDER
-) {
-  const values = [columns.map((c) => c.header)]
+  headers: string[]
+): Promise<void> {
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `'${tabTitle.replace(/'/g, "''")}'!A1`,
     valueInputOption: 'RAW',
-    requestBody: { values },
+    requestBody: { values: [headers] },
   })
 }
 
 /**
- * Ensures a tab exists for the given agent. If it needs to be created, also
- * seeds the header row. Returns the final tab title (may be sanitized).
+ * Ensure an agent has a tab in the master spreadsheet. New tabs inherit
+ * the Master Table's column order so the layout is consistent. Existing
+ * tabs are returned as-is — we never touch their headers or data.
  *
- * Called from admin approve action so the tab exists before the agent's
- * first appointment sync.
+ * IMPORTANT: we NEVER write to the Master Table's header row. Alex curates
+ * that manually; the sync only reads it.
  */
 export async function ensureAgentTab(params: {
   agentName: string | null
@@ -768,41 +976,36 @@ export async function ensureAgentTab(params: {
   const accountEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(accountEmail)
 
-  // Preferred name: full display name; fall back to email local-part so tabs
-  // stay unique even if names collide.
   const base = params.agentName?.trim() || params.agentEmail.split('@')[0]
   const title = sanitizeTabName(base)
 
-  // Does it already exist?
   const existing = await findTabByTitle(sheets, spreadsheetId, title)
   if (existing) return existing.title
 
-  // Create the tab.
+  // Detect master schema so the new agent tab mirrors its columns.
+  const masterSchema = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  const headers = masterSchema
+    ? masterSchema.columns.map((c) => c.header)
+    : DEFAULT_HEADER_ROW
+
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
-    requestBody: {
-      requests: [{ addSheet: { properties: { title } } }],
-    },
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
   })
-  await writeHeaderRow(sheets, spreadsheetId, title, AGENT_TAB_COLUMNS)
-
-  // Also make sure the Master Table tab has its header row. Harmless no-op
-  // if it's already populated — we overwrite row 1 with the same headers.
-  const master = await findTabByTitle(sheets, spreadsheetId, MASTER_TAB_TITLE)
-  if (!master) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: MASTER_TAB_TITLE } } }] },
-    })
-  }
-  await writeHeaderRow(sheets, spreadsheetId, MASTER_TAB_TITLE, MASTER_TAB_COLUMNS)
+  await seedHeaderRow(sheets, spreadsheetId, title, headers)
 
   return title
 }
 
 /**
- * Append a row to both the agent's tab and the master rollup tab. Returns
- * the 1-based row numbers so callers can store them for future updates.
+ * Append a row to the agent's tab and the Master Table. Each tab's column
+ * layout is detected at write time so if Alex reorders/renames columns,
+ * sync adapts without code changes. Returns 1-based row numbers for later
+ * in-place edits.
+ *
+ * Master Table headers are NEVER written — if the sheet somehow has no
+ * detectable header row we still append, using a synthesized default
+ * layout, without touching row 1.
  */
 export async function appendAppointmentRows(params: {
   agentTabTitle: string
@@ -812,12 +1015,28 @@ export async function appendAppointmentRows(params: {
   const accountEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(accountEmail)
 
-  const agentRow = buildRow(params.appt, AGENT_TAB_COLUMNS)
-  const masterRow = buildRow(params.appt, MASTER_TAB_COLUMNS)
+  // Master schema first — new agent tabs will seed using its headers.
+  const masterSchemaMaybe = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  const seedHeaders = masterSchemaMaybe
+    ? masterSchemaMaybe.columns.map((c) => c.header)
+    : DEFAULT_HEADER_ROW
 
-  // We perform the two appends sequentially. Sheets' values.append returns
-  // `updates.updatedRange` (e.g. "'Tab Name'!A14:N14") — we parse the row
-  // number out of that so edits can update the same row later.
+  // Agent tab: ensure it exists, seed only if empty.
+  await ensureTabExists(sheets, spreadsheetId, params.agentTabTitle)
+  let agentSchema = await detectTableSchema(sheets, spreadsheetId, params.agentTabTitle)
+  if (!agentSchema) {
+    await seedHeaderRow(sheets, spreadsheetId, params.agentTabTitle, seedHeaders)
+    agentSchema = buildSchemaFromHeaderRow(params.agentTabTitle, seedHeaders, 1)
+  }
+
+  // Master: never seed. If no schema detected, synthesize one from defaults.
+  const masterSchema =
+    masterSchemaMaybe ||
+    buildSchemaFromHeaderRow(MASTER_TAB_TITLE, DEFAULT_HEADER_ROW, 1)
+
+  const agentRowValues = buildRowForSchema(agentSchema, params.appt)
+  const masterRowValues = buildRowForSchema(masterSchema, params.appt)
+
   async function appendOne(tab: string, row: string[]): Promise<number> {
     const res = await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -827,20 +1046,16 @@ export async function appendAppointmentRows(params: {
       requestBody: { values: [row] },
     })
     const updated = res.data.updates?.updatedRange || ''
-    // Matches '...!A14:N14' — capture the start row.
     const m = updated.match(/![A-Z]+(\d+):/)
     return m ? Number(m[1]) : 0
   }
 
-  const agentRowNumber = await appendOne(params.agentTabTitle, agentRow)
-  const masterRowNumber = await appendOne(MASTER_TAB_TITLE, masterRow)
+  const agentRowNumber = await appendOne(params.agentTabTitle, agentRowValues)
+  const masterRowNumber = await appendOne(MASTER_TAB_TITLE, masterRowValues)
   return { agentRow: agentRowNumber, masterRow: masterRowNumber }
 }
 
-/**
- * Update existing rows (agent tab + master tab) in place. Used when an
- * agent edits their appointment.
- */
+/** Update rows in place. Re-detects schema each call so edits stay aligned. */
 export async function updateAppointmentRows(params: {
   agentTabTitle: string
   agentRowNumber: number
@@ -851,11 +1066,19 @@ export async function updateAppointmentRows(params: {
   const accountEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(accountEmail)
 
-  const agentCols = AGENT_TAB_COLUMNS.length
-  const masterCols = MASTER_TAB_COLUMNS.length
-  const agentEnd = String.fromCharCode(64 + agentCols) // A+n-1; only works for n<=26
-  const masterEnd = String.fromCharCode(64 + masterCols)
+  const [agentSchemaMaybe, masterSchemaMaybe] = await Promise.all([
+    detectTableSchema(sheets, spreadsheetId, params.agentTabTitle),
+    detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE),
+  ])
+  const agentSchema =
+    agentSchemaMaybe ||
+    buildSchemaFromHeaderRow(params.agentTabTitle, DEFAULT_HEADER_ROW, 1)
+  const masterSchema =
+    masterSchemaMaybe ||
+    buildSchemaFromHeaderRow(MASTER_TAB_TITLE, DEFAULT_HEADER_ROW, 1)
 
+  const agentEnd = colLetter(agentSchema.columns.length)
+  const masterEnd = colLetter(masterSchema.columns.length)
   const agentRange = `'${params.agentTabTitle.replace(/'/g, "''")}'!A${params.agentRowNumber}:${agentEnd}${params.agentRowNumber}`
   const masterRange = `'${MASTER_TAB_TITLE}'!A${params.masterRowNumber}:${masterEnd}${params.masterRowNumber}`
 
@@ -864,18 +1087,14 @@ export async function updateAppointmentRows(params: {
     requestBody: {
       valueInputOption: 'USER_ENTERED',
       data: [
-        { range: agentRange, values: [buildRow(params.appt, AGENT_TAB_COLUMNS)] },
-        { range: masterRange, values: [buildRow(params.appt, MASTER_TAB_COLUMNS)] },
+        { range: agentRange, values: [buildRowForSchema(agentSchema, params.appt)] },
+        { range: masterRange, values: [buildRowForSchema(masterSchema, params.appt)] },
       ],
     },
   })
 }
 
-/**
- * Clear two rows (agent + master) when an appointment is deleted. We clear
- * the row contents rather than shifting cells up so existing row numbers
- * for other appointments stay stable.
- */
+/** Clear rows on delete. Wide A:AZ range covers any plausible schema width. */
 export async function clearAppointmentRows(params: {
   agentTabTitle: string
   agentRowNumber: number
@@ -885,8 +1104,8 @@ export async function clearAppointmentRows(params: {
   const accountEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(accountEmail)
 
-  const agentRange = `'${params.agentTabTitle.replace(/'/g, "''")}'!A${params.agentRowNumber}:Z${params.agentRowNumber}`
-  const masterRange = `'${MASTER_TAB_TITLE}'!A${params.masterRowNumber}:Z${params.masterRowNumber}`
+  const agentRange = `'${params.agentTabTitle.replace(/'/g, "''")}'!A${params.agentRowNumber}:AZ${params.agentRowNumber}`
+  const masterRange = `'${MASTER_TAB_TITLE}'!A${params.masterRowNumber}:AZ${params.masterRowNumber}`
 
   await sheets.spreadsheets.values.batchClear({
     spreadsheetId,

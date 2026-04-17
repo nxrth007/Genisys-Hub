@@ -27,6 +27,7 @@ type Appointment = {
   roofType: string | null
   roofAge: string | null
   status: string
+  estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
   lastSyncedAt: string | null
@@ -249,6 +250,7 @@ export default function CallCenterPage() {
                   <th className="px-3 py-2.5">Utility</th>
                   <th className="px-3 py-2.5">Bill</th>
                   <th className="px-3 py-2.5">Roof</th>
+                  <th className="px-3 py-2.5">Deal $</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Rec</th>
                 </tr>
@@ -293,6 +295,9 @@ export default function CallCenterPage() {
                       <td className="px-3 py-2.5 text-zinc-500">
                         {a.roofType || '—'}
                         {a.roofAge && <span className="text-zinc-400"> · {a.roofAge}</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-zinc-500">
+                        {a.estimatedDealValue ? `$${a.estimatedDealValue}` : '—'}
                       </td>
                       <td className="px-3 py-2.5">
                         <span

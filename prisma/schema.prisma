@@ -377,6 +377,7 @@ model Appointment {
   roofType        String?
   roofAge         String?
   status          String   @default("booked") // booked | rescheduled | showed | no_show | cancelled
+  estimatedDealValue String?
   notes           String?  @db.Text
   callRecordingLink String?
 

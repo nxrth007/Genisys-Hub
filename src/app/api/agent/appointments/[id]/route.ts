@@ -91,6 +91,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (rt !== undefined) data.roofType = rt
   const ra = strOrNull(body.roofAge)
   if (ra !== undefined) data.roofAge = ra
+  const edv = strOrNull(body.estimatedDealValue)
+  if (edv !== undefined) data.estimatedDealValue = edv
   const notes = strOrNull(body.notes)
   if (notes !== undefined) data.notes = notes
   const crl = strOrNull(body.callRecordingLink)

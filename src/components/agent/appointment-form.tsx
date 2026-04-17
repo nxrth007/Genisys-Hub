@@ -17,6 +17,7 @@ export type AppointmentFormValues = {
   roofType: string
   roofAge: string
   status: string
+  estimatedDealValue: string
   notes: string
   callRecordingLink: string
 }
@@ -32,6 +33,7 @@ const EMPTY: AppointmentFormValues = {
   roofType: '',
   roofAge: '',
   status: 'booked',
+  estimatedDealValue: '',
   notes: '',
   callRecordingLink: '',
 }
@@ -94,6 +96,7 @@ export function AppointmentForm({
       roofType: values.roofType || null,
       roofAge: values.roofAge || null,
       status: values.status,
+      estimatedDealValue: values.estimatedDealValue || null,
       notes: values.notes || null,
       callRecordingLink: values.callRecordingLink || null,
     }
@@ -257,19 +260,36 @@ export function AppointmentForm({
           </Field>
         </div>
 
-        <Field label="Appointment status">
-          <select
-            value={values.status}
-            onChange={(e) => set('status', e.target.value)}
-            className={inputCls}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Appointment status">
+            <select
+              value={values.status}
+              onChange={(e) => set('status', e.target.value)}
+              className={inputCls}
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Estimated deal value">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">
+                $
+              </span>
+              <input
+                type="text"
+                value={values.estimatedDealValue}
+                onChange={(e) => set('estimatedDealValue', e.target.value)}
+                placeholder="Optional"
+                className={cn(inputCls, 'pl-6')}
+              />
+            </div>
+          </Field>
+        </div>
 
         <Field label="Notes">
           <textarea

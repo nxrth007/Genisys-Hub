@@ -31,6 +31,7 @@ function toSyncData(
     roofType: string | null
     roofAge: string | null
     status: string
+    estimatedDealValue: string | null
     notes: string | null
     callRecordingLink: string | null
     createdAt: Date
@@ -48,6 +49,7 @@ function toSyncData(
     roofType: appt.roofType,
     roofAge: appt.roofAge,
     status: appt.status,
+    estimatedDealValue: appt.estimatedDealValue,
     notes: appt.notes,
     callRecordingLink: appt.callRecordingLink,
     agentName: agent.name,
