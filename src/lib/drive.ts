@@ -937,13 +937,117 @@ async function ensureTabExists(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string,
   title: string
-): Promise<void> {
+): Promise<{ sheetId: number }> {
   const existing = await findTabByTitle(sheets, spreadsheetId, title)
-  if (existing) return
-  await sheets.spreadsheets.batchUpdate({
+  if (existing) return { sheetId: existing.sheetId }
+  const res = await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: { requests: [{ addSheet: { properties: { title } } }] },
   })
+  const sheetId =
+    res.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0
+  return { sheetId }
+}
+
+// ---- Placeholder detection + target-row resolution ---------------------
+
+/** Values like "m/d/yyyy", "xx:xx", "$xx", "##" that Alex's sheet uses as
+ *  template rows. A row qualifies as a placeholder if every non-empty cell
+ *  matches one of these patterns. */
+const PLACEHOLDER_PATTERNS: RegExp[] = [
+  /^m+\/d+\/y+$/i,
+  /^(mm\/dd\/(yy)?yy)$/i,
+  /^x+[:.]x+([:.]x+)?(\s?[ap]m)?$/i,
+  /^\$x+$/i,
+  /^#+$/,
+  /^x+$/i,
+  /^hh[:.]mm([:.]ss)?(\s?[ap]m)?$/i,
+]
+
+function isPlaceholderCell(value: string): boolean {
+  const v = value.trim()
+  if (!v) return false
+  return PLACEHOLDER_PATTERNS.some((p) => p.test(v))
+}
+
+function isEmptyRow(row: string[]): boolean {
+  return row.every((c) => !c || c.trim() === '')
+}
+
+function isPlaceholderRow(row: string[]): boolean {
+  const nonEmpty = row.filter((c) => c && c.trim() !== '')
+  if (nonEmpty.length === 0) return false // empty, handled separately
+  return nonEmpty.every((c) => isPlaceholderCell(c))
+}
+
+/**
+ * Find the best row to write a new appointment into, given a detected
+ * schema. Scans the 1000 rows below the header:
+ *   - First empty row → write there (mode='fill-empty')
+ *   - First all-placeholder row → overwrite (mode='overwrite-placeholder')
+ *   - Otherwise keep scanning
+ * If nothing matched, returns the row index just after the last scanned
+ * row — effectively "append to the bottom".
+ *
+ * This keeps new bookings inside the user's existing Table range (where
+ * the placeholders sit) instead of flying to row 1 like the old
+ * values.append behavior did when the tab had blank rows above the header.
+ */
+async function findWriteTarget(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabTitle: string,
+  schema: TableSchema
+): Promise<{ rowNumber: number; mode: 'fill-empty' | 'overwrite-placeholder' | 'append' }> {
+  const startRow = schema.headerRowNumber + 1
+  const scanRange = `'${tabTitle.replace(/'/g, "''")}'!A${startRow}:Z${startRow + 1000}`
+  let rows: unknown[][] = []
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: scanRange,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    rows = (res.data.values || []) as unknown[][]
+  } catch {
+    // Tab smaller than scan range or permission issue — fall through to append.
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = (rows[i] || []).map((c) => (c == null ? '' : String(c)))
+    if (isEmptyRow(row)) {
+      return { rowNumber: startRow + i, mode: 'fill-empty' }
+    }
+    if (isPlaceholderRow(row)) {
+      return { rowNumber: startRow + i, mode: 'overwrite-placeholder' }
+    }
+  }
+
+  // No empty/placeholder rows inside the scanned region — append after.
+  return { rowNumber: startRow + rows.length, mode: 'append' }
+}
+
+/** Write a single row to a tab at the schema-aware target row. Uses
+ *  values.update (not append) so the row lands exactly where we chose,
+ *  even when the sheet has blank rows above the header or we're
+ *  overwriting a placeholder inside a pre-existing Google Sheets Table. */
+async function writeAppointmentRow(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabTitle: string,
+  schema: TableSchema,
+  rowValues: string[]
+): Promise<number> {
+  const target = await findWriteTarget(sheets, spreadsheetId, tabTitle, schema)
+  const endCol = colLetter(schema.columns.length)
+  const range = `'${tabTitle.replace(/'/g, "''")}'!A${target.rowNumber}:${endCol}${target.rowNumber}`
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [rowValues] },
+  })
+  return target.rowNumber
 }
 
 async function seedHeaderRow(
@@ -958,6 +1062,79 @@ async function seedHeaderRow(
     valueInputOption: 'RAW',
     requestBody: { values: [headers] },
   })
+}
+
+/**
+ * Style a freshly-created agent tab so it looks like a proper table:
+ *   - Freeze the header row so it stays visible while scrolling
+ *   - Bold white text on purple header background (matches the Hub's
+ *     accent color and roughly matches the vibe of Alex's Master Table)
+ *   - Auto-resize columns so long headers don't get cut off
+ * Best-effort: any step can fail without blocking the sync.
+ */
+async function applyAgentTabFormatting(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  sheetId: number,
+  columnCount: number
+): Promise<void> {
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: {
+                sheetId,
+                gridProperties: { frozenRowCount: 1 },
+              },
+              fields: 'gridProperties.frozenRowCount',
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: 0,
+                endRowIndex: 1,
+                startColumnIndex: 0,
+                endColumnIndex: columnCount,
+              },
+              cell: {
+                userEnteredFormat: {
+                  // purple-600 at ~72% opacity on white — matches Hub branding
+                  backgroundColor: { red: 0.486, green: 0.227, blue: 0.929 },
+                  textFormat: {
+                    bold: true,
+                    foregroundColor: { red: 1, green: 1, blue: 1 },
+                    fontSize: 10,
+                  },
+                  horizontalAlignment: 'LEFT',
+                  verticalAlignment: 'MIDDLE',
+                  padding: { top: 6, bottom: 6, left: 10, right: 10 },
+                },
+              },
+              fields:
+                'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)',
+            },
+          },
+          {
+            autoResizeDimensions: {
+              dimensions: {
+                sheetId,
+                dimension: 'COLUMNS',
+                startIndex: 0,
+                endIndex: columnCount,
+              },
+            },
+          },
+        ],
+      },
+    })
+  } catch (err) {
+    console.error('[drive] applyAgentTabFormatting failed (non-fatal):', err)
+  }
 }
 
 /**
@@ -988,11 +1165,13 @@ export async function ensureAgentTab(params: {
     ? masterSchema.columns.map((c) => c.header)
     : DEFAULT_HEADER_ROW
 
-  await sheets.spreadsheets.batchUpdate({
+  const addRes = await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: { requests: [{ addSheet: { properties: { title } } }] },
   })
+  const sheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0
   await seedHeaderRow(sheets, spreadsheetId, title, headers)
+  await applyAgentTabFormatting(sheets, spreadsheetId, sheetId, headers.length)
 
   return title
 }
@@ -1021,11 +1200,16 @@ export async function appendAppointmentRows(params: {
     ? masterSchemaMaybe.columns.map((c) => c.header)
     : DEFAULT_HEADER_ROW
 
-  // Agent tab: ensure it exists, seed only if empty.
-  await ensureTabExists(sheets, spreadsheetId, params.agentTabTitle)
+  // Agent tab: ensure it exists, seed + style only if empty.
+  const { sheetId: agentSheetId } = await ensureTabExists(
+    sheets,
+    spreadsheetId,
+    params.agentTabTitle
+  )
   let agentSchema = await detectTableSchema(sheets, spreadsheetId, params.agentTabTitle)
   if (!agentSchema) {
     await seedHeaderRow(sheets, spreadsheetId, params.agentTabTitle, seedHeaders)
+    await applyAgentTabFormatting(sheets, spreadsheetId, agentSheetId, seedHeaders.length)
     agentSchema = buildSchemaFromHeaderRow(params.agentTabTitle, seedHeaders, 1)
   }
 
@@ -1037,21 +1221,20 @@ export async function appendAppointmentRows(params: {
   const agentRowValues = buildRowForSchema(agentSchema, params.appt)
   const masterRowValues = buildRowForSchema(masterSchema, params.appt)
 
-  async function appendOne(tab: string, row: string[]): Promise<number> {
-    const res = await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `'${tab.replace(/'/g, "''")}'!A1`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [row] },
-    })
-    const updated = res.data.updates?.updatedRange || ''
-    const m = updated.match(/![A-Z]+(\d+):/)
-    return m ? Number(m[1]) : 0
-  }
-
-  const agentRowNumber = await appendOne(params.agentTabTitle, agentRowValues)
-  const masterRowNumber = await appendOne(MASTER_TAB_TITLE, masterRowValues)
+  const agentRowNumber = await writeAppointmentRow(
+    sheets,
+    spreadsheetId,
+    params.agentTabTitle,
+    agentSchema,
+    agentRowValues
+  )
+  const masterRowNumber = await writeAppointmentRow(
+    sheets,
+    spreadsheetId,
+    MASTER_TAB_TITLE,
+    masterSchema,
+    masterRowValues
+  )
   return { agentRow: agentRowNumber, masterRow: masterRowNumber }
 }
 

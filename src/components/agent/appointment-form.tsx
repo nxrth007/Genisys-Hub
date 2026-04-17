@@ -301,9 +301,12 @@ export function AppointmentForm({
           />
         </Field>
 
-        <Field label="Call recording link">
+        <Field label="Call recording link (optional)">
           <input
-            type="url"
+            // type=text (not url) so agents can paste anything — partial URLs,
+            // internal paths, or leave it blank — without browser validation
+            // rejecting the submit.
+            type="text"
             value={values.callRecordingLink}
             onChange={(e) => set('callRecordingLink', e.target.value)}
             placeholder="https://microtalk.dialler.net/RECORDINGS/..."
