@@ -13,6 +13,9 @@ import {
   AlertCircle,
   Check,
   X,
+  Video,
+  Phone,
+  ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -35,6 +38,73 @@ type CalEvent = {
   calendarName?: string
   contactName?: string
   status?: string
+  // GHL's event shape varies by calendar integration. We scan all of these
+  // for meeting/phone URLs and surface the first one that matches a known
+  // provider, or any https URL as a generic fallback.
+  address?: string
+  meetingLocation?: string
+  description?: string
+  notes?: string
+  location?: string
+  meetingUrl?: string
+  appointmentMeetingLocation?: string
+  // Allow arbitrary extra fields — GHL payload is loose.
+  [key: string]: unknown
+}
+
+type MeetingLink = {
+  url: string
+  kind: 'zoom' | 'meet' | 'teams' | 'phone' | 'url'
+  label: string
+}
+
+/** Scan an event for a meeting link. Prefers known video providers over
+ *  generic URLs and phone numbers. Returns null if nothing usable is found. */
+function findMeetingLink(ev: CalEvent): MeetingLink | null {
+  // Fields GHL is known to stash URLs in, in rough priority order.
+  const fields = [
+    ev.meetingUrl,
+    ev.meetingLocation,
+    ev.appointmentMeetingLocation,
+    ev.address,
+    ev.location,
+    ev.description,
+    ev.notes,
+  ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+
+  // Also walk every string value in case the URL is in an unexpected field.
+  for (const v of Object.values(ev)) {
+    if (typeof v === 'string' && v.length > 0 && !fields.includes(v)) {
+      fields.push(v)
+    }
+  }
+
+  const urlRe = /https?:\/\/[^\s<>"']+/i
+  // Find a URL first — walk fields and match the URL regex.
+  for (const text of fields) {
+    const m = text.match(urlRe)
+    if (!m) continue
+    const url = m[0].replace(/[.,;)]+$/, '')
+    if (/zoom\.us\//i.test(url)) return { url, kind: 'zoom', label: 'Join Zoom' }
+    if (/meet\.google\.com\//i.test(url)) return { url, kind: 'meet', label: 'Join Meet' }
+    if (/teams\.(microsoft|live)\.com\//i.test(url)) return { url, kind: 'teams', label: 'Join Teams' }
+    // Generic https URL — could be a custom meeting room or a conference tool
+    // we don't recognize. Still useful to surface.
+    return { url, kind: 'url', label: 'Join meeting' }
+  }
+
+  // No URL — look for a phone number in the likely fields. GHL sometimes
+  // stores "Phone Call" appointments with the number in `address` or
+  // `meetingLocation`.
+  for (const text of fields) {
+    const phoneMatch = text.match(/\+?\d[\d\s().-]{8,}\d/)
+    if (phoneMatch) {
+      const digits = phoneMatch[0].replace(/[^\d+]/g, '')
+      return { url: `tel:${digits}`, kind: 'phone', label: digits }
+    }
+  }
+
+  return null
 }
 
 export default function TodayPage() {
@@ -134,31 +204,35 @@ export default function TodayPage() {
               No meetings scheduled today.
             </div>
           ) : (
-            events.map((ev, i) => (
-              <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
-                <div className="flex-shrink-0 text-right" style={{ minWidth: '6rem' }}>
-                  <div className="text-sm font-medium">
-                    {formatTime(ev.startTime)}
-                  </div>
-                  {ev.endTime && (
-                    <div className="text-xs text-zinc-400">
-                      – {formatTime(ev.endTime)}
+            events.map((ev, i) => {
+              const link = findMeetingLink(ev)
+              return (
+                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
+                  <div className="flex-shrink-0 text-right" style={{ minWidth: '6rem' }}>
+                    <div className="text-sm font-medium">
+                      {formatTime(ev.startTime)}
                     </div>
-                  )}
-                </div>
-                <div className="h-8 w-px bg-purple-200 dark:bg-purple-800" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">
-                    {ev.title || ev.name || 'Untitled'}
+                    {ev.endTime && (
+                      <div className="text-xs text-zinc-400">
+                        – {formatTime(ev.endTime)}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex gap-2 text-xs text-zinc-500">
-                    {ev.calendarName && <span>{ev.calendarName}</span>}
-                    {ev.contactName && <span>• {ev.contactName}</span>}
-                    {ev.status && <span>• {ev.status}</span>}
+                  <div className="h-8 w-px bg-purple-200 dark:bg-purple-800" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">
+                      {ev.title || ev.name || 'Untitled'}
+                    </div>
+                    <div className="flex gap-2 text-xs text-zinc-500">
+                      {ev.calendarName && <span>{ev.calendarName}</span>}
+                      {ev.contactName && <span>• {ev.contactName}</span>}
+                      {ev.status && <span>• {ev.status}</span>}
+                    </div>
                   </div>
+                  {link && <JoinButton link={link} />}
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </section>
@@ -489,6 +563,40 @@ function BriefTestButton() {
         <span className="text-xs text-green-600">Sent!</span>
       )}
     </div>
+  )
+}
+
+function JoinButton({ link }: { link: MeetingLink }) {
+  const Icon =
+    link.kind === 'phone' ? Phone : link.kind === 'url' ? ExternalLink : Video
+
+  // Distinct tint per provider so Ethan can recognize at a glance which
+  // meeting tool he's about to launch.
+  const tone =
+    link.kind === 'zoom'
+      ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+      : link.kind === 'meet'
+        ? 'border-green-600 bg-green-600 text-white hover:bg-green-700'
+        : link.kind === 'teams'
+          ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
+          : link.kind === 'phone'
+            ? 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
+            : 'border-purple-600 bg-purple-600 text-white hover:bg-purple-700'
+
+  return (
+    <a
+      href={link.url}
+      target={link.kind === 'phone' ? undefined : '_blank'}
+      rel={link.kind === 'phone' ? undefined : 'noopener noreferrer'}
+      title={link.url}
+      className={cn(
+        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium',
+        tone
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {link.label}
+    </a>
   )
 }
 
