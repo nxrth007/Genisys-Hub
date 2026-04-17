@@ -24,7 +24,21 @@ model User {
   name          String?
   image         String?
   emailVerified DateTime?
-  role          String    @default("member") // member | admin
+  // Roles:
+  //   member        — staff, default for Google SSO signups
+  //   admin         — staff with admin privileges (first user, or promoted)
+  //   agent_pending — registered but awaiting approval (no access yet)
+  //   agent         — approved call-center agent, can access /agent only
+  //   agent_denied  — registration denied
+  role          String    @default("member")
+  // For Credentials-auth users (agents). Null for Google SSO users.
+  passwordHash  String?
+  // Which tab title was created in the master appointments spreadsheet for
+  // this agent (set when their registration is approved). Null otherwise.
+  agentSheetTab String?
+  // When the agent was approved. Null for pending / denied / staff.
+  approvedAt    DateTime?
+  approvedById  String?
   timezone      String    @default("America/New_York")
   phoneNumber   String?   // E.164, used for SMS reminders
   createdAt     DateTime  @default(now())
@@ -37,6 +51,7 @@ model User {
   scheduledSms        ScheduledSms[]
   vaultCreated        VaultEntry[]        @relation("VaultEntryCreator")
   vaultAccessLogs     VaultAccessLog[]
+  appointments        Appointment[]       @relation("AgentAppointments")
 }
 
 model Account {
@@ -338,4 +353,45 @@ model AppSetting {
   id    String @id @default(cuid())
   key   String @unique
   value String @db.Text
+}
+
+// -----------------------------------------------------------------------------
+// Call-center appointments — booked by agents via /agent portal.
+// One row per appointment; synced to the master spreadsheet (one row in the
+// agent's personal tab + one row in the master rollup tab).
+// -----------------------------------------------------------------------------
+
+model Appointment {
+  id              String   @id @default(cuid())
+  agentUserId     String
+  agent           User     @relation("AgentAppointments", fields: [agentUserId], references: [id], onDelete: Cascade)
+
+  // Booking details — matches the fields the call center currently records.
+  apptDateTime    DateTime
+  customerName    String
+  customerPhone   String
+  address         String?
+  email           String?
+  monthlyBill     String?
+  utilityProvider String?
+  roofType        String?
+  roofAge         String?
+  status          String   @default("booked") // booked | rescheduled | showed | no_show | cancelled
+  notes           String?  @db.Text
+  callRecordingLink String?
+
+  // Google Sheets sync tracking — row numbers in the agent's tab and the
+  // master rollup tab. Null until first sync succeeds; populated after so
+  // subsequent edits update the existing rows instead of duplicating.
+  agentSheetRowNumber  Int?
+  masterSheetRowNumber Int?
+  lastSyncedAt         DateTime?
+  syncError            String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentUserId, createdAt])
+  @@index([status])
+  @@index([apptDateTime])
 }
