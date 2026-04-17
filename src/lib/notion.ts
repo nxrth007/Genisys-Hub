@@ -98,6 +98,19 @@ export async function updatePage(pageId: string, properties: Record<string, unkn
   })
 }
 
+/**
+ * Notion's API doesn't have a hard delete from the integration — setting
+ * archived: true moves the page to the trash, which the user can restore
+ * or permanently delete from the Notion UI. This is the correct "delete"
+ * semantic for our task-board UI.
+ */
+export async function archivePage(pageId: string) {
+  return notionFetch(`/pages/${pageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ archived: true }),
+  })
+}
+
 export async function listUsers() {
   return notionFetch('/users')
 }

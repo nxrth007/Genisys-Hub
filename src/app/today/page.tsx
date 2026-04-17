@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2,
@@ -16,8 +17,10 @@ import {
   Video,
   Phone,
   ExternalLink,
+  Pin,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { TaskBoard } from '@/components/notion/task-board'
 
 type Task = {
   id: string
@@ -138,6 +141,19 @@ export default function TodayPage() {
   const incompleteTasks = tasks.filter((t) => !t.completedAt)
   const completedTasks = tasks.filter((t) => t.completedAt)
 
+  // If a Notion database has been pinned from the task-board page, embed
+  // that Kanban on Today instead of the built-in local tasks list. Ethan
+  // gets the full drag-and-drop + delete experience without leaving Today.
+  const pinnedBoardQuery = useQuery<{ dbId: string | null }>({
+    queryKey: ['today-task-board-setting'],
+    queryFn: async () => {
+      const res = await fetch('/api/settings/today-task-board')
+      if (!res.ok) throw new Error('Failed to load pinned board')
+      return res.json()
+    },
+  })
+  const pinnedDbId = pinnedBoardQuery.data?.dbId
+
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center justify-between">
@@ -160,13 +176,16 @@ export default function TodayPage() {
         </div>
         <div className="flex gap-2">
           <BriefTestButton />
-          <button
-            onClick={() => setShowAdd(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add task
-          </button>
+          {!pinnedDbId && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
+              title="Add a local task (Notion board takes over when pinned)"
+            >
+              <Plus className="h-4 w-4" />
+              Add task
+            </button>
+          )}
         </div>
       </div>
 
@@ -237,56 +256,74 @@ export default function TodayPage() {
         </div>
       </section>
 
-      {/* Tasks section */}
-      <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <CheckCircle2 className="h-4 w-4 text-purple-600" />
-          <h3 className="font-semibold text-sm">
-            Tasks
-            {incompleteTasks.length > 0 && (
-              <span className="ml-2 text-xs font-normal text-zinc-500">
-                ({incompleteTasks.length} remaining)
-              </span>
-            )}
-          </h3>
-        </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {tasksQuery.isLoading ? (
-            <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading tasks…</div>
-          ) : incompleteTasks.length === 0 && completedTasks.length === 0 ? (
-            <div className="px-5 py-8 text-center">
-              <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-300 mb-2" />
-              <p className="text-sm text-zinc-500">
-                No tasks yet. Click &quot;Add task&quot; to get started.
-              </p>
-            </div>
-          ) : (
-            <>
-              {incompleteTasks.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
-                />
-              ))}
-              {completedTasks.length > 0 && (
-                <div className="bg-zinc-50 dark:bg-zinc-950/50">
-                  <div className="px-5 py-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">
-                    Completed today ({completedTasks.length})
-                  </div>
-                  {completedTasks.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
-                    />
-                  ))}
-                </div>
+      {/* Tasks section — Notion Kanban when a DB is pinned, otherwise the
+           built-in local task list. */}
+      {pinnedDbId ? (
+        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <TaskBoard dbId={pinnedDbId} variant="embed" defaultView="board" />
+        </section>
+      ) : (
+        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+            <CheckCircle2 className="h-4 w-4 text-purple-600" />
+            <h3 className="font-semibold text-sm">
+              Tasks
+              {incompleteTasks.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-zinc-500">
+                  ({incompleteTasks.length} remaining)
+                </span>
               )}
-            </>
-          )}
-        </div>
-      </section>
+            </h3>
+            <Link
+              href="/notion"
+              className="ml-auto inline-flex items-center gap-1 text-xs text-purple-600 hover:underline"
+              title="Open a Notion task DB and click 'Pin to Today' to replace this list with a Kanban"
+            >
+              <Pin className="h-3 w-3" /> Pin a Notion board
+            </Link>
+          </div>
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {tasksQuery.isLoading ? (
+              <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading tasks…</div>
+            ) : incompleteTasks.length === 0 && completedTasks.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-300 mb-2" />
+                <p className="text-sm text-zinc-500">
+                  No tasks yet. Click &quot;Add task&quot; to get started, or{' '}
+                  <Link href="/notion" className="text-purple-600 hover:underline">
+                    pin a Notion board
+                  </Link>{' '}
+                  to use a Kanban here.
+                </p>
+              </div>
+            ) : (
+              <>
+                {incompleteTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
+                  />
+                ))}
+                {completedTasks.length > 0 && (
+                  <div className="bg-zinc-50 dark:bg-zinc-950/50">
+                    <div className="px-5 py-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                      Completed today ({completedTasks.length})
+                    </div>
+                    {completedTasks.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {showAdd && (
         <AddTaskModal
