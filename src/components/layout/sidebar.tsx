@@ -16,6 +16,7 @@ import {
   Hash,
   HardDrive,
   Headphones,
+  PhoneCall,
   Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/slack', label: 'Slack', icon: Hash },
   { href: '/vault', label: 'Vault', icon: Key },
+  { href: '/call-center', label: 'Call Center', icon: PhoneCall },
   { href: '/agents', label: 'Agents', icon: Headphones, adminOnly: true },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
