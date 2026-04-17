@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, FormEvent, useMemo, useEffect } from 'react'
+import { useState, FormEvent, useMemo, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -22,7 +22,16 @@ import {
   Filter,
   X,
   Maximize2,
+  Plus,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Download,
+  ChevronRight,
+  Home,
+  FolderPlus,
 } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { cn, formatDate, truncate } from '@/lib/utils'
 
@@ -97,6 +106,10 @@ export default function DrivePage() {
   const [ownership, setOwnership] = useState<OwnershipFilter>('any')
   const [accountFilter, setAccountFilter] = useState<string>('all')
   const [previewFile, setPreviewFile] = useState<DriveFileResponse | null>(null)
+  // Folder navigation — null = show everything. When set, the list is scoped
+  // to this folder's children and breadcrumbs render above the filter bar.
+  const [folder, setFolder] = useState<{ id: string; name: string; account: string } | null>(null)
+  const qc = useQueryClient()
 
   const accountsQuery = useQuery<{ accounts: Array<{ email: string }> }>({
     queryKey: ['drive-accounts'],
@@ -111,13 +124,19 @@ export default function DrivePage() {
     files: DriveFileResponse[]
     errors: Array<{ account: string; message: string }>
   }>({
-    queryKey: ['drive-files', submitted, kind, ownership, accountFilter],
+    queryKey: ['drive-files', submitted, kind, ownership, accountFilter, folder?.id],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (submitted) params.set('q', submitted)
       if (kind !== 'all') params.set('kind', kind)
       if (ownership !== 'any') params.set('ownership', ownership)
       if (accountFilter !== 'all') params.set('account', accountFilter)
+      if (folder) {
+        params.set('parentId', folder.id)
+        // Folder contents must come from the account that owns the folder —
+        // the other account's listing wouldn't know about these children.
+        params.set('account', folder.account)
+      }
       const res = await fetch(`/api/drive/files?${params.toString()}`)
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -159,14 +178,34 @@ export default function DrivePage() {
           </p>
         </div>
         {accounts.length > 0 && (
-          <Link
-            href="/settings"
-            className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            Manage accounts
-          </Link>
+          <div className="flex items-center gap-2">
+            <NewFileMenu
+              accounts={accounts.map((a) => a.email)}
+              defaultAccount={folder?.account || accounts[0]?.email}
+              parentId={folder?.id}
+              onCreated={(created) => {
+                qc.invalidateQueries({ queryKey: ['drive-files'] })
+                if (created.webViewLink) {
+                  window.open(created.webViewLink, '_blank', 'noopener,noreferrer')
+                }
+              }}
+            />
+            <Link
+              href="/settings"
+              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Manage accounts
+            </Link>
+          </div>
         )}
       </div>
+
+      {folder && (
+        <Breadcrumbs
+          folder={folder}
+          onNavigate={(next) => setFolder(next)}
+        />
+      )}
 
       {accounts.length === 0 && !accountsQuery.isLoading ? (
         <EmptyAccountsState />
@@ -308,6 +347,9 @@ export default function DrivePage() {
               files={files}
               multipleAccounts={accounts.length > 1}
               onPreview={setPreviewFile}
+              onOpenFolder={(f) =>
+                setFolder({ id: f.id, name: f.name, account: f.sourceAccount })
+              }
             />
           )}
         </>
@@ -324,10 +366,12 @@ function FileList({
   files,
   multipleAccounts,
   onPreview,
+  onOpenFolder,
 }: {
   files: DriveFileResponse[]
   multipleAccounts: boolean
   onPreview: (file: DriveFileResponse) => void
+  onOpenFolder: (file: DriveFileResponse) => void
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -338,6 +382,7 @@ function FileList({
             file={f}
             multipleAccounts={multipleAccounts}
             onPreview={onPreview}
+            onOpenFolder={onOpenFolder}
           />
         ))}
       </div>
@@ -349,10 +394,12 @@ function FileRow({
   file,
   multipleAccounts,
   onPreview,
+  onOpenFolder,
 }: {
   file: DriveFileResponse
   multipleAccounts: boolean
   onPreview: (file: DriveFileResponse) => void
+  onOpenFolder: (file: DriveFileResponse) => void
 }) {
   const owner = file.owners?.[0]?.displayName || file.owners?.[0]?.emailAddress
   const isFolder = file.mimeType === 'application/vnd.google-apps.folder'
@@ -362,11 +409,10 @@ function FileRow({
       ? `https://drive.google.com/drive/folders/${file.id}`
       : `https://drive.google.com/file/d/${file.id}/view`)
 
-  // Folders don't render in the iframe preview — Drive responds with a download
-  // prompt for their zip. Click behavior: folders open in Drive, files preview in-Hub.
+  // Folders drill in-Hub; files open the preview modal.
   const handleClick = () => {
     if (isFolder) {
-      window.open(driveUrl, '_blank', 'noopener,noreferrer')
+      onOpenFolder(file)
     } else {
       onPreview(file)
     }
@@ -424,18 +470,197 @@ function FileRow({
         </div>
       </div>
 
-      {/* Separate button: open in Drive in a new tab, bypassing the preview. */}
+      <FileRowActions file={file} driveUrl={driveUrl} isFolder={isFolder} />
+    </div>
+  )
+}
+
+function FileRowActions({
+  file,
+  driveUrl,
+  isFolder,
+}: {
+  file: DriveFileResponse
+  driveUrl: string
+  isFolder: boolean
+}) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [newName, setNewName] = useState(file.name)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const patchMutation = useMutation({
+    mutationFn: async (body: { name?: string; starred?: boolean; trashed?: boolean }) => {
+      const res = await fetch(`/api/drive/files/${file.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ account: file.sourceAccount, ...body }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed')
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['drive-files'] })
+    },
+  })
+
+  return (
+    <div ref={menuRef} className="relative flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => patchMutation.mutate({ starred: !file.starred })}
+        disabled={patchMutation.isPending}
+        title={file.starred ? 'Unstar' : 'Star'}
+        className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-yellow-500 dark:hover:bg-zinc-800"
+      >
+        <Star
+          className={cn('h-4 w-4', file.starred && 'fill-yellow-400 text-yellow-400')}
+        />
+      </button>
       <a
         href={driveUrl}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
         title="Open in Drive"
-        className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
+        className="inline-block rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
       >
         <ExternalLink className="h-4 w-4" />
       </a>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="More"
+        className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          {renaming ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const name = newName.trim()
+                if (!name || name === file.name) {
+                  setRenaming(false)
+                  setOpen(false)
+                  return
+                }
+                patchMutation.mutate({ name })
+                setRenaming(false)
+                setOpen(false)
+              }}
+              className="p-2"
+            >
+              <input
+                autoFocus
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setRenaming(false)
+                    setNewName(file.name)
+                  }
+                }}
+                className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              />
+              <div className="mt-2 flex gap-1">
+                <button
+                  type="submit"
+                  className="flex-1 rounded-md bg-purple-600 px-2 py-1 text-xs font-medium text-white hover:bg-purple-700"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenaming(false)
+                    setNewName(file.name)
+                  }}
+                  className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <MenuItem
+                icon={Pencil}
+                label="Rename"
+                onClick={() => {
+                  setRenaming(true)
+                  setNewName(file.name)
+                }}
+              />
+              {!isFolder && (
+                <MenuItem
+                  icon={Download}
+                  label="Download"
+                  onClick={() => {
+                    window.open(
+                      `/api/drive/stream?id=${encodeURIComponent(file.id)}&account=${encodeURIComponent(file.sourceAccount)}`,
+                      '_blank'
+                    )
+                    setOpen(false)
+                  }}
+                />
+              )}
+              <MenuItem
+                icon={Trash2}
+                label="Move to trash"
+                destructive
+                onClick={() => {
+                  if (!confirm(`Move "${file.name}" to Drive trash?`)) return
+                  patchMutation.mutate({ trashed: true })
+                  setOpen(false)
+                }}
+              />
+            </>
+          )}
+        </div>
+      )}
     </div>
+  )
+}
+
+function MenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  destructive,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  onClick: () => void
+  destructive?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800',
+        destructive
+          ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50'
+          : 'text-zinc-700 dark:text-zinc-200'
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
   )
 }
 
@@ -856,6 +1081,207 @@ function SheetsTable({
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+function NewFileMenu({
+  accounts,
+  defaultAccount,
+  parentId,
+  onCreated,
+}: {
+  accounts: string[]
+  defaultAccount: string | undefined
+  parentId?: string
+  onCreated: (file: { id?: string | null; name?: string | null; webViewLink?: string | null }) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [stage, setStage] = useState<{
+    kind: 'document' | 'spreadsheet' | 'presentation' | 'folder'
+  } | null>(null)
+  const [name, setName] = useState('')
+  const [account, setAccount] = useState(defaultAccount || accounts[0] || '')
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setStage(null)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!stage) throw new Error('No kind')
+      const res = await fetch('/api/drive/files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          account,
+          kind: stage.kind,
+          name: name.trim(),
+          parentId,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Create failed')
+      return data.file as { id: string; name: string; webViewLink?: string | null }
+    },
+    onSuccess: (file) => {
+      onCreated(file)
+      setOpen(false)
+      setStage(null)
+      setName('')
+    },
+  })
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        onClick={() => {
+          setOpen((v) => !v)
+          setStage(null)
+        }}
+        className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+      >
+        <Plus className="h-3.5 w-3.5" /> New
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          {!stage ? (
+            <>
+              <MenuItem icon={FileText} label="New Doc" onClick={() => setStage({ kind: 'document' })} />
+              <MenuItem icon={Sheet} label="New Sheet" onClick={() => setStage({ kind: 'spreadsheet' })} />
+              <MenuItem icon={Presentation} label="New Slides" onClick={() => setStage({ kind: 'presentation' })} />
+              <MenuItem icon={FolderPlus} label="New Folder" onClick={() => setStage({ kind: 'folder' })} />
+            </>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!name.trim() || !account) return
+                createMutation.mutate()
+              }}
+              className="space-y-2 p-3"
+            >
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                  Name
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={stage.kind === 'folder' ? 'Folder name' : 'Untitled'}
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                />
+              </div>
+              {accounts.length > 1 && (
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                    Create in
+                  </label>
+                  <select
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
+                    className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                  >
+                    {accounts.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex gap-1">
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending || !name.trim()}
+                  className="flex-1 rounded-md bg-purple-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {createMutation.isPending ? 'Creating…' : 'Create'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStage(null)
+                    setName('')
+                  }}
+                  className="rounded-md px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  Back
+                </button>
+              </div>
+              {createMutation.isError && (
+                <p className="text-xs text-red-600">
+                  {(createMutation.error as Error).message}
+                </p>
+              )}
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Breadcrumbs({
+  folder,
+  onNavigate,
+}: {
+  folder: { id: string; name: string; account: string }
+  onNavigate: (next: { id: string; name: string; account: string } | null) => void
+}) {
+  const query = useQuery<{ crumbs: Array<{ id: string; name: string }> }>({
+    queryKey: ['drive-crumbs', folder.id, folder.account],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/drive/folder?id=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(folder.account)}`
+      )
+      if (!res.ok) throw new Error('Failed to resolve folder')
+      return res.json()
+    },
+  })
+  const crumbs = query.data?.crumbs ?? [{ id: folder.id, name: folder.name }]
+
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+      <button
+        onClick={() => onNavigate(null)}
+        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      >
+        <Home className="h-3 w-3" />
+        All files
+      </button>
+      {crumbs.map((c, i) => {
+        const isLast = i === crumbs.length - 1
+        return (
+          <span key={c.id} className="flex items-center gap-1">
+            <ChevronRight className="h-3 w-3 flex-shrink-0 text-zinc-300" />
+            {isLast ? (
+              <span className="px-1.5 py-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+                {c.name}
+              </span>
+            ) : (
+              <button
+                onClick={() => onNavigate({ id: c.id, name: c.name, account: folder.account })}
+                className="rounded-md px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                {c.name}
+              </button>
+            )}
+          </span>
+        )
+      })}
     </div>
   )
 }

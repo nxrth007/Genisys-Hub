@@ -363,6 +363,119 @@ export async function disconnectAccount(email: string) {
 }
 
 // ---------------------------------------------------------------------------
+// File management — create / rename / star / trash / breadcrumbs.
+// Each op takes the accountEmail whose token will perform it; the caller
+// should pick an account that the target file is visible to.
+// ---------------------------------------------------------------------------
+
+const NEW_FILE_MIME: Record<string, string> = {
+  document: 'application/vnd.google-apps.document',
+  spreadsheet: 'application/vnd.google-apps.spreadsheet',
+  presentation: 'application/vnd.google-apps.presentation',
+  folder: 'application/vnd.google-apps.folder',
+}
+
+export async function createFile(
+  accountEmail: string,
+  params: { kind: keyof typeof NEW_FILE_MIME; name: string; parentId?: string }
+) {
+  const { drive } = await getAuthenticatedClient(accountEmail)
+  const mimeType = NEW_FILE_MIME[params.kind]
+  if (!mimeType) throw new Error(`Unknown file kind: ${params.kind}`)
+
+  const res = await drive.files.create({
+    requestBody: {
+      name: params.name,
+      mimeType,
+      parents: params.parentId ? [params.parentId] : undefined,
+    },
+    fields: 'id, name, mimeType, webViewLink',
+    supportsAllDrives: true,
+  })
+  return res.data
+}
+
+export async function renameFile(
+  accountEmail: string,
+  fileId: string,
+  name: string
+) {
+  const { drive } = await getAuthenticatedClient(accountEmail)
+  const res = await drive.files.update({
+    fileId,
+    requestBody: { name },
+    fields: 'id, name',
+    supportsAllDrives: true,
+  })
+  return res.data
+}
+
+export async function setStarred(
+  accountEmail: string,
+  fileId: string,
+  starred: boolean
+) {
+  const { drive } = await getAuthenticatedClient(accountEmail)
+  const res = await drive.files.update({
+    fileId,
+    requestBody: { starred },
+    fields: 'id, starred',
+    supportsAllDrives: true,
+  })
+  return res.data
+}
+
+/**
+ * Soft delete — moves to trash. Drive keeps trashed files for 30 days before
+ * permanent deletion, which gives us a safe undo window without implementing
+ * our own tombstone logic.
+ */
+export async function trashFile(accountEmail: string, fileId: string) {
+  const { drive } = await getAuthenticatedClient(accountEmail)
+  const res = await drive.files.update({
+    fileId,
+    requestBody: { trashed: true },
+    fields: 'id, trashed',
+    supportsAllDrives: true,
+  })
+  return res.data
+}
+
+/**
+ * Resolve a folder's ancestry chain for breadcrumbs. Walks upward until it
+ * hits a root (My Drive or a Shared Drive root) or a folder the caller can't
+ * read. Stops at 10 levels as a safety bound.
+ */
+export async function getFolderAncestry(
+  accountEmail: string,
+  folderId: string
+): Promise<Array<{ id: string; name: string }>> {
+  const { drive } = await getAuthenticatedClient(accountEmail)
+  const crumbs: Array<{ id: string; name: string }> = []
+  let current: string | null = folderId
+  for (let i = 0; i < 10 && current; i++) {
+    try {
+      // Explicit annotation because the googleapis files.get overload matrix
+      // confuses TS's recursive inference in the loop scope.
+      const data: drive_v3.Schema$File = (
+        await drive.files.get({
+          fileId: current,
+          fields: 'id, name, parents',
+          supportsAllDrives: true,
+        })
+      ).data
+      if (data.id && data.name) {
+        crumbs.unshift({ id: data.id, name: data.name })
+      }
+      current = data.parents?.[0] || null
+    } catch {
+      break
+    }
+  }
+  return crumbs
+}
+
+// ---------------------------------------------------------------------------
 // Sheets API — structured read of spreadsheet tabs + values.
 // ---------------------------------------------------------------------------
 
