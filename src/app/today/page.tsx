@@ -154,9 +154,14 @@ export default function TodayPage() {
   })
   const pinnedDbId = pinnedBoardQuery.data?.dbId
 
+  // When a Kanban is embedded, the Tasks section breaks out to full width so
+  // all status columns fit on screen. The rest of the page keeps a readable
+  // max-width constraint.
+  const constrainedWidth = pinnedDbId ? '' : 'max-w-4xl'
+
   return (
-    <div className="max-w-4xl space-y-6">
-      <div className="flex items-center justify-between">
+    <div className={cn('space-y-6', !pinnedDbId && 'max-w-4xl')}>
+      <div className={cn('flex items-center justify-between', constrainedWidth)}>
         <div>
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
@@ -190,7 +195,7 @@ export default function TodayPage() {
       </div>
 
       {/* Meetings section */}
-      <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedWidth)}>
         <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
           <Calendar className="h-4 w-4 text-purple-600" />
           <h3 className="font-semibold text-sm">
@@ -257,13 +262,14 @@ export default function TodayPage() {
       </section>
 
       {/* Tasks section — Notion Kanban when a DB is pinned, otherwise the
-           built-in local task list. */}
+           built-in local task list. Kanban spans the full page width so all
+           status columns fit without horizontal scroll on normal monitors. */}
       {pinnedDbId ? (
-        <section className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <section className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <TaskBoard dbId={pinnedDbId} variant="embed" defaultView="board" />
         </section>
       ) : (
-        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedWidth)}>
           <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
             <CheckCircle2 className="h-4 w-4 text-purple-600" />
             <h3 className="font-semibold text-sm">

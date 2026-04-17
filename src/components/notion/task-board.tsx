@@ -131,6 +131,7 @@ function DroppableColumn({
   statusOptions,
   priorityOptions,
   assigneeOptions,
+  compact,
   onUpdate,
   onDelete,
   onNewTask,
@@ -148,6 +149,7 @@ function DroppableColumn({
   statusOptions: Array<{ name: string }>
   priorityOptions: string[]
   assigneeOptions: string[]
+  compact?: boolean
   onUpdate: (pageId: string, props: Record<string, unknown>) => void
   onDelete: (pageId: string) => void
   onNewTask: (status: string) => void
@@ -157,7 +159,7 @@ function DroppableColumn({
   const taskIds = tasks.map((t) => t.id)
 
   return (
-    <div className="flex-shrink-0 w-[280px]">
+    <div className={cn('flex-shrink-0', compact ? 'w-[240px]' : 'w-[280px]')}>
       {/* Column Header */}
       <div className={cn(
         'rounded-t-xl px-4 py-3 flex items-center justify-between',
@@ -870,25 +872,48 @@ export function TaskBoard({
       )}
 
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{dbIcon}</span>
+        <div className={cn('flex items-center', variant === 'embed' ? 'gap-2' : 'gap-3')}>
+          <span className={variant === 'embed' ? 'text-base' : 'text-2xl'}>{dbIcon}</span>
           <div>
-            <h2 className="text-xl font-bold">{dbTitle}</h2>
-            <p className="text-sm text-zinc-500">{results.length} tasks</p>
+            <h2 className={cn('font-bold', variant === 'embed' ? 'text-sm' : 'text-xl')}>
+              {dbTitle}
+            </h2>
+            {variant === 'page' && (
+              <p className="text-sm text-zinc-500">{results.length} tasks</p>
+            )}
           </div>
+          {variant === 'embed' && (
+            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {results.length}
+            </span>
+          )}
         </div>
-        <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700">
+        <div className="flex rounded-md border border-zinc-200 dark:border-zinc-700">
           <button
             onClick={() => setViewMode('board')}
-            className={cn('p-2 rounded-l-lg', viewMode === 'board' ? 'bg-purple-600 text-white' : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800')}
+            className={cn(
+              variant === 'embed' ? 'p-1' : 'p-2',
+              'rounded-l-md',
+              viewMode === 'board'
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+            )}
+            title="Board view"
           >
-            <LayoutGrid className="h-4 w-4" />
+            <LayoutGrid className={variant === 'embed' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={cn('p-2 rounded-r-lg', viewMode === 'list' ? 'bg-purple-600 text-white' : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800')}
+            className={cn(
+              variant === 'embed' ? 'p-1' : 'p-2',
+              'rounded-r-md',
+              viewMode === 'list'
+                ? 'bg-purple-600 text-white'
+                : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+            )}
+            title="List view"
           >
-            <List className="h-4 w-4" />
+            <List className={variant === 'embed' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
           </button>
         </div>
       </div>
@@ -907,7 +932,7 @@ export function TaskBoard({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-3 overflow-x-auto pb-4">
+          <div className={cn('flex overflow-x-auto pb-4', variant === 'embed' ? 'gap-2' : 'gap-3')}>
             {statusOptions.map((statusOpt) => (
               <DroppableColumn
                 key={statusOpt.name}
@@ -924,6 +949,7 @@ export function TaskBoard({
                 statusOptions={statusOptions}
                 priorityOptions={priorityOptions}
                 assigneeOptions={assigneeOptions}
+                compact={variant === 'embed'}
                 onUpdate={handleUpdate}
                 onDelete={(pageId) => {
                   if (confirm('Delete this task? It will be moved to Notion\'s trash.')) {
