@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { syncAppointmentCreate } from '@/lib/appointment-sync'
 
 /**
  * GET  /api/agent/appointments  → own appointments, most recent first
@@ -96,8 +97,11 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Sheets sync happens in Phase 5 — fire-and-forget from here once wired up.
-  // For now, store the appointment locally; Phase 5 will add the append call.
+  // Fire-and-forget sheets sync. Errors are surfaced on the appointment
+  // record's syncError field for the UI; we don't block the client response.
+  syncAppointmentCreate(appt.id).catch((err) =>
+    console.error('[appointments POST] sync scheduling failed:', err)
+  )
 
   return NextResponse.json({ ok: true, appointment: appt })
 }

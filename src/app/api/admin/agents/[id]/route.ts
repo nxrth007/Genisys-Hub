@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/gmail'
+import { ensureAgentTab } from '@/lib/drive'
 
 /**
  * GET    /api/admin/agents/[id]  → full agent detail (+ appointments)
@@ -92,8 +93,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     data.role = 'agent'
     data.approvedAt = new Date()
     data.approvedById = session.user.id
-    // agentSheetTab gets set by Phase 5 when the tab is created in the master
-    // spreadsheet. For now we just flip the role.
+    // Create the agent's dedicated tab in the master spreadsheet so their
+    // first appointment has somewhere to go. Best-effort — if Drive isn't
+    // connected yet we still approve them, and `agentSheetTab` stays null
+    // (later sync attempts will retry tab creation on demand).
+    try {
+      const tab = await ensureAgentTab({
+        agentName: existing.name,
+        agentEmail: existing.email,
+      })
+      data.agentSheetTab = tab
+    } catch (err) {
+      console.error('[admin/agents approve] ensureAgentTab failed:', err)
+      data.agentSheetTab = null
+    }
   } else if (body.action === 'deny') {
     data.role = 'agent_denied'
     data.approvedAt = null

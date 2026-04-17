@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
 
 /**
  * GET    /api/agent/appointments/[id]  → one appointment (must be agent's own)
@@ -101,7 +102,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const updated = await prisma.appointment.update({ where: { id }, data })
 
-  // Phase 5 will fire a sheets re-sync here.
+  // Fire-and-forget sheets re-sync. Preserves row numbers if we have them,
+  // falls back to an append if sync had previously failed.
+  syncAppointmentUpdate(updated.id).catch((err) =>
+    console.error('[appointments PATCH] sync scheduling failed:', err)
+  )
 
   return NextResponse.json({ ok: true, appointment: updated })
 }
@@ -112,15 +117,24 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
   const { id } = await ctx.params
+  // Pull the row numbers + the agent's tab title BEFORE deleting so we can
+  // clear the corresponding sheet rows afterward.
   const owned = await prisma.appointment.findFirst({
     where: { id, agentUserId: session.user.id },
-    select: { id: true },
+    include: {
+      agent: { select: { agentSheetTab: true } },
+    },
   })
   if (!owned) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
   await prisma.appointment.delete({ where: { id } })
 
-  // Phase 5 will also clear the sheet rows.
+  // Fire-and-forget sheet row clear.
+  syncAppointmentDelete({
+    agentTabTitle: owned.agent.agentSheetTab,
+    agentRowNumber: owned.agentSheetRowNumber,
+    masterRowNumber: owned.masterSheetRowNumber,
+  }).catch((err) => console.error('[appointments DELETE] sync failed:', err))
 
   return NextResponse.json({ ok: true })
 }

@@ -581,3 +581,315 @@ export async function getSheetData(
     values,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Appointments sheet sync — write path for the /agent portal.
+//
+// Design:
+// - One "master" spreadsheet (id from env MASTER_APPOINTMENTS_SHEET_ID) holds
+//   every agent's bookings.
+// - One tab per agent, named after the agent on approval (ensureAgentTab),
+//   plus a rollup "Master Table" tab that every appointment also lands in.
+// - Column order matches what the call center already uses on Google Sheets.
+// ---------------------------------------------------------------------------
+
+/** Env-sourced spreadsheet id. Falls back to the one Alex shared on 2026-04-17. */
+export function getMasterSpreadsheetId(): string {
+  return (
+    process.env.MASTER_APPOINTMENTS_SHEET_ID ||
+    '10Ms_ppnp5nQ-Xx01u47TPLWauiTWrgUAlFhkLdBhVOA'
+  )
+}
+
+export const APPOINTMENT_COLUMN_ORDER: Array<{ key: string; header: string }> = [
+  { key: 'apptDateTime', header: 'Appt Date and Time' },
+  { key: 'customerName', header: "Customer's Name" },
+  { key: 'customerPhone', header: "Customer's Phone Number" },
+  { key: 'address', header: 'Address' },
+  { key: 'email', header: 'Email' },
+  { key: 'monthlyBill', header: 'Monthly Bill' },
+  { key: 'utilityProvider', header: 'Utility Provider' },
+  { key: 'roofType', header: 'Roof Type' },
+  { key: 'roofAge', header: 'Roof Age' },
+  { key: 'status', header: 'Appointment Status' },
+  { key: 'notes', header: 'NOTES' },
+  { key: 'callRecordingLink', header: 'Call Recording Link' },
+  // Extra columns for provenance tracking in the master rollup. Per-agent
+  // tabs skip these (they're implied).
+  { key: 'agentName', header: 'Agent Name' },
+  { key: 'agentEmail', header: 'Agent Email' },
+  { key: 'createdAt', header: 'Logged At' },
+]
+
+/** Columns that appear in the per-agent tabs (drop agent* provenance). */
+const AGENT_TAB_COLUMNS = APPOINTMENT_COLUMN_ORDER.filter(
+  (c) => !['agentName', 'agentEmail'].includes(c.key)
+)
+
+/** Columns that appear in the master rollup tab (all of them). */
+const MASTER_TAB_COLUMNS = APPOINTMENT_COLUMN_ORDER
+
+/** Default master rollup tab title. Matches the existing sheet. */
+export const MASTER_TAB_TITLE = 'Master Table'
+
+export type AppointmentSyncData = {
+  apptDateTime: Date | string
+  customerName: string
+  customerPhone: string
+  address: string | null
+  email: string | null
+  monthlyBill: string | null
+  utilityProvider: string | null
+  roofType: string | null
+  roofAge: string | null
+  status: string
+  notes: string | null
+  callRecordingLink: string | null
+  agentName: string | null
+  agentEmail: string
+  createdAt: Date | string
+}
+
+function formatCell(value: unknown): string {
+  if (value == null) return ''
+  if (value instanceof Date) {
+    // Human-readable local-ish format. Sheets will parse back into a date
+    // when possible; for our purposes plain string is safest.
+    return value.toISOString().replace('T', ' ').replace(/:\d{2}\.\d+Z$/, '')
+  }
+  return String(value)
+}
+
+function buildRow(
+  appt: AppointmentSyncData,
+  columns: typeof APPOINTMENT_COLUMN_ORDER
+): string[] {
+  const row: Record<string, unknown> = { ...appt }
+  return columns.map((c) => formatCell(row[c.key]))
+}
+
+async function getSheetsClient(accountEmail: string) {
+  // Reuse the Sheets client we already wire up for the read-only Data view.
+  // (Internal helper defined inline to avoid exporting the low-level auth.)
+  const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
+  if (!account) throw new Error(`No Drive account for ${accountEmail}`)
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.AUTH_GOOGLE_ID,
+    process.env.AUTH_GOOGLE_SECRET
+  )
+  oauth2Client.setCredentials({
+    access_token: account.accessToken,
+    refresh_token: account.refreshToken,
+    expiry_date: account.tokenExpiry.getTime(),
+  })
+  oauth2Client.on('tokens', async (newTokens) => {
+    await prisma.driveAccount.update({
+      where: { email: accountEmail },
+      data: {
+        accessToken: newTokens.access_token || account.accessToken,
+        tokenExpiry: newTokens.expiry_date
+          ? new Date(newTokens.expiry_date)
+          : account.tokenExpiry,
+      },
+    })
+  })
+  return google.sheets({ version: 'v4', auth: oauth2Client })
+}
+
+/**
+ * Picks a connected Drive account that has access to the master spreadsheet.
+ * We prefer alex@leadgenisys.com (the owner per Alex's setup); if not
+ * connected, fall back to any connected account. Caller handles the "no
+ * accounts connected" case.
+ */
+async function getWriterAccountEmail(): Promise<string> {
+  const preferred = await prisma.driveAccount.findUnique({
+    where: { email: 'alex@leadgenisys.com' },
+  })
+  if (preferred) return preferred.email
+  const any = await prisma.driveAccount.findFirst({ orderBy: { email: 'asc' } })
+  if (!any) {
+    throw new Error(
+      'No Google Drive account connected — Alex needs to connect alex@leadgenisys.com under Settings → Drive accounts before agent appointments can sync.'
+    )
+  }
+  return any.email
+}
+
+function sanitizeTabName(raw: string): string {
+  // Google Sheets tab names: max 100 chars; no [ ] * ? / \. Trim + replace.
+  return raw.replace(/[[\]*?/\\]/g, '').slice(0, 100).trim()
+}
+
+async function findTabByTitle(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  title: string
+): Promise<{ sheetId: number; title: string } | null> {
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(sheetId,title)',
+  })
+  const found = (res.data.sheets || [])
+    .map((s) => s.properties)
+    .find((p) => p?.title === title)
+  if (!found || found.sheetId == null || !found.title) return null
+  return { sheetId: found.sheetId, title: found.title }
+}
+
+async function writeHeaderRow(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabTitle: string,
+  columns: typeof APPOINTMENT_COLUMN_ORDER
+) {
+  const values = [columns.map((c) => c.header)]
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${tabTitle.replace(/'/g, "''")}'!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values },
+  })
+}
+
+/**
+ * Ensures a tab exists for the given agent. If it needs to be created, also
+ * seeds the header row. Returns the final tab title (may be sanitized).
+ *
+ * Called from admin approve action so the tab exists before the agent's
+ * first appointment sync.
+ */
+export async function ensureAgentTab(params: {
+  agentName: string | null
+  agentEmail: string
+}): Promise<string> {
+  const spreadsheetId = getMasterSpreadsheetId()
+  const accountEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(accountEmail)
+
+  // Preferred name: full display name; fall back to email local-part so tabs
+  // stay unique even if names collide.
+  const base = params.agentName?.trim() || params.agentEmail.split('@')[0]
+  const title = sanitizeTabName(base)
+
+  // Does it already exist?
+  const existing = await findTabByTitle(sheets, spreadsheetId, title)
+  if (existing) return existing.title
+
+  // Create the tab.
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title } } }],
+    },
+  })
+  await writeHeaderRow(sheets, spreadsheetId, title, AGENT_TAB_COLUMNS)
+
+  // Also make sure the Master Table tab has its header row. Harmless no-op
+  // if it's already populated — we overwrite row 1 with the same headers.
+  const master = await findTabByTitle(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  if (!master) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: MASTER_TAB_TITLE } } }] },
+    })
+  }
+  await writeHeaderRow(sheets, spreadsheetId, MASTER_TAB_TITLE, MASTER_TAB_COLUMNS)
+
+  return title
+}
+
+/**
+ * Append a row to both the agent's tab and the master rollup tab. Returns
+ * the 1-based row numbers so callers can store them for future updates.
+ */
+export async function appendAppointmentRows(params: {
+  agentTabTitle: string
+  appt: AppointmentSyncData
+}): Promise<{ agentRow: number; masterRow: number }> {
+  const spreadsheetId = getMasterSpreadsheetId()
+  const accountEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(accountEmail)
+
+  const agentRow = buildRow(params.appt, AGENT_TAB_COLUMNS)
+  const masterRow = buildRow(params.appt, MASTER_TAB_COLUMNS)
+
+  // We perform the two appends sequentially. Sheets' values.append returns
+  // `updates.updatedRange` (e.g. "'Tab Name'!A14:N14") — we parse the row
+  // number out of that so edits can update the same row later.
+  async function appendOne(tab: string, row: string[]): Promise<number> {
+    const res = await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `'${tab.replace(/'/g, "''")}'!A1`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    })
+    const updated = res.data.updates?.updatedRange || ''
+    // Matches '...!A14:N14' — capture the start row.
+    const m = updated.match(/![A-Z]+(\d+):/)
+    return m ? Number(m[1]) : 0
+  }
+
+  const agentRowNumber = await appendOne(params.agentTabTitle, agentRow)
+  const masterRowNumber = await appendOne(MASTER_TAB_TITLE, masterRow)
+  return { agentRow: agentRowNumber, masterRow: masterRowNumber }
+}
+
+/**
+ * Update existing rows (agent tab + master tab) in place. Used when an
+ * agent edits their appointment.
+ */
+export async function updateAppointmentRows(params: {
+  agentTabTitle: string
+  agentRowNumber: number
+  masterRowNumber: number
+  appt: AppointmentSyncData
+}): Promise<void> {
+  const spreadsheetId = getMasterSpreadsheetId()
+  const accountEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(accountEmail)
+
+  const agentCols = AGENT_TAB_COLUMNS.length
+  const masterCols = MASTER_TAB_COLUMNS.length
+  const agentEnd = String.fromCharCode(64 + agentCols) // A+n-1; only works for n<=26
+  const masterEnd = String.fromCharCode(64 + masterCols)
+
+  const agentRange = `'${params.agentTabTitle.replace(/'/g, "''")}'!A${params.agentRowNumber}:${agentEnd}${params.agentRowNumber}`
+  const masterRange = `'${MASTER_TAB_TITLE}'!A${params.masterRowNumber}:${masterEnd}${params.masterRowNumber}`
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'USER_ENTERED',
+      data: [
+        { range: agentRange, values: [buildRow(params.appt, AGENT_TAB_COLUMNS)] },
+        { range: masterRange, values: [buildRow(params.appt, MASTER_TAB_COLUMNS)] },
+      ],
+    },
+  })
+}
+
+/**
+ * Clear two rows (agent + master) when an appointment is deleted. We clear
+ * the row contents rather than shifting cells up so existing row numbers
+ * for other appointments stay stable.
+ */
+export async function clearAppointmentRows(params: {
+  agentTabTitle: string
+  agentRowNumber: number
+  masterRowNumber: number
+}): Promise<void> {
+  const spreadsheetId = getMasterSpreadsheetId()
+  const accountEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(accountEmail)
+
+  const agentRange = `'${params.agentTabTitle.replace(/'/g, "''")}'!A${params.agentRowNumber}:Z${params.agentRowNumber}`
+  const masterRange = `'${MASTER_TAB_TITLE}'!A${params.masterRowNumber}:Z${params.masterRowNumber}`
+
+  await sheets.spreadsheets.values.batchClear({
+    spreadsheetId,
+    requestBody: { ranges: [agentRange, masterRange] },
+  })
+}
