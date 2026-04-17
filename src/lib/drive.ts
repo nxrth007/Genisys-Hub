@@ -21,7 +21,14 @@ export type DriveFile = {
   name: string
   mimeType: string
   // Which connected mailbox the file came from (so the UI can label it).
+  // When multiple accounts can see the same file, this is the first one
+  // that returned it — useful for a default "viewing as" choice.
   sourceAccount: string
+  // Every connected mailbox whose Drive listing returned this file. Used by the
+  // preview modal to offer an account switcher via ?authuser=<email>, which
+  // fixes "you need editor access" errors that show up when Chrome's default
+  // Google session differs from the one that actually has permission.
+  visibleToAccounts: string[]
   iconLink?: string | null
   webViewLink?: string | null
   thumbnailLink?: string | null
@@ -139,6 +146,7 @@ function normalize(file: drive_v3.Schema$File, sourceAccount: string): DriveFile
     name: file.name,
     mimeType: file.mimeType,
     sourceAccount,
+    visibleToAccounts: [sourceAccount],
     iconLink: file.iconLink ?? null,
     webViewLink: file.webViewLink ?? null,
     thumbnailLink: file.thumbnailLink ?? null,
@@ -294,7 +302,16 @@ export async function listFilesAll(opts: ListOptions = {}): Promise<ListAllResul
     const email = accounts[i].email
     if (r.status === 'fulfilled') {
       for (const f of r.value) {
-        if (!merged.has(f.id)) merged.set(f.id, f)
+        const existing = merged.get(f.id)
+        if (existing) {
+          // Same file visible to a second account — track it so the preview
+          // modal can offer an account switcher.
+          if (!existing.visibleToAccounts.includes(email)) {
+            existing.visibleToAccounts.push(email)
+          }
+        } else {
+          merged.set(f.id, f)
+        }
       }
     } else {
       const message = extractErrorMessage(r.reason)

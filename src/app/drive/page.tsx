@@ -34,6 +34,7 @@ type DriveFileResponse = {
   name: string
   mimeType: string
   sourceAccount: string
+  visibleToAccounts: string[]
   iconLink?: string | null
   webViewLink?: string | null
   thumbnailLink?: string | null
@@ -445,8 +446,12 @@ function PreviewModal({
   file: DriveFileResponse
   onClose: () => void
 }) {
-  // Close on Escape. Lock body scroll while open so the background list
-  // doesn't scroll underneath the modal.
+  // Which Google account's session to use when loading the iframe. Defaults to
+  // whichever mailbox first returned the file; user can switch if multiple
+  // mailboxes have access. Fixes "you need access" errors that come from
+  // Chrome loading the iframe as the wrong multi-logged-in account.
+  const [viewAs, setViewAs] = useState(file.sourceAccount)
+
   useEffect(() => {
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -460,73 +465,101 @@ function PreviewModal({
     }
   }, [onClose])
 
-  const previewUrl = `https://drive.google.com/file/d/${file.id}/preview`
-  const driveUrl =
-    file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`
+  // ?authuser=<email> tells Google Drive which multi-logged-in account's
+  // permissions to apply when rendering the iframe, overriding Chrome's
+  // default primary-account behavior.
+  const previewUrl = `https://drive.google.com/file/d/${file.id}/preview?authuser=${encodeURIComponent(viewAs)}`
+  const driveUrl = `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
-      >
-        <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
-            {file.iconLink ? (
-              <Image
-                src={file.iconLink}
-                alt=""
-                width={16}
-                height={16}
-                className="h-4 w-4"
-                unoptimized
-              />
-            ) : (
-              <MimeIcon mime={file.mimeType} className="h-4 w-4 text-zinc-500" />
-            )}
-          </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-zinc-950">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-zinc-200 bg-zinc-50/50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+        <button
+          onClick={onClose}
+          title="Back to files (Esc)"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <X className="h-4 w-4" />
+        </button>
 
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{file.name}</p>
-            <p className="truncate text-xs text-zinc-500">
-              {file.sourceAccount}
-              {file.modifiedTime ? ` · modified ${formatDate(file.modifiedTime)}` : ''}
-            </p>
-          </div>
+        <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-800" />
 
-          <a
-            href={driveUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open in Drive"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-            Open in Drive
-          </a>
-
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+          {file.iconLink ? (
+            <Image
+              src={file.iconLink}
+              alt=""
+              width={16}
+              height={16}
+              className="h-4 w-4"
+              unoptimized
+            />
+          ) : (
+            <MimeIcon mime={file.mimeType} className="h-4 w-4 text-zinc-500" />
+          )}
         </div>
 
-        <iframe
-          key={file.id}
-          src={previewUrl}
-          title={file.name}
-          className="flex-1 w-full bg-white dark:bg-zinc-950"
-          // Allow Google's viewer to run its scripts + fullscreen button.
-          allow="autoplay; fullscreen"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
-        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{file.name}</p>
+          <p className="truncate text-xs text-zinc-500">
+            {file.modifiedTime ? `modified ${formatDate(file.modifiedTime)}` : ''}
+            {file.size && formatBytes(file.size)
+              ? ` · ${formatBytes(file.size)}`
+              : ''}
+          </p>
+        </div>
+
+        {file.visibleToAccounts.length > 1 ? (
+          <div className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+            <span className="text-zinc-500">Viewing as</span>
+            <select
+              value={viewAs}
+              onChange={(e) => setViewAs(e.target.value)}
+              className="bg-transparent font-medium focus:outline-none"
+            >
+              {file.visibleToAccounts.map((acct) => (
+                <option key={acct} value={acct}>
+                  {acct}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <span
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+            title="Only this mailbox has access to this file"
+          >
+            as {viewAs}
+          </span>
+        )}
+
+        <a
+          href={driveUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in Drive"
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+          Open in Drive
+        </a>
       </div>
+
+      <iframe
+        // Key includes viewAs so switching accounts forces a fresh iframe load.
+        key={`${file.id}-${viewAs}`}
+        src={previewUrl}
+        title={file.name}
+        className="flex-1 w-full bg-white dark:bg-zinc-950"
+        allow="autoplay; fullscreen"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"
+      />
+
+      {file.visibleToAccounts.length > 1 && (
+        <div className="flex-shrink-0 border-t border-zinc-200 bg-zinc-50/50 px-4 py-1.5 text-center text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50">
+          Seeing &quot;You need access&quot;? Switch the viewing account above.
+        </div>
+      )}
     </div>
   )
 }
