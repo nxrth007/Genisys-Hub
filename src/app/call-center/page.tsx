@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   PhoneCall,
   Search,
@@ -15,6 +15,12 @@ import {
   Clock,
   CalendarClock,
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  MapPin,
+  User as UserIcon,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -99,12 +105,18 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 
 export default function CallCenterPage() {
+  const qc = useQueryClient()
   const [status, setStatus] = useState('all')
   const [agent, setAgent] = useState('all')
   const [search, setSearch] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
+  // Track which row is expanded (id of the appointment) so the table can
+  // show a detail panel inline without navigating away.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Track which rows are mid-save so we can show a spinner on them.
+  const [savingId, setSavingId] = useState<string | null>(null)
 
   const agentsQuery = useQuery<{ agents: AgentSummary[] }>({
     queryKey: ['call-center-agents'],
@@ -138,6 +150,28 @@ export default function CallCenterPage() {
     () => apptsQuery.data?.appointments ?? [],
     [apptsQuery.data]
   )
+
+  /** Staff edit — typically status or notes directly from the table. */
+  const patchMutation = useMutation({
+    mutationFn: async (params: {
+      id: string
+      fields: Record<string, unknown>
+    }) => {
+      setSavingId(params.id)
+      const res = await fetch(`/api/call-center/appointments/${params.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(params.fields),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Update failed')
+      return data
+    },
+    onSettled: () => {
+      setSavingId(null)
+      qc.invalidateQueries({ queryKey: ['call-center-appts'] })
+    },
+  })
 
   // ---------------------------------------------------------------------
   // Attention cards — Today / Upcoming / Overdue
@@ -544,10 +578,12 @@ export default function CallCenterPage() {
               <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
                 <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                   <th className="w-6 px-2 py-2.5"></th>
+                  <th className="w-6 px-1 py-2.5"></th>
                   <th className="px-3 py-2.5">Appt</th>
                   <th className="px-3 py-2.5">Agent</th>
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Phone</th>
+                  <th className="px-3 py-2.5">Email</th>
                   <th className="px-3 py-2.5">Address</th>
                   <th className="px-3 py-2.5">Utility</th>
                   <th className="px-3 py-2.5">Bill</th>
@@ -561,94 +597,147 @@ export default function CallCenterPage() {
                 {appointments.map((a) => {
                   const when = new Date(a.apptDateTime)
                   const missing = missingDataFlags(a)
+                  const isExpanded = expandedId === a.id
+                  const isSaving = savingId === a.id
                   return (
-                    <tr
-                      key={a.id}
-                      className="align-top hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-                    >
-                      <td className="px-2 py-2.5 align-middle">
-                        {missing.length > 0 && (
-                          <span
-                            title={`Missing: ${missing.join(', ')}`}
-                            className="inline-block h-2 w-2 rounded-full bg-amber-400"
-                          />
+                    <Fragment key={a.id}>
+                      <tr
+                        className={cn(
+                          'align-top transition-colors',
+                          isExpanded
+                            ? 'bg-purple-50/50 dark:bg-purple-950/20'
+                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
                         )}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
-                        <div className="font-medium">
-                          {when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </div>
-                        <div className="text-[10px] text-zinc-400">
-                          {when.toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true,
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Link
-                          href={`/call-center/agents/${a.agent.id}`}
-                          className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
-                        >
-                          {a.agent.name || '(unnamed)'}
-                        </Link>
-                        <div className="truncate text-[10px] text-zinc-400">{a.agent.email}</div>
-                      </td>
-                      <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px]">
-                        {a.customerPhone}
-                      </td>
-                      <td className="max-w-[220px] truncate px-3 py-2.5 text-zinc-500" title={a.address || ''}>
-                        {a.address || '—'}
-                      </td>
-                      <td className="px-3 py-2.5 text-zinc-500">{a.utilityProvider || '—'}</td>
-                      <td className="px-3 py-2.5 text-zinc-500">
-                        {a.monthlyBill ? `$${a.monthlyBill}` : '—'}
-                      </td>
-                      <td className="px-3 py-2.5 text-zinc-500">
-                        {a.roofType || '—'}
-                        {a.roofAge && <span className="text-zinc-400"> · {a.roofAge}</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-zinc-500">
-                        {a.estimatedDealValue ? `$${a.estimatedDealValue}` : '—'}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                            STATUS_TONE[a.status] || 'bg-zinc-100 text-zinc-700'
+                      >
+                        <td className="px-2 py-2.5 align-middle">
+                          {missing.length > 0 && (
+                            <span
+                              title={`Missing: ${missing.join(', ')}`}
+                              className="inline-block h-2 w-2 rounded-full bg-amber-400"
+                            />
                           )}
-                        >
-                          {a.status}
-                        </span>
-                        {a.syncError && (
-                          <div
-                            className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-600"
-                            title={a.syncError}
+                        </td>
+                        <td className="px-1 py-2.5 align-middle">
+                          <button
+                            onClick={() =>
+                              setExpandedId(isExpanded ? null : a.id)
+                            }
+                            title={isExpanded ? 'Collapse' : 'Show full details'}
+                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                           >
-                            <AlertCircle className="h-3 w-3" />
-                            sync
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
+                          <div className="font-medium">
+                            {when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {a.callRecordingLink ? (
-                          <a
-                            href={a.callRecordingLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={a.callRecordingLink}
-                            className="inline-flex items-center gap-1 text-purple-600 hover:underline"
+                          <div className="text-[10px] text-zinc-400">
+                            {when.toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                            })}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <Link
+                            href={`/call-center/agents/${a.agent.id}`}
+                            className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
                           >
-                            <ExternalLink className="h-3 w-3" />
-                            Play
-                          </a>
-                        ) : (
-                          <span className="text-zinc-300">—</span>
-                        )}
-                      </td>
-                    </tr>
+                            {a.agent.name || '(unnamed)'}
+                          </Link>
+                          <div className="truncate text-[10px] text-zinc-400">{a.agent.email}</div>
+                        </td>
+                        <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px]">
+                          {a.customerPhone}
+                        </td>
+                        <td
+                          className="max-w-[180px] truncate px-3 py-2.5 text-zinc-500"
+                          title={a.email || ''}
+                        >
+                          {a.email ? (
+                            <a
+                              href={`mailto:${a.email}`}
+                              className="text-zinc-600 hover:text-purple-600 hover:underline dark:text-zinc-300"
+                            >
+                              {a.email}
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td
+                          className="max-w-[200px] truncate px-3 py-2.5 text-zinc-500"
+                          title={a.address || ''}
+                        >
+                          {a.address || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-500">{a.utilityProvider || '—'}</td>
+                        <td className="px-3 py-2.5 text-zinc-500">
+                          {a.monthlyBill ? `$${a.monthlyBill}` : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-500">
+                          {a.roofType || '—'}
+                          {a.roofAge && <span className="text-zinc-400"> · {a.roofAge}</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-500">
+                          {a.estimatedDealValue ? `$${a.estimatedDealValue}` : '—'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <InlineStatusSelect
+                            value={a.status}
+                            onChange={(next) =>
+                              patchMutation.mutate({
+                                id: a.id,
+                                fields: { status: next },
+                              })
+                            }
+                            saving={isSaving}
+                          />
+                          {a.syncError && (
+                            <div
+                              className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-600"
+                              title={a.syncError}
+                            >
+                              <AlertCircle className="h-3 w-3" />
+                              sync
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {a.callRecordingLink ? (
+                            <a
+                              href={a.callRecordingLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={a.callRecordingLink}
+                              className="inline-flex items-center gap-1 text-purple-600 hover:underline"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Play
+                            </a>
+                          ) : (
+                            <span className="text-zinc-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-purple-50/30 dark:bg-purple-950/10">
+                          <td
+                            colSpan={14}
+                            className="border-t border-purple-200/50 px-6 py-4 dark:border-purple-900/50"
+                          >
+                            <AppointmentDetail appointment={a} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -922,6 +1011,205 @@ function Sparkline({ counts }: { counts: number[] }) {
         )
       })}
     </svg>
+  )
+}
+
+function InlineStatusSelect({
+  value,
+  onChange,
+  saving,
+}: {
+  value: string
+  onChange: (next: string) => void
+  saving: boolean
+}) {
+  const tone = STATUS_TONE[value] || 'bg-zinc-100 text-zinc-700'
+  return (
+    <div className="relative inline-flex items-center">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={saving}
+        className={cn(
+          'appearance-none rounded-full px-2.5 py-0.5 pr-5 text-[10px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500',
+          tone,
+          saving && 'opacity-60'
+        )}
+      >
+        {FUNNEL_ORDER.map(({ status, label }) => (
+          <option key={status} value={status}>
+            {label}
+          </option>
+        ))}
+      </select>
+      {saving ? (
+        <Loader2 className="pointer-events-none absolute right-1 h-2.5 w-2.5 animate-spin opacity-60" />
+      ) : (
+        <ChevronDown className="pointer-events-none absolute right-1 h-2.5 w-2.5 opacity-60" />
+      )}
+    </div>
+  )
+}
+
+function AppointmentDetail({ appointment }: { appointment: Appointment }) {
+  const logged = new Date(appointment.createdAt)
+  const lastSynced = appointment.lastSyncedAt ? new Date(appointment.lastSyncedAt) : null
+  return (
+    <div className="grid gap-x-8 gap-y-3 text-xs md:grid-cols-3">
+      <DetailItem icon={UserIcon} label="Customer">
+        <div className="font-medium text-zinc-800 dark:text-zinc-100">
+          {appointment.customerName}
+        </div>
+        <div className="font-mono text-zinc-500">{appointment.customerPhone}</div>
+        {appointment.email && (
+          <a
+            href={`mailto:${appointment.email}`}
+            className="text-purple-600 hover:underline"
+          >
+            {appointment.email}
+          </a>
+        )}
+      </DetailItem>
+
+      <DetailItem icon={MapPin} label="Address">
+        {appointment.address ? (
+          <span className="text-zinc-800 dark:text-zinc-100">{appointment.address}</span>
+        ) : (
+          <span className="text-zinc-400">Not provided</span>
+        )}
+      </DetailItem>
+
+      <DetailItem icon={PhoneCall} label="Agent">
+        <Link
+          href={`/call-center/agents/${appointment.agent.id}`}
+          className="font-medium text-zinc-800 hover:text-purple-600 hover:underline dark:text-zinc-100"
+        >
+          {appointment.agent.name || '(unnamed)'}
+        </Link>
+        <div className="text-zinc-500">{appointment.agent.email}</div>
+      </DetailItem>
+
+      <DetailItem icon={DollarSign} label="Financials">
+        <div className="space-y-0.5">
+          <div>
+            <span className="text-zinc-400">Monthly bill:</span>{' '}
+            <span className="text-zinc-800 dark:text-zinc-100">
+              {appointment.monthlyBill ? `$${appointment.monthlyBill}` : '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-zinc-400">Utility:</span>{' '}
+            <span className="text-zinc-800 dark:text-zinc-100">
+              {appointment.utilityProvider || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-zinc-400">Deal value:</span>{' '}
+            <span className="text-zinc-800 dark:text-zinc-100">
+              {appointment.estimatedDealValue
+                ? `$${appointment.estimatedDealValue}`
+                : '—'}
+            </span>
+          </div>
+        </div>
+      </DetailItem>
+
+      <DetailItem icon={FileText} label="Roof">
+        <div>
+          <span className="text-zinc-400">Type:</span>{' '}
+          <span className="text-zinc-800 dark:text-zinc-100">
+            {appointment.roofType || '—'}
+          </span>
+        </div>
+        <div>
+          <span className="text-zinc-400">Age:</span>{' '}
+          <span className="text-zinc-800 dark:text-zinc-100">
+            {appointment.roofAge || '—'}
+          </span>
+        </div>
+      </DetailItem>
+
+      <DetailItem icon={Clock} label="Sync & audit">
+        <div>
+          <span className="text-zinc-400">Logged:</span>{' '}
+          <span className="text-zinc-800 dark:text-zinc-100">
+            {logged.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            })}
+          </span>
+        </div>
+        <div>
+          <span className="text-zinc-400">Last sheet sync:</span>{' '}
+          <span className="text-zinc-800 dark:text-zinc-100">
+            {lastSynced
+              ? lastSynced.toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                })
+              : 'never'}
+          </span>
+        </div>
+        {appointment.syncError && (
+          <div className="mt-1 rounded border border-amber-200 bg-amber-50 p-1.5 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <AlertCircle className="mr-1 inline-block h-3 w-3" />
+            {appointment.syncError}
+          </div>
+        )}
+      </DetailItem>
+
+      {appointment.notes && (
+        <div className="md:col-span-3">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            <Mail className="h-3 w-3" />
+            Notes
+          </div>
+          <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+            {appointment.notes}
+          </div>
+        </div>
+      )}
+
+      {appointment.callRecordingLink && (
+        <div className="md:col-span-3">
+          <a
+            href={appointment.callRecordingLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-200"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Play call recording
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailItem({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+        <Icon className="h-3 w-3" />
+        {label}
+      </div>
+      <div className="space-y-0.5 text-zinc-700 dark:text-zinc-300">{children}</div>
+    </div>
   )
 }
 
