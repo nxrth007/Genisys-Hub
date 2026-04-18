@@ -269,8 +269,16 @@ export async function buildAndSendSmsBrief(params: {
     }
   }
 
+  // Greeting uses the recipient's name. When a notionAssignee is set it's
+  // effectively the recipient ("Ethan") — prefer that over firstName which
+  // on the test path is the schedule owner's name, not the recipient's.
+  const greetName =
+    (params.notionAssignee?.trim().split(/\s+/)[0] ||
+      params.firstName?.trim().split(/\s+/)[0] ||
+      'there')
+
   const message = formatSmsBrief({
-    firstName: params.firstName || params.notionAssignee || 'there',
+    firstName: greetName,
     events,
     tasks,
   })
