@@ -11,7 +11,7 @@
  */
 import cron from 'node-cron'
 import { prisma } from './prisma'
-import { buildAndSendBrief } from './morning-brief'
+import { buildAndSendBrief, buildAndSendSmsBrief } from './morning-brief'
 
 let initialized = false
 
@@ -32,17 +32,25 @@ export function initScheduler() {
 }
 
 async function checkAndSendBriefs() {
-  // Get all enabled scheduled briefs with their user info.
   const schedules = await prisma.scheduledSms.findMany({
     where: { enabled: true },
-    include: { user: { select: { id: true, email: true, timezone: true } } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          timezone: true,
+          phoneNumber: true,
+        },
+      },
+    },
   })
 
   for (const schedule of schedules) {
     const { user } = schedule
     if (!user.email) continue
 
-    // Check if the current time in the user's timezone matches their configured time.
     const now = new Date()
     const userTime = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -50,31 +58,47 @@ async function checkAndSendBriefs() {
       hour12: false,
       timeZone: user.timezone || 'America/New_York',
     })
-
-    // userTime = "07:00", schedule.timeOfDay = "07:00"
     if (userTime !== schedule.timeOfDay) continue
 
-    // Don't send if we already sent today.
     if (schedule.lastSentAt) {
       const lastSent = new Date(schedule.lastSentAt)
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       if (lastSent >= todayStart) continue
     }
 
-    // Send the brief.
     try {
-      console.log(`[scheduler] Sending morning brief to ${user.email}`)
-      await buildAndSendBrief(user.email)
+      if (schedule.channel === 'ghl_sms') {
+        const phone = schedule.recipientPhone || user.phoneNumber
+        if (!phone) {
+          console.warn(
+            `[scheduler] Skipping GHL SMS brief for ${user.email}: no phone configured`
+          )
+          continue
+        }
+        const firstName = user.name?.trim().split(/\s+/)[0]
+        console.log(
+          `[scheduler] Sending GHL SMS brief to ${phone} (${user.email})`
+        )
+        await buildAndSendSmsBrief({
+          phone,
+          firstName,
+          notionAssignee: schedule.notionAssignee,
+        })
+      } else {
+        console.log(`[scheduler] Sending Slack brief to ${user.email}`)
+        await buildAndSendBrief(user.email)
+      }
 
-      // Mark as sent today.
       await prisma.scheduledSms.update({
         where: { id: schedule.id },
         data: { lastSentAt: new Date() },
       })
-
-      console.log(`[scheduler] Morning brief sent to ${user.email}`)
+      console.log(`[scheduler] Brief sent for ${user.email}`)
     } catch (err) {
-      console.error(`[scheduler] Failed to send brief to ${user.email}:`, err)
+      console.error(
+        `[scheduler] Failed to send brief for ${user.email}:`,
+        err
+      )
     }
   }
 }

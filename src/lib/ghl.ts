@@ -516,3 +516,72 @@ export async function sendMessage(
     }),
   })
 }
+
+// -------------------------------------------------------------------------
+// SMS via GHL — upsert a contact by phone, then send an SMS to them via
+// the /conversations/messages endpoint. Used by the scheduled morning
+// brief when the chosen delivery channel is 'ghl_sms'.
+// -------------------------------------------------------------------------
+
+function normalizePhone(raw: string): string {
+  // Keep a leading +, strip everything else that isn't a digit.
+  const trimmed = raw.trim()
+  const digits = trimmed.replace(/[^\d+]/g, '')
+  if (digits.startsWith('+')) return digits
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return digits
+}
+
+/**
+ * Upsert a GHL contact by phone number. Uses the POST /contacts/upsert
+ * endpoint which does a find-by-phone-first, creates if missing. Returns
+ * the contact id so the caller can send messages to it.
+ */
+export async function upsertContactByPhone(
+  vaultEntryName: string,
+  params: { phone: string; firstName?: string; lastName?: string; email?: string }
+): Promise<{ id: string }> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const phone = normalizePhone(params.phone)
+  const res = (await ghlFetch('/contacts/upsert', vaultEntryName, {
+    method: 'POST',
+    body: JSON.stringify({
+      locationId,
+      phone,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      email: params.email,
+    }),
+  })) as { contact?: { id?: string }; id?: string }
+  const id = res.contact?.id || res.id
+  if (!id) throw new Error('GHL did not return a contact id after upsert')
+  return { id }
+}
+
+/**
+ * Send an SMS to a phone number via GHL. Wraps upsertContactByPhone and
+ * /conversations/messages (type=SMS). The conversationId is optional —
+ * GHL auto-routes via the contact's default conversation when omitted.
+ */
+export async function sendSmsToPhone(
+  vaultEntryName: string,
+  params: { phone: string; message: string; firstName?: string; lastName?: string }
+): Promise<{ contactId: string; messageId?: string }> {
+  const { id: contactId } = await upsertContactByPhone(vaultEntryName, {
+    phone: params.phone,
+    firstName: params.firstName,
+    lastName: params.lastName,
+  })
+
+  const res = (await ghlFetch('/conversations/messages', vaultEntryName, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'SMS',
+      contactId,
+      message: params.message,
+    }),
+  })) as { messageId?: string; id?: string }
+
+  return { contactId, messageId: res.messageId || res.id }
+}

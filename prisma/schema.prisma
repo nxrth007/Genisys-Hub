@@ -254,7 +254,17 @@ model ScheduledSms {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   enabled   Boolean  @default(true)
   timeOfDay String // "07:00" in the user's timezone
-  // Timezone is read from the User model.
+  // Delivery channel:
+  //   slack    — DM via Slack (default, needs the user to be in the workspace)
+  //   ghl_sms  — SMS via the GHL Private Integration token (needs recipientPhone)
+  channel   String   @default("slack")
+  // Destination phone when channel=ghl_sms. Falls back to User.phoneNumber.
+  recipientPhone  String?
+  // Optional Notion assignee to filter the task board by (e.g. "Ethan"). When
+  // set, the brief's task section is drawn from the pinned Notion Kanban's
+  // "To Do"-ish column, restricted to tasks assigned to this name, instead of
+  // the user's local Task rows.
+  notionAssignee  String?
   includeTasks    Boolean @default(true)
   includeMeetings Boolean @default(true)
   lastSentAt      DateTime?

@@ -115,6 +115,175 @@ export async function listUsers() {
   return notionFetch('/users')
 }
 
+// -------------------------------------------------------------------------
+// Kanban task queries — used by the morning brief's SMS path to fetch
+// tasks assigned to a specific person from the pinned Today task board.
+// -------------------------------------------------------------------------
+
+type PropDef = Record<string, unknown>
+
+function findPropByType(
+  props: Record<string, PropDef>,
+  type: string
+): [string, PropDef] | undefined {
+  return Object.entries(props).find(([, v]) => (v.type as string) === type)
+}
+
+function findPropByNameIncludes(
+  props: Record<string, PropDef>,
+  needle: string
+): [string, PropDef] | undefined {
+  const n = needle.toLowerCase()
+  return Object.entries(props).find(([name]) => name.toLowerCase().includes(n))
+}
+
+export type KanbanTaskBrief = {
+  id: string
+  title: string
+  status: string
+  priority: string
+  assignees: string[]
+  url?: string
+}
+
+function extractPlainText(rich: unknown): string {
+  if (!Array.isArray(rich)) return ''
+  return (rich as Array<{ plain_text?: string }>)
+    .map((r) => r.plain_text || '')
+    .join('')
+}
+
+function extractAssignees(prop: PropDef | undefined): string[] {
+  if (!prop) return []
+  const type = prop.type as string
+  if (type === 'people') {
+    return ((prop.people as Array<{ name?: string }>) || [])
+      .map((p) => p.name || '')
+      .filter(Boolean)
+  }
+  if (type === 'select') {
+    return [(prop.select as { name?: string })?.name || ''].filter(Boolean)
+  }
+  if (type === 'multi_select') {
+    return ((prop.multi_select as Array<{ name?: string }>) || [])
+      .map((m) => m.name || '')
+      .filter(Boolean)
+  }
+  return []
+}
+
+/**
+ * Fetch a Notion database's current rows as a simplified task list,
+ * filtered to a specific assignee name and optionally to rows whose
+ * status contains "to do" / "not started" (case-insensitive).
+ *
+ * Used by the scheduled morning brief so Ethan's 9 AM SMS shows only
+ * his pending tasks from the Kanban.
+ */
+export async function getKanbanTasksForAssignee(
+  databaseId: string,
+  assigneeName: string,
+  opts: { todoOnly?: boolean; max?: number } = {}
+): Promise<KanbanTaskBrief[]> {
+  const db = (await getDatabase(databaseId)) as {
+    properties?: Record<string, PropDef>
+  }
+  const props = db.properties || {}
+
+  const titleEntry = findPropByType(props, 'title')
+  const titleName = titleEntry?.[0] || 'Name'
+
+  const statusEntry =
+    findPropByType(props, 'status') ||
+    (findPropByType(props, 'select') &&
+    (findPropByNameIncludes(props, 'status')?.[0] ===
+      findPropByType(props, 'select')?.[0]
+      ? findPropByType(props, 'select')
+      : findPropByNameIncludes(props, 'status'))) ||
+    findPropByNameIncludes(props, 'status')
+  const statusName = statusEntry?.[0] || 'Status'
+  const statusType = (statusEntry?.[1]?.type as string) || 'status'
+
+  const priorityEntry = findPropByNameIncludes(props, 'priority')
+  const priorityName = priorityEntry?.[0]
+
+  const assigneeEntry =
+    findPropByType(props, 'people') ||
+    findPropByNameIncludes(props, 'assign') ||
+    findPropByNameIncludes(props, 'owner')
+  const assigneeName_ = assigneeEntry?.[0]
+
+  const res = (await queryDatabase(databaseId)) as {
+    results?: Array<{
+      id: string
+      url?: string
+      properties?: Record<string, PropDef>
+    }>
+  }
+  const rows = res.results || []
+
+  const lowerAssignee = assigneeName.toLowerCase()
+  const max = opts.max ?? 20
+
+  const tasks: KanbanTaskBrief[] = []
+  for (const row of rows) {
+    const p = row.properties || {}
+
+    // Title
+    const titleProp = p[titleName]
+    const title = extractPlainText(titleProp?.title) || '(Untitled)'
+
+    // Status
+    let status = ''
+    if (statusType === 'status') {
+      status = (p[statusName]?.status as { name?: string })?.name || ''
+    } else if (statusType === 'select') {
+      status = (p[statusName]?.select as { name?: string })?.name || ''
+    }
+
+    // Priority
+    let priority = ''
+    if (priorityName) {
+      const pp = p[priorityName]
+      priority =
+        (pp?.select as { name?: string })?.name ||
+        (pp?.status as { name?: string })?.name ||
+        ''
+    }
+
+    // Assignees
+    const assignees = assigneeName_ ? extractAssignees(p[assigneeName_]) : []
+    const matchesAssignee = assignees.some((a) =>
+      a.toLowerCase().includes(lowerAssignee)
+    )
+    if (!matchesAssignee) continue
+
+    // Optional "To Do" / "Not Started" filter
+    if (opts.todoOnly) {
+      const s = status.toLowerCase()
+      const isTodo =
+        s.includes('to do') ||
+        s === 'todo' ||
+        s.includes('not started') ||
+        s.includes('backlog') ||
+        s === ''
+      if (!isTodo) continue
+    }
+
+    tasks.push({
+      id: row.id,
+      url: row.url,
+      title,
+      status,
+      priority,
+      assignees,
+    })
+    if (tasks.length >= max) break
+  }
+
+  return tasks
+}
+
 // ---- Helpers ----
 
 export function richTextToPlain(richText: Array<{ plain_text?: string }> | undefined): string {

@@ -16,6 +16,8 @@ import {
   Plus,
   Trash2,
   HardDrive,
+  Bell,
+  Phone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -39,6 +41,8 @@ export default function SettingsPage() {
       <DriveConnectSection />
 
       <CalendarConnectionsSection />
+
+      <ScheduledBriefsSection />
 
       <SlackTestSection />
 
@@ -397,6 +401,305 @@ function CalendarConnectionsSection() {
             </div>
           ))}
         </div>
+      )}
+    </section>
+  )
+}
+
+type Schedule = {
+  id: string
+  userId: string
+  timeOfDay: string
+  channel: 'slack' | 'ghl_sms' | string
+  recipientPhone: string | null
+  notionAssignee: string | null
+  includeTasks: boolean
+  includeMeetings: boolean
+  enabled: boolean
+  lastSentAt: string | null
+  user: { id: string; email: string; name: string | null }
+}
+
+function ScheduledBriefsSection() {
+  const qc = useQueryClient()
+  const { data } = useQuery<{ schedules: Schedule[] }>({
+    queryKey: ['admin-schedules'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/schedules')
+      if (!res.ok) throw new Error('Failed to load')
+      return res.json()
+    },
+  })
+  const schedules = data?.schedules ?? []
+
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState<{
+    userEmail: string
+    timeOfDay: string
+    channel: 'slack' | 'ghl_sms'
+    recipientPhone: string
+    notionAssignee: string
+  }>({
+    userEmail: 'ethan@leadgenisys.com',
+    timeOfDay: '09:00',
+    channel: 'ghl_sms',
+    recipientPhone: '+16035026226',
+    notionAssignee: 'Ethan',
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/schedules', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: form.userEmail.trim(),
+          timeOfDay: form.timeOfDay,
+          channel: form.channel,
+          recipientPhone: form.channel === 'ghl_sms' ? form.recipientPhone.trim() : null,
+          notionAssignee: form.notionAssignee.trim() || null,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Save failed')
+      return d
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-schedules'] })
+      setShowAdd(false)
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/schedules?id=${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      return res.json()
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-schedules'] }),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async (s: Schedule) => {
+      const res = await fetch('/api/admin/schedules/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          s.channel === 'ghl_sms'
+            ? {
+                channel: 'ghl_sms',
+                phone: s.recipientPhone,
+                firstName: s.user.name?.split(' ')[0],
+                notionAssignee: s.notionAssignee,
+              }
+            : { channel: 'slack', email: s.user.email }
+        ),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Send failed')
+      return d
+    },
+  })
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mb-1 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Bell className="h-5 w-5 text-purple-600" />
+          <h3 className="font-semibold">Daily brief schedules</h3>
+        </div>
+        <button
+          onClick={() => setShowAdd((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add schedule
+        </button>
+      </div>
+      <p className="mb-4 text-sm text-zinc-500">
+        Scheduled morning briefs run via the in-process cron. Slack DMs need the
+        recipient in the workspace; GHL SMS sends via the Private Integration
+        token and looks up/creates the GHL contact by phone.
+      </p>
+
+      {showAdd && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            saveMutation.mutate()
+          }}
+          className="mb-4 space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/30"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium">Hub user email</label>
+              <input
+                type="email"
+                value={form.userEmail}
+                onChange={(e) => setForm({ ...form, userEmail: e.target.value })}
+                required
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              />
+              <p className="mt-1 text-[10px] text-zinc-500">
+                User must have signed into the Hub at least once.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Time (24-hour)</label>
+              <input
+                type="time"
+                value={form.timeOfDay}
+                onChange={(e) => setForm({ ...form, timeOfDay: e.target.value })}
+                required
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              />
+              <p className="mt-1 text-[10px] text-zinc-500">
+                Uses the Hub user&apos;s timezone.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">Channel</label>
+              <select
+                value={form.channel}
+                onChange={(e) =>
+                  setForm({ ...form, channel: e.target.value as 'slack' | 'ghl_sms' })
+                }
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              >
+                <option value="ghl_sms">GHL SMS</option>
+                <option value="slack">Slack DM</option>
+              </select>
+            </div>
+            {form.channel === 'ghl_sms' && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Phone (E.164)</label>
+                <input
+                  type="tel"
+                  value={form.recipientPhone}
+                  onChange={(e) => setForm({ ...form, recipientPhone: e.target.value })}
+                  placeholder="+16035026226"
+                  className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                />
+              </div>
+            )}
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium">
+                Notion Kanban assignee (optional)
+              </label>
+              <input
+                type="text"
+                value={form.notionAssignee}
+                onChange={(e) => setForm({ ...form, notionAssignee: e.target.value })}
+                placeholder="Ethan"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              />
+              <p className="mt-1 text-[10px] text-zinc-500">
+                If set, the brief pulls To-Do tasks assigned to this name from the
+                pinned Notion Kanban (Today page) instead of local Hub tasks.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={saveMutation.isPending}
+              className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              {saveMutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAdd(false)}
+              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+            {saveMutation.isError && (
+              <span className="text-xs text-red-600">
+                {(saveMutation.error as Error).message}
+              </span>
+            )}
+          </div>
+        </form>
+      )}
+
+      {schedules.length === 0 ? (
+        <p className="py-2 text-xs text-zinc-400">No scheduled briefs yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {schedules.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">
+                    {s.user.name || s.user.email}
+                  </p>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                      s.channel === 'ghl_sms'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
+                        : 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                    )}
+                  >
+                    {s.channel === 'ghl_sms' ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Phone className="h-2.5 w-2.5" /> SMS
+                      </span>
+                    ) : (
+                      'Slack'
+                    )}
+                  </span>
+                  <span className="text-xs text-zinc-500">{s.timeOfDay}</span>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  {s.channel === 'ghl_sms' && s.recipientPhone
+                    ? `→ ${s.recipientPhone}`
+                    : s.user.email}
+                  {s.notionAssignee && ` · Notion: ${s.notionAssignee}`}
+                  {s.lastSentAt && ` · last sent ${new Date(s.lastSentAt).toLocaleDateString()}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => testMutation.mutate(s)}
+                  disabled={testMutation.isPending}
+                  className="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  {testMutation.isPending && testMutation.variables?.id === s.id
+                    ? 'Sending…'
+                    : 'Send now'}
+                </button>
+                <button
+                  onClick={() => deleteMutation.mutate(s.id)}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                  title="Delete"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {testMutation.isError && (
+        <Alert variant="error">
+          <div className="font-medium">Test send failed</div>
+          <div className="mt-1 text-xs">{(testMutation.error as Error).message}</div>
+        </Alert>
+      )}
+      {testMutation.isSuccess && (
+        <Alert variant="success">
+          <div className="font-medium">Brief sent.</div>
+          <div className="mt-1 text-xs">
+            Events: {(testMutation.data as { eventCount?: number }).eventCount ?? 0} ·
+            Tasks: {(testMutation.data as { taskCount?: number }).taskCount ?? 0}
+          </div>
+        </Alert>
       )}
     </section>
   )
