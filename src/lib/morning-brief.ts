@@ -177,6 +177,65 @@ async function getPinnedTaskBoardId(): Promise<string | null> {
   return row?.value || null
 }
 
+/**
+ * Format a time range compactly. If start + end are in the same half of
+ * the day (both AM or both PM), drop the first AM/PM to save space —
+ * "8:00-8:20 PM" reads better than "8:00 PM-8:20 PM". Single time when
+ * no end is provided.
+ */
+function formatTimeRange(startIso: string, endIso: string): string {
+  if (!startIso) return ''
+  const start = new Date(startIso)
+  const startStr = start.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  if (!endIso) return startStr
+  const end = new Date(endIso)
+  const endStr = end.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  const startAmPm = startStr.slice(-2)
+  const endAmPm = endStr.slice(-2)
+  if (startAmPm === endAmPm) {
+    // "8:00 PM" + "8:20 PM" → "8:00-8:20 PM"
+    return `${startStr.slice(0, -3)}-${endStr}`
+  }
+  return `${startStr}-${endStr}`
+}
+
+function priorityLabel(p: string): string {
+  const s = (p || '').toLowerCase()
+  if (
+    s.includes('high') ||
+    s.includes('p0') ||
+    s.includes('p1') ||
+    s.includes('critical') ||
+    s.includes('urgent')
+  )
+    return ' (high)'
+  if (s.includes('low') || s.includes('p3')) return ' (low)'
+  return ''
+}
+
+/** Sort rank: high=0, normal=1, low=2. Used to put urgent tasks first. */
+function priorityRank(p: string): number {
+  const s = (p || '').toLowerCase()
+  if (
+    s.includes('high') ||
+    s.includes('p0') ||
+    s.includes('p1') ||
+    s.includes('critical') ||
+    s.includes('urgent')
+  )
+    return 0
+  if (s.includes('low') || s.includes('p3')) return 2
+  return 1
+}
+
 /** Compact plain-text formatter — no markdown, fits inside a single SMS
  *  where possible. SMS concatenation handles the rest. */
 function formatSmsBrief(params: {
@@ -192,17 +251,15 @@ function formatSmsBrief(params: {
   })
 
   const lines: string[] = []
-  lines.push(`Good morning ${params.firstName} — Genisys Daily Brief`)
-  lines.push(dateStr)
+  lines.push(`Good morning ${params.firstName}`)
+  lines.push(`Genisys Daily Brief — ${dateStr}`)
   lines.push('')
 
   if (params.events.length > 0) {
     lines.push(`Meetings (${params.events.length}):`)
     for (const ev of params.events) {
-      const start = formatTime(ev.startTime)
-      const end = formatTime(ev.endTime)
-      const timeStr = end ? `${start}-${end}` : start
-      lines.push(`  ${timeStr}  ${ev.title}`)
+      const when = formatTimeRange(ev.startTime, ev.endTime)
+      lines.push(`• ${when}  ${ev.title}`)
     }
     lines.push('')
   } else {
@@ -211,11 +268,14 @@ function formatSmsBrief(params: {
   }
 
   if (params.tasks.length > 0) {
-    lines.push(`To-dos (${params.tasks.length}):`)
-    for (let i = 0; i < params.tasks.length; i++) {
-      const t = params.tasks[i]
-      const prefix = priorityPrefix(t.priority)
-      lines.push(`  ${prefix}${i + 1}. ${t.title}`)
+    // Sort by priority (high → normal → low) so urgent work lands at the
+    // top where Ethan/Alex look first.
+    const sorted = [...params.tasks].sort(
+      (a, b) => priorityRank(a.priority) - priorityRank(b.priority)
+    )
+    lines.push(`To-dos (${sorted.length}):`)
+    for (const t of sorted) {
+      lines.push(`• ${t.title}${priorityLabel(t.priority)}`)
     }
     lines.push('')
   } else {
@@ -223,16 +283,9 @@ function formatSmsBrief(params: {
     lines.push('')
   }
 
-  lines.push('https://genisys-hub.onrender.com/today')
+  lines.push('genisys-hub.onrender.com/today')
 
   return lines.join('\n')
-}
-
-function priorityPrefix(p: string): string {
-  const s = (p || '').toLowerCase()
-  if (s.includes('high') || s.includes('p0') || s.includes('p1')) return '! '
-  if (s.includes('low') || s.includes('p3')) return '. '
-  return ''
 }
 
 /**
