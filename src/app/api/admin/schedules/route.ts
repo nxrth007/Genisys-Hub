@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
     channel?: 'slack' | 'ghl_sms'
     recipientPhone?: string | null
     notionAssignee?: string | null
+    timezone?: string | null
     includeTasks?: boolean
     includeMeetings?: boolean
     enabled?: boolean
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
     channel,
     recipientPhone: channel === 'ghl_sms' ? body.recipientPhone ?? null : null,
     notionAssignee: body.notionAssignee ?? null,
+    timezone: body.timezone ?? null,
     includeTasks: body.includeTasks ?? true,
     includeMeetings: body.includeMeetings ?? true,
     enabled: body.enabled ?? true,

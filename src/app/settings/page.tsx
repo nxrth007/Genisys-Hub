@@ -413,12 +413,24 @@ type Schedule = {
   channel: 'slack' | 'ghl_sms' | string
   recipientPhone: string | null
   notionAssignee: string | null
+  timezone: string | null
   includeTasks: boolean
   includeMeetings: boolean
   enabled: boolean
   lastSentAt: string | null
   user: { id: string; email: string; name: string | null }
 }
+
+const TIMEZONE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Phoenix', label: 'Mountain — no DST (Phoenix)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+  { value: 'UTC', label: 'UTC' },
+]
 
 function ScheduledBriefsSection() {
   const qc = useQueryClient()
@@ -432,6 +444,19 @@ function ScheduledBriefsSection() {
   })
   const schedules = data?.schedules ?? []
 
+  // Prefill the "schedule owner" with the currently signed-in user. The
+  // owner is just for record-keeping / Slack routing — the SMS recipient
+  // is a separate phone with its own timezone, configured below.
+  const { data: session } = useQuery<{ user?: { email?: string } }>({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/session')
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  const currentEmail = session?.user?.email || ''
+
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState<{
     userEmail: string
@@ -439,13 +464,19 @@ function ScheduledBriefsSection() {
     channel: 'slack' | 'ghl_sms'
     recipientPhone: string
     notionAssignee: string
+    timezone: string
   }>({
-    userEmail: 'ethan@leadgenisys.com',
+    userEmail: '',
     timeOfDay: '09:00',
     channel: 'ghl_sms',
     recipientPhone: '+16035026226',
     notionAssignee: 'Ethan',
+    timezone: 'America/Los_Angeles',
   })
+
+  // Derived value — renders current user email as the default when the
+  // admin hasn't typed anything yet. Avoids a setState-in-effect pattern.
+  const effectiveUserEmail = form.userEmail || currentEmail
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -453,11 +484,12 @@ function ScheduledBriefsSection() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          userEmail: form.userEmail.trim(),
+          userEmail: effectiveUserEmail.trim(),
           timeOfDay: form.timeOfDay,
           channel: form.channel,
           recipientPhone: form.channel === 'ghl_sms' ? form.recipientPhone.trim() : null,
           notionAssignee: form.notionAssignee.trim() || null,
+          timezone: form.timezone,
         }),
       })
       const d = await res.json()
@@ -516,9 +548,11 @@ function ScheduledBriefsSection() {
         </button>
       </div>
       <p className="mb-4 text-sm text-zinc-500">
-        Scheduled morning briefs run via the in-process cron. Slack DMs need the
-        recipient in the workspace; GHL SMS sends via the Private Integration
-        token and looks up/creates the GHL contact by phone.
+        Scheduled morning briefs run via the in-process cron. For GHL SMS, the
+        schedule owner&apos;s timezone decides when 9 AM happens — the{' '}
+        <span className="font-medium">phone</span> is the actual recipient and
+        doesn&apos;t need a Hub account. Slack DMs route to the schedule owner
+        directly.
       </p>
 
       {showAdd && (
@@ -531,16 +565,19 @@ function ScheduledBriefsSection() {
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium">Hub user email</label>
+              <label className="mb-1 block text-xs font-medium">
+                Schedule owner (Hub user)
+              </label>
               <input
                 type="email"
-                value={form.userEmail}
+                value={effectiveUserEmail}
                 onChange={(e) => setForm({ ...form, userEmail: e.target.value })}
                 required
                 className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
-                User must have signed into the Hub at least once.
+                Record-keeping only. Defaulted to you. The actual SMS goes to
+                the phone below — Ethan does NOT need a Hub account.
               </p>
             </div>
             <div>
@@ -553,7 +590,26 @@ function ScheduledBriefsSection() {
                 className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
-                Uses the Hub user&apos;s timezone.
+                Interpreted in the timezone below.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium">
+                Recipient timezone
+              </label>
+              <select
+                value={form.timezone}
+                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              >
+                {TIMEZONE_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                When 9:00 AM happens, in the recipient&apos;s local time.
               </p>
             </div>
             <div>
@@ -571,7 +627,9 @@ function ScheduledBriefsSection() {
             </div>
             {form.channel === 'ghl_sms' && (
               <div>
-                <label className="mb-1 block text-xs font-medium">Phone (E.164)</label>
+                <label className="mb-1 block text-xs font-medium">
+                  SMS recipient phone (E.164)
+                </label>
                 <input
                   type="tel"
                   value={form.recipientPhone}
@@ -579,6 +637,10 @@ function ScheduledBriefsSection() {
                   placeholder="+16035026226"
                   className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
                 />
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Who actually gets the text. GHL will auto-create the contact
+                  if it doesn&apos;t exist yet.
+                </p>
               </div>
             )}
             <div className="sm:col-span-2">
@@ -652,7 +714,10 @@ function ScheduledBriefsSection() {
                       'Slack'
                     )}
                   </span>
-                  <span className="text-xs text-zinc-500">{s.timeOfDay}</span>
+                  <span className="text-xs text-zinc-500">
+                    {s.timeOfDay}
+                    {s.timezone ? ` ${shortTz(s.timezone)}` : ''}
+                  </span>
                 </div>
                 <p className="text-xs text-zinc-500">
                   {s.channel === 'ghl_sms' && s.recipientPhone
@@ -932,4 +997,19 @@ function Alert({
       <div>{children}</div>
     </div>
   )
+}
+
+/** Compact timezone label (e.g. "ET", "PT") for the schedule row. */
+function shortTz(tz: string): string {
+  const map: Record<string, string> = {
+    'America/New_York': 'ET',
+    'America/Chicago': 'CT',
+    'America/Denver': 'MT',
+    'America/Phoenix': 'MST',
+    'America/Los_Angeles': 'PT',
+    'America/Anchorage': 'AKT',
+    'Pacific/Honolulu': 'HT',
+    UTC: 'UTC',
+  }
+  return map[tz] || tz
 }

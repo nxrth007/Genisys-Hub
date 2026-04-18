@@ -52,11 +52,16 @@ async function checkAndSendBriefs() {
     if (!user.email) continue
 
     const now = new Date()
+    // Per-schedule timezone overrides the owner's — critical when admin
+    // and recipient live in different time zones (e.g. Alex in ET
+    // scheduling Ethan's brief at 9 AM PT).
+    const effectiveTz =
+      schedule.timezone || user.timezone || 'America/New_York'
     const userTime = now.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-      timeZone: user.timezone || 'America/New_York',
+      timeZone: effectiveTz,
     })
     if (userTime !== schedule.timeOfDay) continue
 
@@ -75,9 +80,14 @@ async function checkAndSendBriefs() {
           )
           continue
         }
-        const firstName = user.name?.trim().split(/\s+/)[0]
+        // SMS greeting uses the recipient's name, not the schedule owner's.
+        // Prefer the Notion assignee (it IS the recipient in the common case),
+        // fall back to the owner's first name when the schedule has no assignee.
+        const firstName =
+          schedule.notionAssignee?.trim().split(/\s+/)[0] ||
+          user.name?.trim().split(/\s+/)[0]
         console.log(
-          `[scheduler] Sending GHL SMS brief to ${phone} (${user.email})`
+          `[scheduler] Sending GHL SMS brief to ${phone} (owner: ${user.email})`
         )
         await buildAndSendSmsBrief({
           phone,

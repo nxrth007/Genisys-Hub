@@ -265,6 +265,11 @@ model ScheduledSms {
   // "To Do"-ish column, restricted to tasks assigned to this name, instead of
   // the user's local Task rows.
   notionAssignee  String?
+  // Timezone for the schedule (IANA). When set, overrides the schedule
+  // owner's User.timezone so the brief fires at the recipient's local time,
+  // not the admin's. Crucial when the admin and recipient are in different
+  // time zones (e.g., Alex in ET scheduling a brief for Ethan in PT).
+  timezone        String?
   includeTasks    Boolean @default(true)
   includeMeetings Boolean @default(true)
   lastSentAt      DateTime?
