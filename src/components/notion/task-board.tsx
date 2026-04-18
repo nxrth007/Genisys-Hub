@@ -114,6 +114,33 @@ type TaskItem = {
   properties: Record<string, Record<string, unknown>>
 }
 
+/**
+ * Build the right Notion property payload for assignee updates based on
+ * the column type. For people-type columns we pass the display name;
+ * TaskBoard.handleUpdate resolves it to a Notion user id before sending.
+ * For select/multi_select we produce the appropriate shape directly.
+ */
+function buildAssigneeUpdate(
+  propName: string,
+  propType: string,
+  value: string
+): Record<string, unknown> {
+  if (!value) {
+    // "Unassigned" — shape depends on type
+    if (propType === 'people') return { [propName]: { people: [] } }
+    if (propType === 'multi_select') return { [propName]: { multi_select: [] } }
+    return { [propName]: { select: null } }
+  }
+  if (propType === 'people') {
+    return { [propName]: { people: [{ name: value }] } }
+  }
+  if (propType === 'multi_select') {
+    return { [propName]: { multi_select: [{ name: value }] } }
+  }
+  // Default: select
+  return { [propName]: { select: { name: value } } }
+}
+
 // ─── Droppable Column ──────────────────────────────────────
 
 function DroppableColumn({
@@ -442,17 +469,15 @@ function SortableTaskCard({
               state is diagnosable (shows a hint instead of vanishing). */}
           {assigneeProp && (
             <div>
-              <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">Assignee</label>
+              <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">
+                Assignee <span className="font-normal normal-case text-zinc-400">({assigneePropType})</span>
+              </label>
               {assigneeOptions.length > 0 ? (
                 <select
                   value={assignee}
                   onChange={(e) => {
                     const val = e.target.value
-                    if (!val) {
-                      onUpdate(task.id, { [assigneeProp]: { people: [] } })
-                    } else {
-                      onUpdate(task.id, { [assigneeProp]: { people: [{ name: val }] } })
-                    }
+                    onUpdate(task.id, buildAssigneeUpdate(assigneeProp, assigneePropType, val))
                   }}
                   className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
                 >
@@ -462,16 +487,19 @@ function SortableTaskCard({
                   ))}
                 </select>
               ) : (
-                <p
-                  className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950"
-                  title={
-                    assigneePropType === 'people'
-                      ? 'Notion returned no users for this integration. Make sure the integration has been shared with the workspace members (Settings → Integrations).'
-                      : 'No select options defined on the assignee column in Notion.'
-                  }
-                >
-                  No assignees available — {assigneePropType === 'people' ? 'integration has no workspace users' : 'add select options in Notion'}
-                </p>
+                <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  <p className="font-medium">No assignees available.</p>
+                  <p className="mt-1 leading-relaxed">
+                    Column <code className="rounded bg-white/70 px-1 dark:bg-zinc-900/70">&quot;{assigneeProp}&quot;</code>{' '}
+                    is type <code className="rounded bg-white/70 px-1 dark:bg-zinc-900/70">{assigneePropType}</code>.
+                    {' '}
+                    {assigneePropType === 'people'
+                      ? 'Share the Notion integration with workspace members so they show up here (Notion → Settings → My connections → the integration → add Alex, Ethan, Garrett as members).'
+                      : assigneePropType === 'select' || assigneePropType === 'multi_select'
+                        ? 'Add options (Alex, Ethan, Garrett) to this column in Notion — edit the column properties and add select values.'
+                        : `This column type isn't supported for assignee pickers. Change it to Person or Select in Notion.`}
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -561,6 +589,8 @@ function NewTaskForm({
               people: [{ object: 'user', id: user.id }],
             }
           }
+        } else if (assigneePropType === 'multi_select') {
+          properties[assigneeProp] = { multi_select: [{ name: assignee }] }
         } else {
           properties[assigneeProp] = { select: { name: assignee } }
         }
@@ -619,9 +649,9 @@ function NewTaskForm({
             </div>
           )}
           {assigneeProp && (
-            <div>
+            <div className={assigneeOptions.length === 0 ? 'col-span-2' : undefined}>
               <label className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
-                Assignee
+                Assignee <span className="font-normal normal-case text-zinc-400">({assigneePropType})</span>
               </label>
               {assigneeOptions.length > 0 ? (
                 <select
@@ -637,15 +667,14 @@ function NewTaskForm({
                   ))}
                 </select>
               ) : (
-                <p
-                  className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950"
-                  title={
-                    assigneePropType === 'people'
-                      ? 'Notion returned no users for this integration. Make sure the integration has access to the workspace members.'
-                      : 'No select options defined on the assignee column in Notion.'
-                  }
-                >
-                  no options
+                <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  Column <code>&quot;{assigneeProp}&quot;</code> ({assigneePropType}) has no options.
+                  {' '}
+                  {assigneePropType === 'people'
+                    ? 'Share the Notion integration with Alex/Ethan/Garrett.'
+                    : assigneePropType === 'select' || assigneePropType === 'multi_select'
+                      ? 'Add select values to this column in Notion.'
+                      : 'Switch to Person or Select type in Notion.'}
                 </p>
               )}
             </div>
@@ -864,9 +893,15 @@ export function TaskBoard({
 
     const assigneePropDef = assigneeProp ? properties.find(([n]) => n === assigneeProp)?.[1] : null
     const assigneePropType = (assigneePropDef?.type as string) || 'select'
+    // Support select AND multi_select columns — lots of Notion DBs model
+    // assignees as multi_select ("Alex, Ethan"). Same options shape, just
+    // a different key on the property definition.
     let selectAssigneeOpts: string[] = []
     if (assigneePropDef?.type === 'select') {
       selectAssigneeOpts = ((assigneePropDef.select as Record<string, unknown>)?.options as Array<{ name: string }> || [])
+        .map((o) => o.name)
+    } else if (assigneePropDef?.type === 'multi_select') {
+      selectAssigneeOpts = ((assigneePropDef.multi_select as Record<string, unknown>)?.options as Array<{ name: string }> || [])
         .map((o) => o.name)
     }
 
