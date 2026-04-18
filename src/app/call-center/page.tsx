@@ -1,17 +1,20 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   PhoneCall,
   Search,
   ExternalLink,
   Loader2,
-  Calendar,
-  Users,
-  CheckCircle2,
-  XCircle,
   AlertCircle,
+  Download,
+  TrendingUp,
+  DollarSign,
+  Clock,
+  CalendarClock,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -62,6 +65,39 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
 }
 
+// Funnel layout from left (earliest in lifecycle) to right (terminal states).
+const FUNNEL_ORDER: Array<{ status: string; label: string; barColor: string }> = [
+  { status: 'booked', label: 'Booked', barColor: 'bg-blue-500' },
+  { status: 'rescheduled', label: 'Rescheduled', barColor: 'bg-amber-500' },
+  { status: 'showed', label: 'Showed', barColor: 'bg-green-500' },
+  { status: 'no_show', label: 'No-show', barColor: 'bg-red-500' },
+  { status: 'cancelled', label: 'Cancelled', barColor: 'bg-zinc-400' },
+]
+
+function parseMoney(raw: string | null): number {
+  if (!raw) return 0
+  const n = Number(raw.replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+function startOfDay(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+function startOfToday(): Date {
+  return startOfDay(new Date())
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
+}
+
 export default function CallCenterPage() {
   const [status, setStatus] = useState('all')
   const [agent, setAgent] = useState('all')
@@ -94,21 +130,210 @@ export default function CallCenterPage() {
     },
   })
 
-  const agents = agentsQuery.data?.agents ?? []
+  const agents = useMemo(
+    () => agentsQuery.data?.agents ?? [],
+    [agentsQuery.data]
+  )
   const appointments = useMemo(
     () => apptsQuery.data?.appointments ?? [],
     [apptsQuery.data]
   )
 
-  const stats = useMemo(() => {
-    const total = appointments.length
-    const byStatus = appointments.reduce<Record<string, number>>((acc, a) => {
-      acc[a.status] = (acc[a.status] ?? 0) + 1
-      return acc
-    }, {})
-    const agentCount = new Set(appointments.map((a) => a.agent.id)).size
-    return { total, byStatus, agentCount }
+  // ---------------------------------------------------------------------
+  // Attention cards — Today / Upcoming / Overdue
+  // "Overdue" = appointment datetime is in the past but status is still
+  // 'booked' (never got updated post-appointment). Most actionable signal.
+  // ---------------------------------------------------------------------
+  const attention = useMemo(() => {
+    const now = new Date()
+    const today = startOfToday()
+    const in7Days = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+    let todayCount = 0
+    let upcoming7 = 0
+    let overdue = 0
+    for (const a of appointments) {
+      const d = new Date(a.apptDateTime)
+      if (isSameDay(d, now)) todayCount++
+      if (d >= today && d < in7Days) upcoming7++
+      if (d < now && a.status === 'booked') overdue++
+    }
+    return { todayCount, upcoming7, overdue }
   }, [appointments])
+
+  // ---------------------------------------------------------------------
+  // Status funnel + conversion rates + total pipeline $
+  // ---------------------------------------------------------------------
+  const funnel = useMemo(() => {
+    const byStatus: Record<string, number> = {}
+    let pipelineDollars = 0
+    for (const a of appointments) {
+      byStatus[a.status] = (byStatus[a.status] ?? 0) + 1
+      // Pipeline $ = sum of estimated deal value for non-cancelled/no_show
+      if (a.status !== 'cancelled' && a.status !== 'no_show') {
+        pipelineDollars += parseMoney(a.estimatedDealValue)
+      }
+    }
+    const total = appointments.length
+    const showed = byStatus['showed'] ?? 0
+    const noShow = byStatus['no_show'] ?? 0
+    const completed = showed + noShow
+    const showRate = completed > 0 ? Math.round((showed / completed) * 100) : null
+    return { byStatus, pipelineDollars, total, showRate }
+  }, [appointments])
+
+  // ---------------------------------------------------------------------
+  // Per-agent aggregated metrics (from the currently-loaded appointments)
+  // ---------------------------------------------------------------------
+  type AgentMetrics = {
+    id: string
+    name: string | null
+    email: string
+    total: number
+    showed: number
+    noShow: number
+    booked: number
+    pipelineDollars: number
+    lastBookingAt: string | null
+    // Bookings count per day for the last 7 days (oldest → newest)
+    last7Days: number[]
+  }
+  const agentMetrics = useMemo<AgentMetrics[]>(() => {
+    const today = startOfToday()
+    const last7 = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(today)
+      d.setDate(today.getDate() - (6 - i))
+      return d
+    })
+
+    const byAgent = new Map<string, AgentMetrics>()
+    // Seed every approved agent so agents with zero bookings still appear.
+    for (const a of agents) {
+      byAgent.set(a.id, {
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        total: 0,
+        showed: 0,
+        noShow: 0,
+        booked: 0,
+        pipelineDollars: 0,
+        lastBookingAt: null,
+        last7Days: last7.map(() => 0),
+      })
+    }
+
+    for (const a of appointments) {
+      let m = byAgent.get(a.agent.id)
+      if (!m) {
+        m = {
+          id: a.agent.id,
+          name: a.agent.name,
+          email: a.agent.email,
+          total: 0,
+          showed: 0,
+          noShow: 0,
+          booked: 0,
+          pipelineDollars: 0,
+          lastBookingAt: null,
+          last7Days: last7.map(() => 0),
+        }
+        byAgent.set(a.agent.id, m)
+      }
+      m.total++
+      if (a.status === 'showed') m.showed++
+      if (a.status === 'no_show') m.noShow++
+      if (a.status === 'booked') m.booked++
+      if (a.status !== 'cancelled' && a.status !== 'no_show') {
+        m.pipelineDollars += parseMoney(a.estimatedDealValue)
+      }
+      if (
+        !m.lastBookingAt ||
+        new Date(a.createdAt) > new Date(m.lastBookingAt)
+      ) {
+        m.lastBookingAt = a.createdAt
+      }
+      const created = startOfDay(new Date(a.createdAt))
+      for (let i = 0; i < last7.length; i++) {
+        if (isSameDay(created, last7[i])) {
+          m.last7Days[i]++
+          break
+        }
+      }
+    }
+
+    return Array.from(byAgent.values()).sort((a, b) => b.total - a.total)
+  }, [agents, appointments])
+
+  const filterCleared =
+    status === 'all' && agent === 'all' && !submittedSearch && !since && !until
+
+  function clearFilters() {
+    setSearch('')
+    setSubmittedSearch('')
+    setStatus('all')
+    setAgent('all')
+    setSince('')
+    setUntil('')
+  }
+
+  function exportCsv() {
+    const headers = [
+      'Appt Date',
+      'Appt Time',
+      'Agent Name',
+      'Agent Email',
+      'Customer Name',
+      'Phone',
+      'Address',
+      'Email',
+      'Monthly Bill',
+      'Utility Provider',
+      'Roof Type',
+      'Roof Age',
+      'Status',
+      'Estimated Deal Value',
+      'Notes',
+      'Call Recording Link',
+      'Logged At',
+    ]
+    const rows = appointments.map((a) => {
+      const d = new Date(a.apptDateTime)
+      const logged = new Date(a.createdAt)
+      return [
+        d.toLocaleDateString('en-US'),
+        d.toLocaleTimeString('en-US', { hour12: true }),
+        a.agent.name || '',
+        a.agent.email,
+        a.customerName,
+        a.customerPhone,
+        a.address || '',
+        a.email || '',
+        a.monthlyBill || '',
+        a.utilityProvider || '',
+        a.roofType || '',
+        a.roofAge || '',
+        a.status,
+        a.estimatedDealValue || '',
+        a.notes || '',
+        a.callRecordingLink || '',
+        logged.toLocaleString('en-US'),
+      ]
+    })
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => csvEscape(String(cell))).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const stamp = new Date().toISOString().slice(0, 10)
+    a.download = `genisys-call-center-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -120,20 +345,93 @@ export default function CallCenterPage() {
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
             <p className="mt-1 text-sm text-zinc-500">
-              All booked solar appointments across every agent, live from the Hub. Syncs
-              automatically to the shared master sheet.
+              Live view of all agents, bookings, and fulfillment progress. Aggregations
+              reflect whatever filters are applied below.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Appointments" value={stats.total} icon={Calendar} />
-        <StatCard label="Active agents" value={stats.agentCount} icon={Users} />
-        <StatCard label="Showed" value={stats.byStatus['showed'] ?? 0} icon={CheckCircle2} />
-        <StatCard label="No-show" value={stats.byStatus['no_show'] ?? 0} icon={XCircle} />
+      {/* ATTENTION STRIP — what needs eyes right now */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <AttentionCard
+          tone="blue"
+          icon={Clock}
+          label="Today"
+          value={attention.todayCount}
+          hint="appointments scheduled today"
+        />
+        <AttentionCard
+          tone="purple"
+          icon={CalendarClock}
+          label="Next 7 days"
+          value={attention.upcoming7}
+          hint="upcoming bookings"
+        />
+        <AttentionCard
+          tone={attention.overdue > 0 ? 'red' : 'zinc'}
+          icon={AlertTriangle}
+          label="Overdue"
+          value={attention.overdue}
+          hint='past date, still "booked" status'
+        />
       </div>
 
+      {/* PIPELINE $ + FUNNEL */}
+      <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">Fulfillment funnel</h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {funnel.total} {funnel.total === 1 ? 'appointment' : 'appointments'} in view
+              {funnel.showRate != null ? ` · ${funnel.showRate}% show rate` : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg bg-green-50 px-3 py-1.5 dark:bg-green-950/40">
+            <DollarSign className="h-4 w-4 text-green-600" />
+            <span className="text-sm font-semibold text-green-800 dark:text-green-300">
+              ${funnel.pipelineDollars.toLocaleString()}
+            </span>
+            <span className="text-xs text-green-700/80 dark:text-green-400/80">
+              active pipeline
+            </span>
+          </div>
+        </div>
+        <StatusFunnel byStatus={funnel.byStatus} total={funnel.total} />
+      </section>
+
+      {/* AGENT LEADERBOARD — click a card to drill in */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Agents ({agentMetrics.length})</h3>
+          {agent !== 'all' && (
+            <button
+              onClick={() => setAgent('all')}
+              className="text-xs text-purple-600 hover:underline"
+            >
+              Clear agent filter
+            </button>
+          )}
+        </div>
+        {agentMetrics.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-zinc-200 py-10 text-center text-sm text-zinc-500 dark:border-zinc-800">
+            No approved agents yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {agentMetrics.map((m) => (
+              <AgentCard
+                key={m.id}
+                metrics={m}
+                active={agent === m.id}
+                onClick={() => setAgent(m.id === agent ? 'all' : m.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* FILTERS + CSV EXPORT */}
       <div className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <form
           onSubmit={(e) => {
@@ -206,22 +504,25 @@ export default function CallCenterPage() {
           >
             Apply
           </button>
-          {(submittedSearch || status !== 'all' || agent !== 'all' || since || until) && (
+          {!filterCleared && (
             <button
               type="button"
-              onClick={() => {
-                setSearch('')
-                setSubmittedSearch('')
-                setStatus('all')
-                setAgent('all')
-                setSince('')
-                setUntil('')
-              }}
+              onClick={clearFilters}
               className="rounded-md px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               Clear
             </button>
           )}
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={appointments.length === 0}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            title="Download the currently-filtered rows as CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </button>
         </form>
       </div>
 
@@ -242,6 +543,7 @@ export default function CallCenterPage() {
             <table className="w-full text-xs">
               <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
                 <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                  <th className="w-6 px-2 py-2.5"></th>
                   <th className="px-3 py-2.5">Appt</th>
                   <th className="px-3 py-2.5">Agent</th>
                   <th className="px-3 py-2.5">Customer</th>
@@ -258,11 +560,20 @@ export default function CallCenterPage() {
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {appointments.map((a) => {
                   const when = new Date(a.apptDateTime)
+                  const missing = missingDataFlags(a)
                   return (
                     <tr
                       key={a.id}
                       className="align-top hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                     >
+                      <td className="px-2 py-2.5 align-middle">
+                        {missing.length > 0 && (
+                          <span
+                            title={`Missing: ${missing.join(', ')}`}
+                            className="inline-block h-2 w-2 rounded-full bg-amber-400"
+                          />
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
                         <div className="font-medium">
                           {when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -276,9 +587,12 @@ export default function CallCenterPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="font-medium text-zinc-700 dark:text-zinc-200">
+                        <Link
+                          href={`/call-center/agents/${a.agent.id}`}
+                          className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
+                        >
                           {a.agent.name || '(unnamed)'}
-                        </div>
+                        </Link>
                         <div className="truncate text-[10px] text-zinc-400">{a.agent.email}</div>
                       </td>
                       <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
@@ -346,22 +660,299 @@ export default function CallCenterPage() {
   )
 }
 
-function StatCard({
+// ---- Subcomponents ------------------------------------------------------
+
+function AttentionCard({
+  tone,
+  icon: Icon,
   label,
   value,
-  icon: Icon,
+  hint,
 }: {
+  tone: 'blue' | 'purple' | 'red' | 'zinc'
+  icon: React.ComponentType<{ className?: string }>
   label: string
   value: number
-  icon: React.ComponentType<{ className?: string }>
+  hint: string
 }) {
+  const toneMap = {
+    blue: {
+      bg: 'bg-blue-50 dark:bg-blue-950/40',
+      iconBg: 'bg-blue-100 dark:bg-blue-900',
+      iconColor: 'text-blue-600',
+      valueColor: 'text-blue-900 dark:text-blue-200',
+    },
+    purple: {
+      bg: 'bg-purple-50 dark:bg-purple-950/40',
+      iconBg: 'bg-purple-100 dark:bg-purple-900',
+      iconColor: 'text-purple-600',
+      valueColor: 'text-purple-900 dark:text-purple-200',
+    },
+    red: {
+      bg: 'bg-red-50 dark:bg-red-950/40',
+      iconBg: 'bg-red-100 dark:bg-red-900',
+      iconColor: 'text-red-600',
+      valueColor: 'text-red-900 dark:text-red-200',
+    },
+    zinc: {
+      bg: 'bg-white dark:bg-zinc-900',
+      iconBg: 'bg-zinc-100 dark:bg-zinc-800',
+      iconColor: 'text-zinc-400',
+      valueColor: 'text-zinc-700 dark:text-zinc-200',
+    },
+  }[tone]
+
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
-        <Icon className="h-4 w-4 text-zinc-300" />
+    <div className={cn('flex items-center gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800', toneMap.bg)}>
+      <div className={cn('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg', toneMap.iconBg)}>
+        <Icon className={cn('h-5 w-5', toneMap.iconColor)} />
       </div>
-      <p className="mt-1 text-2xl font-bold">{value}</p>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <p className={cn('text-2xl font-bold tabular-nums', toneMap.valueColor)}>{value}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+        </div>
+        <p className="text-xs text-zinc-500">{hint}</p>
+      </div>
     </div>
   )
+}
+
+function StatusFunnel({
+  byStatus,
+  total,
+}: {
+  byStatus: Record<string, number>
+  total: number
+}) {
+  if (total === 0) {
+    return (
+      <p className="text-xs text-zinc-400">
+        No appointments to chart.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      {FUNNEL_ORDER.map(({ status, label, barColor }) => {
+        const count = byStatus[status] ?? 0
+        const pct = total > 0 ? (count / total) * 100 : 0
+        return (
+          <div key={status} className="flex items-center gap-3">
+            <div className="w-28 flex-shrink-0 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              {label}
+            </div>
+            <div className="relative flex-1 overflow-hidden rounded-md bg-zinc-100 dark:bg-zinc-800">
+              <div
+                className={cn('h-6 rounded-md transition-all', barColor)}
+                style={{ width: `${Math.max(pct, 2)}%` }}
+              />
+              <div className="absolute inset-0 flex items-center px-2 text-[11px] font-semibold tabular-nums">
+                <span className="mix-blend-difference text-white">
+                  {count} {count > 0 ? `· ${Math.round(pct)}%` : ''}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+type AgentMetrics = {
+  id: string
+  name: string | null
+  email: string
+  total: number
+  showed: number
+  noShow: number
+  booked: number
+  pipelineDollars: number
+  lastBookingAt: string | null
+  last7Days: number[]
+}
+
+function AgentCard({
+  metrics,
+  active,
+  onClick,
+}: {
+  metrics: AgentMetrics
+  active: boolean
+  onClick: () => void
+}) {
+  const completed = metrics.showed + metrics.noShow
+  const showRate = completed > 0 ? Math.round((metrics.showed / completed) * 100) : null
+
+  return (
+    <div
+      className={cn(
+        'group relative flex flex-col gap-3 rounded-xl border bg-white p-4 transition-all dark:bg-zinc-900',
+        active
+          ? 'border-purple-500 shadow-[0_0_0_1px_rgb(168_85_247)] dark:border-purple-400'
+          : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700'
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/call-center/agents/${metrics.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="block font-semibold hover:text-purple-600 hover:underline"
+          >
+            {metrics.name || '(unnamed)'}
+          </Link>
+          <p className="truncate text-xs text-zinc-500">{metrics.email}</p>
+        </div>
+        <button
+          onClick={onClick}
+          title={active ? 'Remove filter' : 'Filter table to this agent'}
+          className={cn(
+            'flex-shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors',
+            active
+              ? 'border-purple-600 bg-purple-600 text-white'
+              : 'border-zinc-200 text-zinc-500 group-hover:border-purple-400 group-hover:text-purple-600 dark:border-zinc-800'
+          )}
+        >
+          {active ? 'Filtered' : 'Filter'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-4 gap-2">
+        <MiniStat label="Total" value={metrics.total} />
+        <MiniStat
+          label="Show %"
+          value={showRate != null ? `${showRate}%` : '—'}
+          tone={
+            showRate != null
+              ? showRate >= 70
+                ? 'good'
+                : showRate >= 40
+                  ? 'warn'
+                  : 'bad'
+              : undefined
+          }
+        />
+        <MiniStat label="Active" value={metrics.booked} />
+        <MiniStat
+          label="Pipeline"
+          value={
+            metrics.pipelineDollars > 0
+              ? `$${(metrics.pipelineDollars / 1000).toFixed(1)}k`
+              : '$0'
+          }
+        />
+      </div>
+
+      <div className="flex items-end justify-between gap-3">
+        <Sparkline counts={metrics.last7Days} />
+        <div className="flex-shrink-0 text-right">
+          <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+            <TrendingUp className="h-3 w-3" />
+            Last 7d
+          </p>
+          <p className="text-sm font-bold tabular-nums">
+            {metrics.last7Days.reduce((a, b) => a + b, 0)}
+          </p>
+        </div>
+      </div>
+
+      {metrics.lastBookingAt && (
+        <p className="text-[10px] text-zinc-400">
+          Last booking {timeAgo(metrics.lastBookingAt)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function MiniStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string | number
+  tone?: 'good' | 'warn' | 'bad'
+}) {
+  const toneClass =
+    tone === 'good'
+      ? 'text-green-600'
+      : tone === 'warn'
+        ? 'text-amber-600'
+        : tone === 'bad'
+          ? 'text-red-600'
+          : 'text-zinc-900 dark:text-zinc-100'
+  return (
+    <div className="min-w-0 rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-800/50">
+      <p className="truncate text-[9px] font-medium uppercase tracking-wide text-zinc-400">
+        {label}
+      </p>
+      <p className={cn('truncate text-sm font-bold tabular-nums', toneClass)}>{value}</p>
+    </div>
+  )
+}
+
+function Sparkline({ counts }: { counts: number[] }) {
+  const max = Math.max(1, ...counts)
+  const width = 140
+  const height = 28
+  const barWidth = width / counts.length
+  return (
+    <svg
+      width={width}
+      height={height}
+      className="flex-1"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+    >
+      {counts.map((c, i) => {
+        const h = c === 0 ? 2 : Math.max(2, (c / max) * height)
+        return (
+          <rect
+            key={i}
+            x={i * barWidth + 1}
+            y={height - h}
+            width={Math.max(barWidth - 2, 1)}
+            height={h}
+            rx={1}
+            className={c > 0 ? 'fill-purple-500' : 'fill-zinc-200 dark:fill-zinc-700'}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+function missingDataFlags(a: Appointment): string[] {
+  const missing: string[] = []
+  if (!a.callRecordingLink) missing.push('Call recording')
+  if (!a.utilityProvider) missing.push('Utility provider')
+  if (!a.estimatedDealValue) missing.push('Deal value')
+  if (!a.monthlyBill) missing.push('Monthly bill')
+  return missing
+}
+
+function csvEscape(value: string): string {
+  if (value == null) return ''
+  // Wrap in quotes if contains comma/quote/newline; double internal quotes.
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`
+  }
+  return value
+}
+
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime()
+  const now = Date.now()
+  const diffMs = now - then
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
