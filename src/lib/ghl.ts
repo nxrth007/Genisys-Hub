@@ -563,13 +563,25 @@ export async function upsertContactByPhone(
  * Send an SMS to a phone number via GHL. Wraps upsertContactByPhone and
  * /conversations/messages (type=SMS). The conversationId is optional —
  * GHL auto-routes via the contact's default conversation when omitted.
+ *
+ * Returns the full GHL response so callers can surface messageId +
+ * conversationId for diagnostics. A 200 from GHL only means "accepted"
+ * — the SMS still has to clear carrier routing (A2P 10DLC, DND flags,
+ * etc.), which happens asynchronously.
  */
 export async function sendSmsToPhone(
   vaultEntryName: string,
   params: { phone: string; message: string; firstName?: string; lastName?: string }
-): Promise<{ contactId: string; messageId?: string }> {
+): Promise<{
+  contactId: string
+  messageId?: string
+  conversationId?: string
+  normalizedPhone: string
+  rawResponse: unknown
+}> {
+  const normalizedPhone = normalizePhone(params.phone)
   const { id: contactId } = await upsertContactByPhone(vaultEntryName, {
-    phone: params.phone,
+    phone: normalizedPhone,
     firstName: params.firstName,
     lastName: params.lastName,
   })
@@ -581,7 +593,39 @@ export async function sendSmsToPhone(
       contactId,
       message: params.message,
     }),
-  })) as { messageId?: string; id?: string }
+  })) as {
+    messageId?: string
+    id?: string
+    conversationId?: string
+    status?: string
+    [k: string]: unknown
+  }
 
-  return { contactId, messageId: res.messageId || res.id }
+  console.log('[ghl] sendSmsToPhone response:', res)
+
+  return {
+    contactId,
+    messageId: res.messageId || res.id,
+    conversationId: res.conversationId,
+    normalizedPhone,
+    rawResponse: res,
+  }
+}
+
+/**
+ * Poll GHL for the latest status of a sent message. Useful right after
+ * sendSmsToPhone to confirm whether the SMS actually went out (or got
+ * queued, bounced, opted-out, etc.). GHL message status values include
+ * 'pending', 'scheduled', 'sent', 'delivered', 'undelivered', 'failed',
+ * 'read', 'unread'.
+ */
+export async function getMessageStatus(
+  vaultEntryName: string,
+  messageId: string
+): Promise<{ status?: string; raw: unknown }> {
+  const res = (await ghlFetch(
+    `/conversations/messages/${messageId}`,
+    vaultEntryName
+  )) as { status?: string; messageStatus?: string; [k: string]: unknown }
+  return { status: res.status || res.messageStatus, raw: res }
 }

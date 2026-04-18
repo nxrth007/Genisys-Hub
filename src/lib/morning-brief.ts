@@ -250,6 +250,8 @@ export async function buildAndSendSmsBrief(params: {
   taskCount: number
   contactId: string
   messageId?: string
+  conversationId?: string
+  normalizedPhone: string
 }> {
   const events = await getTodayCalendarEvents()
 
@@ -283,17 +285,19 @@ export async function buildAndSendSmsBrief(params: {
     tasks,
   })
 
-  const { contactId, messageId } = await sendSmsToPhone('GHL Genisys Token', {
+  const sendResult = await sendSmsToPhone('GHL Genisys Token', {
     phone: params.phone,
     message,
-    firstName: params.firstName,
+    firstName: greetName === 'there' ? undefined : greetName,
   })
 
   return {
     ok: true,
     eventCount: events.length,
     taskCount: tasks.length,
-    contactId,
-    messageId,
+    contactId: sendResult.contactId,
+    messageId: sendResult.messageId,
+    conversationId: sendResult.conversationId,
+    normalizedPhone: sendResult.normalizedPhone,
   }
 }
