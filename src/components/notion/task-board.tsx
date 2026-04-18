@@ -123,6 +123,7 @@ function DroppableColumn({
   titleProp,
   priorityProp,
   assigneeProp,
+  assigneePropType,
   dateProp,
   descProp,
   statusPropName,
@@ -141,6 +142,7 @@ function DroppableColumn({
   titleProp: string
   priorityProp?: string
   assigneeProp?: string
+  assigneePropType: string
   dateProp?: string
   descProp?: string
   statusPropName: string
@@ -203,6 +205,7 @@ function DroppableColumn({
               titleProp={titleProp}
               priorityProp={priorityProp}
               assigneeProp={assigneeProp}
+              assigneePropType={assigneePropType}
               dateProp={dateProp}
               descProp={descProp}
               statusPropName={statusPropName}
@@ -239,6 +242,7 @@ function SortableTaskCard({
   titleProp,
   priorityProp,
   assigneeProp,
+  assigneePropType,
   dateProp,
   descProp,
   statusPropName,
@@ -253,6 +257,7 @@ function SortableTaskCard({
   titleProp: string
   priorityProp?: string
   assigneeProp?: string
+  assigneePropType: string
   dateProp?: string
   descProp?: string
   statusPropName: string
@@ -433,27 +438,41 @@ function SortableTaskCard({
             </div>
           )}
 
-          {/* Assignee */}
-          {assigneeProp && assigneeOptions.length > 0 && (
+          {/* Assignee — render whenever the column exists so missing-options
+              state is diagnosable (shows a hint instead of vanishing). */}
+          {assigneeProp && (
             <div>
               <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">Assignee</label>
-              <select
-                value={assignee}
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (!val) {
-                    onUpdate(task.id, { [assigneeProp]: { people: [] } })
-                  } else {
-                    onUpdate(task.id, { [assigneeProp]: { people: [{ name: val }] } })
+              {assigneeOptions.length > 0 ? (
+                <select
+                  value={assignee}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (!val) {
+                      onUpdate(task.id, { [assigneeProp]: { people: [] } })
+                    } else {
+                      onUpdate(task.id, { [assigneeProp]: { people: [{ name: val }] } })
+                    }
+                  }}
+                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <option value="">Unassigned</option>
+                  {assigneeOptions.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              ) : (
+                <p
+                  className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950"
+                  title={
+                    assigneePropType === 'people'
+                      ? 'Notion returned no users for this integration. Make sure the integration has been shared with the workspace members (Settings → Integrations).'
+                      : 'No select options defined on the assignee column in Notion.'
                   }
-                }}
-                className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
-              >
-                <option value="">Unassigned</option>
-                {assigneeOptions.map((a) => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
+                >
+                  No assignees available — {assigneePropType === 'people' ? 'integration has no workspace users' : 'add select options in Notion'}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -489,6 +508,12 @@ function NewTaskForm({
   titleProp,
   statusPropName,
   statusPropType,
+  priorityProp,
+  priorityOptions,
+  assigneeProp,
+  assigneePropType,
+  assigneeOptions,
+  notionUsers,
   onClose,
   onCreated,
 }: {
@@ -497,10 +522,18 @@ function NewTaskForm({
   titleProp: string
   statusPropName: string
   statusPropType: string
+  priorityProp?: string
+  priorityOptions: string[]
+  assigneeProp?: string
+  assigneePropType: string
+  assigneeOptions: string[]
+  notionUsers: Array<{ id: string; name: string; email: string }>
   onClose: () => void
   onCreated: () => void
 }) {
   const [title, setTitle] = useState('')
+  const [priority, setPriority] = useState('')
+  const [assignee, setAssignee] = useState('')
   const [creating, setCreating] = useState(false)
 
   async function handleCreate() {
@@ -515,6 +548,23 @@ function NewTaskForm({
       } else {
         properties[statusPropName] = { select: { name: status } }
       }
+      if (priorityProp && priority) {
+        properties[priorityProp] = { select: { name: priority } }
+      }
+      if (assigneeProp && assignee) {
+        if (assigneePropType === 'people') {
+          // Look up the Notion user id by display name — Notion's people
+          // property expects { people: [{ object: 'user', id }] }, not name.
+          const user = notionUsers.find((u) => u.name === assignee)
+          if (user) {
+            properties[assigneeProp] = {
+              people: [{ object: 'user', id: user.id }],
+            }
+          }
+        } else {
+          properties[assigneeProp] = { select: { name: assignee } }
+        }
+      }
 
       await fetch('/api/notion/create', {
         method: 'POST',
@@ -522,6 +572,8 @@ function NewTaskForm({
         body: JSON.stringify({ parentId: dbId, properties, isDatabase: true }),
       })
       setTitle('')
+      setPriority('')
+      setAssignee('')
       onCreated()
       onClose()
     } catch {
@@ -532,16 +584,76 @@ function NewTaskForm({
   }
 
   return (
-    <div className="rounded-lg bg-white border border-purple-300 p-2 shadow-md dark:bg-zinc-900 dark:border-purple-600">
+    <div className="space-y-2 rounded-lg border border-purple-300 bg-white p-3 shadow-md dark:border-purple-600 dark:bg-zinc-900">
       <input
         autoFocus
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') onClose() }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) handleCreate()
+          if (e.key === 'Escape') onClose()
+        }}
         placeholder="Task name..."
         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-800"
       />
-      <div className="flex items-center gap-2 mt-2">
+
+      {(priorityProp && priorityOptions.length > 0) || assigneeProp ? (
+        <div className="grid grid-cols-2 gap-2">
+          {priorityProp && priorityOptions.length > 0 && (
+            <div>
+              <label className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+                Priority
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+              >
+                <option value="">—</option>
+                {priorityOptions.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {assigneeProp && (
+            <div>
+              <label className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+                Assignee
+              </label>
+              {assigneeOptions.length > 0 ? (
+                <select
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                  className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <option value="">Unassigned</option>
+                  {assigneeOptions.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p
+                  className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[10px] text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950"
+                  title={
+                    assigneePropType === 'people'
+                      ? 'Notion returned no users for this integration. Make sure the integration has access to the workspace members.'
+                      : 'No select options defined on the assignee column in Notion.'
+                  }
+                >
+                  no options
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <div className="flex items-center gap-2 pt-1">
         <button
           onClick={handleCreate}
           disabled={!title.trim() || creating}
@@ -1005,6 +1117,7 @@ export function TaskBoard({
                 titleProp={titleProp}
                 priorityProp={priorityProp}
                 assigneeProp={assigneeProp}
+                assigneePropType={assigneePropType}
                 dateProp={dateProp}
                 descProp={descProp}
                 statusPropName={statusPropName}
@@ -1165,6 +1278,12 @@ export function TaskBoard({
               titleProp={titleProp}
               statusPropName={statusPropName}
               statusPropType={statusPropType}
+              priorityProp={priorityProp}
+              priorityOptions={priorityOptions}
+              assigneeProp={assigneeProp}
+              assigneePropType={assigneePropType}
+              assigneeOptions={assigneeOptions}
+              notionUsers={notionUsers}
               onClose={() => setNewTaskStatus(null)}
               onCreated={() => queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })}
             />
