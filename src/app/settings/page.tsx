@@ -478,6 +478,34 @@ function ScheduledBriefsSection() {
   // admin hasn't typed anything yet. Avoids a setState-in-effect pattern.
   const effectiveUserEmail = form.userEmail || currentEmail
 
+  // One-click presets for the two known team members. Alex + Ethan is the
+  // common case for a long time, so wiring these up shaves the whole
+  // filling-in-the-form step down to a click + save.
+  const presets: Array<{ label: string; values: typeof form }> = [
+    {
+      label: 'Ethan (9 AM PT)',
+      values: {
+        userEmail: '',
+        timeOfDay: '09:00',
+        channel: 'ghl_sms',
+        recipientPhone: '+16035026226',
+        notionAssignee: 'Ethan',
+        timezone: 'America/Los_Angeles',
+      },
+    },
+    {
+      label: 'Alex (11 AM ET)',
+      values: {
+        userEmail: '',
+        timeOfDay: '11:00',
+        channel: 'ghl_sms',
+        recipientPhone: '+16034185315',
+        notionAssignee: 'Alex',
+        timezone: 'America/New_York',
+      },
+    },
+  ]
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/admin/schedules', {
@@ -563,6 +591,21 @@ function ScheduledBriefsSection() {
           }}
           className="mb-4 space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/30"
         >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              Quick preset:
+            </span>
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => setForm(p.values)}
+                className="rounded-full border border-purple-300 bg-white px-3 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-purple-950/50"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium">
