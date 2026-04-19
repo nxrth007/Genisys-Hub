@@ -2,9 +2,19 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+type Conflict = {
+  id: string
+  apptDateTime: string
+  customerName: string
+  customerPhone: string
+  status: string
+  agent: { id: string; name: string | null; email: string }
+}
 
 export type AppointmentFormValues = {
   apptDateTime: string // ISO datetime-local format (YYYY-MM-DDTHH:mm)
@@ -67,14 +77,54 @@ export function AppointmentForm({
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [overrideConflict, setOverrideConflict] = useState(false)
 
   function set<K extends keyof AppointmentFormValues>(key: K, val: AppointmentFormValues[K]) {
     setValues((v) => ({ ...v, [key]: val }))
+    // Any time the date/time changes, the prior "I accept the conflict"
+    // choice no longer applies — the agent should see conflicts again.
+    if (key === 'apptDateTime') setOverrideConflict(false)
   }
+
+  // Conflict check — runs as soon as the agent picks a date/time. Uses
+  // TanStack Query's dedup/caching so repeated date picks don't hammer
+  // the API. Skips when the datetime is empty or invalid.
+  const isoCandidate = (() => {
+    if (!values.apptDateTime) return null
+    const d = new Date(values.apptDateTime)
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  })()
+
+  const conflictsQuery = useQuery<{ conflicts: Conflict[] }>({
+    queryKey: ['agent-appt-conflicts', isoCandidate, appointmentId ?? null],
+    queryFn: async () => {
+      const sp = new URLSearchParams({ at: isoCandidate! })
+      if (appointmentId) sp.set('exclude', appointmentId)
+      const res = await fetch(`/api/agent/appointments/conflicts?${sp.toString()}`)
+      if (!res.ok) throw new Error('Failed to check conflicts')
+      return res.json()
+    },
+    enabled: !!isoCandidate,
+    // Short stale to catch bookings from other agents happening in parallel
+    staleTime: 5_000,
+  })
+  const conflicts = conflictsQuery.data?.conflicts ?? []
+  const hasConflicts = conflicts.length > 0
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+
+    // Hard gate: if there's a known conflict and the agent hasn't explicitly
+    // acknowledged it, refuse submit. The override checkbox below the
+    // warning flips overrideConflict and re-enables the Save button.
+    if (hasConflicts && !overrideConflict) {
+      setError(
+        'Time conflicts with existing booking(s). Review below and tick "Book anyway" to override.'
+      )
+      return
+    }
+
     setSubmitting(true)
 
     const url =
@@ -162,6 +212,79 @@ export function AppointmentForm({
             required
             className={inputCls}
           />
+          {isoCandidate && hasConflicts && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950">
+              <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+                <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    Time conflicts with {conflicts.length} existing booking
+                    {conflicts.length === 1 ? '' : 's'}
+                  </p>
+                  <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+                    Another agent (or you) already has something booked within
+                    an hour of this slot. Shared calendar — the closer can&apos;t
+                    take two at once.
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {conflicts.map((c) => {
+                      const when = new Date(c.apptDateTime)
+                      return (
+                        <li key={c.id} className="flex items-start gap-2">
+                          <span className="mt-0.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
+                          <span>
+                            <span className="font-medium">
+                              {when.toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </span>
+                            {' — '}
+                            {c.customerName} ({c.customerPhone})
+                            {c.agent.name && (
+                              <span className="ml-1 text-amber-700 dark:text-amber-400">
+                                · booked by {c.agent.name}
+                              </span>
+                            )}
+                            <span
+                              className={cn(
+                                'ml-2 rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
+                                c.status === 'booked'
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                  : c.status === 'showed'
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
+                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                              )}
+                            >
+                              {c.status}
+                            </span>
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <label className="mt-3 flex items-center gap-2 text-amber-900 dark:text-amber-200">
+                    <input
+                      type="checkbox"
+                      checked={overrideConflict}
+                      onChange={(e) => setOverrideConflict(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-amber-400 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-xs font-medium">
+                      Book anyway — there&apos;s a reason to double-book this
+                      slot
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+          {conflictsQuery.isFetching && !hasConflicts && isoCandidate && (
+            <p className="mt-1 text-[10px] text-zinc-400">Checking for conflicts…</p>
+          )}
         </Field>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -345,7 +468,12 @@ export function AppointmentForm({
             </Link>
             <button
               type="submit"
-              disabled={submitting || deleting}
+              disabled={submitting || deleting || (hasConflicts && !overrideConflict)}
+              title={
+                hasConflicts && !overrideConflict
+                  ? 'Resolve the time conflict above, or tick "Book anyway" to override'
+                  : undefined
+              }
               className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
             >
               {mode === 'create' ? <Save className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
