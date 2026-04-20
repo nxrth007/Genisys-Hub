@@ -52,6 +52,8 @@ model User {
   vaultCreated        VaultEntry[]        @relation("VaultEntryCreator")
   vaultAccessLogs     VaultAccessLog[]
   appointments        Appointment[]       @relation("AgentAppointments")
+  documentsUploaded   Document[]          @relation("DocumentUploader")
+  documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
 }
 
 model Account {
@@ -368,6 +370,49 @@ model AppSetting {
   id    String @id @default(cuid())
   key   String @unique
   value String @db.Text
+}
+
+// -----------------------------------------------------------------------------
+// Documents — simple internal file storage for contracts, signed agreements,
+// and other important documents shared between staff. Files stored directly
+// in Postgres (bytea) so there's no extra infra / object store to manage.
+// Separate from the Google Drive module (that reads your personal Drive; this
+// is a self-contained Hub store). Staff-only access.
+// -----------------------------------------------------------------------------
+
+model DocumentFolder {
+  id          String           @id @default(cuid())
+  name        String
+  // Null parentId = root-level folder. Cascade so deleting a parent
+  // removes its child folders (and by extension the documents inside).
+  parentId    String?
+  parent      DocumentFolder?  @relation("DocumentFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DocumentFolder[] @relation("DocumentFolderTree")
+  documents   Document[]
+  createdById String
+  createdBy   User             @relation("DocumentFolderCreator", fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([parentId])
+}
+
+model Document {
+  id           String          @id @default(cuid())
+  // Null folderId = root (no folder). Cascade so deleting a folder takes
+  // its documents with it.
+  folderId     String?
+  folder       DocumentFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  filename     String
+  mimeType     String
+  sizeBytes    Int
+  content      Bytes           // raw file bytes
+  uploadedById String
+  uploadedBy   User            @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([folderId])
 }
 
 // -----------------------------------------------------------------------------

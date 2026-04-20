@@ -17,6 +17,7 @@ import {
   HardDrive,
   Headphones,
   PhoneCall,
+  FolderOpen,
   Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -37,6 +38,7 @@ const navItems: NavItem[] = [
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/notion', label: 'Notion', icon: BookOpen },
   { href: '/drive', label: 'Drive', icon: HardDrive },
+  { href: '/documents', label: 'Documents', icon: FolderOpen },
   { href: '/slack', label: 'Slack', icon: Hash },
   { href: '/vault', label: 'Vault', icon: Key },
   { href: '/call-center', label: 'Call Center', icon: PhoneCall },
