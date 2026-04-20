@@ -47,55 +47,64 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Reject duplicates — whether it's an existing staff Google user or another
-  // agent. We don't want to collide with or shadow an existing account.
-  const existing = await prisma.user.findUnique({ where: { email } })
-  if (existing) {
-    return NextResponse.json(
-      { error: 'An account with this email already exists.' },
-      { status: 409 }
+  // Generic-response pattern: return the same 200 ok whether the email
+  // is new OR already taken. Prevents attackers from probing this public
+  // endpoint to enumerate staff + agent emails. If the email is already
+  // on file we quietly skip the create/notify — the legitimate user
+  // lands on the pending screen and contacts Alex directly if they
+  // expected to sign in. Hash the password first so the timing looks
+  // similar between the duplicate-skip and new-user paths.
+  const passwordHash = await bcrypt.hash(password, 10)
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  })
+
+  if (!existing) {
+    const user = await prisma.user.create({
+      data: {
+        email,
+        name,
+        passwordHash,
+        role: 'agent_pending',
+      },
+      select: { id: true, email: true, name: true, createdAt: true },
+    })
+
+    // Notify the admin. Best-effort — don't fail registration if email is broken.
+    const origin = getPublicOrigin(req)
+    const reviewUrl = `${origin}/admin/agents/${user.id}`
+
+    try {
+      await sendEmail({
+        accountEmail: FROM_GMAIL_ACCOUNT,
+        to: ADMIN_NOTIFY_EMAIL,
+        subject: `New agent registration: ${name}`,
+        body: [
+          `**${name}** (${email}) just registered as a call-center agent on Genisys Hub.`,
+          '',
+          `Review and approve or deny their registration here:`,
+          '',
+          `[Review registration](${reviewUrl})`,
+          '',
+          `Registered at: ${user.createdAt.toISOString()}`,
+          '',
+          `If you didn't expect this, deny the registration — they won't be able to sign in.`,
+        ].join('\n'),
+      })
+    } catch (err) {
+      console.error('[agent/register] Gmail notification failed:', err)
+      // Swallow — Alex can still approve via /admin/agents manually.
+    }
+  } else {
+    // Log for ops visibility; don't expose to the client.
+    console.log(
+      `[agent/register] Duplicate registration attempt for ${email} — silently ignored`
     )
   }
 
-  const passwordHash = await bcrypt.hash(password, 10)
-
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name,
-      passwordHash,
-      role: 'agent_pending',
-    },
-    select: { id: true, email: true, name: true, createdAt: true },
-  })
-
-  // Notify the admin. Best-effort — don't fail registration if email is broken.
-  const origin = getPublicOrigin(req)
-  const reviewUrl = `${origin}/admin/agents/${user.id}`
-
-  try {
-    await sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: ADMIN_NOTIFY_EMAIL,
-      subject: `New agent registration: ${name}`,
-      body: [
-        `**${name}** (${email}) just registered as a call-center agent on Genisys Hub.`,
-        '',
-        `Review and approve or deny their registration here:`,
-        '',
-        `[Review registration](${reviewUrl})`,
-        '',
-        `Registered at: ${user.createdAt.toISOString()}`,
-        '',
-        `If you didn't expect this, deny the registration — they won't be able to sign in.`,
-      ].join('\n'),
-    })
-  } catch (err) {
-    console.error('[agent/register] Gmail notification failed:', err)
-    // Swallow — Alex can still approve via /admin/agents manually.
-  }
-
-  return NextResponse.json({ ok: true, id: user.id })
+  // Always return a neutral 200 so the two paths are indistinguishable.
+  return NextResponse.json({ ok: true })
 }
 
 function getPublicOrigin(req: NextRequest): string {

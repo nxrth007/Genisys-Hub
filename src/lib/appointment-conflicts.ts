@@ -14,6 +14,7 @@
  * flag itself.
  */
 import { prisma } from './prisma'
+import type { Prisma } from '@/generated/prisma/client'
 
 /** Default appointment duration in minutes. Tune here if Genisys changes
  *  the standard consult length. */
@@ -37,13 +38,17 @@ export async function findConflicts(params: {
   apptDateTime: Date
   durationMinutes?: number
   excludeId?: string
+  /** Optional transaction client so the conflict check can share a tx with
+   *  the subsequent create, shrinking the double-booking race window. */
+  tx?: Prisma.TransactionClient
 }): Promise<AppointmentConflict[]> {
   const duration = params.durationMinutes ?? DEFAULT_APPOINTMENT_DURATION_MIN
   const target = params.apptDateTime.getTime()
   const windowStart = new Date(target - duration * 60_000)
   const windowEnd = new Date(target + duration * 60_000)
 
-  const rows = await prisma.appointment.findMany({
+  const client = params.tx ?? prisma
+  const rows = await client.appointment.findMany({
     where: {
       ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
       status: { notIn: ['cancelled'] },

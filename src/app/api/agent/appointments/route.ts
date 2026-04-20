@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
+import { findConflicts } from '@/lib/appointment-conflicts'
 
 /**
  * GET  /api/agent/appointments  → own appointments, most recent first
@@ -40,6 +41,13 @@ type AppointmentInput = {
   estimatedDealValue?: string | null
   notes?: string | null
   callRecordingLink?: string | null
+  /**
+   * IDs of conflicts the agent has already acknowledged (ticked "Book anyway"
+   * for) on the client. If a server-side re-check finds conflicts that
+   * aren't in this list, a new booking slipped in during the form-fill
+   * and we bounce back a 409 so the UI can re-prompt.
+   */
+  acknowledgedConflictIds?: string[]
 }
 
 const ALLOWED_STATUS = new Set([
@@ -80,24 +88,70 @@ export async function POST(req: NextRequest) {
 
   const status = body.status && ALLOWED_STATUS.has(body.status) ? body.status : 'booked'
 
-  const appt = await prisma.appointment.create({
-    data: {
-      agentUserId: session.user.id,
-      apptDateTime: parsedDate,
-      customerName: body.customerName.trim(),
-      customerPhone: body.customerPhone.trim(),
-      address: body.address?.trim() || null,
-      email: body.email?.trim() || null,
-      monthlyBill: body.monthlyBill?.trim() || null,
-      utilityProvider: body.utilityProvider?.trim() || null,
-      roofType: body.roofType?.trim() || null,
-      roofAge: body.roofAge?.trim() || null,
-      status,
-      estimatedDealValue: body.estimatedDealValue?.trim() || null,
-      notes: body.notes?.trim() || null,
-      callRecordingLink: body.callRecordingLink?.trim() || null,
-    },
-  })
+  // Server-side conflict re-check to close the race where two agents both
+  // submit after each saw "no conflicts" in their form. Running inside a
+  // transaction shrinks (but doesn't eliminate) the race window; the
+  // acknowledged-ids comparison handles the "you accepted conflict A, but
+  // someone just booked conflict B" case by returning 409 with the new set.
+  const acknowledgedSet = new Set(body.acknowledgedConflictIds || [])
+
+  let appt
+  try {
+    appt = await prisma.$transaction(async (tx) => {
+      const currentConflicts = await findConflicts({
+        apptDateTime: parsedDate,
+        excludeId: undefined,
+        tx,
+      })
+      const unacknowledged = currentConflicts.filter(
+        (c) => !acknowledgedSet.has(c.id)
+      )
+      if (unacknowledged.length > 0) {
+        // Throw a sentinel error with the conflict payload — caught below
+        // and returned as 409. Any other throw is a real server error.
+        const err = new Error('conflict') as Error & {
+          __conflict?: true
+          conflicts?: typeof currentConflicts
+        }
+        err.__conflict = true
+        err.conflicts = currentConflicts
+        throw err
+      }
+
+      return tx.appointment.create({
+        data: {
+          agentUserId: session.user.id,
+          apptDateTime: parsedDate,
+          customerName: body.customerName!.trim(),
+          customerPhone: body.customerPhone!.trim(),
+          address: body.address?.trim() || null,
+          email: body.email?.trim() || null,
+          monthlyBill: body.monthlyBill?.trim() || null,
+          utilityProvider: body.utilityProvider?.trim() || null,
+          roofType: body.roofType?.trim() || null,
+          roofAge: body.roofAge?.trim() || null,
+          status,
+          estimatedDealValue: body.estimatedDealValue?.trim() || null,
+          notes: body.notes?.trim() || null,
+          callRecordingLink: body.callRecordingLink?.trim() || null,
+        },
+      })
+    })
+  } catch (err) {
+    if ((err as { __conflict?: boolean }).__conflict) {
+      return NextResponse.json(
+        {
+          error:
+            'Another booking just landed in this time slot. Review the updated conflicts and confirm if you still want to proceed.',
+          conflicts:
+            (err as { conflicts?: unknown }).conflicts || [],
+          code: 'CONFLICT_RACE',
+        },
+        { status: 409 }
+      )
+    }
+    throw err
+  }
 
   // Fire-and-forget sheets sync. Errors are surfaced on the appointment
   // record's syncError field for the UI; we don't block the client response.

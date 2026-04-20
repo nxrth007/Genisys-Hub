@@ -65,11 +65,25 @@ async function checkAndSendBriefs() {
     })
     if (userTime !== schedule.timeOfDay) continue
 
-    if (schedule.lastSentAt) {
-      const lastSent = new Date(schedule.lastSentAt)
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      if (lastSent >= todayStart) continue
-    }
+    // Atomic claim before send — prevents double-delivery when two
+    // scheduler instances overlap during a rolling deploy, or when a
+    // container restart replays the same minute. Only one updateMany
+    // call per schedule-per-UTC-day can match (lastSentAt < todayStart).
+    // Whoever wins the update actually sends; losers see count=0 and skip.
+    const todayStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    )
+    const claim = await prisma.scheduledSms.updateMany({
+      where: {
+        id: schedule.id,
+        OR: [
+          { lastSentAt: null },
+          { lastSentAt: { lt: todayStart } },
+        ],
+      },
+      data: { lastSentAt: now },
+    })
+    if (claim.count === 0) continue
 
     try {
       if (schedule.channel === 'ghl_sms') {
@@ -98,17 +112,16 @@ async function checkAndSendBriefs() {
         console.log(`[scheduler] Sending Slack brief to ${user.email}`)
         await buildAndSendBrief(user.email)
       }
-
-      await prisma.scheduledSms.update({
-        where: { id: schedule.id },
-        data: { lastSentAt: new Date() },
-      })
       console.log(`[scheduler] Brief sent for ${user.email}`)
     } catch (err) {
       console.error(
         `[scheduler] Failed to send brief for ${user.email}:`,
         err
       )
+      // We've already claimed today's slot. Intentional trade-off: a
+      // failed send loses that day's brief rather than risk a double-send
+      // by rolling back the claim (if the send started but the response
+      // was lost, we can't tell whether the SMS actually went out).
     }
   }
 }

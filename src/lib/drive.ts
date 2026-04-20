@@ -1154,7 +1154,23 @@ export async function ensureAgentTab(params: {
   const sheets = await getSheetsClient(accountEmail)
 
   const base = params.agentName?.trim() || params.agentEmail.split('@')[0]
-  const title = sanitizeTabName(base)
+  const preferredTitle = sanitizeTabName(base)
+
+  // Disambiguate when a different agent already owns a tab with this
+  // preferred name. Without this, a second "John" would silently share
+  // the first John's tab and both agents' bookings would land in the
+  // same place. If THIS agent already has the tab (re-approval), reuse it.
+  const existingOwner = await prisma.user.findFirst({
+    where: {
+      agentSheetTab: preferredTitle,
+      email: { not: params.agentEmail.toLowerCase() },
+    },
+    select: { id: true },
+  })
+
+  const title = existingOwner
+    ? sanitizeTabName(`${preferredTitle} (${params.agentEmail.split('@')[0]})`)
+    : preferredTitle
 
   const existing = await findTabByTitle(sheets, spreadsheetId, title)
   if (existing) return existing.title

@@ -78,12 +78,23 @@ export function AppointmentForm({
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overrideConflict, setOverrideConflict] = useState(false)
+  /** Conflict IDs the agent has explicitly acknowledged by ticking
+   *  "Book anyway". Sent to the server so it can distinguish "you
+   *  accepted these" from "a new conflict appeared mid-submit". */
+  const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([])
+  /** If the server returns 409 with fresh conflicts (race detected),
+   *  store them here so the warning panel renders the latest state. */
+  const [raceConflicts, setRaceConflicts] = useState<Conflict[] | null>(null)
 
   function set<K extends keyof AppointmentFormValues>(key: K, val: AppointmentFormValues[K]) {
     setValues((v) => ({ ...v, [key]: val }))
     // Any time the date/time changes, the prior "I accept the conflict"
     // choice no longer applies — the agent should see conflicts again.
-    if (key === 'apptDateTime') setOverrideConflict(false)
+    if (key === 'apptDateTime') {
+      setOverrideConflict(false)
+      setAcknowledgedIds([])
+      setRaceConflicts(null)
+    }
   }
 
   // Conflict check — runs as soon as the agent picks a date/time. Uses
@@ -108,7 +119,9 @@ export function AppointmentForm({
     // Short stale to catch bookings from other agents happening in parallel
     staleTime: 5_000,
   })
-  const conflicts = conflictsQuery.data?.conflicts ?? []
+  // Race conflicts (from a server 409) take precedence over the background
+  // check so the user sees exactly what the server just saw.
+  const conflicts = raceConflicts ?? conflictsQuery.data?.conflicts ?? []
   const hasConflicts = conflicts.length > 0
 
   async function submit(e: React.FormEvent) {
@@ -149,6 +162,7 @@ export function AppointmentForm({
       estimatedDealValue: values.estimatedDealValue || null,
       notes: values.notes || null,
       callRecordingLink: values.callRecordingLink || null,
+      acknowledgedConflictIds: acknowledgedIds,
     }
 
     const res = await fetch(url, {
@@ -160,6 +174,19 @@ export function AppointmentForm({
     setSubmitting(false)
 
     if (!res.ok) {
+      // 409 with CONFLICT_RACE means another booking landed in the same
+      // slot between the agent's acknowledgment and their save. Refresh
+      // the warning panel with the server's current conflict list and
+      // make the agent re-acknowledge. No data was saved.
+      if (res.status === 409 && data.code === 'CONFLICT_RACE') {
+        setRaceConflicts((data.conflicts as Conflict[]) || [])
+        setOverrideConflict(false)
+        setAcknowledgedIds([])
+        setError(
+          'Someone booked in this time slot while you were filling out the form. Review the updated conflicts above and tick "Book anyway" again if you still want to proceed.'
+        )
+        return
+      }
       setError(data.error || 'Failed to save appointment.')
       return
     }
@@ -270,7 +297,18 @@ export function AppointmentForm({
                     <input
                       type="checkbox"
                       checked={overrideConflict}
-                      onChange={(e) => setOverrideConflict(e.target.checked)}
+                      onChange={(e) => {
+                        setOverrideConflict(e.target.checked)
+                        // Snapshot the current conflict IDs. Server re-checks
+                        // these at save time — any newer conflict the agent
+                        // didn't acknowledge triggers a 409 re-prompt.
+                        setAcknowledgedIds(
+                          e.target.checked ? conflicts.map((c) => c.id) : []
+                        )
+                        // Clear the race-only list once the user re-acks so
+                        // the form drops back to the background query's data.
+                        if (e.target.checked) setRaceConflicts(null)
+                      }}
                       className="h-3.5 w-3.5 rounded border-amber-400 text-purple-600 focus:ring-purple-500"
                     />
                     <span className="text-xs font-medium">
