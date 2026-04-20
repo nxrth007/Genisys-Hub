@@ -85,6 +85,10 @@ export function AppointmentForm({
   /** If the server returns 409 with fresh conflicts (race detected),
    *  store them here so the warning panel renders the latest state. */
   const [raceConflicts, setRaceConflicts] = useState<Conflict[] | null>(null)
+  /** Timestamp when raceConflicts was set. Used to decide whether the
+   *  background query has run since — if so, its data is fresher and we
+   *  drop the race snapshot. Avoids a setState-in-effect pattern. */
+  const [raceSetAt, setRaceSetAt] = useState(0)
 
   function set<K extends keyof AppointmentFormValues>(key: K, val: AppointmentFormValues[K]) {
     setValues((v) => ({ ...v, [key]: val }))
@@ -120,12 +124,25 @@ export function AppointmentForm({
     staleTime: 5_000,
   })
   // Race conflicts (from a server 409) take precedence over the background
-  // check so the user sees exactly what the server just saw.
-  const conflicts = raceConflicts ?? conflictsQuery.data?.conflicts ?? []
+  // check until the background query actually refetches past the race
+  // moment. dataUpdatedAt bumps on every refetch (even when data is
+  // unchanged), so comparing it to raceSetAt cleanly tells us when the
+  // race snapshot has been superseded by fresh live data. Derived on
+  // render — no setState-in-effect needed.
+  const liveUpdatedAt = conflictsQuery.dataUpdatedAt
+  const raceSnapshotStillAuthoritative =
+    raceConflicts !== null && liveUpdatedAt < raceSetAt
+  const conflicts = raceSnapshotStillAuthoritative
+    ? raceConflicts!
+    : conflictsQuery.data?.conflicts ?? []
   const hasConflicts = conflicts.length > 0
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    // Defensive: browser can fire onSubmit twice if the user presses Enter
+    // in quick succession — the button's `disabled` attribute only reflects
+    // the previous render, so this early-return protects the network call.
+    if (submitting) return
     setError(null)
 
     // Hard gate: if there's a known conflict and the agent hasn't explicitly
@@ -136,6 +153,19 @@ export function AppointmentForm({
         'Time conflicts with existing booking(s). Review below and tick "Book anyway" to override.'
       )
       return
+    }
+
+    // Client-side URL scheme check on the call recording link. Server
+    // should also validate, but reject javascript:/data: etc. here to
+    // prevent obvious XSS payloads from reaching the DB.
+    if (values.callRecordingLink.trim()) {
+      const link = values.callRecordingLink.trim()
+      if (!/^https?:\/\//i.test(link)) {
+        setError(
+          'Call recording link must start with http:// or https://'
+        )
+        return
+      }
     }
 
     setSubmitting(true)
@@ -180,6 +210,7 @@ export function AppointmentForm({
       // make the agent re-acknowledge. No data was saved.
       if (res.status === 409 && data.code === 'CONFLICT_RACE') {
         setRaceConflicts((data.conflicts as Conflict[]) || [])
+        setRaceSetAt(Date.now())
         setOverrideConflict(false)
         setAcknowledgedIds([])
         setError(

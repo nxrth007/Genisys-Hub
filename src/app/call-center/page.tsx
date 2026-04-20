@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState, useMemo } from 'react'
+import { Fragment, useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -115,8 +115,11 @@ export default function CallCenterPage() {
   // Track which row is expanded (id of the appointment) so the table can
   // show a detail panel inline without navigating away.
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  // Track which rows are mid-save so we can show a spinner on them.
-  const [savingId, setSavingId] = useState<string | null>(null)
+  // Track which rows are mid-save so we can show a spinner on them. A Set
+  // (not a single id) so two concurrent status edits don't clobber each
+  // other's spinner — otherwise the first edit's spinner vanishes the
+  // moment a second row is clicked.
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
 
   const agentsQuery = useQuery<{ agents: AgentSummary[] }>({
     queryKey: ['call-center-agents'],
@@ -151,24 +154,43 @@ export default function CallCenterPage() {
     [apptsQuery.data]
   )
 
+  // Close a stale expanded row when filters hide it. Otherwise clearing
+  // the filter later re-reveals the old expanded state unexpectedly.
+  useEffect(() => {
+    if (expandedId && !appointments.some((a) => a.id === expandedId)) {
+      setExpandedId(null)
+    }
+  }, [appointments, expandedId])
+
   /** Staff edit — typically status or notes directly from the table. */
   const patchMutation = useMutation({
     mutationFn: async (params: {
       id: string
       fields: Record<string, unknown>
     }) => {
-      setSavingId(params.id)
-      const res = await fetch(`/api/call-center/appointments/${params.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(params.fields),
+      setSavingIds((prev) => {
+        const next = new Set(prev)
+        next.add(params.id)
+        return next
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Update failed')
-      return data
+      try {
+        const res = await fetch(`/api/call-center/appointments/${params.id}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(params.fields),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Update failed')
+        return { ...data, id: params.id }
+      } finally {
+        setSavingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(params.id)
+          return next
+        })
+      }
     },
     onSettled: () => {
-      setSavingId(null)
       qc.invalidateQueries({ queryKey: ['call-center-appts'] })
     },
   })
@@ -598,7 +620,7 @@ export default function CallCenterPage() {
                   const when = new Date(a.apptDateTime)
                   const missing = missingDataFlags(a)
                   const isExpanded = expandedId === a.id
-                  const isSaving = savingId === a.id
+                  const isSaving = savingIds.has(a.id)
                   return (
                     <Fragment key={a.id}>
                       <tr

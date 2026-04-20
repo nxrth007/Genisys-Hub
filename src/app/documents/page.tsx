@@ -299,13 +299,16 @@ export default function DocumentsPage() {
   const dragCounter = useRef(0)
   function onDragEnter(e: React.DragEvent) {
     e.preventDefault()
-    if (e.dataTransfer?.types?.includes('Files')) {
-      dragCounter.current += 1
-      setIsDragOver(true)
-    }
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    dragCounter.current += 1
+    setIsDragOver(true)
   }
   function onDragLeave(e: React.DragEvent) {
     e.preventDefault()
+    // Gate matches dragEnter — without it, non-file drags (e.g. selecting
+    // text) would decrement a counter that was never incremented, making
+    // the counter drift negative over time.
+    if (!e.dataTransfer?.types?.includes('Files')) return
     dragCounter.current -= 1
     if (dragCounter.current <= 0) {
       dragCounter.current = 0
@@ -319,7 +322,8 @@ export default function DocumentsPage() {
     e.preventDefault()
     dragCounter.current = 0
     setIsDragOver(false)
-    const files = e.dataTransfer?.files
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    const files = e.dataTransfer.files
     if (files && files.length > 0) upload.mutate(files)
   }
 
@@ -665,56 +669,69 @@ function FolderRow({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(folder.name)
 
+  // Render different root elements while renaming vs. browsing so we don't
+  // end up with an invalid <button><form><input> nesting (react warns,
+  // screen readers get confused, Safari has been known to misfire Enter).
+  const icon = (
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-950">
+      <Folder className="h-[18px] w-[18px] text-purple-600" />
+    </div>
+  )
+  const meta = (
+    <p className="mt-0.5 text-xs text-zinc-500">
+      {folder._count.documents} file{folder._count.documents === 1 ? '' : 's'}
+      {folder._count.children > 0 &&
+        ` · ${folder._count.children} subfolder${folder._count.children === 1 ? '' : 's'}`}
+      {' · created '}
+      {formatDate(folder.updatedAt)}
+      {folder.createdBy.name && ` · ${folder.createdBy.name}`}
+    </p>
+  )
+
+  function commitRename() {
+    const trimmed = name.trim()
+    if (trimmed && trimmed !== folder.name) onRename(trimmed)
+    setRenaming(false)
+  }
+
   return (
     <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-      <button
-        onClick={renaming ? undefined : onOpen}
-        disabled={renaming}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-950">
-          <Folder className="h-[18px] w-[18px] text-purple-600" />
-        </div>
-        <div className="min-w-0 flex-1">
-          {renaming ? (
-            <form
-              onClick={(e) => e.stopPropagation()}
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (name.trim() && name.trim() !== folder.name) onRename(name.trim())
-                setRenaming(false)
-              }}
-            >
-              <input
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={() => {
-                  if (name.trim() && name.trim() !== folder.name) onRename(name.trim())
+      {renaming ? (
+        // Form lives at row level, NOT inside a button wrapper.
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            commitRename()
+          }}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          {icon}
+          <div className="min-w-0 flex-1">
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setName(folder.name)
                   setRenaming(false)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setName(folder.name)
-                    setRenaming(false)
-                  }
-                }}
-                className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
-              />
-            </form>
-          ) : (
+                }
+              }}
+              className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+            />
+            {meta}
+          </div>
+        </form>
+      ) : (
+        <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          {icon}
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{folder.name}</p>
-          )}
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {folder._count.documents} file{folder._count.documents === 1 ? '' : 's'}
-            {folder._count.children > 0 &&
-              ` · ${folder._count.children} subfolder${folder._count.children === 1 ? '' : 's'}`}
-            {' · created '}
-            {formatDate(folder.updatedAt)}
-            {folder.createdBy.name && ` · ${folder.createdBy.name}`}
-          </p>
-        </div>
-      </button>
+            {meta}
+          </div>
+        </button>
+      )}
       <RowMenu
         onRename={() => {
           setName(folder.name)
@@ -744,78 +761,88 @@ function DocumentRow({
   const [filename, setFilename] = useState(doc.filename)
   const previewable = canPreview(doc.mimeType)
 
+  const icon = (
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+      <MimeIcon mime={doc.mimeType} className="h-[18px] w-[18px] text-zinc-500" />
+    </div>
+  )
+
+  function commitRename() {
+    const trimmed = filename.trim()
+    if (trimmed && trimmed !== doc.filename) onRename(trimmed)
+    setRenaming(false)
+  }
+
+  const meta = (
+    <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+      <span>{humanSize(doc.sizeBytes)}</span>
+      <span>·</span>
+      <span>added {formatDate(doc.createdAt)}</span>
+      {doc.uploadedBy.name && (
+        <>
+          <span>·</span>
+          <span className="inline-flex items-center gap-1">
+            <UserIcon className="h-3 w-3" />
+            {doc.uploadedBy.name}
+          </span>
+        </>
+      )}
+      {previewable && !renaming && (
+        <>
+          <span>·</span>
+          <span className="inline-flex items-center gap-1 text-purple-600">
+            <Eye className="h-3 w-3" />
+            click to preview
+          </span>
+        </>
+      )}
+    </p>
+  )
+
   return (
     <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-      <button
-        onClick={renaming ? undefined : previewable ? onPreview : undefined}
-        disabled={renaming || !previewable}
-        className={cn(
-          'flex min-w-0 flex-1 items-center gap-3 text-left',
-          !previewable && !renaming && 'cursor-default'
-        )}
-      >
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
-          <MimeIcon mime={doc.mimeType} className="h-[18px] w-[18px] text-zinc-500" />
-        </div>
-        <div className="min-w-0 flex-1">
-          {renaming ? (
-            <form
-              onClick={(e) => e.stopPropagation()}
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (filename.trim() && filename.trim() !== doc.filename) {
-                  onRename(filename.trim())
-                }
-                setRenaming(false)
-              }}
-            >
-              <input
-                autoFocus
-                value={filename}
-                onChange={(e) => setFilename(e.target.value)}
-                onBlur={() => {
-                  if (filename.trim() && filename.trim() !== doc.filename) {
-                    onRename(filename.trim())
-                  }
+      {renaming ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            commitRename()
+          }}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          {icon}
+          <div className="min-w-0 flex-1">
+            <input
+              autoFocus
+              value={filename}
+              onChange={(e) => setFilename(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setFilename(doc.filename)
                   setRenaming(false)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setFilename(doc.filename)
-                    setRenaming(false)
-                  }
-                }}
-                className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
-              />
-            </form>
-          ) : (
-            <p className="truncate text-sm font-medium">{doc.filename}</p>
+                }
+              }}
+              className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+            />
+            {meta}
+          </div>
+        </form>
+      ) : (
+        <button
+          onClick={previewable ? onPreview : undefined}
+          disabled={!previewable}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-3 text-left',
+            !previewable && 'cursor-default'
           )}
-          <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
-            <span>{humanSize(doc.sizeBytes)}</span>
-            <span>·</span>
-            <span>added {formatDate(doc.createdAt)}</span>
-            {doc.uploadedBy.name && (
-              <>
-                <span>·</span>
-                <span className="inline-flex items-center gap-1">
-                  <UserIcon className="h-3 w-3" />
-                  {doc.uploadedBy.name}
-                </span>
-              </>
-            )}
-            {previewable && (
-              <>
-                <span>·</span>
-                <span className="inline-flex items-center gap-1 text-purple-600">
-                  <Eye className="h-3 w-3" />
-                  click to preview
-                </span>
-              </>
-            )}
-          </p>
-        </div>
-      </button>
+        >
+          {icon}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{doc.filename}</p>
+            {meta}
+          </div>
+        </button>
+      )}
       <a
         href={`/api/documents/${doc.id}`}
         download={doc.filename}

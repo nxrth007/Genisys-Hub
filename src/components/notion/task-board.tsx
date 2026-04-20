@@ -1035,11 +1035,36 @@ export function TaskBoard({
   }
 
   if (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to load'
+    // Common case: pinned DB was deleted/archived in Notion. Give the
+    // embed variant a way out since the user can't navigate to /notion
+    // and unpin there (the board is gone).
     return (
       <div className="space-y-4">
-        <button onClick={() => router.back()} className="text-sm text-purple-600 hover:underline">&larr; Back</button>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          {error instanceof Error ? error.message : 'Failed to load'}
+        {variant === 'page' && (
+          <button
+            onClick={() => router.back()}
+            className="text-sm text-purple-600 hover:underline"
+          >
+            &larr; Back
+          </button>
+        )}
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <p className="font-medium">Couldn&apos;t load this task board</p>
+          <p className="mt-1 text-xs">{msg}</p>
+          {variant === 'embed' && (
+            // If we're rendering in embed mode, the parent (/today) asked
+            // for this board because it was pinned. Always offer an unpin
+            // button here — the common cause is the DB being deleted in
+            // Notion, which leaves Alex stranded otherwise.
+            <button
+              onClick={() => pinMutation.mutate(null)}
+              disabled={pinMutation.isPending}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+            >
+              {pinMutation.isPending ? 'Unpinning…' : 'Unpin this board from Today'}
+            </button>
+          )}
         </div>
       </div>
     )
@@ -1254,12 +1279,14 @@ export function TaskBoard({
                           <select
                             value={assignee}
                             onChange={(e) => {
-                              const val = e.target.value
-                              if (!val) {
-                                handleUpdate(task.id, { [assigneeProp]: { people: [] } })
-                              } else {
-                                handleUpdate(task.id, { [assigneeProp]: { people: [{ name: val }] } })
-                              }
+                              // Use the shared builder so the shape matches
+                              // the column type (people / select / multi_select).
+                              // Previously hardcoded to `people` which broke
+                              // list-view edits for select + multi_select DBs.
+                              handleUpdate(
+                                task.id,
+                                buildAssigneeUpdate(assigneeProp, assigneePropType, e.target.value)
+                              )
                             }}
                             className="border-0 bg-transparent text-xs cursor-pointer"
                           >
