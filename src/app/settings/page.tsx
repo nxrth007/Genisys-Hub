@@ -1044,6 +1044,7 @@ function SheetMaintenanceSection() {
         tabsAlreadyHad: string[]
         tabsNoHeader: string[]
         tablesExtended: string[]
+        headersStyled: string[]
       }
     },
   })
@@ -1101,6 +1102,12 @@ function SheetMaintenanceSection() {
               <code className="text-xs">{mutation.data.tablesExtended.length}</code>
               {mutation.data.tablesExtended.length > 0 &&
                 ` (${mutation.data.tablesExtended.join(', ')})`}
+            </div>
+            <div>
+              Client header styled to match neighbors:{' '}
+              <code className="text-xs">{mutation.data.headersStyled.length}</code>
+              {mutation.data.headersStyled.length > 0 &&
+                ` (${mutation.data.headersStyled.join(', ')})`}
             </div>
             <div>
               Skipped (no header row detected):{' '}

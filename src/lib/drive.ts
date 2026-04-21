@@ -939,6 +939,7 @@ export async function migrateAddClientColumn(): Promise<{
   tabsAlreadyHad: string[]
   tabsNoHeader: string[]
   tablesExtended: string[]
+  headersStyled: string[]
 }> {
   const writerEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(writerEmail)
@@ -954,6 +955,7 @@ export async function migrateAddClientColumn(): Promise<{
   const tabsAlreadyHad: string[] = []
   const tabsNoHeader: string[] = []
   const tablesExtended: string[] = []
+  const headersStyled: string[] = []
 
   for (const tab of meta.data.sheets || []) {
     const sheetId = tab.properties?.sheetId
@@ -1020,9 +1022,54 @@ export async function migrateAddClientColumn(): Promise<{
       })
       tablesExtended.push(tabTitle)
     }
+
+    // Finally: copy the header *formatting* (purple fill, white bold text
+    // — whatever the Table uses) from the left-neighbor header cell onto
+    // the Client header cell. Google Sheets Tables apply header styling
+    // as per-cell explicit fills at Table-create time, and merely
+    // extending the Table range doesn't paint the new cell. copyPaste
+    // with PASTE_FORMAT mirrors the neighbor's look without touching
+    // the "Client" text we already wrote.
+    if (clientColIndex > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              copyPaste: {
+                source: {
+                  sheetId,
+                  startRowIndex: schema.headerRowNumber - 1,
+                  endRowIndex: schema.headerRowNumber,
+                  startColumnIndex: clientColIndex - 1,
+                  endColumnIndex: clientColIndex,
+                },
+                destination: {
+                  sheetId,
+                  startRowIndex: schema.headerRowNumber - 1,
+                  endRowIndex: schema.headerRowNumber,
+                  startColumnIndex: clientColIndex,
+                  endColumnIndex: clientColIndex + 1,
+                },
+                pasteType: 'PASTE_FORMAT',
+                pasteOrientation: 'NORMAL',
+              },
+            },
+          ],
+        },
+      })
+      headersStyled.push(tabTitle)
+    }
   }
 
-  return { spreadsheetId, tabsUpdated, tabsAlreadyHad, tabsNoHeader, tablesExtended }
+  return {
+    spreadsheetId,
+    tabsUpdated,
+    tabsAlreadyHad,
+    tabsNoHeader,
+    tablesExtended,
+    headersStyled,
+  }
 }
 
 async function findTabByTitle(
