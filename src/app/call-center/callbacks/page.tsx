@@ -155,20 +155,10 @@ export default function CallbacksReviewPage() {
       })
     }
     for (const c of callbacks) {
-      let m = byAgent.get(c.agent.id)
-      if (!m) {
-        m = {
-          id: c.agent.id,
-          name: c.agent.name,
-          email: c.agent.email,
-          pending: 0,
-          overdue: 0,
-          dueToday: 0,
-          completed: 0,
-          lastActivity: null,
-        }
-        byAgent.set(c.agent.id, m)
-      }
+      const m = byAgent.get(c.agent.id)
+      // Skip callbacks whose "agent" isn't in the approved-agent list
+      // (e.g. staff testing via /agent) so they don't pollute the cards.
+      if (!m) continue
       if (c.completedAt) {
         m.completed++
       } else {

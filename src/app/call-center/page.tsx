@@ -305,22 +305,12 @@ export default function CallCenterPage() {
     }
 
     for (const a of appointments) {
-      let m = byAgent.get(a.agent.id)
-      if (!m) {
-        m = {
-          id: a.agent.id,
-          name: a.agent.name,
-          email: a.agent.email,
-          total: 0,
-          showed: 0,
-          noShow: 0,
-          booked: 0,
-          pipelineDollars: 0,
-          lastBookingAt: null,
-          last7Days: last7.map(() => 0),
-        }
-        byAgent.set(a.agent.id, m)
-      }
+      const m = byAgent.get(a.agent.id)
+      // Skip appointments whose "agent" isn't in the approved-agent list
+      // (e.g. staff testing via /agent) so they don't pollute the cards.
+      // The appointment still shows in the table below — this just keeps
+      // the Agents grid limited to real agents with role=agent.
+      if (!m) continue
       m.total++
       if (a.status === 'showed') m.showed++
       if (a.status === 'no_show') m.noShow++
