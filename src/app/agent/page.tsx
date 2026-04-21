@@ -15,7 +15,9 @@ import {
   CheckCircle2,
   ExternalLink,
   ClipboardList,
+  PhoneCall,
 } from 'lucide-react'
+import { CallbacksDuePanel } from '@/components/agent/callbacks-due-panel'
 import { cn } from '@/lib/utils'
 
 type Appointment = {
@@ -116,6 +118,13 @@ export default function AgentDashboardPage() {
         </div>
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
           <Link
+            href="/agent/callbacks"
+            className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-900 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-zinc-800"
+          >
+            <PhoneCall className="h-4 w-4" />
+            Callbacks
+          </Link>
+          <Link
             href="/agent/eod"
             className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-900 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-zinc-800"
           >
@@ -131,6 +140,8 @@ export default function AgentDashboardPage() {
           </Link>
         </div>
       </div>
+
+      <CallbacksDuePanel />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Total booked" value={stats.total} />

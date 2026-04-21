@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useQuery } from '@tanstack/react-query'
-import { Headphones, LogOut, CalendarCheck, ClipboardList } from 'lucide-react'
+import { Headphones, LogOut, CalendarCheck, ClipboardList, PhoneCall } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
  */
 const NAV = [
   { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
+  { href: '/agent/callbacks', label: 'Callbacks', icon: PhoneCall },
   { href: '/agent/eod', label: 'EOD Reports', icon: ClipboardList },
 ]
 

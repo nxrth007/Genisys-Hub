@@ -53,6 +53,7 @@ model User {
   vaultAccessLogs     VaultAccessLog[]
   appointments        Appointment[]       @relation("AgentAppointments")
   eodReports          EodReport[]         @relation("AgentEodReports")
+  callbacks           Callback[]          @relation("AgentCallbacks")
   documentsUploaded   Document[]          @relation("DocumentUploader")
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
 }
@@ -505,4 +506,37 @@ model EodReport {
   // One report per agent per shift day. Agents can PATCH to edit it.
   @@unique([agentUserId, reportDate])
   @@index([reportDate])
+}
+
+// -----------------------------------------------------------------------------
+// Callbacks — agent's personal follow-up list. Distinct from Appointment:
+// a callback is a prospect to *call again later*, not a confirmed booking.
+// Tracked per-agent; no staff rollup in v1 (this is the agent's own notebook,
+// not a KPI for management). If a callback converts to an appointment, the
+// agent books it normally and marks the callback done.
+// -----------------------------------------------------------------------------
+
+model Callback {
+  id            String    @id @default(cuid())
+  agentUserId   String
+  agent         User      @relation("AgentCallbacks", fields: [agentUserId], references: [id], onDelete: Cascade)
+
+  customerName  String
+  customerPhone String
+  // When the agent plans to call back (date + time).
+  callbackAt    DateTime
+  notes         String?   @db.Text
+
+  // Set when the agent marks the callback as handled. Null = still pending.
+  completedAt   DateTime?
+  // Optional short outcome label when completing: "booked" | "not_interested"
+  // | "no_answer" | "rescheduled" | "other". Kept as a free string for now so
+  // we can refine the options after a week of real usage.
+  outcome       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentUserId, callbackAt])
+  @@index([agentUserId, completedAt])
 }
