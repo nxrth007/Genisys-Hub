@@ -14,8 +14,6 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
-  ClipboardList,
-  PhoneCall,
 } from 'lucide-react'
 import { CallbacksDuePanel } from '@/components/agent/callbacks-due-panel'
 import { cn } from '@/lib/utils'
@@ -117,29 +115,13 @@ export default function AgentDashboardPage() {
             shared Genisys master sheet.
           </p>
         </div>
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
-          <Link
-            href="/agent/callbacks"
-            className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-900 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-zinc-800"
-          >
-            <PhoneCall className="h-4 w-4" />
-            Callbacks
-          </Link>
-          <Link
-            href="/agent/eod"
-            className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-50 dark:border-purple-900 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-zinc-800"
-          >
-            <ClipboardList className="h-4 w-4" />
-            EOD Report
-          </Link>
-          <Link
-            href="/agent/appointments/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
-          >
-            <Plus className="h-4 w-4" />
-            New appointment
-          </Link>
-        </div>
+        <Link
+          href="/agent/appointments/new"
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
+        >
+          <Plus className="h-4 w-4" />
+          New appointment
+        </Link>
       </div>
 
       <CallbacksDuePanel />
