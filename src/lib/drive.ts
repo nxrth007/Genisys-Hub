@@ -923,19 +923,22 @@ function sanitizeTabName(raw: string): string {
 
 /**
  * One-off migration: add a "Client" header column to every tab in the
- * master spreadsheet that doesn't already have one. Appends the header
- * at the end of the existing header row, which is safe even if each tab
- * has a different column count (the sync auto-detects headers). Existing
- * rows keep their blank cell under the new column; new bookings populate it.
+ * master spreadsheet that doesn't already have one, then extend any
+ * Google-Sheets native Table on that tab so the new column is *inside*
+ * the table (matches alternating-row formatting, filter dropdowns, etc.).
+ * Appending a cell to the right of a Table doesn't auto-widen the Table
+ * range — we have to call updateTable to move endColumnIndex.
  *
  * Called via POST /api/admin/sheets/migrate-client-column — idempotent,
- * so re-running is harmless.
+ * so re-running is harmless. Re-runs also fix any tab that had the
+ * header appended previously but whose Table wasn't yet extended.
  */
 export async function migrateAddClientColumn(): Promise<{
   spreadsheetId: string
   tabsUpdated: string[]
   tabsAlreadyHad: string[]
   tabsNoHeader: string[]
+  tablesExtended: string[]
 }> {
   const writerEmail = await getWriterAccountEmail()
   const sheets = await getSheetsClient(writerEmail)
@@ -943,43 +946,83 @@ export async function migrateAddClientColumn(): Promise<{
 
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
-    fields: 'sheets.properties(sheetId,title)',
+    // Request tables too so we can extend their range to cover the new column.
+    fields: 'sheets(properties(sheetId,title),tables(tableId,range))',
   })
-  const tabs = (meta.data.sheets || [])
-    .map((s) => s.properties)
-    .filter((p): p is { sheetId: number; title: string } =>
-      p != null && typeof p.sheetId === 'number' && typeof p.title === 'string'
-    )
 
   const tabsUpdated: string[] = []
   const tabsAlreadyHad: string[] = []
   const tabsNoHeader: string[] = []
+  const tablesExtended: string[] = []
 
-  for (const tab of tabs) {
-    const schema = await detectTableSchema(sheets, spreadsheetId, tab.title)
+  for (const tab of meta.data.sheets || []) {
+    const sheetId = tab.properties?.sheetId
+    const tabTitle = tab.properties?.title
+    if (typeof sheetId !== 'number' || !tabTitle) continue
+
+    const schema = await detectTableSchema(sheets, spreadsheetId, tabTitle)
     if (!schema) {
-      tabsNoHeader.push(tab.title)
-      continue
-    }
-    const alreadyHasClient = schema.columns.some((c) => c.canonical === 'client')
-    if (alreadyHasClient) {
-      tabsAlreadyHad.push(tab.title)
+      tabsNoHeader.push(tabTitle)
       continue
     }
 
-    const newColIndex = schema.columns.length // 0-based; append at end
-    const colLetterStr = colLetter(newColIndex + 1)
-    const range = `'${tab.title.replace(/'/g, "''")}'!${colLetterStr}${schema.headerRowNumber}`
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range,
-      valueInputOption: 'RAW',
-      requestBody: { values: [['Client']] },
-    })
-    tabsUpdated.push(tab.title)
+    // Figure out where the Client column lives (existing or to-be-created).
+    const existingClient = schema.columns.find((c) => c.canonical === 'client')
+    let clientColIndex: number
+    if (existingClient) {
+      tabsAlreadyHad.push(tabTitle)
+      clientColIndex = existingClient.columnIndex
+    } else {
+      clientColIndex = schema.columns.length // append at end
+      const colLetterStr = colLetter(clientColIndex + 1)
+      const range = `'${tabTitle.replace(/'/g, "''")}'!${colLetterStr}${schema.headerRowNumber}`
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range,
+        valueInputOption: 'RAW',
+        requestBody: { values: [['Client']] },
+      })
+      tabsUpdated.push(tabTitle)
+    }
+
+    // Extend any Table on this tab so its endColumnIndex covers Client.
+    // Tables without an explicit range/tableId are skipped defensively.
+    for (const table of tab.tables || []) {
+      if (!table.tableId || !table.range) continue
+      const tableSheetId = table.range.sheetId
+      if (tableSheetId != null && tableSheetId !== sheetId) continue
+      const currentEnd = table.range.endColumnIndex ?? 0
+      const targetEnd = clientColIndex + 1 // end index is exclusive
+      if (currentEnd >= targetEnd) continue
+
+      const newRange: Record<string, number> = {
+        sheetId,
+        startRowIndex: table.range.startRowIndex ?? 0,
+        startColumnIndex: table.range.startColumnIndex ?? 0,
+        endColumnIndex: targetEnd,
+      }
+      if (typeof table.range.endRowIndex === 'number') {
+        newRange.endRowIndex = table.range.endRowIndex
+      }
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              updateTable: {
+                table: { tableId: table.tableId, range: newRange },
+                fields: 'range',
+              },
+            },
+          ],
+        },
+      })
+      tablesExtended.push(tabTitle)
+    }
   }
 
-  return { spreadsheetId, tabsUpdated, tabsAlreadyHad, tabsNoHeader }
+  return { spreadsheetId, tabsUpdated, tabsAlreadyHad, tabsNoHeader, tablesExtended }
 }
 
 async function findTabByTitle(

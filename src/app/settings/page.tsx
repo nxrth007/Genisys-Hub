@@ -1043,6 +1043,7 @@ function SheetMaintenanceSection() {
         tabsUpdated: string[]
         tabsAlreadyHad: string[]
         tabsNoHeader: string[]
+        tablesExtended: string[]
       }
     },
   })
@@ -1087,13 +1088,19 @@ function SheetMaintenanceSection() {
           <div className="font-medium">Migration complete.</div>
           <div className="text-xs mt-1 space-y-0.5">
             <div>
-              Updated: <code className="text-xs">{mutation.data.tabsUpdated.length}</code>
+              Headers added: <code className="text-xs">{mutation.data.tabsUpdated.length}</code>
               {mutation.data.tabsUpdated.length > 0 &&
                 ` (${mutation.data.tabsUpdated.join(', ')})`}
             </div>
             <div>
               Already had the column:{' '}
               <code className="text-xs">{mutation.data.tabsAlreadyHad.length}</code>
+            </div>
+            <div>
+              Tables extended to include Client:{' '}
+              <code className="text-xs">{mutation.data.tablesExtended.length}</code>
+              {mutation.data.tablesExtended.length > 0 &&
+                ` (${mutation.data.tablesExtended.join(', ')})`}
             </div>
             <div>
               Skipped (no header row detected):{' '}
