@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 
 type Conflict = {
   id: string
@@ -263,12 +264,10 @@ export function AppointmentForm({
         className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
       >
         <Field label="Appointment date & time" required>
-          <input
-            type="datetime-local"
+          <AppointmentDateTimePicker
             value={values.apptDateTime}
-            onChange={(e) => set('apptDateTime', e.target.value)}
-            required
-            className={inputCls}
+            onChange={(next) => set('apptDateTime', next)}
+            disabled={submitting}
           />
           {isoCandidate && hasConflicts && (
             <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950">
