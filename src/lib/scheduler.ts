@@ -107,6 +107,10 @@ async function checkAndSendBriefs() {
           phone,
           firstName,
           notionAssignee: schedule.notionAssignee,
+          // Prefer the schedule's explicit timezone (set when admin schedules
+          // for a recipient in a different tz than themselves), fall back to
+          // the owner's profile timezone. Matches how fire-time is computed.
+          timeZone: schedule.timezone || user.timezone,
         })
       } else {
         console.log(`[scheduler] Sending Slack brief to ${user.email}`)

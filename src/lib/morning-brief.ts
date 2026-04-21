@@ -17,15 +17,34 @@ import { sendSmsToPhone } from './ghl'
 import { getKanbanTasksForAssignee, type KanbanTaskBrief } from './notion'
 
 /**
+ * Compute today's midnight→midnight window in a specific timezone. Needed
+ * because Render runs in UTC, so server-local "today" rolls over at 8 PM
+ * Eastern and mixes tomorrow's events into today's brief.
+ */
+async function dayWindow(timeZone: string): Promise<{ start: Date; end: Date }> {
+  const now = new Date()
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  const { fromZonedTime } = await import('date-fns-tz')
+  const start = fromZonedTime(`${ymd}T00:00:00`, timeZone)
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return { start, end }
+}
+
+/**
  * Fetch today's incomplete tasks for a user (by email → userId).
  */
 async function getTodayTasks(userEmail: string) {
   const user = await prisma.user.findUnique({ where: { email: userEmail } })
   if (!user) return []
 
-  const today = new Date()
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000)
+  const { start: startOfDay, end: endOfDay } = await dayWindow(
+    user.timezone || 'America/New_York'
+  )
 
   return prisma.task.findMany({
     where: {
@@ -44,13 +63,15 @@ async function getTodayTasks(userEmail: string) {
  * Fetch today's calendar events from GHL.
  * Wrapped in try/catch so a GHL outage doesn't block the whole brief.
  */
-async function getTodayCalendarEvents(): Promise<
+async function getTodayCalendarEvents(
+  timeZone = 'America/New_York'
+): Promise<
   Array<{ title: string; startTime: string; endTime: string; calendarName: string }>
 > {
   try {
     // Dynamic import to avoid circular dependency with vault at startup
     const { getTodayEvents } = await import('./ghl')
-    const data = await getTodayEvents('GHL Genisys Token')
+    const data = await getTodayEvents('GHL Genisys Token', { timeZone })
     return (data.events || []).map((ev) => ({
       title: String(ev.title || ev.name || 'Untitled'),
       startTime: String(ev.startTime || ''),
@@ -135,9 +156,14 @@ function formatBrief(
  * Build the brief and send it as a Slack DM.
  */
 export async function buildAndSendBrief(recipientEmail: string) {
+  const recipient = await prisma.user.findUnique({
+    where: { email: recipientEmail },
+    select: { timezone: true },
+  })
+  const timeZone = recipient?.timezone || 'America/New_York'
   const [tasks, events] = await Promise.all([
     getTodayTasks(recipientEmail),
-    getTodayCalendarEvents(),
+    getTodayCalendarEvents(timeZone),
   ])
 
   const message = formatBrief(
@@ -297,6 +323,7 @@ export async function buildAndSendSmsBrief(params: {
   phone: string
   firstName?: string
   notionAssignee?: string | null
+  timeZone?: string
 }): Promise<{
   ok: true
   eventCount: number
@@ -306,7 +333,9 @@ export async function buildAndSendSmsBrief(params: {
   conversationId?: string
   normalizedPhone: string
 }> {
-  const events = await getTodayCalendarEvents()
+  const events = await getTodayCalendarEvents(
+    params.timeZone || 'America/New_York'
+  )
 
   let tasks: KanbanTaskBrief[] = []
   if (params.notionAssignee) {

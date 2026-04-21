@@ -415,9 +415,23 @@ export async function getEventsAcrossSubAccounts(
   return { events: allEvents, subAccounts: subaccounts }
 }
 
-export async function getTodayEvents(vaultEntryName = 'GHL Genisys Token') {
+export async function getTodayEvents(
+  vaultEntryName = 'GHL Genisys Token',
+  options: { timeZone?: string } = {}
+) {
+  // Compute the day window in the *user's* timezone, not the server's.
+  // Render runs in UTC, so without this the window rolls over at midnight
+  // UTC — meaning at ~8 PM Eastern we'd start showing tomorrow's events.
+  const timeZone = options.timeZone || 'America/New_York'
   const now = new Date()
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now) // "YYYY-MM-DD" in the target tz
+  const { fromZonedTime } = await import('date-fns-tz')
+  const startOfDay = fromZonedTime(`${ymd}T00:00:00`, timeZone)
   const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1)
 
   const calData = await getCalendars(vaultEntryName)
