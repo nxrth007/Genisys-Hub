@@ -18,6 +18,8 @@ import {
   HardDrive,
   Bell,
   Phone,
+  FileSpreadsheet,
+  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -47,6 +49,8 @@ export default function SettingsPage() {
       <SlackTestSection />
 
       <TwilioTestSection />
+
+      <SheetMaintenanceSection />
 
       <ComingSoonSection />
     </div>
@@ -1016,6 +1020,95 @@ function ComingSoonSection() {
         <li>• Connect Trustware Google Calendar (OAuth or iCal URL)</li>
         <li>• Team member management (roles, access)</li>
       </ul>
+    </section>
+  )
+}
+
+/**
+ * Admin-only one-off migrations against the master appointments sheet.
+ * Currently just one button (add Client column); if we add more over time,
+ * they can live here too instead of each needing its own DevTools dance.
+ */
+function SheetMaintenanceSection() {
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/sheets/migrate-client-column', {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Migration failed')
+      return data as {
+        ok: true
+        spreadsheetId: string
+        tabsUpdated: string[]
+        tabsAlreadyHad: string[]
+        tabsNoHeader: string[]
+      }
+    },
+  })
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center gap-3 mb-1">
+        <FileSpreadsheet className="h-5 w-5 text-purple-600" />
+        <h3 className="font-semibold">Sheet maintenance (admin)</h3>
+      </div>
+      <p className="text-sm text-zinc-500 mb-4">
+        One-off migrations on the master appointments spreadsheet. Safe to
+        re-run — each action skips tabs that are already up to date.
+      </p>
+
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Wrench className="h-4 w-4 text-zinc-400" />
+              Add &quot;Client&quot; column to every tab
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              Appends a Client header to each tab so new bookings record
+              which Genisys client (Brighton / Spring) they&apos;re for.
+              Existing rows keep a blank cell under it until edited.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            {mutation.isPending ? 'Running…' : 'Run'}
+          </button>
+        </div>
+      </div>
+
+      {mutation.isSuccess && (
+        <Alert variant="success">
+          <div className="font-medium">Migration complete.</div>
+          <div className="text-xs mt-1 space-y-0.5">
+            <div>
+              Updated: <code className="text-xs">{mutation.data.tabsUpdated.length}</code>
+              {mutation.data.tabsUpdated.length > 0 &&
+                ` (${mutation.data.tabsUpdated.join(', ')})`}
+            </div>
+            <div>
+              Already had the column:{' '}
+              <code className="text-xs">{mutation.data.tabsAlreadyHad.length}</code>
+            </div>
+            <div>
+              Skipped (no header row detected):{' '}
+              <code className="text-xs">{mutation.data.tabsNoHeader.length}</code>
+            </div>
+          </div>
+        </Alert>
+      )}
+
+      {mutation.isError && (
+        <Alert variant="error">
+          <div className="font-medium">Migration failed</div>
+          <div className="text-xs mt-1">{(mutation.error as Error).message}</div>
+        </Alert>
+      )}
     </section>
   )
 }
