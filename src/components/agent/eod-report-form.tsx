@@ -215,7 +215,7 @@ export function EodReportForm({
         </div>
       </Section>
 
-      <Section title="Activity numbers">
+      <Section title="Activity numbers (required)">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <NumberField
             label="Dials made"
@@ -248,7 +248,7 @@ export function EodReportForm({
         </div>
       </Section>
 
-      <Section title="Technical issues" icon={TriangleAlert}>
+      <Section title="Technical issues (optional)" icon={TriangleAlert}>
         <p className="mb-3 text-xs text-zinc-500">
           Tap every category that caused friction today. Leave blank if the
           shift ran smoothly.
@@ -282,7 +282,7 @@ export function EodReportForm({
         />
       </Section>
 
-      <Section title="Organizational / process issues">
+      <Section title="Organizational / process issues (optional)">
         <textarea
           placeholder="Unclear scripts? Script/offer confusion? Missing leads? Leadership blockers? Anything non-technical that slowed the team down."
           value={values.organizationalIssues}
@@ -292,7 +292,7 @@ export function EodReportForm({
         />
       </Section>
 
-      <Section title="Wins / what went well">
+      <Section title="Wins / what went well (optional)">
         <textarea
           placeholder="Strong calls, breakthroughs, teammate shout-outs, anything notable in a good way."
           value={values.wins}
