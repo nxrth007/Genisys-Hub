@@ -1,9 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useQuery } from '@tanstack/react-query'
-import { Headphones, LogOut } from 'lucide-react'
+import { Headphones, LogOut, CalendarCheck, ClipboardList } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 /**
  * Minimal chrome for the /agent portal — no sidebar, no CRM/Vault/etc
@@ -12,7 +14,13 @@ import { Headphones, LogOut } from 'lucide-react'
  * Session read via /api/auth/session (avoids needing a SessionProvider
  * at the root — no other part of the app uses useSession either).
  */
+const NAV = [
+  { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
+  { href: '/agent/eod', label: 'EOD Reports', icon: ClipboardList },
+]
+
 export function AgentShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const { data: session } = useQuery<{
     user?: { name?: string | null; email?: string | null }
   }>({
@@ -28,10 +36,34 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <Link href="/agent" className="flex items-center gap-2">
-          <Headphones className="h-5 w-5 text-purple-600" />
-          <span className="font-semibold tracking-tight">Genisys Agent</span>
-        </Link>
+        <div className="flex items-center gap-6">
+          <Link href="/agent" className="flex items-center gap-2">
+            <Headphones className="h-5 w-5 text-purple-600" />
+            <span className="font-semibold tracking-tight">Genisys Agent</span>
+          </Link>
+          <nav className="hidden items-center gap-1 sm:flex">
+            {NAV.map((item) => {
+              const active = item.exact
+                ? pathname === item.href
+                : pathname.startsWith(item.href)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    active
+                      ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                  )}
+                >
+                  <item.icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+        </div>
         <div className="flex items-center gap-3">
           {agentName && (
             <span className="hidden text-xs text-zinc-500 sm:inline">{agentName}</span>

@@ -23,6 +23,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
 
 type Appointment = {
   id: string
@@ -407,6 +408,8 @@ export default function CallCenterPage() {
           </div>
         </div>
       </div>
+
+      <CallCenterTabs />
 
       {/* ATTENTION STRIP — what needs eyes right now */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

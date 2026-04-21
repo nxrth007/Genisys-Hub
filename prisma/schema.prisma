@@ -52,6 +52,7 @@ model User {
   vaultCreated        VaultEntry[]        @relation("VaultEntryCreator")
   vaultAccessLogs     VaultAccessLog[]
   appointments        Appointment[]       @relation("AgentAppointments")
+  eodReports          EodReport[]         @relation("AgentEodReports")
   documentsUploaded   Document[]          @relation("DocumentUploader")
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
 }
@@ -455,4 +456,53 @@ model Appointment {
   @@index([agentUserId, createdAt])
   @@index([status])
   @@index([apptDateTime])
+}
+
+// -----------------------------------------------------------------------------
+// End-of-day reports — submitted by agents at the end of each shift.
+// One row per (agent, reportDate). Agents can re-open and update their own
+// submission for the current day; staff view across all agents on
+// /call-center. Fields mirror what Ethan asked for in the 2026-04-20 chat:
+// dials, live contacts, appointments generated, issues faced, plus a bit
+// more structured signal (callbacks, tech-issue tags) so patterns surface
+// across days without requiring everyone to re-type the same complaints.
+// -----------------------------------------------------------------------------
+
+model EodReport {
+  id                    String   @id @default(cuid())
+  agentUserId           String
+  agent                 User     @relation("AgentEodReports", fields: [agentUserId], references: [id], onDelete: Cascade)
+
+  // Shift day (date-only in agent's local timezone). Stored as DATE so two
+  // rows for the same calendar day can't exist for one agent.
+  reportDate            DateTime @db.Date
+
+  // Core metrics Ethan called out.
+  dialsMade             Int      @default(0)
+  contactsReached       Int      @default(0) // live conversations
+  appointmentsGenerated Int      @default(0) // agent's own count; reconciled against Appointment table in UI
+  callbacksScheduled    Int      @default(0)
+
+  // Technical issue classification. Tags chosen from a known set in the UI
+  // (dialer, CRM, Hub, call recording, connectivity, other); freeform notes
+  // explain the specifics. Using String[] instead of a join table — we don't
+  // need to query by tag at scale and this keeps the form dead simple.
+  technicalIssueTags    String[]
+  technicalIssueNotes   String?  @db.Text
+
+  // Organizational / process blockers (leadership, shift handoff, unclear
+  // scripts, script/offer confusion, etc.) — distinct from technical issues
+  // so Ethan can see which bucket today's friction is actually in.
+  organizationalIssues  String?  @db.Text
+
+  // Free-form positives + forward-looking notes.
+  wins                  String?  @db.Text
+  tomorrowFocus         String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One report per agent per shift day. Agents can PATCH to edit it.
+  @@unique([agentUserId, reportDate])
+  @@index([reportDate])
 }
