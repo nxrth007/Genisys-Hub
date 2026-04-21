@@ -1478,3 +1478,95 @@ export async function clearAppointmentRows(params: {
     requestBody: { ranges: [agentRange, masterRange] },
   })
 }
+
+/**
+ * Called after an agent is deleted from the Hub. Cleans up sheet state:
+ *
+ * 1. Clears the agent's rows from the Master Table (rollup stays clean).
+ * 2. If the agent's personal tab never held any appointments (empty test
+ *    account), delete the tab entirely.
+ * 3. Otherwise, rename the tab to "(archived YYYY-MM-DD) <name>" so the
+ *    history isn't lost and you can still refer back if needed.
+ *
+ * Fire-and-forget from the delete handler — individual failures log but
+ * don't bubble, since the DB delete has already succeeded.
+ */
+export async function cleanupAgentSheetData(params: {
+  masterRowsToClear: number[]
+  agentTabTitle: string | null
+}): Promise<{
+  masterRowsCleared: number
+  tabArchived: string | null
+  tabDeleted: string | null
+}> {
+  const spreadsheetId = getMasterSpreadsheetId()
+  const accountEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(accountEmail)
+
+  let masterRowsCleared = 0
+  let tabArchived: string | null = null
+  let tabDeleted: string | null = null
+
+  // 1. Clear the agent's rows from the Master Table in one batch.
+  if (params.masterRowsToClear.length > 0) {
+    const ranges = params.masterRowsToClear.map(
+      (n) => `'${MASTER_TAB_TITLE}'!A${n}:AZ${n}`
+    )
+    await sheets.spreadsheets.values.batchClear({
+      spreadsheetId,
+      requestBody: { ranges },
+    })
+    masterRowsCleared = ranges.length
+  }
+
+  // 2. Handle the agent's personal tab.
+  if (params.agentTabTitle) {
+    const tab = await findTabByTitle(sheets, spreadsheetId, params.agentTabTitle)
+    if (tab) {
+      // Peek at rows 2..∞ in column A — if nothing's there, the tab never
+      // held a real appointment and can be safely deleted. Uses column A
+      // because every schema has a required first column (Appointment Date
+      // or Client in the new layout).
+      const peek = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${params.agentTabTitle.replace(/'/g, "''")}'!A2:A`,
+      })
+      const hasDataRows = (peek.data.values || []).some(
+        (row) => row[0] != null && String(row[0]).trim() !== ''
+      )
+
+      if (!hasDataRows) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{ deleteSheet: { sheetId: tab.sheetId } }],
+          },
+        })
+        tabDeleted = tab.title
+      } else {
+        const stamp = new Date().toISOString().slice(0, 10)
+        // Prefix the date so repeat archives of similarly-named tabs stay
+        // unique. 100-char tab limit enforced by sanitizeTabName.
+        const newTitle = sanitizeTabName(
+          `(archived ${stamp}) ${params.agentTabTitle}`
+        )
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                updateSheetProperties: {
+                  properties: { sheetId: tab.sheetId, title: newTitle },
+                  fields: 'title',
+                },
+              },
+            ],
+          },
+        })
+        tabArchived = newTitle
+      }
+    }
+  }
+
+  return { masterRowsCleared, tabArchived, tabDeleted }
+}

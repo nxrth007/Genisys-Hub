@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/gmail'
-import { ensureAgentTab } from '@/lib/drive'
+import { ensureAgentTab, cleanupAgentSheetData } from '@/lib/drive'
 
 /**
  * GET    /api/admin/agents/[id]  → full agent detail (+ appointments)
@@ -184,12 +184,38 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   if (!session?.user?.id) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const { id } = await ctx.params
+  // Capture the agent's sheet state BEFORE the delete — Prisma's cascade
+  // will wipe their Appointment rows, so we need the master-row numbers
+  // and tab title in memory before that happens.
   const existing = await prisma.user.findFirst({
     where: { id, role: { in: ['agent_pending', 'agent', 'agent_denied'] } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      agentSheetTab: true,
+      appointments: {
+        select: { masterSheetRowNumber: true },
+      },
+    },
   })
   if (!existing) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
+  const masterRowsToClear = existing.appointments
+    .map((a) => a.masterSheetRowNumber)
+    .filter((n): n is number => typeof n === 'number')
+
   await prisma.user.delete({ where: { id } })
+
+  // Fire-and-forget sheet cleanup so the admin response isn't held up by
+  // Google API round-trips. Any failure is logged; the DB is already
+  // consistent at this point and the admin can re-run cleanup manually
+  // from Sheet Maintenance if needed.
+  cleanupAgentSheetData({
+    masterRowsToClear,
+    agentTabTitle: existing.agentSheetTab,
+  }).catch((err) => console.error('[admin/agents DELETE] sheet cleanup failed:', err))
+
   return NextResponse.json({ ok: true })
 }
 
