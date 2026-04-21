@@ -615,6 +615,7 @@ type CanonicalKey =
   | 'apptDate'
   | 'apptTime'
   | 'apptDateTime'
+  | 'client'
   | 'customerName'
   | 'customerPhone'
   | 'address'
@@ -646,6 +647,11 @@ const COLUMN_ALIASES: Record<string, CanonicalKey> = {
   apptdateandtime: 'apptDateTime',
   dateandtime: 'apptDateTime',
   datetime: 'apptDateTime',
+  // Client (which Genisys client the appointment is booked for)
+  client: 'client',
+  clientcompany: 'client',
+  company: 'client',
+  accountname: 'client',
   // Customer
   clientname: 'customerName',
   customername: 'customerName',
@@ -706,7 +712,12 @@ export type TableSchema = {
 // date+time, includes Estimated Deal Value). Used only when seeding a
 // freshly-created agent tab AND Master Table itself had no detectable
 // schema.
+// Note: "Client Name" here means the customer's name, not the Genisys
+// client (Brighton / Spring). The dedicated Genisys-client column is
+// labeled "Client" below. Legacy label preserved so existing tabs keep
+// mapping to customerName.
 const DEFAULT_HEADER_ROW = [
+  'Client',
   'Appointment Date',
   'Appointment Time',
   'Client Name',
@@ -788,6 +799,9 @@ function fmtDateTime(d: Date): string {
 
 export type AppointmentSyncData = {
   apptDateTime: Date | string
+  // Genisys client (Brighton Capital Solar / Spring Solar / …). Optional so
+  // historical rows missing a clientId still sync.
+  clientName?: string | null
   customerName: string
   customerPhone: string
   address: string | null
@@ -819,6 +833,8 @@ function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null):
       return fmtTime(when)
     case 'apptDateTime':
       return fmtDateTime(when)
+    case 'client':
+      return appt.clientName || ''
     case 'customerName':
       return appt.customerName || ''
     case 'customerPhone':
@@ -903,6 +919,67 @@ async function getWriterAccountEmail(): Promise<string> {
 
 function sanitizeTabName(raw: string): string {
   return raw.replace(/[[\]*?/\\]/g, '').slice(0, 100).trim()
+}
+
+/**
+ * One-off migration: add a "Client" header column to every tab in the
+ * master spreadsheet that doesn't already have one. Appends the header
+ * at the end of the existing header row, which is safe even if each tab
+ * has a different column count (the sync auto-detects headers). Existing
+ * rows keep their blank cell under the new column; new bookings populate it.
+ *
+ * Called via POST /api/admin/sheets/migrate-client-column — idempotent,
+ * so re-running is harmless.
+ */
+export async function migrateAddClientColumn(): Promise<{
+  spreadsheetId: string
+  tabsUpdated: string[]
+  tabsAlreadyHad: string[]
+  tabsNoHeader: string[]
+}> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(sheetId,title)',
+  })
+  const tabs = (meta.data.sheets || [])
+    .map((s) => s.properties)
+    .filter((p): p is { sheetId: number; title: string } =>
+      p != null && typeof p.sheetId === 'number' && typeof p.title === 'string'
+    )
+
+  const tabsUpdated: string[] = []
+  const tabsAlreadyHad: string[] = []
+  const tabsNoHeader: string[] = []
+
+  for (const tab of tabs) {
+    const schema = await detectTableSchema(sheets, spreadsheetId, tab.title)
+    if (!schema) {
+      tabsNoHeader.push(tab.title)
+      continue
+    }
+    const alreadyHasClient = schema.columns.some((c) => c.canonical === 'client')
+    if (alreadyHasClient) {
+      tabsAlreadyHad.push(tab.title)
+      continue
+    }
+
+    const newColIndex = schema.columns.length // 0-based; append at end
+    const colLetterStr = colLetter(newColIndex + 1)
+    const range = `'${tab.title.replace(/'/g, "''")}'!${colLetterStr}${schema.headerRowNumber}`
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range,
+      valueInputOption: 'RAW',
+      requestBody: { values: [['Client']] },
+    })
+    tabsUpdated.push(tab.title)
+  }
+
+  return { spreadsheetId, tabsUpdated, tabsAlreadyHad, tabsNoHeader }
 }
 
 async function findTabByTitle(

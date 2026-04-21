@@ -28,6 +28,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params
   const appt = await prisma.appointment.findFirst({
     where: { id, agentUserId: session.user.id },
+    include: {
+      client: { select: { id: true, name: true, state: true, color: true } },
+    },
   })
   if (!appt) {
     return NextResponse.json({ error: 'not found' }, { status: 404 })
@@ -100,6 +103,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   if (typeof body.status === 'string' && ALLOWED_STATUS.has(body.status)) {
     data.status = body.status
+  }
+
+  // Client reassignment. Allow null to clear (edge case), but reject
+  // unknown/inactive IDs so the FK stays clean.
+  if (body.clientId === null) {
+    data.clientId = null
+  } else if (typeof body.clientId === 'string' && body.clientId.trim()) {
+    const client = await prisma.client.findFirst({
+      where: { id: body.clientId, active: true },
+      select: { id: true },
+    })
+    if (!client) {
+      return NextResponse.json(
+        { error: 'That client is not available.' },
+        { status: 400 }
+      )
+    }
+    data.clientId = client.id
   }
 
   const updated = await prisma.appointment.update({ where: { id }, data })

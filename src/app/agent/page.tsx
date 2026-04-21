@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 type Appointment = {
   id: string
   apptDateTime: string
+  client: { id: string; name: string; state: string | null; color: string } | null
   customerName: string
   customerPhone: string
   address: string | null
@@ -241,13 +242,26 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-semibold">{appt.customerName}</p>
             <span
               className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', statusInfo.tone)}
             >
               {statusInfo.label}
             </span>
+            {appt.client ? (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                style={{ backgroundColor: appt.client.color }}
+                title={appt.client.state || undefined}
+              >
+                {appt.client.name}
+              </span>
+            ) : (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                No client
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-zinc-500">
             <span className="inline-flex items-center gap-1">

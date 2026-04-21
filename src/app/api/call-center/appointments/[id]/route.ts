@@ -81,6 +81,24 @@ export async function PATCH(
     data.status = body.status
   }
 
+  // Client reassignment — staff can reclassify after the fact if an agent
+  // picked wrong. Null = clear. Unknown/inactive IDs are rejected.
+  if (body.clientId === null) {
+    data.clientId = null
+  } else if (typeof body.clientId === 'string' && body.clientId.trim()) {
+    const client = await prisma.client.findFirst({
+      where: { id: body.clientId, active: true },
+      select: { id: true },
+    })
+    if (!client) {
+      return NextResponse.json(
+        { error: 'That client is not available.' },
+        { status: 400 }
+      )
+    }
+    data.clientId = client.id
+  }
+
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: 'No updatable fields provided' }, { status: 400 })
   }

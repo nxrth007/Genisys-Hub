@@ -11,6 +11,7 @@ import {
 type Appointment = {
   id: string
   apptDateTime: string
+  clientId: string | null
   customerName: string
   customerPhone: string
   address: string | null
@@ -71,6 +72,7 @@ export default function EditAppointmentPage({
   const appt = data.appointment
   const initial: AppointmentFormValues = {
     apptDateTime: toLocalDateTimeInput(appt.apptDateTime),
+    clientId: appt.clientId || '',
     customerName: appt.customerName,
     customerPhone: appt.customerPhone,
     address: appt.address || '',

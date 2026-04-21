@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 
@@ -17,8 +17,16 @@ type Conflict = {
   agent: { id: string; name: string | null; email: string }
 }
 
+type Client = {
+  id: string
+  name: string
+  state: string | null
+  color: string
+}
+
 export type AppointmentFormValues = {
   apptDateTime: string // ISO datetime-local format (YYYY-MM-DDTHH:mm)
+  clientId: string
   customerName: string
   customerPhone: string
   address: string
@@ -35,6 +43,7 @@ export type AppointmentFormValues = {
 
 const EMPTY: AppointmentFormValues = {
   apptDateTime: '',
+  clientId: '',
   customerName: '',
   customerPhone: '',
   address: '',
@@ -76,6 +85,20 @@ export function AppointmentForm({
   const router = useRouter()
   const [values, setValues] = useState<AppointmentFormValues>(initial)
   const [submitting, setSubmitting] = useState(false)
+
+  // Clients available for booking (Brighton Capital Solar, Spring Solar, …).
+  // Stable across the session; short staleTime keeps the picker fresh if
+  // staff adds a client via SQL while the form is open.
+  const clientsQuery = useQuery<{ clients: Client[] }>({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
+  const clients = clientsQuery.data?.clients ?? []
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overrideConflict, setOverrideConflict] = useState(false)
@@ -146,6 +169,13 @@ export function AppointmentForm({
     if (submitting) return
     setError(null)
 
+    // Hard gate: new appointments must identify a Genisys client. Existing
+    // (pre-feature) appointments can be edited without reassignment.
+    if (mode === 'create' && !values.clientId) {
+      setError('Please pick which client this appointment is for.')
+      return
+    }
+
     // Hard gate: if there's a known conflict and the agent hasn't explicitly
     // acknowledged it, refuse submit. The override checkbox below the
     // warning flips overrideConflict and re-enables the Save button.
@@ -181,6 +211,7 @@ export function AppointmentForm({
       apptDateTime: values.apptDateTime
         ? new Date(values.apptDateTime).toISOString()
         : null,
+      clientId: values.clientId || null,
       customerName: values.customerName,
       customerPhone: values.customerPhone,
       address: values.address || null,
@@ -263,6 +294,55 @@ export function AppointmentForm({
         onSubmit={submit}
         className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
       >
+        {/* Client picker — required on create. Sits at the top because
+            choosing the right client is the first branching decision an
+            agent has to make before anything else makes sense. */}
+        <Field label="Booking for which client?" required>
+          {clientsQuery.isLoading ? (
+            <div className="text-xs text-zinc-400">Loading clients…</div>
+          ) : clients.length === 0 ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              No clients configured yet. Contact an admin.
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {clients.map((c) => {
+                const active = values.clientId === c.id
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => set('clientId', c.id)}
+                    disabled={submitting}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg border-2 px-4 py-2.5 text-sm font-medium transition-all disabled:opacity-50',
+                      active
+                        ? 'border-transparent text-white shadow-md'
+                        : 'border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-900'
+                    )}
+                    style={active ? { backgroundColor: c.color } : undefined}
+                  >
+                    <Building2 className="h-4 w-4" />
+                    <span className="flex flex-col items-start">
+                      <span>{c.name}</span>
+                      {c.state && (
+                        <span
+                          className={cn(
+                            'text-[10px] font-normal',
+                            active ? 'text-white/80' : 'text-zinc-400'
+                          )}
+                        >
+                          {c.state}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </Field>
+
         <Field label="Appointment date & time" required>
           <AppointmentDateTimePicker
             value={values.apptDateTime}

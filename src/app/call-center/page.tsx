@@ -44,6 +44,14 @@ type Appointment = {
   syncError: string | null
   createdAt: string
   agent: { id: string; name: string | null; email: string }
+  client: { id: string; name: string; state: string | null; color: string } | null
+}
+
+type Client = {
+  id: string
+  name: string
+  state: string | null
+  color: string
 }
 
 type AgentSummary = {
@@ -109,6 +117,7 @@ export default function CallCenterPage() {
   const qc = useQueryClient()
   const [status, setStatus] = useState('all')
   const [agent, setAgent] = useState('all')
+  const [client, setClient] = useState('all')
   const [search, setSearch] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [since, setSince] = useState('')
@@ -131,12 +140,23 @@ export default function CallCenterPage() {
     },
   })
 
+  const clientsQuery = useQuery<{ clients: Client[] }>({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
+
   const apptsQuery = useQuery<{ appointments: Appointment[] }>({
-    queryKey: ['call-center-appts', status, agent, submittedSearch, since, until],
+    queryKey: ['call-center-appts', status, agent, client, submittedSearch, since, until],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (status !== 'all') params.set('status', status)
       if (agent !== 'all') params.set('agent', agent)
+      if (client !== 'all') params.set('client', client)
       if (submittedSearch) params.set('q', submittedSearch)
       if (since) params.set('since', new Date(since).toISOString())
       if (until) params.set('until', new Date(until + 'T23:59:59').toISOString())
@@ -149,6 +169,10 @@ export default function CallCenterPage() {
   const agents = useMemo(
     () => agentsQuery.data?.agents ?? [],
     [agentsQuery.data]
+  )
+  const clients = useMemo(
+    () => clientsQuery.data?.clients ?? [],
+    [clientsQuery.data]
   )
   const appointments = useMemo(
     () => apptsQuery.data?.appointments ?? [],
@@ -323,13 +347,19 @@ export default function CallCenterPage() {
   }, [agents, appointments])
 
   const filterCleared =
-    status === 'all' && agent === 'all' && !submittedSearch && !since && !until
+    status === 'all' &&
+    agent === 'all' &&
+    client === 'all' &&
+    !submittedSearch &&
+    !since &&
+    !until
 
   function clearFilters() {
     setSearch('')
     setSubmittedSearch('')
     setStatus('all')
     setAgent('all')
+    setClient('all')
     setSince('')
     setUntil('')
   }
@@ -338,6 +368,7 @@ export default function CallCenterPage() {
     const headers = [
       'Appt Date',
       'Appt Time',
+      'Client',
       'Agent Name',
       'Agent Email',
       'Customer Name',
@@ -360,6 +391,7 @@ export default function CallCenterPage() {
       return [
         d.toLocaleDateString('en-US'),
         d.toLocaleTimeString('en-US', { hour12: true }),
+        a.client?.name || '',
         a.agent.name || '',
         a.agent.email,
         a.customerName,
@@ -511,6 +543,22 @@ export default function CallCenterPage() {
             />
           </div>
           <div>
+            <label className="mb-1 block text-xs font-medium text-zinc-500">Client</label>
+            <select
+              value={client}
+              onChange={(e) => setClient(e.target.value)}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            >
+              <option value="all">All clients</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value="none">(No client assigned)</option>
+            </select>
+          </div>
+          <div>
             <label className="mb-1 block text-xs font-medium text-zinc-500">Agent</label>
             <select
               value={agent}
@@ -605,6 +653,7 @@ export default function CallCenterPage() {
                   <th className="w-6 px-2 py-2.5"></th>
                   <th className="w-6 px-1 py-2.5"></th>
                   <th className="px-3 py-2.5">Appt</th>
+                  <th className="px-3 py-2.5">Client</th>
                   <th className="px-3 py-2.5">Agent</th>
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Phone</th>
@@ -668,6 +717,19 @@ export default function CallCenterPage() {
                               hour12: true,
                             })}
                           </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {a.client ? (
+                            <span
+                              className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                              style={{ backgroundColor: a.client.color }}
+                              title={a.client.state || undefined}
+                            >
+                              {a.client.name}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-zinc-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5">
                           <Link
@@ -755,7 +817,7 @@ export default function CallCenterPage() {
                       {isExpanded && (
                         <tr className="bg-purple-50/30 dark:bg-purple-950/10">
                           <td
-                            colSpan={14}
+                            colSpan={15}
                             className="border-t border-purple-200/50 px-6 py-4 dark:border-purple-900/50"
                           >
                             <AppointmentDetail appointment={a} />

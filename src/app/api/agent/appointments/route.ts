@@ -23,12 +23,16 @@ export async function GET() {
   const appointments = await prisma.appointment.findMany({
     where: { agentUserId: session.user.id },
     orderBy: { apptDateTime: 'desc' },
+    include: {
+      client: { select: { id: true, name: true, state: true, color: true } },
+    },
   })
   return NextResponse.json({ appointments })
 }
 
 type AppointmentInput = {
   apptDateTime?: string
+  clientId?: string
   customerName?: string
   customerPhone?: string
   address?: string | null
@@ -74,6 +78,12 @@ export async function POST(req: NextRequest) {
   if (!body.apptDateTime) {
     return NextResponse.json({ error: 'Appointment date/time is required.' }, { status: 400 })
   }
+  if (!body.clientId || !body.clientId.trim()) {
+    return NextResponse.json(
+      { error: 'Please select which client this appointment is for.' },
+      { status: 400 }
+    )
+  }
   if (!body.customerName || !body.customerName.trim()) {
     return NextResponse.json({ error: "Customer's name is required." }, { status: 400 })
   }
@@ -84,6 +94,18 @@ export async function POST(req: NextRequest) {
   const parsedDate = new Date(body.apptDateTime)
   if (isNaN(parsedDate.getTime())) {
     return NextResponse.json({ error: 'Invalid date/time format.' }, { status: 400 })
+  }
+
+  // Verify the client exists + is active before we commit the FK.
+  const client = await prisma.client.findFirst({
+    where: { id: body.clientId, active: true },
+    select: { id: true },
+  })
+  if (!client) {
+    return NextResponse.json(
+      { error: 'That client is not available. Refresh and try again.' },
+      { status: 400 }
+    )
   }
 
   const status = body.status && ALLOWED_STATUS.has(body.status) ? body.status : 'booked'
@@ -121,6 +143,7 @@ export async function POST(req: NextRequest) {
       return tx.appointment.create({
         data: {
           agentUserId: session.user.id,
+          clientId: client.id,
           apptDateTime: parsedDate,
           customerName: body.customerName!.trim(),
           customerPhone: body.customerPhone!.trim(),

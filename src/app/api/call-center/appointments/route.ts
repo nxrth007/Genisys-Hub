@@ -26,6 +26,12 @@ export async function GET(req: NextRequest) {
   const agent = sp.get('agent')
   if (agent && agent !== 'all') where.agentUserId = agent
 
+  const client = sp.get('client')
+  if (client && client !== 'all') {
+    // Sentinel "none" for "no client assigned" — lets staff see legacy rows.
+    where.clientId = client === 'none' ? null : client
+  }
+
   const since = sp.get('since')
   const until = sp.get('until')
   if (since || until) {
@@ -59,6 +65,9 @@ export async function GET(req: NextRequest) {
     include: {
       agent: {
         select: { id: true, name: true, email: true },
+      },
+      client: {
+        select: { id: true, name: true, state: true, color: true },
       },
     },
   })

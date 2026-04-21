@@ -423,10 +423,37 @@ model Document {
 // agent's personal tab + one row in the master rollup tab).
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Clients — the Genisys agency books appointments on behalf of multiple
+// solar companies. Each appointment must identify which client it belongs to
+// so we can split reporting + sheet sync correctly. Seeded at migration time
+// (Brighton Capital Solar, Spring Solar); new clients added via SQL/Prisma
+// Studio for now — no admin UI yet.
+// -----------------------------------------------------------------------------
+
+model Client {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  state        String? // e.g. "Arizona", "Utah" — for agent context only
+  color        String   @default("#3b82f6") // hex for badges
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  appointments Appointment[]
+}
+
 model Appointment {
   id              String   @id @default(cuid())
   agentUserId     String
   agent           User     @relation("AgentAppointments", fields: [agentUserId], references: [id], onDelete: Cascade)
+
+  // Which client the appointment is booked for. Nullable so historical
+  // rows (pre-Client-feature) don't need backfill; required enforced in
+  // the POST /api/agent/appointments handler for new bookings.
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   // Booking details — matches the fields the call center currently records.
   apptDateTime    DateTime
@@ -457,6 +484,7 @@ model Appointment {
   @@index([agentUserId, createdAt])
   @@index([status])
   @@index([apptDateTime])
+  @@index([clientId])
 }
 
 // -----------------------------------------------------------------------------
