@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { PhoneCall, ClipboardList } from 'lucide-react'
+import { PhoneCall, ClipboardList, PhoneForwarded } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TABS = [
   { href: '/call-center', label: 'Appointments', icon: PhoneCall, exact: true },
+  { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
   { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
 ]
 
