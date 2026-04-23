@@ -92,7 +92,7 @@ export function CallbacksDuePanel() {
         'rounded-xl border p-4',
         overdue.length > 0
           ? 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20'
-          : 'border-purple-200 bg-purple-50/50 dark:border-purple-900 dark:bg-purple-950/20'
+          : 'border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20'
       )}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -100,7 +100,7 @@ export function CallbacksDuePanel() {
           <PhoneCall
             className={cn(
               'h-4 w-4',
-              overdue.length > 0 ? 'text-red-600' : 'text-purple-600'
+              overdue.length > 0 ? 'text-red-600' : 'text-blue-600'
             )}
           />
           <h3 className="text-sm font-semibold">
@@ -111,13 +111,13 @@ export function CallbacksDuePanel() {
                 {dueToday.length > 0 ? `, ${dueToday.length} due today` : ''})
               </span>
             ) : (
-              <span className="text-purple-600">({dueToday.length} due today)</span>
+              <span className="text-blue-600">({dueToday.length} due today)</span>
             )}
           </h3>
         </div>
         <Link
           href="/agent/callbacks"
-          className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 hover:underline dark:text-purple-300"
+          className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
         >
           View all
           <ArrowRight className="h-3 w-3" />
@@ -140,7 +140,7 @@ export function CallbacksDuePanel() {
                     'h-5 w-5',
                     isOverdue
                       ? 'text-red-400 hover:text-red-600'
-                      : 'text-purple-400 hover:text-purple-600'
+                      : 'text-blue-400 hover:text-blue-600'
                   )}
                 />
               </button>
@@ -156,7 +156,7 @@ export function CallbacksDuePanel() {
                       Overdue
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                       <Clock className="h-2.5 w-2.5" />
                       {when.toLocaleTimeString('en-US', {
                         hour: 'numeric',

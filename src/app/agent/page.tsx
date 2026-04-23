@@ -117,7 +117,7 @@ export default function AgentDashboardPage() {
         </div>
         <Link
           href="/agent/appointments/new"
-          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
           New appointment
@@ -141,7 +141,7 @@ export default function AgentDashboardPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, address, email…"
-            className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
           />
         </div>
         <select
@@ -160,7 +160,7 @@ export default function AgentDashboardPage() {
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">

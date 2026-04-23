@@ -154,7 +154,7 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
   })()
 
   const selectCls =
-    'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950'
+    'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950'
 
   return (
     <div className="space-y-2">
@@ -220,7 +220,7 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
       </div>
 
       {summary && (
-        <div className="inline-flex items-center gap-2 rounded-md bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+        <div className="inline-flex items-center gap-2 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
           <Check className="h-3.5 w-3.5" />
           {summary}
         </div>

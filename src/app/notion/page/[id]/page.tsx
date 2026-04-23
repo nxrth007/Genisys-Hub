@@ -72,7 +72,7 @@ function RichText({ items }: { items: RichTextItem[] }) {
 
         if (a.code) {
           node = (
-            <code className="rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs font-mono text-purple-300">
+            <code className="rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs font-mono text-blue-300">
               {node}
             </code>
           )
@@ -88,7 +88,7 @@ function RichText({ items }: { items: RichTextItem[] }) {
               href={item.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-purple-400 underline decoration-purple-400/30 hover:decoration-purple-400"
+              className="text-blue-400 underline decoration-blue-400/30 hover:decoration-blue-400"
             >
               {node}
             </a>
@@ -163,7 +163,7 @@ function BlockRenderer({ block }: { block: Block }) {
             type="checkbox"
             checked={checked}
             readOnly
-            className="mt-1 accent-purple-600"
+            className="mt-1 accent-blue-600"
           />
           <span className={cn(checked && 'line-through text-zinc-500')}>
             <RichText items={richText || []} />
@@ -183,7 +183,7 @@ function BlockRenderer({ block }: { block: Block }) {
 
     case 'quote':
       return (
-        <blockquote className="border-l-2 border-purple-500 pl-4 text-sm italic text-zinc-400">
+        <blockquote className="border-l-2 border-blue-500 pl-4 text-sm italic text-zinc-400">
           <RichText items={richText || []} />
         </blockquote>
       )
@@ -257,7 +257,7 @@ function BlockRenderer({ block }: { block: Block }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-3 text-sm text-purple-400 hover:bg-zinc-800 transition-colors truncate"
+          className="block rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-3 text-sm text-blue-400 hover:bg-zinc-800 transition-colors truncate"
         >
           {url}
         </a>
@@ -271,7 +271,7 @@ function BlockRenderer({ block }: { block: Block }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-3 text-sm text-purple-400 hover:bg-zinc-800 transition-colors truncate"
+          className="block rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-3 text-sm text-blue-400 hover:bg-zinc-800 transition-colors truncate"
         >
           {url}
         </a>
@@ -324,7 +324,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
       {/* Loading */}
       {pageQuery.isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
         </div>
       )}
 
@@ -347,7 +347,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
                   {page.icon?.emoji ? (
                     <span className="text-3xl">{page.icon.emoji}</span>
                   ) : (
-                    <FileText className="h-7 w-7 text-purple-500" />
+                    <FileText className="h-7 w-7 text-blue-500" />
                   )}
                   <h1 className="text-2xl font-bold text-zinc-100">{title}</h1>
                 </div>
@@ -357,7 +357,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
                   href={page.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-purple-600 hover:text-purple-400"
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-blue-600 hover:text-blue-400"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open in Notion

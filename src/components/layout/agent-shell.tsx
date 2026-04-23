@@ -39,7 +39,7 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
       <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-6 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center gap-6">
           <Link href="/agent" className="flex items-center gap-2">
-            <Headphones className="h-5 w-5 text-purple-600" />
+            <Headphones className="h-5 w-5 text-blue-600" />
             <span className="font-semibold tracking-tight">Genisys Agent</span>
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
@@ -54,7 +54,7 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
                     active
-                      ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                       : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
                   )}
                 >

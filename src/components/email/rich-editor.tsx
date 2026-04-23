@@ -232,7 +232,7 @@ function ToolbarBtn({
       className={cn(
         'rounded p-1.5 transition-colors',
         active
-          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
           : 'text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
         disabled && 'opacity-30 cursor-not-allowed'
       )}

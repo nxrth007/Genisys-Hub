@@ -56,7 +56,7 @@ export default function EditAppointmentPage({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
       </div>
     )
   }

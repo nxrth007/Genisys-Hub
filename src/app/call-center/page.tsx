@@ -418,8 +418,8 @@ export default function CallCenterPage() {
     <div className="max-w-6xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <PhoneCall className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <PhoneCall className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
@@ -488,7 +488,7 @@ export default function CallCenterPage() {
           {agent !== 'all' && (
             <button
               onClick={() => setAgent('all')}
-              className="text-xs text-purple-600 hover:underline"
+              className="text-xs text-blue-600 hover:underline"
             >
               Clear agent filter
             </button>
@@ -529,7 +529,7 @@ export default function CallCenterPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Name, phone, address, notes…"
-              className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -597,7 +597,7 @@ export default function CallCenterPage() {
           </div>
           <button
             type="submit"
-            className="rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700"
+            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             Apply
           </button>
@@ -625,7 +625,7 @@ export default function CallCenterPage() {
 
       {apptsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : appointments.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -669,7 +669,7 @@ export default function CallCenterPage() {
                         className={cn(
                           'align-top transition-colors',
                           isExpanded
-                            ? 'bg-purple-50/50 dark:bg-purple-950/20'
+                            ? 'bg-blue-50/50 dark:bg-blue-950/20'
                             : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
                         )}
                       >
@@ -724,7 +724,7 @@ export default function CallCenterPage() {
                         <td className="px-3 py-2.5">
                           <Link
                             href={`/call-center/agents/${a.agent.id}`}
-                            className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
+                            className="font-medium text-zinc-700 hover:text-blue-600 hover:underline dark:text-zinc-200"
                           >
                             {a.agent.name || '(unnamed)'}
                           </Link>
@@ -741,7 +741,7 @@ export default function CallCenterPage() {
                           {a.email ? (
                             <a
                               href={`mailto:${a.email}`}
-                              className="text-zinc-600 hover:text-purple-600 hover:underline dark:text-zinc-300"
+                              className="text-zinc-600 hover:text-blue-600 hover:underline dark:text-zinc-300"
                             >
                               {a.email}
                             </a>
@@ -794,7 +794,7 @@ export default function CallCenterPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               title={a.callRecordingLink}
-                              className="inline-flex items-center gap-1 text-purple-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-blue-600 hover:underline"
                             >
                               <ExternalLink className="h-3 w-3" />
                               Play
@@ -805,10 +805,10 @@ export default function CallCenterPage() {
                         </td>
                       </tr>
                       {isExpanded && (
-                        <tr className="bg-purple-50/30 dark:bg-purple-950/10">
+                        <tr className="bg-blue-50/30 dark:bg-blue-950/10">
                           <td
                             colSpan={15}
-                            className="border-t border-purple-200/50 px-6 py-4 dark:border-purple-900/50"
+                            className="border-t border-blue-200/50 px-6 py-4 dark:border-blue-900/50"
                           >
                             <AppointmentDetail appointment={a} />
                           </td>
@@ -848,11 +848,14 @@ function AttentionCard({
       iconColor: 'text-blue-600',
       valueColor: 'text-blue-900 dark:text-blue-200',
     },
+    // Kept the key named 'purple' to avoid touching all the call sites,
+    // but uses indigo now so it still visually reads as distinct from the
+    // primary 'blue' tone above post-rebrand.
     purple: {
-      bg: 'bg-purple-50 dark:bg-purple-950/40',
-      iconBg: 'bg-purple-100 dark:bg-purple-900',
-      iconColor: 'text-purple-600',
-      valueColor: 'text-purple-900 dark:text-purple-200',
+      bg: 'bg-indigo-50 dark:bg-indigo-950/40',
+      iconBg: 'bg-indigo-100 dark:bg-indigo-900',
+      iconColor: 'text-indigo-600',
+      valueColor: 'text-indigo-900 dark:text-indigo-200',
     },
     red: {
       bg: 'bg-red-50 dark:bg-red-950/40',
@@ -956,7 +959,7 @@ function AgentCard({
       className={cn(
         'group relative flex flex-col gap-3 rounded-xl border bg-white p-4 transition-all dark:bg-zinc-900',
         active
-          ? 'border-purple-500 shadow-[0_0_0_1px_rgb(168_85_247)] dark:border-purple-400'
+          ? 'border-blue-500 shadow-[0_0_0_1px_rgb(168_85_247)] dark:border-blue-400'
           : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700'
       )}
     >
@@ -965,7 +968,7 @@ function AgentCard({
           <Link
             href={`/call-center/agents/${metrics.id}`}
             onClick={(e) => e.stopPropagation()}
-            className="block font-semibold hover:text-purple-600 hover:underline"
+            className="block font-semibold hover:text-blue-600 hover:underline"
           >
             {metrics.name || '(unnamed)'}
           </Link>
@@ -977,8 +980,8 @@ function AgentCard({
           className={cn(
             'flex-shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors',
             active
-              ? 'border-purple-600 bg-purple-600 text-white'
-              : 'border-zinc-200 text-zinc-500 group-hover:border-purple-400 group-hover:text-purple-600 dark:border-zinc-800'
+              ? 'border-blue-600 bg-blue-600 text-white'
+              : 'border-zinc-200 text-zinc-500 group-hover:border-blue-400 group-hover:text-blue-600 dark:border-zinc-800'
           )}
         >
           {active ? 'Filtered' : 'Filter'}
@@ -1083,7 +1086,7 @@ function Sparkline({ counts }: { counts: number[] }) {
             width={Math.max(barWidth - 2, 1)}
             height={h}
             rx={1}
-            className={c > 0 ? 'fill-purple-500' : 'fill-zinc-200 dark:fill-zinc-700'}
+            className={c > 0 ? 'fill-blue-500' : 'fill-zinc-200 dark:fill-zinc-700'}
           />
         )
       })}
@@ -1108,7 +1111,7 @@ function InlineStatusSelect({
         onChange={(e) => onChange(e.target.value)}
         disabled={saving}
         className={cn(
-          'appearance-none rounded-full px-2.5 py-0.5 pr-5 text-[10px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500',
+          'appearance-none rounded-full px-2.5 py-0.5 pr-5 text-[10px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500',
           tone,
           saving && 'opacity-60'
         )}
@@ -1141,7 +1144,7 @@ function AppointmentDetail({ appointment }: { appointment: Appointment }) {
         {appointment.email && (
           <a
             href={`mailto:${appointment.email}`}
-            className="text-purple-600 hover:underline"
+            className="text-blue-600 hover:underline"
           >
             {appointment.email}
           </a>
@@ -1159,7 +1162,7 @@ function AppointmentDetail({ appointment }: { appointment: Appointment }) {
       <DetailItem icon={PhoneCall} label="Agent">
         <Link
           href={`/call-center/agents/${appointment.agent.id}`}
-          className="font-medium text-zinc-800 hover:text-purple-600 hover:underline dark:text-zinc-100"
+          className="font-medium text-zinc-800 hover:text-blue-600 hover:underline dark:text-zinc-100"
         >
           {appointment.agent.name || '(unnamed)'}
         </Link>
@@ -1259,7 +1262,7 @@ function AppointmentDetail({ appointment }: { appointment: Appointment }) {
             href={appointment.callRecordingLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-200"
+            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
           >
             <ExternalLink className="h-3 w-3" />
             Play call recording

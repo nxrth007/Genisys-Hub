@@ -25,7 +25,7 @@ export function CallCenterTabs() {
             className={cn(
               'inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors',
               active
-                ? 'border-purple-600 text-purple-700 dark:text-purple-300'
+                ? 'border-blue-600 text-blue-700 dark:text-blue-300'
                 : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-200'
             )}
           >

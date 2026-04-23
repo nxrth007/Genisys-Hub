@@ -28,8 +28,8 @@ export default function SettingsPage() {
     <div className="max-w-3xl space-y-8">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <Settings className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <Settings className="h-6 w-6 text-blue-600" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         </div>
@@ -117,12 +117,12 @@ function GmailConnectSection() {
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <Mail className="h-5 w-5 text-purple-600" />
+          <Mail className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold">Gmail accounts</h3>
         </div>
         <a
           href="/api/gmail/connect"
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-3.5 w-3.5" /> Connect account
         </a>
@@ -222,12 +222,12 @@ function DriveConnectSection() {
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <HardDrive className="h-5 w-5 text-purple-600" />
+          <HardDrive className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold">Google Drive accounts</h3>
         </div>
         <a
           href="/api/drive/connect"
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-3.5 w-3.5" /> Connect account
         </a>
@@ -323,12 +323,12 @@ function CalendarConnectionsSection() {
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <Calendar className="h-5 w-5 text-purple-600" />
+          <Calendar className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold">Calendar connections</h3>
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-3.5 w-3.5" /> Add iCal feed
         </button>
@@ -339,7 +339,7 @@ function CalendarConnectionsSection() {
       </p>
 
       {showAdd && (
-        <div className="mb-4 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/30 space-y-3">
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30 space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium">Label</label>
             <input
@@ -347,7 +347,7 @@ function CalendarConnectionsSection() {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder='e.g. "Solar Meetings" or "Trustware (Ethan)"'
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -357,14 +357,14 @@ function CalendarConnectionsSection() {
               value={icalUrl}
               onChange={(e) => setIcalUrl(e.target.value)}
               placeholder="https://calendar.google.com/calendar/ical/..."
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => addMutation.mutate({ label, icalUrl })}
               disabled={addMutation.isPending || !label || !icalUrl}
-              className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {addMutation.isPending ? 'Adding…' : 'Add'}
             </button>
@@ -569,12 +569,12 @@ function ScheduledBriefsSection() {
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-1 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Bell className="h-5 w-5 text-purple-600" />
+          <Bell className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold">Daily brief schedules</h3>
         </div>
         <button
           onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-3.5 w-3.5" /> Add schedule
         </button>
@@ -593,7 +593,7 @@ function ScheduledBriefsSection() {
             e.preventDefault()
             saveMutation.mutate()
           }}
-          className="mb-4 space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-800 dark:bg-purple-950/30"
+          className="mb-4 space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30"
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -604,7 +604,7 @@ function ScheduledBriefsSection() {
                 key={p.label}
                 type="button"
                 onClick={() => setForm(p.values)}
-                className="rounded-full border border-purple-300 bg-white px-3 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-purple-950/50"
+                className="rounded-full border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-zinc-900 dark:text-blue-300 dark:hover:bg-blue-950/50"
               >
                 {p.label}
               </button>
@@ -620,7 +620,7 @@ function ScheduledBriefsSection() {
                 value={effectiveUserEmail}
                 onChange={(e) => setForm({ ...form, userEmail: e.target.value })}
                 required
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
                 Record-keeping only. Defaulted to you. The actual SMS goes to
@@ -634,7 +634,7 @@ function ScheduledBriefsSection() {
                 value={form.timeOfDay}
                 onChange={(e) => setForm({ ...form, timeOfDay: e.target.value })}
                 required
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
                 Interpreted in the timezone below.
@@ -647,7 +647,7 @@ function ScheduledBriefsSection() {
               <select
                 value={form.timezone}
                 onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               >
                 {TIMEZONE_OPTIONS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -666,7 +666,7 @@ function ScheduledBriefsSection() {
                 onChange={(e) =>
                   setForm({ ...form, channel: e.target.value as 'slack' | 'ghl_sms' })
                 }
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               >
                 <option value="ghl_sms">GHL SMS</option>
                 <option value="slack">Slack DM</option>
@@ -682,7 +682,7 @@ function ScheduledBriefsSection() {
                   value={form.recipientPhone}
                   onChange={(e) => setForm({ ...form, recipientPhone: e.target.value })}
                   placeholder="+16035026226"
-                  className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                  className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
                 />
                 <p className="mt-1 text-[10px] text-zinc-500">
                   Who actually gets the text. GHL will auto-create the contact
@@ -699,7 +699,7 @@ function ScheduledBriefsSection() {
                 value={form.notionAssignee}
                 onChange={(e) => setForm({ ...form, notionAssignee: e.target.value })}
                 placeholder="Ethan"
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <p className="mt-1 text-[10px] text-zinc-500">
                 If set, the brief pulls To-Do tasks assigned to this name from the
@@ -711,7 +711,7 @@ function ScheduledBriefsSection() {
             <button
               type="submit"
               disabled={saveMutation.isPending}
-              className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Saving…' : 'Save'}
             </button>
@@ -750,7 +750,7 @@ function ScheduledBriefsSection() {
                       'rounded-full px-2 py-0.5 text-[10px] font-semibold',
                       s.channel === 'ghl_sms'
                         ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                        : 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                     )}
                   >
                     {s.channel === 'ghl_sms' ? (
@@ -844,7 +844,7 @@ function SlackTestSection() {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
-        <Hash className="h-5 w-5 text-purple-600" />
+        <Hash className="h-5 w-5 text-blue-600" />
         <h3 className="font-semibold">Slack — Send test DM</h3>
       </div>
       <p className="text-sm text-zinc-500 mb-4">
@@ -862,7 +862,7 @@ function SlackTestSection() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="ethan@leadgenisys.com"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             Must match the email the person uses to sign into your Slack workspace.
@@ -876,7 +876,7 @@ function SlackTestSection() {
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
         </div>
 
@@ -884,7 +884,7 @@ function SlackTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !email || !message}
-            className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test DM'}
@@ -937,7 +937,7 @@ function TwilioTestSection() {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
-        <MessageSquare className="h-5 w-5 text-purple-600" />
+        <MessageSquare className="h-5 w-5 text-blue-600" />
         <h3 className="font-semibold">Twilio — Send test SMS</h3>
       </div>
       <p className="text-sm text-zinc-500 mb-4">
@@ -955,7 +955,7 @@ function TwilioTestSection() {
             onChange={(e) => setTo(e.target.value)}
             placeholder="+16035026226"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             Include the <code>+</code> and country code. Ethan: <code>+16035026226</code>. Alex: <code>+16034185315</code>.
@@ -969,7 +969,7 @@ function TwilioTestSection() {
             onChange={(e) => setBody(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-400">
             {body.length} / 1600 characters. Trial messages are prefixed with &quot;Sent from your Twilio trial account -&quot;.
@@ -980,7 +980,7 @@ function TwilioTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !to || !body}
-            className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test SMS'}
@@ -1052,7 +1052,7 @@ function SheetMaintenanceSection() {
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
-        <FileSpreadsheet className="h-5 w-5 text-purple-600" />
+        <FileSpreadsheet className="h-5 w-5 text-blue-600" />
         <h3 className="font-semibold">Sheet maintenance (admin)</h3>
       </div>
       <p className="text-sm text-zinc-500 mb-4">
@@ -1077,7 +1077,7 @@ function SheetMaintenanceSection() {
             type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
-            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {mutation.isPending ? 'Running…' : 'Run'}
           </button>

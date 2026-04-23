@@ -146,7 +146,7 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
           {schema?.icon?.emoji ? (
             <span className="text-2xl">{schema.icon.emoji}</span>
           ) : (
-            <Database className="h-6 w-6 text-purple-500" />
+            <Database className="h-6 w-6 text-blue-500" />
           )}
           <h1 className="text-2xl font-bold text-zinc-100">{dbTitle}</h1>
         </div>
@@ -155,7 +155,7 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
       {/* Loading */}
       {dbQuery.isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
         </div>
       )}
 

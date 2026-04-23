@@ -336,10 +336,10 @@ export default function DocumentsPage() {
       onDrop={onDrop}
     >
       {isDragOver && (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-purple-600/10 backdrop-blur-sm">
-          <div className="rounded-2xl border-2 border-dashed border-purple-500 bg-white/95 px-8 py-6 shadow-xl dark:bg-zinc-900/95">
-            <Upload className="mx-auto h-10 w-10 text-purple-600" />
-            <p className="mt-2 text-center text-lg font-semibold text-purple-700 dark:text-purple-300">
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-blue-600/10 backdrop-blur-sm">
+          <div className="rounded-2xl border-2 border-dashed border-blue-500 bg-white/95 px-8 py-6 shadow-xl dark:bg-zinc-900/95">
+            <Upload className="mx-auto h-10 w-10 text-blue-600" />
+            <p className="mt-2 text-center text-lg font-semibold text-blue-700 dark:text-blue-300">
               Drop to upload
             </p>
             <p className="text-center text-xs text-zinc-500">
@@ -355,8 +355,8 @@ export default function DocumentsPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-              <FolderOpen className="h-6 w-6 text-purple-600" />
+            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+              <FolderOpen className="h-6 w-6 text-blue-600" />
             </div>
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Documents</h2>
@@ -378,7 +378,7 @@ export default function DocumentsPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={upload.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {upload.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -410,7 +410,7 @@ export default function DocumentsPage() {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search all documents and folders…"
-          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
         />
         {searchInput && (
           <button
@@ -477,21 +477,21 @@ export default function DocumentsPage() {
             e.preventDefault()
             if (newFolderName.trim()) createFolder.mutate()
           }}
-          className="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-950/30"
+          className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/30"
         >
-          <FolderPlus className="h-4 w-4 flex-shrink-0 text-purple-600" />
+          <FolderPlus className="h-4 w-4 flex-shrink-0 text-blue-600" />
           <input
             autoFocus
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             placeholder="Folder name"
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <button
             type="submit"
             disabled={createFolder.isPending || !newFolderName.trim()}
-            className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {createFolder.isPending ? 'Creating…' : 'Create'}
           </button>
@@ -545,7 +545,7 @@ export default function DocumentsPage() {
         />
       ) : listing.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : folders.length === 0 && documents.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -673,8 +673,8 @@ function FolderRow({
   // end up with an invalid <button><form><input> nesting (react warns,
   // screen readers get confused, Safari has been known to misfire Enter).
   const icon = (
-    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-950">
-      <Folder className="h-[18px] w-[18px] text-purple-600" />
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950">
+      <Folder className="h-[18px] w-[18px] text-blue-600" />
     </div>
   )
   const meta = (
@@ -718,7 +718,7 @@ function FolderRow({
                   setRenaming(false)
                 }
               }}
-              className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+              className="w-full rounded-md border border-blue-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
             />
             {meta}
           </div>
@@ -790,7 +790,7 @@ function DocumentRow({
       {previewable && !renaming && (
         <>
           <span>·</span>
-          <span className="inline-flex items-center gap-1 text-purple-600">
+          <span className="inline-flex items-center gap-1 text-blue-600">
             <Eye className="h-3 w-3" />
             click to preview
           </span>
@@ -822,7 +822,7 @@ function DocumentRow({
                   setRenaming(false)
                 }
               }}
-              className="w-full rounded-md border border-purple-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+              className="w-full rounded-md border border-blue-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
             />
             {meta}
           </div>
@@ -847,7 +847,7 @@ function DocumentRow({
         href={`/api/documents/${doc.id}`}
         download={doc.filename}
         title="Download"
-        className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
+        className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
       >
         <Download className="h-3.5 w-3.5" />
       </a>
@@ -979,7 +979,7 @@ function SearchListing({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
       </div>
     )
   }
@@ -1009,8 +1009,8 @@ function SearchListing({
                 onClick={() => onOpenFolder(r.id)}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-950">
-                  <Folder className="h-[18px] w-[18px] text-purple-600" />
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950">
+                  <Folder className="h-[18px] w-[18px] text-blue-600" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{r.name}</p>
@@ -1062,7 +1062,7 @@ function SearchListing({
                 href={`/api/documents/${r.id}`}
                 download={r.filename}
                 title="Download"
-                className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
+                className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
               >
                 <Download className="h-3.5 w-3.5" />
               </a>
@@ -1231,14 +1231,14 @@ function MoveDialog({
           className={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
             selectedId === f.id
-              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200'
+              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200'
               : disabledIds.has(f.id)
                 ? 'cursor-not-allowed text-zinc-300 dark:text-zinc-600'
                 : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
           )}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
-          <Folder className="h-3.5 w-3.5 flex-shrink-0 text-purple-600" />
+          <Folder className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
           <span className="truncate">{f.name}</span>
           {f.id === currentLocationId && (
             <span className="ml-auto text-[10px] text-zinc-400">current</span>
@@ -1272,11 +1272,11 @@ function MoveDialog({
             className={cn(
               'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
               selectedId === null
-                ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200'
+                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200'
                 : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
             )}
           >
-            <Home className="h-3.5 w-3.5 flex-shrink-0 text-purple-600" />
+            <Home className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
             <span className="font-medium">Root (Documents)</span>
             {currentLocationId === null && (
               <span className="ml-auto text-[10px] text-zinc-400">current</span>
@@ -1308,7 +1308,7 @@ function MoveDialog({
             type="button"
             onClick={() => onMove(selectedId)}
             disabled={pending || selectedId === currentLocationId}
-            className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {pending ? 'Moving…' : 'Move here'}
           </button>

@@ -172,8 +172,8 @@ export default function EodReportsPage() {
     <div className="max-w-6xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <PhoneCall className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <PhoneCall className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
@@ -282,7 +282,7 @@ export default function EodReportsPage() {
 
       {reportsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -322,7 +322,7 @@ export default function EodReportsPage() {
                         className={cn(
                           'align-top transition-colors',
                           isExpanded
-                            ? 'bg-purple-50/50 dark:bg-purple-950/20'
+                            ? 'bg-blue-50/50 dark:bg-blue-950/20'
                             : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
                         )}
                       >
@@ -368,7 +368,7 @@ export default function EodReportsPage() {
                         <td className="px-3 py-2.5">
                           <Link
                             href={`/call-center/agents/${r.agent.id}`}
-                            className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
+                            className="font-medium text-zinc-700 hover:text-blue-600 hover:underline dark:text-zinc-200"
                           >
                             {r.agent.name || '(unnamed)'}
                           </Link>
@@ -415,10 +415,10 @@ export default function EodReportsPage() {
                         </td>
                       </tr>
                       {isExpanded && (
-                        <tr className="bg-purple-50/30 dark:bg-purple-950/10">
+                        <tr className="bg-blue-50/30 dark:bg-blue-950/10">
                           <td
                             colSpan={9}
-                            className="border-t border-purple-200/50 px-6 py-4 dark:border-purple-900/50"
+                            className="border-t border-blue-200/50 px-6 py-4 dark:border-blue-900/50"
                           >
                             <ReportDetail report={r} />
                           </td>

@@ -1023,7 +1023,7 @@ export async function migrateAddClientColumn(): Promise<{
       tablesExtended.push(tabTitle)
     }
 
-    // Finally: copy the header *formatting* (purple fill, white bold text
+    // Finally: copy the header *formatting* (blue fill, white bold text
     // — whatever the Table uses) from the left-neighbor header cell onto
     // the Client header cell. Google Sheets Tables apply header styling
     // as per-cell explicit fills at Table-create time, and merely
@@ -1234,7 +1234,7 @@ async function seedHeaderRow(
 /**
  * Style a freshly-created agent tab so it looks like a proper table:
  *   - Freeze the header row so it stays visible while scrolling
- *   - Bold white text on purple header background (matches the Hub's
+ *   - Bold white text on blue header background (matches the Hub's
  *     accent color and roughly matches the vibe of Alex's Master Table)
  *   - Auto-resize columns so long headers don't get cut off
  * Best-effort: any step can fail without blocking the sync.
@@ -1270,7 +1270,7 @@ async function applyAgentTabFormatting(
               },
               cell: {
                 userEnteredFormat: {
-                  // purple-600 at ~72% opacity on white — matches Hub branding
+                  // blue-600 at ~72% opacity on white — matches Hub branding
                   backgroundColor: { red: 0.486, green: 0.227, blue: 0.929 },
                   textFormat: {
                     bold: true,

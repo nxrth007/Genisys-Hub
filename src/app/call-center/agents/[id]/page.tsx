@@ -218,7 +218,7 @@ export default function AgentDetailPage({
   if (agentsQuery.isLoading || apptsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
       </div>
     )
   }
@@ -228,7 +228,7 @@ export default function AgentDetailPage({
       <div className="mx-auto max-w-2xl space-y-4">
         <Link
           href="/call-center"
-          className="inline-flex items-center gap-1 text-sm text-purple-600 hover:underline"
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Call Center
@@ -244,7 +244,7 @@ export default function AgentDetailPage({
     <div className="max-w-6xl space-y-6">
       <Link
         href="/call-center"
-        className="inline-flex items-center gap-1 text-sm text-purple-600 hover:underline"
+        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Call Center
@@ -252,7 +252,7 @@ export default function AgentDetailPage({
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 text-lg font-bold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-lg font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
             {(agent.name || agent.email).charAt(0).toUpperCase()}
           </div>
           <div>
@@ -364,7 +364,7 @@ export default function AgentDetailPage({
                   className={cn(
                     'flex-shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                     status === s
-                      ? 'border-purple-600 bg-purple-600 text-white'
+                      ? 'border-blue-600 bg-blue-600 text-white'
                       : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
                   )}
                 >
@@ -451,7 +451,7 @@ export default function AgentDetailPage({
                               target="_blank"
                               rel="noopener noreferrer"
                               title={a.callRecordingLink}
-                              className="inline-flex items-center gap-1 text-purple-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-blue-600 hover:underline"
                             >
                               <ExternalLink className="h-3 w-3" />
                               Play
@@ -539,7 +539,7 @@ function TrendChart({ buckets }: { buckets: Array<{ date: Date; count: number }>
               className={cn(
                 'w-full rounded-t transition-all',
                 b.count > 0
-                  ? 'bg-purple-500 group-hover:bg-purple-600'
+                  ? 'bg-blue-500 group-hover:bg-blue-600'
                   : 'bg-zinc-100 dark:bg-zinc-800'
               )}
             />

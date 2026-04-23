@@ -81,8 +81,8 @@ export default function VaultPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-              <Key className="h-6 w-6 text-purple-600" />
+            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+              <Key className="h-6 w-6 text-blue-600" />
             </div>
             <h2 className="text-2xl font-bold tracking-tight">API Key Vault</h2>
           </div>
@@ -92,7 +92,7 @@ export default function VaultPage() {
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700"
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
           Add entry
@@ -107,7 +107,7 @@ export default function VaultPage() {
           placeholder="Search by name, description, or tag..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-4 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-800 dark:bg-zinc-900"
         />
       </div>
 
@@ -381,7 +381,7 @@ function EntryFormModal({
             onChange={(e) => setName(e.target.value)}
             placeholder='e.g. "GHL • Genisys"'
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
         </Field>
 
@@ -391,7 +391,7 @@ function EntryFormModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Optional notes"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
         </Field>
 
@@ -401,7 +401,7 @@ function EntryFormModal({
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
             placeholder="ghl, client:acme"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
         </Field>
 
@@ -417,7 +417,7 @@ function EntryFormModal({
               required={!isEdit}
               autoComplete="off"
               spellCheck={false}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 pr-10 text-sm font-mono focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 pr-10 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
             <button
               type="button"
@@ -443,7 +443,7 @@ function EntryFormModal({
           <button
             type="submit"
             disabled={submitting || !name || (!isEdit && !value)}
-            className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Add entry'}
           </button>
@@ -549,7 +549,7 @@ function AuditLogModal({ entry, onClose }: { entry: VaultEntry; onClose: () => v
 function ActionBadge({ action }: { action: AuditLogRow['action'] }) {
   const styles: Record<AuditLogRow['action'], string> = {
     create: 'bg-green-100 text-green-800',
-    view: 'bg-purple-100 text-purple-800',
+    view: 'bg-blue-100 text-blue-800',
     edit: 'bg-amber-100 text-amber-800',
     delete: 'bg-red-100 text-red-800',
   }
@@ -611,7 +611,7 @@ function RevealModal({
         <div className="flex items-center justify-end gap-2">
           <button
             onClick={copy}
-            className="inline-flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copied ? 'Copied' : 'Copy'}

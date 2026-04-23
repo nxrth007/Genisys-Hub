@@ -151,7 +151,7 @@ export function CallbackForm({
               required
               value={values.customerName}
               onChange={(e) => update('customerName', e.target.value)}
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </label>
 
@@ -165,7 +165,7 @@ export function CallbackForm({
               value={values.customerPhone}
               onChange={(e) => update('customerPhone', e.target.value)}
               placeholder="555-123-4567"
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </label>
 
@@ -178,7 +178,7 @@ export function CallbackForm({
               required
               value={values.callbackAt}
               onChange={(e) => update('callbackAt', e.target.value)}
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </label>
 
@@ -191,7 +191,7 @@ export function CallbackForm({
               onChange={(e) => update('notes', e.target.value)}
               rows={3}
               placeholder="What did they say? Anything to remember for next time?"
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </label>
         </div>
@@ -212,7 +212,7 @@ export function CallbackForm({
         <button
           type="submit"
           disabled={saving || deleting}
-          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
           {saving ? 'Saving…' : mode === 'create' ? 'Save callback' : 'Save changes'}

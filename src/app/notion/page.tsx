@@ -86,7 +86,7 @@ export default function NotionPage() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-1">
-          <BookOpen className="h-6 w-6 text-purple-500" />
+          <BookOpen className="h-6 w-6 text-blue-500" />
           <h1 className="text-2xl font-bold text-zinc-100">Notion</h1>
         </div>
         <p className="text-sm text-zinc-400">Search and browse your Notion workspace</p>
@@ -101,7 +101,7 @@ export default function NotionPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search pages and databases..."
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
       </form>
@@ -115,7 +115,7 @@ export default function NotionPage() {
             className={cn(
               'rounded-full px-4 py-1.5 text-xs font-medium transition-colors',
               filter === f.value
-                ? 'bg-purple-600 text-white'
+                ? 'bg-blue-600 text-white'
                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
             )}
           >
@@ -127,7 +127,7 @@ export default function NotionPage() {
       {/* Loading */}
       {searchQuery.isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
         </div>
       )}
 
@@ -157,7 +157,7 @@ export default function NotionPage() {
           {databases.length > 0 && (
             <div className="mb-8">
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-300">
-                <Database className="h-4 w-4 text-purple-400" />
+                <Database className="h-4 w-4 text-blue-400" />
                 Databases
                 <span className="text-xs font-normal text-zinc-500">({databases.length})</span>
               </h2>
@@ -189,7 +189,7 @@ export default function NotionPage() {
                         return isTaskDb ? (
                           <Link
                             href={`/notion/tasks/${stripDashes(db.id)}`}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700"
+                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
                           >
                             <LayoutGrid className="h-3 w-3" />
                             Board View
@@ -214,7 +214,7 @@ export default function NotionPage() {
           {pages.length > 0 && (
             <div>
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-300">
-                <FileText className="h-4 w-4 text-purple-400" />
+                <FileText className="h-4 w-4 text-blue-400" />
                 Pages
                 <span className="text-xs font-normal text-zinc-500">({pages.length})</span>
               </h2>
@@ -231,7 +231,7 @@ export default function NotionPage() {
                       <div className="min-w-0">
                         <Link
                           href={`/notion/page/${stripDashes(page.id)}`}
-                          className="block truncate text-sm font-medium text-zinc-100 hover:text-purple-400 transition-colors"
+                          className="block truncate text-sm font-medium text-zinc-100 hover:text-blue-400 transition-colors"
                         >
                           {extractTitle(page)}
                         </Link>

@@ -221,7 +221,7 @@ function DroppableColumn({
         ref={setNodeRef}
         className={cn(
           'flex-1 min-h-0 overflow-y-auto rounded-b-xl border border-t-0 p-2 space-y-2 transition-colors',
-          isOver ? 'bg-blue-100/50 border-purple-300 dark:bg-blue-900/30 dark:border-purple-600' : cn(style.light.bg, 'border-zinc-200 dark:border-zinc-700'),
+          isOver ? 'bg-blue-100/50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-600' : cn(style.light.bg, 'border-zinc-200 dark:border-zinc-700'),
         )}
       >
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
@@ -253,7 +253,7 @@ function DroppableColumn({
         {/* New task button */}
         <button
           onClick={() => onNewTask(statusName)}
-          className="w-full flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-zinc-400 hover:text-purple-500 hover:bg-white/50 dark:hover:bg-zinc-800/50 transition-colors"
+          className="w-full flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-zinc-400 hover:text-blue-500 hover:bg-white/50 dark:hover:bg-zinc-800/50 transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> New task
         </button>
@@ -354,7 +354,7 @@ function SortableTaskCard({
           </span>
         )}
         {multiSelect && multiSelect.split(', ').map((tag) => (
-          <span key={tag} className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-400">
+          <span key={tag} className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/20 text-blue-400">
             {tag}
           </span>
         ))}
@@ -369,7 +369,7 @@ function SortableTaskCard({
       <div className="px-3 pb-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800 pt-2">
         {assignee ? (
           <div className="flex items-center gap-1.5">
-            <div className="h-5 w-5 rounded-full bg-purple-600 flex items-center justify-center text-[10px] font-bold text-white">
+            <div className="h-5 w-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white">
               {assignee.charAt(0).toUpperCase()}
             </div>
             <span className="text-xs text-zinc-500">{assignee}</span>
@@ -379,7 +379,7 @@ function SortableTaskCard({
         <div className="flex items-center gap-1">
           <button
             onClick={() => setIsEditing(!isEditing)}
-            className="text-[10px] font-medium text-purple-500 hover:text-purple-600 px-1.5 py-0.5 rounded hover:bg-purple-50 dark:hover:bg-purple-950"
+            className="text-[10px] font-medium text-blue-500 hover:text-blue-600 px-1.5 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950"
           >
             {isEditing ? 'Close' : 'Edit'}
           </button>
@@ -387,7 +387,7 @@ function SortableTaskCard({
             href={task.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-zinc-400 hover:text-purple-500 p-0.5"
+            className="text-zinc-400 hover:text-blue-500 p-0.5"
             title="Open in Notion"
           >
             <ExternalLink className="h-3 w-3" />
@@ -517,7 +517,7 @@ function TaskCardOverlay({ task, titleProp, priorityProp }: { task: TaskItem; ti
   const priBadge = priority ? getPriorityBadge(priority) : null
 
   return (
-    <div className="w-[260px] rounded-lg bg-white border-2 border-purple-400 shadow-xl p-3 dark:bg-zinc-900 dark:border-purple-500 opacity-90">
+    <div className="w-[260px] rounded-lg bg-white border-2 border-blue-400 shadow-xl p-3 dark:bg-zinc-900 dark:border-blue-500 opacity-90">
       <p className="text-sm font-medium">{title || 'Untitled'}</p>
       {priBadge && (
         <span className={cn('inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-semibold', priBadge.bg, priBadge.text)}>
@@ -614,7 +614,7 @@ function NewTaskForm({
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-purple-300 bg-white p-3 shadow-md dark:border-purple-600 dark:bg-zinc-900">
+    <div className="space-y-2 rounded-lg border border-blue-300 bg-white p-3 shadow-md dark:border-blue-600 dark:bg-zinc-900">
       <input
         autoFocus
         value={title}
@@ -686,7 +686,7 @@ function NewTaskForm({
         <button
           onClick={handleCreate}
           disabled={!title.trim() || creating}
-          className="flex items-center gap-1 rounded bg-purple-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          className="flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
           Create
@@ -1044,7 +1044,7 @@ export function TaskBoard({
         {variant === 'page' && (
           <button
             onClick={() => router.back()}
-            className="text-sm text-purple-600 hover:underline"
+            className="text-sm text-blue-600 hover:underline"
           >
             &larr; Back
           </button>
@@ -1076,7 +1076,7 @@ export function TaskBoard({
           relies on the parent layout for chrome. */}
       {variant === 'page' && (
         <div className="flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-sm text-purple-600 hover:underline">
+          <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline">
             &larr; Back to Notion
           </button>
           <div className="flex items-center gap-2">
@@ -1087,7 +1087,7 @@ export function TaskBoard({
               className={cn(
                 'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
                 isPinned
-                  ? 'border-purple-600 bg-purple-600 text-white hover:bg-purple-700'
+                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
                   : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
               )}
             >
@@ -1095,7 +1095,7 @@ export function TaskBoard({
               {isPinned ? 'Unpin from Today' : 'Pin to Today'}
             </button>
             {db.url && (
-              <a href={db.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-zinc-500 hover:text-purple-600">
+              <a href={db.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-zinc-500 hover:text-blue-600">
                 Open in Notion <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -1127,7 +1127,7 @@ export function TaskBoard({
               variant === 'embed' ? 'p-1' : 'p-2',
               'rounded-l-md',
               viewMode === 'board'
-                ? 'bg-purple-600 text-white'
+                ? 'bg-blue-600 text-white'
                 : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
             )}
             title="Board view"
@@ -1140,7 +1140,7 @@ export function TaskBoard({
               variant === 'embed' ? 'p-1' : 'p-2',
               'rounded-r-md',
               viewMode === 'list'
-                ? 'bg-purple-600 text-white'
+                ? 'bg-blue-600 text-white'
                 : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
             )}
             title="List view"
@@ -1154,7 +1154,7 @@ export function TaskBoard({
            this just confirms a sync is in flight. Positioned so it doesn't
            reserve layout space (avoids a jumpy board on every drop). */}
       {(updateMutation.isPending || deleteMutation.isPending) && (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-purple-200 bg-white px-3 py-1.5 text-xs font-medium text-purple-700 shadow-sm dark:border-purple-800 dark:bg-zinc-900 dark:text-purple-300">
+        <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm dark:border-blue-800 dark:bg-zinc-900 dark:text-blue-300">
           <Loader2 className="h-3 w-3 animate-spin" /> Syncing with Notion
         </div>
       )}
@@ -1237,7 +1237,7 @@ export function TaskBoard({
                           }
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-full bg-transparent border-0 p-0 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-purple-500 focus:rounded focus:px-1"
+                        className="w-full bg-transparent border-0 p-0 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 focus:rounded focus:px-1"
                       />
                     </td>
                     <td className="px-4 py-3">
@@ -1305,7 +1305,7 @@ export function TaskBoard({
                     )}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-purple-600">
+                        <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-blue-600">
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                         <button

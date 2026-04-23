@@ -53,8 +53,8 @@ export default function AgentsAdminPage() {
     <div className="max-w-5xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <Headphones className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <Headphones className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
@@ -87,7 +87,7 @@ export default function AgentsAdminPage() {
 
       {agentsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -125,7 +125,7 @@ function TabButton({
       className={cn(
         '-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
         active
-          ? 'border-purple-600 text-purple-600'
+          ? 'border-blue-600 text-blue-600'
           : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
       )}
     >
@@ -292,13 +292,13 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="At least 8 characters"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <button
             type="submit"
             disabled={mutation.isPending || !newPassword}
-            className="rounded-md bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             Set password
           </button>

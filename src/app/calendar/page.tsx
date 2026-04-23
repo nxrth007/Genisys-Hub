@@ -97,8 +97,8 @@ function getStatusStyle(status: string | undefined) {
     case 'showed':
       return {
         icon: CheckCircle2,
-        color: 'text-purple-600',
-        bg: 'bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-800',
+        color: 'text-blue-600',
+        bg: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800',
         label: 'Showed',
       }
     case 'noshow':
@@ -285,8 +285,8 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <CalendarIcon className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <CalendarIcon className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
@@ -328,7 +328,7 @@ export default function CalendarPage() {
           <StatCard
             label="Showed"
             value={stats.showed}
-            className="border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-400"
+            className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400"
           />
           <StatCard
             label="Cancelled / No Show"
@@ -349,7 +349,7 @@ export default function CalendarPage() {
               className={cn(
                 'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
                 filter === f
-                  ? 'bg-purple-600 text-white'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
               )}
             >
@@ -414,14 +414,14 @@ export default function CalendarPage() {
                     className={cn(
                       'sticky top-0 z-10 border-b px-6 py-2',
                       isToday
-                        ? 'bg-purple-50 border-purple-200 dark:bg-purple-950 dark:border-purple-800'
+                        ? 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
                         : 'bg-zinc-50 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700'
                     )}
                   >
                     <p
                       className={cn(
                         'text-xs font-semibold uppercase tracking-wide',
-                        isToday ? 'text-purple-700 dark:text-purple-300' : 'text-zinc-500'
+                        isToday ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-500'
                       )}
                     >
                       {isToday ? 'Today · ' : ''}

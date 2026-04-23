@@ -168,8 +168,8 @@ export default function DrivePage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-              <HardDrive className="h-6 w-6 text-purple-600" />
+            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+              <HardDrive className="h-6 w-6 text-blue-600" />
             </div>
             <h2 className="text-2xl font-bold tracking-tight">Drive</h2>
           </div>
@@ -219,12 +219,12 @@ export default function DrivePage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search file name or full-text content…"
-                className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
               />
             </div>
             <button
               type="submit"
-              className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Search
             </button>
@@ -238,7 +238,7 @@ export default function DrivePage() {
                 className={cn(
                   'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                   kind === opt.value
-                    ? 'border-purple-600 bg-purple-600 text-white'
+                    ? 'border-blue-600 bg-blue-600 text-white'
                     : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
                 )}
               >
@@ -256,7 +256,7 @@ export default function DrivePage() {
                     className={cn(
                       'flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
                       ownership === opt.value
-                        ? 'border-purple-600 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                         : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
                     )}
                     title={opt.label}
@@ -328,7 +328,7 @@ export default function DrivePage() {
 
           {filesQuery.isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
             </div>
           ) : filesQuery.isError ? (
             <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -462,7 +462,7 @@ function FileRow({
           {multipleAccounts && (
             <>
               <span>•</span>
-              <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
                 {file.sourceAccount.split('@')[0]}
               </span>
             </>
@@ -534,7 +534,7 @@ function FileRowActions({
         target="_blank"
         rel="noopener noreferrer"
         title="Open in Drive"
-        className="inline-block rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-purple-600 dark:hover:bg-zinc-800"
+        className="inline-block rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
       >
         <ExternalLink className="h-4 w-4" />
       </a>
@@ -575,12 +575,12 @@ function FileRowActions({
                     setNewName(file.name)
                   }
                 }}
-                className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
               />
               <div className="mt-2 flex gap-1">
                 <button
                   type="submit"
-                  className="flex-1 rounded-md bg-purple-600 px-2 py-1 text-xs font-medium text-white hover:bg-purple-700"
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
                 >
                   Save
                 </button>
@@ -864,7 +864,7 @@ function PreviewModal({
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium',
             mode === 'edit'
-              ? 'border border-purple-600 bg-purple-600 text-white hover:bg-purple-700'
+              ? 'border border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
               : 'border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
           )}
         >
@@ -950,7 +950,7 @@ function ModeButton({
       className={cn(
         'px-3 py-1 text-xs font-medium transition-colors',
         active
-          ? 'bg-purple-600 text-white'
+          ? 'bg-blue-600 text-white'
           : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
       )}
     >
@@ -1064,7 +1064,7 @@ function SheetsTable({
                 className={cn(
                   'flex-shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                   (activeTab ?? query.data!.activeTab) === tab.title
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                     : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
                 )}
               >
@@ -1080,7 +1080,7 @@ function SheetsTable({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter rows…"
-            className="w-56 rounded-md border border-zinc-200 bg-white py-1 pl-7 pr-2 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            className="w-56 rounded-md border border-zinc-200 bg-white py-1 pl-7 pr-2 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
           />
         </div>
         {query.data && (
@@ -1094,7 +1094,7 @@ function SheetsTable({
 
       {query.isLoading ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : query.isError ? (
         <div className="m-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -1136,7 +1136,7 @@ function SheetsTable({
                           <span className="font-mono text-zinc-400">{columnLetter(i)}</span>
                         )}
                         {sorted && (
-                          <span className="text-purple-600">
+                          <span className="text-blue-600">
                             {sort!.dir === 'asc' ? '↑' : '↓'}
                           </span>
                         )}
@@ -1234,7 +1234,7 @@ function NewFileMenu({
           setOpen((v) => !v)
           setStage(null)
         }}
-        className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
       >
         <Plus className="h-3.5 w-3.5" /> New
       </button>
@@ -1267,7 +1267,7 @@ function NewFileMenu({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={stage.kind === 'folder' ? 'Folder name' : 'Untitled'}
-                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
                 />
               </div>
               {accounts.length > 1 && (
@@ -1278,7 +1278,7 @@ function NewFileMenu({
                   <select
                     value={account}
                     onChange={(e) => setAccount(e.target.value)}
-                    className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                    className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
                   >
                     {accounts.map((a) => (
                       <option key={a} value={a}>
@@ -1292,7 +1292,7 @@ function NewFileMenu({
                 <button
                   type="submit"
                   disabled={createMutation.isPending || !name.trim()}
-                  className="flex-1 rounded-md bg-purple-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                  className="flex-1 rounded-md bg-blue-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {createMutation.isPending ? 'Creating…' : 'Create'}
                 </button>
@@ -1382,7 +1382,7 @@ function EmptyAccountsState() {
       </p>
       <Link
         href="/settings"
-        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
       >
         Go to Settings
       </Link>

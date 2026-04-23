@@ -86,8 +86,8 @@ export default function OutboxPage() {
     <div className="space-y-4 max-w-6xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <Send className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <Send className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Outbox</h2>
@@ -106,7 +106,7 @@ export default function OutboxPage() {
           <button
             onClick={() => setComposeOpen(true)}
             disabled={accounts.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> New email
           </button>
@@ -150,7 +150,7 @@ export default function OutboxPage() {
                 placeholder="Search sent emails…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
               />
             </div>
           </div>
@@ -223,7 +223,7 @@ function Chip({
       className={cn(
         'rounded-full border px-3 py-1 text-xs font-medium transition-all',
         active
-          ? 'bg-purple-50 border-purple-300 text-purple-800 dark:bg-purple-950 dark:border-purple-700 dark:text-purple-200'
+          ? 'bg-blue-50 border-blue-300 text-blue-800 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-200'
           : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700'
       )}
     >
@@ -288,7 +288,7 @@ function ComposeModal({
             <select
               value={fromAccount}
               onChange={(e) => setFromAccount(e.target.value)}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             >
               {accounts.map((a) => (
                 <option key={a.id} value={a.email}>
@@ -304,7 +304,7 @@ function ComposeModal({
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="recipient@example.com"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -313,7 +313,7 @@ function ComposeModal({
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -341,7 +341,7 @@ function ComposeModal({
               disabled={
                 sendMutation.isPending || !fromAccount || !to || !subject || !body
               }
-              className="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {sendMutation.isPending ? 'Sending…' : 'Send'}
             </button>

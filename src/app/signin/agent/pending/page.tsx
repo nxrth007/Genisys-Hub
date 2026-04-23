@@ -14,7 +14,7 @@ function PendingInner() {
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Target className="h-7 w-7 text-purple-600" />
+          <Target className="h-7 w-7 text-blue-600" />
           <h1 className="text-xl font-bold">Genisys Hub</h1>
         </div>
         <div className="mb-4 flex items-center justify-center">

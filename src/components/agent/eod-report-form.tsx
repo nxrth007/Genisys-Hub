@@ -206,7 +206,7 @@ export function EodReportForm({
             required
             value={values.reportDate}
             onChange={(e) => update('reportDate', e.target.value)}
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-500">
             Defaults to today. Only one report per day — revisiting this page
@@ -278,7 +278,7 @@ export function EodReportForm({
           value={values.technicalIssueNotes}
           onChange={(e) => update('technicalIssueNotes', e.target.value)}
           rows={3}
-          className="mt-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="mt-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
         />
       </Section>
 
@@ -288,7 +288,7 @@ export function EodReportForm({
           value={values.organizationalIssues}
           onChange={(e) => update('organizationalIssues', e.target.value)}
           rows={3}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
         />
       </Section>
 
@@ -298,7 +298,7 @@ export function EodReportForm({
           value={values.wins}
           onChange={(e) => update('wins', e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
         />
       </Section>
 
@@ -308,7 +308,7 @@ export function EodReportForm({
           value={values.tomorrowFocus}
           onChange={(e) => update('tomorrowFocus', e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
         />
       </Section>
 
@@ -333,7 +333,7 @@ export function EodReportForm({
           <button
             type="submit"
             disabled={saving || deleting}
-            className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             {saving ? 'Saving…' : mode === 'create' ? 'Submit report' : 'Save changes'}
@@ -356,7 +356,7 @@ function Section({
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-        {Icon && <Icon className="h-4 w-4 text-purple-600" />}
+        {Icon && <Icon className="h-4 w-4 text-blue-600" />}
         {title}
       </h3>
       {children}
@@ -380,7 +380,7 @@ function NumberField({
   return (
     <label className="block">
       <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        <Icon className="h-3.5 w-3.5 text-purple-600" />
+        <Icon className="h-3.5 w-3.5 text-blue-600" />
         {label}
       </span>
       <input
@@ -391,7 +391,7 @@ function NumberField({
         placeholder="0"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+        className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
       />
       <span className="mt-1 block text-[10px] text-zinc-400">{hint}</span>
     </label>

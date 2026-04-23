@@ -280,7 +280,7 @@ export function AppointmentForm({
       <div className="flex items-center justify-between">
         <Link
           href="/agent"
-          className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-purple-600"
+          className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-blue-600"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -419,7 +419,7 @@ export function AppointmentForm({
                         // the form drops back to the background query's data.
                         if (e.target.checked) setRaceConflicts(null)
                       }}
-                      className="h-3.5 w-3.5 rounded border-amber-400 text-purple-600 focus:ring-purple-500"
+                      className="h-3.5 w-3.5 rounded border-amber-400 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-xs font-medium">
                       Book anyway — there&apos;s a reason to double-book this
@@ -622,7 +622,7 @@ export function AppointmentForm({
                   ? 'Resolve the time conflict above, or tick "Book anyway" to override'
                   : undefined
               }
-              className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {mode === 'create' ? <Save className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {submitting ? 'Saving…' : mode === 'create' ? 'Save appointment' : 'Save changes'}
@@ -635,7 +635,7 @@ export function AppointmentForm({
 }
 
 const inputCls =
-  'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950'
+  'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950'
 
 function Field({
   label,

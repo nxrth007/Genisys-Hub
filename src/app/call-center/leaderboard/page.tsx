@@ -181,8 +181,8 @@ export default function LeaderboardPage() {
     <div className="max-w-6xl space-y-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <PhoneCall className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+            <PhoneCall className="h-6 w-6 text-blue-600" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
@@ -206,7 +206,7 @@ export default function LeaderboardPage() {
               className={cn(
                 'rounded-full px-3 py-1 text-xs font-medium transition-colors',
                 range === r.value
-                  ? 'bg-purple-600 text-white'
+                  ? 'bg-blue-600 text-white'
                   : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
               )}
             >
@@ -246,8 +246,8 @@ export default function LeaderboardPage() {
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-all',
                   active
-                    ? 'border-purple-600 bg-purple-600 text-white shadow-sm'
-                    : 'border-zinc-200 bg-white text-zinc-700 hover:border-purple-300 hover:bg-purple-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-purple-700 dark:hover:bg-purple-950/40'
+                    ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                    : 'border-zinc-200 bg-white text-zinc-700 hover:border-blue-300 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/40'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -263,7 +263,7 @@ export default function LeaderboardPage() {
 
       {leaderboardQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : ranked.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -389,7 +389,7 @@ function PodiumCard({ rank, row, metric }: { rank: number; row: Row; metric: Met
       <div>
         <Link
           href={`/call-center/agents/${row.agent.id}`}
-          className="block font-semibold hover:text-purple-600 hover:underline"
+          className="block font-semibold hover:text-blue-600 hover:underline"
         >
           {row.agent.name || '(unnamed)'}
         </Link>
@@ -440,7 +440,7 @@ function LeaderboardRow({
     <tr
       className={cn(
         'transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
-        isTop && 'bg-purple-50/30 dark:bg-purple-950/10'
+        isTop && 'bg-blue-50/30 dark:bg-blue-950/10'
       )}
     >
       <td className="px-3 py-2.5 text-center font-bold tabular-nums">
@@ -449,7 +449,7 @@ function LeaderboardRow({
       <td className="px-3 py-2.5">
         <Link
           href={`/call-center/agents/${row.agent.id}`}
-          className="font-medium text-zinc-700 hover:text-purple-600 hover:underline dark:text-zinc-200"
+          className="font-medium text-zinc-700 hover:text-blue-600 hover:underline dark:text-zinc-200"
         >
           {row.agent.name || '(unnamed)'}
         </Link>
@@ -496,7 +496,7 @@ function HighlightCell({
     <td
       className={cn(
         'px-3 py-2.5 text-right font-medium tabular-nums',
-        highlight && 'bg-purple-100/40 font-bold text-purple-700 dark:bg-purple-950/30 dark:text-purple-300'
+        highlight && 'bg-blue-100/40 font-bold text-blue-700 dark:bg-blue-950/30 dark:text-blue-300'
       )}
     >
       {children}

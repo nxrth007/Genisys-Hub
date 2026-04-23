@@ -63,14 +63,14 @@ export default function AgentEodListPage() {
         {todaysReport ? (
           <Link
             href={`/agent/eod/${todaysReport.id}`}
-            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-4 py-2.5 text-sm font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-900 dark:bg-purple-950 dark:text-purple-300 dark:hover:bg-purple-950/70"
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-950/70"
           >
             Edit today&apos;s report
           </Link>
         ) : (
           <Link
             href="/agent/eod/new"
-            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
           >
             <Plus className="h-4 w-4" />
             Submit today&apos;s report
@@ -80,7 +80,7 @@ export default function AgentEodListPage() {
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">

@@ -148,7 +148,7 @@ export default function CallbacksPage() {
         </div>
         <Link
           href="/agent/callbacks/new"
-          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-purple-700"
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
         >
           <Plus className="h-4 w-4" />
           New callback
@@ -166,7 +166,7 @@ export default function CallbacksPage() {
               className={cn(
                 'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-medium transition-colors',
                 active
-                  ? 'border-purple-600 text-purple-700 dark:text-purple-300'
+                  ? 'border-blue-600 text-blue-700 dark:text-blue-300'
                   : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-200'
               )}
             >
@@ -176,7 +176,7 @@ export default function CallbacksPage() {
                   className={cn(
                     'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
                     active
-                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-200'
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
                       : t.value === 'overdue'
                         ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                         : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
@@ -197,13 +197,13 @@ export default function CallbacksPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search name, phone, notes…"
-          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
         />
       </div>
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
       ) : visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -277,7 +277,7 @@ function CallbackRow({
               'h-5 w-5',
               isOverdue
                 ? 'text-red-400 hover:text-red-600'
-                : 'text-zinc-300 hover:text-purple-500 dark:text-zinc-600'
+                : 'text-zinc-300 hover:text-blue-500 dark:text-zinc-600'
             )}
           />
         )}
@@ -303,7 +303,7 @@ function CallbackRow({
             </span>
           )}
           {isDueToday && !isOverdue && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
               <Clock className="h-2.5 w-2.5" />
               Today
             </span>

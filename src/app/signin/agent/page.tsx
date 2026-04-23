@@ -53,10 +53,10 @@ function AgentSignInInner() {
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
       <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Target className="h-7 w-7 text-purple-600" />
+          <Target className="h-7 w-7 text-blue-600" />
           <h1 className="text-xl font-bold">Genisys Hub</h1>
         </div>
-        <div className="mb-6 flex items-center justify-center gap-2 text-sm font-medium text-purple-600">
+        <div className="mb-6 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
           <Headphones className="h-4 w-4" />
           Agent sign in
         </div>
@@ -73,7 +73,7 @@ function AgentSignInInner() {
               required
               autoFocus
               autoComplete="email"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -86,7 +86,7 @@ function AgentSignInInner() {
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
           </div>
 
@@ -100,7 +100,7 @@ function AgentSignInInner() {
           <button
             type="submit"
             disabled={submitting || !email || !password}
-            className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
@@ -108,7 +108,7 @@ function AgentSignInInner() {
 
         <p className="mt-4 text-center text-xs text-zinc-500">
           New agent?{' '}
-          <Link href="/signin/agent/register" className="font-medium text-purple-600 hover:underline">
+          <Link href="/signin/agent/register" className="font-medium text-blue-600 hover:underline">
             Register here
           </Link>
         </p>
