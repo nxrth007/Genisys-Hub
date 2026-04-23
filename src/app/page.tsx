@@ -8,17 +8,18 @@ import {
   Hash,
   BookOpen,
   ArrowRight,
+  LayoutDashboard,
 } from 'lucide-react'
+import { PageHeader } from '@/components/ui/page-header'
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6 max-w-6xl">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Welcome to Genisys Hub</h2>
-        <p className="text-zinc-500">
-          Your ops command center. Everything in one place, for the whole team.
-        </p>
-      </div>
+    <div className="max-w-6xl space-y-6">
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Welcome to Genisys Hub"
+        subtitle="Your ops command center. Everything in one place, for the whole team."
+      />
 
       {/* Quick access grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -47,7 +48,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Setup checklist */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 dark:border-blue-900 dark:bg-blue-950">
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-6 dark:border-blue-900 dark:bg-blue-950/40">
         <h3 className="font-semibold text-blue-900 dark:text-blue-100">Initial setup</h3>
         <ol className="mt-3 space-y-2 text-sm text-blue-800 dark:text-blue-200">
           <li>1. Go to <Link href="/settings" className="underline font-medium">Settings</Link> and connect your Google account (alex@leadgenisys.com)</li>
@@ -75,10 +76,10 @@ function QuickTile({
   return (
     <Link
       href={href}
-      className="group rounded-xl border border-zinc-200 bg-white p-5 transition-all hover:border-blue-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+      className="group rounded-xl border border-zinc-200 bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
     >
       <div className="flex items-start justify-between">
-        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
+        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950/50">
           <Icon className="h-5 w-5 text-blue-600" />
         </div>
         <ArrowRight className="h-4 w-4 text-zinc-300 transition-colors group-hover:text-blue-600" />

@@ -19,6 +19,8 @@ import {
 import { cn } from '@/lib/utils'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
 import { labelForTag } from '@/lib/eod-reports'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatCard } from '@/components/ui/stat-card'
 
 type EodReport = {
   id: string
@@ -170,29 +172,22 @@ export default function EodReportsPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <PhoneCall className="h-6 w-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              End-of-day agent reports — activity numbers plus any technical or
-              organizational friction flagged for the day.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={PhoneCall}
+        title="Call Center"
+        subtitle="End-of-day agent reports — activity numbers plus any technical or organizational friction flagged for the day."
+      />
 
       <CallCenterTabs />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Dials" value={totals.dials} icon={Phone} />
+        <StatCard label="Dials" value={totals.dials} icon={Phone} tone="blue" />
         <StatCard
           label="Live contacts"
           value={totals.contacts}
           icon={MessageCircle}
+          tone="indigo"
+          progress={totals.connectRate ?? undefined}
           subtitle={
             totals.connectRate != null ? `${totals.connectRate}% connect` : undefined
           }
@@ -201,11 +196,18 @@ export default function EodReportsPage() {
           label="Appts generated"
           value={totals.appts}
           icon={CalendarCheck}
+          tone="green"
+          progress={totals.bookingRate ?? undefined}
           subtitle={
             totals.bookingRate != null ? `${totals.bookingRate}% booking` : undefined
           }
         />
-        <StatCard label="Callbacks" value={totals.callbacks} icon={ClipboardList} />
+        <StatCard
+          label="Callbacks"
+          value={totals.callbacks}
+          icon={ClipboardList}
+          tone="blue"
+        />
         <StatCard
           label="With issues"
           value={totals.withIssues}
@@ -432,42 +434,6 @@ export default function EodReportsPage() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  subtitle,
-  tone,
-}: {
-  label: string
-  value: number
-  icon: React.ComponentType<{ className?: string }>
-  subtitle?: string
-  tone?: 'amber' | 'zinc'
-}) {
-  const toneClass =
-    tone === 'amber'
-      ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
-      : 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800',
-        toneClass
-      )}
-    >
-      <Icon className="h-5 w-5 flex-shrink-0 opacity-70" />
-      <div className="min-w-0">
-        <p className="text-2xl font-bold tabular-nums">{value}</p>
-        <p className="text-xs font-medium uppercase tracking-wide opacity-70">
-          {label}
-        </p>
-        {subtitle && <p className="text-[10px] opacity-60">{subtitle}</p>}
-      </div>
     </div>
   )
 }

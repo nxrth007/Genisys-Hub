@@ -2,8 +2,19 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { PhoneCall, ClipboardList, PhoneForwarded, Trophy } from 'lucide-react'
+import {
+  PhoneCall,
+  ClipboardList,
+  PhoneForwarded,
+  Trophy,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+/**
+ * Pill-style tab nav for the Call Center subsections. Matches Ethan's
+ * reference design — rounded pills with icons that stay visible against
+ * the page background rather than the old underline-on-border style.
+ */
 
 const TABS = [
   { href: '/call-center', label: 'Appointments', icon: PhoneCall, exact: true },
@@ -15,7 +26,7 @@ const TABS = [
 export function CallCenterTabs() {
   const pathname = usePathname()
   return (
-    <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+    <div className="flex flex-wrap items-center gap-1">
       {TABS.map((t) => {
         const active = t.exact ? pathname === t.href : pathname.startsWith(t.href)
         return (
@@ -23,10 +34,10 @@ export function CallCenterTabs() {
             key={t.href}
             href={t.href}
             className={cn(
-              'inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors',
+              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
               active
-                ? 'border-blue-600 text-blue-700 dark:text-blue-300'
-                : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-200'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
             )}
           >
             <t.icon className="h-4 w-4" />

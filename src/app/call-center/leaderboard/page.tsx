@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
+import { PageHeader } from '@/components/ui/page-header'
 
 type Row = {
   agent: { id: string; name: string | null; email: string }
@@ -179,20 +180,11 @@ export default function LeaderboardPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <PhoneCall className="h-6 w-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Top performers across the team. Switch the metric to celebrate
-              different kinds of wins — volume, quality, effort, consistency.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={PhoneCall}
+        title="Call Center"
+        subtitle="Top performers across the team. Switch the metric to celebrate different kinds of wins — volume, quality, effort, consistency."
+      />
 
       <CallCenterTabs />
 

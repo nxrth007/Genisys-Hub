@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatCard } from '@/components/ui/stat-card'
 
 type Callback = {
   id: string
@@ -226,20 +228,11 @@ export default function CallbacksReviewPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <PhoneCall className="h-6 w-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Every agent&apos;s callback list — follow-ups they&apos;ve logged to work later.
-              Separate from appointments; use this to see each agent&apos;s pipeline.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={PhoneCall}
+        title="Call Center"
+        subtitle="Every agent's callback list — follow-ups they've logged to work later. Separate from appointments; use this to see each agent's pipeline."
+      />
 
       <CallCenterTabs />
 
@@ -248,7 +241,7 @@ export default function CallbacksReviewPage() {
           label="Pending"
           value={stats.pending}
           icon={PhoneForwarded}
-          tone={stats.pending > 0 ? 'purple' : 'zinc'}
+          tone={stats.pending > 0 ? 'blue' : 'zinc'}
         />
         <StatCard
           label="Overdue"
@@ -555,59 +548,6 @@ function StatusPill({
     <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
       Upcoming
     </span>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string
-  value: number
-  icon: React.ComponentType<{ className?: string }>
-  tone: 'purple' | 'red' | 'amber' | 'zinc'
-}) {
-  const toneMap = {
-    purple: {
-      bg: 'bg-blue-50 dark:bg-blue-950/40',
-      iconColor: 'text-blue-600',
-      valueColor: 'text-blue-900 dark:text-blue-200',
-    },
-    red: {
-      bg: 'bg-red-50 dark:bg-red-950/40',
-      iconColor: 'text-red-600',
-      valueColor: 'text-red-900 dark:text-red-200',
-    },
-    amber: {
-      bg: 'bg-amber-50 dark:bg-amber-950/40',
-      iconColor: 'text-amber-600',
-      valueColor: 'text-amber-900 dark:text-amber-200',
-    },
-    zinc: {
-      bg: 'bg-white dark:bg-zinc-900',
-      iconColor: 'text-zinc-400',
-      valueColor: 'text-zinc-700 dark:text-zinc-200',
-    },
-  }[tone]
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800',
-        toneMap.bg
-      )}
-    >
-      <Icon className={cn('h-5 w-5 flex-shrink-0', toneMap.iconColor)} />
-      <div className="min-w-0">
-        <p className={cn('text-2xl font-bold tabular-nums', toneMap.valueColor)}>
-          {value}
-        </p>
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          {label}
-        </p>
-      </div>
-    </div>
   )
 }
 

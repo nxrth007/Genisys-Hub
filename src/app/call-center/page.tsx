@@ -24,6 +24,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatCard } from '@/components/ui/stat-card'
 
 type Appointment = {
   id: string
@@ -416,45 +418,36 @@ export default function CallCenterPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <PhoneCall className="h-6 w-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Call Center</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Live view of all agents, bookings, and fulfillment progress. Aggregations
-              reflect whatever filters are applied below.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={PhoneCall}
+        title="Call Center"
+        subtitle="Live view of all agents, bookings, and fulfillment progress. Aggregations reflect whatever filters are applied below."
+      />
 
       <CallCenterTabs />
 
       {/* ATTENTION STRIP — what needs eyes right now */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <AttentionCard
+        <StatCard
           tone="blue"
           icon={Clock}
           label="Today"
           value={attention.todayCount}
-          hint="appointments scheduled today"
+          subtitle="appointments scheduled today"
         />
-        <AttentionCard
-          tone="purple"
+        <StatCard
+          tone="indigo"
           icon={CalendarClock}
           label="Next 7 days"
           value={attention.upcoming7}
-          hint="upcoming bookings"
+          subtitle="upcoming bookings"
         />
-        <AttentionCard
+        <StatCard
           tone={attention.overdue > 0 ? 'red' : 'zinc'}
           icon={AlertTriangle}
           label="Overdue"
           value={attention.overdue}
-          hint='past date, still "booked" status'
+          subtitle='past date, still "booked" status'
         />
       </div>
 
@@ -827,65 +820,6 @@ export default function CallCenterPage() {
 }
 
 // ---- Subcomponents ------------------------------------------------------
-
-function AttentionCard({
-  tone,
-  icon: Icon,
-  label,
-  value,
-  hint,
-}: {
-  tone: 'blue' | 'purple' | 'red' | 'zinc'
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: number
-  hint: string
-}) {
-  const toneMap = {
-    blue: {
-      bg: 'bg-blue-50 dark:bg-blue-950/40',
-      iconBg: 'bg-blue-100 dark:bg-blue-900',
-      iconColor: 'text-blue-600',
-      valueColor: 'text-blue-900 dark:text-blue-200',
-    },
-    // Kept the key named 'purple' to avoid touching all the call sites,
-    // but uses indigo now so it still visually reads as distinct from the
-    // primary 'blue' tone above post-rebrand.
-    purple: {
-      bg: 'bg-indigo-50 dark:bg-indigo-950/40',
-      iconBg: 'bg-indigo-100 dark:bg-indigo-900',
-      iconColor: 'text-indigo-600',
-      valueColor: 'text-indigo-900 dark:text-indigo-200',
-    },
-    red: {
-      bg: 'bg-red-50 dark:bg-red-950/40',
-      iconBg: 'bg-red-100 dark:bg-red-900',
-      iconColor: 'text-red-600',
-      valueColor: 'text-red-900 dark:text-red-200',
-    },
-    zinc: {
-      bg: 'bg-white dark:bg-zinc-900',
-      iconBg: 'bg-zinc-100 dark:bg-zinc-800',
-      iconColor: 'text-zinc-400',
-      valueColor: 'text-zinc-700 dark:text-zinc-200',
-    },
-  }[tone]
-
-  return (
-    <div className={cn('flex items-center gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800', toneMap.bg)}>
-      <div className={cn('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg', toneMap.iconBg)}>
-        <Icon className={cn('h-5 w-5', toneMap.iconColor)} />
-      </div>
-      <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
-          <p className={cn('text-2xl font-bold tabular-nums', toneMap.valueColor)}>{value}</p>
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
-        </div>
-        <p className="text-xs text-zinc-500">{hint}</p>
-      </div>
-    </div>
-  )
-}
 
 function StatusFunnel({
   byStatus,

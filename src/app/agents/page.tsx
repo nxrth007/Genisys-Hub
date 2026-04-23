@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 
 type Agent = {
   id: string
@@ -51,21 +52,13 @@ export default function AgentsAdminPage() {
 
   return (
     <div className="max-w-5xl space-y-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Headphones className="h-6 w-6 text-blue-600" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Agents</h2>
-            <p className="mt-1 text-sm text-zinc-500">
-              Review registrations, manage agent accounts, and reset passwords.
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        icon={Headphones}
+        title="Agents"
+        subtitle="Review registrations, manage agent accounts, and reset passwords."
+      />
 
-      <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center gap-1">
         <TabButton active={tab === 'pending'} onClick={() => setTab('pending')}>
           <Clock className="h-3.5 w-3.5" />
           Pending
@@ -123,10 +116,10 @@ function TabButton({
     <button
       onClick={onClick}
       className={cn(
-        '-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
         active
-          ? 'border-blue-600 text-blue-600'
-          : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+          ? 'bg-blue-600 text-white shadow-sm'
+          : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
       )}
     >
       {children}
