@@ -33,6 +33,7 @@ import {
   PinOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NewTaskDialog } from './new-task-dialog'
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -1360,28 +1361,30 @@ export function TaskBoard({
         </div>
       )}
 
-      {/* New Task Modal */}
+      {/* Shared New-Task modal — identical look in Focus + Kanban. */}
       {newTaskStatus && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setNewTaskStatus(null)} />
-          <div className="relative z-10 w-full max-w-sm">
-            <NewTaskForm
-              status={newTaskStatus}
-              dbId={dbId}
-              titleProp={titleProp}
-              statusPropName={statusPropName}
-              statusPropType={statusPropType}
-              priorityProp={priorityProp}
-              priorityOptions={priorityOptions}
-              assigneeProp={assigneeProp}
-              assigneePropType={assigneePropType}
-              assigneeOptions={assigneeOptions}
-              notionUsers={notionUsers}
-              onClose={() => setNewTaskStatus(null)}
-              onCreated={() => queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })}
-            />
-          </div>
-        </div>
+        <NewTaskDialog
+          dbId={dbId}
+          schema={{
+            titleProp,
+            statusPropName,
+            statusPropType: statusPropType === 'status' ? 'status' : 'select',
+            priorityProp,
+            priorityOptions,
+            assigneeProp,
+            assigneePropType,
+            // The shared dialog reads notion users itself when the
+            // column is people-type, so only pass select/multi_select
+            // options here.
+            assigneeOptions: selectAssigneeOptions,
+          }}
+          targetStatus={newTaskStatus}
+          onClose={() => setNewTaskStatus(null)}
+          onCreated={() => {
+            queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })
+            setNewTaskStatus(null)
+          }}
+        />
       )}
     </div>
   )

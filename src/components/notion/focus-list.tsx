@@ -15,12 +15,11 @@ import {
   Users,
   AlertTriangle,
   Clock,
-  X,
-  Plus,
   Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
+import { NewTaskDialog } from './new-task-dialog'
 
 /**
  * FocusList — a triage-first alternative to the Kanban view on Today.
@@ -56,8 +55,10 @@ type NotionSchema = {
   statusPropType: 'status' | 'select'
   statusOptions: Array<{ name: string }>
   priorityProp?: string
+  priorityOptions?: string[]
   assigneeProp?: string
   assigneePropType: string
+  assigneeOptions?: string[]
   dateProp?: string
 }
 
@@ -136,14 +137,35 @@ function discoverSchema(database: Record<string, unknown> | undefined): NotionSc
       : ((statusDef.select as Record<string, unknown>)?.options as Array<{ name: string }>)) || []
 
   const titleProp = entries.find(([, v]) => v.type === 'title')?.[0] || 'Name'
-  const priorityProp = entries.find(([name]) =>
+  const priorityEntry = entries.find(([name]) =>
     name.toLowerCase().includes('priority')
-  )?.[0]
+  )
+  const priorityProp = priorityEntry?.[0]
+  const priorityDef = priorityEntry?.[1]
+  const priorityOptions: string[] =
+    priorityDef?.type === 'select'
+      ? (((priorityDef.select as Record<string, unknown>)?.options as Array<{ name: string }>) || []).map(
+          (o) => o.name
+        )
+      : []
+
   const assigneeEntry =
     entries.find(([, v]) => v.type === 'people') ||
     entries.find(([name]) => name.toLowerCase().includes('assign'))
   const assigneeProp = assigneeEntry?.[0]
-  const assigneePropType = (assigneeEntry?.[1].type as string) || 'people'
+  const assigneeDef = assigneeEntry?.[1]
+  const assigneePropType = (assigneeDef?.type as string) || 'people'
+  let assigneeOptions: string[] = []
+  if (assigneeDef?.type === 'select') {
+    assigneeOptions = (((assigneeDef.select as Record<string, unknown>)?.options as Array<{ name: string }>) || []).map(
+      (o) => o.name
+    )
+  } else if (assigneeDef?.type === 'multi_select') {
+    assigneeOptions = (
+      ((assigneeDef.multi_select as Record<string, unknown>)?.options as Array<{ name: string }>) || []
+    ).map((o) => o.name)
+  }
+
   const dateProp = entries.find(([, v]) => v.type === 'date')?.[0]
 
   return {
@@ -152,8 +174,10 @@ function discoverSchema(database: Record<string, unknown> | undefined): NotionSc
     statusPropType,
     statusOptions,
     priorityProp,
+    priorityOptions,
     assigneeProp,
     assigneePropType,
+    assigneeOptions,
     dateProp,
   }
 }
@@ -502,6 +526,11 @@ export function FocusList({
         <NewTaskDialog
           dbId={dbId}
           schema={schema}
+          targetStatus={
+            resolveStatus(schema.statusOptions, TODO_SYNONYMS) ||
+            schema.statusOptions[0]?.name ||
+            'To Do'
+          }
           onClose={() => setNewTaskOpen(false)}
           onCreated={() => {
             queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })
@@ -759,110 +788,3 @@ function AssigneeRow({
   )
 }
 
-// ---- New task dialog ------------------------------------------------------
-
-function NewTaskDialog({
-  dbId,
-  schema,
-  onClose,
-  onCreated,
-}: {
-  dbId: string
-  schema: NotionSchema
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!title.trim()) return
-    setSubmitting(true)
-    setError(null)
-    try {
-      const todoName =
-        resolveStatus(schema.statusOptions, TODO_SYNONYMS) ||
-        schema.statusOptions[0]?.name
-      if (!todoName) throw new Error('Could not find a "To Do" column on this board.')
-
-      const properties: Record<string, unknown> = {
-        [schema.titleProp]: { title: [{ text: { content: title.trim() } }] },
-      }
-      if (schema.statusPropType === 'status') {
-        properties[schema.statusPropName] = { status: { name: todoName } }
-      } else {
-        properties[schema.statusPropName] = { select: { name: todoName } }
-      }
-
-      const res = await fetch('/api/notion/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parentId: dbId, properties, isDatabase: true }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || 'Failed to create task')
-      }
-      onCreated()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <form
-        onSubmit={submit}
-        className="relative w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-zinc-900"
-      >
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">New task</h3>
-            <p className="text-xs text-zinc-500">
-              Adds to the board&apos;s &quot;To Do&quot; column.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-          placeholder="What needs to get done?"
-          className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
-        />
-        {error && (
-          <p className="mt-2 text-xs text-red-600">{error}</p>
-        )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting || !title.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {submitting ? 'Adding…' : 'Add task'}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
