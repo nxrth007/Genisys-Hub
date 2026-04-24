@@ -20,8 +20,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
+import { FocusList } from '@/components/notion/focus-list'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatCard } from '@/components/ui/stat-card'
+import { Columns3, List } from 'lucide-react'
 
 type Task = {
   id: string
@@ -183,10 +185,15 @@ function findMeetingLink(ev: CalEvent): MeetingLink | null {
 export default function TodayPage() {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
-  // Bumped on "+ New task" click to signal TaskBoard to open its inline
-  // new-task modal for the "To Do" column. Only wired when a Notion board
-  // is pinned; otherwise the click opens the AddTaskModal below instead.
+  // Bumped on "+ New task" click to signal the active view (Focus or
+  // Kanban) to open its new-task modal for the "To Do" column. Only
+  // wired when a Notion board is pinned; otherwise the click opens the
+  // local AddTaskModal below instead.
   const [newTaskTrigger, setNewTaskTrigger] = useState(0)
+  // Default to "focus" — a grouped-list layout that's faster for triage
+  // ("what should I do next?") than a Kanban's visual workflow. Users
+  // can flip to "board" via the toggle to see the old Kanban.
+  const [tasksView, setTasksView] = useState<'focus' | 'board'>('focus')
 
   const tasksQuery = useQuery<{ tasks: Task[] }>({
     queryKey: ['today-tasks'],
@@ -437,14 +444,50 @@ export default function TodayPage() {
            entirely: column chrome already gives each status its own card
            appearance, and the outer section box doubled it up visually. */}
       {pinnedDbId ? (
-        <div className="-mx-1">
-          <TaskBoard
-            dbId={pinnedDbId}
-            variant="embed"
-            defaultView="board"
-            newTaskTrigger={newTaskTrigger}
-            newTaskColumnHint="To Do"
-          />
+        <div className="space-y-3">
+          {/* Focus / Kanban toggle */}
+          <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1 w-fit dark:border-zinc-800 dark:bg-zinc-900">
+            <button
+              onClick={() => setTasksView('focus')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                tasksView === 'focus'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+              )}
+            >
+              <List className="h-3.5 w-3.5" />
+              Focus
+            </button>
+            <button
+              onClick={() => setTasksView('board')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                tasksView === 'board'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+              )}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              Kanban
+            </button>
+          </div>
+          {tasksView === 'focus' ? (
+            <FocusList
+              dbId={pinnedDbId}
+              newTaskTrigger={newTaskTrigger}
+            />
+          ) : (
+            <div className="-mx-1">
+              <TaskBoard
+                dbId={pinnedDbId}
+                variant="embed"
+                defaultView="board"
+                newTaskTrigger={newTaskTrigger}
+                newTaskColumnHint="To Do"
+              />
+            </div>
+          )}
         </div>
       ) : (
         <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>

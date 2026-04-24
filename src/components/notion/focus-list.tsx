@@ -1,0 +1,868 @@
+'use client'
+
+import { useMemo, useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  CheckCircle2,
+  Circle,
+  Zap,
+  Flame,
+  ListTodo,
+  PauseCircle,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Users,
+  AlertTriangle,
+  Clock,
+  X,
+  Plus,
+  Trash2,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/avatar'
+
+/**
+ * FocusList — a triage-first alternative to the Kanban view on Today.
+ *
+ * Instead of columns grouped by status, it groups tasks by *what you
+ * should do next*:
+ *
+ *   ⚡ Doing right now      in-progress
+ *   🔥 Do today            high priority OR due today/overdue (from To Do)
+ *   📋 Up next             remaining to-do, priority-first
+ *   ⏸  Waiting / Blocked   blocked
+ *   ✓  Recently done       done (collapsed by default)
+ *
+ * Right-side assignee rail lets you instantly filter to one person's
+ * tasks. Each row has a quick-complete circle; click the row to open
+ * the page in Notion.
+ *
+ * Sources data from the same `['notion-tasks', dbId]` React Query key
+ * that <TaskBoard /> uses, so both views share one network fetch.
+ */
+
+// ---- Types ----------------------------------------------------------------
+
+type NotionTask = {
+  id: string
+  url: string
+  properties: Record<string, Record<string, unknown>>
+}
+
+type NotionSchema = {
+  titleProp: string
+  statusPropName: string
+  statusPropType: 'status' | 'select'
+  statusOptions: Array<{ name: string }>
+  priorityProp?: string
+  assigneeProp?: string
+  assigneePropType: string
+  dateProp?: string
+}
+
+type Extracted = {
+  id: string
+  url: string
+  title: string
+  status: string
+  priority: string
+  assignee: string
+  dueDate: string | null
+  task: NotionTask
+}
+
+type Section =
+  | 'doing'
+  | 'today'
+  | 'upnext'
+  | 'waiting'
+  | 'done'
+
+// ---- Helpers --------------------------------------------------------------
+
+function richTextToPlain(rt: Array<{ plain_text?: string }> | undefined): string {
+  if (!rt) return ''
+  return rt.map((r) => r.plain_text || '').join('')
+}
+
+function extractPropValue(prop: Record<string, unknown> | undefined): string {
+  if (!prop) return ''
+  const type = prop.type as string
+  switch (type) {
+    case 'title':
+      return richTextToPlain(prop.title as Array<{ plain_text?: string }>)
+    case 'rich_text':
+      return richTextToPlain(prop.rich_text as Array<{ plain_text?: string }>)
+    case 'select':
+      return (prop.select as { name?: string })?.name || ''
+    case 'status':
+      return (prop.status as { name?: string })?.name || ''
+    case 'multi_select':
+      return ((prop.multi_select as Array<{ name: string }>) || [])
+        .map((s) => s.name)
+        .join(', ')
+    case 'date':
+      return (prop.date as { start?: string })?.start || ''
+    case 'people':
+      return ((prop.people as Array<{ name?: string }>) || [])
+        .map((p) => p.name || '')
+        .filter(Boolean)
+        .join(', ')
+    default:
+      return ''
+  }
+}
+
+function discoverSchema(database: Record<string, unknown> | undefined): NotionSchema | null {
+  if (!database) return null
+  const props = database.properties as Record<string, Record<string, unknown>> | undefined
+  if (!props) return null
+  const entries = Object.entries(props)
+
+  const statusEntry =
+    entries.find(([, v]) => v.type === 'status') ||
+    entries.find(
+      ([name, v]) => v.type === 'select' && name.toLowerCase().includes('status')
+    )
+  if (!statusEntry) return null
+
+  const statusPropName = statusEntry[0]
+  const statusPropType = statusEntry[1].type === 'status' ? 'status' : 'select'
+  const statusDef = statusEntry[1]
+  const statusOptions: Array<{ name: string }> =
+    (statusPropType === 'status'
+      ? ((statusDef.status as Record<string, unknown>)?.options as Array<{ name: string }>)
+      : ((statusDef.select as Record<string, unknown>)?.options as Array<{ name: string }>)) || []
+
+  const titleProp = entries.find(([, v]) => v.type === 'title')?.[0] || 'Name'
+  const priorityProp = entries.find(([name]) =>
+    name.toLowerCase().includes('priority')
+  )?.[0]
+  const assigneeEntry =
+    entries.find(([, v]) => v.type === 'people') ||
+    entries.find(([name]) => name.toLowerCase().includes('assign'))
+  const assigneeProp = assigneeEntry?.[0]
+  const assigneePropType = (assigneeEntry?.[1].type as string) || 'people'
+  const dateProp = entries.find(([, v]) => v.type === 'date')?.[0]
+
+  return {
+    titleProp,
+    statusPropName,
+    statusPropType,
+    statusOptions,
+    priorityProp,
+    assigneeProp,
+    assigneePropType,
+    dateProp,
+  }
+}
+
+const TODO_SYNONYMS = new Set(['todo', 'todos', 'notstarted', 'backlog', 'inbox', 'new'])
+const DOING_SYNONYMS = new Set(['inprogress', 'doing', 'started', 'active', 'working'])
+const DONE_SYNONYMS = new Set(['done', 'complete', 'completed', 'shipped'])
+const BLOCKED_SYNONYMS = new Set(['blocked', 'waiting', 'paused', 'onhold'])
+const HIGH_PRIORITY = new Set(['high', 'urgent', 'critical', 'p0', 'p1', 'p0critical', 'p1high'])
+
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Find the best-matching column name for a synonym group in the DB. */
+function resolveStatus(
+  options: Array<{ name: string }>,
+  synonyms: Set<string>
+): string | null {
+  for (const opt of options) {
+    if (synonyms.has(normalize(opt.name))) return opt.name
+  }
+  return null
+}
+
+function isDueTodayOrOverdue(iso: string | null): boolean {
+  if (!iso) return false
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return false
+  const today = new Date()
+  today.setHours(23, 59, 59, 999)
+  return d.getTime() <= today.getTime()
+}
+
+function extractTasks(
+  results: NotionTask[],
+  schema: NotionSchema
+): Extracted[] {
+  return results.map((t) => ({
+    id: t.id,
+    url: t.url,
+    title: extractPropValue(t.properties[schema.titleProp]) || '(Untitled)',
+    status: extractPropValue(t.properties[schema.statusPropName]),
+    priority: schema.priorityProp
+      ? extractPropValue(t.properties[schema.priorityProp])
+      : '',
+    assignee: schema.assigneeProp
+      ? extractPropValue(t.properties[schema.assigneeProp])
+      : '',
+    dueDate: schema.dateProp ? extractPropValue(t.properties[schema.dateProp]) || null : null,
+    task: t,
+  }))
+}
+
+function classify(task: Extracted): Section {
+  const s = normalize(task.status)
+  if (DONE_SYNONYMS.has(s)) return 'done'
+  if (BLOCKED_SYNONYMS.has(s)) return 'waiting'
+  if (DOING_SYNONYMS.has(s)) return 'doing'
+  // To-do bucket — split by urgency
+  const isHigh = HIGH_PRIORITY.has(normalize(task.priority))
+  const due = isDueTodayOrOverdue(task.dueDate)
+  if (isHigh || due) return 'today'
+  return 'upnext'
+}
+
+function priorityRank(p: string): number {
+  const n = normalize(p)
+  if (HIGH_PRIORITY.has(n)) return 0
+  if (n === 'medium' || n === 'normal' || n === 'p2medium' || n === 'p2') return 1
+  if (n === 'low' || n === 'p3low' || n === 'p3') return 2
+  return 3
+}
+
+// ---- Main component -------------------------------------------------------
+
+export function FocusList({
+  dbId,
+  newTaskTrigger,
+}: {
+  dbId: string
+  newTaskTrigger?: number
+}) {
+  const queryClient = useQueryClient()
+  const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
+  const [doneExpanded, setDoneExpanded] = useState(false)
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
+
+  const { data, isLoading, error } = useQuery<{
+    database?: Record<string, unknown>
+    results?: NotionTask[]
+  }>({
+    queryKey: ['notion-tasks', dbId],
+    queryFn: async () => {
+      const res = await fetch('/api/notion/databases/' + dbId)
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load')
+      return res.json()
+    },
+  })
+
+  const schema = useMemo(() => discoverSchema(data?.database), [data])
+  const tasks = useMemo<Extracted[]>(() => {
+    if (!schema || !data?.results) return []
+    return extractTasks(data.results, schema)
+  }, [data, schema])
+
+  // Open the new-task modal whenever the parent bumps newTaskTrigger
+  // (e.g. "+ New Task" button on the Today header).
+  useEffect(() => {
+    if (newTaskTrigger && newTaskTrigger > 0) setNewTaskOpen(true)
+  }, [newTaskTrigger])
+
+  // Filter by assignee. 'unassigned' means the task has no assignee set.
+  const filtered = useMemo(() => {
+    if (selectedAssignee === 'all') return tasks
+    if (selectedAssignee === 'unassigned') {
+      return tasks.filter((t) => !t.assignee.trim())
+    }
+    return tasks.filter((t) =>
+      t.assignee
+        .split(',')
+        .map((s) => s.trim())
+        .includes(selectedAssignee)
+    )
+  }, [tasks, selectedAssignee])
+
+  const grouped = useMemo(() => {
+    const g: Record<Section, Extracted[]> = {
+      doing: [],
+      today: [],
+      upnext: [],
+      waiting: [],
+      done: [],
+    }
+    for (const t of filtered) g[classify(t)].push(t)
+    // Sort each section
+    g.today.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+    g.upnext.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+    g.done.sort((a, b) => 0) // already in Notion order
+    return g
+  }, [filtered])
+
+  // Assignee list with counts — always computed from the *unfiltered* task
+  // set so the sidebar shows real counts even when a filter is applied.
+  const assigneeList = useMemo(() => {
+    const counts = new Map<string, number>()
+    let unassigned = 0
+    for (const t of tasks) {
+      if (!t.assignee.trim()) {
+        unassigned++
+        continue
+      }
+      for (const name of t.assignee.split(',').map((s) => s.trim()).filter(Boolean)) {
+        counts.set(name, (counts.get(name) || 0) + 1)
+      }
+    }
+    const list = Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    return { list, unassigned, total: tasks.length }
+  }, [tasks])
+
+  // --- Mutations ----------------------------------------------------------
+
+  const completeMutation = useMutation({
+    mutationFn: async (params: { pageId: string; done: boolean }) => {
+      if (!schema) throw new Error('No schema')
+      const targetName = params.done
+        ? resolveStatus(schema.statusOptions, DONE_SYNONYMS)
+        : resolveStatus(schema.statusOptions, TODO_SYNONYMS) ||
+          schema.statusOptions[0]?.name
+      if (!targetName) throw new Error('Could not resolve target status')
+      const properties: Record<string, unknown> = {}
+      if (schema.statusPropType === 'status') {
+        properties[schema.statusPropName] = { status: { name: targetName } }
+      } else {
+        properties[schema.statusPropName] = { select: { name: targetName } }
+      }
+      const res = await fetch('/api/notion/pages/' + params.pageId + '/properties', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ properties }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      return res.json()
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (pageId: string) => {
+      const res = await fetch('/api/notion/pages/' + pageId, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      return res.json()
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] }),
+  })
+
+  // --- Render -------------------------------------------------------------
+
+  if (isLoading) {
+    return (
+      <div className="py-16 text-center text-sm text-zinc-400">Loading tasks…</div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        Couldn&apos;t load the pinned Notion board: {(error as Error).message}
+      </div>
+    )
+  }
+  if (!schema) {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        This Notion database doesn&apos;t have a status column. Add a Status or
+        Select column named &quot;Status&quot; to use the Focus view.
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+      {/* ---- Main column ---- */}
+      <div className="space-y-5">
+        <FocusSection
+          icon={Zap}
+          label="Doing right now"
+          count={grouped.doing.length}
+          tone="blue"
+          tasks={grouped.doing}
+          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
+          onDelete={(id) => deleteMutation.mutate(id)}
+          emptyHint="Nothing in progress — pull something from Do today or Up next."
+        />
+        <FocusSection
+          icon={Flame}
+          label="Do today"
+          count={grouped.today.length}
+          tone="red"
+          tasks={grouped.today}
+          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
+          onDelete={(id) => deleteMutation.mutate(id)}
+          emptyHint="Nothing urgent. Nice."
+        />
+        <FocusSection
+          icon={ListTodo}
+          label="Up next"
+          count={grouped.upnext.length}
+          tone="indigo"
+          tasks={grouped.upnext}
+          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
+          onDelete={(id) => deleteMutation.mutate(id)}
+          emptyHint="Backlog is clear."
+        />
+        {grouped.waiting.length > 0 && (
+          <FocusSection
+            icon={PauseCircle}
+            label="Waiting / Blocked"
+            count={grouped.waiting.length}
+            tone="amber"
+            tasks={grouped.waiting}
+            onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
+            onDelete={(id) => deleteMutation.mutate(id)}
+          />
+        )}
+
+        {/* Done — collapsible to keep the page clean */}
+        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <button
+            onClick={() => setDoneExpanded((v) => !v)}
+            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
+          >
+            {doneExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            Recently done
+            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              {grouped.done.length}
+            </span>
+          </button>
+          {doneExpanded && grouped.done.length > 0 && (
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {grouped.done.slice(0, 20).map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  done
+                  onToggle={(done) =>
+                    completeMutation.mutate({ pageId: t.id, done })
+                  }
+                  onDelete={() => deleteMutation.mutate(t.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ---- Assignee sidebar ---- */}
+      <div className="lg:sticky lg:top-4 lg:self-start">
+        <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <Users className="h-3 w-3" />
+            Filter by assignee
+          </div>
+          <div className="space-y-0.5">
+            <AssigneeRow
+              label="All"
+              count={assigneeList.total}
+              active={selectedAssignee === 'all'}
+              onClick={() => setSelectedAssignee('all')}
+              color={null}
+            />
+            {assigneeList.list.map((a) => (
+              <AssigneeRow
+                key={a.name}
+                label={a.name}
+                count={a.count}
+                active={selectedAssignee === a.name}
+                onClick={() => setSelectedAssignee(a.name)}
+                color={a.name}
+              />
+            ))}
+            {assigneeList.unassigned > 0 && (
+              <AssigneeRow
+                label="Unassigned"
+                count={assigneeList.unassigned}
+                active={selectedAssignee === 'unassigned'}
+                onClick={() => setSelectedAssignee('unassigned')}
+                color={null}
+                italic
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ---- New task modal ---- */}
+      {newTaskOpen && (
+        <NewTaskDialog
+          dbId={dbId}
+          schema={schema}
+          onClose={() => setNewTaskOpen(false)}
+          onCreated={() => {
+            queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] })
+            setNewTaskOpen(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---- Section renderer -----------------------------------------------------
+
+function FocusSection({
+  icon: Icon,
+  label,
+  count,
+  tone,
+  tasks,
+  onToggle,
+  onDelete,
+  emptyHint,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  count: number
+  tone: 'blue' | 'red' | 'indigo' | 'amber'
+  tasks: Extracted[]
+  onToggle: (id: string, done: boolean) => void
+  onDelete: (id: string) => void
+  emptyHint?: string
+}) {
+  const toneClass = {
+    blue: 'text-blue-600',
+    red: 'text-rose-600',
+    indigo: 'text-indigo-600',
+    amber: 'text-amber-600',
+  }[tone]
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center gap-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+        <Icon className={cn('h-4 w-4', toneClass)} />
+        <h3 className="text-sm font-semibold">{label}</h3>
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          {count}
+        </span>
+      </div>
+      {tasks.length === 0 ? (
+        <p className="px-4 py-6 text-center text-xs text-zinc-400">
+          {emptyHint || 'Nothing here.'}
+        </p>
+      ) : (
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {tasks.map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              onToggle={(done) => onToggle(t.id, done)}
+              onDelete={() => onDelete(t.id)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ---- Task row -------------------------------------------------------------
+
+const PRIORITY_PILL: Record<string, string> = {
+  high: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+  urgent: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  normal: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+}
+
+function TaskRow({
+  task,
+  done,
+  onToggle,
+  onDelete,
+}: {
+  task: Extracted
+  done?: boolean
+  onToggle: (done: boolean) => void
+  onDelete: () => void
+}) {
+  const [overdue, setOverdue] = useState(false)
+  useEffect(() => {
+    if (task.dueDate && isDueTodayOrOverdue(task.dueDate)) {
+      const d = new Date(task.dueDate)
+      if (!isNaN(d.getTime()) && d < new Date(new Date().setHours(0, 0, 0, 0))) {
+        setOverdue(true)
+      }
+    }
+  }, [task.dueDate])
+
+  const priorityKey = normalize(task.priority)
+  const priorityClass =
+    PRIORITY_PILL[priorityKey] ||
+    (HIGH_PRIORITY.has(priorityKey)
+      ? PRIORITY_PILL.high
+      : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400')
+
+  return (
+    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+      <button
+        onClick={() => onToggle(!done)}
+        aria-label={done ? 'Mark as not done' : 'Mark as done'}
+        className="flex-shrink-0 text-zinc-300 transition-colors hover:text-blue-500 dark:text-zinc-600"
+      >
+        {done ? (
+          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+        ) : (
+          <Circle className="h-5 w-5" />
+        )}
+      </button>
+
+      <a
+        href={task.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="min-w-0 flex-1"
+      >
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              'truncate text-sm font-medium',
+              done && 'text-zinc-400 line-through dark:text-zinc-500'
+            )}
+          >
+            {task.title}
+          </p>
+          {task.priority && !done && (
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                priorityClass
+              )}
+            >
+              {task.priority}
+            </span>
+          )}
+          {overdue && !done && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Overdue
+            </span>
+          )}
+        </div>
+        {(task.assignee || task.dueDate) && (
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+            {task.assignee && (
+              <span className="inline-flex items-center gap-1">
+                <Avatar name={task.assignee} size="xs" />
+                {task.assignee}
+              </span>
+            )}
+            {task.dueDate && (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatDueDate(task.dueDate)}
+              </span>
+            )}
+          </div>
+        )}
+      </a>
+
+      <div className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <a
+          href={task.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open in Notion"
+          className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+        <button
+          onClick={onDelete}
+          title="Delete"
+          className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function formatDueDate(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const now = new Date()
+  const diffDays = Math.floor(
+    (d.getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) /
+      (24 * 60 * 60 * 1000)
+  )
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Tomorrow'
+  if (diffDays === -1) return 'Yesterday'
+  if (diffDays < 0) return `${Math.abs(diffDays)}d ago`
+  if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'short' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// ---- Assignee sidebar row -------------------------------------------------
+
+function AssigneeRow({
+  label,
+  count,
+  active,
+  onClick,
+  color,
+  italic,
+}: {
+  label: string
+  count: number
+  active: boolean
+  onClick: () => void
+  color: string | null
+  italic?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
+        active
+          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+          : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
+      )}
+    >
+      {color ? (
+        <Avatar name={color} size="xs" />
+      ) : (
+        <div className="h-5 w-5 flex-shrink-0" aria-hidden />
+      )}
+      <span className={cn('min-w-0 flex-1 truncate font-medium', italic && 'italic')}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          active
+            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200'
+            : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  )
+}
+
+// ---- New task dialog ------------------------------------------------------
+
+function NewTaskDialog({
+  dbId,
+  schema,
+  onClose,
+  onCreated,
+}: {
+  dbId: string
+  schema: NotionSchema
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [title, setTitle] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!title.trim()) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const todoName =
+        resolveStatus(schema.statusOptions, TODO_SYNONYMS) ||
+        schema.statusOptions[0]?.name
+      if (!todoName) throw new Error('Could not find a "To Do" column on this board.')
+
+      const properties: Record<string, unknown> = {
+        [schema.titleProp]: { title: [{ text: { content: title.trim() } }] },
+      }
+      if (schema.statusPropType === 'status') {
+        properties[schema.statusPropName] = { status: { name: todoName } }
+      } else {
+        properties[schema.statusPropName] = { select: { name: todoName } }
+      }
+
+      const res = await fetch('/api/notion/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId: dbId, properties, isDatabase: true }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to create task')
+      }
+      onCreated()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <form
+        onSubmit={submit}
+        className="relative w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-zinc-900"
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">New task</h3>
+            <p className="text-xs text-zinc-500">
+              Adds to the board&apos;s &quot;To Do&quot; column.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          autoFocus
+          placeholder="What needs to get done?"
+          className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+        />
+        {error && (
+          <p className="mt-2 text-xs text-red-600">{error}</p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || !title.trim()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {submitting ? 'Adding…' : 'Add task'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
