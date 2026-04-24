@@ -20,6 +20,8 @@ import {
   Phone,
   FileSpreadsheet,
   Wrench,
+  Pause,
+  Play,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -543,6 +545,24 @@ function ScheduledBriefsSection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-schedules'] }),
   })
 
+  // Pause / resume toggle — flips ScheduledSms.enabled. The scheduler
+  // already skips disabled schedules on every cron tick, so paused briefs
+  // stop firing within a minute of flipping this. Resuming just un-pauses;
+  // it doesn't back-fill any missed days.
+  const pauseMutation = useMutation({
+    mutationFn: async (params: { id: string; enabled: boolean }) => {
+      const res = await fetch(`/api/admin/schedules/${params.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: params.enabled }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Update failed')
+      return d
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-schedules'] }),
+  })
+
   const testMutation = useMutation({
     mutationFn: async (s: Schedule) => {
       const res = await fetch('/api/admin/schedules/test', {
@@ -738,7 +758,10 @@ function ScheduledBriefsSection() {
           {schedules.map((s) => (
             <div
               key={s.id}
-              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+              className={cn(
+                'flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800',
+                !s.enabled && 'bg-zinc-50 opacity-70 dark:bg-zinc-950/40'
+              )}
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -761,6 +784,11 @@ function ScheduledBriefsSection() {
                       'Slack'
                     )}
                   </span>
+                  {!s.enabled && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                      <Pause className="h-2.5 w-2.5" /> Paused
+                    </span>
+                  )}
                   <span className="text-xs text-zinc-500">
                     {s.timeOfDay}
                     {s.timezone ? ` ${shortTz(s.timezone)}` : ''}
@@ -775,6 +803,33 @@ function ScheduledBriefsSection() {
                 </p>
               </div>
               <div className="flex items-center gap-1">
+                <button
+                  onClick={() =>
+                    pauseMutation.mutate({ id: s.id, enabled: !s.enabled })
+                  }
+                  disabled={pauseMutation.isPending}
+                  title={
+                    s.enabled
+                      ? 'Pause this schedule — stops firing until resumed'
+                      : 'Resume this schedule'
+                  }
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
+                    s.enabled
+                      ? 'text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40'
+                      : 'text-green-700 hover:bg-green-50 dark:text-green-300 dark:hover:bg-green-950/40'
+                  )}
+                >
+                  {s.enabled ? (
+                    <>
+                      <Pause className="h-3 w-3" /> Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-3 w-3" /> Resume
+                    </>
+                  )}
+                </button>
                 <button
                   onClick={() => testMutation.mutate(s)}
                   disabled={testMutation.isPending}
