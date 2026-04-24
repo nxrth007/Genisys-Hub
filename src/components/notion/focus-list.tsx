@@ -552,9 +552,12 @@ export function FocusList({
       }
       tasks={filtered}
     >
-      <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+      {/* min-w-0 on the grid prevents long task titles (or any child
+          content) from pushing the grid wider than its parent, which
+          would trigger a page-level horizontal scrollbar. */}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
         {/* ---- Main column ---- */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <FocusSection
             section="doing"
             icon={Zap}

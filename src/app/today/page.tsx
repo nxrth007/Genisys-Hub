@@ -447,7 +447,12 @@ export default function TodayPage() {
            entirely: column chrome already gives each status its own card
            appearance, and the outer section box doubled it up visually. */}
       {pinnedDbId ? (
-        <div className="space-y-3">
+        // min-w-0 is the critical part here — without it, the Kanban's
+        // horizontally-scrollable column strip can push the whole page
+        // wider than the 5xl cap, creating a page-level horizontal
+        // scrollbar. min-w-0 lets the section collapse to its parent's
+        // width and the inner overflow-x-auto takes over.
+        <div className="min-w-0 space-y-3">
           {/* Focus / Kanban toggle */}
           <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1 w-fit dark:border-zinc-800 dark:bg-zinc-900">
             <button
@@ -481,15 +486,13 @@ export default function TodayPage() {
               newTaskTrigger={newTaskTrigger}
             />
           ) : (
-            <div className="-mx-1">
-              <TaskBoard
-                dbId={pinnedDbId}
-                variant="embed"
-                defaultView="board"
-                newTaskTrigger={newTaskTrigger}
-                newTaskColumnHint="To Do"
-              />
-            </div>
+            <TaskBoard
+              dbId={pinnedDbId}
+              variant="embed"
+              defaultView="board"
+              newTaskTrigger={newTaskTrigger}
+              newTaskColumnHint="To Do"
+            />
           )}
         </div>
       ) : (

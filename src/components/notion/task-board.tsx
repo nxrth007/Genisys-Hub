@@ -1109,7 +1109,10 @@ export function TaskBoard({
   }
 
   return (
-    <div className="space-y-4">
+    // min-w-0 + overflow-hidden lets the inner `overflow-x-auto` column
+    // strip scroll within the card instead of pushing the whole page
+    // wider when there are more columns than fit in the container.
+    <div className="min-w-0 space-y-4 overflow-hidden rounded-xl">
       {/* Top bar — only rendered in the full page variant. Embed variant
           relies on the parent layout for chrome. */}
       {variant === 'page' && (
