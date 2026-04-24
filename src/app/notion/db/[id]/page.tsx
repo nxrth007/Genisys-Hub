@@ -137,7 +137,7 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
       <div className="mb-6">
         <Link
           href="/notion"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+          className="mb-3 inline-flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400 transition-colors hover:text-zinc-800 dark:hover:text-zinc-200"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Notion
@@ -148,7 +148,7 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
           ) : (
             <Database className="h-6 w-6 text-blue-500" />
           )}
-          <h1 className="text-2xl font-bold text-zinc-100">{dbTitle}</h1>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{dbTitle}</h1>
         </div>
       </div>
 
@@ -176,14 +176,14 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
               <p className="text-sm font-medium">No rows in this database</p>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-zinc-700/50">
+            <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-zinc-700/50 bg-zinc-800/80">
+                  <tr className="border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-zinc-100 dark:bg-zinc-800/80">
                     {columns.map((col) => (
                       <th
                         key={col.name}
-                        className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-400"
+                        className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
                       >
                         {col.name}
                       </th>
@@ -194,7 +194,7 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
                   {results.map((row) => (
                     <tr
                       key={row.id}
-                      className="transition-colors hover:bg-zinc-800/40"
+                      className="transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/40"
                     >
                       {columns.map((col) => {
                         const prop = row.properties[col.name]
@@ -206,8 +206,8 @@ export default function DatabaseTablePage({ params }: { params: Promise<{ id: st
                             className={cn(
                               'whitespace-nowrap px-4 py-3',
                               isTitle
-                                ? 'font-medium text-zinc-100'
-                                : 'text-zinc-300'
+                                ? 'font-medium text-zinc-900 dark:text-zinc-100'
+                                : 'text-zinc-700 dark:text-zinc-300'
                             )}
                           >
                             {value || <span className="text-zinc-600">-</span>}

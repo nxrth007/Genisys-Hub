@@ -70,7 +70,13 @@ export function Sidebar() {
     },
   })
   const role = session?.user?.role
-  const visibleMain = mainNav.filter((n) => !n.adminOnly || role === 'admin')
+  // Optimistic visibility: while the session query is still loading (role
+  // is undefined on first render), show admin-only items anyway. Middleware
+  // blocks route-level access for non-admins, so this is purely a UX
+  // decision — the alternative is a flash where "Agents" briefly vanishes
+  // before the session fetch resolves.
+  const isAdminOrLoading = role === undefined || role === 'admin'
+  const visibleMain = mainNav.filter((n) => !n.adminOnly || isAdminOrLoading)
 
   const displayName = session?.user?.name || session?.user?.email || 'Signed in'
   const email = session?.user?.email || ''
