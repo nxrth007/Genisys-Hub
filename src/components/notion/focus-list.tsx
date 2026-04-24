@@ -3,6 +3,18 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
   CheckCircle2,
   Circle,
   Zap,
@@ -16,6 +28,7 @@ import {
   AlertTriangle,
   Clock,
   Trash2,
+  GripVertical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
@@ -342,13 +355,34 @@ export function FocusList({
 
   // --- Mutations ----------------------------------------------------------
 
-  const completeMutation = useMutation({
-    mutationFn: async (params: { pageId: string; done: boolean }) => {
+  // Map each visible section to the synonym set that describes its
+  // "canonical" status. The derived "today" bucket isn't a real status
+  // — drops there fall back to TO-DO so the task joins Up next's logic.
+  const SECTION_SYNONYMS: Record<Section, Set<string>> = {
+    doing: DOING_SYNONYMS,
+    today: TODO_SYNONYMS,
+    upnext: TODO_SYNONYMS,
+    waiting: BLOCKED_SYNONYMS,
+    done: DONE_SYNONYMS,
+  }
+
+  /** Resolve the best-matching DB status name for a Focus section. */
+  function resolveSectionStatus(section: Section): string | null {
+    if (!schema) return null
+    return (
+      resolveStatus(schema.statusOptions, SECTION_SYNONYMS[section]) ||
+      schema.statusOptions[0]?.name ||
+      null
+    )
+  }
+
+  // Single mutation covers both the checkbox toggle and drag-drop — every
+  // move ultimately changes the task's Status property, just to a different
+  // target column.
+  const moveMutation = useMutation({
+    mutationFn: async (params: { pageId: string; section: Section }) => {
       if (!schema) throw new Error('No schema')
-      const targetName = params.done
-        ? resolveStatus(schema.statusOptions, DONE_SYNONYMS)
-        : resolveStatus(schema.statusOptions, TODO_SYNONYMS) ||
-          schema.statusOptions[0]?.name
+      const targetName = resolveSectionStatus(params.section)
       if (!targetName) throw new Error('Could not resolve target status')
       const properties: Record<string, unknown> = {}
       if (schema.statusPropType === 'status') {
@@ -364,9 +398,55 @@ export function FocusList({
       if (!res.ok) throw new Error('Failed to update')
       return res.json()
     },
+    // Optimistic — update local cache immediately so the row flies to the
+    // target section without a spinner. Refetch on settle reconciles any
+    // server-side transformations.
+    onMutate: async ({ pageId, section }) => {
+      if (!schema) return
+      const targetName = resolveSectionStatus(section)
+      if (!targetName) return
+      await queryClient.cancelQueries({ queryKey: ['notion-tasks', dbId] })
+      const previous = queryClient.getQueryData<{
+        database?: Record<string, unknown>
+        results?: NotionTask[]
+      }>(['notion-tasks', dbId])
+      queryClient.setQueryData(['notion-tasks', dbId], (old: unknown) => {
+        const o = old as { database?: unknown; results?: NotionTask[] } | undefined
+        if (!o?.results) return old
+        return {
+          ...o,
+          results: o.results.map((t) =>
+            t.id === pageId
+              ? {
+                  ...t,
+                  properties: {
+                    ...t.properties,
+                    [schema.statusPropName]: {
+                      ...(t.properties[schema.statusPropName] || {}),
+                      type: schema.statusPropType,
+                      [schema.statusPropType]: { name: targetName },
+                    },
+                  },
+                }
+              : t
+          ),
+        }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context && typeof context === 'object' && 'previous' in context) {
+        queryClient.setQueryData(['notion-tasks', dbId], (context as { previous: unknown }).previous)
+      }
+    },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] }),
   })
+
+  // Backwards-compat helper — checkbox click keeps the same API as before.
+  function toggleComplete(id: string, done: boolean) {
+    moveMutation.mutate({ pageId: id, section: done ? 'done' : 'upnext' })
+  }
 
   const deleteMutation = useMutation({
     mutationFn: async (pageId: string) => {
@@ -402,121 +482,108 @@ export function FocusList({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-      {/* ---- Main column ---- */}
-      <div className="space-y-5">
-        <FocusSection
-          icon={Zap}
-          label="Doing right now"
-          count={grouped.doing.length}
-          tone="blue"
-          tasks={grouped.doing}
-          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
-          onDelete={(id) => deleteMutation.mutate(id)}
-          emptyHint="Nothing in progress — pull something from Do today or Up next."
-        />
-        <FocusSection
-          icon={Flame}
-          label="Do today"
-          count={grouped.today.length}
-          tone="red"
-          tasks={grouped.today}
-          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
-          onDelete={(id) => deleteMutation.mutate(id)}
-          emptyHint="Nothing urgent. Nice."
-        />
-        <FocusSection
-          icon={ListTodo}
-          label="Up next"
-          count={grouped.upnext.length}
-          tone="indigo"
-          tasks={grouped.upnext}
-          onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
-          onDelete={(id) => deleteMutation.mutate(id)}
-          emptyHint="Backlog is clear."
-        />
-        {grouped.waiting.length > 0 && (
+    <FocusDndWrapper
+      onMoveTask={(pageId, section) =>
+        moveMutation.mutate({ pageId, section })
+      }
+      tasks={filtered}
+    >
+      <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+        {/* ---- Main column ---- */}
+        <div className="space-y-5">
           <FocusSection
+            section="doing"
+            icon={Zap}
+            label="Doing right now"
+            count={grouped.doing.length}
+            tone="blue"
+            tasks={grouped.doing}
+            onToggle={toggleComplete}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            emptyHint="Nothing in progress — drag a task here to start."
+          />
+          <FocusSection
+            section="today"
+            icon={Flame}
+            label="Do today"
+            count={grouped.today.length}
+            tone="red"
+            tasks={grouped.today}
+            onToggle={toggleComplete}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            emptyHint="Nothing urgent. Nice."
+          />
+          <FocusSection
+            section="upnext"
+            icon={ListTodo}
+            label="Up next"
+            count={grouped.upnext.length}
+            tone="indigo"
+            tasks={grouped.upnext}
+            onToggle={toggleComplete}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            emptyHint="Backlog is clear."
+          />
+          <FocusSection
+            section="waiting"
             icon={PauseCircle}
             label="Waiting / Blocked"
             count={grouped.waiting.length}
             tone="amber"
             tasks={grouped.waiting}
-            onToggle={(id, done) => completeMutation.mutate({ pageId: id, done })}
+            onToggle={toggleComplete}
             onDelete={(id) => deleteMutation.mutate(id)}
+            emptyHint="Nothing blocked right now."
           />
-        )}
 
-        {/* Done — collapsible to keep the page clean */}
-        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <button
-            onClick={() => setDoneExpanded((v) => !v)}
-            className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
-          >
-            {doneExpanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            Recently done
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-              {grouped.done.length}
-            </span>
-          </button>
-          {doneExpanded && grouped.done.length > 0 && (
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {grouped.done.slice(0, 20).map((t) => (
-                <TaskRow
-                  key={t.id}
-                  task={t}
-                  done
-                  onToggle={(done) =>
-                    completeMutation.mutate({ pageId: t.id, done })
-                  }
-                  onDelete={() => deleteMutation.mutate(t.id)}
+          {/* Done — collapsible to keep the page clean, but droppable
+              even when collapsed so you can drag a task onto the header
+              to mark it complete without expanding first. */}
+          <DoneSection
+            tasks={grouped.done}
+            expanded={doneExpanded}
+            onToggleExpanded={() => setDoneExpanded((v) => !v)}
+            onToggleTask={toggleComplete}
+            onDeleteTask={(id) => deleteMutation.mutate(id)}
+          />
+        </div>
+
+        {/* ---- Assignee sidebar ---- */}
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              <Users className="h-3 w-3" />
+              Filter by assignee
+            </div>
+            <div className="space-y-0.5">
+              <AssigneeRow
+                label="All"
+                count={assigneeList.total}
+                active={selectedAssignee === 'all'}
+                onClick={() => setSelectedAssignee('all')}
+                color={null}
+              />
+              {assigneeList.list.map((a) => (
+                <AssigneeRow
+                  key={a.name}
+                  label={a.name}
+                  count={a.count}
+                  active={selectedAssignee === a.name}
+                  onClick={() => setSelectedAssignee(a.name)}
+                  color={a.name}
                 />
               ))}
+              {assigneeList.unassigned > 0 && (
+                <AssigneeRow
+                  label="Unassigned"
+                  count={assigneeList.unassigned}
+                  active={selectedAssignee === 'unassigned'}
+                  onClick={() => setSelectedAssignee('unassigned')}
+                  color={null}
+                  italic
+                />
+              )}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ---- Assignee sidebar ---- */}
-      <div className="lg:sticky lg:top-4 lg:self-start">
-        <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            <Users className="h-3 w-3" />
-            Filter by assignee
-          </div>
-          <div className="space-y-0.5">
-            <AssigneeRow
-              label="All"
-              count={assigneeList.total}
-              active={selectedAssignee === 'all'}
-              onClick={() => setSelectedAssignee('all')}
-              color={null}
-            />
-            {assigneeList.list.map((a) => (
-              <AssigneeRow
-                key={a.name}
-                label={a.name}
-                count={a.count}
-                active={selectedAssignee === a.name}
-                onClick={() => setSelectedAssignee(a.name)}
-                color={a.name}
-              />
-            ))}
-            {assigneeList.unassigned > 0 && (
-              <AssigneeRow
-                label="Unassigned"
-                count={assigneeList.unassigned}
-                active={selectedAssignee === 'unassigned'}
-                onClick={() => setSelectedAssignee('unassigned')}
-                color={null}
-                italic
-              />
-            )}
           </div>
         </div>
       </div>
@@ -538,13 +605,14 @@ export function FocusList({
           }}
         />
       )}
-    </div>
+    </FocusDndWrapper>
   )
 }
 
 // ---- Section renderer -----------------------------------------------------
 
 function FocusSection({
+  section,
   icon: Icon,
   label,
   count,
@@ -554,6 +622,7 @@ function FocusSection({
   onDelete,
   emptyHint,
 }: {
+  section: Section
   icon: React.ComponentType<{ className?: string }>
   label: string
   count: number
@@ -563,6 +632,8 @@ function FocusSection({
   onDelete: (id: string) => void
   emptyHint?: string
 }) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'section-' + section })
+
   const toneClass = {
     blue: 'text-blue-600',
     red: 'text-rose-600',
@@ -571,7 +642,15 @@ function FocusSection({
   }[tone]
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <section
+      ref={setNodeRef}
+      className={cn(
+        'rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        isOver
+          ? 'border-blue-400 ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900/40'
+          : 'border-zinc-200 dark:border-zinc-800'
+      )}
+    >
       <div className="flex items-center gap-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
         <Icon className={cn('h-4 w-4', toneClass)} />
         <h3 className="text-sm font-semibold">{label}</h3>
@@ -580,8 +659,15 @@ function FocusSection({
         </span>
       </div>
       {tasks.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs text-zinc-400">
-          {emptyHint || 'Nothing here.'}
+        <p
+          className={cn(
+            'px-4 py-6 text-center text-xs transition-colors',
+            isOver
+              ? 'text-blue-600 dark:text-blue-300'
+              : 'text-zinc-400'
+          )}
+        >
+          {isOver ? 'Drop to move here' : emptyHint || 'Nothing here.'}
         </p>
       ) : (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -596,6 +682,127 @@ function FocusSection({
         </div>
       )}
     </section>
+  )
+}
+
+// ---- Done section (collapsible, also droppable) ---------------------------
+
+function DoneSection({
+  tasks,
+  expanded,
+  onToggleExpanded,
+  onToggleTask,
+  onDeleteTask,
+}: {
+  tasks: Extracted[]
+  expanded: boolean
+  onToggleExpanded: () => void
+  onToggleTask: (id: string, done: boolean) => void
+  onDeleteTask: (id: string) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: 'section-done' })
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        isOver
+          ? 'border-emerald-400 ring-2 ring-emerald-200 dark:border-emerald-500 dark:ring-emerald-900/40'
+          : 'border-zinc-200 dark:border-zinc-800'
+      )}
+    >
+      <button
+        onClick={onToggleExpanded}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4" />
+        ) : (
+          <ChevronRight className="h-4 w-4" />
+        )}
+        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        {isOver ? (
+          <span className="text-emerald-700 dark:text-emerald-300">
+            Drop to mark as done
+          </span>
+        ) : (
+          'Recently done'
+        )}
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          {tasks.length}
+        </span>
+      </button>
+      {expanded && tasks.length > 0 && (
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {tasks.slice(0, 20).map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              done
+              onToggle={(done) => onToggleTask(t.id, done)}
+              onDelete={() => onDeleteTask(t.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- DnD wrapper ---------------------------------------------------------
+
+function FocusDndWrapper({
+  tasks,
+  onMoveTask,
+  children,
+}: {
+  tasks: Extracted[]
+  onMoveTask: (pageId: string, section: Section) => void
+  children: React.ReactNode
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const activeTask = useMemo(
+    () => tasks.find((t) => t.id === activeId) || null,
+    [tasks, activeId]
+  )
+  // Small activation distance so a click-to-open doesn't accidentally start
+  // a drag — dragging needs ~6px of movement before it engages.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor)
+  )
+
+  function onStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id))
+  }
+
+  function onEnd(e: DragEndEvent) {
+    setActiveId(null)
+    if (!e.over) return
+    const pageId = String(e.active.id)
+    const overId = String(e.over.id)
+    const match = overId.match(/^section-(doing|today|upnext|waiting|done)$/)
+    if (!match) return
+    const target = match[1] as Section
+    onMoveTask(pageId, target)
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={onStart}
+      onDragEnd={onEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      {children}
+      <DragOverlay>
+        {activeTask ? (
+          <div className="rounded-lg border-2 border-blue-400 bg-white px-4 py-2 text-sm font-medium shadow-xl dark:bg-zinc-900">
+            {activeTask.title}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   )
 }
 
@@ -630,6 +837,14 @@ function TaskRow({
     }
   }, [task.dueDate])
 
+  // Drag handle covers the whole row (via listeners spread on the outer
+  // element). Interactive children (checkbox, link, delete) handle their
+  // own events so they don't kidnap clicks from the drag layer.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: task.id,
+    disabled: done, // completed rows aren't draggable; un-complete them first
+  })
+
   const priorityKey = normalize(task.priority)
   const priorityClass =
     PRIORITY_PILL[priorityKey] ||
@@ -638,7 +853,25 @@ function TaskRow({
       : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400')
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'group flex items-center gap-2 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
+        isDragging && 'opacity-40'
+      )}
+    >
+      {!done && (
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label="Drag to reorder"
+          className="flex-shrink-0 cursor-grab text-zinc-300 opacity-0 transition-opacity hover:text-zinc-500 group-hover:opacity-100 active:cursor-grabbing dark:text-zinc-600"
+          // Prevent the anchor click from firing when the drag handle is pressed.
+          onClick={(e) => e.preventDefault()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      )}
       <button
         onClick={() => onToggle(!done)}
         aria-label={done ? 'Mark as not done' : 'Mark as done'}

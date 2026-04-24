@@ -280,12 +280,9 @@ export default function TodayPage() {
     ? boardStats?.done ?? 0
     : completedTasks.length
 
-  // Whole page centers on wide displays. Sections that shouldn't stretch full
-  // width (header row, meetings list) get their own max-w-3xl so reading
-  // widths stay comfortable while the Kanban can use all available horizontal
-  // space. mx-auto on those centers them within the wider page container.
-  const constrainedSection = 'max-w-3xl mx-auto w-full'
-
+  // Single-column layout capped at 5xl so everything shares the same
+  // gutters — no left-of-center drift from mixing max-w-screen-xl outside
+  // with max-w-3xl inside.
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -293,8 +290,8 @@ export default function TodayPage() {
   })
 
   return (
-    <div className="mx-auto max-w-screen-xl space-y-6">
-      <div className={constrainedSection}>
+    <div className="mx-auto max-w-5xl space-y-5">
+      <div>
         <PageHeader
           icon={CheckCircle2}
           title="Today"
@@ -325,7 +322,7 @@ export default function TodayPage() {
       </div>
 
       {/* At-a-glance numbers — mirrors Ethan's Tasks stat row */}
-      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', constrainedSection)}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Calendar}
           label="Meetings today"
@@ -372,23 +369,24 @@ export default function TodayPage() {
         />
       </div>
 
-      {/* Meetings section */}
-      <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      {/* Meetings section — tight per-row density so 5 meetings don't
+          dominate the page above the tasks area. */}
+      <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
           <Calendar className="h-4 w-4 text-blue-600" />
-          <h3 className="font-semibold text-sm">
+          <h3 className="text-sm font-semibold">
             Meetings
             {events.length > 0 && (
-              <span className="ml-2 text-xs font-normal text-zinc-500">({events.length})</span>
+              <span className="ml-1.5 text-xs font-normal text-zinc-500">({events.length})</span>
             )}
           </h3>
         </div>
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {calQuery.isLoading ? (
-            <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading calendar…</div>
+            <div className="px-4 py-6 text-center text-sm text-zinc-500">Loading calendar…</div>
           ) : calQuery.isError ? (
-            <div className="px-5 py-6">
-              <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 rounded-md p-3 dark:bg-amber-950 dark:text-amber-200">
+            <div className="px-4 py-4">
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
                   <div className="font-medium">Calendar unavailable</div>
@@ -402,30 +400,30 @@ export default function TodayPage() {
               </div>
             </div>
           ) : events.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-zinc-500">
+            <div className="px-4 py-6 text-center text-sm text-zinc-500">
               No meetings scheduled today.
             </div>
           ) : (
             events.map((ev, i) => {
               const link = findMeetingLink(ev)
               return (
-                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
-                  <div className="flex-shrink-0 text-right" style={{ minWidth: '6rem' }}>
-                    <div className="text-sm font-medium">
+                <div key={ev.id || i} className="flex items-center gap-3 px-4 py-2">
+                  <div className="flex-shrink-0 text-right" style={{ minWidth: '4.5rem' }}>
+                    <div className="text-xs font-semibold tabular-nums">
                       {formatTime(ev.startTime)}
                     </div>
                     {ev.endTime && (
-                      <div className="text-xs text-zinc-400">
+                      <div className="text-[10px] text-zinc-400">
                         – {formatTime(ev.endTime)}
                       </div>
                     )}
                   </div>
-                  <div className="h-8 w-px bg-blue-200 dark:bg-blue-800" />
+                  <div className="h-6 w-px bg-blue-200 dark:bg-blue-800" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">
+                    <div className="truncate text-sm font-medium">
                       {ev.title || ev.name || 'Untitled'}
                     </div>
-                    <div className="flex gap-2 text-xs text-zinc-500">
+                    <div className="flex gap-1.5 text-[11px] text-zinc-500">
                       {ev.calendarName && <span>{ev.calendarName}</span>}
                       {ev.contactName && <span>• {ev.contactName}</span>}
                       {ev.status && <span>• {ev.status}</span>}
@@ -490,7 +488,7 @@ export default function TodayPage() {
           )}
         </div>
       ) : (
-        <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>
+        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
             <CheckCircle2 className="h-4 w-4 text-blue-600" />
             <h3 className="font-semibold text-sm">
