@@ -29,6 +29,7 @@ import {
   Clock,
   Trash2,
   GripVertical,
+  Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
@@ -456,6 +457,61 @@ export function FocusList({
     moveMutation.mutate({ pageId: id, section: done ? 'done' : 'upnext' })
   }
 
+  // Rename — PATCHes just the title property. Optimistic so the new title
+  // appears instantly on blur/Enter; reconciled on refetch.
+  const renameMutation = useMutation({
+    mutationFn: async (params: { pageId: string; title: string }) => {
+      if (!schema) throw new Error('No schema')
+      const properties = {
+        [schema.titleProp]: {
+          title: [{ text: { content: params.title } }],
+        },
+      }
+      const res = await fetch('/api/notion/pages/' + params.pageId + '/properties', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ properties }),
+      })
+      if (!res.ok) throw new Error('Failed to rename')
+      return res.json()
+    },
+    onMutate: async ({ pageId, title }) => {
+      if (!schema) return
+      await queryClient.cancelQueries({ queryKey: ['notion-tasks', dbId] })
+      const previous = queryClient.getQueryData(['notion-tasks', dbId])
+      queryClient.setQueryData(['notion-tasks', dbId], (old: unknown) => {
+        const o = old as { database?: unknown; results?: NotionTask[] } | undefined
+        if (!o?.results) return old
+        return {
+          ...o,
+          results: o.results.map((t) =>
+            t.id === pageId
+              ? {
+                  ...t,
+                  properties: {
+                    ...t.properties,
+                    [schema.titleProp]: {
+                      ...(t.properties[schema.titleProp] || {}),
+                      type: 'title',
+                      title: [{ type: 'text', text: { content: title }, plain_text: title }],
+                    },
+                  },
+                }
+              : t
+          ),
+        }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context && typeof context === 'object' && 'previous' in context) {
+        queryClient.setQueryData(['notion-tasks', dbId], (context as { previous: unknown }).previous)
+      }
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ['notion-tasks', dbId] }),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: async (pageId: string) => {
       const res = await fetch('/api/notion/pages/' + pageId, { method: 'DELETE' })
@@ -508,6 +564,7 @@ export function FocusList({
             tasks={grouped.doing}
             onToggle={toggleComplete}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
             emptyHint="Nothing in progress — drag a task here to start."
           />
           <FocusSection
@@ -519,6 +576,7 @@ export function FocusList({
             tasks={grouped.today}
             onToggle={toggleComplete}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
             emptyHint="Nothing urgent. Nice."
           />
           <FocusSection
@@ -530,6 +588,7 @@ export function FocusList({
             tasks={grouped.upnext}
             onToggle={toggleComplete}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
             emptyHint="Backlog is clear."
           />
           <FocusSection
@@ -541,6 +600,7 @@ export function FocusList({
             tasks={grouped.waiting}
             onToggle={toggleComplete}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
             emptyHint="Nothing blocked right now."
           />
 
@@ -553,6 +613,7 @@ export function FocusList({
             onToggleExpanded={() => setDoneExpanded((v) => !v)}
             onToggleTask={toggleComplete}
             onDeleteTask={(id) => deleteMutation.mutate(id)}
+            onRenameTask={(id, title) => renameMutation.mutate({ pageId: id, title })}
           />
         </div>
 
@@ -659,6 +720,7 @@ function FocusSection({
   tasks,
   onToggle,
   onDelete,
+  onRename,
   emptyHint,
 }: {
   section: Section
@@ -669,6 +731,7 @@ function FocusSection({
   tasks: Extracted[]
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
   emptyHint?: string
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-' + section })
@@ -714,6 +777,7 @@ function FocusSection({
               task={task}
               onToggle={(done) => onToggle(task.id, done)}
               onDelete={() => onDelete(task.id)}
+              onRename={(title) => onRename(task.id, title)}
             />
           ))}
         </div>
@@ -730,12 +794,14 @@ function DoneSection({
   onToggleExpanded,
   onToggleTask,
   onDeleteTask,
+  onRenameTask,
 }: {
   tasks: Extracted[]
   expanded: boolean
   onToggleExpanded: () => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
+  onRenameTask: (id: string, title: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-done' })
   const t = SECTION_TONES.emerald
@@ -789,6 +855,7 @@ function DoneSection({
               done
               onToggle={(done) => onToggleTask(task.id, done)}
               onDelete={() => onDeleteTask(task.id)}
+              onRename={(title) => onRenameTask(task.id, title)}
             />
           ))}
         </div>
@@ -869,13 +936,18 @@ function TaskRow({
   done,
   onToggle,
   onDelete,
+  onRename,
 }: {
   task: Extracted
   done?: boolean
   onToggle: (done: boolean) => void
   onDelete: () => void
+  onRename: (title: string) => void
 }) {
   const [overdue, setOverdue] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [draftTitle, setDraftTitle] = useState(task.title)
+
   useEffect(() => {
     if (task.dueDate && isDueTodayOrOverdue(task.dueDate)) {
       const d = new Date(task.dueDate)
@@ -885,12 +957,31 @@ function TaskRow({
     }
   }, [task.dueDate])
 
+  // Keep the draft in sync with the canonical title when the parent
+  // refetches — e.g. an optimistic rename reconciles back to whatever
+  // Notion actually wrote (usually identical, but defend the UX).
+  useEffect(() => {
+    if (!isEditing) setDraftTitle(task.title)
+  }, [task.title, isEditing])
+
+  function commitEdit() {
+    const trimmed = draftTitle.trim()
+    setIsEditing(false)
+    if (trimmed && trimmed !== task.title) onRename(trimmed)
+    else setDraftTitle(task.title)
+  }
+
+  function cancelEdit() {
+    setDraftTitle(task.title)
+    setIsEditing(false)
+  }
+
   // Drag handle covers the whole row (via listeners spread on the outer
   // element). Interactive children (checkbox, link, delete) handle their
   // own events so they don't kidnap clicks from the drag layer.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
-    disabled: done, // completed rows aren't draggable; un-complete them first
+    disabled: done || isEditing, // completed or actively-editing rows aren't draggable
   })
 
   const priorityKey = normalize(task.priority)
@@ -941,77 +1032,117 @@ function TaskRow({
         )}
       </button>
 
-      {/* Title + meta */}
-      <a
-        href={task.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="min-w-0 flex-1 py-0.5"
-      >
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p
-            className={cn(
-              'truncate text-sm font-medium',
-              done && 'text-zinc-400 line-through dark:text-zinc-500'
-            )}
-          >
-            {task.title}
-          </p>
-          {task.priority && !done && (
-            <span
-              className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                priorityClass
+      {/* Title + meta — inline-editable: pencil button (or double-click)
+          swaps the title into an <input>. Enter/blur saves, Esc cancels. */}
+      <div className="min-w-0 flex-1 py-0.5">
+        {isEditing ? (
+          <input
+            autoFocus
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitEdit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancelEdit()
+              }
+            }}
+            onBlur={commitEdit}
+            className="w-full rounded-md border border-blue-400 bg-white px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-200 dark:bg-zinc-950 dark:focus:ring-blue-900/60"
+          />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <a
+                href={task.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onDoubleClick={(e) => {
+                  // Double-click = edit; prevent the single-click navigate
+                  // that would otherwise fire as part of the double.
+                  e.preventDefault()
+                  if (!done) setIsEditing(true)
+                }}
+                className={cn(
+                  'min-w-0 truncate text-sm font-medium',
+                  done && 'text-zinc-400 line-through dark:text-zinc-500'
+                )}
+                title={done ? task.title : `${task.title} — double-click to edit`}
+              >
+                {task.title}
+              </a>
+              {task.priority && !done && (
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    priorityClass
+                  )}
+                >
+                  {task.priority}
+                </span>
               )}
-            >
-              {task.priority}
-            </span>
-          )}
-          {overdue && !done && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-              <AlertTriangle className="h-2.5 w-2.5" />
-              Overdue
-            </span>
-          )}
-        </div>
-        {(task.assignee || task.dueDate) && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-            {task.assignee && (
-              <span className="inline-flex items-center gap-1.5 leading-none">
-                <Avatar name={task.assignee} size="xs" />
-                <span className="leading-none">{task.assignee}</span>
-              </span>
+              {overdue && !done && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  Overdue
+                </span>
+              )}
+            </div>
+            {(task.assignee || task.dueDate) && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                {task.assignee && (
+                  <span className="inline-flex items-center gap-1.5 leading-none">
+                    <Avatar name={task.assignee} size="xs" />
+                    <span className="leading-none">{task.assignee}</span>
+                  </span>
+                )}
+                {task.dueDate && (
+                  <span className="inline-flex items-center gap-1 leading-none">
+                    <Clock className="h-3 w-3" />
+                    {formatDueDate(task.dueDate)}
+                  </span>
+                )}
+              </div>
             )}
-            {task.dueDate && (
-              <span className="inline-flex items-center gap-1 leading-none">
-                <Clock className="h-3 w-3" />
-                {formatDueDate(task.dueDate)}
-              </span>
-            )}
-          </div>
+          </>
         )}
-      </a>
+      </div>
 
       {/* Right-side actions — reserve a fixed-width slot so absence of
-          hover doesn't make the title expand/contract. */}
-      <div className="flex h-5 w-[52px] flex-shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <a
-          href={task.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open in Notion"
-          className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
-        <button
-          onClick={onDelete}
-          title="Delete"
-          className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
+          hover doesn't make the title expand/contract. While editing,
+          hide the actions entirely so the Enter/blur interaction owns
+          focus and the save is obvious. */}
+      {!isEditing && (
+        <div className="flex h-5 w-[76px] flex-shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          {!done && (
+            <button
+              onClick={() => setIsEditing(true)}
+              title="Edit title"
+              className="rounded p-1 text-zinc-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <a
+            href={task.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in Notion"
+            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+          <button
+            onClick={onDelete}
+            title="Delete"
+            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
