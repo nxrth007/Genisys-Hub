@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NewTaskDialog } from './new-task-dialog'
+import { Avatar } from '@/components/ui/avatar'
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -367,15 +368,15 @@ function SortableTaskCard({
       </div>
 
       {/* Bottom: Assignee + Actions */}
-      <div className="px-3 pb-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800 pt-2">
+      <div className="flex items-center justify-between border-t border-zinc-100 px-3 pt-2 pb-2 dark:border-zinc-800">
         {assignee ? (
-          <div className="flex items-center gap-1.5">
-            <div className="h-5 w-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white">
-              {assignee.charAt(0).toUpperCase()}
-            </div>
-            <span className="text-xs text-zinc-500">{assignee}</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Avatar name={assignee} size="xs" />
+            <span className="truncate text-xs text-zinc-500">{assignee}</span>
           </div>
-        ) : <span className="text-xs text-zinc-400">Unassigned</span>}
+        ) : (
+          <span className="text-xs italic text-zinc-400">Unassigned</span>
+        )}
 
         <div className="flex items-center gap-1">
           <button

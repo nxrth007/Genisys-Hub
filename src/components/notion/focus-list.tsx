@@ -619,6 +619,37 @@ export function FocusList({
 
 // ---- Section renderer -----------------------------------------------------
 
+const SECTION_TONES: Record<
+  'blue' | 'red' | 'indigo' | 'amber' | 'emerald',
+  { iconBg: string; icon: string; accent: string }
+> = {
+  blue: {
+    iconBg: 'bg-blue-50 dark:bg-blue-950/50',
+    icon: 'text-blue-600',
+    accent: 'before:bg-blue-500',
+  },
+  red: {
+    iconBg: 'bg-rose-50 dark:bg-rose-950/50',
+    icon: 'text-rose-600',
+    accent: 'before:bg-rose-500',
+  },
+  indigo: {
+    iconBg: 'bg-indigo-50 dark:bg-indigo-950/50',
+    icon: 'text-indigo-600',
+    accent: 'before:bg-indigo-500',
+  },
+  amber: {
+    iconBg: 'bg-amber-50 dark:bg-amber-950/50',
+    icon: 'text-amber-600',
+    accent: 'before:bg-amber-500',
+  },
+  emerald: {
+    iconBg: 'bg-emerald-50 dark:bg-emerald-950/50',
+    icon: 'text-emerald-600',
+    accent: 'before:bg-emerald-500',
+  },
+}
+
 function FocusSection({
   section,
   icon: Icon,
@@ -641,50 +672,48 @@ function FocusSection({
   emptyHint?: string
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-' + section })
-
-  const toneClass = {
-    blue: 'text-blue-600',
-    red: 'text-rose-600',
-    indigo: 'text-indigo-600',
-    amber: 'text-amber-600',
-  }[tone]
+  const t = SECTION_TONES[tone]
 
   return (
     <section
       ref={setNodeRef}
       className={cn(
-        'rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        // `before` pseudo-element renders a thin colored accent strip on
+        // the left edge so each bucket is visually distinct at a glance.
+        'relative overflow-hidden rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        'before:absolute before:left-0 before:top-0 before:h-full before:w-1',
+        t.accent,
         isOver
           ? 'border-blue-400 ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900/40'
           : 'border-zinc-200 dark:border-zinc-800'
       )}
     >
-      <div className="flex items-center gap-2 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-        <Icon className={cn('h-4 w-4', toneClass)} />
-        <h3 className="text-sm font-semibold">{label}</h3>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+      <div className="flex items-center gap-2.5 border-b border-zinc-100 pl-5 pr-4 py-3 dark:border-zinc-800">
+        <div className={cn('rounded-md p-1.5', t.iconBg)}>
+          <Icon className={cn('h-3.5 w-3.5', t.icon)} />
+        </div>
+        <h3 className="text-sm font-semibold tracking-tight">{label}</h3>
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {count}
         </span>
       </div>
       {tasks.length === 0 ? (
         <p
           className={cn(
-            'px-4 py-6 text-center text-xs transition-colors',
-            isOver
-              ? 'text-blue-600 dark:text-blue-300'
-              : 'text-zinc-400'
+            'px-5 py-6 text-center text-xs transition-colors',
+            isOver ? 'text-blue-600 dark:text-blue-300' : 'text-zinc-400'
           )}
         >
           {isOver ? 'Drop to move here' : emptyHint || 'Nothing here.'}
         </p>
       ) : (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {tasks.map((t) => (
+          {tasks.map((task) => (
             <TaskRow
-              key={t.id}
-              task={t}
-              onToggle={(done) => onToggle(t.id, done)}
-              onDelete={() => onDelete(t.id)}
+              key={task.id}
+              task={task}
+              onToggle={(done) => onToggle(task.id, done)}
+              onDelete={() => onDelete(task.id)}
             />
           ))}
         </div>
@@ -709,11 +738,16 @@ function DoneSection({
   onDeleteTask: (id: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-done' })
+  const t = SECTION_TONES.emerald
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        // Same accent-strip pattern as the live sections above so the
+        // collapsed Done card visually belongs to the same family.
+        'relative overflow-hidden rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        'before:absolute before:left-0 before:top-0 before:h-full before:w-1',
+        t.accent,
         isOver
           ? 'border-emerald-400 ring-2 ring-emerald-200 dark:border-emerald-500 dark:ring-emerald-900/40'
           : 'border-zinc-200 dark:border-zinc-800'
@@ -721,34 +755,40 @@ function DoneSection({
     >
       <button
         onClick={onToggleExpanded}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
+        className="flex w-full items-center gap-2.5 pl-5 pr-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4" />
-        ) : (
-          <ChevronRight className="h-4 w-4" />
-        )}
-        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-        {isOver ? (
-          <span className="text-emerald-700 dark:text-emerald-300">
-            Drop to mark as done
-          </span>
-        ) : (
-          'Recently done'
-        )}
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <div className={cn('rounded-md p-1.5', t.iconBg)}>
+          <CheckCircle2 className={cn('h-3.5 w-3.5', t.icon)} />
+        </div>
+        <h3 className="text-sm font-semibold tracking-tight">
+          {isOver ? (
+            <span className="text-emerald-700 dark:text-emerald-300">
+              Drop to mark as done
+            </span>
+          ) : (
+            'Recently done'
+          )}
+        </h3>
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {tasks.length}
+        </span>
+        <span className="ml-auto text-zinc-400">
+          {expanded ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
         </span>
       </button>
       {expanded && tasks.length > 0 && (
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {tasks.slice(0, 20).map((t) => (
+          {tasks.slice(0, 20).map((task) => (
             <TaskRow
-              key={t.id}
-              task={t}
+              key={task.id}
+              task={task}
               done
-              onToggle={(done) => onToggleTask(t.id, done)}
-              onDelete={() => onDeleteTask(t.id)}
+              onToggle={(done) => onToggleTask(task.id, done)}
+              onDelete={() => onDeleteTask(task.id)}
             />
           ))}
         </div>
@@ -864,26 +904,35 @@ function TaskRow({
     <div
       ref={setNodeRef}
       className={cn(
-        'group flex items-center gap-2 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
+        // items-start so multi-line meta doesn't vertically shift the
+        // checkbox off the title baseline. Consistent left padding (pl-5)
+        // aligns every row with the section header's text column.
+        'group relative flex items-start gap-2.5 pl-5 pr-4 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
         isDragging && 'opacity-40'
       )}
     >
-      {!done && (
-        <button
-          {...attributes}
-          {...listeners}
-          aria-label="Drag to reorder"
-          className="flex-shrink-0 cursor-grab text-zinc-300 opacity-0 transition-opacity hover:text-zinc-500 group-hover:opacity-100 active:cursor-grabbing dark:text-zinc-600"
-          // Prevent the anchor click from firing when the drag handle is pressed.
-          onClick={(e) => e.preventDefault()}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      )}
+      {/* Drag handle — reserved 16px slot so layout never shifts on hover.
+          On `done` rows the slot stays empty (not draggable) but still
+          reserves the width so rows sit on the same x-axis. */}
+      <div className="flex h-5 w-4 flex-shrink-0 items-center">
+        {!done && (
+          <button
+            {...attributes}
+            {...listeners}
+            aria-label="Drag to reorder"
+            onClick={(e) => e.preventDefault()}
+            className="cursor-grab text-zinc-300 opacity-0 transition-opacity hover:text-zinc-500 group-hover:opacity-100 active:cursor-grabbing dark:text-zinc-600"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Check circle */}
       <button
         onClick={() => onToggle(!done)}
         aria-label={done ? 'Mark as not done' : 'Mark as done'}
-        className="flex-shrink-0 text-zinc-300 transition-colors hover:text-blue-500 dark:text-zinc-600"
+        className="flex h-5 flex-shrink-0 items-center text-zinc-300 transition-colors hover:text-blue-500 dark:text-zinc-600"
       >
         {done ? (
           <CheckCircle2 className="h-5 w-5 text-emerald-500" />
@@ -892,13 +941,14 @@ function TaskRow({
         )}
       </button>
 
+      {/* Title + meta */}
       <a
         href={task.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="min-w-0 flex-1"
+        className="min-w-0 flex-1 py-0.5"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p
             className={cn(
               'truncate text-sm font-medium',
@@ -910,7 +960,7 @@ function TaskRow({
           {task.priority && !done && (
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                 priorityClass
               )}
             >
@@ -918,22 +968,22 @@ function TaskRow({
             </span>
           )}
           {overdue && !done && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">
               <AlertTriangle className="h-2.5 w-2.5" />
               Overdue
             </span>
           )}
         </div>
         {(task.assignee || task.dueDate) && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
             {task.assignee && (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5 leading-none">
                 <Avatar name={task.assignee} size="xs" />
-                {task.assignee}
+                <span className="leading-none">{task.assignee}</span>
               </span>
             )}
             {task.dueDate && (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 leading-none">
                 <Clock className="h-3 w-3" />
                 {formatDueDate(task.dueDate)}
               </span>
@@ -942,7 +992,9 @@ function TaskRow({
         )}
       </a>
 
-      <div className="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      {/* Right-side actions — reserve a fixed-width slot so absence of
+          hover doesn't make the title expand/contract. */}
+      <div className="flex h-5 w-[52px] flex-shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <a
           href={task.url}
           target="_blank"
