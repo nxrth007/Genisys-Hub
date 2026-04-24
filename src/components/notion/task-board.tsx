@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -944,12 +944,17 @@ export function TaskBoard({
     selectAssigneeOptions,
   } = schema
 
-  // External trigger — when a parent page bumps `newTaskTrigger`, open the
-  // new-task modal targeted at the best-matching status column (e.g. "To Do"
-  // hint resolves to "To Do" / "Todo" / "Not Started" / whatever the DB
-  // actually calls the initial column; falls back to the first option).
+  // External trigger — when a parent page *increments* `newTaskTrigger`,
+  // open the new-task modal for the best-matching status column. The ref
+  // guard is important: without it, remounting the board (e.g. switching
+  // views back to Kanban after the trigger was already bumped once)
+  // would immediately reopen the modal with the stale counter value.
+  const initialTriggerRef = useRef<number | undefined>(newTaskTrigger)
   useEffect(() => {
-    if (!newTaskTrigger || statusOptions.length === 0) return
+    if (newTaskTrigger === undefined) return
+    if (newTaskTrigger === initialTriggerRef.current) return
+    initialTriggerRef.current = newTaskTrigger
+    if (statusOptions.length === 0) return
     const hint = newTaskColumnHint.toLowerCase().replace(/[^a-z0-9]/g, '')
     const match =
       statusOptions.find(

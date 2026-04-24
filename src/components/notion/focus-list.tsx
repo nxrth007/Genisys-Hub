@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -297,10 +297,18 @@ export function FocusList({
     return extractTasks(data.results, schema)
   }, [data, schema])
 
-  // Open the new-task modal whenever the parent bumps newTaskTrigger
-  // (e.g. "+ New Task" button on the Today header).
+  // Open the new-task modal whenever the parent *increments*
+  // newTaskTrigger — NOT just because it's non-zero on mount. Without
+  // this ref guard, remounting (e.g. swapping Focus ↔ Kanban after the
+  // trigger has already been bumped once) would immediately reopen the
+  // modal with the stale counter value.
+  const initialTriggerRef = useRef<number | undefined>(newTaskTrigger)
   useEffect(() => {
-    if (newTaskTrigger && newTaskTrigger > 0) setNewTaskOpen(true)
+    if (newTaskTrigger === undefined) return
+    if (newTaskTrigger !== initialTriggerRef.current) {
+      setNewTaskOpen(true)
+      initialTriggerRef.current = newTaskTrigger
+    }
   }, [newTaskTrigger])
 
   // Filter by assignee. 'unassigned' means the task has no assignee set.
