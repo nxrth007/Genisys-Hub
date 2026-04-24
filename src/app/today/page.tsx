@@ -61,6 +61,75 @@ type MeetingLink = {
   label: string
 }
 
+// Minimal view of the Notion DB query response we need to count tasks per
+// column. Mirrors the full shape that <TaskBoard /> consumes, but only
+// types the fields the stat cards actually read so we don't couple to
+// TaskBoard's internals.
+type NotionBoardPayload = {
+  database?: {
+    properties?: Record<string, { type?: string }>
+  }
+  results?: Array<{
+    properties: Record<
+      string,
+      {
+        type?: string
+        status?: { name?: string } | null
+        select?: { name?: string } | null
+      }
+    >
+  }>
+}
+
+/** Buckets Notion statuses into "todo" (starting column) and "done"
+ *  (completed column) using the same synonyms the new-task trigger uses,
+ *  so the stat card and the board agree on what "To Do" means. */
+function computeBoardStats(
+  data: NotionBoardPayload | undefined
+): { todo: number; total: number; done: number } | null {
+  if (!data?.database?.properties || !data?.results) return null
+
+  // Find the status property — prefer 'status' type, fall back to 'select'.
+  const props = data.database.properties
+  let statusPropName: string | null = null
+  for (const [name, p] of Object.entries(props)) {
+    if (p.type === 'status') {
+      statusPropName = name
+      break
+    }
+  }
+  if (!statusPropName) {
+    for (const [name, p] of Object.entries(props)) {
+      if (p.type === 'select') {
+        statusPropName = name
+        break
+      }
+    }
+  }
+  if (!statusPropName) return null
+
+  const TODO_SYNONYMS = new Set([
+    'todo',
+    'todos',
+    'notstarted',
+    'backlog',
+    'inbox',
+    'new',
+  ])
+  const DONE_SYNONYMS = new Set(['done', 'complete', 'completed', 'shipped'])
+
+  let todo = 0
+  let done = 0
+  for (const task of data.results) {
+    const prop = task.properties[statusPropName]
+    const statusName = prop?.status?.name || prop?.select?.name || ''
+    const normalized = statusName.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (TODO_SYNONYMS.has(normalized)) todo++
+    else if (DONE_SYNONYMS.has(normalized)) done++
+  }
+  return { todo, total: data.results.length, done }
+}
+
 /** Scan an event for a meeting link. Prefers known video providers over
  *  generic URLs and phone numbers. Returns null if nothing usable is found. */
 function findMeetingLink(ev: CalEvent): MeetingLink | null {
@@ -158,6 +227,33 @@ export default function TodayPage() {
   })
   const pinnedDbId = pinnedBoardQuery.data?.dbId
 
+  // Fetch the pinned Notion DB so the stat cards can count tasks in "To Do"
+  // / "Done" columns. Same queryKey as <TaskBoard /> uses, so React Query
+  // dedupes into one network fetch — the stat cards and the board share
+  // the same live data.
+  const notionBoardQuery = useQuery<NotionBoardPayload>({
+    queryKey: ['notion-tasks', pinnedDbId],
+    queryFn: async () => {
+      const res = await fetch('/api/notion/databases/' + pinnedDbId)
+      if (!res.ok) throw new Error('Failed to load Notion tasks')
+      return res.json()
+    },
+    enabled: !!pinnedDbId,
+  })
+  const boardStats = computeBoardStats(notionBoardQuery.data)
+
+  // Pick source-of-truth counts based on whether a board is pinned. Local
+  // tasks are used when no board is attached, Notion counts when one is.
+  const tasksToDoCount = pinnedDbId
+    ? boardStats?.todo ?? 0
+    : incompleteTasks.length
+  const tasksTotalCount = pinnedDbId
+    ? boardStats?.total ?? 0
+    : tasks.length
+  const tasksDoneCount = pinnedDbId
+    ? boardStats?.done ?? 0
+    : completedTasks.length
+
   // Whole page centers on wide displays. Sections that shouldn't stretch full
   // width (header row, meetings list) get their own max-w-3xl so reading
   // widths stay comfortable while the Kanban can use all available horizontal
@@ -214,25 +310,27 @@ export default function TodayPage() {
         <StatCard
           icon={Circle}
           label="Tasks to do"
-          value={incompleteTasks.length}
+          value={tasksToDoCount}
           subtitle={
-            tasks.length > 0
-              ? `of ${tasks.length}`
-              : 'nothing logged today'
+            tasksTotalCount > 0
+              ? `of ${tasksTotalCount}`
+              : pinnedDbId
+                ? 'board loading…'
+                : 'nothing logged today'
           }
-          tone={incompleteTasks.length > 0 ? 'amber' : 'zinc'}
+          tone={tasksToDoCount > 0 ? 'amber' : 'zinc'}
           progress={
-            tasks.length > 0
-              ? Math.round((completedTasks.length / tasks.length) * 100)
+            tasksTotalCount > 0
+              ? Math.round((tasksDoneCount / tasksTotalCount) * 100)
               : null
           }
         />
         <StatCard
           icon={CheckCircle2}
-          label="Completed today"
-          value={completedTasks.length}
-          subtitle={completedTasks.length === 0 ? "let's go" : 'nice work'}
-          tone={completedTasks.length > 0 ? 'green' : 'zinc'}
+          label={pinnedDbId ? 'Completed' : 'Completed today'}
+          value={tasksDoneCount}
+          subtitle={tasksDoneCount === 0 ? "let's go" : 'nice work'}
+          tone={tasksDoneCount > 0 ? 'green' : 'zinc'}
         />
       </div>
 
