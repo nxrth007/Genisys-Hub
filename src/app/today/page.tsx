@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
+import { PageHeader } from '@/components/ui/page-header'
+import { StatCard } from '@/components/ui/stat-card'
 
 type Task = {
   id: string
@@ -160,39 +162,69 @@ export default function TodayPage() {
   // space. mx-auto on those centers them within the wider page container.
   const constrainedSection = 'max-w-3xl mx-auto w-full'
 
+  const todayLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+
   return (
     <div className="mx-auto max-w-screen-xl space-y-6">
-      <div className={cn('flex items-center justify-between', constrainedSection)}>
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-              <CheckCircle2 className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">Today</h2>
-              <p className="text-sm text-zinc-500">
-                {new Date().toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <BriefTestButton />
-          {!pinnedDbId && (
-            <button
-              onClick={() => setShowAdd(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-              title="Add a local task (Notion board takes over when pinned)"
-            >
-              <Plus className="h-4 w-4" />
-              Add task
-            </button>
-          )}
-        </div>
+      <div className={constrainedSection}>
+        <PageHeader
+          icon={CheckCircle2}
+          title="Today"
+          subtitle={todayLabel}
+          actions={
+            <>
+              <BriefTestButton />
+              {!pinnedDbId && (
+                <button
+                  onClick={() => setShowAdd(true)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                  title="Add a local task (Notion board takes over when pinned)"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add task
+                </button>
+              )}
+            </>
+          }
+        />
+      </div>
+
+      {/* At-a-glance numbers — mirrors Ethan's Tasks stat row */}
+      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-3', constrainedSection)}>
+        <StatCard
+          icon={Calendar}
+          label="Meetings today"
+          value={events.length}
+          subtitle={events.length === 1 ? 'scheduled' : 'scheduled'}
+          tone="blue"
+        />
+        <StatCard
+          icon={Circle}
+          label="Tasks to do"
+          value={incompleteTasks.length}
+          subtitle={
+            tasks.length > 0
+              ? `of ${tasks.length}`
+              : 'nothing logged today'
+          }
+          tone={incompleteTasks.length > 0 ? 'amber' : 'zinc'}
+          progress={
+            tasks.length > 0
+              ? Math.round((completedTasks.length / tasks.length) * 100)
+              : null
+          }
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Completed today"
+          value={completedTasks.length}
+          subtitle={completedTasks.length === 0 ? "let's go" : 'nice work'}
+          tone={completedTasks.length > 0 ? 'green' : 'zinc'}
+        />
       </div>
 
       {/* Meetings section */}
