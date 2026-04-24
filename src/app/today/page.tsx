@@ -16,6 +16,7 @@ import {
   Phone,
   ExternalLink,
   Pin,
+  CalendarCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
@@ -242,6 +243,24 @@ export default function TodayPage() {
   })
   const boardStats = computeBoardStats(notionBoardQuery.data)
 
+  // Booked-appointment counters for the Today stat strip. Fed by every
+  // agent's Appointment rows; scoped to today in the viewer's timezone.
+  const bookingStatsQuery = useQuery<{
+    bookedToday: number
+    bookedYesterday: number
+    bookedLast7Days: number
+    bookedTotal: number
+    trend: number | null
+  }>({
+    queryKey: ['today-booking-stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/today/booking-stats')
+      if (!res.ok) throw new Error('Failed to load booking stats')
+      return res.json()
+    },
+  })
+  const bookingStats = bookingStatsQuery.data
+
   // Pick source-of-truth counts based on whether a board is pinned. Local
   // tasks are used when no board is attached, Notion counts when one is.
   const tasksToDoCount = pinnedDbId
@@ -299,12 +318,12 @@ export default function TodayPage() {
       </div>
 
       {/* At-a-glance numbers — mirrors Ethan's Tasks stat row */}
-      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-3', constrainedSection)}>
+      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', constrainedSection)}>
         <StatCard
           icon={Calendar}
           label="Meetings today"
           value={events.length}
-          subtitle={events.length === 1 ? 'scheduled' : 'scheduled'}
+          subtitle="scheduled"
           tone="blue"
         />
         <StatCard
@@ -331,6 +350,18 @@ export default function TodayPage() {
           value={tasksDoneCount}
           subtitle={tasksDoneCount === 0 ? "let's go" : 'nice work'}
           tone={tasksDoneCount > 0 ? 'green' : 'zinc'}
+        />
+        <StatCard
+          icon={CalendarCheck}
+          label="Booked appointments"
+          value={bookingStats?.bookedToday ?? 0}
+          subtitle={
+            bookingStats
+              ? `today · ${bookingStats.bookedLast7Days} past 7d`
+              : 'loading…'
+          }
+          trend={bookingStats?.trend ?? null}
+          tone={(bookingStats?.bookedToday ?? 0) > 0 ? 'indigo' : 'zinc'}
         />
       </div>
 
