@@ -688,19 +688,19 @@ function FocusSection({
           : 'border-zinc-200 dark:border-zinc-800'
       )}
     >
-      <div className="flex items-center gap-2.5 border-b border-zinc-100 pl-5 pr-4 py-3 dark:border-zinc-800">
-        <div className={cn('rounded-md p-1.5', t.iconBg)}>
-          <Icon className={cn('h-3.5 w-3.5', t.icon)} />
+      <div className="flex items-center gap-3 border-b border-zinc-100 pl-5 pr-4 py-3.5 dark:border-zinc-800">
+        <div className={cn('rounded-lg p-2', t.iconBg)}>
+          <Icon className={cn('h-4 w-4', t.icon)} />
         </div>
-        <h3 className="text-sm font-semibold tracking-tight">{label}</h3>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <h3 className="text-[15px] font-semibold tracking-tight">{label}</h3>
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {count}
         </span>
       </div>
       {tasks.length === 0 ? (
         <p
           className={cn(
-            'px-5 py-6 text-center text-xs transition-colors',
+            'px-5 py-7 text-center text-sm transition-colors',
             isOver ? 'text-blue-600 dark:text-blue-300' : 'text-zinc-400'
           )}
         >
@@ -755,12 +755,12 @@ function DoneSection({
     >
       <button
         onClick={onToggleExpanded}
-        className="flex w-full items-center gap-2.5 pl-5 pr-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+        className="flex w-full items-center gap-3 pl-5 pr-4 py-3.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
       >
-        <div className={cn('rounded-md p-1.5', t.iconBg)}>
-          <CheckCircle2 className={cn('h-3.5 w-3.5', t.icon)} />
+        <div className={cn('rounded-lg p-2', t.iconBg)}>
+          <CheckCircle2 className={cn('h-4 w-4', t.icon)} />
         </div>
-        <h3 className="text-sm font-semibold tracking-tight">
+        <h3 className="text-[15px] font-semibold tracking-tight">
           {isOver ? (
             <span className="text-emerald-700 dark:text-emerald-300">
               Drop to mark as done
@@ -769,7 +769,7 @@ function DoneSection({
             'Recently done'
           )}
         </h3>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {tasks.length}
         </span>
         <span className="ml-auto text-zinc-400">

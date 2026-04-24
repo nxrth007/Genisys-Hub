@@ -369,23 +369,28 @@ export default function TodayPage() {
         />
       </div>
 
-      {/* Meetings section — tight per-row density so 5 meetings don't
-          dominate the page above the tasks area. */}
+      {/* Meetings section — roomier rows so the list feels proportional to
+          the stat-card row above. Header uses the same icon-tile idiom as
+          Focus sections for visual consistency. */}
       <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
-          <Calendar className="h-4 w-4 text-blue-600" />
-          <h3 className="text-sm font-semibold">
+        <div className="flex items-center gap-3 border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
+          <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-950/50">
+            <Calendar className="h-4 w-4 text-blue-600" />
+          </div>
+          <h3 className="text-[15px] font-semibold tracking-tight">
             Meetings
             {events.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal text-zinc-500">({events.length})</span>
+              <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                {events.length}
+              </span>
             )}
           </h3>
         </div>
         <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {calQuery.isLoading ? (
-            <div className="px-4 py-6 text-center text-sm text-zinc-500">Loading calendar…</div>
+            <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading calendar…</div>
           ) : calQuery.isError ? (
-            <div className="px-4 py-4">
+            <div className="px-5 py-5">
               <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div>
@@ -400,30 +405,30 @@ export default function TodayPage() {
               </div>
             </div>
           ) : events.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-zinc-500">
+            <div className="px-5 py-8 text-center text-sm text-zinc-500">
               No meetings scheduled today.
             </div>
           ) : (
             events.map((ev, i) => {
               const link = findMeetingLink(ev)
               return (
-                <div key={ev.id || i} className="flex items-center gap-3 px-4 py-2">
-                  <div className="flex-shrink-0 text-right" style={{ minWidth: '4.5rem' }}>
-                    <div className="text-xs font-semibold tabular-nums">
+                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
+                  <div className="flex-shrink-0 text-right" style={{ minWidth: '5rem' }}>
+                    <div className="text-sm font-semibold tabular-nums">
                       {formatTime(ev.startTime)}
                     </div>
                     {ev.endTime && (
-                      <div className="text-[10px] text-zinc-400">
+                      <div className="text-xs text-zinc-400">
                         – {formatTime(ev.endTime)}
                       </div>
                     )}
                   </div>
-                  <div className="h-6 w-px bg-blue-200 dark:bg-blue-800" />
+                  <div className="h-8 w-px bg-blue-200 dark:bg-blue-800" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                       {ev.title || ev.name || 'Untitled'}
                     </div>
-                    <div className="flex gap-1.5 text-[11px] text-zinc-500">
+                    <div className="mt-0.5 flex gap-1.5 text-xs text-zinc-500">
                       {ev.calendarName && <span>{ev.calendarName}</span>}
                       {ev.contactName && <span>• {ev.contactName}</span>}
                       {ev.status && <span>• {ev.status}</span>}
