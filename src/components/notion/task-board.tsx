@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -715,10 +715,19 @@ export function TaskBoard({
   dbId,
   variant = 'page',
   defaultView = 'board',
+  newTaskTrigger,
+  newTaskColumnHint = 'To Do',
 }: {
   dbId: string
   variant?: 'page' | 'embed'
   defaultView?: 'board' | 'list'
+  /** Increment this to ask TaskBoard to open its new-task modal externally
+   *  (e.g. from a "+ New task" button in the page header). The modal opens
+   *  for the column whose status option best matches newTaskColumnHint. */
+  newTaskTrigger?: number
+  /** Preferred column name when an external trigger fires. Case-insensitive
+   *  match against the DB's status options; falls back to the first option. */
+  newTaskColumnHint?: string
 }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -933,6 +942,28 @@ export function TaskBoard({
     assigneePropType,
     selectAssigneeOptions,
   } = schema
+
+  // External trigger — when a parent page bumps `newTaskTrigger`, open the
+  // new-task modal targeted at the best-matching status column (e.g. "To Do"
+  // hint resolves to "To Do" / "Todo" / "Not Started" / whatever the DB
+  // actually calls the initial column; falls back to the first option).
+  useEffect(() => {
+    if (!newTaskTrigger || statusOptions.length === 0) return
+    const hint = newTaskColumnHint.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const match =
+      statusOptions.find(
+        (s) => s.name.toLowerCase().replace(/[^a-z0-9]/g, '') === hint
+      ) ||
+      // Common synonyms for "To Do"
+      statusOptions.find((s) =>
+        /^(todo|todos|notstarted|backlog|inbox|new)$/.test(
+          s.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+        )
+      ) ||
+      statusOptions[0]
+    setNewTaskStatus(match.name)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newTaskTrigger])
 
   // Fetch Notion users for people-type assignee fields
   const { data: usersData } = useQuery({

@@ -9,10 +9,8 @@ import {
   Plus,
   Trash2,
   Calendar,
-  Send,
   Clock,
   AlertCircle,
-  Check,
   X,
   Video,
   Phone,
@@ -115,6 +113,10 @@ function findMeetingLink(ev: CalEvent): MeetingLink | null {
 export default function TodayPage() {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  // Bumped on "+ New task" click to signal TaskBoard to open its inline
+  // new-task modal for the "To Do" column. Only wired when a Notion board
+  // is pinned; otherwise the click opens the AddTaskModal below instead.
+  const [newTaskTrigger, setNewTaskTrigger] = useState(0)
 
   const tasksQuery = useQuery<{ tasks: Task[] }>({
     queryKey: ['today-tasks'],
@@ -176,19 +178,26 @@ export default function TodayPage() {
           title="Today"
           subtitle={todayLabel}
           actions={
-            <>
-              <BriefTestButton />
-              {!pinnedDbId && (
-                <button
-                  onClick={() => setShowAdd(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-                  title="Add a local task (Notion board takes over when pinned)"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add task
-                </button>
-              )}
-            </>
+            <button
+              onClick={() => {
+                if (pinnedDbId) {
+                  // Ask the embedded TaskBoard to open its To Do modal.
+                  setNewTaskTrigger((n) => n + 1)
+                } else {
+                  // No Notion board pinned — fall back to the local task modal.
+                  setShowAdd(true)
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md"
+              title={
+                pinnedDbId
+                  ? 'Add a task to the "To Do" column on the pinned board'
+                  : 'Add a new task'
+              }
+            >
+              <Plus className="h-4 w-4" />
+              New Task
+            </button>
           }
         />
       </div>
@@ -300,7 +309,13 @@ export default function TodayPage() {
            appearance, and the outer section box doubled it up visually. */}
       {pinnedDbId ? (
         <div className="-mx-1">
-          <TaskBoard dbId={pinnedDbId} variant="embed" defaultView="board" />
+          <TaskBoard
+            dbId={pinnedDbId}
+            variant="embed"
+            defaultView="board"
+            newTaskTrigger={newTaskTrigger}
+            newTaskColumnHint="To Do"
+          />
         </div>
       ) : (
         <section className={cn('rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900', constrainedSection)}>
@@ -571,74 +586,6 @@ function AddTaskModal({
           </div>
         </form>
       </div>
-    </div>
-  )
-}
-
-function BriefTestButton() {
-  const [email, setEmail] = useState('')
-  const [showInput, setShowInput] = useState(false)
-
-  const mutation = useMutation({
-    mutationFn: async (email: string) => {
-      const res = await fetch('/api/today/brief', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Send failed')
-      return data
-    },
-    onSuccess: () => {
-      setShowInput(false)
-      setEmail('')
-    },
-  })
-
-  if (!showInput) {
-    return (
-      <button
-        onClick={() => setShowInput(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
-        title="Send a morning brief right now (for testing)"
-      >
-        <Send className="h-4 w-4" />
-        Test brief
-      </button>
-    )
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Recipient email"
-        autoFocus
-        className="rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
-        onKeyDown={(e) => e.key === 'Escape' && setShowInput(false)}
-      />
-      <button
-        onClick={() => email && mutation.mutate(email.trim())}
-        disabled={mutation.isPending || !email}
-        className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {mutation.isPending ? '…' : <Check className="h-4 w-4" />}
-      </button>
-      <button
-        onClick={() => setShowInput(false)}
-        className="rounded-md px-2 py-2 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-      >
-        <X className="h-4 w-4" />
-      </button>
-      {mutation.isError && (
-        <span className="text-xs text-red-500">{(mutation.error as Error).message}</span>
-      )}
-      {mutation.isSuccess && (
-        <span className="text-xs text-green-600">Sent!</span>
-      )}
     </div>
   )
 }
