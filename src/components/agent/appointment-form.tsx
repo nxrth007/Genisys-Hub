@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
+import { AddressFields } from '@/components/agent/address-fields'
 
 type Conflict = {
   id: string
@@ -458,13 +459,15 @@ export function AppointmentForm({
           </Field>
         </div>
 
+        {/* Four-field address with OSM autocomplete. The component
+            translates between its own parts and a single combined
+            string here, so values.address stays a flat string and the
+            DB / sheet schema doesn't have to change. */}
         <Field label="Address">
-          <input
-            type="text"
+          <AddressFields
             value={values.address}
-            onChange={(e) => set('address', e.target.value)}
-            placeholder="Street, City, State ZIP"
-            className={inputCls}
+            onChange={(combined) => set('address', combined)}
+            disabled={submitting}
           />
         </Field>
 
