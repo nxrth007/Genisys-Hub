@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   PhoneCall,
   Search,
@@ -206,6 +206,57 @@ export default function MasterTrackerPage() {
   const [until, setUntil] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+
+  const queryClient = useQueryClient()
+
+  // PATCH a single row's status to the sheet, with optimistic cache
+  // update so the pill changes immediately. Reverts on error so the UI
+  // doesn't lie about a failed write.
+  const statusMutation = useMutation({
+    mutationFn: async (vars: { rowNumber: number; status: string }) => {
+      const res = await fetch(
+        `/api/call-center/master-tracker/${vars.rowNumber}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: vars.status }),
+        }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to update status')
+      }
+      return res.json()
+    },
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ['master-tracker-sheet'] })
+      const previous = queryClient.getQueryData<{
+        appointments: Appointment[]
+      }>(['master-tracker-sheet'])
+      if (previous) {
+        queryClient.setQueryData<{ appointments: Appointment[] }>(
+          ['master-tracker-sheet'],
+          {
+            ...previous,
+            appointments: previous.appointments.map((a) =>
+              a.id === `sheet:${vars.rowNumber}`
+                ? { ...a, status: vars.status }
+                : a
+            ),
+          }
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      // Roll back to the pre-mutation snapshot so the UI matches the
+      // sheet again. The mutation's `error` is surfaced in StatusCell
+      // via the `pendingRowNumber` check below.
+      if (context?.previous) {
+        queryClient.setQueryData(['master-tracker-sheet'], context.previous)
+      }
+    },
+  })
 
   // Queries
   const clientsQuery = useQuery<{ clients: Client[] }>({
@@ -762,15 +813,27 @@ export default function MasterTrackerPage() {
                           {formatMoney(a.estimatedDealValue)}
                         </td>
                         <td className="px-3 py-2.5">
-                          <span
-                            className={cn(
-                              'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                              STATUS_TONE[a.status] ||
-                                'bg-zinc-100 text-zinc-700'
-                            )}
-                          >
-                            {a.status}
-                          </span>
+                          <StatusCell
+                            status={a.status}
+                            onChange={(newStatus) => {
+                              const match = a.id.match(/^sheet:(\d+)$/)
+                              if (!match) return
+                              statusMutation.mutate({
+                                rowNumber: Number(match[1]),
+                                status: newStatus,
+                              })
+                            }}
+                            pending={
+                              statusMutation.isPending &&
+                              statusMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                            errored={
+                              statusMutation.isError &&
+                              statusMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                          />
                         </td>
                         <td className="px-3 py-2.5">
                           {a.callRecordingLink ? (
@@ -1009,6 +1072,57 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
           </a>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Inline status editor — a colored pill that's also a native select.
+ * Native select keeps keyboard / accessibility / mobile UX correct
+ * without a custom popover. The chevron is a decorative overlay; the
+ * select itself drives the click area.
+ *
+ * `pending` softens the pill while a write is in flight. `errored`
+ * paints a rose ring + tooltip so a failed sheet write is obvious
+ * (the cache revert makes the displayed value flip back, and this
+ * tells the user *why* it flipped back).
+ */
+function StatusCell({
+  status,
+  onChange,
+  pending,
+  errored,
+}: {
+  status: string
+  onChange: (newStatus: string) => void
+  pending?: boolean
+  errored?: boolean
+}) {
+  // STATUSES includes the "all" filter option — strip it for the editor.
+  const options = STATUSES.filter((s) => s.value !== 'all')
+  return (
+    <div
+      className="relative inline-block"
+      title={errored ? 'Failed to write to the sheet — please retry.' : undefined}
+    >
+      <select
+        value={status}
+        disabled={pending}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          STATUS_TONE[status] || 'bg-zinc-100 text-zinc-700',
+          pending && 'opacity-60',
+          errored && 'ring-2 ring-rose-400'
+        )}
+      >
+        {options.map((s) => (
+          <option key={s.value} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
     </div>
   )
 }

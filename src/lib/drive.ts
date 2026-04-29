@@ -1074,6 +1074,52 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
 }
 
 /**
+ * Write a single cell on the Master Table tab — looks up the column by
+ * its canonical key (so the writer doesn't break if Ethan reorders the
+ * sheet) and rewrites that one cell. Used by Master Tracker's inline
+ * status editor so changing a status pill lands directly on the sheet.
+ *
+ * Throws if the column doesn't exist (caller can prompt the admin to
+ * run the matching column migration) or if the row number is at/above
+ * the header row (defensive — protects against a UI bug ever asking us
+ * to overwrite a header cell).
+ */
+export async function updateMasterTableCell(params: {
+  rowNumber: number
+  canonical: CanonicalKey
+  value: string
+}): Promise<void> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+
+  const schema = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  if (!schema) {
+    throw new Error(`Could not detect schema for ${MASTER_TAB_TITLE}`)
+  }
+  const col = schema.columns.find((c) => c.canonical === params.canonical)
+  if (!col) {
+    throw new Error(
+      `Column "${params.canonical}" not found on ${MASTER_TAB_TITLE} — run the matching Sheet Maintenance migration first.`
+    )
+  }
+  if (params.rowNumber <= schema.headerRowNumber) {
+    throw new Error(`Invalid row number ${params.rowNumber} (at/above header row)`)
+  }
+
+  const colLetterStr = colLetter(col.columnIndex + 1)
+  const range = `'${MASTER_TAB_TITLE.replace(/'/g, "''")}'!${colLetterStr}${params.rowNumber}`
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    // USER_ENTERED so e.g. money values written elsewhere parse as numbers
+    // — for plain text statuses it's equivalent to RAW.
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[params.value]] },
+  })
+}
+
+/**
  * Generic one-off migration: ensure each `{name, canonical}` column exists
  * on every tab of the master spreadsheet, appending headers and widening
  * any native Google Sheets Tables so the new columns sit *inside* the
