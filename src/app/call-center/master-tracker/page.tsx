@@ -449,6 +449,27 @@ export default function MasterTrackerPage() {
     return { bookedToday, bookedThisWeek, apptsToday, apptsThisWeek }
   }, [allAppointments])
 
+  // Diagnostic — when a "Booked..." chip shows 0, this tells Ethan
+  // whether the issue is "no rows logged today" or "no rows have a
+  // Logged At populated at all". Also surfaces the latest Logged At
+  // value so it's obvious if e.g. nothing's been logged in 3 days.
+  const loggedAtStats = useMemo(() => {
+    let withLoggedAt = 0
+    let latest: number | null = null
+    for (const a of allAppointments) {
+      if (a.loggedAt) {
+        withLoggedAt++
+        const t = new Date(a.loggedAt).getTime()
+        if (!isNaN(t) && (latest == null || t > latest)) latest = t
+      }
+    }
+    return {
+      withLoggedAt,
+      total: allAppointments.length,
+      latest: latest ? new Date(latest) : null,
+    }
+  }, [allAppointments])
+
   // ---- Stats over the working set
   const stats = useMemo(() => {
     let showed = 0
@@ -666,11 +687,33 @@ export default function MasterTrackerPage() {
         )}
       </div>
       {(quickFilter === 'booked-today' || quickFilter === 'booked-this-week') && (
-        <p className="-mt-3 text-[11px] text-zinc-500">
-          Counts rows by their <span className="font-medium">Logged At</span>{' '}
-          column. Rows with a blank Logged At are excluded — fill that cell
-          when typing into the sheet and they&apos;ll show up here.
-        </p>
+        <div className="-mt-3 space-y-0.5 text-[11px] text-zinc-500">
+          <p>
+            Counts rows by their{' '}
+            <span className="font-medium">Logged At</span> column. Rows with
+            a blank Logged At are excluded — fill that cell when typing into
+            the sheet and they&apos;ll show up here.
+          </p>
+          <p className="text-zinc-400">
+            Diagnostic:{' '}
+            <span className="font-mono">
+              {loggedAtStats.withLoggedAt}
+            </span>{' '}
+            of <span className="font-mono">{loggedAtStats.total}</span> rows
+            have a Logged At populated.{' '}
+            {loggedAtStats.latest ? (
+              <>
+                Latest:{' '}
+                <span className="font-mono">
+                  {loggedAtStats.latest.toLocaleString('en-US')}
+                </span>
+                .
+              </>
+            ) : (
+              'No rows have any Logged At value yet.'
+            )}
+          </p>
+        </div>
       )}
 
       {/* ---- Filters + export ---- */}
@@ -1258,6 +1301,16 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
         <div>
           <span className="text-zinc-400">Deal value:</span>{' '}
           {formatMoney(appointment.estimatedDealValue)}
+        </div>
+        <div>
+          <span className="text-zinc-400">Logged at:</span>{' '}
+          {appointment.loggedAt ? (
+            new Date(appointment.loggedAt).toLocaleString('en-US')
+          ) : (
+            <span className="italic text-rose-500">
+              not set — Booked-today filter excludes this row
+            </span>
+          )}
         </div>
       </DetailItem>
       {appointment.notes && (

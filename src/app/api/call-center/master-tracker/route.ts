@@ -137,10 +137,12 @@ export async function GET() {
         ? new Date(r.loggedAt).toISOString()
         : r.apptDateTime || new Date().toISOString(),
       // Honest timestamp of when the row was logged. Null when the
-      // sheet's Logged At column is blank — we genuinely don't know.
-      // The Master Tracker "Booked today / this week" filters key off
-      // this so they don't accidentally match by appointment date.
-      loggedAt: r.loggedAt ? new Date(r.loggedAt).toISOString() : null,
+      // sheet's Logged At column is blank or the cell value can't be
+      // parsed as a date — we'd rather drop the value than fall back
+      // to apptDateTime (which would silently mislabel rows as
+      // "booked today" by their appointment date). The Master Tracker
+      // "Booked today / this week" filters key off this exclusively.
+      loggedAt: parseSheetDateOrNull(r.loggedAt),
       // Synthetic agent so the page doesn't have to special-case sheet
       // rows. Agent links go nowhere meaningful for these rows but they
       // render correctly.
@@ -175,4 +177,20 @@ export async function GET() {
   })
 
   return NextResponse.json({ appointments })
+}
+
+/**
+ * Best-effort date parse for a sheet cell value. Returns null when the
+ * input is empty/unparseable rather than throwing — sheet cells come
+ * back as FORMATTED_VALUE strings which can be in surprising shapes
+ * (locale-specific, missing year, "5/1" with no time, etc.) and we'd
+ * rather lose one row's loggedAt than crash the whole endpoint.
+ */
+function parseSheetDateOrNull(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const trimmed = String(raw).trim()
+  if (!trimmed) return null
+  const d = new Date(trimmed)
+  if (isNaN(d.getTime())) return null
+  return d.toISOString()
 }
