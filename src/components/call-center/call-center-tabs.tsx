@@ -7,6 +7,7 @@ import {
   ClipboardList,
   PhoneForwarded,
   Trophy,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +22,7 @@ const TABS = [
   { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
   { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
   { href: '/call-center/leaderboard', label: 'Leaderboard', icon: Trophy },
+  { href: '/call-center/master-tracker', label: 'Master Tracker', icon: FileSpreadsheet },
 ]
 
 export function CallCenterTabs() {
