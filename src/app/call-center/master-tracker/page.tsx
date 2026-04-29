@@ -72,6 +72,20 @@ type AgentSummary = {
   email: string
 }
 
+/**
+ * Quick-filter chips above the table. `booked-*` filters the row's
+ * createdAt (when it was logged into the sheet); `appts-*` filters the
+ * apptDateTime (when the customer meeting actually happens). Both are
+ * useful end-of-day views — "what did we book today" vs "who's
+ * coming in today".
+ */
+type QuickFilter =
+  | 'booked-today'
+  | 'booked-this-week'
+  | 'appts-today'
+  | 'appts-this-week'
+  | null
+
 const STATUSES = [
   { value: 'all', label: 'All statuses' },
   { value: 'booked', label: 'Booked' },
@@ -111,6 +125,37 @@ function startOfThisWeek(): Date {
 function startOfThisMonth(): Date {
   const d = startOfDay(new Date())
   return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
+function endOfDay(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
+/**
+ * True if the appointment matches the chip the user has active. Pulled
+ * out of the filter useMemo so the per-chip count helper can reuse the
+ * same predicate without duplicating logic.
+ */
+function matchesQuickFilter(a: Appointment, q: QuickFilter): boolean {
+  if (!q) return true
+  const now = new Date()
+  if (q === 'booked-today') {
+    const bookedAt = new Date(a.createdAt).getTime()
+    return bookedAt >= startOfDay(now).getTime() && bookedAt <= endOfDay(now).getTime()
+  }
+  if (q === 'booked-this-week') {
+    return new Date(a.createdAt).getTime() >= startOfThisWeek().getTime()
+  }
+  if (q === 'appts-today') {
+    const at = new Date(a.apptDateTime).getTime()
+    return at >= startOfDay(now).getTime() && at <= endOfDay(now).getTime()
+  }
+  if (q === 'appts-this-week') {
+    return new Date(a.apptDateTime).getTime() >= startOfThisWeek().getTime()
+  }
+  return true
 }
 
 /** Render a money-ish field consistently — strip an extra leading "$" if
@@ -206,6 +251,11 @@ export default function MasterTrackerPage() {
   const [until, setUntil] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  // Quick-filter chip state — mutually exclusive with itself but stacks
+  // on top of the regular filter form. Lets Ethan answer "what did we
+  // book today / this week" and "who's coming in today / this week"
+  // with one click instead of fiddling with date pickers.
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null)
 
   const queryClient = useQueryClient()
 
@@ -342,6 +392,7 @@ export default function MasterTrackerPage() {
   //      round-trip to the server when a filter changes.
   const filtered = useMemo(() => {
     let list = allAppointments
+    if (quickFilter) list = list.filter((a) => matchesQuickFilter(a, quickFilter))
     if (client === 'none') list = list.filter((a) => !a.client)
     else if (client !== 'all') list = list.filter((a) => a.client?.id === client)
     if (status !== 'all') list = list.filter((a) => a.status === status)
@@ -366,7 +417,24 @@ export default function MasterTrackerPage() {
       )
     }
     return list
-  }, [allAppointments, client, status, agent, since, until, submittedSearch])
+  }, [allAppointments, quickFilter, client, status, agent, since, until, submittedSearch])
+
+  // Counts for each quick-filter chip, computed off the *unfiltered*
+  // set so the chip counts reflect "how many would I see if I tapped
+  // this" regardless of what's currently active.
+  const quickCounts = useMemo(() => {
+    let bookedToday = 0
+    let bookedThisWeek = 0
+    let apptsToday = 0
+    let apptsThisWeek = 0
+    for (const a of allAppointments) {
+      if (matchesQuickFilter(a, 'booked-today')) bookedToday++
+      if (matchesQuickFilter(a, 'booked-this-week')) bookedThisWeek++
+      if (matchesQuickFilter(a, 'appts-today')) apptsToday++
+      if (matchesQuickFilter(a, 'appts-this-week')) apptsThisWeek++
+    }
+    return { bookedToday, bookedThisWeek, apptsToday, apptsThisWeek }
+  }, [allAppointments])
 
   // ---- Stats over the working set
   const stats = useMemo(() => {
@@ -407,6 +475,7 @@ export default function MasterTrackerPage() {
     setClient('all')
     setSince('')
     setUntil('')
+    setQuickFilter(null)
   }
   const filterCleared =
     status === 'all' &&
@@ -414,7 +483,8 @@ export default function MasterTrackerPage() {
     client === 'all' &&
     !submittedSearch &&
     !since &&
-    !until
+    !until &&
+    !quickFilter
 
   // ---- Exports ---------------------------------------------------------
 
@@ -441,6 +511,15 @@ export default function MasterTrackerPage() {
       (a) => new Date(a.apptDateTime) >= since
     )
     exportRows(`genisys-${label}-${todayStamp()}.csv`, rows)
+  }
+
+  /** Export every row whose createdAt falls in today (booking-date,
+   *  not appointment-date) — the slice Ethan needs for end-of-day. */
+  function exportBookedToday() {
+    const rows = allAppointments.filter((a) =>
+      matchesQuickFilter(a, 'booked-today')
+    )
+    exportRows(`genisys-booked-today-${todayStamp()}.csv`, rows)
   }
 
   return (
@@ -516,6 +595,62 @@ export default function MasterTrackerPage() {
           subtitle="excludes cancelled / no-show"
           tone="amber"
         />
+      </div>
+
+      {/* ---- Quick-filter chips ---- */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          Quick filter
+        </span>
+        <QuickFilterChip
+          label="Booked today"
+          count={quickCounts.bookedToday}
+          active={quickFilter === 'booked-today'}
+          tone="emerald"
+          onClick={() =>
+            setQuickFilter(quickFilter === 'booked-today' ? null : 'booked-today')
+          }
+        />
+        <QuickFilterChip
+          label="Booked this week"
+          count={quickCounts.bookedThisWeek}
+          active={quickFilter === 'booked-this-week'}
+          tone="emerald"
+          onClick={() =>
+            setQuickFilter(
+              quickFilter === 'booked-this-week' ? null : 'booked-this-week'
+            )
+          }
+        />
+        <QuickFilterChip
+          label="Appts today"
+          count={quickCounts.apptsToday}
+          active={quickFilter === 'appts-today'}
+          tone="blue"
+          onClick={() =>
+            setQuickFilter(quickFilter === 'appts-today' ? null : 'appts-today')
+          }
+        />
+        <QuickFilterChip
+          label="Appts this week"
+          count={quickCounts.apptsThisWeek}
+          active={quickFilter === 'appts-this-week'}
+          tone="blue"
+          onClick={() =>
+            setQuickFilter(
+              quickFilter === 'appts-this-week' ? null : 'appts-this-week'
+            )
+          }
+        />
+        {quickFilter && (
+          <button
+            type="button"
+            onClick={() => setQuickFilter(null)}
+            className="ml-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {/* ---- Filters + export ---- */}
@@ -648,13 +783,21 @@ export default function MasterTrackerPage() {
                   </ExportSection>
                   <ExportSection title="Quick ranges (all clients)">
                     <ExportItem
-                      label="This week"
+                      label="Booked today"
+                      hint={`${quickCounts.bookedToday} row${
+                        quickCounts.bookedToday === 1 ? '' : 's'
+                      }`}
+                      onClick={exportBookedToday}
+                      disabled={quickCounts.bookedToday === 0}
+                    />
+                    <ExportItem
+                      label="This week (appt date)"
                       onClick={() =>
                         exportSinceDate('this-week', startOfThisWeek())
                       }
                     />
                     <ExportItem
-                      label="This month"
+                      label="This month (appt date)"
                       onClick={() =>
                         exportSinceDate('this-month', startOfThisMonth())
                       }
@@ -937,6 +1080,54 @@ function ClientPill({
           </span>
         )}
       </span>
+      <span
+        className={cn(
+          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          active
+            ? 'bg-white/25 text-white'
+            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  )
+}
+
+/**
+ * Compact toggle chip for the quick-filter row. Active state uses a
+ * tone-tinted fill (emerald for "booked-*" filters, blue for "appts-*"
+ * filters) so the two categories read distinct at a glance.
+ */
+function QuickFilterChip({
+  label,
+  count,
+  active,
+  tone,
+  onClick,
+}: {
+  label: string
+  count: number
+  active: boolean
+  tone: 'emerald' | 'blue'
+  onClick: () => void
+}) {
+  const activeStyles =
+    tone === 'emerald'
+      ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+      : 'bg-blue-600 text-white border-transparent shadow-sm'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+        active
+          ? activeStyles
+          : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800'
+      )}
+    >
+      {label}
       <span
         className={cn(
           'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
