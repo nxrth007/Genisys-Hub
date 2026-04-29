@@ -52,6 +52,11 @@ type Appointment = {
   createdAt: string
   agent: { id: string; name: string | null; email: string }
   client: { id: string; name: string; state: string | null; color: string } | null
+  /** True when the client was inferred from the address state (because
+   *  the Client column in the sheet was blank). Surfaced in the UI as a
+   *  small hint so Ethan can spot which rows still need the Client
+   *  column filled in upstream. */
+  clientInferred?: boolean
 }
 
 type Client = {
@@ -106,6 +111,16 @@ function startOfThisWeek(): Date {
 function startOfThisMonth(): Date {
   const d = startOfDay(new Date())
   return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+
+/** Render a money-ish field consistently — strip an extra leading "$" if
+ *  the source value already had one (defense in depth; the sheet reader
+ *  already strips, but old DB values might not). */
+function formatMoney(raw: string | null | undefined): string {
+  if (!raw) return '—'
+  const cleaned = raw.replace(/^\s*\$\s*/, '').trim()
+  if (!cleaned) return '—'
+  return `$${cleaned}`
 }
 
 function csvEscape(value: string): string {
@@ -378,7 +393,11 @@ export default function MasterTrackerPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    // Wider than the rest of /call-center because the table needs to fit
+    // address + bill + status + recording columns without horizontal
+    // scrolling. min-w-0 keeps the inner table's overflow-x scroll
+    // contained instead of pushing the whole page wider.
+    <div className="mx-auto min-w-0 max-w-screen-2xl space-y-5">
       <PageHeader
         icon={PhoneCall}
         title="Call Center"
@@ -682,11 +701,26 @@ export default function MasterTrackerPage() {
                         <td className="px-3 py-2.5">
                           {a.client ? (
                             <span
-                              className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                              className={cn(
+                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white',
+                                // Subtle dashed outline when the client was inferred
+                                // from the address rather than explicit in the sheet.
+                                a.clientInferred &&
+                                  'opacity-90 outline-dashed outline-1 outline-offset-2'
+                              )}
                               style={{ backgroundColor: a.client.color }}
-                              title={a.client.state || undefined}
+                              title={
+                                a.clientInferred
+                                  ? `Inferred from address (${a.client.state || ''}) — Client column was blank in the sheet`
+                                  : a.client.state || undefined
+                              }
                             >
                               {a.client.name}
+                              {a.clientInferred && (
+                                <span className="text-[9px] font-normal opacity-80">
+                                  auto
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-zinc-400">—</span>
@@ -708,21 +742,24 @@ export default function MasterTrackerPage() {
                           {a.customerPhone}
                         </td>
                         <td
-                          className="max-w-[200px] truncate px-3 py-2.5 text-zinc-500"
+                          className="px-3 py-2.5 text-zinc-500"
                           title={a.address || ''}
+                          style={{ minWidth: '260px', maxWidth: '360px' }}
                         >
-                          {a.address || '—'}
+                          {a.address ? (
+                            <span className="break-words">{a.address}</span>
+                          ) : (
+                            '—'
+                          )}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
+                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
                           {a.utilityProvider || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
-                          {a.monthlyBill ? `$${a.monthlyBill}` : '—'}
+                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                          {formatMoney(a.monthlyBill)}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
-                          {a.estimatedDealValue
-                            ? `$${a.estimatedDealValue}`
-                            : '—'}
+                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                          {formatMoney(a.estimatedDealValue)}
                         </td>
                         <td className="px-3 py-2.5">
                           <span
@@ -932,7 +969,8 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
       <DetailItem label="Property">
         <div>
           <span className="text-zinc-400">Bill:</span>{' '}
-          {appointment.monthlyBill ? `$${appointment.monthlyBill}/mo` : '—'}
+          {formatMoney(appointment.monthlyBill)}
+          {appointment.monthlyBill ? '/mo' : ''}
         </div>
         <div>
           <span className="text-zinc-400">Utility:</span>{' '}
@@ -945,9 +983,7 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
         </div>
         <div>
           <span className="text-zinc-400">Deal value:</span>{' '}
-          {appointment.estimatedDealValue
-            ? `$${appointment.estimatedDealValue}`
-            : '—'}
+          {formatMoney(appointment.estimatedDealValue)}
         </div>
       </DetailItem>
       {appointment.notes && (

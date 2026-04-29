@@ -1004,6 +1004,15 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
     const v = row[idx]
     return v == null ? '' : String(v).trim()
   }
+  // Money columns sometimes have a leading "$" baked into the cell value
+  // (e.g. "$200+" or " $1500 "). The Hub UI also prepends a "$", which
+  // gave us the "$$200+" double-dollar in Master Tracker. Strip a single
+  // leading "$" + any commas / spaces so the stored value is just the
+  // raw number-ish text and the UI controls its own formatting.
+  const cellMoney = (row: unknown[], key: CanonicalKey): string => {
+    const raw = cell(row, key)
+    return raw.replace(/^\s*\$\s*/, '').trim()
+  }
 
   const out: MasterTableRow[] = []
   for (let i = 0; i < rawRows.length; i++) {
@@ -1038,12 +1047,12 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
       customerPhone: cell(row, 'customerPhone'),
       address: cell(row, 'address') || null,
       email: cell(row, 'email') || null,
-      monthlyBill: cell(row, 'monthlyBill') || null,
+      monthlyBill: cellMoney(row, 'monthlyBill') || null,
       utilityProvider: cell(row, 'utilityProvider') || null,
       roofType: cell(row, 'roofType') || null,
       roofAge: cell(row, 'roofAge') || null,
       status: cell(row, 'status') || null,
-      estimatedDealValue: cell(row, 'estimatedDealValue') || null,
+      estimatedDealValue: cellMoney(row, 'estimatedDealValue') || null,
       notes: cell(row, 'notes') || null,
       callRecordingLink: cell(row, 'callRecordingLink') || null,
       agentName: cell(row, 'agentName') || null,

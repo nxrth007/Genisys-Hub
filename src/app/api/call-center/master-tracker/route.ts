@@ -31,6 +31,38 @@ export async function GET() {
   })
   const clientByLower = new Map(clients.map((c) => [c.name.toLowerCase(), c]))
 
+  // For rows where the call center forgot the Client column, infer it
+  // from the address: each Genisys client serves a different state, so
+  // a state-code or state-name match on the address is unambiguous.
+  // Build a regex of state names + codes that map to a client.
+  const STATE_CODES: Record<string, string> = {
+    arizona: 'AZ',
+    california: 'CA',
+    utah: 'UT',
+  }
+  const clientByCode = new Map<string, (typeof clients)[number]>()
+  for (const c of clients) {
+    if (!c.state) continue
+    const code = STATE_CODES[c.state.toLowerCase()]
+    if (code) clientByCode.set(code, c)
+    // Also map the full state name in lowercase so addresses like
+    // "California" (rare but possible) still resolve.
+    clientByCode.set(c.state.toLowerCase(), c)
+  }
+  // Word-boundary regex over every key — e.g. /\b(AZ|CA|UT|arizona|california|utah)\b/i
+  const stateKeys = Array.from(clientByCode.keys())
+  const stateRegex =
+    stateKeys.length > 0
+      ? new RegExp(`\\b(${stateKeys.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i')
+      : null
+
+  function inferClientFromAddress(address: string | null) {
+    if (!address || !stateRegex) return null
+    const m = address.match(stateRegex)
+    if (!m) return null
+    return clientByCode.get(m[1].toLowerCase()) || null
+  }
+
   let rows
   try {
     rows = await readMasterTableRows()
@@ -55,9 +87,22 @@ export async function GET() {
   }
 
   const appointments = rows.map((r) => {
-    const clientLookup = r.client
+    // 1. Try the explicit Client column from the sheet first.
+    let clientLookup = r.client
       ? clientByLower.get(r.client.toLowerCase())
       : null
+    // 2. If that's blank or doesn't match a registered client, try to
+    //    infer from the address state. Track that we did this so the UI
+    //    can render a small "auto" hint for Ethan to spot which rows
+    //    still need the Client column filled in upstream.
+    let clientInferred = false
+    if (!clientLookup) {
+      const fromAddress = inferClientFromAddress(r.address)
+      if (fromAddress) {
+        clientLookup = fromAddress
+        clientInferred = true
+      }
+    }
     return {
       // Synthetic id from the sheet row number — stable across reads as
       // long as the sheet's row order doesn't change. Used as React key.
@@ -113,6 +158,7 @@ export async function GET() {
               color: '#6b7280',
             }
           : null,
+      clientInferred,
     }
   })
 
