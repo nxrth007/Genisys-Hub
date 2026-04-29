@@ -29,11 +29,21 @@ type Props = {
   disabled?: boolean
   /** Optional id used by the surrounding form's <label> association. */
   id?: string
+  /** When true, the street input gets an HTML5 required marker + a
+   *  red asterisk on its label, so empty submits are blocked at the
+   *  browser level (the form's own submit handler also validates). */
+  requireStreet?: boolean
 }
 
 const STATE_OTHER = '__OTHER__'
 
-export function AddressFields({ value, onChange, disabled, id }: Props) {
+export function AddressFields({
+  value,
+  onChange,
+  disabled,
+  id,
+  requireStreet,
+}: Props) {
   const [parts, setParts] = useState<AddressParts>(() => parseAddress(value))
 
   // Track the last string we emitted upward so we can distinguish
@@ -165,6 +175,7 @@ export function AddressFields({ value, onChange, disabled, id }: Props) {
         <label className="mb-1 flex items-center justify-between">
           <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
             Street address
+            {requireStreet && <span className="ml-0.5 text-red-500">*</span>}
           </span>
           {loading && (
             <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
@@ -180,6 +191,7 @@ export function AddressFields({ value, onChange, disabled, id }: Props) {
           }}
           onFocus={() => suggestions.length > 0 && setOpen(true)}
           disabled={disabled}
+          required={requireStreet}
           placeholder="123 Main St"
           autoComplete="off"
           className={inputCls}

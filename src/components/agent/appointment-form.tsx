@@ -8,6 +8,8 @@ import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock, Buil
 import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 import { AddressFields } from '@/components/agent/address-fields'
+import { parseAddress } from '@/lib/address'
+import { formatPhoneInput } from '@/lib/phone'
 
 type Conflict = {
   id: string
@@ -84,7 +86,13 @@ export function AppointmentForm({
   initial?: AppointmentFormValues
 }) {
   const router = useRouter()
-  const [values, setValues] = useState<AppointmentFormValues>(initial)
+  // Normalize the initial phone so edit-mode prefill displays in the
+  // canonical "(555) 123-4567" format even if the DB has an older
+  // ad-hoc value. New-appointment mode passes "" so this is a no-op.
+  const [values, setValues] = useState<AppointmentFormValues>(() => ({
+    ...initial,
+    customerPhone: formatPhoneInput(initial.customerPhone),
+  }))
   const [submitting, setSubmitting] = useState(false)
 
   // Clients available for booking (Brighton Capital Solar, Spring Solar, …).
@@ -174,6 +182,16 @@ export function AppointmentForm({
     // (pre-feature) appointments can be edited without reassignment.
     if (mode === 'create' && !values.clientId) {
       setError('Please pick which client this appointment is for.')
+      return
+    }
+
+    // Street is now mandatory — the HTML5 `required` on the street
+    // input catches empty submits in the browser, but we double-check
+    // here so a paste-then-edit flow that ends up with city/state but
+    // no street still gets a clear error message instead of silently
+    // saving a half-empty address.
+    if (!parseAddress(values.address).street.trim()) {
+      setError('Please enter a street address for the appointment.')
       return
     }
 
@@ -451,9 +469,15 @@ export function AppointmentForm({
             <input
               type="tel"
               value={values.customerPhone}
-              onChange={(e) => set('customerPhone', e.target.value)}
+              // Auto-format on every keystroke — strip non-digits, regroup
+              // into "(555) 123-4567" / "+1 (555) 123-4567". Pasting any
+              // format (dashes, dots, "+1") normalizes through the same
+              // path. Input is stored fully formatted so the DB + sheet
+              // get a consistent representation.
+              onChange={(e) => set('customerPhone', formatPhoneInput(e.target.value))}
               required
-              placeholder="+1 555 123 4567"
+              placeholder="(555) 123-4567"
+              autoComplete="tel"
               className={inputCls}
             />
           </Field>
@@ -462,12 +486,15 @@ export function AppointmentForm({
         {/* Four-field address with OSM autocomplete. The component
             translates between its own parts and a single combined
             string here, so values.address stays a flat string and the
-            DB / sheet schema doesn't have to change. */}
-        <Field label="Address">
+            DB / sheet schema doesn't have to change. Street is the
+            only mandatory part — city / state / zip are nice-to-have
+            but the appointment is still useful with just a street. */}
+        <Field label="Address" required>
           <AddressFields
             value={values.address}
             onChange={(combined) => set('address', combined)}
             disabled={submitting}
+            requireStreet
           />
         </Field>
 
