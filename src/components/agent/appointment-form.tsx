@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
@@ -8,7 +8,7 @@ import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock, Buil
 import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 import { AddressFields } from '@/components/agent/address-fields'
-import { parseAddress } from '@/lib/address'
+import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
 import { formatPhoneInput } from '@/lib/phone'
 
 type Conflict = {
@@ -133,6 +133,36 @@ export function AppointmentForm({
       setRaceConflicts(null)
     }
   }
+
+  // Auto-pick the client based on the address state. Each Genisys
+  // client serves a distinct state (Brighton=AZ, Spring=UT,
+  // Energy Upgrade=CA), so the address state code is enough to know
+  // which one this booking is for. Only kicks in when the parsed
+  // state actually changes — that way once the agent manually picks
+  // a different client, our follow-up renders don't fight them.
+  // Edit mode opts out so a saved appointment's clientId is never
+  // silently rewritten by an address re-parse on load.
+  const lastAutoStateRef = useRef<string>('')
+  useEffect(() => {
+    if (mode !== 'create') return
+    if (clients.length === 0) return
+    const parsedState = parseAddress(values.address).state
+    if (!parsedState) return
+    if (parsedState === lastAutoStateRef.current) return
+    const match = clients.find((c) => {
+      if (!c.state) return false
+      const code = STATE_NAME_TO_CODE[c.state.toLowerCase()] || c.state.toUpperCase()
+      return code === parsedState
+    })
+    lastAutoStateRef.current = parsedState
+    if (match && match.id !== values.clientId) {
+      set('clientId', match.id)
+    }
+    // We intentionally don't depend on values.clientId — that would
+    // re-fire the effect after we set it and risk a loop. Same reason
+    // for omitting `set` (a fresh closure each render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.address, clients, mode])
 
   // Conflict check — runs as soon as the agent picks a date/time. Uses
   // TanStack Query's dedup/caching so repeated date picks don't hammer
