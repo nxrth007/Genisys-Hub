@@ -44,9 +44,12 @@ export async function GET() {
   for (const c of clients) {
     if (!c.state) continue
     const code = STATE_CODES[c.state.toLowerCase()]
-    if (code) clientByCode.set(code, c)
-    // Also map the full state name in lowercase so addresses like
-    // "California" (rare but possible) still resolve.
+    // Store both keys lower-cased so the regex match (which we lower-case
+    // before lookup) hits regardless of how the state was written in the
+    // address. Earlier this stored "AZ"/"CA"/"UT" uppercase, which only
+    // matched addresses that spelled the state out ("California") and
+    // missed every "Phoenix, AZ" / "Tucson, AZ".
+    if (code) clientByCode.set(code.toLowerCase(), c)
     clientByCode.set(c.state.toLowerCase(), c)
   }
   // Word-boundary regex over every key — e.g. /\b(AZ|CA|UT|arizona|california|utah)\b/i
