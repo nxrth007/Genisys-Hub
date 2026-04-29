@@ -32,6 +32,11 @@ const AGENT_ALLOWED_PREFIXES = [
   '/agent',
   '/api/agent',
   '/api/auth',
+  // Read-only client list — the agent booking form needs to populate
+  // its client picker (Brighton / Spring / Energy Upgrade). Without
+  // this, the picker errored and the form rendered "No clients
+  // configured yet. Contact an admin." even though the DB was fine.
+  '/api/clients',
 ]
 
 // Admin-only areas — even "member" staff can't access these.

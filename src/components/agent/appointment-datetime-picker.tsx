@@ -24,7 +24,9 @@ type Props = {
   disabled?: boolean
 }
 
-const OTHER_DATE = '__OTHER_DATE__'
+// The Date side no longer uses an OTHER sentinel — the calendar input
+// is always visible. Time still has the toggle to keep its preset list
+// useful without forcing a fiddly mobile time picker on every booking.
 const OTHER_TIME = '__OTHER_TIME__'
 
 function pad(n: number): string {
@@ -94,20 +96,18 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
   const dateInPresets = datePart && dateOptions.some((o) => o.value === datePart)
   const timeInPresets = timePart && TIME_OPTIONS.some((o) => o.value === timePart)
 
-  // "Other" is shown when the value doesn't match any preset. Track it
-  // separately so picking Other, then typing in the input, doesn't snap
-  // the dropdown back to a preset mid-type.
-  const [dateMode, setDateMode] = useState<'preset' | 'other'>(
-    datePart && !dateInPresets ? 'other' : 'preset'
-  )
+  // For the *time* side we still toggle between preset / other modes —
+  // typing into a time input is fiddlier and the preset list covers
+  // most needs. The date side now always shows the native calendar
+  // input below the dropdown (per agent feedback: hunting for it
+  // behind the "Other date…" option was confusing).
   const [timeMode, setTimeMode] = useState<'preset' | 'other'>(
     timePart && !timeInPresets ? 'other' : 'preset'
   )
 
   // When the value changes externally (edit-mode prefill, or a reset),
-  // rehydrate the mode to match.
+  // rehydrate the time mode to match.
   useEffect(() => {
-    setDateMode(datePart && !dateInPresets ? 'other' : 'preset')
     setTimeMode(timePart && !timeInPresets ? 'other' : 'preset')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
@@ -123,11 +123,9 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
   }
 
   function onDateSelect(next: string) {
-    if (next === OTHER_DATE) {
-      setDateMode('other')
-      return
-    }
-    setDateMode('preset')
+    // The dropdown is now purely a preset shortcut — picking a preset
+    // updates the value and the calendar input below mirrors it.
+    // There is no longer an "Other date" sentinel to handle here.
     emit(next, timePart)
   }
   function onTimeSelect(next: string) {
@@ -163,8 +161,13 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
             Date
           </label>
+          {/* Quick-pick dropdown for "Today / Tomorrow / next 3 weeks". */}
           <select
-            value={dateMode === 'other' ? OTHER_DATE : datePart}
+            // When the typed-in date doesn't match a preset, the
+            // dropdown falls back to "Select a date…" so it doesn't
+            // misrepresent the active value — the calendar input below
+            // is the source of truth either way.
+            value={dateInPresets ? datePart : ''}
             onChange={(e) => onDateSelect(e.target.value)}
             disabled={disabled}
             className={selectCls}
@@ -175,17 +178,18 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
                 {o.label}
               </option>
             ))}
-            <option value={OTHER_DATE}>Other date…</option>
           </select>
-          {dateMode === 'other' && (
-            <input
-              type="date"
-              value={datePart}
-              onChange={(e) => emit(e.target.value, timePart)}
-              disabled={disabled}
-              className={`${selectCls} mt-2`}
-            />
-          )}
+          {/* Calendar input is always visible — agents can either
+              pick a preset above or jump straight to a specific date
+              via the OS date picker. The two views stay in sync. */}
+          <input
+            type="date"
+            value={datePart}
+            onChange={(e) => emit(e.target.value, timePart)}
+            disabled={disabled}
+            className={`${selectCls} mt-2`}
+            aria-label="Pick a specific date"
+          />
         </div>
 
         <div>

@@ -6,6 +6,7 @@ import { signOut } from 'next-auth/react'
 import { useQuery } from '@tanstack/react-query'
 import { Headphones, LogOut, CalendarCheck, ClipboardList, PhoneCall } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from './theme-toggle'
 
 /**
  * Minimal chrome for the /agent portal — no sidebar, no CRM/Vault/etc
@@ -69,6 +70,11 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
           {agentName && (
             <span className="hidden text-xs text-zinc-500 sm:inline">{agentName}</span>
           )}
+          {/* Per-user theme preference — agents told us light mode was
+              hard to read in some lighting; toggle persists in
+              localStorage and the inline init script in the root
+              layout applies it before paint to avoid a flash. */}
+          <ThemeToggle />
           <button
             onClick={() => signOut({ callbackUrl: '/signin/agent' })}
             className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
