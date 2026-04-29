@@ -921,6 +921,149 @@ function sanitizeTabName(raw: string): string {
   return raw.replace(/[[\]*?/\\]/g, '').slice(0, 100).trim()
 }
 
+// ---------------------------------------------------------------------------
+// Read-back: pulls the live Master Table tab into JS objects so the Hub UI
+// can show appointments that the call center entered manually into the
+// sheet (i.e. didn't go through the /agent portal). Source of truth for the
+// Master Tracker page.
+// ---------------------------------------------------------------------------
+
+export type MasterTableRow = {
+  /** 1-based row in the Master Table tab. Useful as a stable key. */
+  rowNumber: number
+  /** ISO datetime if both date + time parsed, ISO @ midnight if only date,
+   *  null if neither could be parsed. */
+  apptDateTime: string | null
+  client: string | null
+  customerName: string
+  customerPhone: string
+  address: string | null
+  email: string | null
+  monthlyBill: string | null
+  utilityProvider: string | null
+  roofType: string | null
+  roofAge: string | null
+  status: string | null
+  estimatedDealValue: string | null
+  notes: string | null
+  callRecordingLink: string | null
+  agentName: string | null
+  agentEmail: string | null
+  loggedAt: string | null
+}
+
+/** Combine sheet date + time strings into an ISO datetime if possible. */
+function combineDateAndTime(dateStr: string, timeStr: string): string | null {
+  const date = (dateStr || '').trim()
+  const time = (timeStr || '').trim()
+  if (!date && !time) return null
+  // Browser-native Date parser handles `4/16/2026 10:00:00 AM` directly.
+  const combined = time ? `${date} ${time}` : date
+  const d = new Date(combined)
+  if (isNaN(d.getTime())) return null
+  return d.toISOString()
+}
+
+/**
+ * Read every populated row from the Master Table tab and parse it into
+ * MasterTableRows. Empty rows (no customer name) are skipped. Rows are
+ * returned newest-appointment-first.
+ */
+export async function readMasterTableRows(): Promise<MasterTableRow[]> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+
+  // Detect the schema (header row + which column maps to which canonical
+  // key). detectTableSchema looks at A1:Z15, so it covers the typical
+  // "header on row 1" case. If the sheet has no header row, return [].
+  const schema = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  if (!schema) return []
+
+  // Pull all data rows below the header. Wide column range (A:AZ) covers
+  // any plausible schema width without needing a precise end column.
+  const rangeStart = schema.headerRowNumber + 1
+  const range = `'${MASTER_TAB_TITLE.replace(/'/g, "''")}'!A${rangeStart}:AZ`
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+    valueRenderOption: 'FORMATTED_VALUE',
+  })
+  const rawRows = (res.data.values || []) as unknown[][]
+
+  // Build a lookup from canonical key → column index for quick access.
+  const colByKey = new Map<CanonicalKey, number>()
+  for (const col of schema.columns) {
+    if (col.canonical && !colByKey.has(col.canonical)) {
+      colByKey.set(col.canonical, col.columnIndex)
+    }
+  }
+  const cell = (row: unknown[], key: CanonicalKey): string => {
+    const idx = colByKey.get(key)
+    if (idx == null) return ''
+    const v = row[idx]
+    return v == null ? '' : String(v).trim()
+  }
+
+  const out: MasterTableRow[] = []
+  for (let i = 0; i < rawRows.length; i++) {
+    const row = rawRows[i] || []
+    const customerName = cell(row, 'customerName')
+    // Skip entirely empty rows (the sheet has hundreds of blank trailing
+    // rows). A row with no customer name is treated as empty.
+    if (!customerName) continue
+
+    const apptDate = cell(row, 'apptDate')
+    const apptTime = cell(row, 'apptTime')
+    const apptDateTime =
+      cell(row, 'apptDateTime') ||
+      combineDateAndTime(apptDate, apptTime) ||
+      null
+    const isoApptDateTime =
+      typeof apptDateTime === 'string' && apptDateTime !== ''
+        ? // If apptDateTime came in as a single field, try to parse it too.
+          (() => {
+            const d = new Date(apptDateTime)
+            return isNaN(d.getTime())
+              ? combineDateAndTime(apptDate, apptTime)
+              : d.toISOString()
+          })()
+        : null
+
+    out.push({
+      rowNumber: rangeStart + i,
+      apptDateTime: isoApptDateTime,
+      client: cell(row, 'client') || null,
+      customerName,
+      customerPhone: cell(row, 'customerPhone'),
+      address: cell(row, 'address') || null,
+      email: cell(row, 'email') || null,
+      monthlyBill: cell(row, 'monthlyBill') || null,
+      utilityProvider: cell(row, 'utilityProvider') || null,
+      roofType: cell(row, 'roofType') || null,
+      roofAge: cell(row, 'roofAge') || null,
+      status: cell(row, 'status') || null,
+      estimatedDealValue: cell(row, 'estimatedDealValue') || null,
+      notes: cell(row, 'notes') || null,
+      callRecordingLink: cell(row, 'callRecordingLink') || null,
+      agentName: cell(row, 'agentName') || null,
+      agentEmail: cell(row, 'agentEmail') || null,
+      loggedAt: cell(row, 'loggedAt') || null,
+    })
+  }
+
+  // Newest-first by appointment datetime when present. Rows without a
+  // parsable date sink to the bottom.
+  out.sort((a, b) => {
+    if (!a.apptDateTime && !b.apptDateTime) return b.rowNumber - a.rowNumber
+    if (!a.apptDateTime) return 1
+    if (!b.apptDateTime) return -1
+    return b.apptDateTime.localeCompare(a.apptDateTime)
+  })
+
+  return out
+}
+
 /**
  * One-off migration: add a "Client" header column to every tab in the
  * master spreadsheet that doesn't already have one, then extend any

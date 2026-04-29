@@ -203,40 +203,57 @@ export default function MasterTrackerPage() {
     staleTime: 60_000,
   })
 
-  const agentsQuery = useQuery<{ agents: AgentSummary[] }>({
-    queryKey: ['call-center-agents'],
-    queryFn: async () => {
-      const res = await fetch('/api/call-center/agents')
-      if (!res.ok) throw new Error('Failed to load agents')
-      return res.json()
-    },
-  })
-
-  // Master Tracker pulls *all* appointments (no apptDateTime filter on the
-  // server) so the per-client overview cards see the full picture; we
-  // narrow client-side using the filters below. 500-row cap is plenty for
-  // current scale; revisit if the call center scales 10×.
+  // Master Tracker reads from the live Master Table Google Sheet (not the
+  // Hub's Postgres) — the call center is currently typing rows directly
+  // into the sheet, so the sheet is the source of truth. The Hub's own
+  // sync writes Hub-booked appointments into the same sheet, so reading
+  // the sheet covers both flows without dedup.
+  //
+  // All filtering happens client-side over the full row set; the endpoint
+  // returns everything. With current scale (10s of rows) this is fine.
+  // Revisit if the sheet ever has thousands of rows.
   const apptsQuery = useQuery<{ appointments: Appointment[] }>({
-    queryKey: ['master-tracker-appts', status, agent, submittedSearch],
+    queryKey: ['master-tracker-sheet'],
     queryFn: async () => {
-      const params = new URLSearchParams()
-      if (status !== 'all') params.set('status', status)
-      if (agent !== 'all') params.set('agent', agent)
-      if (submittedSearch) params.set('q', submittedSearch)
-      const res = await fetch(
-        `/api/call-center/appointments?${params.toString()}`
-      )
-      if (!res.ok) throw new Error('Failed to load appointments')
+      const res = await fetch('/api/call-center/master-tracker')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to load Master Table')
+      }
       return res.json()
     },
+    // 30-second stale time so navigating away/back is instant; longer
+    // would risk showing stale data while the sheet is being edited.
+    staleTime: 30_000,
   })
 
   const clients = useMemo(() => clientsQuery.data?.clients ?? [], [clientsQuery.data])
-  const agents = useMemo(() => agentsQuery.data?.agents ?? [], [agentsQuery.data])
   const allAppointments = useMemo(
     () => apptsQuery.data?.appointments ?? [],
     [apptsQuery.data]
   )
+
+  // Derive the agent dropdown from whoever actually appears in the sheet
+  // rows — sheet rows have synthetic agent IDs based on email, so they
+  // won't match the registered-Hub-agents list. Deriving from the data
+  // means both sheet-only and Hub-booked rows show up correctly.
+  const agents = useMemo<AgentSummary[]>(() => {
+    const seen = new Map<string, AgentSummary>()
+    for (const a of allAppointments) {
+      if (!a.agent.id || seen.has(a.agent.id)) continue
+      // Skip rows where the sheet had no agent name + email at all —
+      // they'd otherwise show up as a single "(unnamed)" entry.
+      if (!a.agent.name && !a.agent.email) continue
+      seen.set(a.agent.id, {
+        id: a.agent.id,
+        name: a.agent.name,
+        email: a.agent.email,
+      })
+    }
+    return Array.from(seen.values()).sort((x, y) =>
+      (x.name || x.email).localeCompare(y.name || y.email)
+    )
+  }, [allAppointments])
 
   // ---- Per-client counts (always the unfiltered set, so the switcher
   //      pills show real totals regardless of what's currently selected).
@@ -253,11 +270,16 @@ export default function MasterTrackerPage() {
     return { counts, unassigned, total: allAppointments.length }
   }, [allAppointments])
 
-  // ---- Apply client filter + date range to get the working set.
+  // ---- Apply client / status / agent / search / date filters to get the
+  //      working set. All filtering is client-side because the sheet
+  //      endpoint returns the full row set in one shot — no need to
+  //      round-trip to the server when a filter changes.
   const filtered = useMemo(() => {
     let list = allAppointments
     if (client === 'none') list = list.filter((a) => !a.client)
     else if (client !== 'all') list = list.filter((a) => a.client?.id === client)
+    if (status !== 'all') list = list.filter((a) => a.status === status)
+    if (agent !== 'all') list = list.filter((a) => a.agent.id === agent)
     if (since) {
       const sinceDate = new Date(since)
       list = list.filter((a) => new Date(a.apptDateTime) >= sinceDate)
@@ -266,8 +288,19 @@ export default function MasterTrackerPage() {
       const untilDate = new Date(until + 'T23:59:59')
       list = list.filter((a) => new Date(a.apptDateTime) <= untilDate)
     }
+    if (submittedSearch) {
+      const q = submittedSearch.toLowerCase()
+      list = list.filter(
+        (a) =>
+          a.customerName.toLowerCase().includes(q) ||
+          a.customerPhone.toLowerCase().includes(q) ||
+          (a.address || '').toLowerCase().includes(q) ||
+          (a.email || '').toLowerCase().includes(q) ||
+          (a.notes || '').toLowerCase().includes(q)
+      )
+    }
     return list
-  }, [allAppointments, client, since, until])
+  }, [allAppointments, client, status, agent, since, until, submittedSearch])
 
   // ---- Stats over the working set
   const stats = useMemo(() => {
