@@ -1074,18 +1074,22 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
 }
 
 /**
- * One-off migration: add a "Client" header column to every tab in the
- * master spreadsheet that doesn't already have one, then extend any
- * Google-Sheets native Table on that tab so the new column is *inside*
- * the table (matches alternating-row formatting, filter dropdowns, etc.).
- * Appending a cell to the right of a Table doesn't auto-widen the Table
- * range — we have to call updateTable to move endColumnIndex.
+ * Generic one-off migration: ensure each `{name, canonical}` column exists
+ * on every tab of the master spreadsheet, appending headers and widening
+ * any native Google Sheets Tables so the new columns sit *inside* the
+ * table (alternating row formatting, filter dropdowns, etc.).
  *
- * Called via POST /api/admin/sheets/migrate-client-column — idempotent,
- * so re-running is harmless. Re-runs also fix any tab that had the
- * header appended previously but whose Table wasn't yet extended.
+ * Idempotent: a column that's already present is reported under
+ * `tabsAlreadyHad` and skipped. Re-running also fixes tabs whose header
+ * was appended on a previous run but whose Table wasn't widened yet.
+ *
+ * The column list is processed in order. Each new column is appended to
+ * the right of the current schema, so requesting `[A, B]` produces
+ * `…existing… | A | B` regardless of whether the tab already had A.
  */
-export async function migrateAddClientColumn(): Promise<{
+async function migrateAddColumnsIfMissing(
+  columns: Array<{ name: string; canonical: CanonicalKey }>
+): Promise<{
   spreadsheetId: string
   tabsUpdated: string[]
   tabsAlreadyHad: string[]
@@ -1099,129 +1103,168 @@ export async function migrateAddClientColumn(): Promise<{
 
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
-    // Request tables too so we can extend their range to cover the new column.
+    // Request tables too so we can extend their range to cover new columns.
     fields: 'sheets(properties(sheetId,title),tables(tableId,range))',
   })
 
-  const tabsUpdated: string[] = []
-  const tabsAlreadyHad: string[] = []
+  const tabsUpdated = new Set<string>()
+  const tabsAlreadyHad = new Set<string>()
   const tabsNoHeader: string[] = []
-  const tablesExtended: string[] = []
-  const headersStyled: string[] = []
+  const tablesExtended = new Set<string>()
+  const headersStyled = new Set<string>()
 
   for (const tab of meta.data.sheets || []) {
     const sheetId = tab.properties?.sheetId
     const tabTitle = tab.properties?.title
     if (typeof sheetId !== 'number' || !tabTitle) continue
 
+    // Re-detect once up front; we then track an in-memory "next index"
+    // so multiple new columns append cleanly without re-fetching the
+    // schema between writes.
     const schema = await detectTableSchema(sheets, spreadsheetId, tabTitle)
     if (!schema) {
       tabsNoHeader.push(tabTitle)
       continue
     }
+    let nextIndex = schema.columns.length
 
-    // Figure out where the Client column lives (existing or to-be-created).
-    const existingClient = schema.columns.find((c) => c.canonical === 'client')
-    let clientColIndex: number
-    if (existingClient) {
-      tabsAlreadyHad.push(tabTitle)
-      clientColIndex = existingClient.columnIndex
-    } else {
-      clientColIndex = schema.columns.length // append at end
-      const colLetterStr = colLetter(clientColIndex + 1)
-      const range = `'${tabTitle.replace(/'/g, "''")}'!${colLetterStr}${schema.headerRowNumber}`
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range,
-        valueInputOption: 'RAW',
-        requestBody: { values: [['Client']] },
-      })
-      tabsUpdated.push(tabTitle)
+    // Track furthest column index reached on this tab so we can extend
+    // the Table once at the end (one updateTable call regardless of how
+    // many columns we appended).
+    let maxColIndex = -1
+    let anyAppended = false
+
+    for (const col of columns) {
+      const existing = schema.columns.find((c) => c.canonical === col.canonical)
+      let colIndex: number
+      if (existing) {
+        tabsAlreadyHad.add(tabTitle)
+        colIndex = existing.columnIndex
+      } else {
+        colIndex = nextIndex
+        nextIndex += 1
+        const colLetterStr = colLetter(colIndex + 1)
+        const range = `'${tabTitle.replace(/'/g, "''")}'!${colLetterStr}${schema.headerRowNumber}`
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range,
+          valueInputOption: 'RAW',
+          requestBody: { values: [[col.name]] },
+        })
+        tabsUpdated.add(tabTitle)
+        anyAppended = true
+
+        // Mirror the left-neighbor header formatting onto the new cell.
+        // Google Sheets Tables paint header styling as per-cell explicit
+        // fills, so extending the Table range alone wouldn't paint the
+        // new header. copyPaste with PASTE_FORMAT keeps the text we
+        // just wrote and only inherits the look.
+        if (colIndex > 0) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: [
+                {
+                  copyPaste: {
+                    source: {
+                      sheetId,
+                      startRowIndex: schema.headerRowNumber - 1,
+                      endRowIndex: schema.headerRowNumber,
+                      startColumnIndex: colIndex - 1,
+                      endColumnIndex: colIndex,
+                    },
+                    destination: {
+                      sheetId,
+                      startRowIndex: schema.headerRowNumber - 1,
+                      endRowIndex: schema.headerRowNumber,
+                      startColumnIndex: colIndex,
+                      endColumnIndex: colIndex + 1,
+                    },
+                    pasteType: 'PASTE_FORMAT',
+                    pasteOrientation: 'NORMAL',
+                  },
+                },
+              ],
+            },
+          })
+          headersStyled.add(tabTitle)
+        }
+      }
+      if (colIndex > maxColIndex) maxColIndex = colIndex
     }
 
-    // Extend any Table on this tab so its endColumnIndex covers Client.
-    // Tables without an explicit range/tableId are skipped defensively.
-    for (const table of tab.tables || []) {
-      if (!table.tableId || !table.range) continue
-      const tableSheetId = table.range.sheetId
-      if (tableSheetId != null && tableSheetId !== sheetId) continue
-      const currentEnd = table.range.endColumnIndex ?? 0
-      const targetEnd = clientColIndex + 1 // end index is exclusive
-      if (currentEnd >= targetEnd) continue
+    // Extend any Table on this tab so its endColumnIndex covers the
+    // furthest new column. Skipping tabs where we appended nothing
+    // avoids no-op writes.
+    if (anyAppended && maxColIndex >= 0) {
+      for (const table of tab.tables || []) {
+        if (!table.tableId || !table.range) continue
+        const tableSheetId = table.range.sheetId
+        if (tableSheetId != null && tableSheetId !== sheetId) continue
+        const currentEnd = table.range.endColumnIndex ?? 0
+        const targetEnd = maxColIndex + 1 // end index is exclusive
+        if (currentEnd >= targetEnd) continue
 
-      const newRange: Record<string, number> = {
-        sheetId,
-        startRowIndex: table.range.startRowIndex ?? 0,
-        startColumnIndex: table.range.startColumnIndex ?? 0,
-        endColumnIndex: targetEnd,
-      }
-      if (typeof table.range.endRowIndex === 'number') {
-        newRange.endRowIndex = table.range.endRowIndex
-      }
+        const newRange: Record<string, number> = {
+          sheetId,
+          startRowIndex: table.range.startRowIndex ?? 0,
+          startColumnIndex: table.range.startColumnIndex ?? 0,
+          endColumnIndex: targetEnd,
+        }
+        if (typeof table.range.endRowIndex === 'number') {
+          newRange.endRowIndex = table.range.endRowIndex
+        }
 
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [
-            {
-              updateTable: {
-                table: { tableId: table.tableId, range: newRange },
-                fields: 'range',
-              },
-            },
-          ],
-        },
-      })
-      tablesExtended.push(tabTitle)
-    }
-
-    // Finally: copy the header *formatting* (blue fill, white bold text
-    // — whatever the Table uses) from the left-neighbor header cell onto
-    // the Client header cell. Google Sheets Tables apply header styling
-    // as per-cell explicit fills at Table-create time, and merely
-    // extending the Table range doesn't paint the new cell. copyPaste
-    // with PASTE_FORMAT mirrors the neighbor's look without touching
-    // the "Client" text we already wrote.
-    if (clientColIndex > 0) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [
-            {
-              copyPaste: {
-                source: {
-                  sheetId,
-                  startRowIndex: schema.headerRowNumber - 1,
-                  endRowIndex: schema.headerRowNumber,
-                  startColumnIndex: clientColIndex - 1,
-                  endColumnIndex: clientColIndex,
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                updateTable: {
+                  table: { tableId: table.tableId, range: newRange },
+                  fields: 'range',
                 },
-                destination: {
-                  sheetId,
-                  startRowIndex: schema.headerRowNumber - 1,
-                  endRowIndex: schema.headerRowNumber,
-                  startColumnIndex: clientColIndex,
-                  endColumnIndex: clientColIndex + 1,
-                },
-                pasteType: 'PASTE_FORMAT',
-                pasteOrientation: 'NORMAL',
               },
-            },
-          ],
-        },
-      })
-      headersStyled.push(tabTitle)
+            ],
+          },
+        })
+        tablesExtended.add(tabTitle)
+      }
     }
   }
 
   return {
     spreadsheetId,
-    tabsUpdated,
-    tabsAlreadyHad,
+    tabsUpdated: Array.from(tabsUpdated),
+    tabsAlreadyHad: Array.from(tabsAlreadyHad),
     tabsNoHeader,
-    tablesExtended,
-    headersStyled,
+    tablesExtended: Array.from(tablesExtended),
+    headersStyled: Array.from(headersStyled),
   }
+}
+
+/**
+ * One-off migration: add a "Client" header column to every tab.
+ * Idempotent — safe to re-run. Called via
+ * POST /api/admin/sheets/migrate-client-column.
+ */
+export async function migrateAddClientColumn() {
+  return migrateAddColumnsIfMissing([{ name: 'Client', canonical: 'client' }])
+}
+
+/**
+ * One-off migration: add "Agent Name" and "Agent Email" header columns
+ * to every tab, including the Master Table. Without these, agent info
+ * from Hub-booked appointments is dropped when rolled up into the
+ * master sheet (the writer skips canonicalized values that don't have
+ * a matching column). Idempotent — safe to re-run. Called via
+ * POST /api/admin/sheets/migrate-agent-columns.
+ */
+export async function migrateAddAgentColumns() {
+  return migrateAddColumnsIfMissing([
+    { name: 'Agent Name', canonical: 'agentName' },
+    { name: 'Agent Email', canonical: 'agentEmail' },
+  ])
 }
 
 async function findTabByTitle(

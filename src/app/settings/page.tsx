@@ -1081,29 +1081,10 @@ function ComingSoonSection() {
 
 /**
  * Admin-only one-off migrations against the master appointments sheet.
- * Currently just one button (add Client column); if we add more over time,
- * they can live here too instead of each needing its own DevTools dance.
+ * Each migration is its own self-contained row with its own mutation +
+ * result feedback so running one doesn't clobber another's status.
  */
 function SheetMaintenanceSection() {
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/admin/sheets/migrate-client-column', {
-        method: 'POST',
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Migration failed')
-      return data as {
-        ok: true
-        spreadsheetId: string
-        tabsUpdated: string[]
-        tabsAlreadyHad: string[]
-        tabsNoHeader: string[]
-        tablesExtended: string[]
-        headersStyled: string[]
-      }
-    },
-  })
-
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center gap-3 mb-1">
@@ -1116,27 +1097,77 @@ function SheetMaintenanceSection() {
       </p>
 
       <div className="space-y-3">
-        <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Wrench className="h-4 w-4 text-zinc-400" />
-              Add &quot;Client&quot; column to every tab
-            </div>
-            <p className="mt-1 text-xs text-zinc-500">
-              Appends a Client header to each tab so new bookings record
-              which Genisys client (Brighton / Spring) they&apos;re for.
-              Existing rows keep a blank cell under it until edited.
-            </p>
+        <SheetMigrationRow
+          title='Add "Client" column to every tab'
+          description="Appends a Client header to each tab so new bookings record which Genisys client (Brighton / Spring / Energy Upgrade) they're for. Existing rows keep a blank cell under it until edited."
+          endpoint="/api/admin/sheets/migrate-client-column"
+          columnLabel="Client"
+        />
+        <SheetMigrationRow
+          title='Add "Agent Name" + "Agent Email" columns'
+          description="Adds two columns so when call-center agents start booking through the Hub CRM, their name and email get preserved on the Master Table rollup. Without these the rollup writer drops the agent fields silently."
+          endpoint="/api/admin/sheets/migrate-agent-columns"
+          columnLabel="Agent"
+        />
+      </div>
+    </section>
+  )
+}
+
+type SheetMigrationResult = {
+  ok: true
+  spreadsheetId: string
+  tabsUpdated: string[]
+  tabsAlreadyHad: string[]
+  tabsNoHeader: string[]
+  tablesExtended: string[]
+  headersStyled: string[]
+}
+
+/**
+ * One row in the Sheet Maintenance card: a labeled "Run" button paired
+ * with its own success/error feedback. Each instance owns its own
+ * mutation hook so adjacent rows don't share status.
+ */
+function SheetMigrationRow({
+  title,
+  description,
+  endpoint,
+  columnLabel,
+}: {
+  title: string
+  description: string
+  endpoint: string
+  /** Used in the success message ("Tables extended to include {columnLabel}"). */
+  columnLabel: string
+}) {
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(endpoint, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Migration failed')
+      return data as SheetMigrationResult
+    },
+  })
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Wrench className="h-4 w-4 text-zinc-400" />
+            {title}
           </div>
-          <button
-            type="button"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
-            className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {mutation.isPending ? 'Running…' : 'Run'}
-          </button>
+          <p className="mt-1 text-xs text-zinc-500">{description}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Running…' : 'Run'}
+        </button>
       </div>
 
       {mutation.isSuccess && (
@@ -1144,22 +1175,23 @@ function SheetMaintenanceSection() {
           <div className="font-medium">Migration complete.</div>
           <div className="text-xs mt-1 space-y-0.5">
             <div>
-              Headers added: <code className="text-xs">{mutation.data.tabsUpdated.length}</code>
+              Headers added on:{' '}
+              <code className="text-xs">{mutation.data.tabsUpdated.length}</code>
               {mutation.data.tabsUpdated.length > 0 &&
                 ` (${mutation.data.tabsUpdated.join(', ')})`}
             </div>
             <div>
-              Already had the column:{' '}
+              Already had the column(s):{' '}
               <code className="text-xs">{mutation.data.tabsAlreadyHad.length}</code>
             </div>
             <div>
-              Tables extended to include Client:{' '}
+              Tables extended to include {columnLabel}:{' '}
               <code className="text-xs">{mutation.data.tablesExtended.length}</code>
               {mutation.data.tablesExtended.length > 0 &&
                 ` (${mutation.data.tablesExtended.join(', ')})`}
             </div>
             <div>
-              Client header styled to match neighbors:{' '}
+              Headers styled to match neighbors:{' '}
               <code className="text-xs">{mutation.data.headersStyled.length}</code>
               {mutation.data.headersStyled.length > 0 &&
                 ` (${mutation.data.headersStyled.join(', ')})`}
@@ -1178,7 +1210,7 @@ function SheetMaintenanceSection() {
           <div className="text-xs mt-1">{(mutation.error as Error).message}</div>
         </Alert>
       )}
-    </section>
+    </div>
   )
 }
 
