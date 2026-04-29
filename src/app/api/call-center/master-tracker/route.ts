@@ -129,9 +129,18 @@ export async function GET() {
       callRecordingLink: r.callRecordingLink,
       lastSyncedAt: null,
       syncError: null,
+      // `createdAt` keeps a non-null value so the CSV export "Logged At"
+      // column always renders something (falls back to apptDateTime,
+      // then to "now"). Do *not* use this for "booked today"–style
+      // filters — that's what `loggedAt` below is for.
       createdAt: r.loggedAt
         ? new Date(r.loggedAt).toISOString()
         : r.apptDateTime || new Date().toISOString(),
+      // Honest timestamp of when the row was logged. Null when the
+      // sheet's Logged At column is blank — we genuinely don't know.
+      // The Master Tracker "Booked today / this week" filters key off
+      // this so they don't accidentally match by appointment date.
+      loggedAt: r.loggedAt ? new Date(r.loggedAt).toISOString() : null,
       // Synthetic agent so the page doesn't have to special-case sheet
       // rows. Agent links go nowhere meaningful for these rows but they
       // render correctly.

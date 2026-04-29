@@ -50,6 +50,11 @@ type Appointment = {
   notes: string | null
   callRecordingLink: string | null
   createdAt: string
+  /** Honest "Logged At" cell from the sheet — null when blank. The
+   *  "Booked today / this week" filters key off this exclusively so
+   *  they don't accidentally match by appointment date when Logged At
+   *  is empty. */
+  loggedAt: string | null
   agent: { id: string; name: string | null; email: string }
   client: { id: string; name: string; state: string | null; color: string } | null
   /** True when the client was inferred from the address state (because
@@ -141,12 +146,20 @@ function endOfDay(d: Date): Date {
 function matchesQuickFilter(a: Appointment, q: QuickFilter): boolean {
   if (!q) return true
   const now = new Date()
+  // "Booked-*" chips key off loggedAt strictly — rows whose Logged At
+  // cell is blank in the sheet don't match (we genuinely don't know
+  // when they were booked, so we can't honestly call them "booked
+  // today"). This avoids the gotcha where an empty Logged At would
+  // make the filter fall through to apptDateTime and match by
+  // appointment date instead.
   if (q === 'booked-today') {
-    const bookedAt = new Date(a.createdAt).getTime()
+    if (!a.loggedAt) return false
+    const bookedAt = new Date(a.loggedAt).getTime()
     return bookedAt >= startOfDay(now).getTime() && bookedAt <= endOfDay(now).getTime()
   }
   if (q === 'booked-this-week') {
-    return new Date(a.createdAt).getTime() >= startOfThisWeek().getTime()
+    if (!a.loggedAt) return false
+    return new Date(a.loggedAt).getTime() >= startOfThisWeek().getTime()
   }
   if (q === 'appts-today') {
     const at = new Date(a.apptDateTime).getTime()
@@ -652,6 +665,13 @@ export default function MasterTrackerPage() {
           </button>
         )}
       </div>
+      {(quickFilter === 'booked-today' || quickFilter === 'booked-this-week') && (
+        <p className="-mt-3 text-[11px] text-zinc-500">
+          Counts rows by their <span className="font-medium">Logged At</span>{' '}
+          column. Rows with a blank Logged At are excluded — fill that cell
+          when typing into the sheet and they&apos;ll show up here.
+        </p>
+      )}
 
       {/* ---- Filters + export ---- */}
       <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
