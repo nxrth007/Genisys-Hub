@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
+import { normalizeRoofAge } from '@/lib/normalize'
 
 /**
  * GET    /api/agent/appointments/[id]  → one appointment (must be agent's own)
@@ -92,8 +93,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (up !== undefined) data.utilityProvider = up
   const rt = strOrNull(body.roofType)
   if (rt !== undefined) data.roofType = rt
-  const ra = strOrNull(body.roofAge)
-  if (ra !== undefined) data.roofAge = ra
+  // strOrNull does plain trim(); roofAge gets the smarter normalizer
+  // so "5" becomes "5 years" on its way into the DB (and from there
+  // into the master sheet on next sync).
+  if (body.roofAge !== undefined) data.roofAge = normalizeRoofAge(body.roofAge)
   const edv = strOrNull(body.estimatedDealValue)
   if (edv !== undefined) data.estimatedDealValue = edv
   const notes = strOrNull(body.notes)

@@ -520,12 +520,18 @@ export function AppointmentForm({
             </select>
           </Field>
 
-          <Field label="Roof age">
+          <Field
+            label="Roof age"
+            // Server normalizes shorthand on save: "5" → "5 years",
+            // "5-10" → "5-10 years", "10+" → "10+ years". The hint
+            // tells agents they don't need to type "years" themselves.
+            hint='Just a number works — "5", "5-10", or "10+" all become "… years" on the sheet.'
+          >
             <input
               type="text"
               value={values.roofAge}
               onChange={(e) => set('roofAge', e.target.value)}
-              placeholder="e.g. 5 years"
+              placeholder="e.g. 5, 5-10, or 10+"
               className={inputCls}
             />
           </Field>
@@ -640,10 +646,14 @@ const inputCls =
 function Field({
   label,
   required,
+  hint,
   children,
 }: {
   label: string
   required?: boolean
+  /** Optional helper text shown under the input — used to telegraph
+   *  server-side normalization (e.g. "5" becomes "5 years"). */
+  hint?: string
   children: React.ReactNode
 }) {
   return (
@@ -653,6 +663,11 @@ function Field({
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </span>
       {children}
+      {hint && (
+        <span className="mt-1 block text-[11px] text-zinc-500 dark:text-zinc-500">
+          {hint}
+        </span>
+      )}
     </label>
   )
 }

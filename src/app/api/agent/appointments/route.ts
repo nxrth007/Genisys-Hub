@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { findConflicts } from '@/lib/appointment-conflicts'
+import { normalizeRoofAge } from '@/lib/normalize'
 
 /**
  * GET  /api/agent/appointments  → own appointments, most recent first
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
           monthlyBill: body.monthlyBill?.trim() || null,
           utilityProvider: body.utilityProvider?.trim() || null,
           roofType: body.roofType?.trim() || null,
-          roofAge: body.roofAge?.trim() || null,
+          roofAge: normalizeRoofAge(body.roofAge),
           status,
           estimatedDealValue: body.estimatedDealValue?.trim() || null,
           notes: body.notes?.trim() || null,
