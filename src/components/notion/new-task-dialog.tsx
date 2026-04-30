@@ -287,7 +287,9 @@ const PRIORITY_TONE: Record<string, { active: string; idle: string }> = {
   },
 }
 
-function PriorityPill({
+// Exported so EditTaskDialog can reuse the exact same selector
+// styling — keeps create + edit visually identical.
+export function PriorityPill({
   value,
   label,
   active,
@@ -319,7 +321,7 @@ function PriorityPill({
   )
 }
 
-function AssigneePill({
+export function AssigneePill({
   name,
   label,
   active,

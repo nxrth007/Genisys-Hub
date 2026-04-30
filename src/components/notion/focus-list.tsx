@@ -30,10 +30,12 @@ import {
   Trash2,
   GripVertical,
   Pencil,
+  RotateCcw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { NewTaskDialog } from './new-task-dialog'
+import { EditTaskDialog } from './edit-task-dialog'
 
 /**
  * FocusList — a triage-first alternative to the Kanban view on Today.
@@ -289,6 +291,10 @@ export function FocusList({
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
   const [doneExpanded, setDoneExpanded] = useState(false)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
+  // Open task ID for the full edit dialog. Stored as the page id so
+  // it survives refetches / optimistic updates that may briefly swap
+  // the underlying task object.
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery<{
     database?: Record<string, unknown>
@@ -587,6 +593,7 @@ export function FocusList({
                 onToggle={toggleComplete}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEdit={(id) => setEditingId(id)}
                 emptyHint="Nothing in progress — drag a task here to start."
               />
               <FocusSection
@@ -599,6 +606,7 @@ export function FocusList({
                 onToggle={toggleComplete}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEdit={(id) => setEditingId(id)}
                 emptyHint="Nothing urgent. Nice."
               />
               <FocusSection
@@ -611,6 +619,7 @@ export function FocusList({
                 onToggle={toggleComplete}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEdit={(id) => setEditingId(id)}
                 emptyHint="Backlog is clear."
               />
               <FocusSection
@@ -623,6 +632,7 @@ export function FocusList({
                 onToggle={toggleComplete}
                 onDelete={(id) => deleteMutation.mutate(id)}
                 onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEdit={(id) => setEditingId(id)}
                 emptyHint="Nothing blocked right now."
               />
 
@@ -636,6 +646,7 @@ export function FocusList({
                 onToggleTask={toggleComplete}
                 onDeleteTask={(id) => deleteMutation.mutate(id)}
                 onRenameTask={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEditTask={(id) => setEditingId(id)}
               />
             </>
           ) : (
@@ -659,6 +670,7 @@ export function FocusList({
               onToggle={toggleComplete}
               onDelete={(id) => deleteMutation.mutate(id)}
               onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+              onEdit={(id) => setEditingId(id)}
             />
           )}
         </div>
@@ -722,6 +734,28 @@ export function FocusList({
           }}
         />
       )}
+
+      {/* ---- Edit task modal ---- */}
+      {(() => {
+        const editing = editingId
+          ? tasks.find((t) => t.id === editingId)
+          : null
+        if (!editing) return null
+        return (
+          <EditTaskDialog
+            dbId={dbId}
+            schema={schema}
+            task={{
+              id: editing.id,
+              title: editing.title,
+              priority: editing.priority,
+              assignee: editing.assignee,
+            }}
+            onClose={() => setEditingId(null)}
+            onSaved={() => setEditingId(null)}
+          />
+        )
+      })()}
     </FocusDndWrapper>
   )
 }
@@ -773,6 +807,7 @@ function FlatChecklist({
   onToggle,
   onDelete,
   onRename,
+  onEdit,
 }: {
   active: Extracted[]
   done: Extracted[]
@@ -781,6 +816,9 @@ function FlatChecklist({
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
+  /** Open the full edit dialog for a row. Optional so older
+   *  in-component callers stay typesafe; flat mode passes it. */
+  onEdit?: (id: string) => void
 }) {
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
@@ -800,6 +838,7 @@ function FlatChecklist({
                 onToggle={(d) => onToggle(t.id, d)}
                 onDelete={() => onDelete(t.id)}
                 onRename={(title) => onRename(t.id, title)}
+                onEdit={onEdit ? () => onEdit(t.id) : undefined}
               />
             </li>
           ))}
@@ -836,6 +875,7 @@ function FlatChecklist({
                     onToggle={(d) => onToggle(t.id, d)}
                     onDelete={() => onDelete(t.id)}
                     onRename={(title) => onRename(t.id, title)}
+                    onEdit={onEdit ? () => onEdit(t.id) : undefined}
                   />
                 </li>
               ))}
@@ -857,6 +897,7 @@ function FocusSection({
   onToggle,
   onDelete,
   onRename,
+  onEdit,
   emptyHint,
 }: {
   section: Section
@@ -868,6 +909,7 @@ function FocusSection({
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
+  onEdit?: (id: string) => void
   emptyHint?: string
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-' + section })
@@ -914,6 +956,7 @@ function FocusSection({
               onToggle={(done) => onToggle(task.id, done)}
               onDelete={() => onDelete(task.id)}
               onRename={(title) => onRename(task.id, title)}
+              onEdit={onEdit ? () => onEdit(task.id) : undefined}
             />
           ))}
         </div>
@@ -931,6 +974,7 @@ function DoneSection({
   onToggleTask,
   onDeleteTask,
   onRenameTask,
+  onEditTask,
 }: {
   tasks: Extracted[]
   expanded: boolean
@@ -938,6 +982,7 @@ function DoneSection({
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
   onRenameTask: (id: string, title: string) => void
+  onEditTask?: (id: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'section-done' })
   const t = SECTION_TONES.emerald
@@ -992,6 +1037,7 @@ function DoneSection({
               onToggle={(done) => onToggleTask(task.id, done)}
               onDelete={() => onDeleteTask(task.id)}
               onRename={(title) => onRenameTask(task.id, title)}
+              onEdit={onEditTask ? () => onEditTask(task.id) : undefined}
             />
           ))}
         </div>
@@ -1073,12 +1119,17 @@ function TaskRow({
   onToggle,
   onDelete,
   onRename,
+  onEdit,
 }: {
   task: Extracted
   done?: boolean
   onToggle: (done: boolean) => void
   onDelete: () => void
   onRename: (title: string) => void
+  /** Optional click-to-open hook for the full edit dialog. When
+   *  omitted (callers that haven't migrated yet), the pencil button
+   *  falls back to the legacy inline-title rename flow. */
+  onEdit?: () => void
 }) {
   const [overdue, setOverdue] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -1209,11 +1260,17 @@ function TaskRow({
               >
                 {task.title}
               </a>
-              {task.priority && !done && (
+              {task.priority && (
                 <span
                   className={cn(
                     'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    priorityClass
+                    // Keep the priority pill on done rows too — it's
+                    // useful context when triaging the Done section.
+                    // Just dim it so the row's "this is finished"
+                    // signal still reads first.
+                    done
+                      ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
+                      : priorityClass
                   )}
                 >
                   {task.priority}
@@ -1249,18 +1306,34 @@ function TaskRow({
       {/* Right-side actions — reserve a fixed-width slot so absence of
           hover doesn't make the title expand/contract. While editing,
           hide the actions entirely so the Enter/blur interaction owns
-          focus and the save is obvious. */}
+          focus and the save is obvious. Done rows get the same actions
+          *plus* a Restore button so accidentally-completed tasks are
+          easy to pull back; they're also still editable (priority +
+          assignee + title via the dialog). */}
       {!isEditing && (
-        <div className="flex h-5 w-[76px] flex-shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          {!done && (
+        <div className="flex h-5 w-[100px] flex-shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          {done && (
             <button
-              onClick={() => setIsEditing(true)}
-              title="Edit title"
-              className="rounded p-1 text-zinc-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40"
+              onClick={() => onToggle(false)}
+              title="Restore — mark as not done"
+              className="rounded p-1 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/40"
             >
-              <Pencil className="h-3.5 w-3.5" />
+              <RotateCcw className="h-3.5 w-3.5" />
             </button>
           )}
+          {/* Pencil — opens the full edit dialog (title, priority,
+              assignee). Falls back to the legacy inline-title rename
+              when no onEdit is wired (covers older callers). */}
+          <button
+            onClick={() => {
+              if (onEdit) onEdit()
+              else if (!done) setIsEditing(true)
+            }}
+            title={onEdit ? 'Edit task' : 'Edit title'}
+            className="rounded p-1 text-zinc-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
           <a
             href={task.url}
             target="_blank"
