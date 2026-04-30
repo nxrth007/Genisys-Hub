@@ -143,6 +143,10 @@ export async function GET() {
       // "booked today" by their appointment date). The Master Tracker
       // "Booked today / this week" filters key off this exclusively.
       loggedAt: parseSheetDateOrNull(r.loggedAt),
+      // Sent-to-client manual flag. Normalized to one of three
+      // tokens so the UI can render a chip-tone select without
+      // worrying about case / synonym sprawl.
+      sentToClient: normalizeSentToClient(r.sentToClient),
       // Synthetic agent so the page doesn't have to special-case sheet
       // rows. Agent links go nowhere meaningful for these rows but they
       // render correctly.
@@ -193,4 +197,21 @@ function parseSheetDateOrNull(raw: string | null | undefined): string | null {
   const d = new Date(trimmed)
   if (isNaN(d.getTime())) return null
   return d.toISOString()
+}
+
+/**
+ * Normalize the sheet's "Sent to Client?" column into one of three
+ * canonical tokens — empty cell = unassigned, anything affirmative
+ * (yes / y / 1 / true / sent) = yes, anything negative = no, anything
+ * else = unassigned (preserved as such until someone explicitly flips
+ * it).
+ */
+function normalizeSentToClient(raw: string | null | undefined): 'yes' | 'no' | 'unassigned' {
+  if (!raw) return 'unassigned'
+  const s = String(raw).trim().toLowerCase()
+  if (!s) return 'unassigned'
+  if (['yes', 'y', '1', 'true', 'sent', 'delivered', 'handed off'].includes(s))
+    return 'yes'
+  if (['no', 'n', '0', 'false', 'not sent'].includes(s)) return 'no'
+  return 'unassigned'
 }

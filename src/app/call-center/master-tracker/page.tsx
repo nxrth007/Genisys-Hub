@@ -46,6 +46,9 @@ type Appointment = {
   roofType: string | null
   roofAge: string | null
   status: string
+  /** Manual hand-off flag — yes / no / unassigned. Goes away once
+   *  the Slack auto-deliver workflow ships. */
+  sentToClient: 'yes' | 'no' | 'unassigned'
   estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
@@ -315,6 +318,57 @@ export default function MasterTrackerPage() {
       // Roll back to the pre-mutation snapshot so the UI matches the
       // sheet again. The mutation's `error` is surfaced in StatusCell
       // via the `pendingRowNumber` check below.
+      if (context?.previous) {
+        queryClient.setQueryData(['master-tracker-sheet'], context.previous)
+      }
+    },
+  })
+
+  // Same shape as statusMutation, just targets the Sent-to-Client
+  // column. Kept as a separate hook so the optimistic update only
+  // touches the field we're actually editing — sharing one mutation
+  // would risk overwriting an in-flight status change with stale
+  // sentToClient data.
+  const sentToClientMutation = useMutation({
+    mutationFn: async (vars: {
+      rowNumber: number
+      sentToClient: 'yes' | 'no' | 'unassigned'
+    }) => {
+      const res = await fetch(
+        `/api/call-center/master-tracker/${vars.rowNumber}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sentToClient: vars.sentToClient }),
+        }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to update sent-to-client flag')
+      }
+      return res.json()
+    },
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ['master-tracker-sheet'] })
+      const previous = queryClient.getQueryData<{
+        appointments: Appointment[]
+      }>(['master-tracker-sheet'])
+      if (previous) {
+        queryClient.setQueryData<{ appointments: Appointment[] }>(
+          ['master-tracker-sheet'],
+          {
+            ...previous,
+            appointments: previous.appointments.map((a) =>
+              a.id === `sheet:${vars.rowNumber}`
+                ? { ...a, sentToClient: vars.sentToClient }
+                : a
+            ),
+          }
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(['master-tracker-sheet'], context.previous)
       }
@@ -896,6 +950,7 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Bill</th>
                   <th className="px-3 py-2.5">Deal $</th>
                   <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Sent</th>
                   <th className="px-3 py-2.5">Rec</th>
                 </tr>
               </thead>
@@ -1030,6 +1085,29 @@ export default function MasterTrackerPage() {
                           />
                         </td>
                         <td className="px-3 py-2.5">
+                          <SentToClientCell
+                            value={a.sentToClient}
+                            onChange={(next) => {
+                              const match = a.id.match(/^sheet:(\d+)$/)
+                              if (!match) return
+                              sentToClientMutation.mutate({
+                                rowNumber: Number(match[1]),
+                                sentToClient: next,
+                              })
+                            }}
+                            pending={
+                              sentToClientMutation.isPending &&
+                              sentToClientMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                            errored={
+                              sentToClientMutation.isError &&
+                              sentToClientMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
                           {a.callRecordingLink ? (
                             <a
                               href={a.callRecordingLink}
@@ -1048,7 +1126,7 @@ export default function MasterTrackerPage() {
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={12}
+                            colSpan={13}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail appointment={a} />
@@ -1424,6 +1502,62 @@ function StatusCell({
             {s.label}
           </option>
         ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
+    </div>
+  )
+}
+
+/**
+ * Inline Yes / No / Unassigned editor for the "Sent to Client?"
+ * column. Same shape as StatusCell — a chip-styled native select
+ * that PATCHes the sheet on change with optimistic update + revert.
+ *
+ * Tone matches the meaning: Yes = emerald (delivered), No = rose
+ * (not delivered, attention needed), Unassigned = neutral zinc.
+ */
+function SentToClientCell({
+  value,
+  onChange,
+  pending,
+  errored,
+}: {
+  value: 'yes' | 'no' | 'unassigned'
+  onChange: (next: 'yes' | 'no' | 'unassigned') => void
+  pending?: boolean
+  errored?: boolean
+}) {
+  const tone =
+    value === 'yes'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      : value === 'no'
+        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+  return (
+    <div
+      className="relative inline-block"
+      title={
+        errored
+          ? 'Failed to write to the sheet — please retry.'
+          : 'Has this appointment been delivered to the client?'
+      }
+    >
+      <select
+        value={value}
+        disabled={pending}
+        onChange={(e) =>
+          onChange(e.target.value as 'yes' | 'no' | 'unassigned')
+        }
+        className={cn(
+          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          tone,
+          pending && 'opacity-60',
+          errored && 'ring-2 ring-rose-400'
+        )}
+      >
+        <option value="unassigned">Unassigned</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
       </select>
       <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
     </div>

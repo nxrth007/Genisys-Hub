@@ -631,6 +631,11 @@ type CanonicalKey =
   | 'agentName'
   | 'agentEmail'
   | 'loggedAt'
+  // "Sent to client?" — temporary manual flag Ethan ticks once a
+  // booking has been handed off to its client. Goes away once the
+  // Slack auto-deliver workflow is live; until then it's a human
+  // checkbox column on the master sheet (Yes / No / blank).
+  | 'sentToClient'
 
 // Normalized alias → canonical key. Normalization lowercases + strips
 // punctuation and whitespace, so "Customer's Phone Number" and
@@ -691,6 +696,12 @@ const COLUMN_ALIASES: Record<string, CanonicalKey> = {
   logged: 'loggedAt',
   createdat: 'loggedAt',
   timestamp: 'loggedAt',
+  // Sent-to-client manual hand-off flag.
+  senttoclient: 'sentToClient',
+  senttoclientyesno: 'sentToClient',
+  sent: 'sentToClient',
+  delivered: 'sentToClient',
+  handedoff: 'sentToClient',
 }
 
 function normalizeHeader(text: string): string {
@@ -865,6 +876,12 @@ function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null):
       return appt.agentEmail || ''
     case 'loggedAt':
       return fmtDateTime(toDate(appt.createdAt))
+    case 'sentToClient':
+      // New Hub-booked rows default to "" (treated as Unassigned by
+      // the UI); Ethan flips them to Yes / No manually once delivered.
+      // Once the Slack auto-handoff lands, this case will write 'Yes'
+      // automatically on send.
+      return ''
     default:
       return ''
   }
@@ -950,6 +967,10 @@ export type MasterTableRow = {
   agentName: string | null
   agentEmail: string | null
   loggedAt: string | null
+  /** Raw cell value of the "Sent to client?" column. Empty string
+   *  / null = unassigned; "Yes" / "No" otherwise. UI normalizes
+   *  case-insensitively so "yes" / "Y" / "1" all map to Yes. */
+  sentToClient: string | null
 }
 
 /** Combine sheet date + time strings into an ISO datetime if possible. */
@@ -1058,6 +1079,7 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
       agentName: cell(row, 'agentName') || null,
       agentEmail: cell(row, 'agentEmail') || null,
       loggedAt: cell(row, 'loggedAt') || null,
+      sentToClient: cell(row, 'sentToClient') || null,
     })
   }
 
@@ -1310,6 +1332,19 @@ export async function migrateAddAgentColumns() {
   return migrateAddColumnsIfMissing([
     { name: 'Agent Name', canonical: 'agentName' },
     { name: 'Agent Email', canonical: 'agentEmail' },
+  ])
+}
+
+/**
+ * One-off migration: add a "Sent to Client?" header column to every
+ * tab. Temporary — once the Slack auto-deliver workflow ships, that
+ * automation will write the value automatically and humans won't
+ * need to flip the cell. Until then this column powers a
+ * Yes / No / Unassigned select on Master Tracker.
+ */
+export async function migrateAddSentToClientColumn() {
+  return migrateAddColumnsIfMissing([
+    { name: 'Sent to Client?', canonical: 'sentToClient' },
   ])
 }
 

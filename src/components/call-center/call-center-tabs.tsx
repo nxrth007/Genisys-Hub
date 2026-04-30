@@ -20,12 +20,14 @@ import { cn } from '@/lib/utils'
  */
 
 const TABS = [
+  // Master Tracker leads — Ethan's primary deliverable view, so it's
+  // the first thing he wants to see when he opens Call Center.
+  { href: '/call-center/master-tracker', label: 'Master Tracker', icon: FileSpreadsheet },
   { href: '/call-center', label: 'Appointments', icon: PhoneCall, exact: true },
   { href: '/call-center/agents', label: 'Agents', icon: Users },
   { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
   { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
   { href: '/call-center/leaderboard', label: 'Leaderboard', icon: Trophy },
-  { href: '/call-center/master-tracker', label: 'Master Tracker', icon: FileSpreadsheet },
 ]
 
 export function CallCenterTabs() {

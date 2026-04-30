@@ -1109,6 +1109,12 @@ function SheetMaintenanceSection() {
           endpoint="/api/admin/sheets/migrate-agent-columns"
           columnLabel="Agent"
         />
+        <SheetMigrationRow
+          title='Add "Sent to Client?" column'
+          description='Adds a column that powers the Yes / No / Unassigned select on Master Tracker. Temporary — once the Slack auto-handoff ships, that flow will write the value automatically and the manual select goes away.'
+          endpoint="/api/admin/sheets/migrate-sent-to-client-column"
+          columnLabel="Sent"
+        />
         <BackfillLoggedAtRow />
       </div>
 
