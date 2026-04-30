@@ -97,15 +97,21 @@ export async function POST(req: Request) {
   // asked to send this, even if the template is disabled in
   // production. Useful for previewing before flipping enabled on.
 
-  // Resolve client name from DB if a client was picked, otherwise
-  // use a sensible placeholder.
+  // Resolve client name + human contact from DB if a client was
+  // picked, otherwise use sensible placeholders. The contact name
+  // doubles as the {clientContactName} fill so the test send mirrors
+  // what production renders.
   let clientName = 'our partner'
+  let clientContactName = ''
   if (clientIdRaw) {
     const c = await prisma.client.findUnique({
       where: { id: clientIdRaw },
-      select: { name: true },
+      select: { name: true, contactName: true },
     })
-    if (c) clientName = c.name
+    if (c) {
+      clientName = c.name
+      clientContactName = c.contactName ?? ''
+    }
   }
 
   const tz = timezoneForAddress(address)
@@ -119,6 +125,7 @@ export async function POST(req: Request) {
     customerName: customerFirstNameForSms(customerName),
     customerFullName: customerName,
     clientName,
+    clientContactName,
     address,
     agentName,
     apptDate: formatInTimezone(sample, tz, {

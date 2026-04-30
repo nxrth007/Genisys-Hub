@@ -81,7 +81,7 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   // Pull existing client list once so we can map sheet "Client" cell
   // values to canonical Client ids (state-based fallback when blank).
   const clients = await prisma.client.findMany({
-    select: { id: true, name: true, state: true },
+    select: { id: true, name: true, state: true, contactName: true },
   })
   const clientByLowerName = new Map(
     clients.map((c) => [c.name.toLowerCase(), c])
@@ -159,6 +159,7 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
               apptDateTime: apptDate,
               clientId: clientLookup?.id ?? null,
               clientName: clientLookup?.name ?? r.client ?? null,
+              clientContactName: clientLookup?.contactName ?? null,
               address: r.address ?? null,
               agentName: r.agentName ?? null,
               sheetTabTitle: 'Master Table',
@@ -186,6 +187,7 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
               apptDateTime: apptDate,
               clientId: clientLookup?.id ?? null,
               clientName: clientLookup?.name ?? r.client ?? null,
+              clientContactName: clientLookup?.contactName ?? null,
               address: r.address ?? null,
               agentName: r.agentName ?? null,
               sheetTabTitle: 'Master Table',
@@ -300,6 +302,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         customerName: customerFirstNameForSms(reminder.customerName),
         customerFullName: reminder.customerName,
         clientName: reminder.clientName ?? 'our partner',
+        clientContactName: reminder.clientContactName ?? '',
         address: reminder.address ?? '',
         agentName: reminder.agentName ?? '',
         apptDate: formatInTimezone(reminder.apptDateTime, reminder.customerTimezone, {

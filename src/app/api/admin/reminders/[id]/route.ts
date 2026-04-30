@@ -138,6 +138,7 @@ export async function PATCH(
         customerName: customerFirstNameForSms(reminder.customerName),
         customerFullName: reminder.customerName,
         clientName: reminder.clientName ?? 'our partner',
+        clientContactName: reminder.clientContactName ?? '',
         address: reminder.address ?? '',
         agentName: reminder.agentName ?? '',
         apptDate: formatInTimezone(reminder.apptDateTime, reminder.customerTimezone, {

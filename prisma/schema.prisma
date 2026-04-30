@@ -564,7 +564,8 @@ model AppointmentReminder {
   apptDateTime    DateTime
   clientId        String?
   client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  clientName      String?
+  clientName      String?  // business name (Client.name)
+  clientContactName String? // primary human contact (Client.contactName)
   address         String?
   agentName       String?
 

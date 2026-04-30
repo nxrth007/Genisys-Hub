@@ -74,9 +74,18 @@ export const TEMPLATE_VARIABLES: ReadonlyArray<TemplateVariable> = [
   {
     key: 'clientName',
     placeholder: '{clientName}',
-    label: 'Client name',
+    label: 'Client business name',
     sample: 'Brighton Capital Solar',
-    description: 'The Genisys client this appointment is booked for.',
+    description:
+      'Business name of the Genisys client (the company), e.g. "Brighton Capital Solar".',
+  },
+  {
+    key: 'clientContactName',
+    placeholder: '{clientContactName}',
+    label: 'Client contact name',
+    sample: 'David Mehta',
+    description:
+      'Primary human contact at the client (the person), e.g. "David Mehta". Empty if no contact is set.',
   },
   {
     key: 'apptDate',
