@@ -19,8 +19,7 @@ import {
   DollarSign,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
-import { PageHeader } from '@/components/ui/page-header'
+// PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
 import { StatCard } from '@/components/ui/stat-card'
 import { parsePhoneEntries } from '@/lib/phone'
 
@@ -558,19 +557,7 @@ export default function MasterTrackerPage() {
   }
 
   return (
-    // Wider than the rest of /call-center because the table needs to fit
-    // address + bill + status + recording columns without horizontal
-    // scrolling. min-w-0 keeps the inner table's overflow-x scroll
-    // contained instead of pushing the whole page wider.
-    <div className="mx-auto min-w-0 max-w-screen-2xl space-y-5">
-      <PageHeader
-        icon={PhoneCall}
-        title="Call Center"
-        subtitle="Master Tracker — every booked appointment, organized by client and ready to hand off."
-      />
-
-      <CallCenterTabs />
-
+    <div className="min-w-0 space-y-5">
       {/* ---- Client switcher ---- */}
       <div className="flex flex-wrap items-center gap-2">
         <ClientPill

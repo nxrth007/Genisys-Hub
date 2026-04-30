@@ -17,9 +17,9 @@ import {
   Filter,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
+// CallCenterTabs lives on the shared /call-center layout.
 import { labelForTag } from '@/lib/eod-reports'
-import { PageHeader } from '@/components/ui/page-header'
+// PageHeader is provided by the shared /call-center layout.
 import { StatCard } from '@/components/ui/stat-card'
 
 type EodReport = {
@@ -171,15 +171,7 @@ export default function EodReportsPage() {
   const filterCleared = agent === 'all' && !since && !until && !issuesOnly
 
   return (
-    <div className="max-w-6xl space-y-6">
-      <PageHeader
-        icon={PhoneCall}
-        title="Call Center"
-        subtitle="End-of-day agent reports — activity numbers plus any technical or organizational friction flagged for the day."
-      />
-
-      <CallCenterTabs />
-
+    <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Dials" value={totals.dials} icon={Phone} tone="blue" />
         <StatCard

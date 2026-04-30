@@ -23,8 +23,8 @@ import {
   FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
-import { PageHeader } from '@/components/ui/page-header'
+// PageHeader + CallCenterTabs now live on the shared layout
+// (/call-center/layout.tsx), so they're not imported here.
 import { StatCard } from '@/components/ui/stat-card'
 
 type Appointment = {
@@ -416,20 +416,11 @@ export default function CallCenterPage() {
     URL.revokeObjectURL(url)
   }
 
+  // Layout (/call-center/layout.tsx) provides the title, breadcrumbs,
+  // tab pills, and date-range picker. Each page just renders its
+  // tab-specific content here.
   return (
-    <div className="mx-auto max-w-[1280px] space-y-6">
-      <PageHeader
-        title="Call Center"
-        breadcrumbs={[
-          { label: 'Genisys' },
-          { label: 'Operations' },
-          { label: 'Call Center' },
-        ]}
-        subtitle="Live view of all agents, bookings, and fulfillment progress. Aggregations reflect whatever filters are applied below."
-      />
-
-      <CallCenterTabs />
-
+    <div className="space-y-6">
       {/* ATTENTION STRIP — what needs eyes right now */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard

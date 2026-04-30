@@ -18,8 +18,7 @@ import {
   Percent,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
-import { PageHeader } from '@/components/ui/page-header'
+// PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
 
 type Row = {
   agent: { id: string; name: string | null; email: string }
@@ -179,15 +178,7 @@ export default function LeaderboardPage() {
   const podium = ranked.slice(0, 3)
 
   return (
-    <div className="max-w-6xl space-y-6">
-      <PageHeader
-        icon={PhoneCall}
-        title="Call Center"
-        subtitle="Top performers across the team. Switch the metric to celebrate different kinds of wins — volume, quality, effort, consistency."
-      />
-
-      <CallCenterTabs />
-
+    <div className="space-y-6">
       {/* Period + client filter */}
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center gap-1">

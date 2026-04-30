@@ -8,6 +8,7 @@ import {
   PhoneForwarded,
   Trophy,
   FileSpreadsheet,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +21,7 @@ import { cn } from '@/lib/utils'
 
 const TABS = [
   { href: '/call-center', label: 'Appointments', icon: PhoneCall, exact: true },
+  { href: '/call-center/agents', label: 'Agents', icon: Users },
   { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
   { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
   { href: '/call-center/leaderboard', label: 'Leaderboard', icon: Trophy },

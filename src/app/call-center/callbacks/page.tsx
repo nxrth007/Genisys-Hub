@@ -19,8 +19,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
-import { PageHeader } from '@/components/ui/page-header'
+// PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
 import { StatCard } from '@/components/ui/stat-card'
 
 type Callback = {
@@ -227,15 +226,7 @@ export default function CallbacksReviewPage() {
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
-      <PageHeader
-        icon={PhoneCall}
-        title="Call Center"
-        subtitle="Every agent's callback list — follow-ups they've logged to work later. Separate from appointments; use this to see each agent's pipeline."
-      />
-
-      <CallCenterTabs />
-
+    <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label="Pending"
