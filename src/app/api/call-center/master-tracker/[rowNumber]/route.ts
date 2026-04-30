@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { updateMasterTableCell } from '@/lib/drive'
+import { syncRemindersFromSheet } from '@/lib/reminders'
 
 /**
  * PATCH /api/call-center/master-tracker/:rowNumber
@@ -103,6 +104,23 @@ async function writeOne(
 ) {
   try {
     await updateMasterTableCell({ rowNumber, canonical, value })
+
+    // Status changes (especially → cancelled) should propagate to the
+    // SMS reminder queue immediately. Fire-and-forget — the sync read
+    // can take a few seconds against the Drive API and we don't want
+    // to block the user's status-pill click on it. Errors are logged
+    // but never surfaced; the next 5-minute cron tick is the safety
+    // net. Skipped for sentToClient changes (they don't affect
+    // reminder scheduling).
+    if (canonical === 'status') {
+      void syncRemindersFromSheet().catch((err) =>
+        console.error(
+          '[master-tracker PATCH] background reminder sync failed:',
+          err
+        )
+      )
+    }
+
     return NextResponse.json({ ok: true, ...echo })
   } catch (err) {
     console.error('[master-tracker PATCH] failed:', err)

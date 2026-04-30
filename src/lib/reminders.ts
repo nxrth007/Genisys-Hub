@@ -116,11 +116,22 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
       ? clientByLowerName.get(r.client.toLowerCase())
       : null
 
+    // Phone validation — bad phones at sync time get marked 'failed'
+    // with a clear error message rather than sitting as 'pending' and
+    // surfacing as a confusing GHL error later. Done once per sheet
+    // row so we don't repeat the regex check four times for the four
+    // reminder types.
+    const phoneInvalid = !isValidUsPhone(r.customerPhone)
+
     for (const type of REMINDER_TYPES) {
       const fireAt = new Date(apptDate.getTime() - REMINDER_OFFSET_MS[type])
       const isPast = fireAt.getTime() <= now
-      const status = isPast ? 'skipped' : 'pending'
-      if (isPast) skippedPast++
+      const status = phoneInvalid
+        ? 'failed'
+        : isPast
+          ? 'skipped'
+          : 'pending'
+      if (isPast && !phoneInvalid) skippedPast++
 
       // Upsert by (sourceKey, reminderType). Updates the snapshot
       // fields if the source row was edited; the schedule + status
@@ -166,6 +177,9 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
               reminderType: type,
               scheduledFor: fireAt,
               status,
+              errorMessage: phoneInvalid
+                ? `Customer phone "${r.customerPhone}" is not a valid US 10-digit number — fix in the sheet and re-sync.`
+                : null,
               customerName: r.customerName,
               customerPhone: r.customerPhone,
               customerTimezone: tz,
@@ -402,6 +416,18 @@ function lastNameOf(name: string): string | undefined {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   if (parts.length < 2) return undefined
   return parts.slice(1).join(' ')
+}
+
+/**
+ * Loose validation — accept anything that contains a 10-digit US
+ * phone number. Sheet entries are wildly inconsistent in formatting
+ * ("(555) 123-4567" / "5551234567" / "1-555-123-4567"), so we strip
+ * non-digits and check the digit count rather than enforcing a
+ * specific format. The send path normalizes to E.164 separately.
+ */
+function isValidUsPhone(phone: string): boolean {
+  const digits = phone.replace(/\D/g, '')
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'))
 }
 
 /**

@@ -1929,6 +1929,7 @@ function TemplateCellEditor({
         rows={3}
         className="w-full resize-y rounded-md border border-zinc-200 px-3 py-2 text-xs font-mono dark:border-zinc-800 dark:bg-zinc-950"
       />
+      <SmsLengthHint body={body} />
       <div className="mt-2 flex items-center justify-end gap-2">
         {cell.source !== 'default' && (
           <button
@@ -1953,6 +1954,54 @@ function TemplateCellEditor({
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * Live SMS-length hint under each template textarea. Counts chars
+ * AFTER stripping `{placeholder}` tokens (which are usually shorter
+ * once filled — "TONY UGAS" → "Tony" is the worst case, not the
+ * average). Warns at the segment boundary (160 / 306 / 459) so
+ * authors notice multi-segment cost + ordering risk before saving.
+ */
+function SmsLengthHint({ body }: { body: string }) {
+  // Render chars are length minus all {placeholder} tokens, plus a
+  // worst-case fill estimate per known placeholder. Keeps the hint
+  // close to reality without doing a full template render.
+  const stripped = body.replace(/\{(\w+)\}/g, (_, key) => {
+    // Approximate fill lengths so the count isn't wildly optimistic.
+    const sample: Record<string, string> = {
+      customerName: 'Tony',
+      customerFullName: 'Tony Ugas',
+      clientName: 'Brighton Capital Solar',
+      apptDate: 'Tuesday, May 12',
+      apptTime: '2:30 PM',
+      apptDateTime: 'Tuesday, May 12 at 2:30 PM',
+      address: '1533 218th St, Torrance, CA 90501',
+      agentName: 'Jane Doe',
+    }
+    return sample[key] ?? `{${key}}`
+  })
+  const chars = stripped.length
+  const segments =
+    chars === 0 ? 0 : chars <= 160 ? 1 : Math.ceil((chars - 160) / 153) + 1
+  const tone =
+    segments === 0
+      ? 'text-zinc-400'
+      : segments === 1
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : segments === 2
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-rose-600 dark:text-rose-400'
+  return (
+    <p className={cn('mt-1 text-[10px] tabular-nums', tone)}>
+      ~{chars} chars · {segments} SMS segment{segments === 1 ? '' : 's'}
+      {segments > 1 && (
+        <span className="ml-2 text-zinc-500">
+          (long messages cost more + may arrive out of order)
+        </span>
+      )}
+    </p>
   )
 }
 

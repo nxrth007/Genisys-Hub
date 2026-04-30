@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
+import { StatCard } from '@/components/ui/stat-card'
 import {
   REMINDER_LABELS,
   REMINDER_TYPES,
@@ -52,6 +53,12 @@ type Reminder = {
 type ApiResponse = {
   reminders: Reminder[]
   counts: Record<string, number>
+  stats: {
+    pendingNext24h: number
+    sentPast7d: number
+    failedPast7d: number
+    successRate: number | null
+  }
 }
 
 type StatusFilter =
@@ -100,6 +107,7 @@ function RemindersView() {
 
   const reminders = query.data?.reminders ?? []
   const counts = query.data?.counts ?? {}
+  const stats = query.data?.stats
   const totalAll =
     (counts.pending ?? 0) +
     (counts.sent ?? 0) +
@@ -109,6 +117,42 @@ function RemindersView() {
 
   return (
     <div className="space-y-6">
+      {/* At-a-glance stats — operational health regardless of which
+          slice is currently filtered. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Pending next 24h"
+          value={stats?.pendingNext24h ?? 0}
+          subtitle="reminders due to fire"
+          tone="blue"
+        />
+        <StatCard
+          label="Sent past 7 days"
+          value={stats?.sentPast7d ?? 0}
+          subtitle={
+            stats?.failedPast7d
+              ? `${stats.failedPast7d} failed in same window`
+              : 'all delivered'
+          }
+          tone="green"
+        />
+        <StatCard
+          label="Success rate"
+          value={stats?.successRate != null ? `${stats.successRate}%` : '—'}
+          subtitle="sent / (sent + failed) past 7d"
+          tone={
+            stats?.successRate == null
+              ? 'zinc'
+              : stats.successRate >= 95
+                ? 'green'
+                : stats.successRate >= 80
+                  ? 'amber'
+                  : 'red'
+          }
+          progress={stats?.successRate ?? null}
+        />
+      </div>
+
       {/* Status filter chips */}
       <div className="flex flex-wrap items-center gap-2">
         <StatusChip

@@ -57,5 +57,39 @@ export async function GET(req: NextRequest) {
   const counts: Record<string, number> = {}
   for (const c of allCounts) counts[c.status] = c._count._all
 
-  return NextResponse.json({ reminders, counts })
+  // Stats cards — pending in the next 24h, sent in past 7 days,
+  // failed in past 7 days. Computed independently of the active
+  // status / type filters so the operational health stays visible
+  // even when the user is drilled into a specific slice.
+  const now = new Date()
+  const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+  const past7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const [pendingNext24h, sentPast7d, failedPast7d] = await Promise.all([
+    prisma.appointmentReminder.count({
+      where: {
+        status: 'pending',
+        scheduledFor: { gte: now, lte: in24h },
+      },
+    }),
+    prisma.appointmentReminder.count({
+      where: { status: 'sent', sentAt: { gte: past7Days } },
+    }),
+    prisma.appointmentReminder.count({
+      where: { status: 'failed', updatedAt: { gte: past7Days } },
+    }),
+  ])
+  const completedPast7d = sentPast7d + failedPast7d
+  const successRate =
+    completedPast7d > 0 ? Math.round((sentPast7d / completedPast7d) * 100) : null
+
+  return NextResponse.json({
+    reminders,
+    counts,
+    stats: {
+      pendingNext24h,
+      sentPast7d,
+      failedPast7d,
+      successRate, // 0–100 or null when nothing has fired yet
+    },
+  })
 }
