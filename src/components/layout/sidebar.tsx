@@ -24,9 +24,9 @@ import {
   Headphones,
   CheckCircle2,
   Search,
-  ChevronDown,
   ChevronRight,
   PanelLeftClose,
+  PanelLeftOpen,
   Moon,
   Sun,
   LogOut,
@@ -94,6 +94,28 @@ const FULL_NAV: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname()
   const [searchOpen, setSearchOpen] = useState(false)
+  // Collapsed mode — narrows the column to icons only. Persisted in
+  // localStorage so the choice sticks across reloads. We hydrate from
+  // storage in an effect (rather than the inline init script in
+  // layout.tsx) to avoid a layout-shift cost; the first paint shows
+  // the expanded view, and if the user has it collapsed it snaps to
+  // narrow on mount.
+  const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar-collapsed')
+    if (saved === 'true') setCollapsed(true)
+  }, [])
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      const next = !c
+      try {
+        localStorage.setItem('sidebar-collapsed', String(next))
+      } catch {
+        // localStorage may be disabled in strict-privacy modes — non-fatal.
+      }
+      return next
+    })
+  }
 
   const { data: session } = useQuery<{
     user?: { name?: string | null; email?: string | null; role?: string }
@@ -131,52 +153,93 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="hidden w-[260px] shrink-0 flex-col gap-2 border-r border-border-soft bg-sidebar px-4 py-5 md:flex">
-        {/* ---- Brand + theme toggle ---- */}
-        <div className="mb-2 flex items-center justify-between px-2">
+      <aside
+        className={cn(
+          'hidden shrink-0 flex-col gap-2 border-r border-border-soft bg-sidebar py-5 transition-[width] duration-200 md:flex',
+          collapsed ? 'w-[68px] px-2' : 'w-[260px] px-4'
+        )}
+      >
+        {/* ---- Brand + theme toggle + collapse ---- */}
+        <div
+          className={cn(
+            'mb-2 flex items-center px-2',
+            collapsed ? 'flex-col gap-1' : 'justify-between'
+          )}
+        >
           <div className="flex items-center gap-2">
             <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
               <LayoutGrid className="h-4 w-4" strokeWidth={2.25} />
             </div>
-            <span className="text-[17px] font-semibold tracking-tight text-sidebar-foreground">
-              Genisys
-            </span>
+            {!collapsed && (
+              <span className="text-[17px] font-semibold tracking-tight text-sidebar-foreground">
+                Genisys
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-0.5">
+          <div
+            className={cn(
+              'flex items-center gap-0.5',
+              collapsed && 'flex-col'
+            )}
+          >
             <CompactThemeToggle />
-            {/* Collapse is decorative for now — keeps the visual
-                rhythm of the mockup but doesn't trigger any state. */}
             <button
-              disabled
-              aria-label="Collapse sidebar (coming soon)"
-              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground/60"
+              type="button"
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              <PanelLeftClose className="h-4 w-4" />
+              {collapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
             </button>
           </div>
         </div>
 
-        {/* ---- Search command pill ---- */}
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="relative mt-1 flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-surface-muted px-3 text-left text-sm text-muted-foreground transition hover:bg-muted"
-        >
-          <Search className="h-3.5 w-3.5" />
-          <span className="flex-1">Search anything</span>
-          <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium">
-            {isMac ? '⌘K' : 'Ctrl K'}
-          </kbd>
-        </button>
+        {/* ---- Search ---- */}
+        {collapsed ? (
+          // Collapsed: icon-only square that opens the same palette.
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Search"
+            title={`Search · ${isMac ? '⌘K' : 'Ctrl+K'}`}
+            className="mt-1 grid h-9 w-full place-items-center rounded-xl border border-border bg-surface-muted text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="relative mt-1 flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-surface-muted px-3 text-left text-sm text-muted-foreground transition hover:bg-muted"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="flex-1">Search anything</span>
+            <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+              {isMac ? '⌘K' : 'Ctrl K'}
+            </kbd>
+          </button>
+        )}
 
-        <p className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Main menu
-        </p>
+        {!collapsed && (
+          <p className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Main menu
+          </p>
+        )}
 
         {/* ---- Main nav ---- */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
           {nav.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} />
+            <NavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              collapsed={collapsed}
+            />
           ))}
         </nav>
 
@@ -185,35 +248,54 @@ export function Sidebar() {
           <NavLink
             item={{ href: '/settings', label: 'Settings', icon: Settings }}
             pathname={pathname}
+            collapsed={collapsed}
           />
           <a
             href="https://github.com/nxrth007/Genisys-Hub/issues/new"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-foreground/75 hover:bg-muted hover:text-foreground"
+            title="Help & Support"
+            className={cn(
+              'flex items-center gap-3 rounded-xl text-sm font-medium text-foreground/75 transition hover:bg-muted hover:text-foreground',
+              collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+            )}
           >
-            <HelpCircle className="h-4 w-4" />
-            Help &amp; Support
+            <HelpCircle className="h-4 w-4 flex-shrink-0" />
+            {!collapsed && 'Help & Support'}
           </a>
 
-          {session?.user && (
-            <div className="mt-2 flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2 shadow-soft">
-              <Avatar name={displayName} email={email} size="sm" />
-              <div className="min-w-0 flex-1 text-left">
-                <p className="truncate text-sm font-semibold">{displayName}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {roleLabel}
-                </p>
-              </div>
+          {session?.user &&
+            (collapsed ? (
+              // Collapsed profile — avatar-only with sign-out tooltip.
+              // Single click signs out (the floating menu is heavy in
+              // a 68px column; we'd rather click than juggle popovers).
               <button
                 onClick={() => signOut({ callbackUrl: '/signin' })}
-                title="Sign out"
-                className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                title={`${displayName} · Click to sign out`}
+                className="mt-2 grid h-9 w-full place-items-center rounded-xl border border-border bg-surface shadow-soft hover:bg-muted"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <Avatar name={displayName} email={email} size="sm" />
               </button>
-            </div>
-          )}
+            ) : (
+              <div className="mt-2 flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2 shadow-soft">
+                <Avatar name={displayName} email={email} size="sm" />
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-sm font-semibold">
+                    {displayName}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {roleLabel}
+                  </p>
+                </div>
+                <button
+                  onClick={() => signOut({ callbackUrl: '/signin' })}
+                  title="Sign out"
+                  className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
         </div>
       </aside>
 
@@ -258,10 +340,40 @@ function CompactThemeToggle() {
   )
 }
 
-function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+function NavLink({
+  item,
+  pathname,
+  collapsed,
+}: {
+  item: NavItem
+  pathname: string
+  collapsed?: boolean
+}) {
   const active =
     item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
   const Icon = item.icon
+
+  // Collapsed: icon-only, centered in a square, with the label on a
+  // native title tooltip. Active state still uses bg-primary-soft so
+  // the visual continuity holds when the user toggles modes.
+  if (collapsed) {
+    return (
+      <Link
+        href={item.href}
+        title={item.label}
+        aria-label={item.label}
+        className={cn(
+          'grid h-10 w-full place-items-center rounded-xl text-sm font-medium transition',
+          active
+            ? 'bg-primary-soft text-primary'
+            : 'text-foreground/75 hover:bg-muted hover:text-foreground'
+        )}
+      >
+        <Icon className="h-4 w-4" strokeWidth={2} />
+      </Link>
+    )
+  }
+
   return (
     <Link
       href={item.href}

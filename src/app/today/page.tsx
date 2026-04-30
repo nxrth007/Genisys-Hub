@@ -17,13 +17,16 @@ import {
   ExternalLink,
   Pin,
   CalendarCheck,
+  ArrowRight,
+  ListChecks,
+  KanbanSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
 import { FocusList } from '@/components/notion/focus-list'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatCard } from '@/components/ui/stat-card'
-import { Columns3, List } from 'lucide-react'
+import { DropdownPill } from '@/components/ui/dropdown-pill'
 
 type Task = {
   id: string
@@ -290,7 +293,7 @@ export default function TodayPage() {
   })
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
       <PageHeader
         title="Today"
         subtitle={todayLabel}
@@ -317,17 +320,19 @@ export default function TodayPage() {
         }
       />
 
-      {/* At-a-glance numbers — mirrors Ethan's Tasks stat row */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* At-a-glance numbers — icon-less per the mockup so the value
+          carries the visual weight. Progress bar at the bottom of
+          each card keeps the rhythm consistent with the mockup's
+          KPI row. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          icon={Calendar}
           label="Meetings today"
           value={events.length}
           subtitle="scheduled"
           tone="blue"
+          progress={events.length > 0 ? 100 : 0}
         />
         <StatCard
-          icon={Circle}
           label="Tasks to do"
           value={tasksToDoCount}
           subtitle={
@@ -345,14 +350,12 @@ export default function TodayPage() {
           }
         />
         <StatCard
-          icon={CheckCircle2}
           label={pinnedDbId ? 'Completed' : 'Completed today'}
           value={tasksDoneCount}
           subtitle={tasksDoneCount === 0 ? "let's go" : 'nice work'}
           tone={tasksDoneCount > 0 ? 'green' : 'zinc'}
         />
         <StatCard
-          icon={CalendarCheck}
           label="Booked appointments"
           value={bookingStats?.bookedToday ?? 0}
           subtitle={
@@ -368,49 +371,38 @@ export default function TodayPage() {
       {/* Tasks first, Meetings second — agents triage their own work
           before reviewing the day's meeting block. */}
 
-      {/* Tasks section — Notion Kanban when a DB is pinned, otherwise the
-           built-in local task list. When pinned we drop the wrapper card
-           entirely: column chrome already gives each status its own card
-           appearance, and the outer section box doubled it up visually. */}
+      {/* View toggle row — mockup-style DropdownPill on the left,
+          live count on the right. Only renders when a Notion DB is
+          pinned (the local-task fallback below has its own header). */}
+      {pinnedDbId && (
+        <div className="flex items-center justify-between">
+          <DropdownPill
+            value={tasksView}
+            options={[
+              { id: 'focus', label: 'Focus' },
+              { id: 'board', label: 'Kanban' },
+            ]}
+            onChange={(v) => setTasksView(v as 'focus' | 'board')}
+            icon={tasksView === 'focus' ? ListChecks : KanbanSquare}
+          />
+          <p className="text-xs text-muted-foreground">
+            {tasksTotalCount} task{tasksTotalCount === 1 ? '' : 's'} ·{' '}
+            {tasksDoneCount} done
+          </p>
+        </div>
+      )}
+
+      {/* Tasks section — Notion Kanban when a DB is pinned, otherwise
+           the built-in local task list. When pinned we drop the wrapper
+           card entirely (the column chrome already gives each status
+           its own card appearance). */}
       {pinnedDbId ? (
-        // min-w-0 is the critical part here — without it, the Kanban's
-        // horizontally-scrollable column strip can push the whole page
-        // wider than the 5xl cap, creating a page-level horizontal
-        // scrollbar. min-w-0 lets the section collapse to its parent's
-        // width and the inner overflow-x-auto takes over.
+        // min-w-0 lets the page collapse to the parent's width so the
+        // Kanban's horizontal scroll stays inside the card instead of
+        // pushing the whole page wider.
         <div className="min-w-0 space-y-3">
-          {/* Focus / Kanban toggle */}
-          <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white p-1 w-fit dark:border-zinc-800 dark:bg-zinc-900">
-            <button
-              onClick={() => setTasksView('focus')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                tasksView === 'focus'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
-              )}
-            >
-              <List className="h-3.5 w-3.5" />
-              Focus
-            </button>
-            <button
-              onClick={() => setTasksView('board')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                tasksView === 'board'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
-              )}
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-              Kanban
-            </button>
-          </div>
           {tasksView === 'focus' ? (
-            <FocusList
-              dbId={pinnedDbId}
-              newTaskTrigger={newTaskTrigger}
-            />
+            <FocusList dbId={pinnedDbId} newTaskTrigger={newTaskTrigger} />
           ) : (
             <TaskBoard
               dbId={pinnedDbId}
@@ -422,34 +414,38 @@ export default function TodayPage() {
           )}
         </div>
       ) : (
-        <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-            <CheckCircle2 className="h-4 w-4 text-blue-600" />
-            <h3 className="font-semibold text-sm">
+        // Local task list — styled to mirror the mockup's checklist
+        // card: rounded-2xl, bg-card, shadow-soft, "Add a task" footer
+        // row that opens the same modal the header button does.
+        <section className="rounded-2xl border border-border bg-card p-2 shadow-soft">
+          <div className="flex items-center justify-between border-b border-border-soft px-3 py-2">
+            <h3 className="text-sm font-semibold">
               Tasks
               {incompleteTasks.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-zinc-500">
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
                   ({incompleteTasks.length} remaining)
                 </span>
               )}
             </h3>
             <Link
               href="/notion"
-              className="ml-auto inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-              title="Open a Notion task DB and click 'Pin to Today' to replace this list with a Kanban"
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              title="Pin a Notion DB to replace this list with a Kanban"
             >
               <Pin className="h-3 w-3" /> Pin a Notion board
             </Link>
           </div>
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          <div className="divide-y divide-border-soft">
             {tasksQuery.isLoading ? (
-              <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading tasks…</div>
+              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                Loading tasks…
+              </div>
             ) : incompleteTasks.length === 0 && completedTasks.length === 0 ? (
-              <div className="px-5 py-8 text-center">
-                <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-300 mb-2" />
-                <p className="text-sm text-zinc-500">
-                  No tasks yet. Click &quot;Add task&quot; to get started, or{' '}
-                  <Link href="/notion" className="text-blue-600 hover:underline">
+              <div className="px-5 py-12 text-center">
+                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">
+                  No tasks yet. Click &ldquo;New task&rdquo; to get started, or{' '}
+                  <Link href="/notion" className="text-primary hover:underline">
                     pin a Notion board
                   </Link>{' '}
                   to use a Kanban here.
@@ -461,19 +457,23 @@ export default function TodayPage() {
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
+                    onUpdate={() =>
+                      qc.invalidateQueries({ queryKey: ['today-tasks'] })
+                    }
                   />
                 ))}
                 {completedTasks.length > 0 && (
-                  <div className="bg-zinc-50 dark:bg-zinc-950/50">
-                    <div className="px-5 py-2 text-xs font-medium text-zinc-400 uppercase tracking-wide">
+                  <div className="bg-surface-muted">
+                    <div className="px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Completed today ({completedTasks.length})
                     </div>
                     {completedTasks.map((task) => (
                       <TaskRow
                         key={task.id}
                         task={task}
-                        onUpdate={() => qc.invalidateQueries({ queryKey: ['today-tasks'] })}
+                        onUpdate={() =>
+                          qc.invalidateQueries({ queryKey: ['today-tasks'] })
+                        }
                       />
                     ))}
                   </div>
@@ -481,87 +481,124 @@ export default function TodayPage() {
               </>
             )}
           </div>
+          <div className="border-t border-border-soft px-3 py-2">
+            <button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
+            >
+              <Plus className="h-4 w-4" /> Add a task
+            </button>
+          </div>
         </section>
       )}
 
-      {/* Meetings — moved BELOW the tasks block per Alex's request:
-          agents triage their tasks first, then review the day's
-          meeting block. Card uses the new design tokens for a clean
-          dark-mode pass. */}
-      <section className="rounded-2xl border border-border bg-card shadow-soft">
-        <div className="flex items-center gap-3 border-b border-border-soft px-5 py-3.5">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary-soft text-primary">
-            <Calendar className="h-4 w-4" />
-          </div>
-          <h3 className="text-[15px] font-semibold tracking-tight">
-            Meetings
-            {events.length > 0 && (
-              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
-                {events.length}
-              </span>
-            )}
-          </h3>
-        </div>
-        <div className="divide-y divide-border-soft">
-          {calQuery.isLoading ? (
-            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-              Loading calendar…
-            </div>
-          ) : calQuery.isError ? (
-            <div className="px-5 py-5">
-              <div className="flex items-start gap-2 rounded-xl border border-border-soft bg-surface-muted p-3 text-sm">
-                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                <div>
-                  <div className="font-medium">Calendar unavailable</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {(calQuery.error as Error).message}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Make sure &quot;GHL Genisys Token&quot; is in the vault
-                    and the GHL sub-account has calendar data.
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : events.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-              No meetings scheduled today.
-            </div>
-          ) : (
-            events.map((ev, i) => {
-              const link = findMeetingLink(ev)
-              return (
-                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
-                  <div
-                    className="flex-shrink-0 text-right"
-                    style={{ minWidth: '5rem' }}
-                  >
-                    <div className="text-sm font-semibold tabular-nums">
-                      {formatTime(ev.startTime)}
-                    </div>
-                    {ev.endTime && (
-                      <div className="text-xs text-muted-foreground">
-                        – {formatTime(ev.endTime)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-8 w-px bg-primary/30" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {ev.title || ev.name || 'Untitled'}
-                    </div>
-                    <div className="mt-0.5 flex gap-1.5 text-xs text-muted-foreground">
-                      {ev.calendarName && <span>{ev.calendarName}</span>}
-                      {ev.contactName && <span>• {ev.contactName}</span>}
-                      {ev.status && <span>• {ev.status}</span>}
-                    </div>
-                  </div>
-                  {link && <JoinButton link={link} />}
-                </div>
-              )
-            })
+      {/* "Next up" — meetings list ported from the mockup's pattern.
+          The very next meeting is highlighted with the primary-soft
+          background + Join button; the rest are surface cards with
+          shadow-soft and a Details affordance. Each row is a stack of
+          time/duration · title/contact · join action — matches the
+          mockup's grid almost exactly. */}
+      <section>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-[20px] font-semibold tracking-tight">Next up</h2>
+          {events.length > 0 && (
+            <Link
+              href="/calendar"
+              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+            >
+              See all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
           )}
         </div>
+
+        {calQuery.isLoading ? (
+          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-soft">
+            Loading calendar…
+          </div>
+        ) : calQuery.isError ? (
+          <div className="flex items-start gap-2 rounded-2xl border border-border-soft bg-surface-muted p-4 text-sm">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+            <div>
+              <div className="font-medium">Calendar unavailable</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {(calQuery.error as Error).message}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Make sure &quot;GHL Genisys Token&quot; is in the vault and
+                the GHL sub-account has calendar data.
+              </div>
+            </div>
+          </div>
+        ) : events.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center shadow-soft">
+            <Calendar className="mx-auto h-8 w-8 text-muted-foreground/40" />
+            <p className="mt-2 text-sm text-muted-foreground">
+              No meetings scheduled today.
+            </p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {events.map((ev, i) => {
+              const link = findMeetingLink(ev)
+              const isFirst = i === 0
+              return (
+                <li
+                  key={ev.id || i}
+                  className={cn(
+                    'flex items-center gap-4 rounded-2xl border px-4 py-3.5 transition',
+                    isFirst
+                      ? 'border-primary/20 bg-primary-soft'
+                      : 'border-border bg-card shadow-soft hover:bg-surface-muted'
+                  )}
+                >
+                  <div className="w-20 shrink-0">
+                    <p className="text-sm font-semibold tabular-nums">
+                      {formatTime(ev.startTime)}
+                    </p>
+                    {ev.endTime && (
+                      <p className="text-xs text-muted-foreground">
+                        – {formatTime(ev.endTime)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">
+                      {ev.title || ev.name || 'Untitled'}
+                      {ev.calendarName && (
+                        <span className="font-normal text-muted-foreground">
+                          {' '}
+                          · {ev.calendarName}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {[ev.contactName, ev.status].filter(Boolean).join(' · ') ||
+                        'No contact attached'}
+                    </p>
+                  </div>
+                  {link ? (
+                    <JoinButton link={link} highlighted={isFirst} />
+                  ) : (
+                    // No meeting URL — show a neutral "Details" pill
+                    // so the row still terminates with an action and
+                    // the layout stays consistent across rows.
+                    <span
+                      className={cn(
+                        'rounded-full px-4 py-1.5 text-xs font-semibold',
+                        isFirst
+                          ? 'bg-primary text-primary-foreground'
+                          : 'border border-border bg-card text-foreground/80'
+                      )}
+                    >
+                      Details
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </section>
 
       {showAdd && (
@@ -774,22 +811,18 @@ function AddTaskModal({
   )
 }
 
-function JoinButton({ link }: { link: MeetingLink }) {
+function JoinButton({
+  link,
+  highlighted,
+}: {
+  link: MeetingLink
+  /** When true, renders the solid primary-pill style used on the
+   *  "first up" highlighted meeting; otherwise renders the neutral
+   *  outline-pill style for subsequent rows. */
+  highlighted?: boolean
+}) {
   const Icon =
     link.kind === 'phone' ? Phone : link.kind === 'url' ? ExternalLink : Video
-
-  // Distinct tint per provider so Ethan can recognize at a glance which
-  // meeting tool he's about to launch.
-  const tone =
-    link.kind === 'zoom'
-      ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-      : link.kind === 'meet'
-        ? 'border-green-600 bg-green-600 text-white hover:bg-green-700'
-        : link.kind === 'teams'
-          ? 'border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700'
-          : link.kind === 'phone'
-            ? 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-            : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
 
   return (
     <a
@@ -798,8 +831,10 @@ function JoinButton({ link }: { link: MeetingLink }) {
       rel={link.kind === 'phone' ? undefined : 'noopener noreferrer'}
       title={link.url}
       className={cn(
-        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium',
-        tone
+        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition',
+        highlighted
+          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+          : 'border border-border bg-card text-foreground/80 hover:bg-muted'
       )}
     >
       <Icon className="h-3.5 w-3.5" />

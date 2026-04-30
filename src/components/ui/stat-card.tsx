@@ -56,15 +56,11 @@ export function StatCard({
         className
       )}
     >
-      <div className="flex items-center gap-1.5">
-        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-        <p className="text-[13px] text-muted-foreground">{label}</p>
-      </div>
-
-      <div className="mt-2 flex items-end justify-between gap-2">
-        <p className="text-[26px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
-          {value}
-        </p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+          <p className="text-[13px] text-muted-foreground">{label}</p>
+        </div>
         {trend != null && (
           <span
             className={cn(
@@ -83,17 +79,22 @@ export function StatCard({
         )}
       </div>
 
+      {/* Value — bumped to 32px to match the mockup's KPI card */}
+      <p className="mt-2 text-[32px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+        {value}
+      </p>
+
+      {subtitle && (
+        <p className="mt-1.5 text-xs text-muted-foreground">{subtitle}</p>
+      )}
+
       {pct != null && (
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={cn('h-full rounded-full transition-[width]', TONE_BAR[tone])}
             style={{ width: `${pct}%` }}
           />
         </div>
-      )}
-
-      {subtitle && (
-        <p className="mt-1.5 text-xs text-muted-foreground">{subtitle}</p>
       )}
     </div>
   )
