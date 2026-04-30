@@ -8,18 +8,31 @@
  *   - Morning brief: checks every minute, sends Slack DM to users whose
  *     ScheduledSms.timeOfDay matches the current time in their timezone.
  *     (Named ScheduledSms from the Prisma model, but delivery is now via Slack.)
+ *   - Appointment SMS reminders: every minute syncs reminder rows from the
+ *     master sheet + dispatches anything due. Master enable + per-client
+ *     templates live in the RemindersConfig + ReminderTemplate tables.
  */
 import cron from 'node-cron'
 import { prisma } from './prisma'
 import { buildAndSendBrief, buildAndSendSmsBrief } from './morning-brief'
+import {
+  syncRemindersFromSheet,
+  dispatchDueReminders,
+} from './reminders'
 
 let initialized = false
+
+// Sync the sheet less aggressively than we dispatch — reading every
+// minute hammers the Drive API for no benefit. 5-minute cadence still
+// picks up new appointments well within the 30-min reminder window.
+const REMINDER_SYNC_INTERVAL_MS = 5 * 60 * 1000
+let lastReminderSyncAt = 0
 
 export function initScheduler() {
   if (initialized) return
   initialized = true
 
-  console.log('[scheduler] Starting morning brief cron (every minute)')
+  console.log('[scheduler] Starting cron jobs (every minute)')
 
   // Tick every minute, check if any user's brief is due.
   cron.schedule('* * * * *', async () => {
@@ -27,6 +40,35 @@ export function initScheduler() {
       await checkAndSendBriefs()
     } catch (err) {
       console.error('[scheduler] Brief check failed:', err)
+    }
+
+    // Reminder sync (every 5 min) + dispatch (every minute). Wrapped
+    // in their own try/catch so a sheet read failure doesn't kill
+    // the brief tick or the dispatch tick.
+    try {
+      const now = Date.now()
+      if (now - lastReminderSyncAt >= REMINDER_SYNC_INTERVAL_MS) {
+        lastReminderSyncAt = now
+        const result = await syncRemindersFromSheet()
+        if (result.upserted > 0 || result.cancelled > 0) {
+          console.log(
+            `[scheduler] reminders sync: ${result.upserted} new, ${result.skippedPast} past, ${result.cancelled} cancelled (of ${result.scanned} scanned)`
+          )
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] reminders sync failed:', err)
+    }
+
+    try {
+      const result = await dispatchDueReminders()
+      if (result.attempted > 0) {
+        console.log(
+          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed (of ${result.attempted} attempted)`
+        )
+      }
+    } catch (err) {
+      console.error('[scheduler] reminders dispatch failed:', err)
     }
   })
 }

@@ -463,7 +463,9 @@ model Client {
   // agents don't see churned clients in their booking picker.
   lifecycle       String   @default("active")
 
-  appointments Appointment[]
+  appointments      Appointment[]
+  reminderTemplates ReminderTemplate[]
+  appointmentReminders AppointmentReminder[]
 }
 
 model Appointment {
@@ -503,10 +505,127 @@ model Appointment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  reminders AppointmentReminder[]
+
   @@index([agentUserId, createdAt])
   @@index([status])
   @@index([apptDateTime])
   @@index([clientId])
+}
+
+// -----------------------------------------------------------------------------
+// SMS appointment reminders. The Hub sends per-appointment SMS reminders to
+// customers via the GHL API (1 day before, 2 hr before, 30 min before, and
+// at appointment start). One row per (appointment, reminder type) — synced
+// from the master spreadsheet on every scheduler tick so manual sheet
+// entries get reminders too, not just Hub-booked rows.
+//
+// Past appointments are guarded — reminders whose `scheduledFor` is already
+// in the past at insert time get marked `skipped` immediately so the
+// dispatcher never accidentally fires "your appointment is starting" two
+// weeks late.
+// -----------------------------------------------------------------------------
+
+model AppointmentReminder {
+  id              String   @id @default(cuid())
+
+  // Source of truth — exactly one of these resolves to the appointment:
+  //   1. appointmentId for Hub-booked rows (preferred when available)
+  //   2. sheetTabTitle + sheetRowNumber for sheet-only rows
+  // Both are persisted when known so a sheet-row that later picks up
+  // a DB ID stays linkable.
+  appointmentId   String?
+  appointment     Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  sheetTabTitle   String?
+  sheetRowNumber  Int?
+
+  // Composite source key — "db:cuid" or "sheet:Master Table:42" — used
+  // for the unique index alongside reminderType. Stable per appointment
+  // so re-syncs upsert instead of duplicating.
+  sourceKey       String
+
+  // Which window this reminder is for. One of: "1day" | "2hr" | "30min"
+  // | "start". Strings instead of an enum so adding new windows later
+  // is just a config change.
+  reminderType    String
+
+  // UTC moment the reminder should fire. Computed at row-create time
+  // from apptDateTime + customerTimezone, then never recomputed —
+  // edits to the source row trigger a re-sync that produces a fresh
+  // reminder row (the old one gets cancelled).
+  scheduledFor    DateTime
+
+  // Snapshots so we can render the SMS even if the source row is
+  // edited / deleted between sync and dispatch. Keeps the message
+  // body stable + audit trail honest.
+  customerName    String
+  customerPhone   String
+  customerTimezone String
+  apptDateTime    DateTime
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientName      String?
+  address         String?
+  agentName       String?
+
+  // Send tracking. Lifecycle: pending → sending → sent | failed.
+  // Skipped = past-due at create time (we never even tried). Cancelled
+  // = the source row went away or got marked cancelled before fire.
+  status          String   @default("pending")
+  sentAt          DateTime?
+  errorMessage    String?  @db.Text
+  ghlContactId    String?
+  ghlMessageId    String?
+  ghlConversationId String?
+
+  // Final rendered body — captured at send time so the SMS log shows
+  // exactly what the customer received, even if a template is later
+  // edited.
+  messageBody     String?  @db.Text
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([sourceKey, reminderType], map: "ux_reminder_source_type")
+  @@index([scheduledFor, status])
+  @@index([appointmentId])
+  @@index([clientId])
+  @@index([status, sentAt])
+}
+
+// Per-(client, reminderType) message body. Falls back to the
+// hardcoded defaults in lib/reminders.ts when no template is set —
+// so the system works out of the box and admins only edit what they
+// want to override. clientId=null is the global default override
+// (rarely used in practice, but lets us flip default copy without
+// touching code).
+model ReminderTemplate {
+  id           String   @id @default(cuid())
+  clientId     String?
+  client       Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  reminderType String
+
+  body         String   @db.Text
+  enabled      Boolean  @default(true)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([clientId, reminderType], map: "ux_template_client_type")
+}
+
+// Singleton config for the SMS-reminder system. Master enable + which
+// vault entry's GHL JWT token to use for sending. id is hardcoded to
+// "singleton" so it's always upsertable with a known key.
+model RemindersConfig {
+  id              String   @id @default("singleton")
+  enabled         Boolean  @default(false)
+  vaultEntryName  String   @default("GHL Genisys Token")
+  // Cap how far ahead we'll create reminder rows. Anything further
+  // out gets re-evaluated on the next sync. Default 10 days covers
+  // the 1-day-out window with margin to spare.
+  lookaheadDays   Int      @default(10)
+  updatedAt       DateTime @updatedAt @default(now())
 }
 
 // -----------------------------------------------------------------------------

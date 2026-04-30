@@ -22,8 +22,19 @@ import {
   Wrench,
   Pause,
   Play,
+  MessagesSquare,
+  RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+// Importing from the client-safe constants module — pulling from
+// `lib/reminders` would drag Prisma + Drive helpers into the browser
+// bundle.
+import {
+  REMINDER_LABELS,
+  REMINDER_TYPES,
+  TEMPLATE_PLACEHOLDERS,
+  type ReminderType,
+} from '@/lib/reminders-constants'
 
 export default function SettingsPage() {
   return (
@@ -53,6 +64,8 @@ export default function SettingsPage() {
       <TwilioTestSection />
 
       <SheetMaintenanceSection />
+
+      <AppointmentRemindersSection />
 
       <ComingSoonSection />
     </div>
@@ -1436,4 +1449,560 @@ function shortTz(tz: string): string {
     UTC: 'UTC',
   }
   return map[tz] || tz
+}
+
+// ============================================================================
+// Appointment SMS reminders — master toggle, per-client templates,
+// recent log. The data + cron live in lib/reminders.ts; this section
+// is just the admin-facing surface to configure + observe it.
+// ============================================================================
+
+type ReminderConfig = {
+  enabled: boolean
+  vaultEntryName: string
+  lookaheadDays: number
+  updatedAt: string
+}
+
+type TemplateCell = {
+  type: ReminderType
+  body: string
+  enabled: boolean
+  source: 'client' | 'global' | 'default'
+}
+
+type TemplateRow = {
+  clientId: string | null
+  clientName: string
+  color: string
+  state: string | null
+  cells: TemplateCell[]
+}
+
+type ReminderLogEntry = {
+  id: string
+  reminderType: string
+  scheduledFor: string
+  status: string
+  sentAt: string | null
+  errorMessage: string | null
+  customerName: string
+  customerPhone: string
+  apptDateTime: string
+  clientName: string | null
+  client: { id: string; name: string; color: string } | null
+  messageBody: string | null
+}
+
+function AppointmentRemindersSection() {
+  const qc = useQueryClient()
+  const configQuery = useQuery<{ config: ReminderConfig }>({
+    queryKey: ['reminders-config'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/reminders/config')
+      if (!res.ok) throw new Error('Failed to load config')
+      return res.json()
+    },
+  })
+  const config = configQuery.data?.config
+
+  const updateConfig = useMutation({
+    mutationFn: async (patch: Partial<ReminderConfig>) => {
+      const res = await fetch('/api/admin/reminders/config', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      return res.json()
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reminders-config'] }),
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/reminders/sync', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      return data as {
+        ok: true
+        scanned: number
+        upserted: number
+        skippedPast: number
+        cancelled: number
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reminders-log'] }),
+  })
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mb-1 flex items-center gap-3">
+        <MessagesSquare className="h-5 w-5 text-blue-600" />
+        <h3 className="font-semibold">Appointment SMS reminders</h3>
+        {config?.enabled && (
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            Live
+          </span>
+        )}
+      </div>
+      <p className="mb-4 text-sm text-zinc-500">
+        SMS reminders to customers a day before, 2 hours before, 30 minutes
+        before, and at the start of every booked appointment. Pulls from the
+        master tracker sheet so manual entries get reminders too. Past
+        appointments are guarded — anything already-passed is marked
+        &ldquo;skipped&rdquo; and never fires.
+      </p>
+
+      {/* Master toggle */}
+      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">
+            {config?.enabled ? 'Reminders are sending' : 'Reminders are paused'}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Master switch — when off, the cron sync still keeps reminder rows
+            up to date, but nothing actually fires. Flip on once you&apos;ve
+            confirmed templates look right.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => updateConfig.mutate({ enabled: !config?.enabled })}
+          disabled={updateConfig.isPending || !config}
+          className={cn(
+            'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium disabled:opacity-50',
+            config?.enabled
+              ? 'bg-rose-600 text-white hover:bg-rose-700'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          )}
+        >
+          {config?.enabled ? (
+            <>
+              <Pause className="h-3.5 w-3.5" /> Pause
+            </>
+          ) : (
+            <>
+              <Play className="h-3.5 w-3.5" /> Enable
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Vault key + lookahead window */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            GHL vault entry
+          </label>
+          <input
+            type="text"
+            defaultValue={config?.vaultEntryName ?? 'GHL Genisys Token'}
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (v && v !== config?.vaultEntryName) {
+                updateConfig.mutate({ vaultEntryName: v })
+              }
+            }}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Vault entry name holding the GHL Private Integration JWT
+            (must include the location id).
+          </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Lookahead days
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            defaultValue={config?.lookaheadDays ?? 10}
+            onBlur={(e) => {
+              const n = parseInt(e.target.value, 10)
+              if (Number.isFinite(n) && n > 0 && n !== config?.lookaheadDays) {
+                updateConfig.mutate({ lookaheadDays: n })
+              }
+            }}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            How far ahead to schedule reminders. Re-evaluated on each
+            5-minute sync.
+          </p>
+        </div>
+      </div>
+
+      {/* Manual sync */}
+      <div className="mt-3 flex items-center justify-between rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">Sync from sheet now</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Re-reads every row of the master tracker sheet and rebuilds
+            the reminder queue. Idempotent — safe to run any time. The
+            cron does this every 5 minutes automatically.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          <RefreshCw
+            className={cn(
+              'h-3.5 w-3.5',
+              syncMutation.isPending && 'animate-spin'
+            )}
+          />
+          {syncMutation.isPending ? 'Syncing…' : 'Sync now'}
+        </button>
+      </div>
+      {syncMutation.isSuccess && (
+        <Alert variant="success">
+          <div className="font-medium">
+            Synced {syncMutation.data.scanned} appointment
+            {syncMutation.data.scanned === 1 ? '' : 's'}.
+          </div>
+          <div className="mt-1 text-xs">
+            New: <code>{syncMutation.data.upserted}</code> · Past
+            (skipped): <code>{syncMutation.data.skippedPast}</code> ·
+            Cancelled: <code>{syncMutation.data.cancelled}</code>
+          </div>
+        </Alert>
+      )}
+      {syncMutation.isError && (
+        <Alert variant="error">
+          <div className="font-medium">Sync failed</div>
+          <div className="mt-1 text-xs">
+            {(syncMutation.error as Error).message}
+          </div>
+        </Alert>
+      )}
+
+      {/* Templates editor */}
+      <div className="mt-6">
+        <h4 className="mb-2 text-sm font-semibold">Message templates</h4>
+        <p className="mb-3 text-xs text-zinc-500">
+          Edit per-client copy below. Cells marked{' '}
+          <span className="font-mono">default</span> use the built-in
+          fallback — admin overrides save into the DB. Variables:{' '}
+          {TEMPLATE_PLACEHOLDERS.map((p) => (
+            <code
+              key={p}
+              className="ml-1 rounded bg-zinc-100 px-1 py-0.5 text-[11px] dark:bg-zinc-800"
+            >
+              {p}
+            </code>
+          ))}
+        </p>
+        <ReminderTemplatesGrid />
+      </div>
+
+      {/* Recent log */}
+      <div className="mt-6">
+        <h4 className="mb-2 text-sm font-semibold">Recent reminders</h4>
+        <ReminderRecentLog />
+      </div>
+    </section>
+  )
+}
+
+function ReminderTemplatesGrid() {
+  const qc = useQueryClient()
+  const query = useQuery<{ rows: TemplateRow[] }>({
+    queryKey: ['reminders-templates'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/reminders/templates')
+      if (!res.ok) throw new Error('Failed to load templates')
+      return res.json()
+    },
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: async (patch: {
+      clientId: string | null
+      reminderType: ReminderType
+      body: string
+      enabled: boolean
+    }) => {
+      const res = await fetch('/api/admin/reminders/templates', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      return res.json()
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['reminders-templates'] }),
+  })
+
+  const resetMutation = useMutation({
+    mutationFn: async (params: {
+      clientId: string | null
+      reminderType: ReminderType
+    }) => {
+      const sp = new URLSearchParams()
+      if (params.clientId) sp.set('clientId', params.clientId)
+      sp.set('reminderType', params.reminderType)
+      const res = await fetch(`/api/admin/reminders/templates?${sp}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Reset failed')
+      return res.json()
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['reminders-templates'] }),
+  })
+
+  if (query.isLoading)
+    return <p className="text-xs text-zinc-500">Loading templates…</p>
+  if (query.isError)
+    return <p className="text-xs text-rose-600">Couldn&apos;t load templates.</p>
+  if (!query.data) return null
+
+  return (
+    <div className="space-y-4">
+      {query.data.rows.map((row) => (
+        <details
+          key={row.clientId ?? 'global'}
+          open={row.clientId === null}
+          className="rounded-md border border-zinc-200 dark:border-zinc-800"
+        >
+          <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: row.color }}
+              aria-hidden
+            />
+            {row.clientName}
+            {row.state && (
+              <span className="text-xs font-normal text-zinc-500">
+                · {row.state}
+              </span>
+            )}
+          </summary>
+          <div className="space-y-3 border-t border-zinc-200 p-3 dark:border-zinc-800">
+            {row.cells.map((cell) => (
+              <TemplateCellEditor
+                key={`${row.clientId ?? 'g'}:${cell.type}`}
+                clientId={row.clientId}
+                cell={cell}
+                onSave={(body, enabled) =>
+                  saveMutation.mutate({
+                    clientId: row.clientId,
+                    reminderType: cell.type,
+                    body,
+                    enabled,
+                  })
+                }
+                onReset={() =>
+                  resetMutation.mutate({
+                    clientId: row.clientId,
+                    reminderType: cell.type,
+                  })
+                }
+              />
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  )
+}
+
+function TemplateCellEditor({
+  cell,
+  onSave,
+  onReset,
+}: {
+  clientId: string | null
+  cell: TemplateCell
+  onSave: (body: string, enabled: boolean) => void
+  onReset: () => void
+}) {
+  const [body, setBody] = useState(cell.body)
+  const [enabled, setEnabled] = useState(cell.enabled)
+  const [dirty, setDirty] = useState(false)
+
+  // Re-sync local draft when the upstream changes (e.g. after the
+  // reset round-trip clears the override).
+  useEffect(() => {
+    setBody(cell.body)
+    setEnabled(cell.enabled)
+    setDirty(false)
+  }, [cell.body, cell.enabled])
+
+  function update(next: { body?: string; enabled?: boolean }) {
+    if (next.body !== undefined) setBody(next.body)
+    if (next.enabled !== undefined) setEnabled(next.enabled)
+    setDirty(true)
+  }
+
+  return (
+    <div className="rounded-md border border-zinc-100 p-3 dark:border-zinc-800">
+      <div className="mb-1.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider">
+            {REMINDER_LABELS[cell.type]}
+          </span>
+          <span
+            className={cn(
+              'rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase',
+              cell.source === 'client' &&
+                'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+              cell.source === 'global' &&
+                'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+              cell.source === 'default' &&
+                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+            )}
+          >
+            {cell.source}
+          </span>
+        </div>
+        <label className="flex items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => update({ enabled: e.target.checked })}
+            className="h-3.5 w-3.5"
+          />
+          Enabled
+        </label>
+      </div>
+      <textarea
+        value={body}
+        onChange={(e) => update({ body: e.target.value })}
+        rows={3}
+        className="w-full resize-y rounded-md border border-zinc-200 px-3 py-2 text-xs font-mono dark:border-zinc-800 dark:bg-zinc-950"
+      />
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {cell.source !== 'default' && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title="Remove this override and fall back to the next layer"
+          >
+            Reset
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            onSave(body, enabled)
+            setDirty(false)
+          }}
+          disabled={!dirty || !body.trim()}
+          className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ReminderRecentLog() {
+  const query = useQuery<{ reminders: ReminderLogEntry[] }>({
+    queryKey: ['reminders-log'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/reminders?limit=20')
+      if (!res.ok) throw new Error('Failed to load')
+      return res.json()
+    },
+    refetchInterval: 30_000,
+  })
+
+  if (query.isLoading)
+    return <p className="text-xs text-zinc-500">Loading log…</p>
+  if (query.isError)
+    return <p className="text-xs text-rose-600">Couldn&apos;t load log.</p>
+
+  const reminders = query.data?.reminders ?? []
+  if (reminders.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed border-zinc-200 p-3 text-xs text-zinc-500 dark:border-zinc-800">
+        No reminder activity yet. Click &ldquo;Sync now&rdquo; above once your
+        master sheet has at least one upcoming appointment.
+      </p>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+      <table className="w-full text-xs">
+        <thead className="bg-zinc-50 dark:bg-zinc-900">
+          <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Window</th>
+            <th className="px-3 py-2">Customer</th>
+            <th className="px-3 py-2">Client</th>
+            <th className="px-3 py-2">Scheduled</th>
+            <th className="px-3 py-2">Sent</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {reminders.map((r) => (
+            <tr key={r.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+              <td className="px-3 py-2">
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                    r.status === 'sent' &&
+                      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+                    r.status === 'pending' &&
+                      'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+                    r.status === 'failed' &&
+                      'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+                    r.status === 'skipped' &&
+                      'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+                    r.status === 'cancelled' &&
+                      'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                  )}
+                  title={r.errorMessage || ''}
+                >
+                  {r.status}
+                </span>
+              </td>
+              <td className="px-3 py-2 font-medium">
+                {REMINDER_LABELS[r.reminderType as ReminderType] ??
+                  r.reminderType}
+              </td>
+              <td className="px-3 py-2">
+                <div className="font-medium">{r.customerName}</div>
+                <div className="text-[10px] text-zinc-500">
+                  {r.customerPhone}
+                </div>
+              </td>
+              <td className="px-3 py-2">{r.clientName ?? '—'}</td>
+              <td className="px-3 py-2 tabular-nums text-zinc-500">
+                {new Date(r.scheduledFor).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                })}
+              </td>
+              <td className="px-3 py-2 tabular-nums text-zinc-500">
+                {r.sentAt
+                  ? new Date(r.sentAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })
+                  : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
