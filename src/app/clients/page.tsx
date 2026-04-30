@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
   Loader2,
@@ -76,6 +76,7 @@ function stateCode(state: string | null): string {
 export default function ClientsPage() {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [active, setActive] = useState<ClientWithCounts | null>(null)
+  const [newOpen, setNewOpen] = useState(false)
 
   const query = useQuery<{ clients: ClientWithCounts[] }>({
     queryKey: ['clients-with-counts'],
@@ -106,7 +107,8 @@ export default function ClientsPage() {
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients' }]}
         actions={
           <button
-            onClick={() => alert('Add the new client via Prisma Studio for now — the create flow ships in a follow-up.')}
+            type="button"
+            onClick={() => setNewOpen(true)}
             className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" /> New client
@@ -190,6 +192,7 @@ export default function ClientsPage() {
       )}
 
       <ClientDetailDialog client={active} onClose={() => setActive(null)} />
+      <NewClientDialog open={newOpen} onOpenChange={setNewOpen} />
     </div>
   )
 }
@@ -455,6 +458,271 @@ function ClientDetailDialog({
           </a>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Create-client modal — calls POST /api/clients, invalidates the
+ * with-counts cache on success so the new row appears in the table
+ * immediately. Admin-only (the API enforces); the button still
+ * renders for non-admins but the request will 403.
+ *
+ * Picks up the "Active" lifecycle by default (api sets active=true).
+ * State is optional so the form stays fast for cases where the
+ * partnership location isn't decided yet.
+ */
+const COLOR_PRESETS = [
+  { name: 'Brighton amber', value: '#f59e0b' },
+  { name: 'Spring emerald', value: '#10b981' },
+  { name: 'Energy Upgrade sky', value: '#0ea5e9' },
+  { name: 'Violet', value: '#8b5cf6' },
+  { name: 'Rose', value: '#f43f5e' },
+  { name: 'Slate', value: '#64748b' },
+]
+
+function NewClientDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+}) {
+  const qc = useQueryClient()
+  const [name, setName] = useState('')
+  const [state, setState] = useState('')
+  const [color, setColor] = useState(COLOR_PRESETS[0].value)
+  const [error, setError] = useState<string | null>(null)
+
+  function reset() {
+    setName('')
+    setState('')
+    setColor(COLOR_PRESETS[0].value)
+    setError(null)
+  }
+
+  // Esc to close — same convention as ClientDetailDialog above.
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        reset()
+        onOpenChange(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onOpenChange])
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), state: state.trim() || null, color }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create client')
+      }
+      return data
+    },
+    onSuccess: () => {
+      // Refresh both the with-counts list (table) and the basic
+      // list (used by booking forms / search dialog) so every place
+      // that lists clients picks up the new row.
+      qc.invalidateQueries({ queryKey: ['clients-with-counts'] })
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      reset()
+      onOpenChange(false)
+    },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    if (!name.trim()) {
+      setError('Client name is required.')
+      return
+    }
+    create.mutate()
+  }
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10vh] backdrop-blur-sm"
+      onClick={() => {
+        reset()
+        onOpenChange(false)
+      }}
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">New client</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Add a Genisys client. State is optional; you can fill it
+              in later when the partnership location is firm.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              reset()
+              onOpenChange(false)
+            }}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="client-name" className="text-xs font-semibold">
+            Client name <span className="text-destructive">*</span>
+          </label>
+          <input
+            id="client-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Acme Solar"
+            required
+            autoFocus
+            className="rounded-xl border border-border bg-card px-3 py-2 text-sm focus:border-primary focus:outline-none"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="client-state" className="text-xs font-semibold">
+            State
+          </label>
+          <input
+            id="client-state"
+            type="text"
+            value={state}
+            onChange={(e) => setState(e.target.value)}
+            placeholder="Arizona, California, Utah, …"
+            list="state-suggestions"
+            className="rounded-xl border border-border bg-card px-3 py-2 text-sm focus:border-primary focus:outline-none"
+          />
+          <datalist id="state-suggestions">
+            <option value="Arizona" />
+            <option value="California" />
+            <option value="Utah" />
+            <option value="Nevada" />
+            <option value="Texas" />
+            <option value="Colorado" />
+            <option value="New Mexico" />
+            <option value="Oregon" />
+            <option value="Washington" />
+            <option value="Florida" />
+          </datalist>
+          <p className="text-[11px] text-muted-foreground">
+            The state-based client inference on Master Tracker uses this
+            field to auto-tag rows whose Client column is blank in the
+            sheet.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-semibold">Brand color</label>
+          <div className="flex flex-wrap items-center gap-2">
+            {COLOR_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setColor(p.value)}
+                title={p.name}
+                aria-label={p.name}
+                className={cn(
+                  'grid h-8 w-8 place-items-center rounded-full transition',
+                  color === p.value
+                    ? 'ring-2 ring-foreground ring-offset-2 ring-offset-popover'
+                    : 'opacity-80 hover:opacity-100'
+                )}
+                style={{ backgroundColor: p.value }}
+              >
+                {color === p.value && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                )}
+              </button>
+            ))}
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="ml-1 h-8 w-8 cursor-pointer rounded-full border border-border bg-card"
+              title="Custom hex"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Used everywhere this client appears — appointment badges,
+            client filters, the avatar above.
+          </p>
+        </div>
+
+        {/* Live preview so the admin sees what the row will look like */}
+        <div className="flex items-center gap-3 rounded-xl border border-border-soft bg-surface-muted p-3">
+          <span
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-semibold text-white"
+            style={{ backgroundColor: color }}
+          >
+            {(() => {
+              const words = name.split(/\s+/).filter(Boolean)
+              if (words.length === 0) return '?'
+              if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+              return (words[0][0] + words[1][0]).toUpperCase()
+            })()}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {name.trim() || 'Client name'}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {state.trim() || 'State unset'}
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              reset()
+              onOpenChange(false)
+            }}
+            className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground/80 transition hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending || !name.trim()}
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+          >
+            {create.isPending ? 'Creating…' : 'Create client'}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
