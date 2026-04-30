@@ -441,6 +441,28 @@ model Client {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // ---- Relationship + contact details ------------------------------------
+  // Free-form text so admins can paste whatever the client cares about
+  // without a schema migration each time. All optional — the create
+  // flow stays fast for cases where these aren't known yet.
+  contactName     String? // primary human contact ("David Mehta")
+  contactRole     String? // their role ("VP Revenue", "COO")
+  contactEmail    String?
+  contactPhone    String? // stored canonical-formatted ("(555) 123-4567")
+  address         String?
+  notes           String? // long-form, multi-line — markdown-ish OK
+  intakeFormUrl   String?
+  ghlSubaccountUrl String?
+
+  // Lifecycle status — richer than the boolean `active`. Valid values:
+  //   "active"       — engaged + booking
+  //   "onboarding"   — in setup, not yet receiving bookings
+  //   "paused"       — temporarily on hold
+  //   "churned"      — relationship ended (kept for historical reporting)
+  // The legacy `active` flag still gates list visibility for now so
+  // agents don't see churned clients in their booking picker.
+  lifecycle       String   @default("active")
+
   appointments Appointment[]
 }
 

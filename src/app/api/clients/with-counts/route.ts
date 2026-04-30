@@ -26,13 +26,25 @@ export async function GET() {
   // bucket by clientId. Scales fine until we have 100k+ rows.
   const [clients, appts] = await Promise.all([
     prisma.client.findMany({
-      where: { active: true },
+      // Show every client including churned ones — admins managing
+      // the list need them visible. Filter happens client-side on
+      // the page so the panel can flip between filters without
+      // re-fetching.
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
         name: true,
         state: true,
         color: true,
+        lifecycle: true,
+        contactName: true,
+        contactRole: true,
+        contactEmail: true,
+        contactPhone: true,
+        address: true,
+        notes: true,
+        intakeFormUrl: true,
+        ghlSubaccountUrl: true,
       },
     }),
     prisma.appointment.findMany({
@@ -95,6 +107,15 @@ export async function GET() {
       name: c.name,
       state: c.state,
       color: c.color,
+      lifecycle: c.lifecycle,
+      contactName: c.contactName,
+      contactRole: c.contactRole,
+      contactEmail: c.contactEmail,
+      contactPhone: c.contactPhone,
+      address: c.address,
+      notes: c.notes,
+      intakeFormUrl: c.intakeFormUrl,
+      ghlSubaccountUrl: c.ghlSubaccountUrl,
       total: stats.total,
       upcoming: stats.upcoming,
       showed: stats.showed,
