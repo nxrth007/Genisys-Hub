@@ -35,21 +35,29 @@ export default function CallCenterLayout({
 }: {
   children: React.ReactNode
 }) {
+  // Chrome (PageHeader + tabs + DatePicker) stays capped at 1280
+  // because that width keeps the heading + tab strip readable at any
+  // viewport. Children render *outside* that wrapper so each page
+  // can choose its own max-width — e.g. Master Tracker uses
+  // max-w-screen-2xl to fit its 12-column table without forcing a
+  // horizontal scroll.
   return (
-    <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
-      <PageHeader
-        title="Call Center"
-        breadcrumbs={[
-          { label: 'Genisys' },
-          { label: 'Operations' },
-          { label: 'Call Center' },
-        ]}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <CallCenterTabs />
-        <Suspense fallback={<DateRangePickerSkeleton />}>
-          <RangePickerSlot />
-        </Suspense>
+    <div className="flex flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6">
+        <PageHeader
+          title="Call Center"
+          breadcrumbs={[
+            { label: 'Genisys' },
+            { label: 'Operations' },
+            { label: 'Call Center' },
+          ]}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CallCenterTabs />
+          <Suspense fallback={<DateRangePickerSkeleton />}>
+            <RangePickerSlot />
+          </Suspense>
+        </div>
       </div>
       {children}
     </div>

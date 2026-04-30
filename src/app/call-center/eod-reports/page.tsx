@@ -80,7 +80,7 @@ function EodReportsList() {
   }, [reports])
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1280px] space-y-6">
       <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight">

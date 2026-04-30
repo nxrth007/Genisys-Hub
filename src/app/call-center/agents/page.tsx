@@ -68,7 +68,7 @@ export default function CallCenterAgentsPage() {
   const data = query.data
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1280px] space-y-6">
       {/* Workspace summary cards — three at the top, mirrors the
           mockup's Agents-tab summary row. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

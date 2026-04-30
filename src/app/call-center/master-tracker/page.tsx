@@ -611,7 +611,15 @@ export default function MasterTrackerPage() {
   }
 
   return (
-    <div className="min-w-0 space-y-5">
+    // max-w-screen-2xl (1536px) — wider than the 1280 the rest of the
+    // Call Center tabs use because Master Tracker's table has 12
+    // columns (APPT / CLIENT / AGENT / CUSTOMER / PHONE / ADDRESS /
+    // UTILITY / BILL / DEAL / STATUS / SENT / REC). At 1280 the table
+    // forces a horizontal scroll; at 1536 most desktops can see the
+    // whole row at a glance.
+    // min-w-0 + the inner overflow-x-auto on the table keep the
+    // scroll contained when the viewport is narrower than max-width.
+    <div className="mx-auto min-w-0 w-full max-w-screen-2xl space-y-5">
       {/* ---- Client switcher ---- */}
       <div className="flex flex-wrap items-center gap-2">
         <ClientPill

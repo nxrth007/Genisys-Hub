@@ -102,7 +102,7 @@ function LeaderboardView() {
   const dateLabel = formatRangeLabel(since, until)
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6">
       {/* ---- Incentive banner ---- */}
       <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-primary-soft via-card to-amber-50 p-6 shadow-card backdrop-blur-xl dark:to-amber-950/20">
         <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/40" />

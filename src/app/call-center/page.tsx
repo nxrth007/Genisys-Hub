@@ -146,7 +146,7 @@ function AppointmentsView() {
   }, [appointments])
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1280px] space-y-6">
       {/* ---- 4 stat cards (mockup row) ---- */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -300,7 +300,7 @@ function formatTime(d: Date): string {
  *  visual rhythm of the loaded page so the layout doesn't shift. */
 function AppointmentsSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[1280px] space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
