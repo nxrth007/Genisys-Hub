@@ -225,18 +225,38 @@ export async function postChannelMessage(
 }
 
 /**
- * Join a public channel. Required before the bot can read messages.
- * No-ops if already a member. Throws for private channels (bot must be invited).
+ * Join a public channel. Required before the bot can read messages
+ * in a public channel it hasn't been explicitly invited to.
+ *
+ * Three Slack errors are no-ops for our purposes:
+ *   - already_in_channel — bot's already a member; nothing to do
+ *   - method_not_supported_for_channel_type — channel is private (or
+ *     a DM / mpim / shared channel). conversations.join only works on
+ *     public channels; for everything else, the bot must be invited
+ *     manually. If the messages route is calling this, the bot is
+ *     already in the channel (otherwise listChannels wouldn't have
+ *     surfaced it), so we silently succeed.
+ *   - is_archived — channel exists but no one can post; let the
+ *     subsequent history call surface the empty state instead of
+ *     blowing up here.
+ *
+ * Anything else is a real error worth surfacing to the caller.
  */
 export async function joinChannel(channelId: string): Promise<void> {
   const client = await getClient()
   try {
     await client.conversations.join({ channel: channelId })
   } catch (err: unknown) {
-    // already_in_channel is fine
     if (err && typeof err === 'object' && 'data' in err) {
       const data = (err as { data?: { error?: string } }).data
-      if (data?.error === 'already_in_channel') return
+      const code = data?.error
+      if (
+        code === 'already_in_channel' ||
+        code === 'method_not_supported_for_channel_type' ||
+        code === 'is_archived'
+      ) {
+        return
+      }
     }
     throw err
   }
