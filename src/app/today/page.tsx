@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -340,6 +340,36 @@ export default function TodayPage() {
     day: 'numeric',
   })
 
+  // Resolve the viewer's timezone client-side and surface it in the
+  // page subtitle. Tells Alex (NH → ET) vs Ethan (LA → PT) at a
+  // glance what zone every time on the page is rendered in. Detection
+  // happens in an effect so the SSR pass + client render don't
+  // disagree (Intl resolution depends on the browser's locale).
+  const [viewerTz, setViewerTz] = useState<{
+    iana: string
+    short: string
+  } | null>(null)
+  useEffect(() => {
+    try {
+      const iana = Intl.DateTimeFormat().resolvedOptions().timeZone
+      // Use the browser's own short label (auto-DST aware — gives
+      // "EDT" in summer, "EST" in winter rather than a static guess).
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: iana,
+        timeZoneName: 'short',
+      }).formatToParts(new Date())
+      const short =
+        parts.find((p) => p.type === 'timeZoneName')?.value ?? iana
+      setViewerTz({ iana, short })
+    } catch {
+      // Browsers without Intl support (extremely rare today) — skip
+      // the indicator silently rather than show a broken label.
+    }
+  }, [])
+  const subtitleWithTz = viewerTz
+    ? `${todayLabel} · all times in ${viewerTz.short}`
+    : todayLabel
+
   return (
     // gap-5 (down from gap-6) tightens vertical rhythm so the page
     // doesn't feel padded at the seams; sections still read distinct
@@ -347,7 +377,7 @@ export default function TodayPage() {
     <div className="mx-auto flex max-w-[1280px] flex-col gap-5">
       <PageHeader
         title="Today"
-        subtitle={todayLabel}
+        subtitle={subtitleWithTz}
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Today' }]}
         actions={
           <button
