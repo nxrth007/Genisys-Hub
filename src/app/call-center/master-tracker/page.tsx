@@ -174,99 +174,6 @@ function matchesQuickFilter(a: Appointment, q: QuickFilter): boolean {
   return true
 }
 
-/* -------------------------------------------------------------------------- */
-/* Address normalization                                                       */
-/*                                                                             */
-/* Sheet entries arrive in wildly inconsistent formats — ALL CAPS, missing    */
-/* commas, stripped leading-zero ZIPs, double spaces. We don't want to mutate */
-/* the source-of-truth sheet, so the cleanup happens on the way out (table    */
-/* display + CSV export). Same input always produces the same output, and a  */
-/* well-formatted address (e.g. "1533 218th St, Torrance, CA 90501") passes  */
-/* through untouched.                                                         */
-/* -------------------------------------------------------------------------- */
-
-// US state + territory two-letter codes. Tokens matching this set keep their
-// uppercase form even when the rest of the address gets Title-Cased.
-const US_STATE_CODES = new Set(
-  ('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS ' +
-    'MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV ' +
-    'WI WY DC PR VI GU AS MP').split(' ')
-)
-
-// Tokens that read better in all-caps than Title-Cased: state codes, country
-// codes, cardinal directions, and a few common postal abbreviations.
-const ADDRESS_KEEP_UPPER = new Set<string>([
-  ...US_STATE_CODES,
-  'USA', 'US', 'PO',
-  'N', 'S', 'E', 'W',
-  'NE', 'NW', 'SE', 'SW',
-  'NNE', 'NNW', 'SSE', 'SSW', 'ENE', 'ESE', 'WNW', 'WSW',
-])
-
-/** Title-case a single word ("MAIN" → "Main", "ST" → "St"). Leaves
- *  non-letter strings alone. */
-function titleCaseWord(word: string): string {
-  if (!word) return word
-  if (!/[A-Za-z]/.test(word)) return word
-  // "McDonald" / "DeShawn" — mixed case → don't touch.
-  if (word !== word.toUpperCase()) return word
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-}
-
-/**
- * Format a raw address for display + export. Idempotent — calling it on
- * already-formatted output returns the same string. Returns null for
- * null input so the call site can still distinguish "no address" from
- * "blank string".
- */
-export function formatAddress(raw: string | null | undefined): string | null {
-  if (raw == null) return null
-  let s = String(raw).trim()
-  if (!s) return ''
-  // Collapse runs of whitespace.
-  s = s.replace(/\s+/g, ' ')
-  // Normalize comma spacing — strip space before, ensure single space after.
-  s = s.replace(/\s*,\s*/g, ', ')
-  // Drop a stray trailing comma if the address ended with one in the sheet.
-  s = s.replace(/,\s*$/, '')
-
-  // Word-by-word case fixup. We only rewrite words that are *entirely*
-  // uppercase — anything mixed-case (intentional like "DeShawn") is
-  // preserved.
-  const words = s.split(' ').map((token) => {
-    // Pull the alphanumeric "core" out, keep surrounding punctuation
-    // (commas, periods, parens) intact for the rebuild.
-    const match = token.match(/^([^A-Za-z0-9]*)([A-Za-z0-9'’\-&/]+)([^A-Za-z0-9]*)$/)
-    if (!match) return token
-    const [, pre, core, post] = match
-    // Pure-numeric — house number, ZIP, etc. — leave alone.
-    if (/^\d+$/.test(core)) return token
-    if (ADDRESS_KEEP_UPPER.has(core.toUpperCase()) && core === core.toUpperCase()) {
-      return token
-    }
-    // Re-case the core if it's all-caps; otherwise leave it.
-    return pre + titleCaseWord(core) + post
-  })
-
-  // ZIP padding: the last token is sometimes a 4-digit number when the
-  // sheet stripped a leading zero from a Northeast ZIP ("03038" → "3038").
-  // If the preceding token is a US state code, pad it back to 5 digits.
-  if (words.length >= 2) {
-    const last = words[words.length - 1]
-    const prev = words[words.length - 2]
-    if (/^\d{4}$/.test(last)) {
-      // The state token may carry a trailing comma stripped above, so
-      // just match its alpha core.
-      const stateCore = prev.replace(/[^A-Za-z]/g, '').toUpperCase()
-      if (US_STATE_CODES.has(stateCore)) {
-        words[words.length - 1] = '0' + last
-      }
-    }
-  }
-
-  return words.join(' ')
-}
-
 /** Render a money-ish field consistently — strip an extra leading "$" if
  *  the source value already had one (defense in depth; the sheet reader
  *  already strips, but old DB values might not). */
@@ -328,7 +235,7 @@ function appointmentToRow(a: Appointment): (string | number)[] {
     a.customerName,
     a.customerPhone,
     a.email || '',
-    formatAddress(a.address) || '',
+    a.address || '',
     a.utilityProvider || '',
     a.monthlyBill || '',
     a.roofType || '',
@@ -1144,16 +1051,11 @@ export default function MasterTrackerPage() {
                         </td>
                         <td
                           className="px-3 py-2.5 text-zinc-500"
-                          // Tooltip shows the raw sheet value so admins
-                          // can see what was actually typed if a
-                          // formatting fix ever masks a real data issue.
                           title={a.address || ''}
                           style={{ minWidth: '260px', maxWidth: '360px' }}
                         >
                           {a.address ? (
-                            <span className="break-words">
-                              {formatAddress(a.address)}
-                            </span>
+                            <span className="break-words">{a.address}</span>
                           ) : (
                             '—'
                           )}
@@ -1453,9 +1355,7 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
         )}
       </DetailItem>
       <DetailItem label="Address">
-        {appointment.address ? (
-          formatAddress(appointment.address)
-        ) : (
+        {appointment.address || (
           <span className="text-zinc-400">Not provided</span>
         )}
       </DetailItem>

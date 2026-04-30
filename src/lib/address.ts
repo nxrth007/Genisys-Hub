@@ -66,6 +66,107 @@ export function formatAddress(parts: AddressParts): string {
   return [street, city, tail].filter(Boolean).join(', ')
 }
 
+/* -------------------------------------------------------------------------- */
+/* Raw-string normalization                                                    */
+/*                                                                             */
+/* Sheet entries arrive in wildly inconsistent shapes — ALL CAPS, missing     */
+/* comma spacing, double whitespace, stripped leading-zero ZIPs. We don't    */
+/* mutate the source-of-truth Google Sheet (the call center types directly   */
+/* into it; surprise rewrites would be jarring), so the cleanup happens at   */
+/* sync time, on the way into the Hub. The Master Tracker API route applies */
+/* this once and the rest of the stack just renders the cleaned value.       */
+/*                                                                            */
+/* normalizeAddress is idempotent — a well-formatted address passes through  */
+/* untouched, and re-running never causes drift. Same input → same output.   */
+/* -------------------------------------------------------------------------- */
+
+// US state + territory two-letter codes. Tokens matching this set keep
+// their uppercase form even when the rest of the address gets
+// Title-Cased.
+const US_STATE_CODES = new Set(
+  ('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS ' +
+    'MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV ' +
+    'WI WY DC PR VI GU AS MP').split(' ')
+)
+
+// Tokens that read better in all-caps than Title-Cased: state codes,
+// country codes, cardinal directions, and a few common postal
+// abbreviations.
+const ADDRESS_KEEP_UPPER = new Set<string>([
+  ...US_STATE_CODES,
+  'USA', 'US', 'PO',
+  'N', 'S', 'E', 'W',
+  'NE', 'NW', 'SE', 'SW',
+  'NNE', 'NNW', 'SSE', 'SSW', 'ENE', 'ESE', 'WNW', 'WSW',
+])
+
+/** Title-case a single word ("MAIN" → "Main", "ST" → "St"). Leaves
+ *  non-letter strings and intentionally mixed-case words alone. */
+function titleCaseWord(word: string): string {
+  if (!word) return word
+  if (!/[A-Za-z]/.test(word)) return word
+  // Mixed case (e.g. "McDonald", "DeShawn") — don't touch.
+  if (word !== word.toUpperCase()) return word
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+}
+
+/**
+ * Clean up a raw address string for storage + display. Returns null
+ * for null input so the caller can distinguish "no address" from
+ * "blank string". Idempotent.
+ */
+export function normalizeAddress(
+  raw: string | null | undefined
+): string | null {
+  if (raw == null) return null
+  let s = String(raw).trim()
+  if (!s) return ''
+  // Collapse runs of whitespace.
+  s = s.replace(/\s+/g, ' ')
+  // Normalize comma spacing — strip space before, ensure single space
+  // after, drop a stray trailing comma.
+  s = s.replace(/\s*,\s*/g, ', ').replace(/,\s*$/, '')
+
+  // Word-by-word case fixup. We only rewrite words that are *entirely*
+  // uppercase — anything mixed-case (intentional, like "DeShawn") is
+  // preserved as-is.
+  const words = s.split(' ').map((token) => {
+    // Pull the alphanumeric "core" out, keep surrounding punctuation
+    // (commas, periods, parens) intact for the rebuild.
+    const match = token.match(
+      /^([^A-Za-z0-9]*)([A-Za-z0-9'’\-&/]+)([^A-Za-z0-9]*)$/
+    )
+    if (!match) return token
+    const [, pre, core, post] = match
+    // Pure-numeric — house number, ZIP, etc. — leave alone.
+    if (/^\d+$/.test(core)) return token
+    if (
+      ADDRESS_KEEP_UPPER.has(core.toUpperCase()) &&
+      core === core.toUpperCase()
+    ) {
+      return token
+    }
+    return pre + titleCaseWord(core) + post
+  })
+
+  // ZIP padding: when the sheet strips the leading zero from a
+  // Northeast ZIP ("03038" → "3038"), pad it back to 5 digits if the
+  // preceding token is a US state code. Only fires on the trailing
+  // 4-digit token, so it never accidentally pads a house number.
+  if (words.length >= 2) {
+    const last = words[words.length - 1]
+    const prev = words[words.length - 2]
+    if (/^\d{4}$/.test(last)) {
+      const stateCore = prev.replace(/[^A-Za-z]/g, '').toUpperCase()
+      if (US_STATE_CODES.has(stateCore)) {
+        words[words.length - 1] = '0' + last
+      }
+    }
+  }
+
+  return words.join(' ')
+}
+
 /**
  * Best-effort split of a "Street, City, ST 12345" line back into
  * parts. Used on edit-mode prefill where the DB has a flat string.

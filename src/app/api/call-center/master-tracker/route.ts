@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { readMasterTableRows } from '@/lib/drive'
+import { normalizeAddress } from '@/lib/address'
 
 /**
  * GET /api/call-center/master-tracker
@@ -90,6 +91,12 @@ export async function GET() {
   }
 
   const appointments = rows.map((r) => {
+    // Clean the address once at the API boundary. Everything downstream
+    // (display, CSV export, search) reads this canonical form, and the
+    // raw sheet value is never touched. Reads as a no-op for addresses
+    // that are already well-formatted.
+    const cleanedAddress = normalizeAddress(r.address)
+
     // 1. Try the explicit Client column from the sheet first.
     let clientLookup = r.client
       ? clientByLower.get(r.client.toLowerCase())
@@ -100,7 +107,7 @@ export async function GET() {
     //    still need the Client column filled in upstream.
     let clientInferred = false
     if (!clientLookup) {
-      const fromAddress = inferClientFromAddress(r.address)
+      const fromAddress = inferClientFromAddress(cleanedAddress)
       if (fromAddress) {
         clientLookup = fromAddress
         clientInferred = true
@@ -117,7 +124,7 @@ export async function GET() {
         new Date().toISOString(),
       customerName: r.customerName,
       customerPhone: r.customerPhone,
-      address: r.address,
+      address: cleanedAddress,
       email: r.email,
       monthlyBill: r.monthlyBill,
       utilityProvider: r.utilityProvider,
