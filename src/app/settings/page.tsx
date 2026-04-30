@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 // Note: useSearchParams avoided here — causes Next.js 16 prerender OOM/failure.
 // Reading query params via window.location.search in useEffect instead.
@@ -32,7 +32,9 @@ import { cn } from '@/lib/utils'
 import {
   REMINDER_LABELS,
   REMINDER_TYPES,
-  TEMPLATE_PLACEHOLDERS,
+  TEMPLATE_VARIABLES,
+  VALID_PLACEHOLDER_KEYS,
+  SAMPLE_FILLS,
   type ReminderType,
 } from '@/lib/reminders-constants'
 
@@ -1734,19 +1736,14 @@ function AppointmentRemindersSection() {
 
       {/* Templates editor */}
       <div className="mt-6">
-        <h4 className="mb-2 text-sm font-semibold">Message templates</h4>
+        <h4 className="mb-1 text-sm font-semibold">Message templates</h4>
         <p className="mb-3 text-xs text-zinc-500">
-          Edit per-client copy below. Cells marked{' '}
-          <span className="font-mono">default</span> use the built-in
-          fallback — admin overrides save into the DB. Variables:{' '}
-          {TEMPLATE_PLACEHOLDERS.map((p) => (
-            <code
-              key={p}
-              className="ml-1 rounded bg-zinc-100 px-1 py-0.5 text-[11px] dark:bg-zinc-800"
-            >
-              {p}
-            </code>
-          ))}
+          Click any variable chip below the editor to insert it at
+          the cursor. The live preview shows what the customer will
+          actually see. Cells marked{' '}
+          <span className="font-mono text-[11px]">default</span> are
+          using the built-in fallback — saving any edit creates a
+          per-client (or global) override.
         </p>
         <ReminderTemplatesGrid />
       </div>
@@ -1877,6 +1874,7 @@ function TemplateCellEditor({
   const [body, setBody] = useState(cell.body)
   const [enabled, setEnabled] = useState(cell.enabled)
   const [dirty, setDirty] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Re-sync local draft when the upstream changes (e.g. after the
   // reset round-trip clears the override).
@@ -1891,6 +1889,50 @@ function TemplateCellEditor({
     if (next.enabled !== undefined) setEnabled(next.enabled)
     setDirty(true)
   }
+
+  /**
+   * Insert a `{placeholder}` at the current cursor position. If the
+   * textarea isn't focused (e.g. user just clicked a chip without
+   * touching the textarea first), fall back to appending. After
+   * insertion we restore focus + place the caret immediately after
+   * the inserted variable so admins can keep typing without losing
+   * their place.
+   */
+  function insertVariable(placeholder: string) {
+    const ta = textareaRef.current
+    if (!ta) {
+      update({ body: body + placeholder })
+      return
+    }
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const next = body.slice(0, start) + placeholder + body.slice(end)
+    update({ body: next })
+    requestAnimationFrame(() => {
+      ta.focus()
+      const cursor = start + placeholder.length
+      ta.setSelectionRange(cursor, cursor)
+    })
+  }
+
+  // Detect any `{xyz}` token in the body whose key isn't in our
+  // allow-list — typo guard. The dispatcher passes unknown keys
+  // through verbatim (so the customer would literally see
+  // "{customername}"), which we want admins to catch BEFORE save.
+  const unknownVariables = Array.from(
+    new Set(
+      Array.from(body.matchAll(/\{(\w+)\}/g))
+        .map((m) => m[1])
+        .filter((key) => !VALID_PLACEHOLDER_KEYS.has(key))
+    )
+  )
+
+  // Active variables — used to highlight chips that the body
+  // currently uses, so admins see at a glance "I've referenced
+  // these three" without scanning the textarea.
+  const activeVariableKeys = new Set(
+    Array.from(body.matchAll(/\{(\w+)\}/g)).map((m) => m[1])
+  )
 
   return (
     <div className="rounded-md border border-zinc-100 p-3 dark:border-zinc-800">
@@ -1923,13 +1965,61 @@ function TemplateCellEditor({
           Enabled
         </label>
       </div>
+
       <textarea
+        ref={textareaRef}
         value={body}
         onChange={(e) => update({ body: e.target.value })}
         rows={3}
         className="w-full resize-y rounded-md border border-zinc-200 px-3 py-2 text-xs font-mono dark:border-zinc-800 dark:bg-zinc-950"
       />
       <SmsLengthHint body={body} />
+
+      {/* Click-to-insert variable chips. Active chips (already
+          referenced in the body) get a blue tint so the admin sees
+          which variables the template currently uses. */}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          Insert:
+        </span>
+        {TEMPLATE_VARIABLES.map((v) => {
+          const active = activeVariableKeys.has(v.key)
+          return (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => insertVariable(v.placeholder)}
+              title={`${v.description}\n\nExample: "${v.sample}"`}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition',
+                active
+                  ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
+                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+              )}
+            >
+              <Plus className="h-2.5 w-2.5" />
+              {v.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {unknownVariables.length > 0 && (
+        <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          <strong>Unknown variable{unknownVariables.length === 1 ? '' : 's'}:</strong>{' '}
+          {unknownVariables.map((k, i) => (
+            <span key={k}>
+              <code className="font-mono">{`{${k}}`}</code>
+              {i < unknownVariables.length - 1 ? ', ' : ''}
+            </span>
+          ))}{' '}
+          — these will appear literally in the SMS. Pick a chip above
+          or fix the typo.
+        </div>
+      )}
+
+      <TemplatePreview body={body} />
+
       <div className="mt-2 flex items-center justify-end gap-2">
         {cell.source !== 'default' && (
           <button
@@ -1958,6 +2048,32 @@ function TemplateCellEditor({
 }
 
 /**
+ * Render the template body with realistic sample fills so admins
+ * see exactly what the customer will read. Mirrors the dispatcher's
+ * substitution logic — unknown keys pass through as `{foo}` so
+ * typos surface visually here too.
+ */
+function TemplatePreview({ body }: { body: string }) {
+  const rendered = body.replace(/\{(\w+)\}/g, (_, key) =>
+    SAMPLE_FILLS[key] !== undefined ? SAMPLE_FILLS[key] : `{${key}}`
+  )
+  return (
+    <div className="mt-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/20">
+      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+        Preview · what the customer will see
+      </p>
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
+        {rendered || (
+          <span className="text-zinc-400">
+            (empty — pick a chip above to start)
+          </span>
+        )}
+      </p>
+    </div>
+  )
+}
+
+/**
  * Live SMS-length hint under each template textarea. Counts chars
  * AFTER stripping `{placeholder}` tokens (which are usually shorter
  * once filled — "TONY UGAS" → "Tony" is the worst case, not the
@@ -1965,23 +2081,13 @@ function TemplateCellEditor({
  * authors notice multi-segment cost + ordering risk before saving.
  */
 function SmsLengthHint({ body }: { body: string }) {
-  // Render chars are length minus all {placeholder} tokens, plus a
-  // worst-case fill estimate per known placeholder. Keeps the hint
-  // close to reality without doing a full template render.
-  const stripped = body.replace(/\{(\w+)\}/g, (_, key) => {
-    // Approximate fill lengths so the count isn't wildly optimistic.
-    const sample: Record<string, string> = {
-      customerName: 'Tony',
-      customerFullName: 'Tony Ugas',
-      clientName: 'Brighton Capital Solar',
-      apptDate: 'Tuesday, May 12',
-      apptTime: '2:30 PM',
-      apptDateTime: 'Tuesday, May 12 at 2:30 PM',
-      address: '1533 218th St, Torrance, CA 90501',
-      agentName: 'Jane Doe',
-    }
-    return sample[key] ?? `{${key}}`
-  })
+  // Use the shared SAMPLE_FILLS map so the length hint and the
+  // preview pane agree exactly on what the rendered message looks
+  // like. Unknown keys pass through as {foo} so they get counted
+  // (intentional — those characters WILL go out if not fixed).
+  const stripped = body.replace(/\{(\w+)\}/g, (_, key) =>
+    SAMPLE_FILLS[key] !== undefined ? SAMPLE_FILLS[key] : `{${key}}`
+  )
   const chars = stripped.length
   const segments =
     chars === 0 ? 0 : chars <= 160 ? 1 : Math.ceil((chars - 160) / 153) + 1
