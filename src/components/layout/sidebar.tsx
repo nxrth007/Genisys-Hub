@@ -53,6 +53,11 @@ type NavItem = {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  /** Optional prefix used for the active-state highlight. Defaults to
+   *  `href`. Lets a nav item link to a deep route (e.g. Call Center →
+   *  /call-center/master-tracker) while still highlighting whenever
+   *  the user is anywhere under the parent (/call-center/...). */
+  match?: string
 }
 
 /** Email of the agency owner — sees the full Hub. Anyone else (Ethan
@@ -66,7 +71,15 @@ const FULL_VIEW_EMAILS = new Set(['alex@leadgenisys.com'])
 // Alex's full nav as the broader task-DB browser.
 const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/today', label: 'Tasks', icon: CheckSquare },
-  { href: '/call-center', label: 'Call Center', icon: Phone },
+  // Call Center → land on Master Tracker (the deliverable view) by
+  // default; `match: '/call-center'` keeps the nav item highlighted
+  // for any sub-tab (Appointments / Callbacks / Agents / etc.).
+  {
+    href: '/call-center/master-tracker',
+    match: '/call-center',
+    label: 'Call Center',
+    icon: Phone,
+  },
   { href: '/clients', label: 'Clients', icon: Building2 },
 ]
 
@@ -81,7 +94,13 @@ const FULL_NAV: NavItem[] = [
   { href: '/outbox', label: 'Outbox', icon: Send },
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
-  { href: '/call-center', label: 'Call Center', icon: Phone },
+  // Same Master-Tracker-by-default behavior in the full nav.
+  {
+    href: '/call-center/master-tracker',
+    match: '/call-center',
+    label: 'Call Center',
+    icon: Phone,
+  },
   { href: '/clients', label: 'Clients', icon: Building2 },
   { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },
@@ -349,8 +368,13 @@ function NavLink({
   pathname: string
   collapsed?: boolean
 }) {
+  // Use item.match (when present) for the active-state prefix — lets
+  // an item link to a deep route while still highlighting for any
+  // page under the parent path. Falls back to href for items that
+  // don't need that decoupling.
+  const matchPrefix = item.match ?? item.href
   const active =
-    item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+    matchPrefix === '/' ? pathname === '/' : pathname.startsWith(matchPrefix)
   const Icon = item.icon
 
   // Collapsed: icon-only, centered in a square, with the label on a
