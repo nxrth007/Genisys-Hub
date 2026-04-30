@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatCard } from '@/components/ui/stat-card'
+import { parsePhoneEntries } from '@/lib/phone'
 
 /**
  * Master Tracker — Ethan's deliverable view of every booked appointment
@@ -995,8 +996,8 @@ export default function MasterTrackerPage() {
                           </div>
                         </td>
                         <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
-                        <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px]">
-                          {a.customerPhone}
+                        <td className="px-3 py-2.5 font-mono text-[11px]">
+                          <PhoneCell value={a.customerPhone} />
                         </td>
                         <td
                           className="px-3 py-2.5 text-zinc-500"
@@ -1268,7 +1269,9 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
         <div className="font-medium text-zinc-800 dark:text-zinc-100">
           {appointment.customerName}
         </div>
-        <div className="font-mono text-zinc-500">{appointment.customerPhone}</div>
+        <div className="font-mono text-zinc-500">
+          <PhoneCell value={appointment.customerPhone} />
+        </div>
         {appointment.email && (
           <a
             href={`mailto:${appointment.email}`}
@@ -1351,6 +1354,55 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
  * (the cache revert makes the displayed value flip back, and this
  * tells the user *why* it flipped back).
  */
+
+/**
+ * Phone-cell renderer — uses parsePhoneEntries to handle the three
+ * shapes our master sheet has historically held:
+ *  1. Bare 10-digit string ("8585683555") → "(858) 568-3555"
+ *  2. Dirty single number ("323 406 2186") → "(323) 406-2186"
+ *  3. Multi-number with labels ("Mobile : 3107148845 /HOME 3106351431")
+ *     → stacked list, each "Label: (XXX) XXX-XXXX" on its own line.
+ *
+ * If parsePhoneEntries returns no entries (the cell didn't contain
+ * anything that looked like a phone), we render the raw text so we
+ * never silently swallow notes the call center stashed there.
+ */
+function PhoneCell({ value }: { value: string }) {
+  const { entries, raw } = parsePhoneEntries(value)
+  if (entries.length === 0) {
+    return raw ? <span className="whitespace-nowrap">{raw}</span> : <span>—</span>
+  }
+  if (entries.length === 1) {
+    const e = entries[0]
+    return (
+      <span className="whitespace-nowrap">
+        {e.label && (
+          <span className="mr-1 text-[10px] uppercase tracking-wider text-zinc-400">
+            {e.label}:
+          </span>
+        )}
+        {e.number}
+      </span>
+    )
+  }
+  // Multiple numbers — stack them so each label/number pair gets its
+  // own row instead of running on as one wrapped string.
+  return (
+    <div className="space-y-0.5">
+      {entries.map((e, i) => (
+        <div key={i} className="whitespace-nowrap">
+          {e.label && (
+            <span className="mr-1 text-[10px] uppercase tracking-wider text-zinc-400">
+              {e.label}:
+            </span>
+          )}
+          {e.number}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function StatusCell({
   status,
   onChange,
