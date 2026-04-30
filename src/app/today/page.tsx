@@ -341,7 +341,10 @@ export default function TodayPage() {
   })
 
   return (
-    <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
+    // gap-5 (down from gap-6) tightens vertical rhythm so the page
+    // doesn't feel padded at the seams; sections still read distinct
+    // because each carries its own card chrome / border.
+    <div className="mx-auto flex max-w-[1280px] flex-col gap-5">
       <PageHeader
         title="Today"
         subtitle={todayLabel}
@@ -579,7 +582,7 @@ export default function TodayPage() {
           time/duration · title/contact · join action — matches the
           mockup's grid almost exactly. */}
       <section>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[20px] font-semibold tracking-tight">Next up</h2>
           {events.length > 0 && (
             <Link
@@ -592,7 +595,7 @@ export default function TodayPage() {
         </div>
 
         {calQuery.isLoading ? (
-          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-soft">
+          <div className="rounded-2xl border border-border bg-card p-5 text-center text-sm text-muted-foreground shadow-soft">
             Loading calendar…
           </div>
         ) : calQuery.isError ? (
@@ -610,8 +613,8 @@ export default function TodayPage() {
             </div>
           </div>
         ) : events.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center shadow-soft">
-            <Calendar className="mx-auto h-8 w-8 text-muted-foreground/40" />
+          <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center shadow-soft">
+            <Calendar className="mx-auto h-7 w-7 text-muted-foreground/40" />
             <p className="mt-2 text-sm text-muted-foreground">
               No meetings scheduled today.
             </p>
@@ -625,7 +628,7 @@ export default function TodayPage() {
                 <li
                   key={ev.id || i}
                   className={cn(
-                    'flex items-center gap-4 rounded-2xl border px-4 py-3.5 transition',
+                    'flex items-center gap-4 rounded-2xl border px-4 py-3 transition',
                     isFirst
                       ? 'border-primary/20 bg-primary-soft'
                       : 'border-border bg-card shadow-soft hover:bg-surface-muted'
@@ -651,10 +654,19 @@ export default function TodayPage() {
                         </span>
                       )}
                     </p>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {[ev.contactName, ev.status].filter(Boolean).join(' · ') ||
-                        'No contact attached'}
-                    </p>
+                    {/* Subtitle only renders when GHL gave us at least
+                        one of contactName / status — many internal or
+                        blocked-time events on the calendar carry
+                        neither, and rendering "No contact attached"
+                        for those was misleading. Just leave the line
+                        empty in that case. */}
+                    {(ev.contactName || ev.status) && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {[ev.contactName, ev.status]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
                   </div>
                   {link ? (
                     <JoinButton link={link} highlighted={isFirst} />
