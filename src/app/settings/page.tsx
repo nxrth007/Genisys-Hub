@@ -1109,8 +1109,189 @@ function SheetMaintenanceSection() {
           endpoint="/api/admin/sheets/migrate-agent-columns"
           columnLabel="Agent"
         />
+        <BackfillLoggedAtRow />
       </div>
+
+      <AppsScriptSnippet />
     </section>
+  )
+}
+
+/**
+ * Backfill row — separate from SheetMigrationRow because the result
+ * shape is different (per-tab row counts, no header-style stuff).
+ */
+function BackfillLoggedAtRow() {
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/sheets/backfill-logged-at', {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Backfill failed')
+      return data as {
+        ok: true
+        spreadsheetId: string
+        tabsBackfilled: Array<{ tab: string; rowsStamped: number }>
+        tabsSkipped: Array<{ tab: string; reason: string }>
+        stamp: string
+      }
+    },
+  })
+
+  const totalStamped =
+    mutation.data?.tabsBackfilled.reduce((s, t) => s + t.rowsStamped, 0) ?? 0
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Wrench className="h-4 w-4 text-zinc-400" />
+            Backfill blank &quot;Logged At&quot; cells
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Stamps every row that has a customer name but no Logged At
+            value with the current timestamp. Only touches blank cells —
+            existing values stay put. Honest caveat: the stamp is the
+            time of the backfill, not the (unknowable) original time
+            the row was added. Use the Apps Script below to auto-stamp
+            future manual entries the moment they&apos;re typed.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Running…' : 'Run'}
+        </button>
+      </div>
+
+      {mutation.isSuccess && (
+        <Alert variant="success">
+          <div className="font-medium">
+            Backfill complete — stamped <code>{totalStamped}</code> row
+            {totalStamped === 1 ? '' : 's'} with{' '}
+            <code className="text-xs">{mutation.data.stamp}</code>.
+          </div>
+          <div className="text-xs mt-1 space-y-0.5">
+            {mutation.data.tabsBackfilled
+              .filter((t) => t.rowsStamped > 0)
+              .map((t) => (
+                <div key={t.tab}>
+                  {t.tab}: <code>{t.rowsStamped}</code> stamped
+                </div>
+              ))}
+            {mutation.data.tabsSkipped.length > 0 && (
+              <div className="mt-1 text-zinc-500">
+                Skipped: {mutation.data.tabsSkipped
+                  .map((s) => `${s.tab} (${s.reason})`)
+                  .join(', ')}
+              </div>
+            )}
+          </div>
+        </Alert>
+      )}
+
+      {mutation.isError && (
+        <Alert variant="error">
+          <div className="font-medium">Backfill failed</div>
+          <div className="text-xs mt-1">{(mutation.error as Error).message}</div>
+        </Alert>
+      )}
+    </div>
+  )
+}
+
+/**
+ * One-time setup snippet for the call center — paste this Apps
+ * Script into the master spreadsheet (Extensions → Apps Script) and
+ * every manual row addition / edit auto-stamps the Logged At column
+ * the moment the customer name lands. After this is installed, the
+ * backfill button above is only needed for legacy rows.
+ */
+function AppsScriptSnippet() {
+  const [copied, setCopied] = useState(false)
+  const SCRIPT = `/**
+ * Auto-stamp "Logged At" on the master appointments sheet whenever
+ * a row gets a Customer Name typed in. Idempotent: only stamps if
+ * Logged At is currently blank, so editing other cells later
+ * doesn't overwrite the original timestamp.
+ *
+ * Setup:
+ *   1. In the master spreadsheet, open Extensions → Apps Script.
+ *   2. Replace the contents of Code.gs with this whole block.
+ *   3. Save (disk icon). The trigger registers automatically.
+ *   4. (First save only) authorize the script when prompted.
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+  var sheet = e.range.getSheet();
+  var headerRow = 1;
+  var headers = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn())
+    .getValues()[0]
+    .map(function (h) { return String(h || '').toLowerCase().replace(/[^a-z0-9]/g, ''); });
+  var customerNameCol = -1;
+  var loggedAtCol = -1;
+  headers.forEach(function (h, i) {
+    if (h === 'customername' || h === 'customer' || h === 'name') customerNameCol = i + 1;
+    if (h === 'loggedat' || h === 'logged' || h === 'timestamp' || h === 'createdat') loggedAtCol = i + 1;
+  });
+  if (customerNameCol < 0 || loggedAtCol < 0) return;
+  // Stamp the row that was just edited (could be any cell on that row).
+  var row = e.range.getRow();
+  if (row <= headerRow) return;
+  var customerName = sheet.getRange(row, customerNameCol).getValue();
+  if (!customerName || String(customerName).trim() === '') return;
+  var loggedCell = sheet.getRange(row, loggedAtCol);
+  if (loggedCell.getValue()) return; // already stamped — leave alone
+  loggedCell.setValue(new Date());
+  loggedCell.setNumberFormat('M/d/yyyy h:mm:ss am/pm');
+}`
+
+  function copyScript() {
+    navigator.clipboard.writeText(SCRIPT).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      },
+      () => {
+        // ignore — clipboard API failure is rare and the textarea
+        // is selectable for manual copy as a fallback.
+      }
+    )
+  }
+
+  return (
+    <details className="mt-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <summary className="cursor-pointer text-sm font-medium">
+        Auto-stamp Logged At for manual sheet entries (Apps Script)
+      </summary>
+      <p className="mt-2 text-xs text-zinc-500">
+        Paste this into <em>Extensions → Apps Script</em> on the master
+        spreadsheet. After saving + authorizing once, every row the call
+        center types will get a Logged At timestamp the moment the
+        customer name is entered. Idempotent — never overwrites an
+        existing value.
+      </p>
+      <div className="mt-3 flex items-start gap-2">
+        <textarea
+          readOnly
+          value={SCRIPT}
+          className="flex-1 h-48 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-[11px] dark:border-zinc-800 dark:bg-zinc-950"
+          onClick={(e) => (e.currentTarget as HTMLTextAreaElement).select()}
+        />
+        <button
+          type="button"
+          onClick={copyScript}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+    </details>
   )
 }
 

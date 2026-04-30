@@ -1313,6 +1313,121 @@ export async function migrateAddAgentColumns() {
   ])
 }
 
+/**
+ * Stamps "Logged At" on every row in every tab that has a customer
+ * but no Logged At value yet. Used to catch up rows the call center
+ * typed straight into the sheet without filling in the timestamp.
+ *
+ * Honest about what it can promise: the stamp is the time the
+ * backfill ran, NOT the (unknowable) original time the row was
+ * added — Google Sheets doesn't track per-row creation timestamps.
+ * Re-running is safe; rows that already have a Logged At value are
+ * skipped, so an agent's pre-existing Hub-synced timestamp is never
+ * overwritten.
+ *
+ * Going forward, manual sheet entries should auto-stamp via the
+ * Apps Script snippet in Settings → Sheet Maintenance, or by the
+ * call center filling in the column when they paste a row.
+ */
+export async function backfillLoggedAtTimestamps(): Promise<{
+  spreadsheetId: string
+  tabsBackfilled: Array<{ tab: string; rowsStamped: number }>
+  tabsSkipped: Array<{ tab: string; reason: string }>
+  stamp: string
+}> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(sheetId,title)',
+  })
+
+  const now = new Date()
+  // Same format the Hub-side writer uses (drive.ts fmtDateTime), so
+  // backfilled rows blend in with the canonical "M/D/YYYY HH:MM:SS AM"
+  // shape the parser already understands.
+  const stamp = fmtDateTime(now)
+
+  const tabsBackfilled: Array<{ tab: string; rowsStamped: number }> = []
+  const tabsSkipped: Array<{ tab: string; reason: string }> = []
+
+  for (const tab of meta.data.sheets || []) {
+    const tabTitle = tab.properties?.title
+    if (!tabTitle) continue
+
+    const schema = await detectTableSchema(sheets, spreadsheetId, tabTitle)
+    if (!schema) {
+      tabsSkipped.push({ tab: tabTitle, reason: 'no header row detected' })
+      continue
+    }
+
+    const loggedAtCol = schema.columns.find((c) => c.canonical === 'loggedAt')
+    if (!loggedAtCol) {
+      tabsSkipped.push({
+        tab: tabTitle,
+        reason: 'no Logged At column — run the column migration first',
+      })
+      continue
+    }
+    const customerNameCol = schema.columns.find(
+      (c) => c.canonical === 'customerName'
+    )
+    if (!customerNameCol) {
+      tabsSkipped.push({ tab: tabTitle, reason: 'no Customer Name column' })
+      continue
+    }
+
+    // Read every data row below the header. A:AZ matches what
+    // readMasterTableRows uses, so it covers any plausible schema.
+    const rangeStart = schema.headerRowNumber + 1
+    const range = `'${tabTitle.replace(/'/g, "''")}'!A${rangeStart}:AZ`
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    const rows = (res.data.values || []) as unknown[][]
+
+    // Collect target row numbers — every row that has a customer
+    // name (so we don't stamp blank trailing rows) but a blank
+    // Logged At cell.
+    const targets: number[] = []
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || []
+      const customerName = String(row[customerNameCol.columnIndex] || '').trim()
+      if (!customerName) continue
+      const loggedAt = String(row[loggedAtCol.columnIndex] || '').trim()
+      if (loggedAt) continue
+      targets.push(rangeStart + i)
+    }
+
+    if (targets.length === 0) {
+      tabsBackfilled.push({ tab: tabTitle, rowsStamped: 0 })
+      continue
+    }
+
+    // Single batch values.update — one HTTP call regardless of how
+    // many rows we're stamping on this tab.
+    const colLetterStr = colLetter(loggedAtCol.columnIndex + 1)
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: targets.map((rowNumber) => ({
+          range: `'${tabTitle.replace(/'/g, "''")}'!${colLetterStr}${rowNumber}`,
+          values: [[stamp]],
+        })),
+      },
+    })
+
+    tabsBackfilled.push({ tab: tabTitle, rowsStamped: targets.length })
+  }
+
+  return { spreadsheetId, tabsBackfilled, tabsSkipped, stamp }
+}
+
 async function findTabByTitle(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string,
