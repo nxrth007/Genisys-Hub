@@ -39,7 +39,12 @@ export async function GET() {
       select: {
         clientId: true,
         apptDateTime: true,
+        createdAt: true,
         status: true,
+        // Track the booking agent so we can count distinct agents
+        // who have booked for each client (mirrors the mockup's
+        // "Agents" column).
+        agentUserId: true,
       },
     }),
   ])
@@ -50,6 +55,8 @@ export async function GET() {
     showed: number
     noShow: number
     cancelled: number
+    agents: Set<string>
+    lastBookingAt: Date | null
   }
   const empty = (): Bucket => ({
     total: 0,
@@ -57,6 +64,8 @@ export async function GET() {
     showed: 0,
     noShow: 0,
     cancelled: 0,
+    agents: new Set<string>(),
+    lastBookingAt: null,
   })
   const byClient = new Map<string, Bucket>()
   for (const a of appts) {
@@ -67,14 +76,18 @@ export async function GET() {
     if (a.status === 'showed') b.showed++
     if (a.status === 'no_show') b.noShow++
     if (a.status === 'cancelled') b.cancelled++
+    if (a.agentUserId) b.agents.add(a.agentUserId)
+    // Track most recent booking by createdAt — that's "when the row
+    // landed in the system", which is more meaningful than
+    // apptDateTime for an "is this client active?" signal.
+    if (!b.lastBookingAt || a.createdAt > b.lastBookingAt) {
+      b.lastBookingAt = a.createdAt
+    }
     byClient.set(a.clientId, b)
   }
 
   const result = clients.map((c) => {
     const stats = byClient.get(c.id) ?? empty()
-    // Show-rate % over completed (showed + no_show); null when nobody
-    // has reached that bucket yet so the UI can render "—" instead
-    // of a misleading 0%.
     const completed = stats.showed + stats.noShow
     const showRate = completed > 0 ? Math.round((stats.showed / completed) * 100) : null
     return {
@@ -88,6 +101,10 @@ export async function GET() {
       noShow: stats.noShow,
       cancelled: stats.cancelled,
       showRate,
+      agents: stats.agents.size,
+      lastBookingAt: stats.lastBookingAt
+        ? stats.lastBookingAt.toISOString()
+        : null,
     }
   })
 
