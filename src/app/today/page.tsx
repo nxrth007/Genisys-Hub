@@ -291,35 +291,31 @@ export default function TodayPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <div>
-        <PageHeader
-          icon={CheckCircle2}
-          title="Today"
-          subtitle={todayLabel}
-          actions={
-            <button
-              onClick={() => {
-                if (pinnedDbId) {
-                  // Ask the embedded TaskBoard to open its To Do modal.
-                  setNewTaskTrigger((n) => n + 1)
-                } else {
-                  // No Notion board pinned — fall back to the local task modal.
-                  setShowAdd(true)
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md"
-              title={
-                pinnedDbId
-                  ? 'Add a task to the "To Do" column on the pinned board'
-                  : 'Add a new task'
+      <PageHeader
+        title="Today"
+        subtitle={todayLabel}
+        breadcrumbs={[{ label: 'Genisys' }, { label: 'Today' }]}
+        actions={
+          <button
+            onClick={() => {
+              if (pinnedDbId) {
+                setNewTaskTrigger((n) => n + 1)
+              } else {
+                setShowAdd(true)
               }
-            >
-              <Plus className="h-4 w-4" />
-              New Task
-            </button>
-          }
-        />
-      </div>
+            }}
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
+            title={
+              pinnedDbId
+                ? 'Add a task to the "To Do" column on the pinned board'
+                : 'Add a new task'
+            }
+          >
+            <Plus className="h-4 w-4" />
+            New task
+          </button>
+        }
+      />
 
       {/* At-a-glance numbers — mirrors Ethan's Tasks stat row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -369,78 +365,8 @@ export default function TodayPage() {
         />
       </div>
 
-      {/* Meetings section — roomier rows so the list feels proportional to
-          the stat-card row above. Header uses the same icon-tile idiom as
-          Focus sections for visual consistency. */}
-      <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-3 border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
-          <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-950/50">
-            <Calendar className="h-4 w-4 text-blue-600" />
-          </div>
-          <h3 className="text-[15px] font-semibold tracking-tight">
-            Meetings
-            {events.length > 0 && (
-              <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                {events.length}
-              </span>
-            )}
-          </h3>
-        </div>
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {calQuery.isLoading ? (
-            <div className="px-5 py-8 text-center text-sm text-zinc-500">Loading calendar…</div>
-          ) : calQuery.isError ? (
-            <div className="px-5 py-5">
-              <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <div>
-                  <div className="font-medium">Calendar unavailable</div>
-                  <div className="text-xs mt-1">
-                    {(calQuery.error as Error).message}
-                  </div>
-                  <div className="text-xs mt-1 text-amber-600 dark:text-amber-300">
-                    Make sure &quot;GHL Genisys Token&quot; is in the vault and the GHL sub-account has calendar data.
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : events.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-zinc-500">
-              No meetings scheduled today.
-            </div>
-          ) : (
-            events.map((ev, i) => {
-              const link = findMeetingLink(ev)
-              return (
-                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
-                  <div className="flex-shrink-0 text-right" style={{ minWidth: '5rem' }}>
-                    <div className="text-sm font-semibold tabular-nums">
-                      {formatTime(ev.startTime)}
-                    </div>
-                    {ev.endTime && (
-                      <div className="text-xs text-zinc-400">
-                        – {formatTime(ev.endTime)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-8 w-px bg-blue-200 dark:bg-blue-800" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {ev.title || ev.name || 'Untitled'}
-                    </div>
-                    <div className="mt-0.5 flex gap-1.5 text-xs text-zinc-500">
-                      {ev.calendarName && <span>{ev.calendarName}</span>}
-                      {ev.contactName && <span>• {ev.contactName}</span>}
-                      {ev.status && <span>• {ev.status}</span>}
-                    </div>
-                  </div>
-                  {link && <JoinButton link={link} />}
-                </div>
-              )
-            })
-          )}
-        </div>
-      </section>
+      {/* Tasks first, Meetings second — agents triage their own work
+          before reviewing the day's meeting block. */}
 
       {/* Tasks section — Notion Kanban when a DB is pinned, otherwise the
            built-in local task list. When pinned we drop the wrapper card
@@ -557,6 +483,86 @@ export default function TodayPage() {
           </div>
         </section>
       )}
+
+      {/* Meetings — moved BELOW the tasks block per Alex's request:
+          agents triage their tasks first, then review the day's
+          meeting block. Card uses the new design tokens for a clean
+          dark-mode pass. */}
+      <section className="rounded-2xl border border-border bg-card shadow-soft">
+        <div className="flex items-center gap-3 border-b border-border-soft px-5 py-3.5">
+          <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary-soft text-primary">
+            <Calendar className="h-4 w-4" />
+          </div>
+          <h3 className="text-[15px] font-semibold tracking-tight">
+            Meetings
+            {events.length > 0 && (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {events.length}
+              </span>
+            )}
+          </h3>
+        </div>
+        <div className="divide-y divide-border-soft">
+          {calQuery.isLoading ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              Loading calendar…
+            </div>
+          ) : calQuery.isError ? (
+            <div className="px-5 py-5">
+              <div className="flex items-start gap-2 rounded-xl border border-border-soft bg-surface-muted p-3 text-sm">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                <div>
+                  <div className="font-medium">Calendar unavailable</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {(calQuery.error as Error).message}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Make sure &quot;GHL Genisys Token&quot; is in the vault
+                    and the GHL sub-account has calendar data.
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : events.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              No meetings scheduled today.
+            </div>
+          ) : (
+            events.map((ev, i) => {
+              const link = findMeetingLink(ev)
+              return (
+                <div key={ev.id || i} className="flex items-center gap-4 px-5 py-3">
+                  <div
+                    className="flex-shrink-0 text-right"
+                    style={{ minWidth: '5rem' }}
+                  >
+                    <div className="text-sm font-semibold tabular-nums">
+                      {formatTime(ev.startTime)}
+                    </div>
+                    {ev.endTime && (
+                      <div className="text-xs text-muted-foreground">
+                        – {formatTime(ev.endTime)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="h-8 w-px bg-primary/30" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {ev.title || ev.name || 'Untitled'}
+                    </div>
+                    <div className="mt-0.5 flex gap-1.5 text-xs text-muted-foreground">
+                      {ev.calendarName && <span>{ev.calendarName}</span>}
+                      {ev.contactName && <span>• {ev.contactName}</span>}
+                      {ev.status && <span>• {ev.status}</span>}
+                    </div>
+                  </div>
+                  {link && <JoinButton link={link} />}
+                </div>
+              )
+            })
+          )}
+        </div>
+      </section>
 
       {showAdd && (
         <AddTaskModal

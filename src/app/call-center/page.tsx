@@ -417,10 +417,14 @@ export default function CallCenterPage() {
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="mx-auto max-w-[1280px] space-y-6">
       <PageHeader
-        icon={PhoneCall}
         title="Call Center"
+        breadcrumbs={[
+          { label: 'Genisys' },
+          { label: 'Operations' },
+          { label: 'Call Center' },
+        ]}
         subtitle="Live view of all agents, bookings, and fulfillment progress. Aggregations reflect whatever filters are applied below."
       />
 

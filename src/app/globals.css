@@ -212,6 +212,85 @@
   }
 }
 
+/*
+ * Reskin transition layer — maps the legacy `dark:bg-zinc-*` /
+ * `dark:border-zinc-*` patterns used by pages that haven't been
+ * individually reskinned yet onto our OKLch token palette. Without
+ * this, dark mode reads as pure black instead of the soft blue-gray
+ * the mockup specifies, because pages hardcode zinc shades.
+ *
+ * As each page gets individually reskinned to use `bg-card`,
+ * `border-border` etc. directly, these overrides become no-ops for
+ * that page. Once nothing needs them they can be removed wholesale.
+ *
+ * Targeted via the same dark variant selector Tailwind generates, so
+ * specificity ties and source-order (this file is appended after the
+ * Tailwind utilities) decides — mine wins.
+ */
+@layer utilities {
+  /* Card / surface backgrounds */
+  .dark .dark\:bg-zinc-900 {
+    background-color: var(--card);
+  }
+  .dark .dark\:bg-zinc-900\/50 {
+    background-color: color-mix(in oklch, var(--card) 50%, transparent);
+  }
+  .dark .dark\:bg-zinc-900\/40 {
+    background-color: color-mix(in oklch, var(--card) 40%, transparent);
+  }
+  .dark .dark\:bg-zinc-900\/60 {
+    background-color: color-mix(in oklch, var(--card) 60%, transparent);
+  }
+
+  /* Page background shade */
+  .dark .dark\:bg-zinc-950 {
+    background-color: var(--background);
+  }
+  .dark .dark\:bg-zinc-950\/50 {
+    background-color: color-mix(in oklch, var(--background) 50%, transparent);
+  }
+
+  /* Muted / hover backgrounds */
+  .dark .dark\:bg-zinc-800 {
+    background-color: var(--surface-muted);
+  }
+  .dark .dark\:bg-zinc-800\/40 {
+    background-color: color-mix(in oklch, var(--surface-muted) 40%, transparent);
+  }
+  .dark .dark\:bg-zinc-800\/50 {
+    background-color: color-mix(in oklch, var(--surface-muted) 50%, transparent);
+  }
+  .dark .dark\:bg-zinc-800\/80 {
+    background-color: color-mix(in oklch, var(--surface-muted) 80%, transparent);
+  }
+  .dark .dark\:hover\:bg-zinc-800:hover {
+    background-color: var(--surface-muted);
+  }
+  .dark .dark\:hover\:bg-zinc-800\/40:hover {
+    background-color: color-mix(in oklch, var(--surface-muted) 40%, transparent);
+  }
+  .dark .dark\:hover\:bg-zinc-800\/50:hover {
+    background-color: color-mix(in oklch, var(--surface-muted) 50%, transparent);
+  }
+  .dark .dark\:hover\:bg-zinc-800\/80:hover {
+    background-color: color-mix(in oklch, var(--surface-muted) 80%, transparent);
+  }
+
+  /* Borders & dividers */
+  .dark .dark\:border-zinc-800 {
+    border-color: var(--border);
+  }
+  .dark .dark\:border-zinc-700 {
+    border-color: var(--border);
+  }
+  .dark .dark\:divide-zinc-800 > * + * {
+    border-color: var(--border);
+  }
+  .dark .dark\:divide-zinc-100 > * + * {
+    border-color: var(--border-soft);
+  }
+}
+
 /* Hide Next.js dev tools indicator */
 [data-nextjs-dialog-overlay],
 nextjs-portal {

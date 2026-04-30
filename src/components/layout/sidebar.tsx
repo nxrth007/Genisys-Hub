@@ -60,17 +60,20 @@ type NavItem = {
  *  to expand to a list later than to add a per-user feature flag. */
 const FULL_VIEW_EMAILS = new Set(['alex@leadgenisys.com'])
 
-// Simplified set Ethan asked for. Tasks routes to /notion (the task
-// board) since that's where our Notion-backed kanban + focus list
-// already live; renaming the route would invalidate bookmarks.
+// Simplified set Ethan asked for. Tasks routes to /today — that's
+// where the embedded TaskBoard + meetings + booking stats live, i.e.
+// the agent's "what do I do right now" view. /notion exists too for
+// Alex's full nav as the broader task-DB browser.
 const SIMPLIFIED_NAV: NavItem[] = [
-  { href: '/notion', label: 'Tasks', icon: CheckSquare },
+  { href: '/today', label: 'Tasks', icon: CheckSquare },
   { href: '/call-center', label: 'Call Center', icon: Phone },
   { href: '/clients', label: 'Clients', icon: Building2 },
 ]
 
 // Full nav Alex sees. Same module list as before, plus the new
-// Clients page slotted in between Call Center and Notion.
+// Clients page. /today is the canonical "Tasks" view (where the
+// embedded TaskBoard + meetings live); /notion stays separate as the
+// broader Notion DB browser for power users.
 const FULL_NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/today', label: 'Today', icon: CheckCircle2 },
@@ -80,7 +83,7 @@ const FULL_NAV: NavItem[] = [
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   { href: '/call-center', label: 'Call Center', icon: Phone },
   { href: '/clients', label: 'Clients', icon: Building2 },
-  { href: '/notion', label: 'Tasks', icon: CheckSquare },
+  { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/documents', label: 'Documents', icon: FolderOpen },
   { href: '/slack', label: 'Slack', icon: Hash },

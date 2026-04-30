@@ -2,60 +2,28 @@ import { cn } from '@/lib/utils'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 
 /**
- * StatCard v2 — matches Ethan's Lovable design:
+ * StatCard — ported from Ethan's CRM mockup.
  *
- *   [icon] LABEL
- *   LARGE VALUE          +14%    ↗
- *   ━━━━━━━━━━━━  ← colored progress bar
- *   optional subtitle
+ *   LABEL (small, muted)
+ *   LARGE VALUE                 +14%   (optional trend badge)
+ *   ▰▰▰▰▰▰▰▰▱▱  (optional progress bar in tone color)
+ *   subtitle (small, muted)
  *
- * Used for the 4-across stat rows at the top of Call Center, Dashboard,
- * etc. Tone controls the progress bar + accent color. Progress is an
- * optional 0–100 number; omit to hide the bar.
+ * Surface uses the new design tokens (bg-surface, border-border,
+ * shadow-soft) so light/dark mode stays consistent across the app.
+ * Tone controls the bar color; the icon + label stay neutral so the
+ * card reads as data-first, not decoration-first.
  */
 
 export type StatTone = 'blue' | 'green' | 'amber' | 'red' | 'indigo' | 'zinc'
 
-const TONES: Record<
-  StatTone,
-  { bar: string; icon: string; iconBg: string; valueText: string }
-> = {
-  blue: {
-    bar: 'bg-blue-500',
-    icon: 'text-blue-600',
-    iconBg: 'bg-blue-50 dark:bg-blue-950/50',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
-  green: {
-    bar: 'bg-emerald-500',
-    icon: 'text-emerald-600',
-    iconBg: 'bg-emerald-50 dark:bg-emerald-950/50',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
-  amber: {
-    bar: 'bg-amber-500',
-    icon: 'text-amber-600',
-    iconBg: 'bg-amber-50 dark:bg-amber-950/50',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
-  red: {
-    bar: 'bg-rose-500',
-    icon: 'text-rose-600',
-    iconBg: 'bg-rose-50 dark:bg-rose-950/50',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
-  indigo: {
-    bar: 'bg-indigo-500',
-    icon: 'text-indigo-600',
-    iconBg: 'bg-indigo-50 dark:bg-indigo-950/50',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
-  zinc: {
-    bar: 'bg-zinc-400',
-    icon: 'text-zinc-500',
-    iconBg: 'bg-zinc-100 dark:bg-zinc-800/60',
-    valueText: 'text-zinc-900 dark:text-zinc-100',
-  },
+const TONE_BAR: Record<StatTone, string> = {
+  blue: 'bg-sky-400',
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-400',
+  red: 'bg-rose-500',
+  indigo: 'bg-violet-500',
+  zinc: 'bg-zinc-400',
 }
 
 export function StatCard({
@@ -72,51 +40,42 @@ export function StatCard({
   label: string
   value: React.ReactNode
   subtitle?: string
-  /** Percentage delta; positive or negative. Renders a small +X% / -X% badge. */
+  /** Percentage delta; positive or negative. Renders a +X% / -X% badge. */
   trend?: number | null
-  /** 0–100. Renders a filled progress bar at the bottom. */
+  /** 0–100. Renders a thin colored bar. Omit to hide it. */
   progress?: number | null
   tone?: StatTone
   className?: string
 }) {
-  const t = TONES[tone]
   const pct = progress == null ? null : Math.max(0, Math.min(100, progress))
 
   return (
     <div
       className={cn(
-        'flex flex-col rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900',
+        'rounded-2xl border border-border bg-card p-4 shadow-soft',
         className
       )}
     >
-      <div className="flex items-center gap-2">
-        {Icon && (
-          <div className={cn('rounded-lg p-2', t.iconBg)}>
-            <Icon className={cn('h-4 w-4', t.icon)} />
-          </div>
-        )}
-        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          {label}
-        </p>
+      <div className="flex items-center gap-1.5">
+        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+        <p className="text-[13px] text-muted-foreground">{label}</p>
       </div>
 
-      <div className="mt-3 flex items-baseline justify-between gap-2">
-        <p className={cn('text-4xl font-bold leading-none tabular-nums', t.valueText)}>
+      <div className="mt-2 flex items-end justify-between gap-2">
+        <p className="text-[26px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
           {value}
         </p>
         {trend != null && (
           <span
             className={cn(
-              'inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-              trend >= 0
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
-                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+              'inline-flex items-center gap-0.5 text-xs font-medium',
+              trend >= 0 ? 'text-emerald-600' : 'text-rose-600'
             )}
           >
             {trend >= 0 ? (
-              <TrendingUp className="h-3 w-3" />
+              <TrendingUp className="h-3.5 w-3.5" />
             ) : (
-              <TrendingDown className="h-3 w-3" />
+              <TrendingDown className="h-3.5 w-3.5" />
             )}
             {trend >= 0 ? '+' : ''}
             {trend}%
@@ -124,19 +83,17 @@ export function StatCard({
         )}
       </div>
 
-      {subtitle && (
-        <p className="mt-2 text-sm text-zinc-500">{subtitle}</p>
+      {pct != null && (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn('h-full rounded-full transition-[width]', TONE_BAR[tone])}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
       )}
 
-      {pct != null && (
-        <div className="mt-auto pt-4">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-            <div
-              className={cn('h-full rounded-full transition-[width]', t.bar)}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
+      {subtitle && (
+        <p className="mt-1.5 text-xs text-muted-foreground">{subtitle}</p>
       )}
     </div>
   )

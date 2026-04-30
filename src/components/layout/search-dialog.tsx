@@ -31,16 +31,17 @@ type Client = { id: string; name: string; state: string | null }
 type Agent = { id: string; name: string | null; email: string }
 
 /**
- * Static page index. Routes match what we actually have in the Hub —
- * Tasks is aliased to /notion (where the task board lives) so the
- * mockup's labelling round-trips without renaming the route.
+ * Static page index. "Tasks" routes to /today (the agent's primary
+ * action view with embedded task board + meetings + booking stats);
+ * the broader Notion DB browser stays accessible via the "Notion"
+ * entry for power users.
  */
 const PAGES: Result[] = [
-  { type: 'Page', label: 'Tasks', href: '/notion' },
+  { type: 'Page', label: 'Tasks', href: '/today' },
   { type: 'Page', label: 'Call Center', href: '/call-center' },
   { type: 'Page', label: 'Clients', href: '/clients' },
   { type: 'Page', label: 'Master Tracker', href: '/call-center/master-tracker' },
-  { type: 'Page', label: 'Today', href: '/today' },
+  { type: 'Page', label: 'Notion', href: '/notion' },
   { type: 'Page', label: 'Inbox', href: '/inbox' },
   { type: 'Page', label: 'CRM', href: '/crm' },
   { type: 'Page', label: 'Calendar', href: '/calendar' },
