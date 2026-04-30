@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { Suspense, useMemo } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'next/navigation'
@@ -65,6 +65,18 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export default function CallCenterPage() {
+  // useSearchParams is CSR-only in Next 16. Wrapping the consumer
+  // in <Suspense> lets the page's static prerender succeed; the
+  // skeleton fallback hydrates with the real URL state on the
+  // client. The same pattern is used in the layout.
+  return (
+    <Suspense fallback={<AppointmentsSkeleton />}>
+      <AppointmentsView />
+    </Suspense>
+  )
+}
+
+function AppointmentsView() {
   const params = useSearchParams()
   const since = params.get('since')
   const until = params.get('until')
@@ -281,4 +293,23 @@ function formatTime(d: Date): string {
     minute: '2-digit',
     hour12: true,
   })
+}
+
+/** SSR-safe placeholder shown while the Suspense boundary is
+ *  resolving useSearchParams on the client. Matches the rough
+ *  visual rhythm of the loaded page so the layout doesn't shift. */
+function AppointmentsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-[124px] animate-pulse rounded-2xl border border-border bg-card shadow-soft"
+          />
+        ))}
+      </div>
+      <div className="h-64 animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+    </div>
+  )
 }

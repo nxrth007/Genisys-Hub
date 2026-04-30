@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page-header'
 import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
@@ -23,43 +23,18 @@ import {
  *      so they're already filtering off the global range.
  *   3. Browser back / forward "just works" for filter changes.
  *
- * Defaults to the last 30 days when the URL has no params, matching
- * the mockup's default scope.
+ * useSearchParams is a CSR-only hook in Next 16 — it forces a
+ * prerender bailout on whatever component reads it. Wrapping the
+ * date-picker in a <Suspense> boundary lets the rest of the layout
+ * (and every page underneath it) stay statically prerenderable; the
+ * picker just renders its fallback during SSR and hydrates with the
+ * URL value on the client.
  */
 export default function CallCenterLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const router = useRouter()
-  const params = useSearchParams()
-
-  // Hydrate from URL on mount; keep local state for the picker so it
-  // can debounce / cleanly handle range edits before pushing to URL.
-  const [range, setRange] = useState<DateRange>(() =>
-    rangeFromParams(params) ?? defaultRange(30)
-  )
-
-  // Mirror URL → local state when params change externally (e.g.
-  // user clicks a different tab and the URL might carry params, or
-  // back/forward navigates to a different filter).
-  useEffect(() => {
-    const next = rangeFromParams(params)
-    if (next) setRange(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params])
-
-  function commit(next: DateRange) {
-    setRange(next)
-    // Push the new range as URL params using a shallow replace so
-    // the page component re-renders + sees the new searchParams,
-    // without a full navigation.
-    const sp = new URLSearchParams(params.toString())
-    sp.set('since', next.start.toISOString())
-    sp.set('until', next.end.toISOString())
-    router.replace(`?${sp.toString()}`, { scroll: false })
-  }
-
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
       <PageHeader
@@ -70,17 +45,52 @@ export default function CallCenterLayout({
           { label: 'Call Center' },
         ]}
       />
-
-      {/* Tab pills + date-range picker, side-by-side on the same row
-          so the calendar stays in reach regardless of which tab is
-          active. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <CallCenterTabs />
-        <DateRangePicker value={range} onChange={commit} align="end" />
+        <Suspense fallback={<DateRangePickerSkeleton />}>
+          <RangePickerSlot />
+        </Suspense>
       </div>
-
       {children}
     </div>
+  )
+}
+
+/**
+ * The actual `useSearchParams` consumer. Sits behind a Suspense
+ * boundary so its CSR-only hook doesn't bail prerender for the
+ * whole route segment.
+ */
+function RangePickerSlot() {
+  const router = useRouter()
+  const params = useSearchParams()
+
+  const [range, setRange] = useState<DateRange>(() =>
+    rangeFromParams(params) ?? defaultRange(30)
+  )
+
+  useEffect(() => {
+    const next = rangeFromParams(params)
+    if (next) setRange(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params])
+
+  function commit(next: DateRange) {
+    setRange(next)
+    const sp = new URLSearchParams(params.toString())
+    sp.set('since', next.start.toISOString())
+    sp.set('until', next.end.toISOString())
+    router.replace(`?${sp.toString()}`, { scroll: false })
+  }
+
+  return <DateRangePicker value={range} onChange={commit} align="end" />
+}
+
+/** Skeleton shown during the brief prerender pass — same width as
+ *  the real picker pill so the layout doesn't shift on hydration. */
+function DateRangePickerSkeleton() {
+  return (
+    <div className="h-[38px] w-[268px] animate-pulse rounded-full border border-border bg-card shadow-soft" />
   )
 }
 
