@@ -9,6 +9,7 @@ import {
   Trophy,
   FileSpreadsheet,
   Users,
+  MessagesSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +28,7 @@ const TABS = [
   { href: '/call-center/agents', label: 'Agents', icon: Users },
   { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
   { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
+  { href: '/call-center/reminders', label: 'Reminders', icon: MessagesSquare },
   { href: '/call-center/leaderboard', label: 'Leaderboard', icon: Trophy },
 ]
 

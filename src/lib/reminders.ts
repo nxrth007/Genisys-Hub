@@ -249,6 +249,13 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
   let failed = 0
 
   for (const reminder of due) {
+    // Quiet hours guard — don't send SMS outside the configured
+    // window in the *customer's* local timezone. Compliance-driven
+    // (TCPA generally caps to 8 AM–9 PM). Reminders that would land
+    // outside stay pending and get retried on subsequent ticks; the
+    // next pass that lands inside the window picks them up.
+    if (isInQuietHours(reminder.customerTimezone, config)) continue
+
     // Atomic claim — if another tick beat us to this row the count
     // comes back 0 and we skip.
     const claim = await prisma.appointmentReminder.updateMany({
@@ -272,7 +279,12 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       }
 
       const body = renderTemplate(template.body, {
-        customerName: reminder.customerName,
+        // {customerName} resolves to the first name only — friendlier
+        // than a full all-caps "TONY UGAS" in an SMS. The full name
+        // is still available via {customerFullName} for admins who
+        // want it (formal language, legal opt-out copy, etc.).
+        customerName: customerFirstNameForSms(reminder.customerName),
+        customerFullName: reminder.customerName,
         clientName: reminder.clientName ?? 'our partner',
         address: reminder.address ?? '',
         agentName: reminder.agentName ?? '',
@@ -390,4 +402,51 @@ function lastNameOf(name: string): string | undefined {
   const parts = name.trim().split(/\s+/).filter(Boolean)
   if (parts.length < 2) return undefined
   return parts.slice(1).join(' ')
+}
+
+/**
+ * Compute "now" in the customer's timezone as an HH:mm string and
+ * decide whether it falls inside the configured quiet-hours window.
+ * Window wraps midnight when start > end (the common case for
+ * "9 PM to 8 AM the next morning"); a non-wrapping window like
+ * "12:00 to 13:00" works too via the alternate branch below.
+ */
+function isInQuietHours(
+  timezone: string,
+  config: { quietHoursStart: string; quietHoursEnd: string }
+): boolean {
+  const start = config.quietHoursStart
+  const end = config.quietHoursEnd
+  if (!start || !end || start === end) return false
+  const now = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: timezone,
+  }).format(new Date())
+  // Lexicographic compare works for HH:mm — both sides are zero-
+  // padded same-width strings.
+  if (start > end) {
+    // Wraps midnight: quiet from start..23:59 OR 00:00..end
+    return now >= start || now < end
+  }
+  return now >= start && now < end
+}
+
+/**
+ * SMS-friendly first-name extraction. Sheet entries often arrive in
+ * all-caps ("TONY UGAS") which reads as shouting in a text message,
+ * so we Title-Case any token that's entirely uppercase. Names with
+ * intentional inner capitalization ("DeShawn", "MacArthur") are
+ * left alone — they don't trigger the all-uppercase check.
+ */
+export function customerFirstNameForSms(fullName: string): string {
+  const first = fullName.trim().split(/\s+/)[0] ?? fullName.trim()
+  if (!first) return ''
+  // All-uppercase + at least 2 letters → safe to assume the source
+  // was just sheet-shouted, not a stylistic choice.
+  if (first.length > 1 && first === first.toUpperCase() && /[A-Z]/.test(first)) {
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+  }
+  return first
 }

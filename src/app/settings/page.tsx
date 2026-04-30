@@ -1461,6 +1461,8 @@ type ReminderConfig = {
   enabled: boolean
   vaultEntryName: string
   lookaheadDays: number
+  quietHoursStart: string
+  quietHoursEnd: string
   updatedAt: string
 }
 
@@ -1635,6 +1637,49 @@ function AppointmentRemindersSection() {
         </div>
       </div>
 
+      {/* Quiet hours — TCPA compliance window. Sends outside the
+          window are deferred until the next allowed minute. */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Quiet hours start
+          </label>
+          <input
+            type="time"
+            defaultValue={config?.quietHoursStart ?? '21:00'}
+            onBlur={(e) => {
+              const v = e.target.value
+              if (v && v !== config?.quietHoursStart) {
+                updateConfig.mutate({ quietHoursStart: v })
+              }
+            }}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Quiet hours end
+          </label>
+          <input
+            type="time"
+            defaultValue={config?.quietHoursEnd ?? '08:00'}
+            onBlur={(e) => {
+              const v = e.target.value
+              if (v && v !== config?.quietHoursEnd) {
+                updateConfig.mutate({ quietHoursEnd: v })
+              }
+            }}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        TCPA compliance window — sends outside <code>{config?.quietHoursEnd}–
+        {config?.quietHoursStart}</code> in the customer&apos;s local
+        timezone are deferred until the window opens. Defaults
+        align with the TCPA-allowed 8 AM–9 PM band.
+      </p>
+
       {/* Manual sync */}
       <div className="mt-3 flex items-center justify-between rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="min-w-0 flex-1">
@@ -1681,6 +1726,11 @@ function AppointmentRemindersSection() {
           </div>
         </Alert>
       )}
+
+      {/* Test send — fires a one-off SMS using the template machinery
+          so admins can verify GHL config + preview rendered copy
+          before flipping the master enable on. */}
+      <ReminderTestSendBlock />
 
       {/* Templates editor */}
       <div className="mt-6">
@@ -2003,6 +2053,188 @@ function ReminderRecentLog() {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/**
+ * Test-send block — admin enters a phone + picks a template + (optional)
+ * client + customer name, server renders the body via the same path
+ * the cron uses, and dispatches via GHL. Doesn't write an
+ * AppointmentReminder row; great for verifying GHL config + previewing
+ * copy before flipping the master enable.
+ */
+type SimpleClient = { id: string; name: string }
+type TestResult =
+  | { ok: true; messageBody: string; normalizedPhone?: string }
+  | { ok: false; error: string; messageBody?: string }
+
+function ReminderTestSendBlock() {
+  const [phone, setPhone] = useState('')
+  const [reminderType, setReminderType] = useState<ReminderType>('1day')
+  const [clientId, setClientId] = useState<string>('')
+  const [customerName, setCustomerName] = useState('Test Customer')
+  const [address, setAddress] = useState('')
+  const [result, setResult] = useState<TestResult | null>(null)
+
+  const clientsQuery = useQuery<{ clients: SimpleClient[] }>({
+    queryKey: ['clients'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients')
+      if (!res.ok) return { clients: [] }
+      return res.json()
+    },
+  })
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      setResult(null)
+      const res = await fetch('/api/admin/reminders/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          phone: phone.trim(),
+          reminderType,
+          clientId: clientId || null,
+          customerName: customerName.trim() || undefined,
+          address: address.trim() || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return {
+          ok: false as const,
+          error: data.error || 'Test send failed',
+          messageBody: data.messageBody,
+        }
+      }
+      return {
+        ok: true as const,
+        messageBody: data.messageBody,
+        normalizedPhone: data.normalizedPhone,
+      }
+    },
+    onSuccess: (data) => setResult(data),
+    onError: (err: Error) =>
+      setResult({ ok: false, error: err.message }),
+  })
+
+  return (
+    <div className="mt-6 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <h4 className="mb-1 text-sm font-semibold">Send a test message</h4>
+      <p className="mb-3 text-xs text-zinc-500">
+        Renders the active template and fires a one-off SMS via GHL.
+        Doesn&apos;t create a reminder row in the log. Use this to
+        verify your vault token, preview the customer-facing copy, or
+        sanity-check before enabling.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium">Phone</label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="(555) 123-4567"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">Reminder type</label>
+          <select
+            value={reminderType}
+            onChange={(e) => setReminderType(e.target.value as ReminderType)}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          >
+            {REMINDER_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {REMINDER_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">Client (optional)</label>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          >
+            <option value="">Use default / global template</option>
+            {(clientsQuery.data?.clients ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium">Customer name</label>
+          <input
+            type="text"
+            value={customerName}
+            onChange={(e) => setCustomerName(e.target.value)}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium">
+            Address (optional — used to derive customer timezone)
+          </label>
+          <input
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="e.g. 1533 218th ST TORRANCE CA 90501"
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => sendMutation.mutate()}
+          disabled={sendMutation.isPending || !phone.trim()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {sendMutation.isPending ? 'Sending…' : 'Send test'}
+        </button>
+      </div>
+      {result?.ok && (
+        <Alert variant="success">
+          <div className="font-medium">
+            Test sent
+            {result.normalizedPhone && (
+              <>
+                {' '}
+                to <code>{result.normalizedPhone}</code>
+              </>
+            )}
+            .
+          </div>
+          {result.messageBody && (
+            <div className="mt-2 whitespace-pre-wrap rounded-md border border-emerald-200 bg-white/60 p-2 font-mono text-xs dark:border-emerald-900 dark:bg-zinc-900/60">
+              {result.messageBody}
+            </div>
+          )}
+        </Alert>
+      )}
+      {result && !result.ok && (
+        <Alert variant="error">
+          <div className="font-medium">Test send failed</div>
+          <div className="mt-1 text-xs">{result.error}</div>
+          {result.messageBody && (
+            <>
+              <div className="mt-2 text-[11px] text-zinc-500">
+                Rendered body (would have been sent):
+              </div>
+              <div className="mt-1 whitespace-pre-wrap rounded-md border border-rose-200 bg-white/60 p-2 font-mono text-xs dark:border-rose-900 dark:bg-zinc-900/60">
+                {result.messageBody}
+              </div>
+            </>
+          )}
+        </Alert>
+      )}
     </div>
   )
 }

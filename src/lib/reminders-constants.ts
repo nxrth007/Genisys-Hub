@@ -34,9 +34,13 @@ export const DEFAULT_TEMPLATES: Record<ReminderType, string> = {
 }
 
 /** Template variables the renderer recognizes. Kept as a list so the
- *  Settings UI can show admins what placeholders are valid. */
+ *  Settings UI can show admins what placeholders are valid.
+ *  `{customerName}` is the SMS-friendly first name only (all-caps
+ *  sheet entries get Title-Cased); `{customerFullName}` keeps the
+ *  original for admins who want formal language. */
 export const TEMPLATE_PLACEHOLDERS = [
   '{customerName}',
+  '{customerFullName}',
   '{clientName}',
   '{apptDate}',
   '{apptTime}',

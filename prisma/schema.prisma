@@ -625,6 +625,15 @@ model RemindersConfig {
   // out gets re-evaluated on the next sync. Default 10 days covers
   // the 1-day-out window with margin to spare.
   lookaheadDays   Int      @default(10)
+  // TCPA compliance — don't send SMS outside these hours (in the
+  // *customer's* local timezone, derived from address state).
+  // 24-hour format "HH:mm". Defaults align with the TCPA window
+  // (8 AM – 9 PM). The dispatcher checks before sending; reminders
+  // that land outside the window are deferred until the next allowed
+  // moment by skipping that tick (they retain status='pending' and
+  // get retried on the next minute).
+  quietHoursStart String   @default("21:00")
+  quietHoursEnd   String   @default("08:00")
   updatedAt       DateTime @updatedAt @default(now())
 }
 
