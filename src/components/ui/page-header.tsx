@@ -28,20 +28,17 @@ export function PageHeader({
         {breadcrumbs && breadcrumbs.length > 0 && (
           <nav
             aria-label="Breadcrumb"
-            className="mb-2 flex flex-wrap items-center gap-1 text-xs text-zinc-500"
+            className="mb-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
           >
             {breadcrumbs.map((c, i) => (
               <span key={i} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight className="h-3 w-3 text-zinc-300" />}
+                {i > 0 && <ChevronRight className="h-3 w-3 opacity-50" />}
                 {c.href ? (
-                  <Link
-                    href={c.href}
-                    className="hover:text-zinc-900 dark:hover:text-zinc-200"
-                  >
+                  <Link href={c.href} className="hover:text-foreground">
                     {c.label}
                   </Link>
                 ) : (
-                  <span className={cn(i === breadcrumbs.length - 1 && 'text-zinc-700 dark:text-zinc-300')}>
+                  <span className={cn(i === breadcrumbs.length - 1 && 'text-foreground/80')}>
                     {c.label}
                   </span>
                 )}
@@ -51,14 +48,14 @@ export function PageHeader({
         )}
         <div className="flex items-center gap-3">
           {Icon && (
-            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-              <Icon className="h-6 w-6 text-blue-600" />
+            <div className="grid h-11 w-11 place-items-center rounded-lg bg-primary-soft text-primary">
+              <Icon className="h-5 w-5" />
             </div>
           )}
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
             {subtitle && (
-              <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
             )}
           </div>
         </div>

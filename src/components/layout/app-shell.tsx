@@ -16,21 +16,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-950">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Mobile-only top bar. Desktop chrome lives in the sidebar. */}
-        <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-4 md:hidden dark:border-zinc-800 dark:bg-zinc-950">
+        <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-border-soft bg-sidebar px-4 md:hidden">
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
-            className="rounded-md p-2 -ml-2 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            className="-ml-2 grid h-9 w-9 place-items-center rounded-md hover:bg-muted"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="text-sm font-semibold tracking-tight">Genisys Hub</span>
+          <span className="text-sm font-semibold tracking-tight">Genisys</span>
         </header>
-        <main className="flex-1 overflow-y-auto bg-white p-6 dark:bg-zinc-950">
+        {/* Match the mockup's content padding — px-6/py-6 on mobile,
+            px-10/py-8 on lg+. Pages can still set their own max-width
+            inside via their own wrappers. */}
+        <main className="flex-1 overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
           {children}
         </main>
       </div>

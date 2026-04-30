@@ -1,14 +1,20 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Inter, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { RootShell } from '@/components/layout/root-shell'
 import { QueryProvider } from '@/providers/query-provider'
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+// Inter — display + body. Matches the Orbitask-inspired CRM mockup; the
+// `feature-settings` in globals.css turn on cv11/ss01/ss03 stylistic
+// alternates for the slightly tighter, more crisp feel.
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
+  display: 'swap',
 })
 
+// Mono retained for tabular figures + code blocks (Geist Mono renders
+// digits with consistent widths, useful in our money/phone columns).
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
@@ -44,7 +50,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

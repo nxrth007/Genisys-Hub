@@ -7,28 +7,209 @@
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Orbitask-inspired design system, ported from Ethan's CRM mockup.
+ * Clean white surfaces, vivid blue primary, soft pastel status pills.
+ * Typography: Inter (display + body). Color space: OKLch for perceptual
+ * consistency across hue-shifted dark mode.
+ */
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.03);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px rgb(15 23 42 / 0.04);
+  --shadow-pop: 0 10px 30px -12px rgb(15 23 42 / 0.12);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --radius: 0.875rem;
+
+  /* Surfaces */
+  --background: oklch(0.995 0.002 250);
+  --foreground: oklch(0.21 0.04 260);
+  --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.975 0.005 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.04 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.04 260);
+
+  /* Brand — Orbitask blue */
+  --primary: oklch(0.58 0.21 264);
+  --primary-foreground: oklch(1 0 0);
+  --primary-soft: oklch(0.96 0.03 264);
+
+  --secondary: oklch(0.97 0.01 255);
+  --secondary-foreground: oklch(0.25 0.04 260);
+  --muted: oklch(0.97 0.008 255);
+  --muted-foreground: oklch(0.52 0.03 257);
+  --accent: oklch(0.965 0.015 264);
+  --accent-foreground: oklch(0.45 0.18 264);
+
+  /* Status pill palette */
+  --destructive: oklch(0.66 0.2 22);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.72 0.16 155);
+  --success-foreground: oklch(0.28 0.08 155);
+  --warning: oklch(0.83 0.13 75);
+  --warning-foreground: oklch(0.42 0.12 60);
+  --info: oklch(0.75 0.11 250);
+  --info-foreground: oklch(0.32 0.13 264);
+
+  /* Pastel chip backgrounds (used by .chip-* utilities below) */
+  --chip-pink: oklch(0.94 0.04 18);
+  --chip-pink-fg: oklch(0.5 0.18 18);
+  --chip-amber: oklch(0.94 0.06 78);
+  --chip-amber-fg: oklch(0.5 0.16 60);
+  --chip-mint: oklch(0.93 0.07 155);
+  --chip-mint-fg: oklch(0.42 0.13 155);
+  --chip-blue: oklch(0.94 0.04 250);
+  --chip-blue-fg: oklch(0.42 0.18 264);
+  --chip-violet: oklch(0.94 0.04 295);
+  --chip-violet-fg: oklch(0.45 0.18 295);
+
+  --border: oklch(0.93 0.01 255);
+  --border-soft: oklch(0.955 0.008 255);
+  --input: oklch(0.95 0.008 255);
+  --ring: oklch(0.58 0.21 264);
+
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.21 0.04 260);
+  --sidebar-primary: oklch(0.58 0.21 264);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.965 0.02 264);
+  --sidebar-accent-foreground: oklch(0.45 0.18 264);
+  --sidebar-border: oklch(0.95 0.008 255);
+  --sidebar-ring: oklch(0.58 0.21 264);
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: oklch(0.16 0.02 260);
+  --foreground: oklch(0.96 0.005 250);
+  --surface: oklch(0.2 0.025 260);
+  --surface-muted: oklch(0.23 0.025 260);
+  --card: oklch(0.2 0.025 260);
+  --card-foreground: oklch(0.96 0.005 250);
+  --popover: oklch(0.22 0.025 260);
+  --popover-foreground: oklch(0.96 0.005 250);
+  --primary: oklch(0.7 0.18 264);
+  --primary-foreground: oklch(0.16 0.02 260);
+  --primary-soft: oklch(0.3 0.08 264);
+  --secondary: oklch(0.26 0.03 260);
+  --secondary-foreground: oklch(0.96 0.005 250);
+  --muted: oklch(0.26 0.03 260);
+  --muted-foreground: oklch(0.72 0.02 257);
+  --accent: oklch(0.3 0.05 264);
+  --accent-foreground: oklch(0.92 0.04 264);
+  --destructive: oklch(0.7 0.19 22);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(1 0 0 / 8%);
+  --border-soft: oklch(1 0 0 / 5%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.7 0.18 264);
+  --sidebar: oklch(0.2 0.025 260);
+  --sidebar-foreground: oklch(0.96 0.005 250);
+  --sidebar-primary: oklch(0.7 0.18 264);
+  --sidebar-primary-foreground: oklch(0.16 0.02 260);
+  --sidebar-accent: oklch(0.3 0.05 264);
+  --sidebar-accent-foreground: oklch(0.92 0.04 264);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.7 0.18 264);
   color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
+  }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+/* Utility chips — used for status pills, category tags, etc. */
+@layer utilities {
+  .chip-pink {
+    background-color: var(--chip-pink);
+    color: var(--chip-pink-fg);
+  }
+  .chip-amber {
+    background-color: var(--chip-amber);
+    color: var(--chip-amber-fg);
+  }
+  .chip-mint {
+    background-color: var(--chip-mint);
+    color: var(--chip-mint-fg);
+  }
+  .chip-blue {
+    background-color: var(--chip-blue);
+    color: var(--chip-blue-fg);
+  }
+  .chip-violet {
+    background-color: var(--chip-violet);
+    color: var(--chip-violet-fg);
+  }
 }
 
 /* Hide Next.js dev tools indicator */
