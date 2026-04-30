@@ -45,8 +45,13 @@ export async function POST(req: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
+  // Staff-only: agents (and pending/denied) can read clients via GET
+  // for their booking picker, but they can't create. Both admin and
+  // member are staff and should both be able to manage clients —
+  // earlier this check was `role !== 'admin'`, which blocked Ethan
+  // (role=member) from saving edits.
   const role = (session.user as { role?: string } | undefined)?.role
-  if (role !== 'admin') {
+  if (role !== 'admin' && role !== 'member') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 

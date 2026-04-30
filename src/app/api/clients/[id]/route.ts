@@ -22,8 +22,12 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
+  // Staff-only: both admin and member roles are staff and need to
+  // manage clients. Agents (+ pending/denied) are blocked — earlier
+  // this was `role !== 'admin'`, which blocked Ethan (role=member)
+  // from saving edits with a misleading 403.
   const role = (session.user as { role?: string } | undefined)?.role
-  if (role !== 'admin') {
+  if (role !== 'admin' && role !== 'member') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
