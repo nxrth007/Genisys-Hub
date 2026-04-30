@@ -271,9 +271,19 @@ function priorityRank(p: string): number {
 export function FocusList({
   dbId,
   newTaskTrigger,
+  grouped = true,
+  showAssigneeSidebar = true,
 }: {
   dbId: string
   newTaskTrigger?: number
+  /** When false, renders all tasks as a single flat checklist (no
+   *  Doing / Up next / Waiting / Done sections). Default true keeps
+   *  the original behavior for places like /notion/db/[id]. */
+  grouped?: boolean
+  /** When false, hides the right-rail assignee filter and collapses
+   *  the layout to a single column. Used by /today where the page
+   *  prefers a clean centered list. */
+  showAssigneeSidebar?: boolean
 }) {
   const queryClient = useQueryClient()
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
@@ -326,7 +336,9 @@ export function FocusList({
     )
   }, [tasks, selectedAssignee])
 
-  const grouped = useMemo(() => {
+  // (Renamed from `grouped` to `groupedTasks` so it doesn't shadow
+  // the new `grouped` prop above.)
+  const groupedTasks = useMemo(() => {
     const g: Record<Section, Extracted[]> = {
       doing: [],
       today: [],
@@ -338,7 +350,7 @@ export function FocusList({
     // Sort each section
     g.today.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
     g.upnext.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-    g.done.sort((a, b) => 0) // already in Notion order
+    g.done.sort(() => 0) // already in Notion order
     return g
   }, [filtered])
 
@@ -552,112 +564,145 @@ export function FocusList({
       }
       tasks={filtered}
     >
-      {/* min-w-0 on the grid prevents long task titles (or any child
-          content) from pushing the grid wider than its parent, which
-          would trigger a page-level horizontal scrollbar. */}
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+      {/* Layout adapts to the props: with the assignee sidebar we use
+          a 2-column grid; without it the main column expands to full
+          width so the checklist sits centered under the page header. */}
+      <div
+        className={cn(
+          'grid min-w-0 gap-4',
+          showAssigneeSidebar && 'lg:grid-cols-[minmax(0,1fr)_220px]'
+        )}
+      >
         {/* ---- Main column ---- */}
         <div className="min-w-0 space-y-5">
-          <FocusSection
-            section="doing"
-            icon={Zap}
-            label="Doing right now"
-            count={grouped.doing.length}
-            tone="blue"
-            tasks={grouped.doing}
-            onToggle={toggleComplete}
-            onDelete={(id) => deleteMutation.mutate(id)}
-            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-            emptyHint="Nothing in progress — drag a task here to start."
-          />
-          <FocusSection
-            section="today"
-            icon={Flame}
-            label="Do today"
-            count={grouped.today.length}
-            tone="red"
-            tasks={grouped.today}
-            onToggle={toggleComplete}
-            onDelete={(id) => deleteMutation.mutate(id)}
-            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-            emptyHint="Nothing urgent. Nice."
-          />
-          <FocusSection
-            section="upnext"
-            icon={ListTodo}
-            label="Up next"
-            count={grouped.upnext.length}
-            tone="indigo"
-            tasks={grouped.upnext}
-            onToggle={toggleComplete}
-            onDelete={(id) => deleteMutation.mutate(id)}
-            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-            emptyHint="Backlog is clear."
-          />
-          <FocusSection
-            section="waiting"
-            icon={PauseCircle}
-            label="Waiting / Blocked"
-            count={grouped.waiting.length}
-            tone="amber"
-            tasks={grouped.waiting}
-            onToggle={toggleComplete}
-            onDelete={(id) => deleteMutation.mutate(id)}
-            onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-            emptyHint="Nothing blocked right now."
-          />
+          {grouped ? (
+            <>
+              <FocusSection
+                section="doing"
+                icon={Zap}
+                label="Doing right now"
+                count={groupedTasks.doing.length}
+                tone="blue"
+                tasks={groupedTasks.doing}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                emptyHint="Nothing in progress — drag a task here to start."
+              />
+              <FocusSection
+                section="today"
+                icon={Flame}
+                label="Do today"
+                count={groupedTasks.today.length}
+                tone="red"
+                tasks={groupedTasks.today}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                emptyHint="Nothing urgent. Nice."
+              />
+              <FocusSection
+                section="upnext"
+                icon={ListTodo}
+                label="Up next"
+                count={groupedTasks.upnext.length}
+                tone="indigo"
+                tasks={groupedTasks.upnext}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                emptyHint="Backlog is clear."
+              />
+              <FocusSection
+                section="waiting"
+                icon={PauseCircle}
+                label="Waiting / Blocked"
+                count={groupedTasks.waiting.length}
+                tone="amber"
+                tasks={groupedTasks.waiting}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                emptyHint="Nothing blocked right now."
+              />
 
-          {/* Done — collapsible to keep the page clean, but droppable
-              even when collapsed so you can drag a task onto the header
-              to mark it complete without expanding first. */}
-          <DoneSection
-            tasks={grouped.done}
-            expanded={doneExpanded}
-            onToggleExpanded={() => setDoneExpanded((v) => !v)}
-            onToggleTask={toggleComplete}
-            onDeleteTask={(id) => deleteMutation.mutate(id)}
-            onRenameTask={(id, title) => renameMutation.mutate({ pageId: id, title })}
-          />
+              {/* Done — collapsible to keep the page clean, but droppable
+                  even when collapsed so you can drag a task onto the
+                  header to mark it complete without expanding first. */}
+              <DoneSection
+                tasks={groupedTasks.done}
+                expanded={doneExpanded}
+                onToggleExpanded={() => setDoneExpanded((v) => !v)}
+                onToggleTask={toggleComplete}
+                onDeleteTask={(id) => deleteMutation.mutate(id)}
+                onRenameTask={(id, title) => renameMutation.mutate({ pageId: id, title })}
+              />
+            </>
+          ) : (
+            // Flat single checklist — no Doing/Up next/Waiting/Done
+            // headers. All non-done tasks first (priority order), then
+            // a small "Done today" cluster at the bottom so completed
+            // items don't disappear immediately. Drag handles still
+            // render but have no drop targets in this mode (a no-op,
+            // not a regression — clicking the checkbox toggles done
+            // exactly like before).
+            <FlatChecklist
+              active={[
+                ...groupedTasks.doing,
+                ...groupedTasks.today,
+                ...groupedTasks.upnext,
+                ...groupedTasks.waiting,
+              ]}
+              done={groupedTasks.done}
+              doneExpanded={doneExpanded}
+              onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
+              onToggle={toggleComplete}
+              onDelete={(id) => deleteMutation.mutate(id)}
+              onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+            />
+          )}
         </div>
 
-        {/* ---- Assignee sidebar ---- */}
-        <div className="lg:sticky lg:top-4 lg:self-start">
-          <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              <Users className="h-3 w-3" />
-              Filter by assignee
-            </div>
-            <div className="space-y-0.5">
-              <AssigneeRow
-                label="All"
-                count={assigneeList.total}
-                active={selectedAssignee === 'all'}
-                onClick={() => setSelectedAssignee('all')}
-                color={null}
-              />
-              {assigneeList.list.map((a) => (
+        {/* ---- Assignee sidebar (hidden on /today via prop) ---- */}
+        {showAssigneeSidebar && (
+          <div className="lg:sticky lg:top-4 lg:self-start">
+            <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <Users className="h-3 w-3" />
+                Filter by assignee
+              </div>
+              <div className="space-y-0.5">
                 <AssigneeRow
-                  key={a.name}
-                  label={a.name}
-                  count={a.count}
-                  active={selectedAssignee === a.name}
-                  onClick={() => setSelectedAssignee(a.name)}
-                  color={a.name}
-                />
-              ))}
-              {assigneeList.unassigned > 0 && (
-                <AssigneeRow
-                  label="Unassigned"
-                  count={assigneeList.unassigned}
-                  active={selectedAssignee === 'unassigned'}
-                  onClick={() => setSelectedAssignee('unassigned')}
+                  label="All"
+                  count={assigneeList.total}
+                  active={selectedAssignee === 'all'}
+                  onClick={() => setSelectedAssignee('all')}
                   color={null}
-                  italic
                 />
-              )}
+                {assigneeList.list.map((a) => (
+                  <AssigneeRow
+                    key={a.name}
+                    label={a.name}
+                    count={a.count}
+                    active={selectedAssignee === a.name}
+                    onClick={() => setSelectedAssignee(a.name)}
+                    color={a.name}
+                  />
+                ))}
+                {assigneeList.unassigned > 0 && (
+                  <AssigneeRow
+                    label="Unassigned"
+                    count={assigneeList.unassigned}
+                    active={selectedAssignee === 'unassigned'}
+                    onClick={() => setSelectedAssignee('unassigned')}
+                    color={null}
+                    italic
+                  />
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ---- New task modal ---- */}
@@ -712,6 +757,94 @@ const SECTION_TONES: Record<
     icon: 'text-emerald-600',
     accent: 'before:bg-emerald-500',
   },
+}
+
+/**
+ * Flat single-list mode used by /today. Renders all active tasks
+ * without status group headers, then a small "Done today" cluster
+ * at the bottom (collapsible) so completed tasks don't disappear
+ * mid-session. Mirrors the mockup's checklist card.
+ */
+function FlatChecklist({
+  active,
+  done,
+  doneExpanded,
+  onToggleDoneExpanded,
+  onToggle,
+  onDelete,
+  onRename,
+}: {
+  active: Extracted[]
+  done: Extracted[]
+  doneExpanded: boolean
+  onToggleDoneExpanded: () => void
+  onToggle: (id: string, done: boolean) => void
+  onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
+}) {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
+      {active.length === 0 ? (
+        <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
+          {done.length > 0
+            ? "All clear — nothing left for today."
+            : 'No tasks on this board yet.'}
+        </div>
+      ) : (
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {active.map((t) => (
+            <li key={t.id}>
+              <TaskRow
+                task={t}
+                done={false}
+                onToggle={(d) => onToggle(t.id, d)}
+                onDelete={() => onDelete(t.id)}
+                onRename={(title) => onRename(t.id, title)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Done cluster — only renders when there's at least one
+          completed task today. Collapsible to keep the page light. */}
+      {done.length > 0 && (
+        <div className="border-t border-zinc-100 dark:border-zinc-800">
+          <button
+            type="button"
+            onClick={onToggleDoneExpanded}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+          >
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              Done today ({done.length})
+            </span>
+            <ChevronRight
+              className={cn(
+                'h-3.5 w-3.5 transition-transform',
+                doneExpanded && 'rotate-90'
+              )}
+            />
+          </button>
+          {doneExpanded && (
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {done.map((t) => (
+                <li key={t.id}>
+                  <TaskRow
+                    task={t}
+                    done
+                    onToggle={(d) => onToggle(t.id, d)}
+                    onDelete={() => onDelete(t.id)}
+                    onRename={(title) => onRename(t.id, title)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function FocusSection({

@@ -20,6 +20,7 @@ import {
   ArrowRight,
   ListChecks,
   KanbanSquare,
+  ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
@@ -27,6 +28,11 @@ import { FocusList } from '@/components/notion/focus-list'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatCard } from '@/components/ui/stat-card'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
+import {
+  DateRangePicker,
+  defaultRange,
+  type DateRange,
+} from '@/components/ui/date-range-picker'
 
 type Task = {
   id: string
@@ -36,6 +42,20 @@ type Task = {
   completedAt: string | null
   priority: 'low' | 'normal' | 'high'
   createdAt: string
+}
+
+/** Subset of the staff callbacks endpoint payload we actually use
+ *  on /today. Keeps coupling loose — extra fields the server
+ *  returns are tolerated, but TS only types what we read. */
+type Callback = {
+  id: string
+  customerName: string
+  customerPhone: string
+  callbackAt: string
+  notes: string | null
+  reason: string | null
+  completedAt: string | null
+  agent?: { id: string; name: string | null; email: string }
 }
 
 type CalEvent = {
@@ -198,6 +218,19 @@ export default function TodayPage() {
   // can flip to "board" via the toggle to see the old Kanban.
   const [tasksView, setTasksView] = useState<'focus' | 'board'>('focus')
 
+  // Scope + date-range — match the mockup's filter bar. Scope is the
+  // "Daily / Weekly / Monthly / Quarterly" pill; the date range
+  // pill on the right is a 2-month calendar popover with quick
+  // presets. Both filters are visual scaffolding for now — the
+  // FocusList still renders the Notion DB's full task set; we just
+  // surface the controls so Ethan can see his preferred layout.
+  // Hooking the filters into Notion's date-range query is a separate
+  // pass once we agree on which property maps to "due date".
+  const [scope, setScope] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly'>(
+    'Daily'
+  )
+  const [range, setRange] = useState<DateRange>(() => defaultRange(7))
+
   const tasksQuery = useQuery<{ tasks: Task[] }>({
     queryKey: ['today-tasks'],
     queryFn: async () => {
@@ -253,23 +286,38 @@ export default function TodayPage() {
   })
   const boardStats = computeBoardStats(notionBoardQuery.data)
 
-  // Booked-appointment counters for the Today stat strip. Fed by every
-  // agent's Appointment rows; scoped to today in the viewer's timezone.
-  const bookingStatsQuery = useQuery<{
-    bookedToday: number
-    bookedYesterday: number
-    bookedLast7Days: number
-    bookedTotal: number
-    trend: number | null
-  }>({
-    queryKey: ['today-booking-stats'],
+  // Follow-ups — the staff callbacks across all agents. Used both
+  // for the "Follow-ups due" stat card and the collapsible drawer
+  // below the tasks view (Ethan: "follow-up means I just need to text
+  // these people"). Pending+overdue are surfaced; completed ones are
+  // hidden so the drawer only shows actionable rows.
+  const followUpsQuery = useQuery<{ callbacks: Callback[] }>({
+    queryKey: ['today-followups'],
     queryFn: async () => {
-      const res = await fetch('/api/today/booking-stats')
-      if (!res.ok) throw new Error('Failed to load booking stats')
+      // bucket=pending fetches non-completed callbacks regardless of
+      // due-date (overdue rolls into pending too on the server side).
+      const res = await fetch('/api/call-center/callbacks?bucket=pending')
+      if (!res.ok) throw new Error('Failed to load callbacks')
       return res.json()
     },
   })
-  const bookingStats = bookingStatsQuery.data
+  const followUps = followUpsQuery.data?.callbacks ?? []
+  const followUpStats = (() => {
+    const now = new Date()
+    const startOfToday = new Date(now)
+    startOfToday.setHours(0, 0, 0, 0)
+    const endOfToday = new Date(startOfToday)
+    endOfToday.setDate(endOfToday.getDate() + 1)
+    let overdue = 0
+    let today = 0
+    for (const c of followUps) {
+      const at = new Date(c.callbackAt)
+      if (isNaN(at.getTime())) continue
+      if (at < startOfToday) overdue++
+      else if (at < endOfToday) today++
+    }
+    return { due: followUps.length, overdue, today }
+  })()
 
   // Pick source-of-truth counts based on whether a board is pinned. Local
   // tasks are used when no board is attached, Notion counts when one is.
@@ -320,29 +368,39 @@ export default function TodayPage() {
         }
       />
 
-      {/* At-a-glance numbers — icon-less per the mockup so the value
-          carries the visual weight. Progress bar at the bottom of
-          each card keeps the rhythm consistent with the mockup's
-          KPI row. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Meetings today"
-          value={events.length}
-          subtitle="scheduled"
-          tone="blue"
-          progress={events.length > 0 ? 100 : 0}
+      {/* Filter row — scope dropdown + date range picker. Mirrors the
+          mockup's filter bar above the KPI cards. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <DropdownPill
+          value={scope}
+          options={[
+            { id: 'Daily', label: 'Daily' },
+            { id: 'Weekly', label: 'Weekly' },
+            { id: 'Monthly', label: 'Monthly' },
+            { id: 'Quarterly', label: 'Quarterly' },
+          ]}
+          onChange={setScope}
+          icon={Calendar}
         />
+        <DateRangePicker value={range} onChange={setRange} align="start" />
+      </div>
+
+      {/* At-a-glance numbers — three cards mirroring Ethan's mockup.
+          (Booked-appointments card was removed per his feedback —
+          that data still drives Master Tracker stats; here it just
+          competed with the task focus he wants.) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
-          label="Tasks to do"
-          value={tasksToDoCount}
+          label="Tasks completed"
+          value={tasksDoneCount}
           subtitle={
             tasksTotalCount > 0
-              ? `of ${tasksTotalCount}`
+              ? `${tasksToDoCount} open`
               : pinnedDbId
                 ? 'board loading…'
                 : 'nothing logged today'
           }
-          tone={tasksToDoCount > 0 ? 'amber' : 'zinc'}
+          tone={tasksDoneCount > 0 ? 'green' : 'zinc'}
           progress={
             tasksTotalCount > 0
               ? Math.round((tasksDoneCount / tasksTotalCount) * 100)
@@ -350,21 +408,21 @@ export default function TodayPage() {
           }
         />
         <StatCard
-          label={pinnedDbId ? 'Completed' : 'Completed today'}
-          value={tasksDoneCount}
-          subtitle={tasksDoneCount === 0 ? "let's go" : 'nice work'}
-          tone={tasksDoneCount > 0 ? 'green' : 'zinc'}
+          label="Meetings today"
+          value={events.length}
+          subtitle={events.length === 0 ? 'nothing scheduled' : 'scheduled'}
+          tone="blue"
+          progress={events.length > 0 ? 100 : 0}
         />
         <StatCard
-          label="Booked appointments"
-          value={bookingStats?.bookedToday ?? 0}
+          label="Follow-ups due"
+          value={followUpStats.due}
           subtitle={
-            bookingStats
-              ? `today · ${bookingStats.bookedLast7Days} past 7d`
-              : 'loading…'
+            followUpStats.due === 0
+              ? 'all caught up'
+              : `${followUpStats.overdue} overdue · ${followUpStats.today} today`
           }
-          trend={bookingStats?.trend ?? null}
-          tone={(bookingStats?.bookedToday ?? 0) > 0 ? 'indigo' : 'zinc'}
+          tone={followUpStats.overdue > 0 ? 'amber' : followUpStats.due > 0 ? 'indigo' : 'zinc'}
         />
       </div>
 
@@ -402,7 +460,16 @@ export default function TodayPage() {
         // pushing the whole page wider.
         <div className="min-w-0 space-y-3">
           {tasksView === 'focus' ? (
-            <FocusList dbId={pinnedDbId} newTaskTrigger={newTaskTrigger} />
+            // Single flat checklist + no assignee sidebar per Ethan's
+            // mockup. Status grouping (Doing / Up next / Waiting /
+            // Done) only shows up on the dedicated /notion/db/[id]
+            // view where the deeper triage breakdown is useful.
+            <FocusList
+              dbId={pinnedDbId}
+              newTaskTrigger={newTaskTrigger}
+              grouped={false}
+              showAssigneeSidebar={false}
+            />
           ) : (
             <TaskBoard
               dbId={pinnedDbId}
@@ -492,6 +559,18 @@ export default function TodayPage() {
           </div>
         </section>
       )}
+
+      {/* Follow-ups — collapsible "sub-tab" per Ethan's mockup
+          ("most of the day is just following up. but it's not really
+          part of checklist, so I want a sub-tab"). Closed by default
+          to keep the page light; counts on the header so the
+          collapsed state still telegraphs how many things need a
+          response. */}
+      <FollowUpsDrawer
+        followUps={followUps}
+        loading={followUpsQuery.isLoading}
+        error={followUpsQuery.error as Error | null}
+      />
 
       {/* "Next up" — meetings list ported from the mockup's pattern.
           The very next meeting is highlighted with the primary-soft
@@ -617,6 +696,178 @@ export default function TodayPage() {
 // -------------------------------------------------------------------------
 // Sub-components
 // -------------------------------------------------------------------------
+
+/**
+ * Collapsible "Follow-ups" drawer — closed by default. Opens to a
+ * checklist of pending callbacks across all agents (the staff view
+ * of /api/call-center/callbacks). Per Ethan: "follow-up means I
+ * just need to text the people."
+ *
+ * Each row shows the customer + reason + when the callback is due,
+ * tinted rose if the row is overdue. A "Mark done" button on each
+ * row optimistically marks the callback complete and invalidates
+ * the query so the row falls out of the list.
+ */
+function FollowUpsDrawer({
+  followUps,
+  loading,
+  error,
+}: {
+  followUps: Callback[]
+  loading: boolean
+  error: Error | null
+}) {
+  const qc = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+
+  // Sort overdue → due-soonest at the top. Inside each bucket we
+  // rely on the server's existing callbackAt-asc order.
+  const now = new Date()
+  const ordered = [...followUps].sort((a, b) => {
+    const aTime = new Date(a.callbackAt).getTime()
+    const bTime = new Date(b.callbackAt).getTime()
+    return aTime - bTime
+  })
+  const overdueCount = followUps.filter(
+    (c) => new Date(c.callbackAt) < now
+  ).length
+
+  const completeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/call-center/callbacks/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ completed: true }),
+      })
+      if (!res.ok) throw new Error('Failed to mark done')
+    },
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['today-followups'] })
+      const previous = qc.getQueryData<{ callbacks: Callback[] }>([
+        'today-followups',
+      ])
+      if (previous) {
+        qc.setQueryData(
+          ['today-followups'],
+          {
+            ...previous,
+            callbacks: previous.callbacks.filter((c) => c.id !== id),
+          }
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['today-followups'], ctx.previous)
+    },
+  })
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+      >
+        <div className="flex items-center gap-3">
+          <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary-soft text-primary">
+            <Phone className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-[15px] font-semibold tracking-tight">
+              Follow-ups
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {followUps.length}
+              </span>
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {overdueCount > 0
+                ? `${overdueCount} overdue · ${followUps.length - overdueCount} upcoming`
+                : 'people to text/call back today'}
+            </p>
+          </div>
+        </div>
+        <ChevronRight
+          className={cn(
+            'h-4 w-4 text-muted-foreground transition-transform',
+            expanded && 'rotate-90'
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border-soft">
+          {loading ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              Loading follow-ups…
+            </div>
+          ) : error ? (
+            <div className="px-5 py-5 text-sm text-rose-600">
+              Couldn&apos;t load follow-ups: {error.message}
+            </div>
+          ) : ordered.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              All caught up — no pending callbacks.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border-soft">
+              {ordered.map((c) => {
+                const due = new Date(c.callbackAt)
+                const overdue = !isNaN(due.getTime()) && due < now
+                return (
+                  <li
+                    key={c.id}
+                    className="flex items-center gap-3 px-5 py-3"
+                  >
+                    <button
+                      onClick={() => completeMutation.mutate(c.id)}
+                      disabled={completeMutation.isPending}
+                      className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition hover:border-primary hover:text-primary"
+                      title="Mark done"
+                      aria-label={`Mark follow-up with ${c.customerName} done`}
+                    >
+                      <Circle className="h-3 w-3" />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {c.customerName}
+                        <span className="ml-1.5 font-normal text-muted-foreground">
+                          · {c.customerPhone}
+                        </span>
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {c.reason || c.notes || 'No reason logged'}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        'flex-shrink-0 text-xs',
+                        overdue
+                          ? 'font-semibold text-rose-600'
+                          : 'text-muted-foreground'
+                      )}
+                    >
+                      {overdue ? 'Overdue' : ''}{' '}
+                      <span className="tabular-nums">
+                        {due.toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        })}
+                      </span>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
 
 function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
   const isComplete = !!task.completedAt
