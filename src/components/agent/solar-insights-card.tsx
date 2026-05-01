@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sun, Loader2, AlertCircle, Cpu, Maximize2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -50,6 +50,16 @@ const VIABILITY_LABEL: Record<SolarSummary['viability'], string> = {
 }
 
 export function SolarInsightsCard({ address }: { address: string }) {
+  // Match AddressMapPreview's pattern — gate on a post-mount flag so
+  // server HTML and client HTML can't diverge. Both components share
+  // the same parent form; if either hydrated inconsistently the
+  // whole tree got torn down (React error #418), which broke the
+  // map's debounced fetch chain too.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const [state, setState] = useState<
     | { kind: 'idle' }
     | { kind: 'loading' }
@@ -91,6 +101,8 @@ export function SolarInsightsCard({ address }: { address: string }) {
       })
     }
   }
+
+  if (!mounted) return null
 
   return (
     <div className="mt-2">

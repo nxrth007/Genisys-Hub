@@ -22,6 +22,18 @@ import { Loader2, MapPin, AlertCircle } from 'lucide-react'
  */
 
 export function AddressMapPreview({ address }: { address: string }) {
+  // Render nothing until after client-side mount. Prevents a React
+  // hydration mismatch (#418) — TanStack Query's internal state +
+  // the iframe's `title` interpolation made the SSR HTML diverge
+  // from what the client wanted to render, which forced React to
+  // tear the entire form tree down and regenerate it. Cascading
+  // re-renders meant the debounce-then-fetch chain never settled,
+  // so the embed-url request never fired.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const trimmed = address.trim()
 
   // Local debounce so we only ask the API once the user has stopped
@@ -66,6 +78,7 @@ export function AddressMapPreview({ address }: { address: string }) {
     staleTime: 60_000,
   })
 
+  if (!mounted) return null
   if (debounced.length < 5) return null
   // Soft-hide on missing-key — admins see a hint via the error block,
   // agents see nothing. Distinguishes the two by error.status if we
