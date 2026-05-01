@@ -994,6 +994,7 @@ type ClientForRouting = {
   name: string
   state: string | null
   color: string
+  lifecycle: string
   slackChannelId: string | null
   slackChannelName: string | null
 }
@@ -1007,10 +1008,14 @@ type SlackChannelOption = {
 
 function ClientSlackDeliverySection() {
   const qc = useQueryClient()
+  // include=routable surfaces paused + onboarding clients alongside
+  // active ones — admins want to pre-configure routing for clients
+  // that aren't booking yet (or are temporarily on hold). Hidden from
+  // the agent booking picker, which still uses the default filter.
   const clientsQuery = useQuery<{ clients: ClientForRouting[] }>({
     queryKey: ['clients-for-routing'],
     queryFn: async () => {
-      const res = await fetch('/api/clients')
+      const res = await fetch('/api/clients?include=routable')
       if (!res.ok) throw new Error('Failed to load clients')
       return res.json()
     },
@@ -1197,6 +1202,19 @@ function ClientRoutingRow({
           <span className="text-sm font-medium">{client.name}</span>
           {client.state && (
             <span className="text-[11px] text-zinc-500">{client.state}</span>
+          )}
+          {client.lifecycle !== 'active' && (
+            <span
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+                client.lifecycle === 'paused' &&
+                  'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+                client.lifecycle === 'onboarding' &&
+                  'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+              )}
+            >
+              {client.lifecycle}
+            </span>
           )}
         </div>
         {client.slackChannelId && client.slackChannelName && (

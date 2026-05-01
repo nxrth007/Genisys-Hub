@@ -12,14 +12,26 @@ import { validateClientCreate } from '@/lib/clients'
  *   Creates a new client. Admin-only — middleware doesn't gate by HTTP
  *   method on this path, so we enforce the role check in the handler.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
+  // Default behavior is unchanged: active-only, so the agent booking
+  // picker never sees paused/churned clients. The Slack-delivery
+  // settings panel passes ?include=routable to also surface paused
+  // and onboarding clients — admins routinely want to pre-configure
+  // a channel for a client that hasn't gone live yet.
+  const url = new URL(req.url)
+  const include = url.searchParams.get('include')
+  const lifecycleFilter =
+    include === 'routable'
+      ? { lifecycle: { in: ['active', 'onboarding', 'paused'] } }
+      : { active: true }
+
   const clients = await prisma.client.findMany({
-    where: { active: true },
+    where: lifecycleFilter,
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     select: {
       id: true,
