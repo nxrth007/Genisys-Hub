@@ -35,12 +35,25 @@ import { REMINDER_TYPES, DEFAULT_TEMPLATES, type ReminderType } from './reminder
  * Window in milliseconds before the appointment for each reminder
  * type. `start` is 0 — fires at the appointment moment itself.
  */
-const REMINDER_OFFSET_MS: Record<ReminderType, number> = {
+const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> = {
   '1day': 24 * 60 * 60 * 1000,
   '2hr': 2 * 60 * 60 * 1000,
   '30min': 30 * 60 * 1000,
   start: 0,
 }
+
+/** "Confirmation" doesn't fit the "X before appointment time" model
+ *  the other types use — it should land right after the appointment
+ *  is recorded, regardless of when the appointment itself is. We
+ *  still set scheduledFor to a real Date so the dispatcher's
+ *  due-window query works without special cases; pinning it to
+ *  "now" makes the next dispatch tick fire it.
+ *
+ *  Tiny delay (30s) gives Mary a small window to catch a typo'd
+ *  booking before the customer gets a confirmation for the wrong
+ *  thing. The dispatcher polls every minute, so the customer still
+ *  sees the text within ~1 minute of the row landing in the DB. */
+const CONFIRMATION_DELAY_MS = 30 * 1000
 
 // DEFAULT_TEMPLATES + ReminderType are re-exported above; the values
 // live in reminders-constants.ts so client code can import them
@@ -88,6 +101,19 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     clients.map((c) => [c.name.toLowerCase(), c])
   )
 
+  // Confirmation reminders are gated on a master flag — leaving it
+  // off means the type still appears in the template editor (so
+  // admins can author copy ahead of time) but the sync skips
+  // creating any rows. Flipping on without the matching backfill
+  // would blast every existing appointment retroactively, which is
+  // why the Settings UI runs backfillSkippedConfirmations() the
+  // moment the toggle flips.
+  const config = await prisma.remindersConfig.findUnique({
+    where: { id: 'singleton' },
+    select: { confirmationEnabled: true },
+  })
+  const confirmationEnabled = config?.confirmationEnabled ?? false
+
   // Track every sourceKey we touched in this run — used at the end
   // to cancel any stranded reminders whose source no longer matches
   // an active sheet row.
@@ -125,8 +151,31 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     const phoneInvalid = !isValidUsPhone(r.customerPhone)
 
     for (const type of REMINDER_TYPES) {
-      const fireAt = new Date(apptDate.getTime() - REMINDER_OFFSET_MS[type])
-      const isPast = fireAt.getTime() <= now
+      // Confirmation rides on a different schedule than the rest
+      // (fire ASAP, not "X before appointment"). Skip its creation
+      // entirely when the master flag is off so the cron stays a
+      // no-op for that type until admin opts in.
+      if (type === 'confirmation' && !confirmationEnabled) continue
+
+      let fireAt: Date
+      let isPast: boolean
+      if (type === 'confirmation') {
+        // Tiny delay buys Mary a window to catch a typo'd booking
+        // before the customer's phone buzzes. Dispatcher polls
+        // every minute, so the customer still sees the text within
+        // ~1 minute of the row landing.
+        fireAt = new Date(now + CONFIRMATION_DELAY_MS)
+        // Confirmation is never "past" — it's meant to fire as soon
+        // as we sync, regardless of where the appointment date falls.
+        isPast = false
+      } else {
+        fireAt = new Date(
+          apptDate.getTime() -
+            REMINDER_OFFSET_MS[type as Exclude<ReminderType, 'confirmation'>]
+        )
+        isPast = fireAt.getTime() <= now
+      }
+
       const status = phoneInvalid
         ? 'failed'
         : isPast
@@ -224,6 +273,90 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     skippedPast,
     cancelled: stranded.count,
   }
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Called when an admin first flips confirmationEnabled to true.
+ * Walks the current sheet and creates a `confirmation` reminder
+ * row in 'skipped' status for every appointment that matches what
+ * the sync would otherwise create. Result: when the next cron tick
+ * runs, those rows already exist (unique on sourceKey+type) and
+ * the sync's create branch silently no-ops, so no historical
+ * "Thanks for booking!" texts get blasted retroactively.
+ *
+ * Same shape as the Slack-delivery backfill — single-use safety
+ * net for first enable, idempotent so re-running it is a no-op.
+ */
+export async function backfillSkippedConfirmations(): Promise<{
+  recorded: number
+  alreadyTracked: number
+}> {
+  let rows: MasterTableRow[]
+  try {
+    rows = await readMasterTableRows()
+  } catch (err) {
+    console.error('[reminders] confirmation backfill: sheet read failed:', err)
+    return { recorded: 0, alreadyTracked: 0 }
+  }
+
+  let recorded = 0
+  let alreadyTracked = 0
+
+  for (const r of rows) {
+    if (!r.customerName?.trim() || !r.customerPhone?.trim()) continue
+    if (!r.apptDateTime) continue
+    const apptDate = new Date(r.apptDateTime)
+    if (isNaN(apptDate.getTime())) continue
+    if ((r.status || '').toLowerCase().includes('cancel')) continue
+
+    const sourceKey = `sheet:Master Table:${r.rowNumber}`
+    const tz = timezoneForAddress(r.address)
+
+    try {
+      await prisma.appointmentReminder.create({
+        data: {
+          sourceKey,
+          reminderType: 'confirmation',
+          // Stamp scheduledFor with the appointment time so the
+          // row's chronology in admin views still makes sense.
+          // Status='skipped' means the dispatcher never picks it
+          // up regardless of the schedule.
+          scheduledFor: apptDate,
+          status: 'skipped',
+          errorMessage:
+            'Backfilled when booking-confirmation SMS was first enabled — never attempted.',
+          customerName: r.customerName,
+          customerPhone: r.customerPhone,
+          customerTimezone: tz,
+          apptDateTime: apptDate,
+          clientName: r.client ?? null,
+          address: r.address ?? null,
+          agentName: r.agentName ?? null,
+          sheetTabTitle: 'Master Table',
+          sheetRowNumber: r.rowNumber,
+        },
+      })
+      recorded++
+    } catch (err) {
+      // P2002 = unique constraint hit, meaning a confirmation row
+      // already exists for this (sourceKey, type). Could happen if
+      // backfill runs twice, or if confirmationEnabled was flipped
+      // off and back on. Idempotent no-op.
+      const code =
+        err instanceof Error && 'code' in err
+          ? (err as { code?: string }).code
+          : undefined
+      if (code === 'P2002') {
+        alreadyTracked++
+        continue
+      }
+      throw err
+    }
+  }
+
+  return { recorded, alreadyTracked }
 }
 
 /* -------------------------------------------------------------------------- */

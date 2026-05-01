@@ -699,6 +699,15 @@ model RemindersConfig {
   // get retried on the next minute).
   quietHoursStart String   @default("21:00")
   quietHoursEnd   String   @default("08:00")
+  // Off-by-default master switch for the booking-confirmation SMS
+  // (the "Thanks for booking…" text that lands right after Mary
+  // saves an appointment, before the 1-day / 2-hr / 30-min / start
+  // cascade). Off by default so first-enable doesn't blast every
+  // pre-existing appointment retroactively; admin flips it via
+  // Settings, which also triggers a backfill that marks every
+  // existing appointment's confirmation row 'skipped' so only
+  // future bookings get the text.
+  confirmationEnabled Boolean @default(false)
   // E.164 phone number to send SMS *from* (reminders + morning briefs).
   // Null = fall back to the GHL location's default number, which is
   // what every deployment did before this column existed. Setting it

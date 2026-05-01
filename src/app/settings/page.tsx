@@ -1961,6 +1961,7 @@ type ReminderConfig = {
   quietHoursStart: string
   quietHoursEnd: string
   senderPhone: string | null
+  confirmationEnabled: boolean
   updatedAt: string
 }
 
@@ -2132,6 +2133,57 @@ function AppointmentRemindersSection() {
             How far ahead to schedule reminders. Re-evaluated on each
             5-minute sync.
           </p>
+        </div>
+      </div>
+
+      {/* Booking confirmation toggle — separate enable from the
+          rest of the reminder cascade because the operational
+          impact is different (fires on every new appointment, not
+          on a schedule). Backfill on first-enable is server-side
+          so admins don't have to think about retroactive blasts. */}
+      <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <p className="text-xs font-semibold">
+              Booking confirmation SMS
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Fires once, right after a booking lands on the master
+              sheet (whether typed manually or saved through the Hub
+              form). Lands within ~1 minute of the row syncing.
+              Edit the copy under the &ldquo;Booking confirmation&rdquo; column
+              of the templates editor below.
+            </p>
+            {config?.confirmationEnabled && (
+              <p className="mt-1 text-[11px] text-emerald-600">
+                ✓ Active. New appointments will get the confirmation text.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !config?.confirmationEnabled
+              if (
+                next &&
+                !window.confirm(
+                  'Turn on booking confirmations? Existing appointments will be marked skipped automatically — only new bookings going forward will get the text. This is the right move for a clean rollout.',
+                )
+              ) {
+                return
+              }
+              updateConfig.mutate({ confirmationEnabled: next })
+            }}
+            className={cn(
+              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
+              config?.confirmationEnabled
+                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                : 'border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
+            )}
+            disabled={updateConfig.isPending}
+          >
+            {config?.confirmationEnabled ? 'Enabled' : 'Enable'}
+          </button>
         </div>
       </div>
 

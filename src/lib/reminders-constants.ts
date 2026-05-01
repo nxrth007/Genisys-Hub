@@ -5,11 +5,26 @@
  * surface the Settings UI consumes.
  */
 
-export type ReminderType = '1day' | '2hr' | '30min' | 'start'
+export type ReminderType =
+  | 'confirmation'
+  | '1day'
+  | '2hr'
+  | '30min'
+  | 'start'
 
-export const REMINDER_TYPES: ReminderType[] = ['1day', '2hr', '30min', 'start']
+// Order matters here — Settings' template editor renders cells in
+// this order, and the dispatcher logs in this order too. Put
+// confirmation first since it's the earliest one in the lifecycle.
+export const REMINDER_TYPES: ReminderType[] = [
+  'confirmation',
+  '1day',
+  '2hr',
+  '30min',
+  'start',
+]
 
 export const REMINDER_LABELS: Record<ReminderType, string> = {
+  confirmation: 'Booking confirmation',
   '1day': 'Day before',
   '2hr': '2 hours before',
   '30min': '30 minutes before',
@@ -23,6 +38,8 @@ export const REMINDER_LABELS: Record<ReminderType, string> = {
  * what would actually go out.
  */
 export const DEFAULT_TEMPLATES: Record<ReminderType, string> = {
+  confirmation:
+    'Hi {customerName}, thanks for booking your appointment with {clientName}! We have you down for {apptDateTime}. We\'ll send a reminder leading up to the appointment. Reply STOP to opt out.',
   '1day':
     'Hi {customerName}, this is a reminder that you have an appointment with {clientName} tomorrow at {apptTime}. Reply STOP to opt out.',
   '2hr':

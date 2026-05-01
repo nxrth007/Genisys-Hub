@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireStaff } from '@/lib/auth-helpers'
+import { backfillSkippedConfirmations } from '@/lib/reminders'
 
 /**
  * GET  /api/admin/reminders/config
@@ -33,6 +34,7 @@ export async function PATCH(req: Request) {
     quietHoursStart?: unknown
     quietHoursEnd?: unknown
     senderPhone?: unknown
+    confirmationEnabled?: unknown
   }
   try {
     body = await req.json()
@@ -47,9 +49,13 @@ export async function PATCH(req: Request) {
     quietHoursStart?: string
     quietHoursEnd?: string
     senderPhone?: string | null
+    confirmationEnabled?: boolean
   } = {}
 
   if (typeof body.enabled === 'boolean') data.enabled = body.enabled
+  if (typeof body.confirmationEnabled === 'boolean') {
+    data.confirmationEnabled = body.confirmationEnabled
+  }
   if (typeof body.vaultEntryName === 'string') {
     const t = body.vaultEntryName.trim()
     if (t) data.vaultEntryName = t
@@ -85,10 +91,41 @@ export async function PATCH(req: Request) {
     // showing the right format.
   }
 
+  // Detect a confirmation-enable transition BEFORE the upsert so we
+  // know whether to run the backfill. Going false → true triggers a
+  // synchronous backfill that marks every existing appointment's
+  // confirmation row 'skipped', so the next sync tick doesn't blast
+  // every historical booking with a "Thanks for booking!" text.
+  let priorConfirmationEnabled = false
+  if (data.confirmationEnabled === true) {
+    const prior = await prisma.remindersConfig.findUnique({
+      where: { id: 'singleton' },
+      select: { confirmationEnabled: true },
+    })
+    priorConfirmationEnabled = prior?.confirmationEnabled ?? false
+  }
+
   const config = await prisma.remindersConfig.upsert({
     where: { id: 'singleton' },
     update: data,
     create: { id: 'singleton', ...data },
   })
-  return NextResponse.json({ config })
+
+  let backfillResult: { recorded: number; alreadyTracked: number } | null = null
+  if (data.confirmationEnabled === true && !priorConfirmationEnabled) {
+    try {
+      backfillResult = await backfillSkippedConfirmations()
+      console.log(
+        `[reminders] confirmation backfill on enable: ${backfillResult.recorded} marked skipped, ${backfillResult.alreadyTracked} already tracked`,
+      )
+    } catch (err) {
+      // Don't roll back the config — the admin's intent is clear,
+      // and an isolated backfill failure can be retried by toggling
+      // off + on. But surface it in the response so they know to
+      // verify nothing leaked.
+      console.error('[reminders] confirmation backfill failed:', err)
+    }
+  }
+
+  return NextResponse.json({ config, backfillResult })
 }
