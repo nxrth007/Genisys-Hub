@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { listSubAccounts, getConversations } from '@/lib/ghl'
+import { prisma } from '@/lib/prisma'
 
 /**
  * GET /api/crm/conversations
@@ -20,30 +21,53 @@ export async function GET(req: NextRequest) {
   try {
     const { subaccounts, errors, discoveredEntries } = await listSubAccounts()
 
-    // Fetch all sub-accounts in parallel — don't let one slow/broken
-    // sub-account block the others.
-    const results = await Promise.all(
-      subaccounts.map(async (sub) => {
-        try {
-          const data = await getConversations(sub.vaultName, { limit })
-          const conversations = (data.conversations || []) as Record<string, unknown>[]
-          return {
-            subAccount: sub,
-            conversations,
-            error: null as string | null,
+    // Fetch GHL conversations across sub-accounts in parallel, AND
+    // pull the set of conversation IDs the reminder system has ever
+    // touched. The two are joined locally to tag each conversation
+    // with `source` so the UI can split "reminder line" threads
+    // from everything else without an extra round-trip per row.
+    const [results, reminderConvoIds] = await Promise.all([
+      Promise.all(
+        subaccounts.map(async (sub) => {
+          try {
+            const data = await getConversations(sub.vaultName, { limit })
+            const conversations = (data.conversations || []) as Record<
+              string,
+              unknown
+            >[]
+            return {
+              subAccount: sub,
+              conversations,
+              error: null as string | null,
+            }
+          } catch (err) {
+            return {
+              subAccount: sub,
+              conversations: [],
+              error: err instanceof Error ? err.message : 'Failed to fetch',
+            }
           }
-        } catch (err) {
-          return {
-            subAccount: sub,
-            conversations: [],
-            error: err instanceof Error ? err.message : 'Failed to fetch',
-          }
-        }
-      })
-    )
+        }),
+      ),
+      collectReminderConversationIds(),
+    ])
+
+    // Stamp each conversation with its source bucket. Anything we've
+    // ever sent a reminder through is `reminder`; everything else
+    // (sales outreach, manual GHL sends, prior-system threads) is
+    // `other`. The UI uses this for filter chips on /crm.
+    const tagged = results.map((g) => ({
+      ...g,
+      conversations: g.conversations.map((c) => {
+        const id = typeof c.id === 'string' ? c.id : null
+        const source: 'reminder' | 'other' =
+          id && reminderConvoIds.has(id) ? 'reminder' : 'other'
+        return { ...c, source }
+      }),
+    }))
 
     return NextResponse.json({
-      groups: results,
+      groups: tagged,
       resolutionErrors: errors,
       discoveredEntries,
     })
@@ -51,4 +75,24 @@ export async function GET(req: NextRequest) {
     const message = err instanceof Error ? err.message : 'Failed to fetch conversations'
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+/**
+ * Build the set of conversation IDs the reminder system has ever
+ * created or replied through. Every successful reminder send writes
+ * ghlConversationId to AppointmentReminder; manual replies via
+ * /api/crm/reminders/conversations/[convId] reuse the same id, so
+ * the set covers both directions.
+ */
+async function collectReminderConversationIds(): Promise<Set<string>> {
+  const rows = await prisma.appointmentReminder.findMany({
+    where: { ghlConversationId: { not: null } },
+    select: { ghlConversationId: true },
+    distinct: ['ghlConversationId'],
+  })
+  return new Set(
+    rows
+      .map((r) => r.ghlConversationId)
+      .filter((id): id is string => !!id),
+  )
 }

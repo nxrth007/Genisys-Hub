@@ -29,7 +29,14 @@ type GhlConversation = {
   lastMessageType?: string
   unreadCount?: number
   type?: string
+  /** Bucket the API tagged this conversation with — `reminder` if
+   *  it's a thread the appointment-reminder system has ever sent
+   *  through, `other` for everything else (sales outreach, manual
+   *  GHL sends, prior-system threads). Powers the filter chips. */
+  source?: 'reminder' | 'other'
 }
+
+type SourceFilter = 'all' | 'other' | 'reminder'
 
 type Group = {
   subAccount: SubAccount
@@ -43,6 +50,7 @@ type ResolutionError = {
 }
 
 export default function CrmPage() {
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const { data, isLoading, error } = useQuery<{
     groups: Group[]
     resolutionErrors?: ResolutionError[]
@@ -59,10 +67,43 @@ export default function CrmPage() {
     },
   })
 
-  const groups = data?.groups ?? []
+  const rawGroups = data?.groups ?? []
   const resolutionErrors = data?.resolutionErrors ?? []
   const discoveredEntries = data?.discoveredEntries ?? 0
-  const totalConvos = groups.reduce((acc, g) => acc + g.conversations.length, 0)
+
+  // Counts derived from the unfiltered groups, so the chip badges
+  // stay accurate even when a filter is active.
+  let totalAll = 0
+  let totalReminder = 0
+  let totalOther = 0
+  for (const g of rawGroups) {
+    for (const c of g.conversations) {
+      totalAll++
+      if (c.source === 'reminder') totalReminder++
+      else totalOther++
+    }
+  }
+
+  // Apply the filter by mapping each group's conversations to the
+  // active subset. Empty groups stay in the list (not hidden) so
+  // admins can see at-a-glance which sub-accounts have / don't
+  // have traffic in the current bucket — useful when a sub-account
+  // is supposed to be quiet under a particular filter.
+  const groups: Group[] = rawGroups.map((g) => ({
+    ...g,
+    conversations:
+      sourceFilter === 'all'
+        ? g.conversations
+        : g.conversations.filter((c) =>
+            sourceFilter === 'reminder'
+              ? c.source === 'reminder'
+              : c.source !== 'reminder',
+          ),
+  }))
+  const totalConvos = groups.reduce(
+    (acc, g) => acc + g.conversations.length,
+    0,
+  )
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -74,24 +115,50 @@ export default function CrmPage() {
           <div>
             <h2 className="text-2xl font-bold tracking-tight">CRM — GoHighLevel</h2>
             <p className="text-sm text-zinc-500">
-              {groups.length > 0
-                ? `${totalConvos} conversation${totalConvos === 1 ? '' : 's'} across ${groups.length} sub-account${groups.length === 1 ? '' : 's'}`
+              {rawGroups.length > 0
+                ? `${totalAll} conversation${totalAll === 1 ? '' : 's'} across ${rawGroups.length} sub-account${rawGroups.length === 1 ? '' : 's'}`
                 : 'Conversations from all your GHL sub-accounts.'}
             </p>
           </div>
         </div>
-        {/* Quick jump to the reminder-only view. The main CRM page
-            shows everything across sub-accounts; this is just the
-            threads the reminder cron created, scoped to the agency
-            sender phone. Useful for triaging customer replies in
-            isolation from the noise of every other GHL conversation. */}
+        {/* Jump to the dedicated reminder-thread experience —
+            same data the "Reminders" filter shows, but with the
+            full thread + reply UI on click. */}
         <Link
           href="/crm/messages"
           className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
           <MessageSquare className="h-3.5 w-3.5" />
-          Reminder messages
+          Reminder threads
         </Link>
+      </div>
+
+      {/* Source filter chips — split the noisy "everything mixed
+          together" view into two purposes. Sales/business outbound
+          (default agency line) vs reminder threads (the dedicated
+          reminder line). Counts come from the unfiltered totals so
+          the chips never mislead about what's underneath. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterChip
+          active={sourceFilter === 'all'}
+          onClick={() => setSourceFilter('all')}
+          label="All conversations"
+          count={totalAll}
+        />
+        <FilterChip
+          active={sourceFilter === 'other'}
+          onClick={() => setSourceFilter('other')}
+          label="Sales / business"
+          count={totalOther}
+          hint="Conversations on your default GHL line — not tied to the reminder system."
+        />
+        <FilterChip
+          active={sourceFilter === 'reminder'}
+          onClick={() => setSourceFilter('reminder')}
+          label="Reminder line"
+          count={totalReminder}
+          hint="Threads the appointment-reminder system has touched. Customer SMS replies live here."
+        />
       </div>
 
       {isLoading ? (
@@ -247,6 +314,46 @@ function ConversationRow({
         {conversation.lastMessageDate ? formatRelative(conversation.lastMessageDate) : ''}
       </span>
     </Link>
+  )
+}
+
+function FilterChip({
+  active,
+  onClick,
+  label,
+  count,
+  hint,
+}: {
+  active: boolean
+  onClick: () => void
+  label: string
+  count: number
+  hint?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition',
+        active
+          ? 'border-blue-600 bg-blue-600 text-white'
+          : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800',
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          'inline-flex items-center rounded-full px-1.5 text-[10px] font-semibold',
+          active
+            ? 'bg-white/20 text-white'
+            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
+        )}
+      >
+        {count}
+      </span>
+    </button>
   )
 }
 
