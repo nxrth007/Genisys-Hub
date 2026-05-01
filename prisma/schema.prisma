@@ -503,6 +503,12 @@ model Appointment {
   notes           String?  @db.Text
   callRecordingLink String?
 
+  // Free-text "booked by" — the human agent who took the call.
+  // Distinct from agentUserId, which is the Hub user that submitted
+  // the row (Mary, the only Hub-user agent now). When null, displays
+  // and sheet sync fall back to that user's own name.
+  bookedByName    String?
+
   // Google Sheets sync tracking — row numbers in the agent's tab and the
   // master rollup tab. Null until first sync succeeds; populated after so
   // subsequent edits update the existing rows instead of duplicating.

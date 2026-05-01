@@ -24,6 +24,7 @@ type Appointment = {
   estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
+  bookedByName: string | null
 }
 
 /**
@@ -85,6 +86,7 @@ export default function EditAppointmentPage({
     estimatedDealValue: appt.estimatedDealValue || '',
     notes: appt.notes || '',
     callRecordingLink: appt.callRecordingLink || '',
+    bookedByName: appt.bookedByName || '',
   }
 
   return <AppointmentForm mode="edit" appointmentId={id} initial={initial} />

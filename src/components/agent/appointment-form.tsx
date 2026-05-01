@@ -42,6 +42,11 @@ export type AppointmentFormValues = {
   estimatedDealValue: string
   notes: string
   callRecordingLink: string
+  /** Free-text name of the call-center agent who took the call.
+   *  Distinct from the Hub user submitting the form (Mary). When
+   *  empty, displays + sheet sync fall back to the submitter's
+   *  own name. */
+  bookedByName: string
 }
 
 const EMPTY: AppointmentFormValues = {
@@ -59,6 +64,7 @@ const EMPTY: AppointmentFormValues = {
   estimatedDealValue: '',
   notes: '',
   callRecordingLink: '',
+  bookedByName: '',
 }
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
@@ -273,6 +279,7 @@ export function AppointmentForm({
       estimatedDealValue: values.estimatedDealValue || null,
       notes: values.notes || null,
       callRecordingLink: values.callRecordingLink || null,
+      bookedByName: values.bookedByName.trim() || null,
       acknowledgedConflictIds: acknowledgedIds,
     }
 
@@ -512,6 +519,25 @@ export function AppointmentForm({
             />
           </Field>
         </div>
+
+        {/* "Booked by" — free-text agent name. Mary records which of
+            her call-center agents actually took this call. The Hub
+            user submitting the form (her) is captured separately as
+            agentUserId; this field is what gets surfaced to clients
+            on the master sheet's Agent Name column. */}
+        <Field label="Booked by (call-center agent)">
+          <input
+            type="text"
+            value={values.bookedByName}
+            onChange={(e) => set('bookedByName', e.target.value)}
+            placeholder="e.g., John Smith"
+            autoComplete="off"
+            className={inputCls}
+          />
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Optional. Leave blank to use your own name.
+          </p>
+        </Field>
 
         {/* Four-field address with OSM autocomplete. The component
             translates between its own parts and a single combined

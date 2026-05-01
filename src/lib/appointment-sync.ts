@@ -34,6 +34,7 @@ function toSyncData(
     estimatedDealValue: string | null
     notes: string | null
     callRecordingLink: string | null
+    bookedByName: string | null
     createdAt: Date
     client?: { name: string } | null
   },
@@ -54,7 +55,12 @@ function toSyncData(
     estimatedDealValue: appt.estimatedDealValue,
     notes: appt.notes,
     callRecordingLink: appt.callRecordingLink,
-    agentName: agent.name,
+    // Prefer the explicit "Booked by" name when Mary recorded one;
+    // fall back to the booking user's name for older rows + cases
+    // where the field was left blank. The sheet's "Agent Name"
+    // column thus shows the *call-center* agent, which is what
+    // clients reading the master tracker actually care about.
+    agentName: appt.bookedByName?.trim() || agent.name,
     agentEmail: agent.email,
     createdAt: appt.createdAt,
   }

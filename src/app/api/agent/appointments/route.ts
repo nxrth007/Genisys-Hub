@@ -46,6 +46,11 @@ type AppointmentInput = {
   estimatedDealValue?: string | null
   notes?: string | null
   callRecordingLink?: string | null
+  /** Free-text agent name override. Mary uses this to record which
+   *  call-center agent took the call (vs. agentUserId, which points
+   *  at her Hub user account). Falls through to user.name on display
+   *  when null. */
+  bookedByName?: string | null
   /**
    * IDs of conflicts the agent has already acknowledged (ticked "Book anyway"
    * for) on the client. If a server-side re-check finds conflicts that
@@ -158,6 +163,7 @@ export async function POST(req: NextRequest) {
           estimatedDealValue: body.estimatedDealValue?.trim() || null,
           notes: body.notes?.trim() || null,
           callRecordingLink: body.callRecordingLink?.trim() || null,
+          bookedByName: body.bookedByName?.trim() || null,
         },
       })
     })

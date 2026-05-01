@@ -103,6 +103,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (notes !== undefined) data.notes = notes
   const crl = strOrNull(body.callRecordingLink)
   if (crl !== undefined) data.callRecordingLink = crl
+  const bbn = strOrNull(body.bookedByName)
+  if (bbn !== undefined) data.bookedByName = bbn
 
   if (typeof body.status === 'string' && ALLOWED_STATUS.has(body.status)) {
     data.status = body.status
