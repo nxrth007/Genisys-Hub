@@ -69,6 +69,11 @@ const FULL_VIEW_EMAILS = new Set(['alex@leadgenisys.com'])
 // where the embedded TaskBoard + meetings + booking stats live, i.e.
 // the agent's "what do I do right now" view. /notion exists too for
 // Alex's full nav as the broader task-DB browser.
+//
+// CRM lives here too: with the reminder system creating GHL contacts
+// automatically, conversation threads pile up fast and Ethan needs to
+// see them himself rather than asking Alex every time. The CRM page's
+// own filter chips (Sales / Reminder line) keep the noise managed.
 const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/today', label: 'Tasks', icon: CheckSquare },
   // Call Center → land on Master Tracker (the deliverable view) by
@@ -80,6 +85,7 @@ const SIMPLIFIED_NAV: NavItem[] = [
     label: 'Call Center',
     icon: Phone,
   },
+  { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
 ]
 
