@@ -101,9 +101,10 @@ export async function getSolarInsights(
     })
   }
 
-  // Cache miss — geocode then call Solar.
-  const geo = await geocodeAddress(cleaned)
+  // Cache miss — geocode then call Solar. Pull the API key once and
+  // hand it to both calls so we don't re-read the vault.
   const apiKey = await getSecretByName(VAULT_KEY_NAME)
+  const geo = await geocodeAddress(cleaned, apiKey)
 
   const url = new URL(`${SOLAR_API_BASE}/buildingInsights:findClosest`)
   url.searchParams.set('location.latitude', String(geo.latitude))
@@ -170,48 +171,84 @@ export async function getSolarInsights(
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Geocoding (free, via OSM/Nominatim)                                        */
+/*  Geocoding (Google Geocoding API)                                           */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Resolve an address string to lat/lng. Uses the public Nominatim
- * endpoint OSM's hosted as a free service — same source the booking
- * form's client-side autocomplete already uses. Identifies us via
- * User-Agent so OSM can rate-limit fairly; their policy allows
- * low-volume use without an API key (we cache aggressively, so each
- * unique address geocodes exactly once).
+ * Resolve an address string to lat/lng using Google's Geocoding API.
+ *
+ * Originally tried OSM/Nominatim's free endpoint to keep this cost-
+ * free, but their public service caps at 1 request/second per IP.
+ * Render's outbound IP is shared with other deployments and hits
+ * the limit unpredictably, surfacing as a confusing 429 mid-call.
+ * Switching to Google's paid endpoint:
+ *   - Same Cloud project + same vault key as the rest of Maps stack
+ *   - $0.005 per call, with caching nearly all repeat lookups are
+ *     free — at Mary's volume, a few dollars/month at most
+ *   - Reliable + accurate; matches Google's view of the building,
+ *     which gives Solar API's findClosest a tighter target
+ *
+ * Requires the **Geocoding API** enabled on the Cloud project.
+ * That's a separate enable from Maps Embed and Solar — easy to
+ * miss, so we surface a specific error message when Google
+ * responds with REQUEST_DENIED so the admin knows what to fix.
  */
 async function geocodeAddress(
-  address: string
+  address: string,
+  apiKey: string
 ): Promise<{ latitude: number; longitude: number }> {
-  const url = new URL('https://nominatim.openstreetmap.org/search')
-  url.searchParams.set('q', address)
-  url.searchParams.set('format', 'json')
-  url.searchParams.set('limit', '1')
-  url.searchParams.set('countrycodes', 'us') // Genisys operates US-only
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+  url.searchParams.set('address', address)
+  url.searchParams.set('region', 'us') // bias to US; Genisys is US-only
+  url.searchParams.set('key', apiKey)
   const res = await fetch(url.toString(), {
-    headers: {
-      // OSM's usage policy requires identifying contact info in the
-      // UA. Tying the UA to the deployment makes abuse-tracing
-      // simple if we ever overload them.
-      'User-Agent': 'GenisysHub/1.0 (https://genisys-hub.onrender.com)',
-      Accept: 'application/json',
-    },
+    method: 'GET',
     redirect: 'manual',
   })
   if (!res.ok) {
     throw new Error(`Couldn't resolve the address (geocoder ${res.status}).`)
   }
-  const data = (await res.json()) as Array<{ lat: string; lon: string }>
-  if (data.length === 0) {
-    throw new Error("Couldn't find that address — double-check the street, city, and state.")
+  const data = (await res.json()) as {
+    status?: string
+    error_message?: string
+    results?: Array<{
+      geometry?: { location?: { lat?: number; lng?: number } }
+    }>
   }
-  const lat = parseFloat(data[0].lat)
-  const lon = parseFloat(data[0].lon)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    throw new Error("Geocoder returned invalid coordinates for that address.")
+  if (data.status === 'OK' && data.results && data.results.length > 0) {
+    const loc = data.results[0].geometry?.location
+    if (
+      loc &&
+      typeof loc.lat === 'number' &&
+      typeof loc.lng === 'number' &&
+      Number.isFinite(loc.lat) &&
+      Number.isFinite(loc.lng)
+    ) {
+      return { latitude: loc.lat, longitude: loc.lng }
+    }
+    throw new Error('Geocoder returned invalid coordinates for that address.')
   }
-  return { latitude: lat, longitude: lon }
+  // Surface the specific Google failure so admins can tell whether
+  // it's a config problem, a quota issue, or genuinely an unknown
+  // address. ZERO_RESULTS = address typed didn't match anywhere.
+  if (data.status === 'ZERO_RESULTS') {
+    throw new Error(
+      "Couldn't find that address — double-check the street, city, and state.",
+    )
+  }
+  if (data.status === 'REQUEST_DENIED') {
+    throw new Error(
+      'Geocoding API is not enabled on this project, or the vault key isn\'t allowed to call it. Enable "Geocoding API" in Google Cloud Console and confirm the API key restrictions allow it.',
+    )
+  }
+  if (data.status === 'OVER_QUERY_LIMIT') {
+    throw new Error(
+      'Geocoder quota hit — check your Google Cloud billing + budget settings.',
+    )
+  }
+  throw new Error(
+    `Couldn't resolve the address (${data.status ?? 'unknown'}${data.error_message ? `: ${data.error_message}` : ''}).`,
+  )
 }
 
 /* -------------------------------------------------------------------------- */
