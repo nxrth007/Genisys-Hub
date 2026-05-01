@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { readMasterTableRows } from '@/lib/drive'
 import { normalizeAddress } from '@/lib/address'
+import { buildRoutingIndex, routeRowToClient } from '@/lib/client-routing'
 
 /**
  * GET /api/call-center/master-tracker
@@ -23,49 +24,14 @@ export async function GET() {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  // Pull clients so we can attach the brand-correct color/state to each
-  // row whose client name matches one we know about. Sheet rows whose
-  // Client column is blank (or doesn't match any registered client) get
-  // null — the UI shows them under "No client".
+  // Pull every active client so the routing brain (shared with the
+  // Slack-delivery sync) can match by explicit Client column OR by
+  // state inference, and refuse to guess when a state has multiple
+  // clients claiming it.
   const clients = await prisma.client.findMany({
     select: { id: true, name: true, state: true, color: true },
   })
-  const clientByLower = new Map(clients.map((c) => [c.name.toLowerCase(), c]))
-
-  // For rows where the call center forgot the Client column, infer it
-  // from the address: each Genisys client serves a different state, so
-  // a state-code or state-name match on the address is unambiguous.
-  // Build a regex of state names + codes that map to a client.
-  const STATE_CODES: Record<string, string> = {
-    arizona: 'AZ',
-    california: 'CA',
-    utah: 'UT',
-  }
-  const clientByCode = new Map<string, (typeof clients)[number]>()
-  for (const c of clients) {
-    if (!c.state) continue
-    const code = STATE_CODES[c.state.toLowerCase()]
-    // Store both keys lower-cased so the regex match (which we lower-case
-    // before lookup) hits regardless of how the state was written in the
-    // address. Earlier this stored "AZ"/"CA"/"UT" uppercase, which only
-    // matched addresses that spelled the state out ("California") and
-    // missed every "Phoenix, AZ" / "Tucson, AZ".
-    if (code) clientByCode.set(code.toLowerCase(), c)
-    clientByCode.set(c.state.toLowerCase(), c)
-  }
-  // Word-boundary regex over every key — e.g. /\b(AZ|CA|UT|arizona|california|utah)\b/i
-  const stateKeys = Array.from(clientByCode.keys())
-  const stateRegex =
-    stateKeys.length > 0
-      ? new RegExp(`\\b(${stateKeys.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i')
-      : null
-
-  function inferClientFromAddress(address: string | null) {
-    if (!address || !stateRegex) return null
-    const m = address.match(stateRegex)
-    if (!m) return null
-    return clientByCode.get(m[1].toLowerCase()) || null
-  }
+  const routingIndex = buildRoutingIndex(clients)
 
   let rows
   try {
@@ -97,22 +63,21 @@ export async function GET() {
     // that are already well-formatted.
     const cleanedAddress = normalizeAddress(r.address)
 
-    // 1. Try the explicit Client column from the sheet first.
-    let clientLookup = r.client
-      ? clientByLower.get(r.client.toLowerCase())
-      : null
-    // 2. If that's blank or doesn't match a registered client, try to
-    //    infer from the address state. Track that we did this so the UI
-    //    can render a small "auto" hint for Ethan to spot which rows
-    //    still need the Client column filled in upstream.
-    let clientInferred = false
-    if (!clientLookup) {
-      const fromAddress = inferClientFromAddress(cleanedAddress)
-      if (fromAddress) {
-        clientLookup = fromAddress
-        clientInferred = true
-      }
-    }
+    // Same routing tiers the Slack delivery uses: explicit name match
+    // → state inference (only when 1 client per state) → unrouted.
+    // 'inferred-state' rows render a small "auto" hint so Ethan can
+    // spot which rows still need the Client column filled in upstream.
+    // 'ambiguous-state-match' rows render as "no client" so it's
+    // visible at a glance which need disambiguation.
+    const route = routeRowToClient(
+      { client: r.client, address: cleanedAddress },
+      routingIndex
+    )
+    const clientLookup =
+      route.source === 'explicit' || route.source === 'inferred-state'
+        ? route.client
+        : null
+    const clientInferred = route.source === 'inferred-state'
     return {
       // Synthetic id from the sheet row number — stable across reads as
       // long as the sheet's row order doesn't change. Used as React key.

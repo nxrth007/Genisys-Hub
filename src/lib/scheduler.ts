@@ -87,9 +87,16 @@ export function initScheduler() {
       if (now - lastClientDeliverySyncAt >= CLIENT_DELIVERY_SYNC_INTERVAL_MS) {
         lastClientDeliverySyncAt = now
         const result = await syncClientDeliveriesFromSheet()
-        if (result.delivered > 0 || result.failed > 0) {
+        // Log on actionable activity OR ambiguity — the latter
+        // is silent in counts but signals the "two clients in same
+        // state" case that demands an admin's attention.
+        if (
+          result.delivered > 0 ||
+          result.failed > 0 ||
+          result.ambiguous > 0
+        ) {
           console.log(
-            `[scheduler] client-delivery sync: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted (of ${result.scanned} scanned)`
+            `[scheduler] client-delivery sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
           )
         }
       }

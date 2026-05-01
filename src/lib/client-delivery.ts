@@ -30,6 +30,7 @@ import { readMasterTableRows, type MasterTableRow } from './drive'
 import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
 import { formatInTimezone, timezoneForAddress } from './timezone'
+import { buildRoutingIndex, routeRowToClient } from './client-routing'
 
 /* -------------------------------------------------------------------------- */
 /*  Sync                                                                       */
@@ -40,14 +41,36 @@ type DeliveryResult = {
   delivered: number
   skipped: number
   failed: number
+  /** Total rows we couldn't route to a channel — broken down below. */
   unrouted: number
+  /** Routed via address state inference (no explicit Client column).
+   *  Counted separately so admins can see when fallback inference
+   *  is doing the work and can decide whether to firm up source data. */
+  inferred: number
+  /** Address state matched 2+ clients — refused to deliver. Most
+   *  important diagnostic counter; first signal that a new client
+   *  was onboarded into a state already served by another. */
+  ambiguous: number
 }
 
 /**
- * Read every row in the Master Table, pick the ones that belong to a
- * client with a configured Slack channel + haven't been delivered
- * yet, and post each to its channel. Idempotent — safe to call on
- * every cron tick.
+ * Read every row in the Master Table, pick the ones we can confidently
+ * route to a client with a configured Slack channel + haven't been
+ * delivered yet, and post each to its channel. Idempotent — safe to
+ * call on every cron tick.
+ *
+ * Routing falls back through three tiers, delegated to client-routing.ts:
+ *   1. Explicit Client column on the sheet (high confidence, deliver)
+ *   2. Address-state inference, exactly one client in that state
+ *      (medium confidence, deliver)
+ *   3. Address-state inference, 2+ clients in that state (ambiguous,
+ *      DO NOT deliver — admin must fill in the Client column)
+ *
+ * The "all clients are in different states" assumption was implicit in
+ * the original design; the routing lib makes it explicit so adding a
+ * second AZ client (or wherever) cleanly degrades to "rows from that
+ * state stop auto-routing" rather than silently posting to whichever
+ * client happened to be added first.
  */
 export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
   const result: DeliveryResult = {
@@ -56,25 +79,31 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     skipped: 0,
     failed: 0,
     unrouted: 0,
+    inferred: 0,
+    ambiguous: 0,
   }
 
-  // Gate: at least one client has to be opted in. If nobody's
-  // configured a channel yet, skip the sheet read entirely so the
-  // cron tick stays cheap.
+  // Pull *every* active client (not just opted-in ones) so the routing
+  // index sees the full picture. A row might match an active client
+  // that simply hasn't configured a Slack channel yet — counting that
+  // as 'unrouted' (via the channel check below) is more honest than
+  // hiding it as 'no-match'.
   const clients = await prisma.client.findMany({
-    where: { slackChannelId: { not: null } },
+    where: { active: true },
     select: {
       id: true,
       name: true,
+      state: true,
       slackChannelId: true,
       slackChannelName: true,
     },
   })
-  if (clients.length === 0) return result
 
-  const clientByLowerName = new Map(
-    clients.map((c) => [c.name.toLowerCase(), c])
-  )
+  // Cheap exit: nobody opted in → skip the sheet read entirely.
+  const anyOptedIn = clients.some((c) => !!c.slackChannelId)
+  if (!anyOptedIn) return result
+
+  const index = buildRoutingIndex(clients)
 
   let rows: MasterTableRow[]
   try {
@@ -87,13 +116,13 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
 
   // Pull the bot token once per sync — saves N round-trips to the
   // vault when there are many rows to deliver.
-  let client: WebClient | null = null
+  let slackClient: WebClient | null = null
   async function getSlackClient(): Promise<WebClient> {
-    if (!client) {
+    if (!slackClient) {
       const token = await getSecretByName('Slack Bot Token')
-      client = new WebClient(token)
+      slackClient = new WebClient(token)
     }
-    return client
+    return slackClient
   }
 
   for (const row of rows) {
@@ -104,17 +133,37 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     if ((row.status || '').toLowerCase().includes('cancel')) continue
 
     const sourceKey = `sheet:Master Table:${row.rowNumber}`
-    const clientLookup = row.client
-      ? clientByLowerName.get(row.client.toLowerCase())
-      : null
+    const route = routeRowToClient(
+      { client: row.client, address: normalizeAddress(row.address) },
+      index
+    )
 
-    if (!clientLookup || !clientLookup.slackChannelId) {
-      // Either no Client column value, a value that doesn't match a
-      // registered client, or the matched client hasn't opted in.
-      // Track unrouted count so admins can see at a glance how many
-      // sheet rows the system can't deliver — surfaces missing config.
+    if (route.source === 'unrouted') {
+      result.unrouted++
+      // Surface ambiguity loudly — it's the most actionable failure
+      // mode. Admin sees "two clients claim this state" and knows the
+      // fix is to fill in the source row's Client column.
+      if (route.reason === 'ambiguous-state-match') {
+        result.ambiguous++
+        const names = (route.candidates ?? []).map((c) => c.name).join(', ')
+        console.warn(
+          `[client-delivery] ambiguous routing for sheet row ${row.rowNumber}: address state matches multiple clients (${names}). Fill in the Client column on the sheet to disambiguate.`
+        )
+      }
+      continue
+    }
+
+    // We have a candidate — make sure they've actually opted in to
+    // Slack delivery. This is what separates "don't deliver yet" from
+    // "couldn't route at all" in the metrics.
+    const candidate = route.client
+    if (!candidate.slackChannelId) {
       result.unrouted++
       continue
+    }
+
+    if (route.source === 'inferred-state') {
+      result.inferred++
     }
 
     // Idempotency check — if this (sourceKey, channelId) is already
@@ -123,7 +172,7 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
       where: {
         sourceKey_channelId: {
           sourceKey,
-          channelId: clientLookup.slackChannelId,
+          channelId: candidate.slackChannelId,
         },
       },
     })
@@ -140,7 +189,7 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     try {
       const slack = await getSlackClient()
       const post = await slack.chat.postMessage({
-        channel: clientLookup.slackChannelId,
+        channel: candidate.slackChannelId,
         text: body,
         // mrkdwn defaults true; explicit for clarity.
         mrkdwn: true,
@@ -152,14 +201,19 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
       await prisma.sheetSlackDelivery.create({
         data: {
           sourceKey,
-          clientId: clientLookup.id,
-          channelId: clientLookup.slackChannelId,
+          clientId: candidate.id,
+          channelId: candidate.slackChannelId,
           status: 'delivered',
           messageTs: post.ts ?? null,
           deliveredAt: new Date(),
         },
       })
       result.delivered++
+      if (route.source === 'inferred-state') {
+        console.log(
+          `[client-delivery] sheet row ${row.rowNumber} routed to ${candidate.name} via address-state inference (${route.matchedState}). Client column was blank — consider filling it for clarity.`
+        )
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Send failed'
       // Record a failed-status row so we don't retry indefinitely on a
@@ -172,8 +226,8 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
         await prisma.sheetSlackDelivery.create({
           data: {
             sourceKey,
-            clientId: clientLookup.id,
-            channelId: clientLookup.slackChannelId,
+            clientId: candidate.id,
+            channelId: candidate.slackChannelId,
             status: 'failed',
             errorMessage: message,
           },
@@ -183,7 +237,7 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
         // failing. Fine — it succeeded, no error to record.
       }
       console.error(
-        `[client-delivery] post failed for ${sourceKey} → ${clientLookup.slackChannelId}:`,
+        `[client-delivery] post failed for ${sourceKey} → ${candidate.slackChannelId}:`,
         message
       )
       result.failed++
