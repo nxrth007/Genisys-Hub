@@ -8,6 +8,7 @@ import { ArrowLeft, Save, Trash2, AlertCircle, CheckCircle2, CalendarClock, Buil
 import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 import { AddressFields } from '@/components/agent/address-fields'
+import { AddressMapPreview } from '@/components/agent/address-map-preview'
 import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
 import { formatPhoneInput } from '@/lib/phone'
 
@@ -552,6 +553,11 @@ export function AppointmentForm({
             disabled={submitting}
             requireStreet
           />
+          {/* Embedded Google Maps preview lights up once a vault
+              entry named "Google Maps API Key" is configured. Until
+              then it renders nothing (503 from the API → silent),
+              so this can ship ahead of the key landing. */}
+          <AddressMapPreview address={values.address} />
         </Field>
 
         <Field label="Email">
