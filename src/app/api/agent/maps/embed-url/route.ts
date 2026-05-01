@@ -19,7 +19,7 @@ import { getSecretByName } from '@/lib/vault-service'
  * key itself is locked down via HTTP-referrer restrictions in
  * Google Cloud Console).
  */
-const VAULT_KEY_NAME = 'Google Maps API Key'
+const VAULT_KEY_NAME = 'Google Maps Key'
 
 export async function GET(req: NextRequest) {
   const session = await auth()
