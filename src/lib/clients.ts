@@ -119,6 +119,8 @@ export function normalizeClientPatch(
         ghlSubaccountUrl: string | null
         lifecycle: ClientLifecycle
         active: boolean
+        slackChannelId: string | null
+        slackChannelName: string | null
       }>
     }
   | { ok: false; error: string } {
@@ -140,6 +142,8 @@ export function normalizeClientPatch(
     ghlSubaccountUrl: string | null
     lifecycle: ClientLifecycle
     active: boolean
+    slackChannelId: string | null
+    slackChannelName: string | null
   }> = {}
 
   // Name — required if present, can't be cleared.
@@ -201,6 +205,18 @@ export function normalizeClientPatch(
   if ('contactPhone' in b) {
     const raw = trimOrNull(b.contactPhone)
     data.contactPhone = raw ? formatPhoneInput(raw) : null
+  }
+
+  // Slack channel routing — admin-set via Settings → Client delivery.
+  // Both fields move together: setting the ID requires the cached
+  // name (so the UI can render the picked channel without a Slack
+  // round-trip), and clearing one clears both.
+  if ('slackChannelId' in b) {
+    data.slackChannelId = trimOrNull(b.slackChannelId)
+    if (!data.slackChannelId) data.slackChannelName = null
+  }
+  if ('slackChannelName' in b) {
+    data.slackChannelName = trimOrNull(b.slackChannelName)
   }
 
   return { ok: true, data }

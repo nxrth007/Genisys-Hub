@@ -19,6 +19,7 @@ import {
   syncRemindersFromSheet,
   dispatchDueReminders,
 } from './reminders'
+import { syncClientDeliveriesFromSheet } from './client-delivery'
 
 let initialized = false
 
@@ -27,6 +28,13 @@ let initialized = false
 // picks up new appointments well within the 30-min reminder window.
 const REMINDER_SYNC_INTERVAL_MS = 5 * 60 * 1000
 let lastReminderSyncAt = 0
+
+// Client-channel delivery sync runs on the same cadence as the
+// reminder sync — both read the same sheet, so co-locating them
+// would be a small win, but keeping them separate makes cron logs
+// + per-feature failure isolation cleaner.
+const CLIENT_DELIVERY_SYNC_INTERVAL_MS = 5 * 60 * 1000
+let lastClientDeliverySyncAt = 0
 
 export function initScheduler() {
   if (initialized) return
@@ -69,6 +77,24 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] reminders dispatch failed:', err)
+    }
+
+    // Client-channel delivery sync — posts new sheet rows to the
+    // configured Slack channel for each client. Cheap no-op when
+    // no client has slackChannelId set.
+    try {
+      const now = Date.now()
+      if (now - lastClientDeliverySyncAt >= CLIENT_DELIVERY_SYNC_INTERVAL_MS) {
+        lastClientDeliverySyncAt = now
+        const result = await syncClientDeliveriesFromSheet()
+        if (result.delivered > 0 || result.failed > 0) {
+          console.log(
+            `[scheduler] client-delivery sync: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted (of ${result.scanned} scanned)`
+          )
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] client-delivery sync failed:', err)
     }
   })
 }

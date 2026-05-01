@@ -463,9 +463,18 @@ model Client {
   // agents don't see churned clients in their booking picker.
   lifecycle       String   @default("active")
 
+  // Slack channel the bot posts new-appointment notifications into.
+  // Setting these (via Settings → Client delivery) opts the client in;
+  // null = no auto-delivery. slackChannelName is just a cached label
+  // so the UI can show the picked channel without an extra Slack
+  // round-trip on every render.
+  slackChannelId   String?
+  slackChannelName String?
+
   appointments      Appointment[]
   reminderTemplates ReminderTemplate[]
   appointmentReminders AppointmentReminder[]
+  slackDeliveries   SheetSlackDelivery[]
 }
 
 model Appointment {
@@ -613,6 +622,35 @@ model ReminderTemplate {
   updatedAt    DateTime @updatedAt
 
   @@unique([clientId, reminderType], map: "ux_template_client_type")
+}
+
+// Idempotency ledger for client-channel Slack deliveries. One row per
+// (sourceKey, channelId) — the channelId is part of the key so a
+// channel reroute starts a fresh delivery history rather than
+// silently swallowing future posts.
+//
+// status:
+//   delivered  — successfully posted to Slack; messageTs is set
+//   backfilled — pre-existing sheet row at the time the channel was
+//                first configured. Never posted; recorded so the sync
+//                doesn't blast historical rows on first deploy.
+//   failed     — last attempt failed; errorMessage holds the cause
+model SheetSlackDelivery {
+  id           String   @id @default(cuid())
+  sourceKey    String   // matches AppointmentReminder.sourceKey shape
+  clientId     String?
+  client       Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  channelId    String
+  status       String   @default("delivered")
+  messageTs    String?
+  errorMessage String?  @db.Text
+  deliveredAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([sourceKey, channelId], map: "ux_sheet_slack_delivery_source_channel")
+  @@index([clientId])
+  @@index([status])
 }
 
 // Singleton config for the SMS-reminder system. Master enable + which

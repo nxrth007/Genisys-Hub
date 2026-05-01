@@ -35,6 +35,8 @@ export async function GET() {
       notes: true,
       intakeFormUrl: true,
       ghlSubaccountUrl: true,
+      slackChannelId: true,
+      slackChannelName: true,
     },
   })
   return NextResponse.json({ clients })

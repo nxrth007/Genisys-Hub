@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { normalizeClientPatch } from '@/lib/clients'
+import { backfillClientDeliveries } from '@/lib/client-delivery'
 
 /**
  * PATCH /api/clients/:id
@@ -62,6 +63,19 @@ export async function PATCH(
     }
   }
 
+  // Detect a newly-set Slack channel — when it transitions from
+  // null/different to a real value, we need to backfill the delivery
+  // ledger so the next cron tick doesn't blast every existing sheet
+  // row into the freshly-configured channel.
+  let priorChannelId: string | null = null
+  if ('slackChannelId' in parsed.data) {
+    const prior = await prisma.client.findUnique({
+      where: { id },
+      select: { slackChannelId: true },
+    })
+    priorChannelId = prior?.slackChannelId ?? null
+  }
+
   try {
     const client = await prisma.client.update({
       where: { id },
@@ -81,8 +95,36 @@ export async function PATCH(
         intakeFormUrl: true,
         ghlSubaccountUrl: true,
         active: true,
+        slackChannelId: true,
+        slackChannelName: true,
       },
     })
+
+    // Backfill runs synchronously: when an admin first sets (or
+    // re-routes) a channel, we MUST mark every current sheet row as
+    // already-delivered before the next cron tick fires. The trade-off
+    // is up to ~5s of blocking on the sheet read; acceptable since
+    // admins only do this once per client per channel change.
+    if (
+      client.slackChannelId &&
+      client.slackChannelId !== priorChannelId
+    ) {
+      try {
+        const result = await backfillClientDeliveries({
+          clientId: client.id,
+          channelId: client.slackChannelId,
+        })
+        console.log(
+          `[clients] backfilled ${result.recorded} historical rows for ${client.name} → ${client.slackChannelName ?? client.slackChannelId} (${result.alreadyTracked} were already tracked)`
+        )
+      } catch (err) {
+        // Don't fail the PATCH if backfill blows up — the channel is
+        // already saved, and the admin can retry from Settings. But
+        // *do* warn so they know to verify before the next sync.
+        console.error('[clients] backfill failed:', err)
+      }
+    }
+
     return NextResponse.json({ client })
   } catch (err) {
     // Most likely cause: client not found. Prisma throws P2025 in that

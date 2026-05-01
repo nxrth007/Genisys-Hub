@@ -63,6 +63,8 @@ export default function SettingsPage() {
 
       <SlackTestSection />
 
+      <ClientSlackDeliverySection />
+
       <TwilioTestSection />
 
       <SheetMaintenanceSection />
@@ -979,6 +981,326 @@ function SlackTestSection() {
         </Alert>
       )}
     </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Client → Slack delivery                                            */
+/*  Routes new appointments to the right client channel automatically  */
+/* ------------------------------------------------------------------ */
+
+type ClientForRouting = {
+  id: string
+  name: string
+  state: string | null
+  color: string
+  slackChannelId: string | null
+  slackChannelName: string | null
+}
+
+type SlackChannelOption = {
+  id: string
+  name: string
+  isPrivate: boolean
+  isMember: boolean
+}
+
+function ClientSlackDeliverySection() {
+  const qc = useQueryClient()
+  const clientsQuery = useQuery<{ clients: ClientForRouting[] }>({
+    queryKey: ['clients-for-routing'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+  })
+  const channelsQuery = useQuery<{ channels: SlackChannelOption[] }>({
+    queryKey: ['slack-channels-for-routing'],
+    queryFn: async () => {
+      const res = await fetch('/api/slack/channels')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load Slack channels')
+      }
+      return res.json()
+    },
+    retry: false,
+  })
+
+  const clients = clientsQuery.data?.clients ?? []
+  const channels = channelsQuery.data?.channels ?? []
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-emerald-50 p-2 dark:bg-emerald-950">
+          <Hash className="h-5 w-5 text-emerald-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">Client → Slack delivery</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Pick the Slack channel for each client. When a new appointment
+            for that client lands on the master sheet (whether a Hub
+            booking or a manual entry), the bot posts the appointment
+            details to the channel and pings <code>@channel</code> so
+            everyone in there gets notified. Agent name is intentionally
+            omitted from these posts.
+          </p>
+        </div>
+      </div>
+
+      {channelsQuery.isError && (
+        <div className="mt-4">
+          <Alert variant="error">
+            <div className="font-medium">Couldn&apos;t load Slack channels</div>
+            <div className="text-xs mt-1">
+              {(channelsQuery.error as Error).message}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      <div className="mt-5 space-y-2">
+        {clientsQuery.isLoading ? (
+          <p className="text-sm text-zinc-500">Loading clients…</p>
+        ) : clients.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            No active clients. Add one on the Clients page first.
+          </p>
+        ) : (
+          clients.map((c) => (
+            <ClientRoutingRow
+              key={c.id}
+              client={c}
+              channels={channels}
+              channelsLoading={channelsQuery.isLoading}
+              onSaved={() => {
+                qc.invalidateQueries({ queryKey: ['clients-for-routing'] })
+              }}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  )
+}
+
+function ClientRoutingRow({
+  client,
+  channels,
+  channelsLoading,
+  onSaved,
+}: {
+  client: ClientForRouting
+  channels: SlackChannelOption[]
+  channelsLoading: boolean
+  onSaved: () => void
+}) {
+  const [draftId, setDraftId] = useState<string>(client.slackChannelId ?? '')
+  // Whether the local draft differs from what's persisted on the
+  // client record. Drives the Save button's enabled state without
+  // forcing every render to do array work.
+  const dirty = (client.slackChannelId ?? '') !== draftId
+
+  // Pre-suggest a channel when none is set yet — best-effort
+  // fuzzy-match the client name against the channel list. Eth's three
+  // channels are exact-name matches (`spring-solar` etc.) so this
+  // hits on first load and the admin just confirms with Save.
+  const suggestion =
+    !client.slackChannelId && channels.length > 0
+      ? findBestChannelMatch(client.name, channels)
+      : null
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload: {
+      slackChannelId: string | null
+      slackChannelName: string | null
+    }) => {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Save failed')
+      }
+      return res.json()
+    },
+    onSuccess: () => onSaved(),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/slack-delivery/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          channelId: draftId,
+          clientName: client.name,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Test post failed')
+      }
+      return res.json()
+    },
+  })
+
+  function handleSave() {
+    if (!draftId) {
+      saveMutation.mutate({ slackChannelId: null, slackChannelName: null })
+      return
+    }
+    const picked = channels.find((ch) => ch.id === draftId)
+    saveMutation.mutate({
+      slackChannelId: draftId,
+      slackChannelName: picked?.name ?? null,
+    })
+  }
+
+  function handleAcceptSuggestion() {
+    if (suggestion) setDraftId(suggestion.id)
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+      <span
+        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: client.color }}
+        aria-hidden
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{client.name}</span>
+          {client.state && (
+            <span className="text-[11px] text-zinc-500">{client.state}</span>
+          )}
+        </div>
+        {client.slackChannelId && client.slackChannelName && (
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            Currently routes to{' '}
+            <span className="font-mono">#{client.slackChannelName}</span>
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={draftId}
+          onChange={(e) => setDraftId(e.target.value)}
+          disabled={channelsLoading || channels.length === 0}
+          className="rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <option value="">— No delivery —</option>
+          {channels.map((ch) => (
+            <option key={ch.id} value={ch.id}>
+              {ch.isPrivate ? '🔒 ' : '#'}
+              {ch.name}
+            </option>
+          ))}
+        </select>
+
+        {suggestion && draftId === '' && (
+          <button
+            type="button"
+            onClick={handleAcceptSuggestion}
+            className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+            title={`We think this matches #${suggestion.name}`}
+          >
+            Use #{suggestion.name}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || saveMutation.isPending}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-xs font-semibold transition',
+            dirty
+              ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
+              : 'border border-zinc-200 text-zinc-400 dark:border-zinc-700'
+          )}
+        >
+          {saveMutation.isPending
+            ? 'Saving…'
+            : saveMutation.isSuccess && !dirty
+              ? 'Saved ✓'
+              : 'Save'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => testMutation.mutate()}
+          disabled={
+            !draftId ||
+            dirty ||
+            testMutation.isPending ||
+            saveMutation.isPending
+          }
+          className="rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          title={
+            dirty
+              ? 'Save your channel choice before sending a test post'
+              : 'Send a sample appointment to this channel'
+          }
+        >
+          Test post
+        </button>
+      </div>
+
+      {saveMutation.isError && (
+        <div className="basis-full text-xs text-red-600">
+          Save failed: {(saveMutation.error as Error).message}
+        </div>
+      )}
+      {testMutation.isError && (
+        <div className="basis-full text-xs text-red-600">
+          Test failed: {(testMutation.error as Error).message}
+        </div>
+      )}
+      {testMutation.isSuccess && (
+        <div className="basis-full text-xs text-emerald-600">
+          Test post sent. Check the channel to confirm.
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Pick the channel whose name most closely resembles the client name.
+ * Strips punctuation/whitespace from both sides and looks for either
+ * an exact match (best) or substring containment (acceptable). Returns
+ * null if no match is confident enough — better to leave the dropdown
+ * empty than to pre-fill the wrong channel.
+ */
+function findBestChannelMatch(
+  clientName: string,
+  channels: SlackChannelOption[]
+): SlackChannelOption | null {
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const target = normalize(clientName)
+  if (!target) return null
+
+  // Exact match wins.
+  const exact = channels.find((ch) => normalize(ch.name) === target)
+  if (exact) return exact
+
+  // Substring match — channel name contains the client name (or vice
+  // versa). Returns the longest-name match so "brighton-capital-solar"
+  // wins over "brighton" if both exist.
+  const candidates = channels.filter((ch) => {
+    const n = normalize(ch.name)
+    return n.includes(target) || target.includes(n)
+  })
+  if (candidates.length === 0) return null
+  return candidates.reduce((a, b) =>
+    a.name.length >= b.name.length ? a : b
   )
 }
 
