@@ -24,6 +24,7 @@ import {
   Play,
   MessagesSquare,
   RefreshCw,
+  Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // Importing from the client-safe constants module — pulling from
@@ -70,6 +71,8 @@ export default function SettingsPage() {
       <SheetMaintenanceSection />
 
       <AppointmentRemindersSection />
+
+      <SolarApiUsageSection />
 
       <ComingSoonSection />
     </div>
@@ -1371,6 +1374,106 @@ function findBestChannelMatch(
   if (candidates.length === 0) return null
   return candidates.reduce((a, b) =>
     a.name.length >= b.name.length ? a : b
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Solar API usage                                                    */
+/*  Lightweight monthly counter so admins can spot runaway billing     */
+/* ------------------------------------------------------------------ */
+
+function SolarApiUsageSection() {
+  const { data, isLoading } = useQuery<{
+    calls: number
+    cachedTotal: number
+  }>({
+    queryKey: ['solar-stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/solar/stats')
+      if (!res.ok) throw new Error('failed')
+      return res.json()
+    },
+    refetchInterval: 60_000,
+  })
+
+  // ~$0.10 / call is a conservative upper-bound for the
+  // buildingInsights endpoint; actual price is tiered. We label the
+  // estimate as "approx" so admins know it's a guideline, not an
+  // invoice. Real billing lives in Google Cloud Console.
+  const estCost = data ? data.calls * 0.1 : 0
+  const monthLabel = new Date().toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  })
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950">
+          <Sun className="h-5 w-5 text-amber-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">Solar API usage</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Tracks Google Solar API calls (Project Sunroof) made from
+            the booking form. Each unique address is a billable call;
+            repeats hit local cache and cost zero.
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
+      ) : (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Calls in {monthLabel}
+            </p>
+            <p className="mt-0.5 text-2xl font-bold tabular-nums">
+              {data?.calls ?? 0}
+            </p>
+          </div>
+          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Approx cost
+            </p>
+            <p className="mt-0.5 text-2xl font-bold tabular-nums">
+              ${estCost.toFixed(2)}
+            </p>
+            <p className="text-[10px] text-zinc-500">
+              ~$0.10/call estimate
+            </p>
+          </div>
+          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Cached addresses
+            </p>
+            <p className="mt-0.5 text-2xl font-bold tabular-nums">
+              {data?.cachedTotal ?? 0}
+            </p>
+            <p className="text-[10px] text-zinc-500">
+              future re-checks free
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] text-zinc-500">
+        Set a Google Cloud{' '}
+        <a
+          href="https://console.cloud.google.com/billing"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 hover:text-blue-600"
+        >
+          billing alert
+        </a>{' '}
+        for the authoritative spend cap. The numbers here are derived
+        from the cache table — accurate for this Hub instance, but
+        Google&apos;s console is the source of truth for charges.
+      </p>
+    </section>
   )
 }
 

@@ -630,6 +630,26 @@ model ReminderTemplate {
   @@unique([clientId, reminderType], map: "ux_template_client_type")
 }
 
+// Cache layer for Google Solar API (Project Sunroof productized).
+// One row per normalized address ever queried. Cache hits don't
+// re-bill the upstream API; misses do, and the row is created so
+// future calls are free. Solar imagery updates yearly at most, so
+// rows are effectively immortal — clear them manually if Google
+// ships better imagery and you want a fresh fetch.
+model SolarInsightsCache {
+  id             String   @id @default(cuid())
+  addressKey     String   @unique(map: "ux_solar_insights_address_key")
+  rawAddress     String
+  latitude       Float?
+  longitude      Float?
+  imageryQuality String?  // HIGH | MEDIUM | LOW (per Google)
+  payload        Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
 // Idempotency ledger for client-channel Slack deliveries. One row per
 // (sourceKey, channelId) — the channelId is part of the key so a
 // channel reroute starts a fresh delivery history rather than

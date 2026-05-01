@@ -10,6 +10,7 @@ import { AppointmentDateTimePicker } from '@/components/agent/appointment-dateti
 import { AddressFields } from '@/components/agent/address-fields'
 import { AddressMapPreview } from '@/components/agent/address-map-preview'
 import { PhoneEntriesField } from '@/components/agent/phone-entries-field'
+import { SolarInsightsCard } from '@/components/agent/solar-insights-card'
 import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
 
 type Conflict = {
@@ -555,10 +556,15 @@ export function AppointmentForm({
             requireStreet
           />
           {/* Embedded Google Maps preview lights up once a vault
-              entry named "Google Maps API Key" is configured. Until
+              entry named "Google Maps Key" is configured. Until
               then it renders nothing (503 from the API → silent),
               so this can ship ahead of the key landing. */}
           <AddressMapPreview address={values.address} />
+          {/* Manual "Check solar potential" button — Mary clicks
+              when she wants Google's roof analysis for the customer.
+              Cached per address so re-checks are free. Hides itself
+              quietly if the same vault key isn't configured. */}
+          <SolarInsightsCard address={values.address} />
         </Field>
 
         <Field label="Email">
