@@ -4,7 +4,16 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useQuery } from '@tanstack/react-query'
-import { Headphones, LogOut, CalendarCheck, ClipboardList, PhoneCall } from 'lucide-react'
+import {
+  Headphones,
+  LogOut,
+  CalendarCheck,
+  ClipboardList,
+  PhoneCall,
+  Building2,
+  Table,
+  Bell,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './theme-toggle'
 
@@ -17,7 +26,10 @@ import { ThemeToggle } from './theme-toggle'
  */
 const NAV = [
   { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
+  { href: '/agent/master-tracker', label: 'Master Tracker', icon: Table },
   { href: '/agent/callbacks', label: 'Callbacks', icon: PhoneCall },
+  { href: '/agent/reminders', label: 'Reminders', icon: Bell },
+  { href: '/agent/clients', label: 'Clients', icon: Building2 },
   { href: '/agent/eod', label: 'EOD Reports', icon: ClipboardList },
 ]
 

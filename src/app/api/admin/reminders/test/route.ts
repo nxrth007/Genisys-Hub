@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
 import { customerFirstNameForSms, renderTemplate } from '@/lib/reminders'
+import { requireStaff } from '@/lib/auth-helpers'
 import {
   REMINDER_TYPES,
   DEFAULT_TEMPLATES,
@@ -28,10 +28,8 @@ import { formatInTimezone, timezoneForAddress } from '@/lib/timezone'
  *   }
  */
 export async function POST(req: Request) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
 
   let body: {
     phone?: unknown

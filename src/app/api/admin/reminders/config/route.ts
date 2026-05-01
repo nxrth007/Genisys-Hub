@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { requireStaff } from '@/lib/auth-helpers'
 
 /**
  * GET  /api/admin/reminders/config
@@ -12,10 +12,8 @@ import { prisma } from '@/lib/prisma'
  *   already gates /api/admin/* to role=admin.
  */
 export async function GET() {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
   const config = await prisma.remindersConfig.upsert({
     where: { id: 'singleton' },
     update: {},
@@ -25,10 +23,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
 
   let body: {
     enabled?: unknown

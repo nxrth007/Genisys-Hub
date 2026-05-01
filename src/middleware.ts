@@ -37,6 +37,15 @@ const AGENT_ALLOWED_PREFIXES = [
   // this, the picker errored and the form rendered "No clients
   // configured yet. Contact an admin." even though the DB was fine.
   '/api/clients',
+  // Mary (sole agent-role user actually booking) needs the Master
+  // Tracker view + its inline status / sent-to-client mutations.
+  // Both list reads and per-row PATCHes live under this prefix.
+  '/api/call-center/master-tracker',
+  // Reminders management — Mary needs to see which reminders are
+  // pending/failed and cancel or send-now per row. The /api/admin/*
+  // template-editing endpoints stay staff-only.
+  '/api/call-center/reminders',
+  '/api/admin/reminders',
 ]
 
 // Admin-only areas — even "member" staff can't access these.

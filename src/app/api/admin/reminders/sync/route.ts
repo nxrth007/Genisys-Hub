@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
 import { syncRemindersFromSheet } from '@/lib/reminders'
+import { requireStaff } from '@/lib/auth-helpers'
 
 /**
  * POST /api/admin/reminders/sync
@@ -14,10 +14,8 @@ import { syncRemindersFromSheet } from '@/lib/reminders'
  * Idempotent. The cron tick does the same thing every 5 minutes.
  */
 export async function POST() {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
   try {
     const result = await syncRemindersFromSheet()
     return NextResponse.json({ ok: true, ...result })

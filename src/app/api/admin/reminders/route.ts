@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { requireStaff } from '@/lib/auth-helpers'
 
 /**
  * GET /api/admin/reminders
@@ -11,10 +11,8 @@ import { prisma } from '@/lib/prisma'
  * what's about to fire (or just fired).
  */
 export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
 
   const sp = req.nextUrl.searchParams
   const status = sp.get('status') // pending | sent | failed | skipped | cancelled | all

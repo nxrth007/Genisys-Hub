@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_TEMPLATES, REMINDER_TYPES, type ReminderType } from '@/lib/reminders'
+import { requireStaff } from '@/lib/auth-helpers'
 
 /**
  * GET  /api/admin/reminders/templates
@@ -25,10 +25,8 @@ import { DEFAULT_TEMPLATES, REMINDER_TYPES, type ReminderType } from '@/lib/remi
  */
 
 export async function GET() {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
 
   const [clients, templates] = await Promise.all([
     prisma.client.findMany({
@@ -90,10 +88,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
 
   let body: {
     clientId?: unknown
@@ -140,10 +136,8 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+  const denial = await requireStaff()
+  if (denial) return denial
   const sp = new URL(req.url).searchParams
   const clientId = sp.get('clientId') || null
   const reminderType = sp.get('reminderType') || ''
