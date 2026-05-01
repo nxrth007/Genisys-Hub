@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
-import { customerFirstNameForSms, renderTemplate } from '@/lib/reminders'
+import {
+  customerFirstNameForSms,
+  primaryPhoneFor,
+  renderTemplate,
+} from '@/lib/reminders'
 import {
   REMINDER_TYPES,
   DEFAULT_TEMPLATES,
@@ -165,10 +169,11 @@ export async function PATCH(
         ),
       })
       const result = await sendSmsToPhone(config.vaultEntryName, {
-        phone: reminder.customerPhone,
+        phone: primaryPhoneFor(reminder.customerPhone),
         message: messageBody,
         firstName: customerFirstNameForSms(reminder.customerName),
         lastName: lastWordOf(reminder.customerName),
+        fromNumber: config.senderPhone || undefined,
       })
       const updated = await prisma.appointmentReminder.update({
         where: { id },

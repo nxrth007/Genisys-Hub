@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
 import { AppointmentDateTimePicker } from '@/components/agent/appointment-datetime-picker'
 import { AddressFields } from '@/components/agent/address-fields'
 import { AddressMapPreview } from '@/components/agent/address-map-preview'
+import { PhoneEntriesField } from '@/components/agent/phone-entries-field'
 import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
-import { formatPhoneInput } from '@/lib/phone'
 
 type Conflict = {
   id: string
@@ -93,12 +93,15 @@ export function AppointmentForm({
   initial?: AppointmentFormValues
 }) {
   const router = useRouter()
-  // Normalize the initial phone so edit-mode prefill displays in the
-  // canonical "(555) 123-4567" format even if the DB has an older
-  // ad-hoc value. New-appointment mode passes "" so this is a no-op.
+  // Edit-mode prefill: PhoneEntriesField runs its own parser
+  // (parsePhoneEntries) over the saved string, splitting it back into
+  // labeled rows. Don't run formatPhoneInput here — it strips
+  // non-digit context including labels + line breaks, which would
+  // collapse "(555) 111 Mobile\n(555) 222 Home" into just one
+  // mangled number. The parse-then-reformat happens row-by-row inside
+  // PhoneEntriesField now.
   const [values, setValues] = useState<AppointmentFormValues>(() => ({
     ...initial,
-    customerPhone: formatPhoneInput(initial.customerPhone),
   }))
   const [submitting, setSubmitting] = useState(false)
 
@@ -503,20 +506,18 @@ export function AppointmentForm({
             />
           </Field>
 
-          <Field label="Customer's phone number" required>
-            <input
-              type="tel"
+          <Field label="Customer's phone number(s)" required>
+            {/* Multi-row entry so Mary can label Mobile vs Home when
+                a customer hands over both. Underneath it serializes
+                to a single string ("(555) 111 Mobile\n(555) 222
+                Home") matching parsePhoneEntries' format — Master
+                Tracker + reminder dispatch already speak that shape. */}
+            <PhoneEntriesField
               value={values.customerPhone}
-              // Auto-format on every keystroke — strip non-digits, regroup
-              // into "(555) 123-4567" / "+1 (555) 123-4567". Pasting any
-              // format (dashes, dots, "+1") normalizes through the same
-              // path. Input is stored fully formatted so the DB + sheet
-              // get a consistent representation.
-              onChange={(e) => set('customerPhone', formatPhoneInput(e.target.value))}
+              onChange={(combined) => set('customerPhone', combined)}
               required
-              placeholder="(555) 123-4567"
-              autoComplete="tel"
-              className={inputCls}
+              disabled={submitting}
+              inputClassName={inputCls}
             />
           </Field>
         </div>

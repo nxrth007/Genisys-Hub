@@ -1857,6 +1857,7 @@ type ReminderConfig = {
   lookaheadDays: number
   quietHoursStart: string
   quietHoursEnd: string
+  senderPhone: string | null
   updatedAt: string
 }
 
@@ -2029,6 +2030,36 @@ function AppointmentRemindersSection() {
             5-minute sync.
           </p>
         </div>
+      </div>
+
+      {/* Outbound sender phone — applies to BOTH reminder SMS and
+          morning brief SMS so the agency's dedicated line is used
+          everywhere. Leave blank to fall back to the GHL location's
+          default phone number. */}
+      <div className="mt-3">
+        <label className="mb-1 block text-xs font-medium">
+          Outbound sender phone
+        </label>
+        <input
+          type="tel"
+          placeholder="+1 (603) 803-4828"
+          defaultValue={config?.senderPhone ?? ''}
+          onBlur={(e) => {
+            const v = e.target.value.trim()
+            // Empty clears (falls back to GHL default); non-empty
+            // updates. Skip the call when nothing changed.
+            const current = config?.senderPhone ?? ''
+            if (v !== current) {
+              updateConfig.mutate({ senderPhone: v || null })
+            }
+          }}
+          className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+        />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          E.164 phone number SMS reminders + morning briefs are sent
+          from. Must already be loaded in your GHL sub-account.
+          Leave blank to use GHL&apos;s default location number.
+        </p>
       </div>
 
       {/* Quiet hours — TCPA compliance window. Sends outside the

@@ -679,6 +679,12 @@ model RemindersConfig {
   // get retried on the next minute).
   quietHoursStart String   @default("21:00")
   quietHoursEnd   String   @default("08:00")
+  // E.164 phone number to send SMS *from* (reminders + morning briefs).
+  // Null = fall back to the GHL location's default number, which is
+  // what every deployment did before this column existed. Setting it
+  // explicitly lets the agency point reminder traffic at a dedicated
+  // number distinct from internal / agent outbound.
+  senderPhone     String?
   updatedAt       DateTime @updatedAt @default(now())
 }
 

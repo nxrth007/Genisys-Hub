@@ -151,6 +151,7 @@ export async function POST(req: Request) {
       phone,
       message: messageBody,
       firstName: customerFirstNameForSms(customerName),
+      fromNumber: config.senderPhone || undefined,
     })
     return NextResponse.json({
       ok: true,

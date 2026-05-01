@@ -16,6 +16,7 @@ import { prisma } from './prisma'
 import { readMasterTableRows, type MasterTableRow } from './drive'
 import { sendSmsToPhone } from './ghl'
 import { formatInTimezone, timezoneForAddress } from './timezone'
+import { parsePhoneEntries } from './phone'
 
 // Re-export the client-safe constants so existing server-side
 // callers (scheduler, dispatcher, lib helpers) can keep importing
@@ -330,10 +331,11 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       })
 
       const result = await sendSmsToPhone(config.vaultEntryName, {
-        phone: reminder.customerPhone,
+        phone: primaryPhoneFor(reminder.customerPhone),
         message: body,
         firstName: firstNameOf(reminder.customerName),
         lastName: lastNameOf(reminder.customerName),
+        fromNumber: config.senderPhone || undefined,
       })
 
       await prisma.appointmentReminder.update({
@@ -407,6 +409,30 @@ export function renderTemplate(
   return body.replace(/\{(\w+)\}/g, (_, key) =>
     Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : `{${key}}`
   )
+}
+
+/**
+ * The customerPhone column accepts free-text — Mary often enters
+ * both a Mobile and a Home line on the same row ("(555) 111-1111
+ * Mobile\n(555) 222-2222 Home"). For SMS reminders we pick exactly
+ * one number to text:
+ *   - If multiple are present, prefer the one labeled Mobile/Cell
+ *   - Otherwise the first parsed number
+ *   - Falls back to the raw string when the parser finds nothing
+ *     (so a single bare "(555) 123-4567" entry still works)
+ *
+ * Texting a landline isn't ideal but isn't catastrophic — most
+ * carriers silently drop it. Picking the mobile when present avoids
+ * that whenever Mary has labeled the entries.
+ */
+export function primaryPhoneFor(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const { entries } = parsePhoneEntries(raw)
+  if (entries.length === 0) return raw
+  const mobile = entries.find(
+    (e) => e.label === 'Mobile' || e.label === 'Cell'
+  )
+  return (mobile ?? entries[0]).number
 }
 
 function firstNameOf(name: string): string | undefined {

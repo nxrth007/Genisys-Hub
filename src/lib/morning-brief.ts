@@ -367,10 +367,21 @@ export async function buildAndSendSmsBrief(params: {
     tasks,
   })
 
+  // Re-use the reminder system's senderPhone setting so the agency's
+  // dedicated outbound number routes both reminders + briefs from the
+  // same line. RemindersConfig is the only place we already store an
+  // agency-level sender; treating it as the canonical setting avoids
+  // proliferating a second config row for "the morning brief number"
+  // that would inevitably drift out of sync.
+  const reminderConfig = await prisma.remindersConfig.findUnique({
+    where: { id: 'singleton' },
+    select: { senderPhone: true },
+  })
   const sendResult = await sendSmsToPhone('GHL Genisys Token', {
     phone: params.phone,
     message,
     firstName: greetName === 'there' ? undefined : greetName,
+    fromNumber: reminderConfig?.senderPhone || undefined,
   })
 
   return {

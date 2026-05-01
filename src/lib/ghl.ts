@@ -585,7 +585,18 @@ export async function upsertContactByPhone(
  */
 export async function sendSmsToPhone(
   vaultEntryName: string,
-  params: { phone: string; message: string; firstName?: string; lastName?: string }
+  params: {
+    phone: string
+    message: string
+    firstName?: string
+    lastName?: string
+    /** E.164 sender number ("+16038034828"). When omitted, GHL routes
+     *  via the location's default phone number — fine for prototypes,
+     *  not so much when an agency runs multiple numbers (e.g. dedicated
+     *  reminder line vs. agent outbound). The reminders dispatcher and
+     *  morning brief sender both pass this from RemindersConfig.senderPhone. */
+    fromNumber?: string
+  }
 ): Promise<{
   contactId: string
   messageId?: string
@@ -594,6 +605,9 @@ export async function sendSmsToPhone(
   rawResponse: unknown
 }> {
   const normalizedPhone = normalizePhone(params.phone)
+  const fromNumber = params.fromNumber
+    ? normalizePhone(params.fromNumber)
+    : undefined
   const { id: contactId } = await upsertContactByPhone(vaultEntryName, {
     phone: normalizedPhone,
     firstName: params.firstName,
@@ -606,6 +620,10 @@ export async function sendSmsToPhone(
       type: 'SMS',
       contactId,
       message: params.message,
+      // Only include fromNumber when explicitly set — sending an empty
+      // string trips GHL's validation; omitting it falls back to the
+      // location default.
+      ...(fromNumber ? { fromNumber } : {}),
     }),
   })) as {
     messageId?: string
