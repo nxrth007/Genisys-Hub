@@ -46,6 +46,10 @@ const AGENT_ALLOWED_PREFIXES = [
   // template-editing endpoints stay staff-only.
   '/api/call-center/reminders',
   '/api/admin/reminders',
+  // Reminder messages — Mary needs to see customer SMS replies and
+  // respond inline from the agent view. Limited to the reminder
+  // namespace; main /api/crm conversations stay staff-only.
+  '/api/crm/reminders',
 ]
 
 // Admin-only areas — even "member" staff can't access these.

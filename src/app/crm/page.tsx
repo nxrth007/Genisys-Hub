@@ -66,7 +66,7 @@ export default function CrmPage() {
 
   return (
     <div className="max-w-5xl space-y-6">
-      <div>
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
             <MessageSquare className="h-6 w-6 text-blue-600" />
@@ -80,6 +80,18 @@ export default function CrmPage() {
             </p>
           </div>
         </div>
+        {/* Quick jump to the reminder-only view. The main CRM page
+            shows everything across sub-accounts; this is just the
+            threads the reminder cron created, scoped to the agency
+            sender phone. Useful for triaging customer replies in
+            isolation from the noise of every other GHL conversation. */}
+        <Link
+          href="/crm/messages"
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          Reminder messages
+        </Link>
       </div>
 
       {isLoading ? (

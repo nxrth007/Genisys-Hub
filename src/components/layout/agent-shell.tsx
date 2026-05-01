@@ -13,6 +13,7 @@ import {
   Building2,
   Table,
   Bell,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './theme-toggle'
@@ -29,6 +30,7 @@ const NAV = [
   { href: '/agent/master-tracker', label: 'Master Tracker', icon: Table },
   { href: '/agent/callbacks', label: 'Callbacks', icon: PhoneCall },
   { href: '/agent/reminders', label: 'Reminders', icon: Bell },
+  { href: '/agent/messages', label: 'Messages', icon: MessageSquare },
   { href: '/agent/clients', label: 'Clients', icon: Building2 },
   { href: '/agent/eod', label: 'EOD Reports', icon: ClipboardList },
 ]

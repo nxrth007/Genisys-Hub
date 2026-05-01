@@ -511,6 +511,22 @@ export async function getConversationMessages(
   return ghlFetch(`/conversations/${conversationId}/messages?${params}`, vaultEntryName)
 }
 
+/** Shape of a single message entry inside a GHL conversation. The
+ *  fields here are the ones we read; GHL returns more (attachments,
+ *  email metadata, status flags) that we ignore. */
+export type ConversationMessage = {
+  id?: string
+  body?: string
+  type?: string
+  direction?: 'inbound' | 'outbound'
+  dateAdded?: string
+  contactId?: string
+  conversationId?: string
+  source?: string
+  status?: string
+  messageType?: string
+}
+
 export async function sendMessage(
   vaultEntryName: string,
   params: {
@@ -518,6 +534,10 @@ export async function sendMessage(
     contactId?: string
     message: string
     type?: 'Email' | 'SMS'
+    /** Optional E.164 sender number — same fromNumber semantics as
+     *  sendSmsToPhone. Manual SMS replies pass this so they go from
+     *  the agency reminder line, not GHL's location default. */
+    fromNumber?: string
   }
 ) {
   return ghlFetch(`/conversations/messages`, vaultEntryName, {
@@ -527,6 +547,7 @@ export async function sendMessage(
       conversationId: params.conversationId,
       contactId: params.contactId,
       message: params.message,
+      ...(params.fromNumber ? { fromNumber: params.fromNumber } : {}),
     }),
   })
 }
