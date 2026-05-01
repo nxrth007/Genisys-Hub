@@ -254,12 +254,19 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
 /**
  * Called when an admin first configures a Slack channel for a client
  * (or changes which channel routes to them). Walks the current sheet
- * and records every existing row for this client as `backfilled` so
- * the next sync tick treats them as already-delivered.
+ * and records every existing row that *would route to* this client —
+ * via either the explicit Client column OR address-state inference —
+ * as `backfilled` so the next sync tick treats them as already-
+ * delivered.
  *
- * Critical for first-deploy safety: if Spring Solar has 50 historical
- * rows on the sheet when their channel is first set, we don't want
- * those 50 rows to all post into #spring-solar at the next cron tick.
+ * Critical first-deploy safety: must mirror EXACTLY what the sync
+ * pass would route. The first version of this only matched on the
+ * explicit Client column, which missed every row where the call
+ * center had left it blank but the address state pointed at this
+ * client (the sync's tier-2 inference). Result: those rows blasted
+ * into the channel on the first cron tick. Lesson: backfill and sync
+ * must agree on "what counts as this client's row" — done now by
+ * sharing the routing brain.
  */
 export async function backfillClientDeliveries(params: {
   clientId: string
@@ -267,11 +274,19 @@ export async function backfillClientDeliveries(params: {
 }): Promise<{ recorded: number; alreadyTracked: number }> {
   const { clientId, channelId } = params
 
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: { id: true, name: true },
+  // Pull every active client (not just the one being backfilled) so
+  // the routing brain sees the full picture and produces the same
+  // verdicts the sync would. Using a single-client view here would
+  // make state inference incorrectly route everyone in that state to
+  // this client, which is wrong when other clients share the state.
+  const allClients = await prisma.client.findMany({
+    where: { active: true },
+    select: { id: true, name: true, state: true },
   })
-  if (!client) return { recorded: 0, alreadyTracked: 0 }
+  const target = allClients.find((c) => c.id === clientId)
+  if (!target) return { recorded: 0, alreadyTracked: 0 }
+
+  const index = buildRoutingIndex(allClients)
 
   let rows: MasterTableRow[]
   try {
@@ -281,20 +296,27 @@ export async function backfillClientDeliveries(params: {
     return { recorded: 0, alreadyTracked: 0 }
   }
 
-  const lowerName = client.name.toLowerCase()
   let recorded = 0
   let alreadyTracked = 0
 
   for (const row of rows) {
     if (!row.customerName?.trim()) continue
-    if ((row.client ?? '').toLowerCase() !== lowerName) continue
+    const route = routeRowToClient(
+      { client: row.client, address: normalizeAddress(row.address) },
+      index
+    )
+    // Only mark rows that actually resolve to *this* client. Ambiguous
+    // and unrouted rows are left untouched — the sync will see them
+    // and refuse to deliver too, so there's no risk of leakage.
+    if (route.source === 'unrouted') continue
+    if (route.client.id !== clientId) continue
 
     const sourceKey = `sheet:Master Table:${row.rowNumber}`
     try {
       await prisma.sheetSlackDelivery.create({
         data: {
           sourceKey,
-          clientId: client.id,
+          clientId: target.id,
           channelId,
           status: 'backfilled',
         },
@@ -316,6 +338,100 @@ export async function backfillClientDeliveries(params: {
   }
 
   return { recorded, alreadyTracked }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cleanup — undo erroneous deliveries                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Used to recover from a misconfiguration where the sync posted
+ * historical rows that should have been backfilled. For a given
+ * client + channel, deletes every recent 'delivered' message from
+ * Slack and flips the ledger entry to 'backfilled' so the row stays
+ * tracked (no future re-post) without leaving a stale Slack message
+ * in the channel.
+ *
+ * Slack's chat.delete only works for messages the bot itself posted,
+ * which is exactly our case. Failure to delete (e.g. message already
+ * removed) is treated as success — the goal is "don't show in the
+ * channel anymore, AND don't re-post" and the latter is the bit we
+ * actually control via the ledger flip.
+ */
+export async function undoClientDeliveries(params: {
+  clientId: string
+  channelId: string
+  /** Only undo deliveries newer than this. Default: 24 hours back —
+   *  prevents an admin from accidentally wiping months of legitimate
+   *  posts when they meant to fix the most recent batch. */
+  sinceHoursAgo?: number
+}): Promise<{
+  found: number
+  deletedFromSlack: number
+  ledgerUpdated: number
+  errors: string[]
+}> {
+  const sinceHoursAgo = params.sinceHoursAgo ?? 24
+  const cutoff = new Date(Date.now() - sinceHoursAgo * 60 * 60 * 1000)
+  const errors: string[] = []
+
+  const deliveries = await prisma.sheetSlackDelivery.findMany({
+    where: {
+      clientId: params.clientId,
+      channelId: params.channelId,
+      status: 'delivered',
+      deliveredAt: { gte: cutoff },
+    },
+  })
+  if (deliveries.length === 0) {
+    return { found: 0, deletedFromSlack: 0, ledgerUpdated: 0, errors }
+  }
+
+  const token = await getSecretByName('Slack Bot Token')
+  const slack = new WebClient(token)
+  let deletedFromSlack = 0
+  let ledgerUpdated = 0
+
+  for (const d of deliveries) {
+    if (d.messageTs) {
+      try {
+        await slack.chat.delete({
+          channel: params.channelId,
+          ts: d.messageTs,
+        })
+        deletedFromSlack++
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        // message_not_found / already_deleted is fine — we just want
+        // the row gone from the channel one way or another.
+        if (
+          !message.includes('message_not_found') &&
+          !message.includes('already_deleted')
+        ) {
+          errors.push(`row ${d.sourceKey}: ${message}`)
+        }
+      }
+    }
+    // Always flip the ledger — even if the Slack delete failed, we
+    // don't want this row to *re-post* on the next sync.
+    await prisma.sheetSlackDelivery.update({
+      where: { id: d.id },
+      data: {
+        status: 'backfilled',
+        messageTs: null,
+        deliveredAt: null,
+        errorMessage: null,
+      },
+    })
+    ledgerUpdated++
+  }
+
+  return {
+    found: deliveries.length,
+    deletedFromSlack,
+    ledgerUpdated,
+    errors,
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -400,13 +516,15 @@ export function formatAppointmentForClientChannel(
       : row.apptDateTime || 'Time TBD'
 
   // Header — broadcast tag first so the notification is unambiguous.
+  // Avoid :calendar: anywhere; in Slack it renders with a stuck "17"
+  // numeral that's easy to misread as the appointment's day.
   if (opts.isTest) {
     lines.push(`:test_tube: *Test post — ignore* :test_tube:`)
   }
-  lines.push(`<!channel> :calendar: *New appointment booked*`)
+  lines.push(`<!channel> :zap: *New appointment booked*`)
   lines.push('')
   lines.push(`*${row.customerName}*`)
-  lines.push(`:calendar: ${apptStr}`)
+  lines.push(`:clock3: ${apptStr}`)
 
   // Phone as a clickable tel: link. Slack's mrkdwn doesn't support
   // tel: in <link|label> syntax in all clients consistently — plain

@@ -1149,6 +1149,26 @@ function ClientRoutingRow({
     },
   })
 
+  const undoMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/slack-delivery/undo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id, sinceHoursAgo: 24 }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Undo failed')
+      }
+      return res.json() as Promise<{
+        found: number
+        deletedFromSlack: number
+        ledgerUpdated: number
+        errors: string[]
+      }>
+    },
+  })
+
   function handleSave() {
     if (!draftId) {
       saveMutation.mutate({ slackChannelId: null, slackChannelName: null })
@@ -1250,6 +1270,26 @@ function ClientRoutingRow({
         >
           Test post
         </button>
+
+        {client.slackChannelId && (
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete every appointment post the bot sent to #${client.slackChannelName} in the past 24 hours, and re-mark those rows so they don't re-post? This is meant to recover from a misconfiguration — it can't be undone.`
+                )
+              ) {
+                undoMutation.mutate()
+              }
+            }}
+            disabled={undoMutation.isPending}
+            className="rounded-md border border-rose-200 px-2.5 py-1.5 text-xs text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+            title="Delete the last 24h of bot posts in this channel and re-mark those rows as backfilled"
+          >
+            {undoMutation.isPending ? 'Cleaning…' : 'Undo last 24h'}
+          </button>
+        )}
       </div>
 
       {saveMutation.isError && (
@@ -1265,6 +1305,18 @@ function ClientRoutingRow({
       {testMutation.isSuccess && (
         <div className="basis-full text-xs text-emerald-600">
           Test post sent. Check the channel to confirm.
+        </div>
+      )}
+      {undoMutation.isError && (
+        <div className="basis-full text-xs text-red-600">
+          Undo failed: {(undoMutation.error as Error).message}
+        </div>
+      )}
+      {undoMutation.isSuccess && (
+        <div className="basis-full text-xs text-emerald-600">
+          Cleaned up {undoMutation.data.deletedFromSlack} of{' '}
+          {undoMutation.data.found} recent posts. Future syncs will skip
+          these rows.
         </div>
       )}
     </div>
