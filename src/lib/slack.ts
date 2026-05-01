@@ -141,20 +141,39 @@ export type SlackMsg = {
 /**
  * Fetch recent messages from a channel. The bot must be a member of the
  * channel — call joinChannel() first if needed.
+ *
+ * Returns:
+ *   - messages: oldest → newest, with user IDs resolved to display names
+ *     for the message author. <@U…> mentions in the body text are *not*
+ *     pre-resolved server-side; the client renderer uses userMap so the
+ *     mention can be styled distinctly from regular text.
+ *   - channelName / channelTopic / memberCount: surfaced in the header
+ *   - userMap: every userId we encountered (authors + mentions), mapped
+ *     to their best display name. Renderer reads this to resolve <@U…>.
  */
 export async function getChannelMessages(
   channelId: string,
   limit = 50
-): Promise<{ messages: SlackMsg[]; channelName: string }> {
+): Promise<{
+  messages: SlackMsg[]
+  channelName: string
+  channelTopic: string
+  memberCount: number
+  userMap: Record<string, string>
+}> {
   const client = await getClient()
 
-  // Get channel info for the name
   let channelName = channelId
+  let channelTopic = ''
+  let memberCount = 0
   try {
     const info = await client.conversations.info({ channel: channelId })
     channelName = info.channel?.name ?? channelId
+    channelTopic = info.channel?.topic?.value ?? ''
+    memberCount = info.channel?.num_members ?? 0
   } catch {
-    // fallback to ID
+    // fallback to ID — the messages call below will surface a real
+    // error if the bot can't see the channel at all.
   }
 
   const result = await client.conversations.history({
@@ -162,15 +181,21 @@ export async function getChannelMessages(
     limit,
   })
 
-  // Batch resolve user IDs to display names
+  // Collect user IDs from message authors *and* from <@U…> mentions in
+  // the body. Doing both in one pass means a single batched users.info
+  // round-trip resolves everyone the renderer needs.
   const userIds = new Set<string>()
+  const MENTION_RE = /<@([A-Z0-9]+)>/g
   for (const msg of result.messages ?? []) {
     if (msg.user) userIds.add(msg.user)
+    if (msg.text) {
+      for (const m of msg.text.matchAll(MENTION_RE)) userIds.add(m[1])
+    }
   }
 
   const userNames = new Map<string, string>()
   const userIdArray = Array.from(userIds)
-  // Resolve in batches of 10 to avoid rate limits
+  // Resolve in batches of 10 to avoid rate limits.
   for (let i = 0; i < userIdArray.length; i += 10) {
     const batch = userIdArray.slice(i, i + 10)
     await Promise.all(
@@ -202,9 +227,12 @@ export async function getChannelMessages(
       replyCount: m.reply_count,
       timestamp: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : '',
     }))
-    .reverse() // Slack returns newest first; we want oldest first (chat order)
+    .reverse() // Slack returns newest first; we want oldest first (chat order).
 
-  return { messages, channelName }
+  const userMap: Record<string, string> = {}
+  for (const [id, name] of userNames.entries()) userMap[id] = name
+
+  return { messages, channelName, channelTopic, memberCount, userMap }
 }
 
 /**
