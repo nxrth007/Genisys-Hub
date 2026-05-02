@@ -59,12 +59,47 @@ export async function GET() {
   const dbTagged = dbAppointments.map((a) => ({ ...a, source: 'hub' as const }))
 
   // Build a lookup of sheet rows already covered by DB rows so the
-  // sheet pass doesn't double-count Hub-booked appointments. Hub
-  // appointments write their masterSheetRowNumber back to the DB row
-  // when sync succeeds; that's our dedup key.
+  // sheet pass doesn't double-count Hub-booked appointments. Two
+  // dedup signals:
+  //   1. masterSheetRowNumber on the DB row — set after sheet sync
+  //      completes (~1-3s after the form submit). Fast path.
+  //   2. (normalizedPhone + apptDateTime) — content-stable key that
+  //      catches the in-flight window where the DB row exists but
+  //      the sheet sync hasn't written back its rowNumber yet.
+  //      Without this, Mary briefly sees the appointment twice on
+  //      /agent right after saving — once from the DB, once from
+  //      the sheet — until the sync catches up. Same fix pattern as
+  //      the Slack-delivery content dedup.
+  function normalizePhoneForKey(raw: string | null | undefined): string | null {
+    if (!raw) return null
+    const digits = String(raw).replace(/\D/g, '')
+    if (digits.length === 10) return `+1${digits}`
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+    if (digits.length >= 10) return `+${digits}`
+    return null
+  }
+  function apptDateKey(d: Date | string | null): string | null {
+    if (!d) return null
+    const date = typeof d === 'string' ? new Date(d) : d
+    if (isNaN(date.getTime())) return null
+    // Round to the minute — sheet "FORMATTED_VALUE" reads can lose
+    // sub-minute precision, and an exact-ms compare would miss the
+    // match on those rows. Same Hub-booked appt in DB vs. sheet
+    // should always agree to the minute.
+    return new Date(
+      Math.floor(date.getTime() / 60_000) * 60_000,
+    ).toISOString()
+  }
+
   const coveredRowNumbers = new Set<number>()
+  const coveredContent = new Set<string>()
   for (const a of dbTagged) {
     if (a.masterSheetRowNumber) coveredRowNumbers.add(a.masterSheetRowNumber)
+    const phoneKey = normalizePhoneForKey(a.customerPhone)
+    const dateKey = apptDateKey(a.apptDateTime)
+    if (phoneKey && dateKey) {
+      coveredContent.add(`${phoneKey}|${dateKey}`)
+    }
   }
 
   // Match sheet "Client" cell to a registered client so the
@@ -99,7 +134,19 @@ export async function GET() {
   }
 
   const sheetOnly = sheetRows
-    .filter((r) => !coveredRowNumbers.has(r.rowNumber))
+    .filter((r) => {
+      // Skip if this sheet row is already represented by a DB row.
+      // Either the sync wrote the rowNumber back (covered by row
+      // number) OR the (phone, apptTime) content key matches a DB
+      // row whose sync is still in flight.
+      if (coveredRowNumbers.has(r.rowNumber)) return false
+      const phoneKey = normalizePhoneForKey(r.customerPhone)
+      const dateKey = apptDateKey(r.apptDateTime)
+      if (phoneKey && dateKey) {
+        if (coveredContent.has(`${phoneKey}|${dateKey}`)) return false
+      }
+      return true
+    })
     .filter(rowAttributedToUser)
     .filter((r) => r.customerName?.trim() && r.apptDateTime)
     .map((r) => {
