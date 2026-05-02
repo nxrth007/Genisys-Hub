@@ -34,3 +34,22 @@ export async function requireStaff(): Promise<NextResponse | null> {
   }
   return null
 }
+
+/**
+ * Stricter than requireStaff — admin role only. Used for genuinely
+ * destructive operations where even Ethan (member) shouldn't be
+ * able to act without explicitly elevating. Currently the only
+ * gate point is master-tracker row delete + edit, where Alex's
+ * intent was specifically "I (alex@) can do this, agents can't."
+ */
+export async function requireAdmin(): Promise<NextResponse | null> {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  const role = (session.user as SessionUserShape).role
+  if (role !== 'admin') {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  }
+  return null
+}

@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +20,9 @@ import {
   DollarSign,
   Send,
   Hash,
+  Pencil,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
@@ -428,6 +431,60 @@ export default function MasterTrackerPage() {
   // it; Mary's view stays read-only for delivery actions.
   const pathname = usePathname()
   const isStaffView = pathname?.startsWith('/call-center/') ?? false
+
+  // Edit + Delete are admin-only. Pull the session role and gate the
+  // UI affordances on `role === 'admin'` — this matches the server's
+  // requireAdmin() check on the corresponding endpoints. Ethan
+  // (member) can still inline-edit Status / Sent-to-Client; the row
+  // delete and full-row edit stay Alex-only.
+  const sessionQuery = useQuery<{
+    user?: { email?: string | null; role?: string }
+  }>({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/session')
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  const userRole = sessionQuery.data?.user?.role ?? ''
+  const isAdmin = isStaffView && userRole === 'admin'
+
+  // Edit-modal state. We track the currently-being-edited row by id
+  // so the modal can pre-fill from the loaded appointments and the
+  // mutation knows where to write.
+  const [editingApptId, setEditingApptId] = useState<string | null>(null)
+
+  // Single mutation handles both DELETE and full-row edit since they
+  // share the route + invalidation. Each call site sets the right
+  // `kind` so the toast / disable logic can target.
+  const adminMutation = useMutation({
+    mutationFn: async (vars: {
+      kind: 'delete' | 'edit'
+      rowNumber: number
+      payload?: Record<string, string | null>
+    }) => {
+      const res = await fetch(
+        `/api/call-center/master-tracker/${vars.rowNumber}`,
+        {
+          method: vars.kind === 'delete' ? 'DELETE' : 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:
+            vars.kind === 'edit'
+              ? JSON.stringify(vars.payload ?? {})
+              : undefined,
+        },
+      )
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || `${vars.kind} failed`)
+      }
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['master-tracker-sheet'] })
+    },
+  })
 
   // Queries
   const clientsQuery = useQuery<{ clients: Client[] }>({
@@ -1015,6 +1072,7 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Sent</th>
                   <th className="px-3 py-2.5">Slack</th>
                   <th className="px-3 py-2.5">Rec</th>
+                  {isAdmin && <th className="px-3 py-2.5"></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1225,11 +1283,37 @@ export default function MasterTrackerPage() {
                             <span className="text-zinc-300">—</span>
                           )}
                         </td>
+                        {isAdmin && (
+                          <td className="px-3 py-2.5">
+                            <AdminActionsCell
+                              appointment={a}
+                              pending={
+                                adminMutation.isPending &&
+                                adminMutation.variables?.rowNumber ===
+                                  Number(a.id.replace(/^sheet:/, ''))
+                              }
+                              onEdit={() => setEditingApptId(a.id)}
+                              onDelete={() => {
+                                const match = a.id.match(/^sheet:(\d+)$/)
+                                if (!match) return
+                                const rowNumber = Number(match[1])
+                                if (
+                                  !window.confirm(
+                                    `Delete ${a.customerName}'s appointment from the master sheet? This removes the row entirely + cancels its pending reminders. Cannot be undone.`,
+                                  )
+                                ) {
+                                  return
+                                }
+                                adminMutation.mutate({ kind: 'delete', rowNumber })
+                              }}
+                            />
+                          </td>
+                        )}
                       </tr>
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={14}
+                            colSpan={isAdmin ? 15 : 14}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail appointment={a} />
@@ -1250,6 +1334,35 @@ export default function MasterTrackerPage() {
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           Failed to load appointments. Try refreshing.
         </div>
+      )}
+
+      {/* Admin row-edit modal — only mounts when an appointment is
+          targeted. Sources the row's current data from the loaded
+          appointments list so the form pre-fills, hands updates back
+          via the same mutation that powers row delete. */}
+      {isAdmin && editingApptId && (
+        <AdminEditModal
+          appointment={
+            (apptsQuery.data?.appointments ?? []).find(
+              (a) => a.id === editingApptId,
+            ) ?? null
+          }
+          submitting={adminMutation.isPending}
+          onCancel={() => setEditingApptId(null)}
+          onSave={(payload) => {
+            const appt = (apptsQuery.data?.appointments ?? []).find(
+              (a) => a.id === editingApptId,
+            )
+            if (!appt) return
+            const match = appt.id.match(/^sheet:(\d+)$/)
+            if (!match) return
+            const rowNumber = Number(match[1])
+            adminMutation.mutate(
+              { kind: 'edit', rowNumber, payload },
+              { onSuccess: () => setEditingApptId(null) },
+            )
+          }}
+        />
       )}
     </div>
   )
@@ -1814,6 +1927,348 @@ function SlackDeliveryCell({
       )}
     </div>
   )
+}
+
+/**
+ * Pencil + trash icon buttons at the end of each Master Tracker
+ * row. Mounts only for admin users (Alex). Edit opens the row-edit
+ * modal; Delete shows a confirm() dialog and then DELETEs the sheet
+ * row + cleans up downstream ledger records.
+ */
+function AdminActionsCell({
+  appointment: _appointment,
+  pending,
+  onEdit,
+  onDelete,
+}: {
+  appointment: Appointment
+  pending: boolean
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onEdit}
+        disabled={pending}
+        className="grid h-6 w-6 place-items-center rounded-md border border-zinc-200 text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        title="Edit this row"
+        aria-label="Edit row"
+      >
+        <Pencil className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={pending}
+        className="grid h-6 w-6 place-items-center rounded-md border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+        title="Delete this row from the master sheet"
+        aria-label="Delete row"
+      >
+        {pending ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Trash2 className="h-3 w-3" />
+        )}
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Modal that lets admin edit any field on a Master Tracker row.
+ * Pre-fills from the currently-loaded appointment, sends only the
+ * changed fields on save (so an empty Note field doesn't accidentally
+ * clear an existing note unless the admin explicitly changed it).
+ *
+ * Status + Sent-to-Client stay inline-editable on the table itself;
+ * this modal handles everything else (customer name, phone, address,
+ * notes, financial fields, etc.). apptDateTime gets a datetime-local
+ * picker so admin can move appointments without typing ISO strings.
+ */
+function AdminEditModal({
+  appointment,
+  submitting,
+  onSave,
+  onCancel,
+}: {
+  appointment: Appointment | null
+  submitting: boolean
+  onSave: (payload: Record<string, string | null>) => void
+  onCancel: () => void
+}) {
+  const initial = appointment
+    ? {
+        customerName: appointment.customerName ?? '',
+        customerPhone: appointment.customerPhone ?? '',
+        address: appointment.address ?? '',
+        email: appointment.email ?? '',
+        monthlyBill: appointment.monthlyBill ?? '',
+        utilityProvider: appointment.utilityProvider ?? '',
+        roofType: appointment.roofType ?? '',
+        roofAge: appointment.roofAge ?? '',
+        estimatedDealValue: appointment.estimatedDealValue ?? '',
+        notes: appointment.notes ?? '',
+        callRecordingLink: appointment.callRecordingLink ?? '',
+        agentName: appointment.agent?.name ?? '',
+        agentEmail: appointment.agent?.email ?? '',
+        client: appointment.client?.name ?? '',
+        // datetime-local format: YYYY-MM-DDTHH:mm in the user's
+        // browser tz, which is what the input expects.
+        apptDateTime: appointment.apptDateTime
+          ? toLocalDateTimeInput(appointment.apptDateTime)
+          : '',
+      }
+    : null
+  const [values, setValues] = useState<Record<string, string>>(
+    () => initial ?? {},
+  )
+
+  // When the modal opens for a different row, re-seed the form so
+  // it doesn't show stale data from a prior row's edit. Keyed on
+  // appointment.id so re-renders for the same row don't wipe
+  // in-progress edits.
+  const apptId = appointment?.id ?? null
+  useEffect(() => {
+    if (initial) setValues(initial)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apptId])
+
+  if (!appointment || !initial) return null
+
+  function set(key: string, value: string) {
+    setValues((v) => ({ ...v, [key]: value }))
+  }
+
+  function buildDiff(): Record<string, string | null> {
+    const diff: Record<string, string | null> = {}
+    const initRecord = initial as Record<string, string>
+    for (const [k, v] of Object.entries(values)) {
+      const init = initRecord[k] ?? ''
+      if (v !== init) {
+        // Empty string clears the cell — preserve that intent.
+        diff[k] = v
+      }
+    }
+    // apptDateTime needs special handling. The picker gives us a
+    // local datetime string; sheet expects something parseable. Send
+    // through as a friendly "MM/DD/YYYY HH:mm AM/PM" so the sheet
+    // formula bar shows a readable value the next time someone
+    // opens the source.
+    if (diff.apptDateTime) {
+      const d = new Date(diff.apptDateTime)
+      if (!isNaN(d.getTime())) {
+        diff.apptDateTime = d.toLocaleString('en-US', {
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        })
+      }
+    }
+    return diff
+  }
+
+  const diff = buildDiff()
+  const hasChanges = Object.keys(diff).length > 0
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div>
+            <h3 className="text-base font-semibold">
+              Edit appointment
+            </h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Sheet row {appointment.id.replace(/^sheet:/, '')} ·{' '}
+              {appointment.customerName}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-3 px-5 py-4 sm:grid-cols-2">
+          <EditField
+            label="Customer name"
+            value={values.customerName}
+            onChange={(v) => set('customerName', v)}
+          />
+          <EditField
+            label="Customer phone"
+            value={values.customerPhone}
+            onChange={(v) => set('customerPhone', v)}
+          />
+          <EditField
+            label="Appointment date / time"
+            type="datetime-local"
+            value={values.apptDateTime}
+            onChange={(v) => set('apptDateTime', v)}
+          />
+          <EditField
+            label="Client"
+            value={values.client}
+            onChange={(v) => set('client', v)}
+          />
+          <div className="sm:col-span-2">
+            <EditField
+              label="Address"
+              value={values.address}
+              onChange={(v) => set('address', v)}
+            />
+          </div>
+          <EditField
+            label="Email"
+            type="email"
+            value={values.email}
+            onChange={(v) => set('email', v)}
+          />
+          <EditField
+            label="Utility provider"
+            value={values.utilityProvider}
+            onChange={(v) => set('utilityProvider', v)}
+          />
+          <EditField
+            label="Monthly bill"
+            value={values.monthlyBill}
+            onChange={(v) => set('monthlyBill', v)}
+          />
+          <EditField
+            label="Estimated deal value"
+            value={values.estimatedDealValue}
+            onChange={(v) => set('estimatedDealValue', v)}
+          />
+          <EditField
+            label="Roof type"
+            value={values.roofType}
+            onChange={(v) => set('roofType', v)}
+          />
+          <EditField
+            label="Roof age"
+            value={values.roofAge}
+            onChange={(v) => set('roofAge', v)}
+          />
+          <EditField
+            label="Booked by (agent name)"
+            value={values.agentName}
+            onChange={(v) => set('agentName', v)}
+          />
+          <EditField
+            label="Agent email"
+            type="email"
+            value={values.agentEmail}
+            onChange={(v) => set('agentEmail', v)}
+          />
+          <div className="sm:col-span-2">
+            <EditField
+              label="Notes"
+              value={values.notes}
+              onChange={(v) => set('notes', v)}
+              multiline
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <EditField
+              label="Call recording link"
+              value={values.callRecordingLink}
+              onChange={(v) => set('callRecordingLink', v)}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <p className="text-[11px] text-zinc-500">
+            {hasChanges
+              ? `${Object.keys(diff).length} field${Object.keys(diff).length === 1 ? '' : 's'} will be updated.`
+              : 'No changes yet.'}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(diff)}
+              disabled={!hasChanges || submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  multiline,
+}: {
+  label: string
+  value: string
+  onChange: (next: string) => void
+  type?: string
+  multiline?: boolean
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+        {label}
+      </span>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={3}
+          className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+        />
+      )}
+    </label>
+  )
+}
+
+/**
+ * Convert a stored ISO string into the `YYYY-MM-DDTHH:mm` form that
+ * a `<input type="datetime-local">` expects. Uses the browser's
+ * local timezone so the displayed time matches what the user typed.
+ */
+function toLocalDateTimeInput(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function DetailItem({

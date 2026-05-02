@@ -611,7 +611,7 @@ export const MASTER_TAB_TITLE = 'Master Table'
 
 // ---- Canonical keys + alias → key map ----------------------------------
 
-type CanonicalKey =
+export type CanonicalKey =
   | 'apptDate'
   | 'apptTime'
   | 'apptDateTime'
@@ -1106,6 +1106,115 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
  * the header row (defensive — protects against a UI bug ever asking us
  * to overwrite a header cell).
  */
+/**
+ * Batch-update multiple cells on a single Master Table row in one
+ * sheets.values.batchUpdate call. Used by the admin row-edit
+ * endpoint where the user changes a handful of fields at once;
+ * looping updateMasterTableCell would be N round-trips against the
+ * Sheets API and feel laggy on slower connections. Unknown
+ * canonical keys are silently skipped — admin shouldn't be able to
+ * crash the save by sending a typo'd field name.
+ */
+export async function updateMasterTableCells(params: {
+  rowNumber: number
+  updates: Partial<Record<CanonicalKey, string>>
+}): Promise<{ written: number; skipped: string[] }> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+  const schema = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  if (!schema) {
+    throw new Error(`Could not detect schema for ${MASTER_TAB_TITLE}`)
+  }
+  if (params.rowNumber <= schema.headerRowNumber) {
+    throw new Error(`Invalid row number ${params.rowNumber} (at/above header row)`)
+  }
+
+  const data: { range: string; values: string[][] }[] = []
+  const skipped: string[] = []
+  for (const [canonical, value] of Object.entries(params.updates)) {
+    if (value === undefined) continue
+    const col = schema.columns.find((c) => c.canonical === canonical)
+    if (!col) {
+      skipped.push(canonical)
+      continue
+    }
+    const colLetterStr = colLetter(col.columnIndex + 1)
+    const range = `'${MASTER_TAB_TITLE.replace(/'/g, "''")}'!${colLetterStr}${params.rowNumber}`
+    data.push({ range, values: [[value]] })
+  }
+
+  if (data.length === 0) {
+    return { written: 0, skipped }
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'USER_ENTERED',
+      data,
+    },
+  })
+  return { written: data.length, skipped }
+}
+
+/**
+ * Permanently delete a row from the Master Table. Uses the Sheets
+ * API's deleteDimension request, which removes the row entirely
+ * (not just clears values). All rows below the deleted one shift up
+ * by one — sourceKey-based dedup downstream needs to be aware of
+ * this, which is why the master-tracker DELETE handler also wipes
+ * the corresponding SheetSlackDelivery records.
+ *
+ * Header row is protected (caller's row number must be > headerRowNumber).
+ */
+export async function deleteMasterTableRow(rowNumber: number): Promise<void> {
+  const writerEmail = await getWriterAccountEmail()
+  const sheets = await getSheetsClient(writerEmail)
+  const spreadsheetId = getMasterSpreadsheetId()
+  const schema = await detectTableSchema(sheets, spreadsheetId, MASTER_TAB_TITLE)
+  if (!schema) {
+    throw new Error(`Could not detect schema for ${MASTER_TAB_TITLE}`)
+  }
+  if (rowNumber <= schema.headerRowNumber) {
+    throw new Error(
+      `Refusing to delete row ${rowNumber} — that's at or above the header.`,
+    )
+  }
+
+  // Need the numeric sheetId (not just the tab title) for
+  // deleteDimension. Cached lookup against the spreadsheet metadata.
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets(properties(sheetId,title))',
+  })
+  const masterSheetId = meta.data.sheets?.find(
+    (s) => s.properties?.title === MASTER_TAB_TITLE,
+  )?.properties?.sheetId
+  if (typeof masterSheetId !== 'number') {
+    throw new Error(`Could not resolve sheetId for tab ${MASTER_TAB_TITLE}`)
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: masterSheetId,
+              dimension: 'ROWS',
+              // Sheets API uses 0-based half-open [start, end) ranges.
+              startIndex: rowNumber - 1,
+              endIndex: rowNumber,
+            },
+          },
+        },
+      ],
+    },
+  })
+}
+
 export async function updateMasterTableCell(params: {
   rowNumber: number
   canonical: CanonicalKey
