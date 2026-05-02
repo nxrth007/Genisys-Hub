@@ -90,6 +90,44 @@ export async function GET() {
     return null
   }
 
+  // Build a duplicate-detection index. Two rows count as "likely the
+  // same booking" when they share normalized phone + a stripped
+  // alphanumeric address key. Same-phone different-address is left
+  // alone — could be a legitimate rebooking at a different property.
+  // Same-phone same-address with different appt times almost always
+  // means the row got entered twice; flagging both lets admin pick
+  // the canonical one and delete the other in the sheet directly.
+  function addressKeyFor(raw: string | null): string | null {
+    const cleaned = normalizeAddress(raw)
+    if (!cleaned) return null
+    const key = cleaned.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    return key.length >= 8 ? key : null
+  }
+  const dupGroups = new Map<string, number[]>()
+  for (const r of rows) {
+    if (!r.customerName?.trim()) continue
+    const phoneKey = normalizePhoneForKey(r.customerPhone)
+    const addrKey = addressKeyFor(r.address)
+    if (!phoneKey || !addrKey) continue
+    const groupKey = `${phoneKey}|${addrKey}`
+    const list = dupGroups.get(groupKey) ?? []
+    list.push(r.rowNumber)
+    dupGroups.set(groupKey, list)
+  }
+  // Index per row → other row numbers in the same group. Empty
+  // arrays for non-duplicates so the UI can render a clean "no
+  // duplicate" path without a null check.
+  const duplicateRowIdsByRow = new Map<number, number[]>()
+  for (const [, members] of dupGroups) {
+    if (members.length < 2) continue
+    for (const rn of members) {
+      duplicateRowIdsByRow.set(
+        rn,
+        members.filter((m) => m !== rn),
+      )
+    }
+  }
+
   // Normalize sheet status values into the same lowercase-with-underscore
   // tokens the Hub UI uses for tone classes ("booked" / "showed" / etc).
   const normalizeStatus = (raw: string | null): string => {
@@ -279,6 +317,12 @@ export async function GET() {
       // /agent route hides the button via pathname check on the
       // client.
       slackDelivery,
+      // Sheet rowNumbers of OTHER rows that look like the same
+      // booking (matching normalized phone + address). Empty when
+      // this row has no probable duplicates. UI uses this to render
+      // a "⚠ Possible duplicate" warning so admins can spot and
+      // clean up double-entries without auto-hiding real data.
+      possibleDuplicateRowIds: duplicateRowIdsByRow.get(r.rowNumber) ?? [],
     }
   })
 

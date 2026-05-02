@@ -62,6 +62,11 @@ type Appointment = {
     deliveredAt: string | null
     channelId: string
   } | null
+  /** Sheet rowNumbers of other rows that look like the same booking
+   *  (matching normalized phone + address). Empty when this row has
+   *  no probable duplicates. Used to render a warning chip so admins
+   *  can spot double-entries without us silently hiding real data. */
+  possibleDuplicateRowIds?: number[]
   estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
@@ -1095,7 +1100,21 @@ export default function MasterTrackerPage() {
                             {a.agent.email}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
+                        <td className="px-3 py-2.5 font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <span>{a.customerName}</span>
+                            {a.possibleDuplicateRowIds &&
+                              a.possibleDuplicateRowIds.length > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                                  title={`Same phone + address as ${a.possibleDuplicateRowIds.length} other row${a.possibleDuplicateRowIds.length === 1 ? '' : 's'} on the sheet (row${a.possibleDuplicateRowIds.length === 1 ? '' : 's'} ${a.possibleDuplicateRowIds.join(', ')}). Likely a double-entry — keep the most complete one and delete the rest in Google Sheets.`}
+                                >
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  Dup
+                                </span>
+                              )}
+                          </div>
+                        </td>
                         <td className="px-3 py-2.5 font-mono text-[11px]">
                           <PhoneCell value={a.customerPhone} />
                         </td>
