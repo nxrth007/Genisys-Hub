@@ -12,6 +12,7 @@ import { AddressMapPreview } from '@/components/agent/address-map-preview'
 import { PhoneEntriesField } from '@/components/agent/phone-entries-field'
 import { SolarInsightsCard } from '@/components/agent/solar-insights-card'
 import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
+import { timezoneForAddress, wallClockInTzToUtcIso } from '@/lib/timezone'
 
 type Conflict = {
   id: string
@@ -273,10 +274,23 @@ export function AppointmentForm({
         : `/api/agent/appointments/${appointmentId}`
     const method = mode === 'create' ? 'POST' : 'PATCH'
 
+    // Interpret the date/time picker's value as wall-clock in the
+    // CUSTOMER's timezone (derived from address), not Mary's browser.
+    // Mary in the Philippines typing "9 AM" for a California customer
+    // means "9 AM California time" — without this fix, JS's default
+    // parser interprets it as "9 AM Manila" which is ~16 hours off
+    // and shows up downstream as midnight or earlier. See
+    // wallClockInTzToUtcIso for the exact mechanic.
+    const customerTz = timezoneForAddress(values.address)
+    const apptIso = values.apptDateTime
+      ? wallClockInTzToUtcIso(values.apptDateTime, customerTz) ??
+        // Fallback to default-tz interpretation if parsing somehow
+        // fails — keeps the form submittable rather than throwing.
+        new Date(values.apptDateTime).toISOString()
+      : null
+
     const body = {
-      apptDateTime: values.apptDateTime
-        ? new Date(values.apptDateTime).toISOString()
-        : null,
+      apptDateTime: apptIso,
       clientId: values.clientId || null,
       customerName: values.customerName,
       customerPhone: values.customerPhone,

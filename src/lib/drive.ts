@@ -15,6 +15,7 @@
  */
 import { google, type drive_v3 } from 'googleapis'
 import { prisma } from './prisma'
+import { timezoneForAddress, wallClockInTzToUtcIso } from './timezone'
 
 export type DriveFile = {
   id: string
@@ -973,13 +974,43 @@ export type MasterTableRow = {
   sentToClient: string | null
 }
 
-/** Combine sheet date + time strings into an ISO datetime if possible. */
-function combineDateAndTime(dateStr: string, timeStr: string): string | null {
+/**
+ * Combine sheet date + time strings into a UTC ISO datetime,
+ * interpreting the wall-clock as CUSTOMER-local (derived from the
+ * row's address) rather than server-local.
+ *
+ * Why the address matters: the call-center types times that mean
+ * "X o'clock at the customer's location" (since they're calling on
+ * the customer's behalf). If we run those through `new Date(...)`
+ * without specifying a timezone, V8 interprets in the server's tz,
+ * which on Render is UTC. Storing UTC-interpreted times then
+ * displaying them in the customer's tz silently shifts every
+ * appointment by ~5-8 hours. Sheet reads now route through
+ * wallClockInTzToUtcIso() with the customer's tz so the stored
+ * UTC instant matches what Mary actually meant.
+ *
+ * Address can be null for very-old rows that pre-date the address
+ * column or were typed without one — in that case we fall back to
+ * the agency default tz (America/New_York) which is the project's
+ * baseline. Better to be slightly off in the rare null-address
+ * case than to be wildly off in the common populated-address case.
+ */
+function combineDateAndTime(
+  dateStr: string,
+  timeStr: string,
+  address: string | null,
+): string | null {
   const date = (dateStr || '').trim()
   const time = (timeStr || '').trim()
   if (!date && !time) return null
-  // Browser-native Date parser handles `4/16/2026 10:00:00 AM` directly.
+
+  const tz = timezoneForAddress(address)
   const combined = time ? `${date} ${time}` : date
+  const tzAware = wallClockInTzToUtcIso(combined, tz)
+  if (tzAware) return tzAware
+
+  // Last-ditch fallback — let V8 take a swing. Old behavior; keeps
+  // weird-format rows from disappearing entirely.
   const d = new Date(combined)
   if (isNaN(d.getTime())) return null
   return d.toISOString()
@@ -1045,17 +1076,24 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
 
     const apptDate = cell(row, 'apptDate')
     const apptTime = cell(row, 'apptTime')
+    // Pull the address up here so combineDateAndTime can derive the
+    // customer's timezone for proper wall-clock interpretation.
+    const rowAddress = cell(row, 'address') || null
     const apptDateTime =
       cell(row, 'apptDateTime') ||
-      combineDateAndTime(apptDate, apptTime) ||
+      combineDateAndTime(apptDate, apptTime, rowAddress) ||
       null
     const isoApptDateTime =
       typeof apptDateTime === 'string' && apptDateTime !== ''
-        ? // If apptDateTime came in as a single field, try to parse it too.
+        ? // If apptDateTime came in as a single field, route through
+          // the same tz-aware combiner so it gets the customer's
+          // wall-clock interpretation. Falls back to the raw
+          // value's ISO if parsing fails.
+          wallClockInTzToUtcIso(apptDateTime, timezoneForAddress(rowAddress)) ||
           (() => {
             const d = new Date(apptDateTime)
             return isNaN(d.getTime())
-              ? combineDateAndTime(apptDate, apptTime)
+              ? combineDateAndTime(apptDate, apptTime, rowAddress)
               : d.toISOString()
           })()
         : null

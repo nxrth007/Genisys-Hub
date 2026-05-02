@@ -590,46 +590,48 @@ export function formatAppointmentForClientChannel(
         })
       : row.apptDateTime || 'Time TBD'
 
-  // Header — broadcast tag first so the notification is unambiguous.
-  // Avoid :calendar: anywhere; in Slack it renders with a stuck "17"
-  // numeral that's easy to misread as the appointment's day.
+  // Header — broadcast tag first so the notification is unambiguous,
+  // then a clean text headline. Ethan asked for the body to read more
+  // like a written brief than a stack of emoji-prefixed lines, so the
+  // body uses labeled fields with blank-line spacing rather than
+  // glyph icons in front of every value.
   if (opts.isTest) {
-    lines.push(`:test_tube: *Test post — ignore* :test_tube:`)
+    lines.push(`*Test post — ignore*`)
+    lines.push('')
   }
-  lines.push(`<!channel> :zap: *New appointment booked*`)
+  lines.push(`<!channel>`)
+  lines.push(`*You've received a new Booked Appointment:*`)
   lines.push('')
-  lines.push(`*${row.customerName}*`)
-  lines.push(`:clock3: ${apptStr}`)
-
-  // Phone as a clickable tel: link. Slack's mrkdwn doesn't support
-  // tel: in <link|label> syntax in all clients consistently — plain
-  // text is the safer move; the user's mobile will still recognize
-  // a 10-digit number as callable.
-  lines.push(`:telephone_receiver: ${row.customerPhone}`)
-
+  lines.push(`*Customer:*  ${row.customerName}`)
+  lines.push(`*Date / Time:*  ${apptStr}`)
+  lines.push(`*Phone:*  ${row.customerPhone}`)
   if (cleanedAddress) {
-    lines.push(`:round_pushpin: ${cleanedAddress}`)
+    lines.push(`*Address:*  ${cleanedAddress}`)
   }
   if (row.email) {
-    lines.push(`:email: ${row.email}`)
+    lines.push(`*Email:*  ${row.email}`)
   }
 
-  // Property block — only render lines that have a value, so a
-  // partially-filled row doesn't end up with a wall of em-dashes.
+  // Property block — labels on their own indented lines so a
+  // partially-filled row reads cleanly. Only renders lines with a
+  // value, so missing fields don't litter the post with em-dashes.
   const propertyLines: string[] = []
-  if (row.utilityProvider) propertyLines.push(`*Utility:* ${row.utilityProvider}`)
-  if (row.monthlyBill) propertyLines.push(`*Monthly bill:* ${row.monthlyBill}`)
+  if (row.utilityProvider) propertyLines.push(`Utility: ${row.utilityProvider}`)
+  if (row.monthlyBill) propertyLines.push(`Monthly bill: ${row.monthlyBill}`)
   const roofPiece =
     row.roofType && row.roofAge
       ? `${row.roofType} · ${row.roofAge}`
       : row.roofType || row.roofAge
-  if (roofPiece) propertyLines.push(`*Roof:* ${roofPiece}`)
+  if (roofPiece) propertyLines.push(`Roof: ${roofPiece}`)
   if (row.estimatedDealValue) {
-    propertyLines.push(`*Est. deal value:* ${row.estimatedDealValue}`)
+    propertyLines.push(`Est. deal value: ${row.estimatedDealValue}`)
   }
   if (propertyLines.length > 0) {
     lines.push('')
-    lines.push(propertyLines.join('  ·  '))
+    lines.push(`*Property details:*`)
+    for (const p of propertyLines) {
+      lines.push(`    ${p}`)
+    }
   }
 
   // Solar potential — only included when Mary clicked "Check solar
@@ -666,13 +668,16 @@ export function formatAppointmentForClientChannel(
       const viabilityLabel =
         opts.solar.viability.charAt(0).toUpperCase() +
         opts.solar.viability.slice(1)
-      lines.push(`:sunny: *Solar potential — ${viabilityLabel}*`)
-      lines.push(solarLines.join('  ·  '))
+      lines.push(`*Solar potential — ${viabilityLabel}*`)
+      for (const s of solarLines) {
+        lines.push(`    ${s.replace(/\*/g, '')}`)
+      }
     }
   }
 
   if (row.notes?.trim()) {
     lines.push('')
+    lines.push(`*Notes:*`)
     lines.push(`> ${row.notes.trim().replace(/\n/g, '\n> ')}`)
   }
 

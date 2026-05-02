@@ -132,6 +132,76 @@ const STATUS_TONE: Record<string, string> = {
   cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
 }
 
+/**
+ * Best-effort customer-tz lookup from a free-text address. Mirrors
+ * lib/timezone.ts but kept inline so the master-tracker page (which
+ * is a client component) doesn't have to drag the server-side lib
+ * along. Covers Genisys's three current operating states cleanly;
+ * everything else falls back to America/New_York which is the
+ * project's baseline.
+ */
+const STATE_TO_TZ: Record<string, string> = {
+  AL: 'America/Chicago',
+  AK: 'America/Anchorage',
+  AZ: 'America/Phoenix',
+  AR: 'America/Chicago',
+  CA: 'America/Los_Angeles',
+  CO: 'America/Denver',
+  CT: 'America/New_York',
+  DC: 'America/New_York',
+  DE: 'America/New_York',
+  FL: 'America/New_York',
+  GA: 'America/New_York',
+  HI: 'Pacific/Honolulu',
+  IA: 'America/Chicago',
+  ID: 'America/Boise',
+  IL: 'America/Chicago',
+  IN: 'America/Indiana/Indianapolis',
+  KS: 'America/Chicago',
+  KY: 'America/New_York',
+  LA: 'America/Chicago',
+  MA: 'America/New_York',
+  MD: 'America/New_York',
+  ME: 'America/New_York',
+  MI: 'America/Detroit',
+  MN: 'America/Chicago',
+  MO: 'America/Chicago',
+  MS: 'America/Chicago',
+  MT: 'America/Denver',
+  NC: 'America/New_York',
+  ND: 'America/Chicago',
+  NE: 'America/Chicago',
+  NH: 'America/New_York',
+  NJ: 'America/New_York',
+  NM: 'America/Denver',
+  NV: 'America/Los_Angeles',
+  NY: 'America/New_York',
+  OH: 'America/New_York',
+  OK: 'America/Chicago',
+  OR: 'America/Los_Angeles',
+  PA: 'America/New_York',
+  RI: 'America/New_York',
+  SC: 'America/New_York',
+  SD: 'America/Chicago',
+  TN: 'America/Chicago',
+  TX: 'America/Chicago',
+  UT: 'America/Denver',
+  VA: 'America/New_York',
+  VT: 'America/New_York',
+  WA: 'America/Los_Angeles',
+  WI: 'America/Chicago',
+  WV: 'America/New_York',
+  WY: 'America/Denver',
+}
+function customerTzFromAddress(address: string | null): string {
+  if (!address) return 'America/New_York'
+  // Two-letter postal code with word boundaries — same regex pattern
+  // the server-side helper uses, just inlined.
+  const m = address.match(/(?:^|[,\s])([A-Z]{2})(?=[\s,]|$|\s+\d{5})/)
+  if (m && STATE_TO_TZ[m[1]]) return STATE_TO_TZ[m[1]]
+  return 'America/New_York'
+}
+
 function parseMoney(raw: string | null): number {
   if (!raw) return 0
   const n = Number(raw.replace(/[^0-9.-]/g, ''))
@@ -1078,6 +1148,13 @@ export default function MasterTrackerPage() {
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {filtered.map((a) => {
                   const when = new Date(a.apptDateTime)
+                  // Display the appointment in the CUSTOMER's local
+                  // timezone (derived from address), not the viewer's
+                  // browser tz. Means a "9 AM PT" booking shows as
+                  // "9 AM" to Alex in NH and Mary in Manila alike,
+                  // matching what's actually on the call-center
+                  // sheet rather than shifting per-viewer.
+                  const apptTz = customerTzFromAddress(a.address)
                   const isExpanded = expandedId === a.id
                   return (
                     <Fragment key={a.id}>
@@ -1106,42 +1183,49 @@ export default function MasterTrackerPage() {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5">
                           <div className="font-medium">
-                            {when.toLocaleDateString('en-US', {
+                            {new Intl.DateTimeFormat('en-US', {
+                              timeZone: apptTz,
                               month: 'short',
                               day: 'numeric',
-                            })}
+                            }).format(when)}
                           </div>
                           <div className="text-[10px] text-zinc-400">
-                            {when.toLocaleTimeString('en-US', {
+                            {new Intl.DateTimeFormat('en-US', {
+                              timeZone: apptTz,
                               hour: 'numeric',
                               minute: '2-digit',
                               hour12: true,
-                            })}
+                            }).format(when)}
                           </div>
                         </td>
                         <td className="px-3 py-2.5">
                           {a.client ? (
+                            // Color dot + name as plain table text reads
+                            // calmer than a wide pill, and the long client
+                            // names ("Home Energy Upgrade") don't get
+                            // squeezed into an oval. Inferred-from-address
+                            // rows show a tiny dashed dot variant + the
+                            // tooltip still explains the source so Ethan
+                            // can spot rows that need their Client column
+                            // explicitly filled in upstream.
                             <span
-                              className={cn(
-                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white',
-                                // Subtle dashed outline when the client was inferred
-                                // from the address rather than explicit in the sheet.
-                                a.clientInferred &&
-                                  'opacity-90 outline-dashed outline-1 outline-offset-2'
-                              )}
-                              style={{ backgroundColor: a.client.color }}
+                              className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
                               title={
                                 a.clientInferred
                                   ? `Inferred from address (${a.client.state || ''}) — Client column was blank in the sheet`
                                   : a.client.state || undefined
                               }
                             >
+                              <span
+                                className={cn(
+                                  'h-2 w-2 flex-shrink-0 rounded-full',
+                                  a.clientInferred &&
+                                    'ring-1 ring-offset-1 ring-zinc-400 ring-offset-white dark:ring-offset-zinc-900',
+                                )}
+                                style={{ backgroundColor: a.client.color }}
+                                aria-hidden
+                              />
                               {a.client.name}
-                              {a.clientInferred && (
-                                <span className="text-[9px] font-normal opacity-80">
-                                  auto
-                                </span>
-                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-zinc-400">—</span>
