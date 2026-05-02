@@ -98,6 +98,15 @@ export default function AgentDashboardPage() {
     return list
   }, [appointments, search, statusFilter])
 
+  // Stat counters. Labels are deliberately literal so they're not
+  // confusing the way the original "Total booked" / "Active" pair
+  // was — both showed status='booked' counts under different names.
+  //   - total     = every row regardless of status
+  //   - thisMonth = appt date is in the current calendar month
+  //   - pending   = status='booked' (still on the books)
+  //   - showed    = status='showed'
+  //   - noShow    = status='no_show' (surfaced separately so admin
+  //                 can spot the rate without doing math)
   const stats = useMemo(() => {
     const total = appointments.length
     const thisMonth = appointments.filter((a) => {
@@ -106,8 +115,9 @@ export default function AgentDashboardPage() {
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).length
     const showed = appointments.filter((a) => a.status === 'showed').length
-    const booked = appointments.filter((a) => a.status === 'booked').length
-    return { total, thisMonth, showed, booked }
+    const noShow = appointments.filter((a) => a.status === 'no_show').length
+    const pending = appointments.filter((a) => a.status === 'booked').length
+    return { total, thisMonth, showed, noShow, pending }
   }, [appointments])
 
   return (
@@ -132,10 +142,11 @@ export default function AgentDashboardPage() {
       <CallbacksDuePanel />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Total booked" value={stats.total} />
+        <StatCard label="Total" value={stats.total} />
         <StatCard label="This month" value={stats.thisMonth} />
-        <StatCard label="Active" value={stats.booked} />
+        <StatCard label="Pending" value={stats.pending} />
         <StatCard label="Showed" value={stats.showed} />
+        <StatCard label="No-show" value={stats.noShow} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

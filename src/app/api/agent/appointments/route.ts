@@ -109,28 +109,44 @@ export async function GET() {
     clients.map((c) => [c.name.toLowerCase(), c]),
   )
 
-  // Filter sheet rows down to "this agent's" entries. Several signals
-  // can attribute a row:
-  //   1. agentEmail matches the logged-in user's email (Hub-written
-  //      rows always set this; manual entries might if Mary typed it)
-  //   2. agentName matches the user's name (case-insensitive)
-  //   3. bookedByName matches the user's name (Hub-form entries since
-  //      we added that field, but the sheet column is the same as
-  //      agentName today — keeping the check defensive)
-  //   4. Both agent fields are blank (Mary's manual rows, where she
-  //      doesn't bother filling in "Agent Email" or "Agent Name").
-  //      Acceptable for the current single-agent-per-tenant setup;
-  //      tighten this when a second agent is onboarded.
-  function rowAttributedToUser(r: {
+  // Sheet-row attribution filter. Originally tried to scope rows to
+  // "this user's bookings" via agentEmail / agentName matching, but
+  // in the single-agent setup that produced confusing count
+  // mismatches: rows typed with a manual agent name like "Mary
+  // Faith" or "Daisy" don't match the logged-in Hub user record
+  // exactly, so they got filtered out. With only Mary actively
+  // booking right now, the right behavior is "show everything that
+  // exists in the master sheet" — same data the staff-side Master
+  // Tracker shows, just under the agent shell.
+  //
+  // Future: when a second agent is onboarded, switch this back to
+  // strict per-user filtering. For now, the filter is intentionally
+  // permissive — silenced via the suppression below.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function _rowAttributedToUser(_r: {
     agentEmail: string | null
     agentName: string | null
   }): boolean {
-    const email = (r.agentEmail ?? '').toLowerCase()
-    const name = (r.agentName ?? '').toLowerCase()
-    if (email && userEmail && email === userEmail) return true
-    if (name && userName && name === userName) return true
-    if (!email && !name) return true
-    return false
+    // Reserved for the multi-agent future; see comment above.
+    return true
+  }
+  void userEmail
+  void userName
+
+  // Status from the sheet comes back as "Booked" / "No Show" / etc.
+  // The agent dashboard's stat counters key on lowercase tokens
+  // ('booked', 'showed', 'no_show'). Normalize here so the counts
+  // line up with the actual rows on the page. Same shape the
+  // Master Tracker route uses.
+  function normalizeStatus(raw: string | null): string {
+    if (!raw) return 'booked'
+    const s = raw.toLowerCase().trim()
+    if (s === 'no show' || s === 'no-show' || s === 'noshow') return 'no_show'
+    if (s === 'rescheduled' || s === 'reschedule') return 'rescheduled'
+    if (s === 'showed' || s === 'show' || s === 'shown') return 'showed'
+    if (s === 'cancelled' || s === 'canceled' || s === 'cancel')
+      return 'cancelled'
+    return 'booked'
   }
 
   const sheetOnly = sheetRows
@@ -147,7 +163,6 @@ export async function GET() {
       }
       return true
     })
-    .filter(rowAttributedToUser)
     .filter((r) => r.customerName?.trim() && r.apptDateTime)
     .map((r) => {
       const matchedClient = r.client
@@ -173,7 +188,7 @@ export async function GET() {
         utilityProvider: r.utilityProvider,
         roofType: r.roofType,
         roofAge: r.roofAge,
-        status: r.status ?? 'booked',
+        status: normalizeStatus(r.status),
         estimatedDealValue: r.estimatedDealValue,
         notes: r.notes,
         callRecordingLink: r.callRecordingLink,
