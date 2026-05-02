@@ -41,6 +41,55 @@ export async function GET() {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
+  // Fetch every Slack delivery record so each row can render its
+  // current delivery state (delivered / backfilled / failed / not
+  // tracked). Done as one bulk query instead of N per-row lookups
+  // — the sheet typically holds dozens to hundreds of rows and the
+  // delivery ledger lives in the same DB. Indexed by sourceKey for
+  // primary match; secondary content-key match (channel + phone +
+  // apptDateTime) catches rows whose rowNumber shifted after the
+  // ledger entry was created.
+  const deliveries = await prisma.sheetSlackDelivery.findMany({
+    where: {
+      sourceKey: { startsWith: 'sheet:Master Table:' },
+    },
+    select: {
+      sourceKey: true,
+      channelId: true,
+      status: true,
+      messageTs: true,
+      deliveredAt: true,
+      customerPhone: true,
+      apptDateTime: true,
+    },
+  })
+
+  // Two indexes — sourceKey for the fast path and (channel, phone,
+  // apptDateTime) for the content-stable path that survives row
+  // shifts in the sheet.
+  const deliveryBySourceKey = new Map<string, typeof deliveries>()
+  const deliveryByContent = new Map<string, typeof deliveries>()
+  for (const d of deliveries) {
+    const sk = deliveryBySourceKey.get(d.sourceKey) ?? []
+    sk.push(d)
+    deliveryBySourceKey.set(d.sourceKey, sk)
+    if (d.customerPhone && d.apptDateTime) {
+      const ck = `${d.channelId}|${d.customerPhone}|${d.apptDateTime.toISOString()}`
+      const list = deliveryByContent.get(ck) ?? []
+      list.push(d)
+      deliveryByContent.set(ck, list)
+    }
+  }
+
+  function normalizePhoneForKey(raw: string | null): string | null {
+    if (!raw) return null
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 10) return `+1${digits}`
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+    if (digits.length >= 10) return `+${digits}`
+    return null
+  }
+
   // Normalize sheet status values into the same lowercase-with-underscore
   // tokens the Hub UI uses for tone classes ("booked" / "showed" / etc).
   const normalizeStatus = (raw: string | null): string => {
@@ -78,6 +127,69 @@ export async function GET() {
         ? route.client
         : null
     const clientInferred = route.source === 'inferred-state'
+
+    // Slack delivery status for this row. Look up by sourceKey
+    // (fast path) AND content key (for rows that drifted post-
+    // delivery via row-number shifts in the sheet). Pick the most
+    // recent matching record so the "delivered" status wins over
+    // an older "failed" attempt for the same row.
+    const sourceKey = `sheet:Master Table:${r.rowNumber}`
+    const phoneKey = normalizePhoneForKey(r.customerPhone)
+    const apptISO = r.apptDateTime
+      ? new Date(r.apptDateTime).toISOString()
+      : null
+    const matched: typeof deliveries = []
+    matched.push(...(deliveryBySourceKey.get(sourceKey) ?? []))
+    if (phoneKey && apptISO) {
+      // Content match could span multiple channels — keep them all
+      // and let the per-channel status surface separately. For now
+      // we report a single "primary" delivery per row (the
+      // delivered one if any, else the most recent record).
+      for (const list of deliveryByContent.values()) {
+        for (const d of list) {
+          if (
+            d.customerPhone === phoneKey &&
+            d.apptDateTime &&
+            d.apptDateTime.toISOString() === apptISO &&
+            !matched.includes(d)
+          ) {
+            matched.push(d)
+          }
+        }
+      }
+    }
+    // Pick the most-favorable record: prefer 'delivered', then
+    // 'failed', then 'backfilled'. Within a status, prefer the
+    // most recent.
+    function rank(s: string) {
+      if (s === 'delivered') return 3
+      if (s === 'failed') return 2
+      if (s === 'backfilled') return 1
+      return 0
+    }
+    matched.sort((a, b) => {
+      const r = rank(b.status) - rank(a.status)
+      if (r !== 0) return r
+      const at = a.deliveredAt?.getTime() ?? 0
+      const bt = b.deliveredAt?.getTime() ?? 0
+      return bt - at
+    })
+    const primary = matched[0] ?? null
+    const slackDelivery = primary
+      ? {
+          status: primary.status as
+            | 'delivered'
+            | 'backfilled'
+            | 'failed'
+            | string,
+          messageTs: primary.messageTs,
+          deliveredAt: primary.deliveredAt
+            ? primary.deliveredAt.toISOString()
+            : null,
+          channelId: primary.channelId,
+        }
+      : null
+
     return {
       // Synthetic id from the sheet row number — stable across reads as
       // long as the sheet's row order doesn't change. Used as React key.
@@ -149,6 +261,12 @@ export async function GET() {
             }
           : null,
       clientInferred,
+      // Per-row Slack delivery status, surfaced so the Master
+      // Tracker UI can render a "Delivered ✓" pill or a manual
+      // "Deliver" button as appropriate. Staff-only feature; the
+      // /agent route hides the button via pathname check on the
+      // client.
+      slackDelivery,
     }
   })
 

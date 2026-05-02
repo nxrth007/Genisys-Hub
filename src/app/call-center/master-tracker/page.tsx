@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   PhoneCall,
@@ -17,6 +18,8 @@ import {
   CheckCircle2,
   TrendingUp,
   DollarSign,
+  Send,
+  Hash,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
@@ -49,6 +52,16 @@ type Appointment = {
   /** Manual hand-off flag — yes / no / unassigned. Goes away once
    *  the Slack auto-deliver workflow ships. */
   sentToClient: 'yes' | 'no' | 'unassigned'
+  /** Slack channel delivery status for this row, surfaced from the
+   *  SheetSlackDelivery ledger so the row can render a "Delivered ✓"
+   *  pill or a manual "Deliver" button. Null = no delivery record
+   *  exists yet (cron sync hasn't picked it up, or it was wiped). */
+  slackDelivery?: {
+    status: 'delivered' | 'backfilled' | 'failed' | string
+    messageTs: string | null
+    deliveredAt: string | null
+    channelId: string
+  } | null
   estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
@@ -374,6 +387,38 @@ export default function MasterTrackerPage() {
       }
     },
   })
+
+  // Force-deliver a single row to its client's Slack channel.
+  // Powers the per-row "Deliver" button — used to recover rows that
+  // got stuck in the ledger as 'backfilled' or 'failed' and would
+  // never be auto-delivered by the cron. Staff-only on the server
+  // side; the button itself is also hidden on /agent/* routes.
+  const deliverRowMutation = useMutation({
+    mutationFn: async (rowNumber: number) => {
+      const res = await fetch('/api/admin/slack-delivery/deliver-row', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowNumber }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Delivery failed')
+      }
+      return data
+    },
+    onSuccess: () => {
+      // Invalidate so the row's slackDelivery pill flips green.
+      queryClient.invalidateQueries({ queryKey: ['master-tracker-sheet'] })
+    },
+  })
+
+  // Hide the per-row Deliver button on the agent-facing route. The
+  // /call-center/master-tracker page exports the same component to
+  // /agent/master-tracker via re-export, so role-based gating has to
+  // happen via pathname rather than a prop. Staff users always see
+  // it; Mary's view stays read-only for delivery actions.
+  const pathname = usePathname()
+  const isStaffView = pathname?.startsWith('/call-center/') ?? false
 
   // Queries
   const clientsQuery = useQuery<{ clients: Client[] }>({
@@ -959,6 +1004,7 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Deal $</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Sent</th>
+                  <th className="px-3 py-2.5">Slack</th>
                   <th className="px-3 py-2.5">Rec</th>
                 </tr>
               </thead>
@@ -1116,6 +1162,22 @@ export default function MasterTrackerPage() {
                           />
                         </td>
                         <td className="px-3 py-2.5">
+                          <SlackDeliveryCell
+                            appointment={a}
+                            staffMode={isStaffView}
+                            pending={
+                              deliverRowMutation.isPending &&
+                              deliverRowMutation.variables ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                            onDeliver={() => {
+                              const match = a.id.match(/^sheet:(\d+)$/)
+                              if (!match) return
+                              deliverRowMutation.mutate(Number(match[1]))
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
                           {a.callRecordingLink ? (
                             <a
                               href={a.callRecordingLink}
@@ -1134,7 +1196,7 @@ export default function MasterTrackerPage() {
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={13}
+                            colSpan={14}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail appointment={a} />
@@ -1568,6 +1630,133 @@ function SentToClientCell({
         <option value="no">No</option>
       </select>
       <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
+    </div>
+  )
+}
+
+function SlackDeliveryCell({
+  appointment,
+  staffMode,
+  pending,
+  onDeliver,
+}: {
+  appointment: Appointment
+  /** True only on the staff /call-center route. Mary's /agent
+   *  re-export hides the Deliver button so she can see status but
+   *  not trigger sends. */
+  staffMode: boolean
+  pending: boolean
+  onDeliver: () => void
+}) {
+  const delivery = appointment.slackDelivery
+  const status = delivery?.status
+
+  // Delivered → green pill, no action.
+  if (status === 'delivered') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+        title={
+          delivery?.deliveredAt
+            ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}`
+            : 'Posted to the client Slack channel'
+        }
+      >
+        <CheckCircle2 className="h-3 w-3" />
+        Delivered
+      </span>
+    )
+  }
+
+  // Failed → red pill with a retry button (staff only).
+  if (status === 'failed') {
+    return (
+      <div className="inline-flex items-center gap-1.5">
+        <span
+          className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+          title="Last delivery attempt failed — click Retry to send again."
+        >
+          Failed
+        </span>
+        {staffMode && (
+          <button
+            type="button"
+            onClick={onDeliver}
+            disabled={pending}
+            className="inline-flex items-center gap-0.5 rounded-md border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {pending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Send className="h-3 w-3" />
+            )}
+            Retry
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  // Backfilled → grey pill, with a Deliver button so admins can
+  // rescue rows that got stuck during a buggy backfill or a config
+  // toggle. Tooltip explains why.
+  if (status === 'backfilled') {
+    return (
+      <div className="inline-flex items-center gap-1.5">
+        <span
+          className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+          title="Marked backfilled — won't auto-deliver. Click Deliver to send manually."
+        >
+          Backfilled
+        </span>
+        {staffMode && (
+          <button
+            type="button"
+            onClick={onDeliver}
+            disabled={pending}
+            className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+          >
+            {pending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Send className="h-3 w-3" />
+            )}
+            Deliver
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  // No delivery record at all — the cron hasn't picked it up yet,
+  // OR no client routing matched, OR the matched client has no
+  // Slack channel set. Staff get a manual Deliver button to nudge
+  // it through; agents see a neutral pending pill.
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      {staffMode ? (
+        <button
+          type="button"
+          onClick={onDeliver}
+          disabled={pending}
+          className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+          title="Force this row to post to its client Slack channel now."
+        >
+          {pending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Hash className="h-3 w-3" />
+          )}
+          Deliver
+        </button>
+      ) : (
+        <span
+          className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+          title="Pending delivery — the next cron tick will post this to the client's Slack channel."
+        >
+          Pending
+        </span>
+      )}
     </div>
   )
 }
