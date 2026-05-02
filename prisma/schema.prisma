@@ -682,9 +682,19 @@ model SheetSlackDelivery {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Content-based dedup. The sourceKey index (below) catches the
+  // common case, but a sheet rowNumber shift (Mary inserting a row
+  // above an existing one) generates a fresh sourceKey for the
+  // shifted rows and the unique constraint silently allows a re-
+  // post. Customer phone + appointment time stay stable across
+  // shuffles, so the sync also checks this pair before inserting.
+  customerPhone String?
+  apptDateTime  DateTime?
+
   @@unique([sourceKey, channelId], map: "ux_sheet_slack_delivery_source_channel")
   @@index([clientId])
   @@index([status])
+  @@index([channelId, customerPhone, apptDateTime], map: "SheetSlackDelivery_content_dedup_idx")
 }
 
 // Singleton config for the SMS-reminder system. Master enable + which

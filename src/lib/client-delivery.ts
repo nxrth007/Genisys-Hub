@@ -31,6 +31,21 @@ import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
 import { formatInTimezone, timezoneForAddress } from './timezone'
 import { buildRoutingIndex, routeRowToClient } from './client-routing'
+import { snapshotSolarFromCache, type SolarSummary } from './solar'
+
+/** Strip everything but digits, prefix with +1 for 10-digit US
+ *  numbers. Same idea as the GHL helper but lives here so this module
+ *  doesn't have to take a dependency on lib/ghl. Used to compute the
+ *  stable content-dedup key — "(555) 123-4567" and "5551234567" must
+ *  collapse to the same canonical form so dedup catches them. */
+function normalizePhoneForKey(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (digits.length >= 10) return `+${digits}` // best-effort intl
+  return null // too short to be useful as a dedup key
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Sync                                                                       */
@@ -166,25 +181,66 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
       result.inferred++
     }
 
-    // Idempotency check — if this (sourceKey, channelId) is already
-    // recorded, skip regardless of status.
-    const existing = await prisma.sheetSlackDelivery.findUnique({
+    // Idempotency check — two-pronged:
+    //   1. (sourceKey, channelId): catches the common case where the
+    //      same row is re-scanned across cron ticks
+    //   2. (channelId, normalizedPhone, apptDateTime): catches the
+    //      sneaky case where Mary inserts/deletes a row above this
+    //      one, shifting its rowNumber. Old sourceKey was for the
+    //      old position; new sourceKey looks fresh, but the content
+    //      key is stable so we still skip.
+    const normalizedPhone = normalizePhoneForKey(row.customerPhone)
+    const apptDate = row.apptDateTime ? new Date(row.apptDateTime) : null
+    const apptDateValid = apptDate && !isNaN(apptDate.getTime())
+
+    const existing = await prisma.sheetSlackDelivery.findFirst({
       where: {
-        sourceKey_channelId: {
-          sourceKey,
-          channelId: candidate.slackChannelId,
-        },
+        channelId: candidate.slackChannelId,
+        OR: [
+          { sourceKey },
+          ...(normalizedPhone && apptDateValid
+            ? [
+                {
+                  customerPhone: normalizedPhone,
+                  apptDateTime: apptDate,
+                },
+              ]
+            : []),
+        ],
       },
+      select: { id: true, status: true, sourceKey: true },
     })
     if (existing) {
       result.skipped++
+      // If the existing row tracked this delivery via a stale
+      // sourceKey (i.e. the row shifted), opportunistically refresh
+      // it to the current sourceKey so future scans hit the cheaper
+      // unique-index path. Idempotent — same delivery either way.
+      if (existing.sourceKey !== sourceKey) {
+        await prisma.sheetSlackDelivery
+          .update({
+            where: { id: existing.id },
+            data: { sourceKey },
+          })
+          .catch(() => {
+            // Unique constraint hit means another row with the
+            // current sourceKey already exists for this channel.
+            // Both rows represent the same delivery; safe to leave
+            // them in place.
+          })
+      }
       continue
     }
 
     // Build the message body. Falls back to the raw row values when
-    // tz / formatting helpers can't resolve — better partial info than
-    // a missed delivery.
-    const body = formatAppointmentForClientChannel(row)
+    // tz / formatting helpers can't resolve — better partial info
+    // than a missed delivery. Solar info comes from the cache when
+    // Mary clicked "Check solar potential" before saving — never
+    // triggers a fresh billable lookup from the cron.
+    const solar = row.address
+      ? await snapshotSolarFromCache(row.address).catch(() => null)
+      : null
+    const body = formatAppointmentForClientChannel(row, { solar })
 
     try {
       const slack = await getSlackClient()
@@ -206,6 +262,11 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
           status: 'delivered',
           messageTs: post.ts ?? null,
           deliveredAt: new Date(),
+          // Stable content key — survives row-number shifts in the
+          // sheet. The pre-insert dedup query checks both this and
+          // sourceKey before getting here.
+          customerPhone: normalizedPhone,
+          apptDateTime: apptDateValid ? apptDate : null,
         },
       })
       result.delivered++
@@ -230,6 +291,8 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
             channelId: candidate.slackChannelId,
             status: 'failed',
             errorMessage: message,
+            customerPhone: normalizedPhone,
+            apptDateTime: apptDateValid ? apptDate : null,
           },
         })
       } catch {
@@ -495,7 +558,7 @@ export async function sendTestClientDelivery(params: {
  */
 export function formatAppointmentForClientChannel(
   row: MasterTableRow,
-  opts: { isTest?: boolean } = {}
+  opts: { isTest?: boolean; solar?: SolarSummary | null } = {}
 ): string {
   const lines: string[] = []
   const cleanedAddress = normalizeAddress(row.address)
@@ -555,6 +618,45 @@ export function formatAppointmentForClientChannel(
   if (propertyLines.length > 0) {
     lines.push('')
     lines.push(propertyLines.join('  ·  '))
+  }
+
+  // Solar potential — only included when Mary clicked "Check solar
+  // potential" before saving (which populates the cache that the
+  // sync looks up). If there's no cached lookup OR Sunroof has no
+  // imagery for the location ("unavailable"), we silently skip the
+  // block so the post doesn't contain a sad "no data" line.
+  if (opts.solar && opts.solar.viability !== 'unavailable') {
+    const solarLines: string[] = []
+    if (opts.solar.maxSunshineHoursPerYear != null) {
+      solarLines.push(
+        `*Sunshine:* ${Math.round(opts.solar.maxSunshineHoursPerYear).toLocaleString()} hrs/yr`,
+      )
+    }
+    if (opts.solar.maxPanelCount != null) {
+      const panels =
+        opts.solar.recommendedPanelCount != null &&
+        opts.solar.recommendedPanelCount !== opts.solar.maxPanelCount
+          ? `${opts.solar.maxPanelCount} max (${opts.solar.recommendedPanelCount} typical)`
+          : `${opts.solar.maxPanelCount}`
+      solarLines.push(`*Max panels:* ${panels}`)
+    }
+    if (opts.solar.recommendedAnnualKwh != null) {
+      solarLines.push(
+        `*Est. production:* ${Math.round(opts.solar.recommendedAnnualKwh).toLocaleString()} kWh/yr`,
+      )
+    }
+    if (opts.solar.roofAreaM2 != null) {
+      const sqft = Math.round(opts.solar.roofAreaM2 * 10.7639)
+      solarLines.push(`*Roof area:* ${sqft.toLocaleString()} sq ft`)
+    }
+    if (solarLines.length > 0) {
+      lines.push('')
+      const viabilityLabel =
+        opts.solar.viability.charAt(0).toUpperCase() +
+        opts.solar.viability.slice(1)
+      lines.push(`:sunny: *Solar potential — ${viabilityLabel}*`)
+      lines.push(solarLines.join('  ·  '))
+    }
   }
 
   if (row.notes?.trim()) {
