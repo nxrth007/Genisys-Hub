@@ -53,9 +53,14 @@ type ClientWithCounts = {
   ghlSubaccountUrl: string | null
   total: number
   upcoming: number
+  booked: number
   showed: number
   noShow: number
   cancelled: number
+  /** Resolved (showed + no-show + cancelled) / total — the "appointment
+   *  progress" metric Ethan asked for. Null when total is 0. */
+  progressPct: number | null
+  /** Legacy show-vs-no-show ratio. Kept for the detail dialog. */
   showRate: number | null
   agents: number
   lastBookingAt: string | null
@@ -220,12 +225,12 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div>
-          <div className="grid grid-cols-[2fr_70px_100px_100px_1.2fr_120px_120px] items-center gap-4 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-[2fr_70px_100px_100px_1.4fr_120px_120px] items-center gap-4 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span>Client</span>
             <span>Agents</span>
             <span>Appts</span>
             <span>State</span>
-            <span>Show rate</span>
+            <span>Appointment progress</span>
             <span>Last booking</span>
             <span>Status</span>
           </div>
@@ -272,9 +277,13 @@ function ClientRow({
   onOpen: (c: ClientWithCounts) => void
 }) {
   const initials = clientInitials(client.name)
-  const pct = client.showRate ?? 0
+  // Appointment progress = resolved share. Higher = more bookings have
+  // played out (showed/no-show/cancelled), which is what the call-center
+  // is actually being measured on.
+  const pct = client.progressPct ?? 0
+  const resolved = client.showed + client.noShow + client.cancelled
   const barColor =
-    client.showRate == null
+    client.progressPct == null
       ? 'bg-primary'
       : pct >= 75
         ? 'bg-emerald-500'
@@ -287,7 +296,7 @@ function ClientRow({
   return (
     <li
       onClick={() => onOpen(client)}
-      className="grid cursor-pointer grid-cols-[2fr_70px_100px_100px_1.2fr_120px_120px] items-center gap-4 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted"
+      className="grid cursor-pointer grid-cols-[2fr_70px_100px_100px_1.4fr_120px_120px] items-center gap-4 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted"
     >
       <div className="flex min-w-0 items-center gap-3">
         <span
@@ -327,7 +336,11 @@ function ClientRow({
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {client.showRate != null ? `${client.showRate}% show rate` : '—'}
+          {client.progressPct != null
+            ? `${resolved}/${client.total} resolved · ${client.progressPct}%`
+            : client.total > 0
+              ? `0/${client.total} resolved`
+              : '—'}
         </span>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
@@ -452,7 +465,8 @@ function ClientDetailDialog({
   if (!client) return null
 
   const initials = clientInitials(client.name)
-  const pct = client.showRate ?? 0
+  const pct = client.progressPct ?? 0
+  const resolved = client.showed + client.noShow + client.cancelled
   const completed = client.showed + client.noShow
 
   return (
@@ -516,16 +530,18 @@ function ClientDetailDialog({
           </span>
         </div>
 
-        {/* Fulfillment */}
+        {/* Appointment progress — resolved share is the primary metric
+            now. Show rate (showed / completed) sits below as a secondary
+            number for admins who still want to track it. */}
         <div className="rounded-xl border border-border-soft bg-surface-muted p-3">
           <div className="flex items-baseline justify-between">
             <p className="text-xs font-semibold text-muted-foreground">
-              Show-rate fulfillment
+              Appointment progress
             </p>
             <p className="text-sm font-semibold tabular-nums">
-              {client.showed} / {completed}{' '}
+              {resolved} / {client.total}{' '}
               <span className="text-xs font-normal text-muted-foreground">
-                ({client.showRate != null ? `${client.showRate}%` : '—'})
+                ({client.progressPct != null ? `${client.progressPct}%` : '—'})
               </span>
             </p>
           </div>
@@ -533,7 +549,7 @@ function ClientDetailDialog({
             <div
               className={cn(
                 'h-full rounded-full',
-                client.showRate == null
+                client.progressPct == null
                   ? 'bg-primary'
                   : pct >= 75
                     ? 'bg-emerald-500'
@@ -544,10 +560,16 @@ function ClientDetailDialog({
               style={{ width: `${pct}%` }}
             />
           </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {client.showRate != null
+              ? `Show rate: ${client.showed}/${completed} (${client.showRate}%)`
+              : 'Show rate: not enough resolved appointments yet'}
+          </p>
+          <div className="mt-3 grid grid-cols-4 gap-2 text-[11px] text-muted-foreground">
             <Stat label="Total" value={client.total} />
             <Stat label="Upcoming" value={client.upcoming} />
-            <Stat label="Cancelled" value={client.cancelled} />
+            <Stat label="Showed" value={client.showed} />
+            <Stat label="No-show" value={client.noShow} />
           </div>
         </div>
 
