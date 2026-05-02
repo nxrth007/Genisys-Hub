@@ -31,6 +31,7 @@ import {
   GripVertical,
   Pencil,
   RotateCcw,
+  Repeat,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
@@ -93,6 +94,7 @@ type Section =
   | 'doing'
   | 'today'
   | 'upnext'
+  | 'followup'
   | 'waiting'
   | 'done'
 
@@ -248,11 +250,27 @@ function extractTasks(
   }))
 }
 
+/**
+ * Marker prefix used by the New-task dialog's "Follow-up" toggle.
+ * We can't add a new property to a user-owned Notion DB, so the
+ * dialog stamps a leading "🔁 " on the title and we route any task
+ * starting with that glyph into the Follow-ups section. Visible to
+ * humans in Notion's native UI too — easy to spot, easy to remove.
+ */
+export const FOLLOW_UP_MARKER = '🔁 '
+
+function isFollowUp(title: string): boolean {
+  return title.startsWith(FOLLOW_UP_MARKER)
+}
+
 function classify(task: Extracted): Section {
   const s = normalize(task.status)
   if (DONE_SYNONYMS.has(s)) return 'done'
   if (BLOCKED_SYNONYMS.has(s)) return 'waiting'
   if (DOING_SYNONYMS.has(s)) return 'doing'
+  // Title-prefix follow-ups get their own bucket so Ethan can scan
+  // "people I owe a text" separately from regular work.
+  if (isFollowUp(task.title)) return 'followup'
   // To-do bucket — split by urgency
   const isHigh = HIGH_PRIORITY.has(normalize(task.priority))
   const due = isDueTodayOrOverdue(task.dueDate)
@@ -275,6 +293,7 @@ export function FocusList({
   newTaskTrigger,
   grouped = true,
   showAssigneeSidebar = true,
+  dateRange,
 }: {
   dbId: string
   newTaskTrigger?: number
@@ -286,6 +305,11 @@ export function FocusList({
    *  the layout to a single column. Used by /today where the page
    *  prefers a clean centered list. */
   showAssigneeSidebar?: boolean
+  /** Optional due-date filter — only tasks whose dueDate falls
+   *  inside the range are shown (tasks with no dueDate at all are
+   *  always shown, since hiding undated work would obscure the
+   *  triage list). Wired by /today's scope/calendar filter. */
+  dateRange?: { start: Date; end: Date }
 }) {
   const queryClient = useQueryClient()
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
@@ -328,19 +352,37 @@ export function FocusList({
     }
   }, [newTaskTrigger])
 
-  // Filter by assignee. 'unassigned' means the task has no assignee set.
+  // Filter by assignee + optional due-date range.
+  // - 'unassigned' means the task has no assignee set.
+  // - dateRange (when provided) filters out tasks whose dueDate is
+  //   outside the range. Tasks without a dueDate always pass through
+  //   so the focus list isn't gutted by an aggressive scope.
   const filtered = useMemo(() => {
-    if (selectedAssignee === 'all') return tasks
-    if (selectedAssignee === 'unassigned') {
-      return tasks.filter((t) => !t.assignee.trim())
+    let list = tasks
+    if (selectedAssignee !== 'all') {
+      if (selectedAssignee === 'unassigned') {
+        list = list.filter((t) => !t.assignee.trim())
+      } else {
+        list = list.filter((t) =>
+          t.assignee
+            .split(',')
+            .map((s) => s.trim())
+            .includes(selectedAssignee),
+        )
+      }
     }
-    return tasks.filter((t) =>
-      t.assignee
-        .split(',')
-        .map((s) => s.trim())
-        .includes(selectedAssignee)
-    )
-  }, [tasks, selectedAssignee])
+    if (dateRange) {
+      const startMs = dateRange.start.getTime()
+      const endMs = dateRange.end.getTime()
+      list = list.filter((t) => {
+        if (!t.dueDate) return true
+        const d = new Date(t.dueDate).getTime()
+        if (isNaN(d)) return true
+        return d >= startMs && d <= endMs
+      })
+    }
+    return list
+  }, [tasks, selectedAssignee, dateRange])
 
   // (Renamed from `grouped` to `groupedTasks` so it doesn't shadow
   // the new `grouped` prop above.)
@@ -349,6 +391,7 @@ export function FocusList({
       doing: [],
       today: [],
       upnext: [],
+      followup: [],
       waiting: [],
       done: [],
     }
@@ -356,6 +399,9 @@ export function FocusList({
     // Sort each section
     g.today.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
     g.upnext.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+    g.followup.sort(
+      (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
+    )
     g.done.sort(() => 0) // already in Notion order
     return g
   }, [filtered])
@@ -389,6 +435,13 @@ export function FocusList({
     doing: DOING_SYNONYMS,
     today: TODO_SYNONYMS,
     upnext: TODO_SYNONYMS,
+    // Follow-ups live in TODO column under the hood — dropping a
+    // task into the Follow-ups section can't itself add the marker
+    // prefix to the title (drag move only changes status), so a
+    // dropped task lands in TODO and only flips bucket if its title
+    // happens to already start with "🔁 ". The intentional "create a
+    // follow-up" path is the New-task button.
+    followup: TODO_SYNONYMS,
     waiting: BLOCKED_SYNONYMS,
     done: DONE_SYNONYMS,
   }
@@ -623,6 +676,19 @@ export function FocusList({
                 emptyHint="Backlog is clear."
               />
               <FocusSection
+                section="followup"
+                icon={Repeat}
+                label="Follow-ups"
+                count={groupedTasks.followup.length}
+                tone="violet"
+                tasks={groupedTasks.followup}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
+                onEdit={(id) => setEditingId(id)}
+                emptyHint='No follow-ups queued. Click "New task" and toggle Follow-up to add one.'
+              />
+              <FocusSection
                 section="waiting"
                 icon={PauseCircle}
                 label="Waiting / Blocked"
@@ -650,13 +716,13 @@ export function FocusList({
               />
             </>
           ) : (
-            // Flat single checklist — no Doing/Up next/Waiting/Done
-            // headers. All non-done tasks first (priority order), then
-            // a small "Done today" cluster at the bottom so completed
-            // items don't disappear immediately. Drag handles still
-            // render but have no drop targets in this mode (a no-op,
-            // not a regression — clicking the checkbox toggles done
-            // exactly like before).
+            // Flat checklist mode (used by /today). Active tasks first,
+            // then a Follow-ups subsection (so Ethan can spot people he
+            // owes a text), then Done at the bottom — all rendered
+            // inline in one card. Done items strike through but stay
+            // visible per Ethan's feedback ("strikethrough — don't
+            // disappear immediately"). Drag handles render but only
+            // toggle done via the checkbox in this mode.
             <FlatChecklist
               active={[
                 ...groupedTasks.doing,
@@ -664,9 +730,8 @@ export function FocusList({
                 ...groupedTasks.upnext,
                 ...groupedTasks.waiting,
               ]}
+              followUps={groupedTasks.followup}
               done={groupedTasks.done}
-              doneExpanded={doneExpanded}
-              onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
               onToggle={toggleComplete}
               onDelete={(id) => deleteMutation.mutate(id)}
               onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
@@ -763,7 +828,7 @@ export function FocusList({
 // ---- Section renderer -----------------------------------------------------
 
 const SECTION_TONES: Record<
-  'blue' | 'red' | 'indigo' | 'amber' | 'emerald',
+  'blue' | 'red' | 'indigo' | 'amber' | 'emerald' | 'violet',
   { iconBg: string; icon: string; accent: string }
 > = {
   blue: {
@@ -791,28 +856,33 @@ const SECTION_TONES: Record<
     icon: 'text-emerald-600',
     accent: 'before:bg-emerald-500',
   },
+  violet: {
+    iconBg: 'bg-violet-50 dark:bg-violet-950/50',
+    icon: 'text-violet-600',
+    accent: 'before:bg-violet-500',
+  },
 }
 
 /**
- * Flat single-list mode used by /today. Renders all active tasks
- * without status group headers, then a small "Done today" cluster
- * at the bottom (collapsible) so completed tasks don't disappear
- * mid-session. Mirrors the mockup's checklist card.
+ * Flat checklist mode used by /today. Three inline groups in one
+ * card: active → follow-ups → done. No collapses — Ethan said
+ * completed tasks should stay visible (strikethrough) right where
+ * they were rather than vanishing into a collapsed "Done today"
+ * fold mid-session. Section sub-headers only render when their
+ * group has at least one task so empty boards stay calm.
  */
 function FlatChecklist({
   active,
+  followUps,
   done,
-  doneExpanded,
-  onToggleDoneExpanded,
   onToggle,
   onDelete,
   onRename,
   onEdit,
 }: {
   active: Extracted[]
+  followUps: Extracted[]
   done: Extracted[]
-  doneExpanded: boolean
-  onToggleDoneExpanded: () => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -820,15 +890,21 @@ function FlatChecklist({
    *  in-component callers stay typesafe; flat mode passes it. */
   onEdit?: (id: string) => void
 }) {
+  const totalCount = active.length + followUps.length + done.length
+  if (totalCount === 0) {
+    return (
+      <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
+          No tasks on this board yet.
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-      {active.length === 0 ? (
-        <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
-          {done.length > 0
-            ? "All clear — nothing left for today."
-            : 'No tasks on this board yet.'}
-        </div>
-      ) : (
+      {/* Active list */}
+      {active.length > 0 && (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {active.map((t) => (
             <li key={t.id}>
@@ -845,42 +921,53 @@ function FlatChecklist({
         </ul>
       )}
 
-      {/* Done cluster — only renders when there's at least one
-          completed task today. Collapsible to keep the page light. */}
+      {/* Follow-ups subsection — labeled, but no collapse so the
+          rows are always one glance away. */}
+      {followUps.length > 0 && (
+        <div className="border-t border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-300">
+            <Repeat className="h-3.5 w-3.5" />
+            Follow-ups ({followUps.length})
+          </div>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {followUps.map((t) => (
+              <li key={t.id}>
+                <TaskRow
+                  task={t}
+                  done={false}
+                  onToggle={(d) => onToggle(t.id, d)}
+                  onDelete={() => onDelete(t.id)}
+                  onRename={(title) => onRename(t.id, title)}
+                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Done — strikethrough rows stay in the list (no collapse).
+          Subheader is faint so the eye still treats them as done. */}
       {done.length > 0 && (
         <div className="border-t border-zinc-100 dark:border-zinc-800">
-          <button
-            type="button"
-            onClick={onToggleDoneExpanded}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-          >
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              Done today ({done.length})
-            </span>
-            <ChevronRight
-              className={cn(
-                'h-3.5 w-3.5 transition-transform',
-                doneExpanded && 'rotate-90'
-              )}
-            />
-          </button>
-          {doneExpanded && (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {done.map((t) => (
-                <li key={t.id}>
-                  <TaskRow
-                    task={t}
-                    done
-                    onToggle={(d) => onToggle(t.id, d)}
-                    onDelete={() => onDelete(t.id)}
-                    onRename={(title) => onRename(t.id, title)}
-                    onEdit={onEdit ? () => onEdit(t.id) : undefined}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            Done today ({done.length})
+          </div>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {done.map((t) => (
+              <li key={t.id}>
+                <TaskRow
+                  task={t}
+                  done
+                  onToggle={(d) => onToggle(t.id, d)}
+                  onDelete={() => onDelete(t.id)}
+                  onRename={(title) => onRename(t.id, title)}
+                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
+                />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
@@ -904,7 +991,7 @@ function FocusSection({
   icon: React.ComponentType<{ className?: string }>
   label: string
   count: number
-  tone: 'blue' | 'red' | 'indigo' | 'amber'
+  tone: 'blue' | 'red' | 'indigo' | 'amber' | 'violet'
   tasks: Extracted[]
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
@@ -1078,7 +1165,9 @@ function FocusDndWrapper({
     if (!e.over) return
     const pageId = String(e.active.id)
     const overId = String(e.over.id)
-    const match = overId.match(/^section-(doing|today|upnext|waiting|done)$/)
+    const match = overId.match(
+      /^section-(doing|today|upnext|followup|waiting|done)$/,
+    )
     if (!match) return
     const target = match[1] as Section
     onMoveTask(pageId, target)

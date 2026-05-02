@@ -30,9 +30,27 @@ import { StatCard } from '@/components/ui/stat-card'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
 import {
   DateRangePicker,
-  defaultRange,
   type DateRange,
 } from '@/components/ui/date-range-picker'
+
+/**
+ * Map the scope pill ("Daily" / "Weekly" / "Monthly" / "Quarterly")
+ * to a date range starting at today. Lets the scope dropdown drive
+ * the calendar pill instead of being decorative — Ethan's complaint
+ * was that the filter "doesn't actually do anything".
+ */
+function rangeForScope(
+  scope: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly',
+): DateRange {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const days =
+    scope === 'Daily' ? 0 : scope === 'Weekly' ? 6 : scope === 'Monthly' ? 29 : 89
+  const end = new Date(start)
+  end.setDate(end.getDate() + days)
+  end.setHours(23, 59, 59, 999)
+  return { start, end }
+}
 
 type Task = {
   id: string
@@ -227,9 +245,20 @@ export default function TodayPage() {
   // Hooking the filters into Notion's date-range query is a separate
   // pass once we agree on which property maps to "due date".
   const [scope, setScope] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly'>(
-    'Daily'
+    'Weekly'
   )
-  const [range, setRange] = useState<DateRange>(() => defaultRange(7))
+  const [range, setRange] = useState<DateRange>(() => rangeForScope('Weekly'))
+
+  // When the user picks a different scope, snap the calendar pill to
+  // match. They can still fine-tune via the date picker afterwards.
+  // Defaulting to Weekly so the page lands on a useful range out of
+  // the box (Daily was hiding tomorrow's tasks).
+  function handleScopeChange(
+    next: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly',
+  ) {
+    setScope(next)
+    setRange(rangeForScope(next))
+  }
 
   const tasksQuery = useQuery<{ tasks: Task[] }>({
     queryKey: ['today-tasks'],
@@ -401,8 +430,13 @@ export default function TodayPage() {
         }
       />
 
-      {/* Filter row — scope dropdown + date range picker. Mirrors the
-          mockup's filter bar above the KPI cards. */}
+      {/* Filter row — scope dropdown, date range picker, and the
+          Focus/Kanban view toggle (right side, only when a Notion DB
+          is pinned). Ethan: "move focus/kanban toggle right of
+          calendar selection". The view counts have moved to inside
+          the toggle pill's tooltip; the page's stat cards already
+          surface live counts so a separate counts line was just
+          duplicating info. */}
       <div className="flex flex-wrap items-center gap-3">
         <DropdownPill
           value={scope}
@@ -412,10 +446,21 @@ export default function TodayPage() {
             { id: 'Monthly', label: 'Monthly' },
             { id: 'Quarterly', label: 'Quarterly' },
           ]}
-          onChange={setScope}
+          onChange={handleScopeChange}
           icon={Calendar}
         />
         <DateRangePicker value={range} onChange={setRange} align="start" />
+        {pinnedDbId && (
+          <DropdownPill
+            value={tasksView}
+            options={[
+              { id: 'focus', label: 'Focus' },
+              { id: 'board', label: 'Kanban' },
+            ]}
+            onChange={(v) => setTasksView(v as 'focus' | 'board')}
+            icon={tasksView === 'focus' ? ListChecks : KanbanSquare}
+          />
+        )}
       </div>
 
       {/* At-a-glance numbers — three cards mirroring Ethan's mockup.
@@ -460,28 +505,8 @@ export default function TodayPage() {
       </div>
 
       {/* Tasks first, Meetings second — agents triage their own work
-          before reviewing the day's meeting block. */}
-
-      {/* View toggle row — mockup-style DropdownPill on the left,
-          live count on the right. Only renders when a Notion DB is
-          pinned (the local-task fallback below has its own header). */}
-      {pinnedDbId && (
-        <div className="flex items-center justify-between">
-          <DropdownPill
-            value={tasksView}
-            options={[
-              { id: 'focus', label: 'Focus' },
-              { id: 'board', label: 'Kanban' },
-            ]}
-            onChange={(v) => setTasksView(v as 'focus' | 'board')}
-            icon={tasksView === 'focus' ? ListChecks : KanbanSquare}
-          />
-          <p className="text-xs text-muted-foreground">
-            {tasksTotalCount} task{tasksTotalCount === 1 ? '' : 's'} ·{' '}
-            {tasksDoneCount} done
-          </p>
-        </div>
-      )}
+          before reviewing the day's meeting block. The Focus/Kanban
+          toggle now lives in the filter row above. */}
 
       {/* Tasks section — Notion Kanban when a DB is pinned, otherwise
            the built-in local task list. When pinned we drop the wrapper
@@ -502,6 +527,7 @@ export default function TodayPage() {
               newTaskTrigger={newTaskTrigger}
               grouped={false}
               showAssigneeSidebar={false}
+              dateRange={range}
             />
           ) : (
             <TaskBoard

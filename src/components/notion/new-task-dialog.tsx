@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { X, Plus, Loader2 } from 'lucide-react'
+import { X, Plus, Loader2, Repeat } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
+import { FOLLOW_UP_MARKER } from './focus-list'
 
 /**
  * Shared "New task" modal used by both the Focus list and the Kanban
@@ -47,6 +48,12 @@ export function NewTaskDialog({
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<string>('')
   const [assignee, setAssignee] = useState<string>('')
+  // Follow-up flag — when true, the submitted title is stamped with
+  // a leading marker glyph that the FocusList classifier picks up to
+  // route the task into the dedicated Follow-ups section. Lives
+  // entirely in the title string so we don't need to mutate the
+  // user's Notion DB schema.
+  const [isFollowUp, setIsFollowUp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,8 +86,15 @@ export function NewTaskDialog({
     setError(null)
     setSubmitting(true)
     try {
+      const cleanTitle = title.trim()
+      // Stamp the marker prefix onto the title if the toggle is on
+      // (and not already present from the user typing it themselves).
+      const finalTitle =
+        isFollowUp && !cleanTitle.startsWith(FOLLOW_UP_MARKER)
+          ? `${FOLLOW_UP_MARKER}${cleanTitle}`
+          : cleanTitle
       const properties: Record<string, unknown> = {
-        [schema.titleProp]: { title: [{ text: { content: title.trim() } }] },
+        [schema.titleProp]: { title: [{ text: { content: finalTitle } }] },
       }
       if (schema.statusPropType === 'status') {
         properties[schema.statusPropName] = { status: { name: targetStatus } }
@@ -229,6 +243,43 @@ export function NewTaskDialog({
             )}
           </div>
         )}
+
+        {/* Follow-up toggle — Ethan: "follow-up button under assignee
+            section that creates a task under a follow-up section".
+            Sits as a single-pill row right under Assignee so the
+            placement matches the ask. Tapping it tags the task with
+            the FOLLOW_UP_MARKER glyph so the FocusList routes it into
+            the Follow-ups bucket — no DB schema changes needed. */}
+        <div>
+          <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Type
+          </label>
+          <button
+            type="button"
+            onClick={() => setIsFollowUp((v) => !v)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+              isFollowUp
+                ? 'border-violet-600 bg-violet-600 text-white'
+                : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
+            )}
+            title={
+              isFollowUp
+                ? 'Will land in the Follow-ups section'
+                : 'Tap to mark as a follow-up'
+            }
+          >
+            <Repeat className="h-3.5 w-3.5" />
+            Follow-up
+          </button>
+          {isFollowUp && (
+            <p className="mt-1.5 text-[11px] text-zinc-500">
+              Tagged for the Follow-ups section. Title will be saved
+              with a leading <span className="font-semibold">🔁</span> so
+              you can spot it in Notion too.
+            </p>
+          )}
+        </div>
 
         {error && (
           <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
