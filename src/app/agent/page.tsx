@@ -37,6 +37,11 @@ type Appointment = {
   lastSyncedAt: string | null
   syncError: string | null
   createdAt: string
+  /** Where this row originated. `hub` = saved through the agent
+   *  booking form (full edit/delete affordances); `sheet` = typed
+   *  directly into the master spreadsheet (edits route to the
+   *  Master Tracker since this id isn't a DB primary key). */
+  source?: 'hub' | 'sheet'
 }
 
 const STATUS_LABELS: Record<string, { label: string; tone: string }> = {
@@ -203,9 +208,17 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
   }
   const when = new Date(appt.apptDateTime)
 
+  // Sheet-only rows route edits to the Master Tracker (which can
+  // edit by sheet rowNumber); the regular edit page only knows DB
+  // ids. Hub-sourced rows keep the deep-link to /agent/appointments.
+  const isSheetOnly = appt.source === 'sheet'
+  const editHref = isSheetOnly
+    ? '/agent/master-tracker'
+    : `/agent/appointments/${appt.id}`
+
   return (
     <Link
-      href={`/agent/appointments/${appt.id}`}
+      href={editHref}
       className="block px-4 py-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
     >
       <div className="flex items-start gap-4">
@@ -242,6 +255,14 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
             ) : (
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
                 No client
+              </span>
+            )}
+            {isSheetOnly && (
+              <span
+                className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                title="Typed straight into the master spreadsheet — edit it from the Master Tracker tab."
+              >
+                Sheet entry
               </span>
             )}
           </div>

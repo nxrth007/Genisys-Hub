@@ -5,6 +5,7 @@ import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
+import { readMasterTableRows } from '@/lib/drive'
 
 /**
  * GET  /api/agent/appointments  → own appointments, most recent first
@@ -22,13 +23,138 @@ export async function GET() {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const appointments = await prisma.appointment.findMany({
-    where: { agentUserId: session.user.id },
-    orderBy: { apptDateTime: 'desc' },
-    include: {
-      client: { select: { id: true, name: true, state: true, color: true } },
-    },
+  // Pull DB-backed appointments AND a fresh copy of the master sheet
+  // in parallel. The agent dashboard's "My Appointments" view used to
+  // be DB-only, which silently hid rows Mary typed straight into the
+  // sheet — Hub-booked appointments showed up but manual sheet
+  // entries never did, so her counts were off vs. what the call
+  // center actually had on the books. Unifying them here means the
+  // dashboard reflects the sheet's source-of-truth count regardless
+  // of which path the row took to get there.
+  const userEmail = (session.user.email ?? '').toLowerCase()
+  const userName = (session.user.name ?? '').toLowerCase()
+
+  const [dbAppointments, clients, sheetRows] = await Promise.all([
+    prisma.appointment.findMany({
+      where: { agentUserId: session.user.id },
+      orderBy: { apptDateTime: 'desc' },
+      include: {
+        client: { select: { id: true, name: true, state: true, color: true } },
+      },
+    }),
+    prisma.client.findMany({
+      select: { id: true, name: true, state: true, color: true },
+    }),
+    readMasterTableRows().catch((err) => {
+      // Non-fatal — if the sheet read fails the dashboard still shows
+      // the DB-backed appointments. Logging surfaces it to me without
+      // blocking Mary.
+      console.error('[agent appointments GET] sheet read failed:', err)
+      return [] as Awaited<ReturnType<typeof readMasterTableRows>>
+    }),
+  ])
+
+  // Tag DB rows with source='hub' so the UI can decide what
+  // affordances to render (full edit/delete only for hub rows).
+  const dbTagged = dbAppointments.map((a) => ({ ...a, source: 'hub' as const }))
+
+  // Build a lookup of sheet rows already covered by DB rows so the
+  // sheet pass doesn't double-count Hub-booked appointments. Hub
+  // appointments write their masterSheetRowNumber back to the DB row
+  // when sync succeeds; that's our dedup key.
+  const coveredRowNumbers = new Set<number>()
+  for (const a of dbTagged) {
+    if (a.masterSheetRowNumber) coveredRowNumbers.add(a.masterSheetRowNumber)
+  }
+
+  // Match sheet "Client" cell to a registered client so the
+  // synthesized rows render with the same color/state/badge as DB
+  // rows. Lower-case map for case-insensitive matching.
+  const clientByLower = new Map(
+    clients.map((c) => [c.name.toLowerCase(), c]),
+  )
+
+  // Filter sheet rows down to "this agent's" entries. Several signals
+  // can attribute a row:
+  //   1. agentEmail matches the logged-in user's email (Hub-written
+  //      rows always set this; manual entries might if Mary typed it)
+  //   2. agentName matches the user's name (case-insensitive)
+  //   3. bookedByName matches the user's name (Hub-form entries since
+  //      we added that field, but the sheet column is the same as
+  //      agentName today — keeping the check defensive)
+  //   4. Both agent fields are blank (Mary's manual rows, where she
+  //      doesn't bother filling in "Agent Email" or "Agent Name").
+  //      Acceptable for the current single-agent-per-tenant setup;
+  //      tighten this when a second agent is onboarded.
+  function rowAttributedToUser(r: {
+    agentEmail: string | null
+    agentName: string | null
+  }): boolean {
+    const email = (r.agentEmail ?? '').toLowerCase()
+    const name = (r.agentName ?? '').toLowerCase()
+    if (email && userEmail && email === userEmail) return true
+    if (name && userName && name === userName) return true
+    if (!email && !name) return true
+    return false
+  }
+
+  const sheetOnly = sheetRows
+    .filter((r) => !coveredRowNumbers.has(r.rowNumber))
+    .filter(rowAttributedToUser)
+    .filter((r) => r.customerName?.trim() && r.apptDateTime)
+    .map((r) => {
+      const matchedClient = r.client
+        ? clientByLower.get(r.client.toLowerCase())
+        : null
+      // Synthesize a row that matches the DB Appointment shape closely
+      // enough that the UI can render it without branching at every
+      // field. id is `sheet:rowNumber` so the UI can detect this
+      // path and route edits to the Master Tracker instead of
+      // /agent/appointments/[id] (which only knows DB ids).
+      return {
+        id: `sheet:${r.rowNumber}`,
+        source: 'sheet' as const,
+        agentUserId: session.user.id,
+        clientId: matchedClient?.id ?? null,
+        client: matchedClient ?? null,
+        apptDateTime: r.apptDateTime,
+        customerName: r.customerName,
+        customerPhone: r.customerPhone,
+        address: r.address,
+        email: r.email,
+        monthlyBill: r.monthlyBill,
+        utilityProvider: r.utilityProvider,
+        roofType: r.roofType,
+        roofAge: r.roofAge,
+        status: r.status ?? 'booked',
+        estimatedDealValue: r.estimatedDealValue,
+        notes: r.notes,
+        callRecordingLink: r.callRecordingLink,
+        bookedByName: null,
+        solarSummary: null,
+        agentSheetRowNumber: null,
+        masterSheetRowNumber: r.rowNumber,
+        lastSyncedAt: null,
+        syncError: null,
+        // createdAt: prefer the sheet's loggedAt if available so the
+        // dashboard's "today" filtering and ordering land on a
+        // sensible date for sheet-only rows.
+        createdAt: r.loggedAt
+          ? new Date(r.loggedAt).toISOString()
+          : r.apptDateTime,
+        updatedAt: r.loggedAt
+          ? new Date(r.loggedAt).toISOString()
+          : r.apptDateTime,
+      }
+    })
+
+  // Merge + sort newest-appointment first, matching the existing UX.
+  const appointments = [...dbTagged, ...sheetOnly].sort((a, b) => {
+    const at = a.apptDateTime ? new Date(a.apptDateTime).getTime() : 0
+    const bt = b.apptDateTime ? new Date(b.apptDateTime).getTime() : 0
+    return bt - at
   })
+
   return NextResponse.json({ appointments })
 }
 
