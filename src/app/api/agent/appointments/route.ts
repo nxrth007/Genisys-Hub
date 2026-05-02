@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
+import { snapshotSolarFromCache } from '@/lib/solar'
 
 /**
  * GET  /api/agent/appointments  → own appointments, most recent first
@@ -181,6 +182,27 @@ export async function POST(req: NextRequest) {
       )
     }
     throw err
+  }
+
+  // If Mary clicked "Check solar potential" on the form before
+  // saving, the SolarInsightsCache already has a row for this
+  // address. Snapshot the summary onto the appointment so we keep
+  // an audit-trail of what Sunroof said at booking time. Cache-only
+  // — never triggers a fresh billable API call from this path.
+  if (appt.address) {
+    try {
+      const summary = await snapshotSolarFromCache(appt.address)
+      if (summary) {
+        await prisma.appointment.update({
+          where: { id: appt.id },
+          data: { solarSummary: summary },
+        })
+      }
+    } catch (err) {
+      // Non-fatal — appointment is saved either way; we just lose
+      // the audit trail for this row.
+      console.error('[appointments POST] solar snapshot failed:', err)
+    }
   }
 
   // Fire-and-forget sheets sync. Errors are surfaced on the appointment

@@ -325,6 +325,49 @@ function stringField(obj: Record<string, unknown>, key: string): string | null {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Cache snapshotting — for appointment audit trail                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Look up an existing SolarInsightsCache row for the given address
+ * (no fresh API call ever triggered) and return the same friendly
+ * SolarSummary shape the API endpoint serves. Returns null when:
+ *   - The address normalizes to empty
+ *   - No cache row exists yet (Mary didn't click the button before
+ *     saving the appointment)
+ *
+ * Used by the appointment create/edit handlers to attach Sunroof
+ * data to the row at booking time without ever pulling on a fresh
+ * billable lookup. If Mary cared enough to click "Check solar
+ * potential" on the form, we snapshot it; if she didn't, we don't
+ * silently spend money on her behalf.
+ */
+export async function snapshotSolarFromCache(
+  rawAddress: string,
+): Promise<SolarSummary | null> {
+  const cleaned = normalizeAddress(rawAddress)?.trim()
+  if (!cleaned) return null
+  const addressKey = cleaned.toLowerCase()
+
+  const cached = await prisma.solarInsightsCache.findUnique({
+    where: { addressKey },
+  })
+  if (!cached) return null
+
+  return summarize(cached.payload, {
+    latitude: cached.latitude,
+    longitude: cached.longitude,
+    imageryQuality:
+      cached.imageryQuality === 'HIGH' ||
+      cached.imageryQuality === 'MEDIUM' ||
+      cached.imageryQuality === 'LOW'
+        ? cached.imageryQuality
+        : null,
+    fromCache: true,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Usage stats — for the Settings counter                                     */
 /* -------------------------------------------------------------------------- */
 

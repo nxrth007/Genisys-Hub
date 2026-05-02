@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
 import { normalizeRoofAge } from '@/lib/normalize'
+import { snapshotSolarFromCache } from '@/lib/solar'
 
 /**
  * GET    /api/agent/appointments/[id]  → one appointment (must be agent's own)
@@ -129,6 +130,25 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const updated = await prisma.appointment.update({ where: { id }, data })
+
+  // If the address moved (or was set for the first time), refresh
+  // the solar snapshot from cache. Same cache-only contract as the
+  // create path — never triggers a billable lookup. Lets a stored
+  // appointment pick up solar data later if Mary checks it via the
+  // edit form's "Check solar potential" button.
+  if (typeof data.address === 'string' && data.address) {
+    try {
+      const summary = await snapshotSolarFromCache(data.address)
+      if (summary) {
+        await prisma.appointment.update({
+          where: { id },
+          data: { solarSummary: summary },
+        })
+      }
+    } catch (err) {
+      console.error('[appointments PATCH] solar snapshot failed:', err)
+    }
+  }
 
   // Fire-and-forget sheets re-sync. Preserves row numbers if we have them,
   // falls back to an append if sync had previously failed.

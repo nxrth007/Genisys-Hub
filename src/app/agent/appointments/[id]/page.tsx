@@ -25,6 +25,10 @@ type Appointment = {
   notes: string | null
   callRecordingLink: string | null
   bookedByName: string | null
+  /** Snapshotted Solar API summary from booking time. Shape matches
+   *  lib/solar.ts SolarSummary; typed loose here so the form
+   *  component owns the strict typing. */
+  solarSummary: unknown
 }
 
 /**
@@ -89,5 +93,12 @@ export default function EditAppointmentPage({
     bookedByName: appt.bookedByName || '',
   }
 
-  return <AppointmentForm mode="edit" appointmentId={id} initial={initial} />
+  return (
+    <AppointmentForm
+      mode="edit"
+      appointmentId={id}
+      initial={initial}
+      initialSolarSummary={appt.solarSummary}
+    />
+  )
 }

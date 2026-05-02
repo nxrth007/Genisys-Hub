@@ -88,10 +88,16 @@ export function AppointmentForm({
   mode,
   appointmentId,
   initial = EMPTY,
+  initialSolarSummary = null,
 }: {
   mode: 'create' | 'edit'
   appointmentId?: string
   initial?: AppointmentFormValues
+  /** Snapshotted Solar API summary loaded from the appointment row
+   *  (edit mode only). Lets the SolarInsightsCard render the saved
+   *  result immediately instead of the "Check solar potential"
+   *  button. Null on create — no snapshot exists yet. */
+  initialSolarSummary?: unknown
 }) {
   const router = useRouter()
   // Edit-mode prefill: PhoneEntriesField runs its own parser
@@ -563,8 +569,17 @@ export function AppointmentForm({
           {/* Manual "Check solar potential" button — Mary clicks
               when she wants Google's roof analysis for the customer.
               Cached per address so re-checks are free. Hides itself
-              quietly if the same vault key isn't configured. */}
-          <SolarInsightsCard address={values.address} />
+              quietly if the same vault key isn't configured.
+              Edit mode passes the snapshotted summary from the
+              appointment row so the result renders immediately. */}
+          <SolarInsightsCard
+            address={values.address}
+            initialSummary={
+              initialSolarSummary as React.ComponentProps<
+                typeof SolarInsightsCard
+              >['initialSummary']
+            }
+          />
         </Field>
 
         <Field label="Email">

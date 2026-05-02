@@ -49,7 +49,18 @@ const VIABILITY_LABEL: Record<SolarSummary['viability'], string> = {
   unavailable: 'No data',
 }
 
-export function SolarInsightsCard({ address }: { address: string }) {
+export function SolarInsightsCard({
+  address,
+  initialSummary,
+}: {
+  address: string
+  /** Pre-loaded summary from a prior lookup (e.g. snapshotted on
+   *  the appointment row at booking time). When provided, the card
+   *  renders the result immediately instead of the "Check solar
+   *  potential" button — Mary still has the Refresh affordance to
+   *  re-pull current data, which hits cache and is free. */
+  initialSummary?: SolarSummary | null
+}) {
   // Match AddressMapPreview's pattern — gate on a post-mount flag so
   // server HTML and client HTML can't diverge. Both components share
   // the same parent form; if either hydrated inconsistently the
@@ -65,7 +76,9 @@ export function SolarInsightsCard({ address }: { address: string }) {
     | { kind: 'loading' }
     | { kind: 'error'; message: string; soft?: boolean }
     | { kind: 'ok'; summary: SolarSummary }
-  >({ kind: 'idle' })
+  >(() =>
+    initialSummary ? { kind: 'ok', summary: initialSummary } : { kind: 'idle' },
+  )
 
   const trimmed = address.trim()
   const ready = trimmed.length >= 5

@@ -509,6 +509,14 @@ model Appointment {
   // and sheet sync fall back to that user's own name.
   bookedByName    String?
 
+  // Snapshot of the Google Solar API summary at booking time. JSON
+  // shape matches lib/solar.ts SolarSummary (viability + sunshine
+  // hours + max/recommended panels + production + roof area). Only
+  // populated when SolarInsightsCache has a row for the address at
+  // create/edit time — guarantees zero extra billable API calls
+  // from the appointment create handler.
+  solarSummary    Json?
+
   // Google Sheets sync tracking — row numbers in the agent's tab and the
   // master rollup tab. Null until first sync succeeds; populated after so
   // subsequent edits update the existing rows instead of duplicating.
