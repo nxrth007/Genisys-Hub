@@ -390,15 +390,19 @@ export default function MasterTrackerPage() {
 
   // Force-deliver a single row to its client's Slack channel.
   // Powers the per-row "Deliver" button — used to recover rows that
-  // got stuck in the ledger as 'backfilled' or 'failed' and would
-  // never be auto-delivered by the cron. Staff-only on the server
-  // side; the button itself is also hidden on /agent/* routes.
+  // got stuck in the ledger as 'backfilled' / 'failed' / phantom-
+  // 'delivered' and wouldn't be auto-delivered by the cron. Staff-
+  // only on the server; the button is also hidden on /agent/* routes.
+  // `force` lets admins resend a row that's already marked delivered
+  // (used by the green pill's resend affordance to recover from
+  // ghost-delivery cases where the ledger says 'delivered' but the
+  // Slack channel doesn't actually have the message).
   const deliverRowMutation = useMutation({
-    mutationFn: async (rowNumber: number) => {
+    mutationFn: async (vars: { rowNumber: number; force?: boolean }) => {
       const res = await fetch('/api/admin/slack-delivery/deliver-row', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rowNumber }),
+        body: JSON.stringify({ rowNumber: vars.rowNumber, force: !!vars.force }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -1167,13 +1171,23 @@ export default function MasterTrackerPage() {
                             staffMode={isStaffView}
                             pending={
                               deliverRowMutation.isPending &&
-                              deliverRowMutation.variables ===
+                              deliverRowMutation.variables?.rowNumber ===
                                 Number(a.id.replace(/^sheet:/, ''))
                             }
-                            onDeliver={() => {
+                            onDeliver={(force) => {
                               const match = a.id.match(/^sheet:(\d+)$/)
                               if (!match) return
-                              deliverRowMutation.mutate(Number(match[1]))
+                              const rowNumber = Number(match[1])
+                              if (force) {
+                                if (
+                                  !window.confirm(
+                                    `This row already shows as Delivered. Re-send to Slack anyway? Use this when the channel doesn't actually have the message (the original send may have silently failed).`,
+                                  )
+                                ) {
+                                  return
+                                }
+                              }
+                              deliverRowMutation.mutate({ rowNumber, force })
                             }}
                           />
                         </td>
@@ -1646,25 +1660,47 @@ function SlackDeliveryCell({
    *  not trigger sends. */
   staffMode: boolean
   pending: boolean
-  onDeliver: () => void
+  /** Called with force=true when re-sending an already-delivered
+   *  row. The parent shows a confirm() dialog before firing. */
+  onDeliver: (force: boolean) => void
 }) {
   const delivery = appointment.slackDelivery
   const status = delivery?.status
 
-  // Delivered → green pill, no action.
+  // Delivered → green pill. Clickable for staff (force re-send) so
+  // admins can recover from ghost-delivery cases where the ledger
+  // says 'delivered' but the channel doesn't actually have the
+  // message — happens occasionally when Slack's API silently
+  // accepts a post without it actually landing.
   if (status === 'delivered') {
+    const tooltip = delivery?.deliveredAt
+      ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}.${staffMode ? ' Click to re-send if it never landed.' : ''}`
+      : 'Posted to the client Slack channel'
     return (
-      <span
-        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-        title={
-          delivery?.deliveredAt
-            ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}`
-            : 'Posted to the client Slack channel'
-        }
-      >
-        <CheckCircle2 className="h-3 w-3" />
-        Delivered
-      </span>
+      <div className="inline-flex items-center gap-1.5">
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+          title={tooltip}
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          Delivered
+        </span>
+        {staffMode && (
+          <button
+            type="button"
+            onClick={() => onDeliver(true)}
+            disabled={pending}
+            className="inline-flex items-center rounded-md border border-zinc-200 px-1 py-0.5 text-[10px] text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            title="Re-send this appointment to the channel (use only when the original post never landed)."
+          >
+            {pending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Send className="h-3 w-3" />
+            )}
+          </button>
+        )}
+      </div>
     )
   }
 
@@ -1681,7 +1717,7 @@ function SlackDeliveryCell({
         {staffMode && (
           <button
             type="button"
-            onClick={onDeliver}
+            onClick={() => onDeliver(false)}
             disabled={pending}
             className="inline-flex items-center gap-0.5 rounded-md border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
@@ -1712,7 +1748,7 @@ function SlackDeliveryCell({
         {staffMode && (
           <button
             type="button"
-            onClick={onDeliver}
+            onClick={() => onDeliver(false)}
             disabled={pending}
             className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
           >
@@ -1737,7 +1773,7 @@ function SlackDeliveryCell({
       {staffMode ? (
         <button
           type="button"
-          onClick={onDeliver}
+          onClick={() => onDeliver(false)}
           disabled={pending}
           className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
           title="Force this row to post to its client Slack channel now."

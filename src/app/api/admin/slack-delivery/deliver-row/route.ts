@@ -168,6 +168,13 @@ export async function POST(req: Request) {
       unfurl_links: false,
       unfurl_media: false,
     })
+    // Same guard the cron uses — if Slack didn't return a real ts,
+    // the post likely never landed and we shouldn't claim success.
+    if (!post.ok || !post.ts) {
+      throw new Error(
+        `Slack acknowledged the post without returning a message id (ok=${post.ok}).`,
+      )
+    }
     // Update or create the ledger row. If `existing` was non-
     // delivered (backfilled/failed/etc.), flip it to delivered with
     // the fresh messageTs. Otherwise create a new row. Both paths

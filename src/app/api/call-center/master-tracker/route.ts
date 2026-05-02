@@ -158,26 +158,38 @@ export async function GET() {
         }
       }
     }
-    // Pick the most-favorable record: prefer 'delivered', then
-    // 'failed', then 'backfilled'. Within a status, prefer the
-    // most recent.
-    function rank(s: string) {
-      if (s === 'delivered') return 3
-      if (s === 'failed') return 2
-      if (s === 'backfilled') return 1
+    // Pick the most-favorable record. A 'delivered' row WITHOUT a
+    // messageTs is suspect — historically these correspond to a
+    // Slack post that never actually landed but where we recorded
+    // the outcome as success anyway. Demote these to the same rank
+    // as 'failed' so the UI surfaces a Retry button rather than a
+    // green pill that lies.
+    function rank(d: { status: string; messageTs: string | null }) {
+      if (d.status === 'delivered' && d.messageTs) return 3
+      if (d.status === 'delivered') return 2 // suspect — no Slack ts
+      if (d.status === 'failed') return 2
+      if (d.status === 'backfilled') return 1
       return 0
     }
     matched.sort((a, b) => {
-      const r = rank(b.status) - rank(a.status)
+      const r = rank(b) - rank(a)
       if (r !== 0) return r
       const at = a.deliveredAt?.getTime() ?? 0
       const bt = b.deliveredAt?.getTime() ?? 0
       return bt - at
     })
     const primary = matched[0] ?? null
+    // Same demotion in the API surface — a 'delivered' record without
+    // a messageTs gets reported to the UI as 'failed' so the user
+    // sees a Retry button. Saves admins from staring at a "Delivered"
+    // pill when nothing actually landed in Slack.
+    const reportedStatus =
+      primary && primary.status === 'delivered' && !primary.messageTs
+        ? 'failed'
+        : primary?.status
     const slackDelivery = primary
       ? {
-          status: primary.status as
+          status: reportedStatus as
             | 'delivered'
             | 'backfilled'
             | 'failed'

@@ -254,6 +254,18 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
         unfurl_links: false,
         unfurl_media: false,
       })
+      // Defensive — Slack's WebClient is supposed to throw on ok:false,
+      // but we've seen mismatches in the wild where a delivery row
+      // gets recorded as 'delivered' but the channel never actually
+      // got the post. Requiring a real message timestamp before we
+      // claim success means a silent-fail surfaces as 'failed' (which
+      // the UI offers a Retry button for) instead of a phantom
+      // 'delivered' that the channel doesn't reflect.
+      if (!post.ok || !post.ts) {
+        throw new Error(
+          `Slack acknowledged the post without returning a message id (ok=${post.ok}). Treating as failed so it can be retried.`,
+        )
+      }
       await prisma.sheetSlackDelivery.create({
         data: {
           sourceKey,
