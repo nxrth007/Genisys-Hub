@@ -1223,7 +1223,29 @@ export async function updateMasterTableCells(params: {
     throw new Error(`Invalid row number ${params.rowNumber} (at/above header row)`)
   }
 
-  const data: { range: string; values: string[][] }[] = []
+  // Two batches — date/time/timezone cells go in via RAW, everything
+  // else via USER_ENTERED.
+  //
+  // Why two batches: with USER_ENTERED Google Sheets parses our
+  // values against the *spreadsheet's* timezone setting before
+  // storing. For Mary's Manila-locale sheet that means writing
+  // "6:00 PM" gets reinterpreted as 6 PM Manila (= 10 AM UTC), and
+  // the displayed value when we read back depends on the cell's
+  // format string + sheet tz, not our input. The round-trip silently
+  // shifted hours and Alex's "edit 6 PM → see 1 AM PDT" report was
+  // the result. RAW stores the literal text we send, so what we
+  // write is exactly what we read back. Date/time/timezone are the
+  // tz-sensitive fields, so they get RAW. Free-text cells (notes,
+  // names, etc.) keep USER_ENTERED so existing formulas and links
+  // still resolve normally.
+  const RAW_KEYS = new Set<CanonicalKey>([
+    'apptDate',
+    'apptTime',
+    'apptDateTime',
+    'timezone',
+  ])
+  const userEnteredData: { range: string; values: string[][] }[] = []
+  const rawData: { range: string; values: string[][] }[] = []
   const skipped: string[] = []
   for (const [canonical, value] of Object.entries(params.updates)) {
     if (value === undefined) continue
@@ -1234,21 +1256,40 @@ export async function updateMasterTableCells(params: {
     }
     const colLetterStr = colLetter(col.columnIndex + 1)
     const range = `'${MASTER_TAB_TITLE.replace(/'/g, "''")}'!${colLetterStr}${params.rowNumber}`
-    data.push({ range, values: [[value]] })
+    const target = RAW_KEYS.has(canonical as CanonicalKey)
+      ? rawData
+      : userEnteredData
+    target.push({ range, values: [[value]] })
   }
 
-  if (data.length === 0) {
+  const totalToWrite = userEnteredData.length + rawData.length
+  if (totalToWrite === 0) {
     return { written: 0, skipped }
   }
 
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      valueInputOption: 'USER_ENTERED',
-      data,
-    },
-  })
-  return { written: data.length, skipped }
+  // Issue both batches in parallel; the Sheets API doesn't support
+  // mixed valueInputOption inside a single batchUpdate request.
+  await Promise.all([
+    userEnteredData.length > 0
+      ? sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: 'USER_ENTERED',
+            data: userEnteredData,
+          },
+        })
+      : Promise.resolve(),
+    rawData.length > 0
+      ? sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            valueInputOption: 'RAW',
+            data: rawData,
+          },
+        })
+      : Promise.resolve(),
+  ])
+  return { written: totalToWrite, skipped }
 }
 
 /**

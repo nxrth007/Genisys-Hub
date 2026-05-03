@@ -2308,22 +2308,69 @@ function AdminEditModal({
                   return tz
                 }
               })()
+              // Preview the actual moment we'll save — formats the
+              // input value as a wall-clock in the customer's tz, the
+              // same tz the next sheet read will use to interpret it.
+              // Lets Alex see "Saving as: Friday, May 8, 2026 at 6:00
+              // PM PDT" before clicking Save so any AM/PM mistake or
+              // off-by-12 surfaces here, not after a round-trip.
+              const previewLabel = (() => {
+                if (!values.apptDateTime) return null
+                const m = values.apptDateTime.match(
+                  /^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})/,
+                )
+                if (!m) return null
+                const Y = parseInt(m[1], 10)
+                const M = parseInt(m[2], 10)
+                const D = parseInt(m[3], 10)
+                const h = parseInt(m[4], 10)
+                const mn = parseInt(m[5], 10)
+                let hour12 = h % 12
+                if (hour12 === 0) hour12 = 12
+                const ampm = h >= 12 ? 'PM' : 'AM'
+                // Day-of-week in customer tz: build a Date from the
+                // pretended UTC and format in target tz, since we
+                // can't easily get the weekday otherwise without the
+                // full tz round-trip.
+                let weekday: string
+                try {
+                  weekday = new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    timeZone: tz,
+                  }).format(new Date(Date.UTC(Y, M - 1, D, 12, 0)))
+                } catch {
+                  weekday = ''
+                }
+                return `${weekday ? weekday + ', ' : ''}${
+                  [
+                    'January','February','March','April','May','June',
+                    'July','August','September','October','November','December',
+                  ][M - 1]
+                } ${D}, ${Y} at ${hour12}:${String(mn).padStart(2, '0')} ${ampm} ${shortLabel}`
+              })()
               return (
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  Time is read at the customer&apos;s clock —{' '}
-                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                    {shortLabel}
-                  </span>{' '}
-                  <span className="text-zinc-400">
-                    (
-                    {tzFromExplicit
-                      ? `from Timezone field`
-                      : values.address?.trim()
-                        ? `from address`
-                        : `default — pick a tz or add an address`}
-                    ).
-                  </span>
-                </p>
+                <>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Time is read at the customer&apos;s clock —{' '}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                      {shortLabel}
+                    </span>{' '}
+                    <span className="text-zinc-400">
+                      (
+                      {tzFromExplicit
+                        ? `from Timezone field`
+                        : values.address?.trim()
+                          ? `from address`
+                          : `default — pick a tz or add an address`}
+                      ).
+                    </span>
+                  </p>
+                  {previewLabel && (
+                    <p className="mt-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                      Saving as: <span className="font-semibold">{previewLabel}</span>
+                    </p>
+                  )}
+                </>
               )
             })()}
           </div>
