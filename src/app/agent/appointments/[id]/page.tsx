@@ -7,11 +7,13 @@ import {
   AppointmentForm,
   type AppointmentFormValues,
 } from '@/components/agent/appointment-form'
+import { resolveCustomerTimezone } from '@/lib/timezone'
 
 type Appointment = {
   id: string
   apptDateTime: string
   clientId: string | null
+  client: { id: string; name: string; state: string | null; color: string } | null
   customerName: string
   customerPhone: string
   address: string | null
@@ -33,13 +35,29 @@ type Appointment = {
 
 /**
  * Convert a stored ISO datetime into the "YYYY-MM-DDTHH:mm" format that
- * <input type="datetime-local"> expects. Works in the browser's local time
- * zone so the displayed time matches what the agent originally entered.
+ * <input type="datetime-local"> expects, formatted in the customer's
+ * wall-clock zone. CRITICAL: the form's save path interprets this
+ * string as wall-clock in the customer's tz via wallClockInTzToUtcIso.
+ * If we returned the viewer's-browser wall-clock here, opening + saving
+ * an appointment without changing the time would silently shift it by
+ * (viewerOffset - customerOffset) hours every time. This was the source
+ * of the "edit + save = +3h drift on every EST→PDT edit" data corruption.
  */
-function toLocalDateTimeInput(iso: string): string {
+function toLocalDateTimeInput(iso: string, timezone: string): string {
   const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  if (isNaN(d.getTime())) return ''
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+  const parts = fmt.formatToParts(d)
+  const pick = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
+  return `${pick('year')}-${pick('month')}-${pick('day')}T${pick('hour')}:${pick('minute')}`
 }
 
 export default function EditAppointmentPage({
@@ -75,8 +93,12 @@ export default function EditAppointmentPage({
   }
 
   const appt = data.appointment
+  const customerTz = resolveCustomerTimezone({
+    address: appt.address,
+    clientState: appt.client?.state ?? null,
+  })
   const initial: AppointmentFormValues = {
-    apptDateTime: toLocalDateTimeInput(appt.apptDateTime),
+    apptDateTime: toLocalDateTimeInput(appt.apptDateTime, customerTz),
     clientId: appt.clientId || '',
     customerName: appt.customerName,
     customerPhone: appt.customerPhone,

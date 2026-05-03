@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { CallbacksDuePanel } from '@/components/agent/callbacks-due-panel'
 import { cn } from '@/lib/utils'
+import { resolveCustomerTimezone } from '@/lib/timezone'
 
 type Appointment = {
   id: string
@@ -218,6 +219,29 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
     tone: 'bg-zinc-100 text-zinc-700',
   }
   const when = new Date(appt.apptDateTime)
+  // Render the date/time in the CUSTOMER's wall clock, not the
+  // viewer's browser. Same resolver the form + sheet sync use, so
+  // the list, the master tracker, and the sheet all show identical
+  // numbers regardless of who's looking (Mary in Manila, Alex in
+  // EST, the customer in PDT).
+  const customerTz = resolveCustomerTimezone({
+    address: appt.address,
+    clientState: appt.client?.state ?? null,
+  })
+  const monthLabel = new Intl.DateTimeFormat('en-US', {
+    timeZone: customerTz,
+    month: 'short',
+  }).format(when)
+  const dayLabel = new Intl.DateTimeFormat('en-US', {
+    timeZone: customerTz,
+    day: 'numeric',
+  }).format(when)
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    timeZone: customerTz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(when)
 
   // Sheet-only rows route edits to the Master Tracker (which can
   // edit by sheet rowNumber); the regular edit page only knows DB
@@ -234,17 +258,9 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
     >
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 text-center" style={{ minWidth: '4.5rem' }}>
-          <div className="text-xs font-medium uppercase text-zinc-400">
-            {when.toLocaleDateString('en-US', { month: 'short' })}
-          </div>
-          <div className="text-xl font-bold">{when.getDate()}</div>
-          <div className="text-xs text-zinc-500">
-            {when.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            })}
-          </div>
+          <div className="text-xs font-medium uppercase text-zinc-400">{monthLabel}</div>
+          <div className="text-xl font-bold">{dayLabel}</div>
+          <div className="text-xs text-zinc-500">{timeLabel}</div>
         </div>
 
         <div className="min-w-0 flex-1">
