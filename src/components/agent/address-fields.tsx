@@ -1,26 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapPin, Loader2 } from 'lucide-react'
-import {
-  AddressParts,
-  PRIMARY_STATES,
-  STATE_NAME_TO_CODE,
-  formatAddress,
-  parseAddress,
-} from '@/lib/address'
 
 /**
- * Four-field address editor with Nominatim (OpenStreetMap)
- * autocomplete. Translates between its own internal `AddressParts`
- * state and the parent's single-line string via `value` / `onChange`,
- * so the booking form's state shape and the DB column stay flat.
+ * Single-line address field with OpenStreetMap (Nominatim) autocomplete.
  *
- * Autocomplete is best-effort — Nominatim is a free public service
- * with a 1 req/sec rate limit; we debounce typing to 300ms. The
- * agent can always type all four fields by hand instead of picking a
- * suggestion (and the dropdown supports an "Other" option for states
- * outside Genisys's three operating states).
+ * Was previously a four-input grid (street + city + state + zip). Mary
+ * could type the city into the street field, the autocomplete would
+ * then ALSO populate the city field, and the joined output was
+ * "...Cerritos, Cerritos, CA 90703" — duplicate city. Single field
+ * with one source of truth (the picked suggestion's display string)
+ * makes that class of bug impossible.
+ *
+ * The parent form keeps its same `value: string` / `onChange(combined)`
+ * contract — DB column is unchanged, sheet column is unchanged, the
+ * timezone resolver still parses the state code out of the address
+ * string. Drop-in replacement.
+ *
+ * Manual typing is still allowed for addresses Nominatim doesn't
+ * have — the dropdown just guides; it doesn't gate.
  */
 
 type Props = {
@@ -29,13 +28,9 @@ type Props = {
   disabled?: boolean
   /** Optional id used by the surrounding form's <label> association. */
   id?: string
-  /** When true, the street input gets an HTML5 required marker + a
-   *  red asterisk on its label, so empty submits are blocked at the
-   *  browser level (the form's own submit handler also validates). */
+  /** When true, the input gets HTML5 required + a red asterisk. */
   requireStreet?: boolean
 }
-
-const STATE_OTHER = '__OTHER__'
 
 export function AddressFields({
   value,
@@ -44,42 +39,38 @@ export function AddressFields({
   id,
   requireStreet,
 }: Props) {
-  const [parts, setParts] = useState<AddressParts>(() => parseAddress(value))
-
-  // Track the last string we emitted upward so we can distinguish
-  // "value changed because we just edited it" (do nothing) from "value
-  // changed externally — re-parse" (e.g. edit-mode prefill arrived).
-  const lastEmittedRef = useRef<string>(formatAddress(parts))
-
-  useEffect(() => {
-    if (value !== lastEmittedRef.current) {
-      const next = parseAddress(value)
-      setParts(next)
-      lastEmittedRef.current = formatAddress(next)
-    }
-  }, [value])
-
-  function commit(next: AddressParts) {
-    setParts(next)
-    const formatted = formatAddress(next)
-    lastEmittedRef.current = formatted
-    onChange(formatted)
-  }
-
-  // ---- Nominatim autocomplete -----------------------------------------
+  const [draft, setDraft] = useState(value)
   const [suggestions, setSuggestions] = useState<NominatimResult[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  // Used to dismiss the dropdown when the user clicks outside it.
+  const [activeIndex, setActiveIndex] = useState(-1)
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
-  // Debounce + abort: every keystroke schedules a query for 300ms in
-  // the future, cancelling the previous timer + any in-flight request.
-  // Keeps us under Nominatim's 1 req/sec ceiling and avoids out-of-
-  // order results stomping the suggestion list.
+  // Re-sync from parent on edit-mode prefill or external clear.
+  // We track the last value we emitted so a controlled re-render
+  // with the same value we just sent up doesn't reset the cursor.
+  const lastEmittedRef = useRef<string>(value)
   useEffect(() => {
-    const street = parts.street.trim()
-    if (!street || street.length < 4) {
+    if (value !== lastEmittedRef.current) {
+      setDraft(value)
+      lastEmittedRef.current = value
+    }
+  }, [value])
+
+  function commit(next: string) {
+    setDraft(next)
+    lastEmittedRef.current = next
+    onChange(next)
+  }
+
+  // Debounced Nominatim query. Aborts in-flight + cancels timer on
+  // every keystroke so the dropdown only ever shows results for the
+  // CURRENT input — keeps us under Nominatim's 1 req/sec ceiling and
+  // avoids out-of-order results stomping the list.
+  useEffect(() => {
+    const q = draft.trim()
+    if (q.length < 4) {
       setSuggestions([])
       return
     }
@@ -88,9 +79,6 @@ export function AddressFields({
       try {
         setLoading(true)
         const url = new URL('https://nominatim.openstreetmap.org/search')
-        // Build the query out of whatever the agent has typed so far —
-        // street + city + state. More signal → better suggestions.
-        const q = [street, parts.city, parts.state].filter(Boolean).join(', ')
         url.searchParams.set('q', q)
         url.searchParams.set('format', 'json')
         url.searchParams.set('addressdetails', '1')
@@ -98,8 +86,6 @@ export function AddressFields({
         url.searchParams.set('limit', '6')
         const res = await fetch(url.toString(), {
           signal: controller.signal,
-          // Nominatim's policy asks for an identifying header — browsers
-          // already send a User-Agent, which they accept for low-volume use.
           headers: { Accept: 'application/json' },
         })
         if (!res.ok) {
@@ -120,13 +106,9 @@ export function AddressFields({
       clearTimeout(timer)
       controller.abort()
     }
-    // We intentionally only key off the street input — re-querying on
-    // every city/state/zip keystroke would burn the rate limit and the
-    // agent has already picked a suggestion by that point.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parts.street])
+  }, [draft])
 
-  // Click-outside closes the suggestions dropdown.
+  // Click-outside closes the dropdown.
   useEffect(() => {
     if (!open) return
     function onClick(e: MouseEvent) {
@@ -137,166 +119,104 @@ export function AddressFields({
     return () => document.removeEventListener('mousedown', onClick)
   }, [open])
 
+  // Reset hover-highlight when the suggestion list changes so the
+  // arrow-key navigation always starts from a known position.
+  useEffect(() => {
+    setActiveIndex(-1)
+  }, [suggestions])
+
   function applySuggestion(s: NominatimResult) {
+    // Build a clean, canonical address from Nominatim's structured
+    // parts rather than using `display_name` directly. display_name
+    // includes county / country tail ("Los Angeles County, California,
+    // 90703, United States") which is noisy and breaks our state-code
+    // regex if the country phrase happens to contain a state-name
+    // substring.
     const a = s.address || {}
     const street = [a.house_number, a.road].filter(Boolean).join(' ').trim()
-    // Nominatim hands cities back under one of several keys depending
-    // on the locality type — try them in order of specificity.
     const city =
       a.city || a.town || a.village || a.hamlet || a.suburb || a.county || ''
-    const stateName = (a.state || '').toLowerCase()
-    const stateCode = STATE_NAME_TO_CODE[stateName] || ''
+    const stateCode = STATE_NAME_TO_CODE[(a.state || '').toLowerCase()] || ''
     const zip = a.postcode || ''
-    commit({ street, city, state: stateCode, zip })
+    const formatted = formatAddressLine({ street, city, stateCode, zip })
+    commit(formatted)
     setOpen(false)
+    inputRef.current?.focus()
   }
 
-  // Whether the currently-selected state is one of the dropdown's
-  // primary options (AZ/CA/UT) — if not, we render an "Other" mode
-  // with a free-text 2-letter input.
-  const stateIsPrimary = useMemo(
-    () => PRIMARY_STATES.includes(parts.state as (typeof PRIMARY_STATES)[number]),
-    [parts.state]
-  )
-  // Track whether the agent has explicitly switched to Other mode so
-  // typing "AZ" in the custom field doesn't snap the dropdown back.
-  const [stateOther, setStateOther] = useState<boolean>(
-    () => !!parts.state && !PRIMARY_STATES.includes(parts.state as PrimaryStateUnion)
-  )
-  useEffect(() => {
-    // Sync to external value changes (edit-mode prefill).
-    setStateOther(!!parts.state && !stateIsPrimary)
-  }, [parts.state, stateIsPrimary])
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex((i) => (i + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex((i) =>
+        i <= 0 ? suggestions.length - 1 : i - 1,
+      )
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault()
+      applySuggestion(suggestions[activeIndex])
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
 
   return (
-    <div className="space-y-2">
-      {/* ---- Street with autocomplete ---- */}
-      <div ref={wrapRef} className="relative">
-        <label className="mb-1 flex items-center justify-between">
-          <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            Street address
-            {requireStreet && <span className="ml-0.5 text-red-500">*</span>}
-          </span>
-          {loading && (
-            <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
-          )}
-        </label>
-        <input
-          id={id}
-          type="text"
-          value={parts.street}
-          onChange={(e) => {
-            commit({ ...parts, street: e.target.value })
-            setOpen(true)
-          }}
-          onFocus={() => suggestions.length > 0 && setOpen(true)}
-          disabled={disabled}
-          required={requireStreet}
-          placeholder="123 Main St"
-          autoComplete="off"
-          className={inputCls}
-        />
-        {open && suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-            {suggestions.map((s) => (
-              <button
-                key={s.place_id}
-                type="button"
-                onClick={() => applySuggestion(s)}
-                className="flex w-full items-start gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs hover:bg-blue-50 last:border-b-0 dark:border-zinc-800 dark:hover:bg-blue-950"
-              >
-                <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0 text-zinc-400" />
-                <span className="leading-tight">{s.display_name}</span>
-              </button>
-            ))}
-            <p className="border-t border-zinc-100 px-3 py-1.5 text-[10px] text-zinc-400 dark:border-zinc-800">
-              Suggestions via OpenStreetMap
-            </p>
-          </div>
-        )}
-      </div>
+    <div ref={wrapRef} className="relative">
+      <label className="mb-1 flex items-center justify-between">
+        <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          Address
+          {requireStreet && <span className="ml-0.5 text-red-500">*</span>}
+        </span>
+        {loading && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
+      </label>
+      <input
+        ref={inputRef}
+        id={id}
+        type="text"
+        value={draft}
+        onChange={(e) => {
+          commit(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        onKeyDown={onKeyDown}
+        disabled={disabled}
+        required={requireStreet}
+        placeholder="Start typing — e.g. 123 Main St Cerritos CA"
+        autoComplete="off"
+        className={inputCls}
+      />
+      <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-500">
+        Type the address; pick a suggestion to auto-fill the
+        canonical form. State + ZIP are inferred from the address —
+        no separate fields to keep in sync.
+      </p>
 
-      {/* ---- City / State / ZIP grid ---- */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <FieldSlot label="City">
-          <input
-            type="text"
-            value={parts.city}
-            onChange={(e) => commit({ ...parts, city: e.target.value })}
-            disabled={disabled}
-            placeholder="Phoenix"
-            autoComplete="off"
-            className={inputCls}
-          />
-        </FieldSlot>
-
-        <FieldSlot label="State">
-          {!stateOther ? (
-            <select
-              value={parts.state}
-              onChange={(e) => {
-                if (e.target.value === STATE_OTHER) {
-                  setStateOther(true)
-                  commit({ ...parts, state: '' })
-                } else {
-                  commit({ ...parts, state: e.target.value })
-                }
-              }}
-              disabled={disabled}
-              className={inputCls}
+      {open && suggestions.length > 0 && (
+        <div className="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          {suggestions.map((s, i) => (
+            <button
+              key={s.place_id}
+              type="button"
+              onClick={() => applySuggestion(s)}
+              onMouseEnter={() => setActiveIndex(i)}
+              className={`flex w-full items-start gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 dark:border-zinc-800 ${
+                i === activeIndex
+                  ? 'bg-blue-50 dark:bg-blue-950'
+                  : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'
+              }`}
             >
-              <option value="">—</option>
-              {PRIMARY_STATES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-              <option value={STATE_OTHER}>Other…</option>
-            </select>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={parts.state}
-                onChange={(e) =>
-                  commit({
-                    ...parts,
-                    state: e.target.value.toUpperCase().slice(0, 2),
-                  })
-                }
-                disabled={disabled}
-                placeholder="ST"
-                maxLength={2}
-                className={`${inputCls} uppercase`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setStateOther(false)
-                  commit({ ...parts, state: '' })
-                }}
-                className="text-[10px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                title="Back to AZ / CA / UT picker"
-              >
-                ←
-              </button>
-            </div>
-          )}
-        </FieldSlot>
-
-        <FieldSlot label="ZIP">
-          <input
-            type="text"
-            value={parts.zip}
-            onChange={(e) => commit({ ...parts, zip: e.target.value })}
-            disabled={disabled}
-            placeholder="85001"
-            inputMode="numeric"
-            autoComplete="postal-code"
-            className={inputCls}
-          />
-        </FieldSlot>
-      </div>
+              <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0 text-zinc-400" />
+              <span className="leading-tight">{s.display_name}</span>
+            </button>
+          ))}
+          <p className="border-t border-zinc-100 px-3 py-1.5 text-[10px] text-zinc-400 dark:border-zinc-800">
+            Suggestions via OpenStreetMap · ↑↓ to navigate · Enter to pick
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -306,26 +226,41 @@ export function AddressFields({
 const inputCls =
   'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950'
 
-function FieldSlot({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-        {label}
-      </span>
-      {children}
-    </label>
-  )
+// State-name → 2-letter code lookup. Local (instead of importing from
+// lib/address) so this component is self-contained — the rest of
+// lib/address is the four-field parser/formatter that no longer has
+// any callers.
+const STATE_NAME_TO_CODE: Record<string, string> = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR',
+  california: 'CA', colorado: 'CO', connecticut: 'CT', delaware: 'DE',
+  'district of columbia': 'DC', florida: 'FL', georgia: 'GA', hawaii: 'HI',
+  idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS',
+  kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD',
+  massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS',
+  missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
+  'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM',
+  'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND',
+  ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA',
+  'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD',
+  tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT',
+  virginia: 'VA', washington: 'WA', 'west virginia': 'WV',
+  wisconsin: 'WI', wyoming: 'WY',
+}
+
+function formatAddressLine(parts: {
+  street: string
+  city: string
+  stateCode: string
+  zip: string
+}): string {
+  // "Street, City, ST 12345" — same shape stateCodeFromAddress and
+  // the master tracker / Slack message formatters expect.
+  const streetCity = [parts.street, parts.city].filter(Boolean).join(', ')
+  const stateZip = [parts.stateCode, parts.zip].filter(Boolean).join(' ')
+  return [streetCity, stateZip].filter(Boolean).join(', ')
 }
 
 // ---- Nominatim response shape we care about --------------------------------
-
-type PrimaryStateUnion = (typeof PRIMARY_STATES)[number]
 
 type NominatimResult = {
   place_id: number
