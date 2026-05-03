@@ -164,13 +164,14 @@ export function AddressFields({
 
   return (
     <div ref={wrapRef} className="relative">
-      <label className="mb-1 flex items-center justify-between">
-        <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          Address
-          {requireStreet && <span className="ml-0.5 text-red-500">*</span>}
-        </span>
-        {loading && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
-      </label>
+      {/* No internal label — the parent form's <Field label="Address">
+          wrapper already renders one. The loading spinner sits in
+          the input's right padding instead. */}
+      {loading && (
+        <div className="pointer-events-none absolute right-3 top-2.5 z-10">
+          <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+        </div>
+      )}
       <input
         ref={inputRef}
         id={id}
