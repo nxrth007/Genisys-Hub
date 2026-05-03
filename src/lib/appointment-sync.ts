@@ -9,6 +9,7 @@ import {
   appendAppointmentRows,
   updateAppointmentRows,
   clearAppointmentRows,
+  readMasterTableRows,
   type AppointmentSyncData,
 } from './drive'
 
@@ -199,4 +200,191 @@ export async function syncAppointmentDelete(params: {
   } catch (err) {
     console.error('[appointment-sync delete] failed:', err)
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reconciliation — DB ↔ master sheet                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Stable content key for matching a DB Appointment to a master-sheet
+ * row. Phone is normalized to E.164, time is rounded to the minute so
+ * the sheet's FORMATTED_VALUE read (which can drop sub-minute precision)
+ * still aligns with the DB's ms-precision DateTime.
+ */
+function contentKey(
+  phone: string | null | undefined,
+  apptDateTime: Date | string | null,
+): string | null {
+  if (!phone) return null
+  const digits = String(phone).replace(/\D/g, '')
+  let normalized: string
+  if (digits.length === 10) normalized = `+1${digits}`
+  else if (digits.length === 11 && digits.startsWith('1')) normalized = `+${digits}`
+  else if (digits.length >= 10) normalized = `+${digits}`
+  else return null
+  if (!apptDateTime) return null
+  const d = typeof apptDateTime === 'string' ? new Date(apptDateTime) : apptDateTime
+  if (isNaN(d.getTime())) return null
+  const minute = new Date(Math.floor(d.getTime() / 60_000) * 60_000).toISOString()
+  return `${normalized}|${minute}`
+}
+
+export type MissingAppointmentSummary = {
+  id: string
+  customerName: string
+  customerPhone: string
+  apptDateTime: string
+  clientName: string | null
+  reason: 'never-synced' | 'sync-failed' | 'sheet-row-missing'
+  syncError: string | null
+}
+
+/**
+ * Find every Appointment in the DB that doesn't have a matching row
+ * in the master sheet. Three scenarios collapse into one list:
+ *
+ *   1. never-synced       — masterSheetRowNumber is null and no
+ *                            content match in the sheet either
+ *   2. sync-failed        — syncError is set; might or might not also
+ *                            have a stale row number from a prior run
+ *   3. sheet-row-missing  — masterSheetRowNumber is set, but the row
+ *                            it points to is gone (Mary deleted it
+ *                            from the sheet directly) AND no other
+ *                            sheet row matches by content
+ *
+ * The "sheet-row-missing" case is detected by content match against
+ * the current sheet — if the DB row's (phone, apptDateTime) pair
+ * doesn't appear anywhere on the sheet, the row was deleted. Phone +
+ * apptDateTime are stable across row shuffles so this catches
+ * deletions reliably without relying on row numbers.
+ *
+ * Used by the Settings page reconciliation card to surface the
+ * count + sample, and by reconcileMissingAppointments() to pick
+ * which rows to retry-sync.
+ */
+export async function findAppointmentsMissingFromSheet(): Promise<MissingAppointmentSummary[]> {
+  const dbAppts = await prisma.appointment.findMany({
+    where: { clientId: { not: null } },
+    select: {
+      id: true,
+      customerName: true,
+      customerPhone: true,
+      apptDateTime: true,
+      masterSheetRowNumber: true,
+      syncError: true,
+      client: { select: { name: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  let sheetRows: Awaited<ReturnType<typeof readMasterTableRows>>
+  try {
+    sheetRows = await readMasterTableRows()
+  } catch (err) {
+    console.error(
+      '[appointment-reconcile] sheet read failed; falling back to row-number-only check:',
+      err,
+    )
+    sheetRows = []
+  }
+
+  const sheetContentKeys = new Set<string>()
+  const sheetRowNumbers = new Set<number>()
+  for (const r of sheetRows) {
+    sheetRowNumbers.add(r.rowNumber)
+    const key = contentKey(r.customerPhone, r.apptDateTime)
+    if (key) sheetContentKeys.add(key)
+  }
+
+  const missing: MissingAppointmentSummary[] = []
+  for (const a of dbAppts) {
+    const key = contentKey(a.customerPhone, a.apptDateTime)
+    const inSheetByContent = key ? sheetContentKeys.has(key) : false
+    const inSheetByRow =
+      a.masterSheetRowNumber != null && sheetRowNumbers.has(a.masterSheetRowNumber)
+
+    // Present in sheet by either index → not missing.
+    if (inSheetByContent || inSheetByRow) continue
+
+    let reason: MissingAppointmentSummary['reason']
+    if (a.syncError) reason = 'sync-failed'
+    else if (a.masterSheetRowNumber == null) reason = 'never-synced'
+    else reason = 'sheet-row-missing'
+
+    missing.push({
+      id: a.id,
+      customerName: a.customerName,
+      customerPhone: a.customerPhone,
+      apptDateTime: a.apptDateTime.toISOString(),
+      clientName: a.client?.name ?? null,
+      reason,
+      syncError: a.syncError,
+    })
+  }
+  return missing
+}
+
+export type ReconcileResult = {
+  attempted: number
+  succeeded: number
+  failed: number
+  failures: { id: string; customerName: string; error: string }[]
+}
+
+/**
+ * Re-run the sheet sync for every Appointment in the DB that's
+ * currently missing from the master sheet. Uses syncAppointmentUpdate
+ * which already handles both append (no row number yet) and update
+ * (stale row number) cases — so this is one code path regardless of
+ * the original failure mode.
+ *
+ * Sequential, not parallel, so concurrent appendAppointmentRows
+ * calls don't race for the next row number on the sheet. ~1-2s per
+ * row in practice; 100 missing rows is ~3 minutes worst case which
+ * is fine for an admin-triggered button.
+ *
+ * Idempotent — calling it again after success is a no-op (the rows
+ * are no longer missing, so the loop body skips).
+ */
+export async function reconcileMissingAppointments(): Promise<ReconcileResult> {
+  const missing = await findAppointmentsMissingFromSheet()
+  const result: ReconcileResult = {
+    attempted: missing.length,
+    succeeded: 0,
+    failed: 0,
+    failures: [],
+  }
+
+  for (const m of missing) {
+    try {
+      await syncAppointmentUpdate(m.id)
+      // syncAppointmentUpdate is fire-and-forget about its own
+      // errors (writes them to syncError instead of throwing). Re-
+      // read the row to see whether the retry actually cleared the
+      // syncError or still has it.
+      const after = await prisma.appointment.findUnique({
+        where: { id: m.id },
+        select: { syncError: true, masterSheetRowNumber: true },
+      })
+      if (after && !after.syncError && after.masterSheetRowNumber != null) {
+        result.succeeded++
+      } else {
+        result.failed++
+        result.failures.push({
+          id: m.id,
+          customerName: m.customerName,
+          error: after?.syncError ?? 'sync did not write a row number',
+        })
+      }
+    } catch (err) {
+      result.failed++
+      result.failures.push({
+        id: m.id,
+        customerName: m.customerName,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  return result
 }

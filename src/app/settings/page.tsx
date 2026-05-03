@@ -1936,10 +1936,213 @@ function SheetMaintenanceSection() {
           columnLabel="Sitdown"
         />
         <BackfillLoggedAtRow />
+        <ReconcileMissingRow />
       </div>
 
       <AppsScriptSnippet />
     </section>
+  )
+}
+
+/**
+ * Reconcile the gap between the DB Appointment table and the master
+ * sheet. Surfaces the count of DB rows missing from the sheet (the
+ * source of the "/clients shows 25 booked but master tracker shows
+ * 21" confusion) and lets admin one-click retry the sync for all of
+ * them.
+ */
+function ReconcileMissingRow() {
+  type MissingResponse = {
+    counts: {
+      total: number
+      neverSynced: number
+      syncFailed: number
+      sheetRowMissing: number
+    }
+    sample: Array<{
+      id: string
+      customerName: string
+      customerPhone: string
+      apptDateTime: string
+      clientName: string | null
+      reason: 'never-synced' | 'sync-failed' | 'sheet-row-missing'
+      syncError: string | null
+    }>
+  }
+  const qc = useQueryClient()
+  const lookup = useQuery<MissingResponse>({
+    queryKey: ['sheets-missing-from-sheet'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/sheets/missing-from-sheet')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Lookup failed')
+      return data
+    },
+  })
+
+  const reconcile = useMutation({
+    mutationFn: async (): Promise<{
+      ok: true
+      attempted: number
+      succeeded: number
+      failed: number
+      failures: { id: string; customerName: string; error: string }[]
+    }> => {
+      const res = await fetch('/api/admin/sheets/reconcile-missing', {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Reconcile failed')
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sheets-missing-from-sheet'] })
+      // /clients counts feed off the same data, so refresh those too
+      // — the gap should close immediately for any rows that synced.
+      qc.invalidateQueries({ queryKey: ['clients-with-counts'] })
+    },
+  })
+
+  const counts = lookup.data?.counts
+  const total = counts?.total ?? 0
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Wrench className="h-4 w-4 text-zinc-400" />
+            Reconcile DB ↔ master sheet
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Finds Appointments in the database that don&apos;t have a
+            matching row in the master sheet — sync failures, never-
+            synced rows, and rows that were deleted from the sheet
+            directly. Re-runs the sheet sync for each one. Source of
+            truth for the &quot;/clients shows 25 booked but master
+            tracker shows 21&quot; gap.
+          </p>
+          {lookup.isLoading ? (
+            <p className="mt-2 text-xs text-zinc-500">Checking…</p>
+          ) : lookup.isError ? (
+            <p className="mt-2 text-xs text-rose-600">
+              Couldn&apos;t check: {(lookup.error as Error).message}
+            </p>
+          ) : counts ? (
+            total === 0 ? (
+              <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                ✓ No gap — every DB appointment has a matching sheet row.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs">
+                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                  {total} DB row{total === 1 ? '' : 's'} missing from sheet
+                </span>
+                <span className="text-zinc-500">
+                  {' '}
+                  ({counts.neverSynced} never synced, {counts.syncFailed}{' '}
+                  sync failed, {counts.sheetRowMissing} sheet row deleted)
+                </span>
+              </p>
+            )
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => reconcile.mutate()}
+          disabled={reconcile.isPending || total === 0}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          title={
+            total === 0
+              ? 'Nothing to reconcile.'
+              : `Retry the sheet sync for ${total} row${total === 1 ? '' : 's'}.`
+          }
+        >
+          {reconcile.isPending
+            ? 'Reconciling…'
+            : total > 0
+              ? `Reconcile ${total}`
+              : 'Reconcile'}
+        </button>
+      </div>
+
+      {/* Sample list — shows the first few missing rows so admin can
+          eyeball what's about to be retried. Only renders when there's
+          a gap. */}
+      {!lookup.isLoading && counts && counts.total > 0 && lookup.data && (
+        <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-800 dark:bg-zinc-950">
+          <p className="mb-2 font-medium text-zinc-600 dark:text-zinc-400">
+            Sample (first {Math.min(lookup.data.sample.length, 25)} of {counts.total}):
+          </p>
+          <div className="space-y-1">
+            {lookup.data.sample.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium">{m.customerName}</span>
+                  {m.clientName && (
+                    <span className="text-zinc-500"> · {m.clientName}</span>
+                  )}
+                  <span className="text-zinc-500">
+                    {' · '}
+                    {new Date(m.apptDateTime).toLocaleString('en-US')}
+                  </span>
+                </div>
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                    m.reason === 'sync-failed' &&
+                      'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+                    m.reason === 'never-synced' &&
+                      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                    m.reason === 'sheet-row-missing' &&
+                      'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+                  )}
+                  title={m.syncError ?? undefined}
+                >
+                  {m.reason}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {reconcile.isSuccess && (
+        <Alert
+          variant={reconcile.data.failed === 0 ? 'success' : 'error'}
+        >
+          <div className="font-medium">
+            Reconcile complete — <code>{reconcile.data.succeeded}</code> of{' '}
+            <code>{reconcile.data.attempted}</code> succeeded
+            {reconcile.data.failed > 0 && (
+              <>
+                , <code>{reconcile.data.failed}</code> still failing
+              </>
+            )}
+            .
+          </div>
+          {reconcile.data.failures.length > 0 && (
+            <div className="mt-1 space-y-0.5 text-xs">
+              {reconcile.data.failures.slice(0, 5).map((f) => (
+                <div key={f.id}>
+                  {f.customerName}:{' '}
+                  <span className="text-rose-600">{f.error}</span>
+                </div>
+              ))}
+              {reconcile.data.failures.length > 5 && (
+                <div className="text-zinc-500">
+                  …{reconcile.data.failures.length - 5} more (check Render
+                  logs for the rest)
+                </div>
+              )}
+            </div>
+          )}
+        </Alert>
+      )}
+    </div>
   )
 }
 
