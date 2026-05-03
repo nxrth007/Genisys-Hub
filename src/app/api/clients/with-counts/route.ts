@@ -152,21 +152,30 @@ export async function GET() {
   for (const a of dbAppts) {
     if (!a.clientId) continue
     // Skip ghost DB rows so /clients matches /call-center/master-
-    // tracker exactly. A row counts as "in sheet" if either its
-    // masterSheetRowNumber matches a current sheet row, OR the
-    // (phone, apptDateTime) pair appears in the sheet (catches
-    // row-shift cases where rowNumber is stale).
+    // tracker exactly.
+    //
+    // We CHECK CONTENT FIRST (phone + apptDateTime) because content
+    // is stable across row shifts — phone + time don't change when
+    // Mary inserts a row above. masterSheetRowNumber, by contrast,
+    // becomes a stale pointer the moment the sheet's row order
+    // changes: row 15 might have been the DB row's appointment last
+    // week and someone else's appointment now. If we trusted the
+    // row number, we'd count those ghost DB rows as "in sheet"
+    // (they're not — a DIFFERENT row is at that position) and the
+    // /clients total would inflate past the master tracker count.
+    // Row-number fallback is only used when the DB row has no
+    // content key (no phone or no apptDateTime — extremely rare).
     const phoneKey = normalizePhoneForKey(a.customerPhone)
     const dateKey = apptKey(a.apptDateTime)
+    const hasContentKey = !!(phoneKey && dateKey)
+    const inSheetByContent =
+      hasContentKey &&
+      sheetContentKeys.has(`${phoneKey!}|${dateKey!}`)
     const inSheetByRow =
+      !hasContentKey &&
       a.masterSheetRowNumber != null &&
       sheetRowNumbers.has(a.masterSheetRowNumber)
-    const inSheetByContent = !!(
-      phoneKey &&
-      dateKey &&
-      sheetContentKeys.has(`${phoneKey}|${dateKey}`)
-    )
-    if (!inSheetByRow && !inSheetByContent) continue
+    if (!inSheetByContent && !inSheetByRow) continue
 
     const b = byClient.get(a.clientId) ?? empty()
     b.total++
