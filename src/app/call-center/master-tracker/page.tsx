@@ -452,13 +452,17 @@ export default function MasterTrackerPage() {
       }
       return { previous }
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       // Roll back to the pre-mutation snapshot so the UI matches the
       // sheet again. The mutation's `error` is surfaced in StatusCell
       // via the `pendingRowNumber` check below.
       if (context?.previous) {
         queryClient.setQueryData(['master-tracker-sheet'], context.previous)
       }
+      // Don't leave Mary / Alex staring at a red glow with no clue
+      // what happened — surface the API's actual error message so
+      // misconfiguration shows up loud instead of silently failing.
+      window.alert(`Couldn't update status: ${(err as Error).message}`)
     },
   })
 
@@ -506,10 +510,11 @@ export default function MasterTrackerPage() {
       }
       return { previous }
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(['master-tracker-sheet'], context.previous)
       }
+      window.alert(`Couldn't update Sitdown: ${(err as Error).message}`)
     },
   })
 

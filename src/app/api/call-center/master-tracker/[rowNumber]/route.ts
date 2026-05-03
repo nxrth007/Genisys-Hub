@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import {
   deleteMasterTableRow,
+  migrateAddSentToClientColumn,
   readMasterTableRows,
   updateMasterTableCell,
   updateMasterTableCells,
@@ -435,8 +436,41 @@ async function writeOne(
 
     return NextResponse.json({ ok: true, ...echo })
   } catch (err) {
-    console.error('[master-tracker PATCH] failed:', err)
     const message = err instanceof Error ? err.message : 'Update failed'
+    // Self-heal the "no Sitdown column on the sheet" case. The
+    // updateMasterTableCell helper throws a recognizable message
+    // when the canonical column is missing from the schema. For
+    // sentToClient we know the migration that adds it (idempotent,
+    // safe to re-run), so run it here and retry once instead of
+    // forcing admin to navigate to /settings just to make a
+    // dropdown work.
+    const isMissingColumn =
+      canonical === 'sentToClient' &&
+      /Column .* not found/i.test(message)
+    if (isMissingColumn) {
+      try {
+        console.log(
+          '[master-tracker PATCH] sentToClient column missing — auto-running migrateAddSentToClientColumn before retry',
+        )
+        await migrateAddSentToClientColumn()
+        await updateMasterTableCell({ rowNumber, canonical, value })
+        return NextResponse.json({ ok: true, ...echo, autoMigrated: true })
+      } catch (retryErr) {
+        console.error(
+          '[master-tracker PATCH] auto-migrate + retry failed:',
+          retryErr,
+        )
+        const retryMessage =
+          retryErr instanceof Error ? retryErr.message : 'Retry failed'
+        return NextResponse.json(
+          {
+            error: `Auto-added the Sitdown column but the retry write failed: ${retryMessage}`,
+          },
+          { status: 500 },
+        )
+      }
+    }
+    console.error('[master-tracker PATCH] failed:', err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
