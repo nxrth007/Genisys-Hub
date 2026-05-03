@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
+import { backfillClientAlerts } from '@/lib/client-alert'
 
 /**
  * PATCH /api/clients/:id
@@ -68,12 +69,14 @@ export async function PATCH(
   // ledger so the next cron tick doesn't blast every existing sheet
   // row into the freshly-configured channel.
   let priorChannelId: string | null = null
-  if ('slackChannelId' in parsed.data) {
+  let priorContactPhone: string | null = null
+  if ('slackChannelId' in parsed.data || 'contactPhone' in parsed.data) {
     const prior = await prisma.client.findUnique({
       where: { id },
-      select: { slackChannelId: true },
+      select: { slackChannelId: true, contactPhone: true },
     })
     priorChannelId = prior?.slackChannelId ?? null
+    priorContactPhone = prior?.contactPhone ?? null
   }
 
   try {
@@ -124,6 +127,35 @@ export async function PATCH(
         // already saved, and the admin can retry from Settings. But
         // *do* warn so they know to verify before the next sync.
         console.error('[clients] backfill failed:', err)
+      }
+    }
+
+    // Same backfill story for the Client Alerts SMS path: if the
+    // master toggle is on AND contactPhone just transitioned from
+    // null/different to a real value, mark every current sheet row
+    // as 'backfilled' so the next cron tick doesn't blast the new
+    // recipient with every historical appointment for this client.
+    // No-op when ClientAlertsConfig.enabled is false (cron itself
+    // would be a no-op anyway, so backfill would be wasted I/O).
+    if (
+      client.contactPhone &&
+      client.contactPhone !== priorContactPhone
+    ) {
+      const alertsConfig = await prisma.clientAlertsConfig
+        .findUnique({ where: { id: 'singleton' } })
+        .catch(() => null)
+      if (alertsConfig?.enabled) {
+        try {
+          const result = await backfillClientAlerts({
+            clientId: client.id,
+            recipientPhone: client.contactPhone,
+          })
+          console.log(
+            `[clients] alert-backfilled ${result.recorded} historical rows for ${client.name} → ${client.contactPhone} (${result.alreadyTracked} were already tracked)`,
+          )
+        } catch (err) {
+          console.error('[clients] alert-backfill failed:', err)
+        }
       }
     }
 
