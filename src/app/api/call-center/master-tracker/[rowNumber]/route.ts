@@ -41,6 +41,58 @@ const SENT_TO_CLIENT_LABEL: Record<string, string> = {
   unassigned: '',
 }
 
+/**
+ * Split a wall-clock datetime string into separate date + time
+ * pieces formatted the way the master sheet expects ("M/D/YYYY"
+ * and "h:mm AM/PM"). Tolerant of multiple input shapes — anything
+ * the modal's `<input type="datetime-local">` ("YYYY-MM-DDTHH:mm")
+ * or the legacy `toLocaleString` output ("M/D/YYYY, h:mm AM/PM")
+ * could produce. Returns null when the input doesn't look like a
+ * wall-clock at all so the caller can fall through.
+ *
+ * Critical: does NOT route through `new Date()`. That would
+ * interpret the wall-clock in the SERVER's tz (UTC on Render) and
+ * shift the components — exactly the bug we just spent two days
+ * eliminating elsewhere. Instead we parse + reformat the components
+ * directly so the wall-clock stays untouched, and the sheet re-read
+ * pins it to the customer's tz on the next pass.
+ */
+function parseWallClockParts(
+  input: string,
+): { dateStr: string; timeStr: string } | null {
+  // ISO-local first: "2026-05-08T18:00" or "2026-05-08 18:00"
+  const iso = input.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})/,
+  )
+  if (iso) {
+    const Y = parseInt(iso[1], 10)
+    const M = parseInt(iso[2], 10)
+    const D = parseInt(iso[3], 10)
+    let h = parseInt(iso[4], 10)
+    const min = parseInt(iso[5], 10)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    h = h % 12
+    if (h === 0) h = 12
+    return {
+      dateStr: `${M}/${D}/${Y}`,
+      timeStr: `${h}:${String(min).padStart(2, '0')} ${ampm}`,
+    }
+  }
+  // US-style: "5/8/2026, 6:00 PM" or "5/8/2026 6:00 PM" with optional
+  // comma + optional seconds. Already in the shape the sheet wants —
+  // just split on the first space-after-the-date.
+  const us = input.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i,
+  )
+  if (us) {
+    return {
+      dateStr: `${parseInt(us[1], 10)}/${parseInt(us[2], 10)}/${us[3]}`,
+      timeStr: `${parseInt(us[4], 10)}:${us[5]} ${us[6].toUpperCase()}`,
+    }
+  }
+  return null
+}
+
 // Field allowlist for the admin full-row edit. Each entry maps the
 // JSON body key to the sheet's canonical column key. Centralized here
 // so adding a new editable field is a one-line change.
@@ -224,6 +276,25 @@ async function writeFullEdit(
     // crashed — admin's UI sends strings but defensive handling
     // catches stray Date objects from the picker, etc.
     updates[canonical] = String(raw)
+  }
+
+  // Split apptDateTime into apptDate + apptTime as a fallback. Most
+  // master sheets use SEPARATE Date and Time columns rather than a
+  // combined one, in which case writing only to `apptDateTime`
+  // silently goes nowhere (updateMasterTableCells skips canonicals
+  // that don't exist in the schema). Symptom Alex hit: opens the
+  // edit modal, changes the time, saves, sees no change in the
+  // tracker because the write landed on a non-existent column.
+  // Split-and-also-write covers both schemas — the combined column
+  // still gets the value if it exists, AND the date/time columns
+  // get the same wall-clock so split sheets actually update too.
+  const dt = updates.apptDateTime
+  if (dt && (!updates.apptDate || !updates.apptTime)) {
+    const parts = parseWallClockParts(dt)
+    if (parts) {
+      if (!updates.apptDate) updates.apptDate = parts.dateStr
+      if (!updates.apptTime) updates.apptTime = parts.timeStr
+    }
   }
 
   // Optional status update — accept the same token form the inline

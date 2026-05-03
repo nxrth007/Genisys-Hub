@@ -2128,6 +2128,13 @@ function AdminEditModal({
   onSave: (payload: Record<string, string | null>) => void
   onCancel: () => void
 }) {
+  // Customer tz the row was parsed in — explicit Timezone-column
+  // override first, address-state inference second. Used to populate
+  // the datetime-local input in the right zone so 5 PM PDT actually
+  // shows as 17:00 in the picker (not 20:00 in browser EDT).
+  const customerTz =
+    appointment?.resolvedTimezone ||
+    customerTzFromAddress(appointment?.address ?? null)
   const initial = appointment
     ? {
         customerName: appointment.customerName ?? '',
@@ -2145,10 +2152,13 @@ function AdminEditModal({
         agentEmail: appointment.agent?.email ?? '',
         client: appointment.client?.name ?? '',
         timezone: appointment.timezone ?? '',
-        // datetime-local format: YYYY-MM-DDTHH:mm in the user's
-        // browser tz, which is what the input expects.
+        // datetime-local in the CUSTOMER's tz so the displayed time
+        // matches the hint ("Time is read at the customer's clock")
+        // and matches what's on Master Tracker. Was browser-tz; that
+        // mismatch was Alex's "showing 8PM" bug — 5 PM PDT in EDT
+        // browser displayed as 8 PM in the picker.
         apptDateTime: appointment.apptDateTime
-          ? toLocalDateTimeInput(appointment.apptDateTime)
+          ? toLocalDateTimeInput(appointment.apptDateTime, customerTz)
           : '',
       }
     : null
@@ -2183,21 +2193,26 @@ function AdminEditModal({
       }
     }
     // apptDateTime needs special handling. The picker gives us a
-    // local datetime string; sheet expects something parseable. Send
-    // through as a friendly "MM/DD/YYYY HH:mm AM/PM" so the sheet
-    // formula bar shows a readable value the next time someone
-    // opens the source.
+    // wall-clock string in the customer's tz (because the load also
+    // formats in customer tz). We reformat into "M/D/YYYY h:mm AM/PM"
+    // for sheet readability — but WITHOUT routing through `new
+    // Date()`, which would silently re-interpret the wall-clock in
+    // the server/browser's tz and shift it. Just split + reformat
+    // the components directly so the wall-clock survives untouched.
     if (diff.apptDateTime) {
-      const d = new Date(diff.apptDateTime)
-      if (!isNaN(d.getTime())) {
-        diff.apptDateTime = d.toLocaleString('en-US', {
-          year: 'numeric',
-          month: 'numeric',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        })
+      const m = diff.apptDateTime.match(
+        /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})/,
+      )
+      if (m) {
+        const Y = parseInt(m[1], 10)
+        const M = parseInt(m[2], 10)
+        const D = parseInt(m[3], 10)
+        let h = parseInt(m[4], 10)
+        const mn = parseInt(m[5], 10)
+        const ampm = h >= 12 ? 'PM' : 'AM'
+        h = h % 12
+        if (h === 0) h = 12
+        diff.apptDateTime = `${M}/${D}/${Y} ${h}:${String(mn).padStart(2, '0')} ${ampm}`
       }
     }
     return diff
@@ -2461,15 +2476,44 @@ function EditField({
 }
 
 /**
- * Convert a stored ISO string into the `YYYY-MM-DDTHH:mm` form that
- * a `<input type="datetime-local">` expects. Uses the browser's
- * local timezone so the displayed time matches what the user typed.
+ * Convert a stored ISO instant into the `YYYY-MM-DDTHH:mm` form that
+ * `<input type="datetime-local">` expects, formatted in the
+ * **customer's** timezone (not the editor's browser).
+ *
+ * Why customer-tz instead of browser-tz: Alex in EDT opening a row
+ * stored as 5 PM PDT used to see "08:00 PM" in the input (5 PM PDT
+ * = 8 PM EDT). The hint right below the input correctly says
+ * "PDT" — so the input said one thing and the hint said another.
+ * That mismatch was the source of "wait, what time is this even
+ * supposed to be?" on every edit. Now both display in the
+ * customer's clock, which is also the clock the wall-clock string
+ * will be re-interpreted in on the next sheet read.
  */
-function toLocalDateTimeInput(iso: string): string {
+function toLocalDateTimeInput(iso: string, timezone?: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  // Browser-tz fallback for backwards compatibility with callers
+  // that haven't been migrated yet — same shape the old impl
+  // returned.
+  if (!timezone) {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  // Format each component in the target tz via Intl. hourCycle:'h23'
+  // gives 0-23 hours which is what datetime-local wants.
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+  const parts = fmt.formatToParts(d)
+  const pick = (t: string) =>
+    parts.find((p) => p.type === t)?.value ?? '00'
+  return `${pick('year')}-${pick('month')}-${pick('day')}T${pick('hour')}:${pick('minute')}`
 }
 
 function DetailItem({
