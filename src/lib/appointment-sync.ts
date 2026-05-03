@@ -36,13 +36,14 @@ function toSyncData(
     callRecordingLink: string | null
     bookedByName: string | null
     createdAt: Date
-    client?: { name: string } | null
+    client?: { name: string; state: string | null } | null
   },
   agent: AgentLite
 ): AppointmentSyncData {
   return {
     apptDateTime: appt.apptDateTime,
     clientName: appt.client?.name || null,
+    clientState: appt.client?.state || null,
     customerName: appt.customerName,
     customerPhone: appt.customerPhone,
     address: appt.address,
@@ -85,7 +86,7 @@ export async function syncAppointmentCreate(appointmentId: string): Promise<void
     where: { id: appointmentId },
     include: {
       agent: { select: { id: true, name: true, email: true, agentSheetTab: true } },
-      client: { select: { name: true } },
+      client: { select: { name: true, state: true } },
     },
   })
   if (!appt) return
@@ -128,7 +129,7 @@ export async function syncAppointmentUpdate(appointmentId: string): Promise<void
     where: { id: appointmentId },
     include: {
       agent: { select: { id: true, name: true, email: true, agentSheetTab: true } },
-      client: { select: { name: true } },
+      client: { select: { name: true, state: true } },
     },
   })
   if (!appt) return

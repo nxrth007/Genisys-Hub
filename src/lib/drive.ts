@@ -816,16 +816,34 @@ async function detectTableSchema(
 
 // ---- Value formatters --------------------------------------------------
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString('en-US')
+// Format a UTC Date as the wall-clock the customer would see on
+// their wall. Without `tz` these fall back to the server's local
+// zone (UTC on Render) — that path was the source of the
+// 2:30 PM PDT → 9:30 PM PDT bug and is only kept for the legacy
+// backfill stamp at line ~1681.
+function fmtDate(d: Date, tz?: string): string {
+  if (!tz) return d.toLocaleDateString('en-US')
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(d)
 }
 
-function fmtTime(d: Date): string {
-  return d.toLocaleTimeString('en-US', { hour12: true })
+function fmtTime(d: Date, tz?: string): string {
+  if (!tz) return d.toLocaleTimeString('en-US', { hour12: true })
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(d)
 }
 
-function fmtDateTime(d: Date): string {
-  return `${fmtDate(d)} ${fmtTime(d)}`
+function fmtDateTime(d: Date, tz?: string): string {
+  return `${fmtDate(d, tz)} ${fmtTime(d, tz)}`
 }
 
 // ---- Appointment payload + row building --------------------------------
@@ -835,6 +853,10 @@ export type AppointmentSyncData = {
   // Genisys client (Brighton Capital Solar / Spring Solar / …). Optional so
   // historical rows missing a clientId still sync.
   clientName?: string | null
+  // Client's nominal state — used as a tz-resolution fallback when
+  // the address can't be parsed (rare, but Mary's caught it). The
+  // address tier wins when both are present.
+  clientState?: string | null
   customerName: string
   customerPhone: string
   address: string | null
@@ -862,16 +884,20 @@ function toDate(v: Date | string): Date {
   return v instanceof Date ? v : new Date(v)
 }
 
-function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null): string {
+function valueForCanonical(
+  appt: AppointmentSyncData,
+  key: CanonicalKey | null,
+  tz: string,
+): string {
   if (!key) return '' // unknown column — leave blank so row alignment holds
   const when = toDate(appt.apptDateTime)
   switch (key) {
     case 'apptDate':
-      return fmtDate(when)
+      return fmtDate(when, tz)
     case 'apptTime':
-      return fmtTime(when)
+      return fmtTime(when, tz)
     case 'apptDateTime':
-      return fmtDateTime(when)
+      return fmtDateTime(when, tz)
     case 'client':
       return appt.clientName || ''
     case 'customerName':
@@ -903,7 +929,10 @@ function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null):
     case 'agentEmail':
       return appt.agentEmail || ''
     case 'loggedAt':
-      return fmtDateTime(toDate(appt.createdAt))
+      // Stamp loggedAt in the customer's tz for consistency with
+      // the appt date/time columns — makes "logged at" meaningful
+      // when scanning a row in the master tracker.
+      return fmtDateTime(toDate(appt.createdAt), tz)
     case 'sentToClient':
       // New Hub-booked rows default to "" (treated as Unassigned by
       // the UI); Ethan flips them to Yes / No manually once delivered.
@@ -922,7 +951,17 @@ function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null):
 }
 
 function buildRowForSchema(schema: TableSchema, appt: AppointmentSyncData): string[] {
-  return schema.columns.map((col) => valueForCanonical(appt, col.canonical))
+  // Resolve the customer's wall-clock zone ONCE per row so every
+  // date/time cell in the row is formatted in the same tz. Without
+  // this, fmtDate/fmtTime would format UTC components as if they
+  // were the server's local time (UTC on Render), shifting every
+  // PDT appointment by 7h on the next sheet read.
+  const tz = resolveCustomerTimezone({
+    timezone: appt.timezone,
+    address: appt.address,
+    clientState: appt.clientState,
+  })
+  return schema.columns.map((col) => valueForCanonical(appt, col.canonical, tz))
 }
 
 // ---- Auth + tab helpers -------------------------------------------------
