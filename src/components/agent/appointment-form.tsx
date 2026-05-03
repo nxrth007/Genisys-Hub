@@ -12,7 +12,7 @@ import { AddressMapPreview } from '@/components/agent/address-map-preview'
 import { PhoneEntriesField } from '@/components/agent/phone-entries-field'
 import { SolarInsightsCard } from '@/components/agent/solar-insights-card'
 import { parseAddress, STATE_NAME_TO_CODE } from '@/lib/address'
-import { timezoneForAddress, wallClockInTzToUtcIso } from '@/lib/timezone'
+import { resolveCustomerTimezone, wallClockInTzToUtcIso } from '@/lib/timezone'
 
 type Conflict = {
   id: string
@@ -275,13 +275,22 @@ export function AppointmentForm({
     const method = mode === 'create' ? 'POST' : 'PATCH'
 
     // Interpret the date/time picker's value as wall-clock in the
-    // CUSTOMER's timezone (derived from address), not Mary's browser.
-    // Mary in the Philippines typing "9 AM" for a California customer
-    // means "9 AM California time" — without this fix, JS's default
-    // parser interprets it as "9 AM Manila" which is ~16 hours off
-    // and shows up downstream as midnight or earlier. See
-    // wallClockInTzToUtcIso for the exact mechanic.
-    const customerTz = timezoneForAddress(values.address)
+    // CUSTOMER's timezone, not Mary's browser. Mary in the Philippines
+    // typing "9 AM" for a California customer means "9 AM California
+    // time" — without this, JS's default parser interprets it as
+    // "9 AM Manila" which is ~16 hours off. See wallClockInTzToUtcIso
+    // for the exact mechanic.
+    //
+    // Tz lookup falls back through three tiers: address → selected
+    // client's state → default (NY). The client-state fallback is
+    // belt-and-suspenders — even if the address is briefly empty
+    // (form just opened, Mary editing the address, etc.) we still
+    // pin the time to the right zone via the picked client.
+    const selectedClient = clients.find((c) => c.id === values.clientId)
+    const customerTz = resolveCustomerTimezone({
+      address: values.address,
+      clientState: selectedClient?.state ?? null,
+    })
     const apptIso = values.apptDateTime
       ? wallClockInTzToUtcIso(values.apptDateTime, customerTz) ??
         // Fallback to default-tz interpretation if parsing somehow
@@ -430,13 +439,17 @@ export function AppointmentForm({
             onChange={(next) => set('apptDateTime', next)}
             disabled={submitting}
           />
-          {/* Customer-tz hint — once Mary fills in an address, show
-              her the IANA + short label so she knows whose clock the
-              wall-clock above is being read in. Quietly removes the
-              "what tz is this?" ambiguity for everyone — Manila,
-              NH, LA all see the same thing. */}
+          {/* Customer-tz hint — same resolver the submit uses, so
+              what Mary sees here is exactly what gets stored. Tz is
+              derived from address first (most specific), then from
+              the selected client's state as a fallback so the hint
+              is useful even when she's still typing the address. */}
           {(() => {
-            const tz = timezoneForAddress(values.address)
+            const selected = clients.find((c) => c.id === values.clientId)
+            const tz = resolveCustomerTimezone({
+              address: values.address,
+              clientState: selected?.state ?? null,
+            })
             const shortLabel = (() => {
               try {
                 const parts = new Intl.DateTimeFormat('en-US', {
@@ -450,15 +463,19 @@ export function AppointmentForm({
                 return tz
               }
             })()
+            const sourceLabel = values.address?.trim()
+              ? 'from the address'
+              : selected?.state
+                ? `from ${selected.name} (${selected.state})`
+                : 'default — pick a client or add an address'
             return (
               <p className="mt-1.5 text-[11px] text-zinc-500">
                 Time is read at the customer&apos;s clock —{' '}
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
                   {shortLabel}
                 </span>{' '}
-                ({tz}).
-                {!values.address?.trim() &&
-                  ' Add an address above to pin this to the customer’s zone.'}
+                ({tz}).{' '}
+                <span className="text-zinc-400">{sourceLabel}.</span>
               </p>
             )
           })()}

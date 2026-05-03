@@ -113,6 +113,60 @@ export function timezoneForAddress(address: string | null | undefined): string {
 }
 
 /**
+ * Map a state name or 2-letter code directly to an IANA tz. Used by
+ * the agent form to resolve a customer tz from the **selected
+ * client's** state when the address is still empty — Mary picking
+ * "Home Energy Upgrade (California)" before typing the address is
+ * already enough info to know the time should be PT.
+ *
+ * Returns null when the input doesn't match a known state, so callers
+ * can decide whether to fall through to the default tz or wait for
+ * more information.
+ */
+export function timezoneForStateName(
+  stateInput: string | null | undefined,
+): string | null {
+  if (!stateInput) return null
+  const trimmed = stateInput.trim()
+  if (!trimmed) return null
+  const lc = trimmed.toLowerCase()
+  // Try the spelled-out name first ("California" → "CA").
+  const fromName = STATE_NAME_TO_CODE[lc]
+  if (fromName && STATE_CODE_TO_TIMEZONE[fromName]) {
+    return STATE_CODE_TO_TIMEZONE[fromName]
+  }
+  // Then the 2-letter code as-typed.
+  const upper = trimmed.toUpperCase()
+  if (STATE_CODE_TO_TIMEZONE[upper]) return STATE_CODE_TO_TIMEZONE[upper]
+  return null
+}
+
+/**
+ * Best-effort tz resolution: prefer the address (most specific —
+ * a CA address tells us exactly where the customer lives), fall
+ * back to the client's nominal state (Mary picked the CA client
+ * but hasn't typed the address yet), then to America/New_York.
+ *
+ * Used by the agent appointment form so picking a client is enough
+ * to lock the wall-clock interpretation to that client's zone —
+ * before this, an empty-address form silently defaulted to NY
+ * regardless of which CA/AZ/UT client was selected, and Mary's
+ * "6 PM" would store as 6 PM EDT (= 3 PM PDT).
+ */
+export function resolveCustomerTimezone(params: {
+  address?: string | null
+  clientState?: string | null
+}): string {
+  const fromAddress = stateCodeFromAddress(params.address)
+  if (fromAddress && STATE_CODE_TO_TIMEZONE[fromAddress]) {
+    return STATE_CODE_TO_TIMEZONE[fromAddress]
+  }
+  const fromClient = timezoneForStateName(params.clientState)
+  if (fromClient) return fromClient
+  return DEFAULT_TIMEZONE
+}
+
+/**
  * Format a JS Date in a given IANA timezone using a tolerant pattern
  * helper. Mostly used to render the appointment time inside reminder
  * SMS bodies (e.g. "Tomorrow at 2:00 PM").
