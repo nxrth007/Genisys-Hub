@@ -541,6 +541,31 @@ export default function MasterTrackerPage() {
     },
   })
 
+  // Wipe a row's SheetSlackDelivery records so the next cron tick
+  // treats it as fresh and either auto-delivers or fails-loudly.
+  // Used when testing auto-fire with a phone+time combo that's been
+  // used in earlier tests — without this, the dedup ledger keeps
+  // pinning the row to an ancient delivery record.
+  const wipeRowMutation = useMutation({
+    mutationFn: async (vars: { rowNumber: number }) => {
+      const res = await fetch('/api/admin/slack-delivery/wipe-row', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowNumber: vars.rowNumber }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Wipe failed')
+      }
+      return data as { ok: true; deleted: number }
+    },
+    onSuccess: () => {
+      // Refresh so the pill flips back to "Unassigned" until the
+      // next cron tick re-evaluates the row.
+      queryClient.invalidateQueries({ queryKey: ['master-tracker-sheet'] })
+    },
+  })
+
   // Hide the per-row Deliver button on the agent-facing route. The
   // /call-center/master-tracker page exports the same component to
   // /agent/master-tracker via re-export, so role-based gating has to
@@ -1428,9 +1453,12 @@ export default function MasterTrackerPage() {
                             appointment={a}
                             staffMode={isStaffView}
                             pending={
-                              deliverRowMutation.isPending &&
-                              deliverRowMutation.variables?.rowNumber ===
-                                Number(a.id.replace(/^sheet:/, ''))
+                              (deliverRowMutation.isPending &&
+                                deliverRowMutation.variables?.rowNumber ===
+                                  Number(a.id.replace(/^sheet:/, ''))) ||
+                              (wipeRowMutation.isPending &&
+                                wipeRowMutation.variables?.rowNumber ===
+                                  Number(a.id.replace(/^sheet:/, '')))
                             }
                             onDeliver={(force) => {
                               const match = a.id.match(/^sheet:(\d+)$/)
@@ -1446,6 +1474,33 @@ export default function MasterTrackerPage() {
                                 }
                               }
                               deliverRowMutation.mutate({ rowNumber, force })
+                            }}
+                            onResetDelivery={() => {
+                              const match = a.id.match(/^sheet:(\d+)$/)
+                              if (!match) return
+                              const rowNumber = Number(match[1])
+                              if (
+                                !window.confirm(
+                                  `Wipe all Slack delivery records for this row? The next 5-min cron tick will treat it as fresh and either auto-deliver or fail with a reason. Use this to recover from a stuck "Delivered" pill or to retest auto-fire with a phone number you've used before.`,
+                                )
+                              ) {
+                                return
+                              }
+                              wipeRowMutation.mutate(
+                                { rowNumber },
+                                {
+                                  onSuccess: (data) => {
+                                    window.alert(
+                                      `Wiped ${data.deleted} delivery record${data.deleted === 1 ? '' : 's'} for row ${rowNumber}. The next cron tick (within 5 min) will re-evaluate.`,
+                                    )
+                                  },
+                                  onError: (err) => {
+                                    window.alert(
+                                      `Wipe failed: ${(err as Error).message}`,
+                                    )
+                                  },
+                                },
+                              )
                             }}
                           />
                         </td>
@@ -2043,6 +2098,7 @@ function SlackDeliveryCell({
   staffMode,
   pending,
   onDeliver,
+  onResetDelivery,
 }: {
   appointment: Appointment
   /** True only on the staff /call-center route. Mary's /agent
@@ -2053,9 +2109,35 @@ function SlackDeliveryCell({
   /** Called with force=true when re-sending an already-delivered
    *  row. The parent shows a confirm() dialog before firing. */
   onDeliver: (force: boolean) => void
+  /** Wipe this row's SheetSlackDelivery records so the next cron
+   *  tick treats the row as fresh. Used to recover a stuck
+   *  "Delivered" pill (typically a stale match against an old test
+   *  delivery) or to retest auto-fire with reused phone+time data.
+   *  Parent shows a confirm() dialog before firing. */
+  onResetDelivery: () => void
 }) {
   const delivery = appointment.slackDelivery
   const status = delivery?.status
+
+  // Small icon button that wipes the row's delivery records. Shared
+  // across the delivered/failed/backfilled pills since the recovery
+  // story is the same for all three: the ledger is wrong (stale,
+  // failed, or test data) and the row should be re-evaluated fresh.
+  const resetBtn = staffMode ? (
+    <button
+      type="button"
+      onClick={onResetDelivery}
+      disabled={pending}
+      className="inline-flex items-center rounded-md border border-zinc-200 px-1 py-0.5 text-[10px] text-zinc-500 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+      title="Reset: wipe this row's delivery ledger so the next cron tick re-evaluates from scratch."
+    >
+      {pending ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <X className="h-3 w-3" />
+      )}
+    </button>
+  ) : null
 
   // Delivered → green pill. Clickable for staff (force re-send) so
   // admins can recover from ghost-delivery cases where the ledger
@@ -2112,6 +2194,7 @@ function SlackDeliveryCell({
             )}
           </button>
         )}
+        {resetBtn}
       </div>
     )
   }
@@ -2141,6 +2224,7 @@ function SlackDeliveryCell({
             Retry
           </button>
         )}
+        {resetBtn}
       </div>
     )
   }
@@ -2172,6 +2256,7 @@ function SlackDeliveryCell({
             Deliver
           </button>
         )}
+        {resetBtn}
       </div>
     )
   }
