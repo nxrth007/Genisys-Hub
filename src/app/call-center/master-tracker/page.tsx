@@ -1000,7 +1000,7 @@ export default function MasterTrackerPage() {
           }
         />
         <QuickFilterChip
-          label="Booked today"
+          label="Booked for today"
           count={quickCounts.bookedToday}
           active={quickFilter === 'booked-today'}
           tone="blue"
@@ -1009,7 +1009,7 @@ export default function MasterTrackerPage() {
           }
         />
         <QuickFilterChip
-          label="Booked this week"
+          label="Booked for this week"
           count={quickCounts.bookedThisWeek}
           active={quickFilter === 'booked-this-week'}
           tone="blue"

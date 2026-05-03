@@ -202,7 +202,7 @@ export default function AgentDashboardPage() {
           }
         />
         <QuickFilterChip
-          label="Booked today"
+          label="Booked for today"
           hint="Scheduled for today in the customer's tz"
           active={quickFilter === 'booked-today'}
           tone="blue"
