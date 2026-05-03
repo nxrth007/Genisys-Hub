@@ -257,6 +257,39 @@ export function formatInTimezone(
 }
 
 /**
+ * Mary's call-center clock — the canonical "today" anchor for the
+ * "Set today / Set this week" filters. Hardcoded because Mary is the
+ * only active agent right now and lives in Asia/Manila; when a second
+ * agent onboards, lift this to a User.timezone field on the session.
+ *
+ * Why not the viewer's browser zone: Alex (EST) opening the Master
+ * Tracker at 11 PM ET would see "today" roll back ~13h, hiding rows
+ * Mary just logged. Anchoring to her zone keeps the filter meaningful
+ * regardless of who's looking.
+ */
+export const AGENT_TIMEZONE = 'Asia/Manila'
+
+/**
+ * True when `a` and `b` fall on the same calendar day in `timezone`.
+ * Avoids the `getDate()` / `getMonth()` browser-zone trap by formatting
+ * both sides through Intl in the target zone and string-comparing the
+ * YYYY-MM-DD shape (en-CA gives ISO ordering for free).
+ *
+ * Used by the "today" quick filters on /agent and the master tracker
+ * so "today" means the same day for Mary in Manila, Alex in EST, and
+ * the customer in PT.
+ */
+export function sameDayInTz(a: Date, b: Date, timezone: string): boolean {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return fmt.format(a) === fmt.format(b)
+}
+
+/**
  * Interpret a wall-clock string ("YYYY-MM-DDTHH:mm" or
  * "YYYY-MM-DD HH:mm" or US-style "M/D/YYYY h:mm AM/PM") as if it
  * were typed in the *target* IANA timezone, and return the matching

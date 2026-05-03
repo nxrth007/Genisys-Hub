@@ -28,6 +28,11 @@ import { cn } from '@/lib/utils'
 // PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
 import { StatCard } from '@/components/ui/stat-card'
 import { parsePhoneEntries } from '@/lib/phone'
+import {
+  AGENT_TIMEZONE,
+  resolveCustomerTimezone,
+  sameDayInTz,
+} from '@/lib/timezone'
 
 /**
  * Master Tracker — Ethan's deliverable view of every booked appointment
@@ -89,7 +94,7 @@ type Appointment = {
   callRecordingLink: string | null
   createdAt: string
   /** Honest "Logged At" cell from the sheet — null when blank. The
-   *  "Booked today / this week" filters key off this exclusively so
+   *  "Set today / Set this week" filters key off this exclusively so
    *  they don't accidentally match by appointment date when Logged At
    *  is empty. */
   loggedAt: string | null
@@ -116,17 +121,23 @@ type AgentSummary = {
 }
 
 /**
- * Quick-filter chips above the table. `booked-*` filters the row's
- * createdAt (when it was logged into the sheet); `appts-*` filters the
- * apptDateTime (when the customer meeting actually happens). Both are
- * useful end-of-day views — "what did we book today" vs "who's
- * coming in today".
+ * Quick-filter chips above the table.
+ *   - `set-*`    keys off the row's loggedAt cell (when Mary entered
+ *                it into the sheet) — answers "what did we just log".
+ *   - `booked-*` keys off the row's apptDateTime (when the customer
+ *                meeting actually happens) — answers "who's coming in".
+ *
+ * The Booked↔Set vocabulary matches Alex's mental model: "booked" =
+ * scheduled-for, "set" = entered-into-the-system. Earlier the labels
+ * were swapped from this convention, which made "Booked today" look
+ * like it should mean apptDateTime today; the current naming is the
+ * fixed shape.
  */
 type QuickFilter =
+  | 'set-today'
+  | 'set-this-week'
   | 'booked-today'
   | 'booked-this-week'
-  | 'appts-today'
-  | 'appts-this-week'
   | null
 
 const STATUSES = [
@@ -250,30 +261,52 @@ function endOfDay(d: Date): Date {
  * True if the appointment matches the chip the user has active. Pulled
  * out of the filter useMemo so the per-chip count helper can reuse the
  * same predicate without duplicating logic.
+ *
+ * Tz handling:
+ *   - `set-today` → loggedAt within today in AGENT_TIMEZONE (Manila)
+ *     so 11 PM bookings stay "today" regardless of who's viewing.
+ *   - `booked-today` → apptDateTime within today in the CUSTOMER's tz
+ *     (per-row, derived from address + client.state) so a 9 PM PT
+ *     appointment stays "today" the whole PT day.
+ *   - The "this week" predicates still use viewer-local week math —
+ *     coarser range, edge cases matter less. Worth a follow-up if a
+ *     row near the week boundary keeps slipping out for someone.
  */
 function matchesQuickFilter(a: Appointment, q: QuickFilter): boolean {
   if (!q) return true
   const now = new Date()
-  // "Booked-*" chips key off loggedAt strictly — rows whose Logged At
+  // `set-*` chips key off loggedAt strictly — rows whose Logged At
   // cell is blank in the sheet don't match (we genuinely don't know
-  // when they were booked, so we can't honestly call them "booked
+  // when they were entered, so we can't honestly call them "set
   // today"). This avoids the gotcha where an empty Logged At would
   // make the filter fall through to apptDateTime and match by
   // appointment date instead.
-  if (q === 'booked-today') {
+  if (q === 'set-today') {
     if (!a.loggedAt) return false
-    const bookedAt = new Date(a.loggedAt).getTime()
-    return bookedAt >= startOfDay(now).getTime() && bookedAt <= endOfDay(now).getTime()
+    const created = new Date(a.loggedAt)
+    return !isNaN(created.getTime()) && sameDayInTz(created, now, AGENT_TIMEZONE)
   }
-  if (q === 'booked-this-week') {
+  if (q === 'set-this-week') {
     if (!a.loggedAt) return false
     return new Date(a.loggedAt).getTime() >= startOfThisWeek().getTime()
   }
-  if (q === 'appts-today') {
-    const at = new Date(a.apptDateTime).getTime()
-    return at >= startOfDay(now).getTime() && at <= endOfDay(now).getTime()
+  if (q === 'booked-today') {
+    const appt = new Date(a.apptDateTime)
+    if (isNaN(appt.getTime())) return false
+    // resolvedTimezone is the canonical zone the sheet reader pinned
+    // this row to (explicit Timezone column wins, address inference
+    // is the fallback). Falling back to client.state if a row arrived
+    // without one is defensive — every row from readMasterTableRows
+    // sets it.
+    const customerTz =
+      a.resolvedTimezone ||
+      resolveCustomerTimezone({
+        address: a.address,
+        clientState: a.client?.state ?? null,
+      })
+    return sameDayInTz(appt, now, customerTz)
   }
-  if (q === 'appts-this-week') {
+  if (q === 'booked-this-week') {
     return new Date(a.apptDateTime).getTime() >= startOfThisWeek().getTime()
   }
   return true
@@ -724,17 +757,17 @@ export default function MasterTrackerPage() {
   // set so the chip counts reflect "how many would I see if I tapped
   // this" regardless of what's currently active.
   const quickCounts = useMemo(() => {
+    let setToday = 0
+    let setThisWeek = 0
     let bookedToday = 0
     let bookedThisWeek = 0
-    let apptsToday = 0
-    let apptsThisWeek = 0
     for (const a of allAppointments) {
+      if (matchesQuickFilter(a, 'set-today')) setToday++
+      if (matchesQuickFilter(a, 'set-this-week')) setThisWeek++
       if (matchesQuickFilter(a, 'booked-today')) bookedToday++
       if (matchesQuickFilter(a, 'booked-this-week')) bookedThisWeek++
-      if (matchesQuickFilter(a, 'appts-today')) apptsToday++
-      if (matchesQuickFilter(a, 'appts-this-week')) apptsThisWeek++
     }
-    return { bookedToday, bookedThisWeek, apptsToday, apptsThisWeek }
+    return { setToday, setThisWeek, bookedToday, bookedThisWeek }
   }, [allAppointments])
 
   // Diagnostic — when a "Booked..." chip shows 0, this tells Ethan
@@ -835,13 +868,14 @@ export default function MasterTrackerPage() {
     exportRows(`genisys-${label}-${todayStamp()}.csv`, rows)
   }
 
-  /** Export every row whose createdAt falls in today (booking-date,
-   *  not appointment-date) — the slice Ethan needs for end-of-day. */
-  function exportBookedToday() {
+  /** Export every row whose loggedAt falls in today (booking-entry
+   *  date, not appointment-date) — the slice Ethan needs for end-of-
+   *  day "what did Mary log today" reporting. */
+  function exportSetToday() {
     const rows = allAppointments.filter((a) =>
-      matchesQuickFilter(a, 'booked-today')
+      matchesQuickFilter(a, 'set-today')
     )
-    exportRows(`genisys-booked-today-${todayStamp()}.csv`, rows)
+    exportRows(`genisys-set-today-${todayStamp()}.csv`, rows)
   }
 
   return (
@@ -921,10 +955,30 @@ export default function MasterTrackerPage() {
           Quick filter
         </span>
         <QuickFilterChip
+          label="Set today"
+          count={quickCounts.setToday}
+          active={quickFilter === 'set-today'}
+          tone="emerald"
+          onClick={() =>
+            setQuickFilter(quickFilter === 'set-today' ? null : 'set-today')
+          }
+        />
+        <QuickFilterChip
+          label="Set this week"
+          count={quickCounts.setThisWeek}
+          active={quickFilter === 'set-this-week'}
+          tone="emerald"
+          onClick={() =>
+            setQuickFilter(
+              quickFilter === 'set-this-week' ? null : 'set-this-week'
+            )
+          }
+        />
+        <QuickFilterChip
           label="Booked today"
           count={quickCounts.bookedToday}
           active={quickFilter === 'booked-today'}
-          tone="emerald"
+          tone="blue"
           onClick={() =>
             setQuickFilter(quickFilter === 'booked-today' ? null : 'booked-today')
           }
@@ -933,30 +987,10 @@ export default function MasterTrackerPage() {
           label="Booked this week"
           count={quickCounts.bookedThisWeek}
           active={quickFilter === 'booked-this-week'}
-          tone="emerald"
+          tone="blue"
           onClick={() =>
             setQuickFilter(
               quickFilter === 'booked-this-week' ? null : 'booked-this-week'
-            )
-          }
-        />
-        <QuickFilterChip
-          label="Appts today"
-          count={quickCounts.apptsToday}
-          active={quickFilter === 'appts-today'}
-          tone="blue"
-          onClick={() =>
-            setQuickFilter(quickFilter === 'appts-today' ? null : 'appts-today')
-          }
-        />
-        <QuickFilterChip
-          label="Appts this week"
-          count={quickCounts.apptsThisWeek}
-          active={quickFilter === 'appts-this-week'}
-          tone="blue"
-          onClick={() =>
-            setQuickFilter(
-              quickFilter === 'appts-this-week' ? null : 'appts-this-week'
             )
           }
         />
@@ -970,7 +1004,7 @@ export default function MasterTrackerPage() {
           </button>
         )}
       </div>
-      {(quickFilter === 'booked-today' || quickFilter === 'booked-this-week') && (
+      {(quickFilter === 'set-today' || quickFilter === 'set-this-week') && (
         <div className="-mt-3 space-y-0.5 text-[11px] text-zinc-500">
           <p>
             Counts rows by their{' '}
@@ -1130,12 +1164,12 @@ export default function MasterTrackerPage() {
                   </ExportSection>
                   <ExportSection title="Quick ranges (all clients)">
                     <ExportItem
-                      label="Booked today"
-                      hint={`${quickCounts.bookedToday} row${
-                        quickCounts.bookedToday === 1 ? '' : 's'
+                      label="Set today"
+                      hint={`${quickCounts.setToday} row${
+                        quickCounts.setToday === 1 ? '' : 's'
                       }`}
-                      onClick={exportBookedToday}
-                      disabled={quickCounts.bookedToday === 0}
+                      onClick={exportSetToday}
+                      disabled={quickCounts.setToday === 0}
                     />
                     <ExportItem
                       label="This week (appt date)"

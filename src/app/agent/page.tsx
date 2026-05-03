@@ -17,7 +17,11 @@ import {
 } from 'lucide-react'
 import { CallbacksDuePanel } from '@/components/agent/callbacks-due-panel'
 import { cn } from '@/lib/utils'
-import { resolveCustomerTimezone } from '@/lib/timezone'
+import {
+  AGENT_TIMEZONE,
+  resolveCustomerTimezone,
+  sameDayInTz,
+} from '@/lib/timezone'
 
 type Appointment = {
   id: string
@@ -62,35 +66,10 @@ const STATUS_LABELS: Record<string, { label: string; tone: string }> = {
   },
 }
 
-/**
- * Mary's call-center clock — the canonical "today" for the
- * "Booked today" chip. Hardcoded because Mary is the only active
- * agent right now and lives in Asia/Manila; when a second agent
- * onboards, lift this to a User.timezone field on the session.
- *
- * Why not the viewer's browser zone: Alex (EST) opening Mary's
- * dashboard at 11 PM ET would see "today" roll back ~13h, hiding
- * appointments Mary just logged. Anchoring to her zone keeps the
- * filter meaningful regardless of who's looking.
- */
-const AGENT_TIMEZONE = 'Asia/Manila'
-
-type QuickFilter = null | 'booked-today' | 'appts-today'
-
-/**
- * Strict day-equality between two dates rendered in `tz`. Avoids the
- * `getDate()` / `getMonth()` browser-zone trap by formatting both
- * sides through Intl in the same target zone and string-comparing.
- */
-function sameDayInTz(a: Date, b: Date, tz: string): boolean {
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return fmt.format(a) === fmt.format(b)
-}
+// Vocabulary: "Set today" = createdAt today (when Mary entered the
+// row); "Booked today" = apptDateTime today (when the appointment is
+// scheduled). The same naming is used on the Master Tracker chips.
+type QuickFilter = null | 'set-today' | 'booked-today'
 
 export default function AgentDashboardPage() {
   const [search, setSearch] = useState('')
@@ -116,25 +95,25 @@ export default function AgentDashboardPage() {
     if (statusFilter !== 'all') {
       list = list.filter((a) => a.status === statusFilter)
     }
-    if (quickFilter === 'booked-today') {
-      // "Set today" — when Mary actually entered the row. Anchored to
-      // her tz so 11 PM Manila bookings don't roll over to "tomorrow"
-      // when Alex (EST) loads the page hours later. createdAt for
-      // sheet-only rows is synthesized from the Logged At cell server
-      // -side; rows with no createdAt are excluded since we can't
-      // honestly say when they were booked.
+    if (quickFilter === 'set-today') {
+      // When Mary actually entered the row. Anchored to her tz so
+      // 11 PM Manila bookings don't roll over to "tomorrow" when Alex
+      // (EST) loads the page hours later. createdAt for sheet-only
+      // rows is synthesized from the Logged At cell server-side; rows
+      // with no createdAt are excluded since we can't honestly say
+      // when they were booked.
       const now = new Date()
       list = list.filter((a) => {
         if (!a.createdAt) return false
         const created = new Date(a.createdAt)
         return !isNaN(created.getTime()) && sameDayInTz(created, now, AGENT_TIMEZONE)
       })
-    } else if (quickFilter === 'appts-today') {
-      // "Booked for today" — when the appointment is scheduled to
-      // happen, in the CUSTOMER's wall clock (per-row tz from address
-      // + client.state). A 9 PM PT appointment on 5/3 stays "today"
-      // for the whole PT day even though it's already 5/4 in Manila
-      // and Alex's EST wraps at 5/4 midnight ET.
+    } else if (quickFilter === 'booked-today') {
+      // When the appointment is scheduled to happen, in the CUSTOMER's
+      // wall clock (per-row tz from address + client.state). A 9 PM
+      // PT appointment on 5/3 stays "today" for the whole PT day even
+      // though it's already 5/4 in Manila and Alex's EST wraps at
+      // 5/4 midnight ET.
       const now = new Date()
       list = list.filter((a) => {
         const appt = new Date(a.apptDateTime)
@@ -217,20 +196,20 @@ export default function AgentDashboardPage() {
         </span>
         <QuickFilterChip
           label="Set today"
-          hint="Booked by Mary today (Manila)"
-          active={quickFilter === 'booked-today'}
+          hint="Entered by Mary today (Manila clock)"
+          active={quickFilter === 'set-today'}
           tone="emerald"
           onClick={() =>
-            setQuickFilter(quickFilter === 'booked-today' ? null : 'booked-today')
+            setQuickFilter(quickFilter === 'set-today' ? null : 'set-today')
           }
         />
         <QuickFilterChip
-          label="Appts today"
-          hint="Scheduled for today in customer's tz"
-          active={quickFilter === 'appts-today'}
+          label="Booked today"
+          hint="Scheduled for today in the customer's tz"
+          active={quickFilter === 'booked-today'}
           tone="blue"
           onClick={() =>
-            setQuickFilter(quickFilter === 'appts-today' ? null : 'appts-today')
+            setQuickFilter(quickFilter === 'booked-today' ? null : 'booked-today')
           }
         />
         {quickFilter && (
