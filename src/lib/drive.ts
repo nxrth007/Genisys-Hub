@@ -1142,38 +1142,59 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
     })
     // Source-of-truth precedence:
     //   1. Discrete apptDate + apptTime when BOTH are populated.
-    //      Sheets with separate Date / Time columns are the most
-    //      common shape, and they round-trip cleanly through
-    //      combineDateAndTime → wallClockInTzToUtcIso. Edits via
-    //      the master-tracker modal write to these cells, so
-    //      preferring them means a fresh edit always wins over
-    //      whatever stale or formula-driven value sits in the
-    //      combined "Date and Time" column.
-    //   2. The combined apptDateTime cell — used when discrete
-    //      cells are blank (sheet only has a combined column).
-    //   3. Falls back to combineDateAndTime even with one piece
-    //      missing, which preserves the legacy behavior of
-    //      tolerating partial data.
+    //      combineDateAndTime returns an ISO instant directly —
+    //      no further conversion needed.
+    //   2. The combined apptDateTime cell holds a WALL-CLOCK
+    //      string ("5/8/2026 6:00 PM") that needs tz-aware
+    //      interpretation via wallClockInTzToUtcIso. Last-ditch
+    //      fallback uses `new Date()` for any V8-parseable shape.
+    //
+    // ‼️ This logic used to be one OR-chain that ran wallClockInTzToUtcIso
+    //    on the result of combineDateAndTime. That was wrong:
+    //    combineDateAndTime already returns the ISO instant, and
+    //    re-parsing the ISO components as a wall-clock + converting
+    //    them to UTC again silently shifted every appointment by
+    //    the customer's UTC offset (~7 hours for PDT). Symptom:
+    //    "set 6 PM PDT, see 1 AM PDT next day" — exactly the bug
+    //    Alex hit on Fred's row.
     const haveDiscreteParts = !!apptDate && !!apptTime
-    const apptDateTime = haveDiscreteParts
-      ? combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz)
-      : cell(row, 'apptDateTime') ||
-        combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz) ||
-        null
-    const isoApptDateTime =
-      typeof apptDateTime === 'string' && apptDateTime !== ''
-        ? // If apptDateTime came in as a single field, route through
-          // the same tz-aware combiner so it gets the customer's
-          // wall-clock interpretation. Falls back to the raw
-          // value's ISO if parsing fails.
-          wallClockInTzToUtcIso(apptDateTime, rowTz) ||
+    let isoApptDateTime: string | null
+    if (haveDiscreteParts) {
+      // Discrete branch — combineDateAndTime is the final answer.
+      // Don't post-process: it would double-convert the ISO.
+      isoApptDateTime = combineDateAndTime(
+        apptDate,
+        apptTime,
+        rowAddress,
+        explicitTz,
+      )
+    } else {
+      const combinedCell = cell(row, 'apptDateTime')
+      if (combinedCell) {
+        // Combined-cell branch — needs tz-aware wall-clock parsing.
+        isoApptDateTime =
+          wallClockInTzToUtcIso(combinedCell, rowTz) ||
           (() => {
-            const d = new Date(apptDateTime)
-            return isNaN(d.getTime())
-              ? combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz)
-              : d.toISOString()
+            const d = new Date(combinedCell)
+            if (!isNaN(d.getTime())) return d.toISOString()
+            return combineDateAndTime(
+              apptDate,
+              apptTime,
+              rowAddress,
+              explicitTz,
+            )
           })()
-        : null
+      } else {
+        // Neither discrete pair nor combined cell — last-resort
+        // partial-data tolerance through combineDateAndTime.
+        isoApptDateTime = combineDateAndTime(
+          apptDate,
+          apptTime,
+          rowAddress,
+          explicitTz,
+        )
+      }
+    }
 
     out.push({
       rowNumber: rangeStart + i,
