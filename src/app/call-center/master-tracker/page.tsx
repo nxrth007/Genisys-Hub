@@ -539,6 +539,18 @@ export default function MasterTrackerPage() {
   // mutation knows where to write.
   const [editingApptId, setEditingApptId] = useState<string | null>(null)
 
+  // Surface what the server actually stored after a full-row edit.
+  // Populated from the verify snapshot in the PATCH response so Alex
+  // can see "saved as 6:00 PM PDT, 5/8/2026" in a toast — if the
+  // round-trip ever shifts hours again, it surfaces immediately
+  // instead of after a refresh-and-eyeball pass.
+  const [editVerifyToast, setEditVerifyToast] = useState<{
+    rowNumber: number
+    apptDateCell: string | null
+    apptTimeCell: string | null
+    resolvedTimezone: string | null
+  } | null>(null)
+
   // Single mutation handles both DELETE and full-row edit since they
   // share the route + invalidation. Each call site sets the right
   // `kind` so the toast / disable logic can target.
@@ -565,10 +577,28 @@ export default function MasterTrackerPage() {
       }
       return data
     },
-    onSuccess: () => {
+    onSuccess: (data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['master-tracker-sheet'] })
+      // Stash the verify snapshot so the toast renders. Cleared
+      // after a few seconds via the effect on editVerifyToast.
+      if (vars.kind === 'edit' && data?.verify) {
+        setEditVerifyToast({
+          rowNumber: vars.rowNumber,
+          apptDateCell: data.verify.apptDateCell ?? null,
+          apptTimeCell: data.verify.apptTimeCell ?? null,
+          resolvedTimezone: data.verify.resolvedTimezone ?? null,
+        })
+      }
     },
   })
+
+  // Auto-dismiss the verify toast after 6s — long enough to read,
+  // short enough to stay out of the way.
+  useEffect(() => {
+    if (!editVerifyToast) return
+    const t = setTimeout(() => setEditVerifyToast(null), 6000)
+    return () => clearTimeout(t)
+  }, [editVerifyToast])
 
   // Queries
   const clientsQuery = useQuery<{ clients: Client[] }>({
@@ -1472,6 +1502,50 @@ export default function MasterTrackerPage() {
           }}
         />
       )}
+
+      {/* Verify toast — confirms what the server actually stored
+          after a full-row edit. Shows the date/time/zone parsed from
+          the freshly-re-read row so Alex can see immediately if the
+          save round-trip went sideways. */}
+      {editVerifyToast && (
+        <div
+          className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-pop dark:border-emerald-900 dark:bg-emerald-950/90"
+          role="status"
+        >
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                Saved row {editVerifyToast.rowNumber}
+              </p>
+              <p className="mt-0.5 text-xs text-emerald-800 dark:text-emerald-200">
+                {editVerifyToast.apptDateCell &&
+                editVerifyToast.apptTimeCell ? (
+                  <>
+                    Stored as{' '}
+                    <span className="font-semibold">
+                      {editVerifyToast.apptDateCell} ·{' '}
+                      {editVerifyToast.apptTimeCell}
+                    </span>
+                    . If that&apos;s not what you intended, click the
+                    row again and re-edit.
+                  </>
+                ) : (
+                  <>Sheet updated.</>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditVerifyToast(null)}
+              className="rounded p-1 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900"
+              aria-label="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2193,14 +2267,23 @@ function AdminEditModal({
       }
     }
     // apptDateTime needs special handling. The picker gives us a
-    // wall-clock string in the customer's tz (because the load also
-    // formats in customer tz). We reformat into "M/D/YYYY h:mm AM/PM"
-    // for sheet readability — but WITHOUT routing through `new
-    // Date()`, which would silently re-interpret the wall-clock in
-    // the server/browser's tz and shift it. Just split + reformat
-    // the components directly so the wall-clock survives untouched.
-    if (diff.apptDateTime) {
-      const m = diff.apptDateTime.match(
+    // wall-clock string ("YYYY-MM-DDTHH:mm") in the customer's tz.
+    // We split it into separate apptDate + apptTime fields and send
+    // BOTH to the server as the canonical write targets — no
+    // combined apptDateTime string, no server-side parsing, no
+    // round-trip through `new Date()`. The sheet stores literal
+    // text via RAW input, so what we send is what gets read back.
+    //
+    // Why we abandon the combined apptDateTime field on the wire:
+    // every previous attempt to round-trip "M/D/YYYY h:mm AM/PM"
+    // through the server + Sheets layer surfaced a new way for
+    // hours or days to silently shift (sheet tz reparsing, locale
+    // differences, comma quirks in toLocaleString output). Sending
+    // discrete pieces removes all of that — the wall-clock the
+    // user typed is exactly the wall-clock that lands in the cell.
+    if (diff.apptDateTime !== undefined) {
+      const raw = diff.apptDateTime ?? ''
+      const m = raw.match(
         /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})/,
       )
       if (m) {
@@ -2212,7 +2295,17 @@ function AdminEditModal({
         const ampm = h >= 12 ? 'PM' : 'AM'
         h = h % 12
         if (h === 0) h = 12
-        diff.apptDateTime = `${M}/${D}/${Y} ${h}:${String(mn).padStart(2, '0')} ${ampm}`
+        diff.apptDate = `${M}/${D}/${Y}`
+        diff.apptTime = `${h}:${String(mn).padStart(2, '0')} ${ampm}`
+        // Drop the combined field so the server's writeFullEdit
+        // doesn't try to write to a non-existent apptDateTime
+        // column or attempt a redundant split.
+        delete diff.apptDateTime
+      } else if (raw === '') {
+        // User cleared the time — clear both columns.
+        diff.apptDate = ''
+        diff.apptTime = ''
+        delete diff.apptDateTime
       }
     }
     return diff

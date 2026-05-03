@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import {
   deleteMasterTableRow,
+  readMasterTableRows,
   updateMasterTableCell,
   updateMasterTableCells,
   type CanonicalKey,
@@ -111,6 +112,14 @@ const FULL_EDIT_FIELDS: Record<string, CanonicalKey> = {
   agentName: 'agentName',
   agentEmail: 'agentEmail',
   client: 'client',
+  // Date + time are split fields on the wire (the client splits
+  // apptDateTime in buildDiff before sending). Both map to their
+  // own sheet columns directly. apptDateTime kept as a fallback
+  // for callers that still send the combined form — writeFullEdit
+  // splits it server-side too, but discrete fields are the
+  // preferred path because they bypass any parsing ambiguity.
+  apptDate: 'apptDate',
+  apptTime: 'apptTime',
   apptDateTime: 'apptDateTime',
   // Explicit timezone override Mary can type into the sheet's
   // Timezone column. Editing it here writes back to the same cell
@@ -311,8 +320,69 @@ async function writeFullEdit(
     )
   }
 
+  // Server-side telemetry — Alex hit a "saved 6 PM, sheet shows
+  // 1 AM May 9" bug that was hard to diagnose without seeing the
+  // actual write payload. Logging the resolved updates makes the
+  // next instance debuggable from Render logs alone.
+  console.log(
+    `[master-tracker PATCH:full] row=${rowNumber} updates=`,
+    JSON.stringify(updates),
+  )
+
   try {
     const result = await updateMasterTableCells({ rowNumber, updates })
+
+    // Verification snapshot — re-read the row we just wrote and
+    // return the parsed apptDateTime + tz. Lets the UI confirm
+    // the round-trip without a second roundtrip via the master-
+    // tracker GET, and gives Alex a clear "what actually got
+    // stored" string to compare against what he intended.
+    let verify: {
+      apptDateIso: string | null
+      apptDateCell: string | null
+      apptTimeCell: string | null
+      timezoneCell: string | null
+      resolvedTimezone: string | null
+    } | null = null
+    try {
+      const fresh = await readMasterTableRows()
+      const row = fresh.find((r) => r.rowNumber === rowNumber)
+      if (row) {
+        verify = {
+          apptDateIso: row.apptDateTime,
+          // The sheet read doesn't return raw cells, but resolved
+          // values are what matter for verification — what the
+          // next display + delivery pass will see.
+          apptDateCell: row.apptDateTime
+            ? new Intl.DateTimeFormat('en-US', {
+                timeZone: row.resolvedTimezone,
+                month: 'numeric',
+                day: 'numeric',
+                year: 'numeric',
+              }).format(new Date(row.apptDateTime))
+            : null,
+          apptTimeCell: row.apptDateTime
+            ? new Intl.DateTimeFormat('en-US', {
+                timeZone: row.resolvedTimezone,
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZoneName: 'short',
+              }).format(new Date(row.apptDateTime))
+            : null,
+          timezoneCell: row.timezone,
+          resolvedTimezone: row.resolvedTimezone,
+        }
+        console.log(
+          `[master-tracker PATCH:full] verify row=${rowNumber} → ${verify.apptDateCell} ${verify.apptTimeCell} (${verify.resolvedTimezone})`,
+        )
+      }
+    } catch (verifyErr) {
+      console.error(
+        '[master-tracker PATCH:full] verify re-read failed:',
+        verifyErr,
+      )
+    }
 
     // Trigger reminder re-sync since edits could move the
     // appointment time, change the customer phone, or flip the
@@ -325,7 +395,7 @@ async function writeFullEdit(
       ),
     )
 
-    return NextResponse.json({ ok: true, ...result })
+    return NextResponse.json({ ok: true, ...result, verify })
   } catch (err) {
     console.error('[master-tracker PATCH:full] failed:', err)
     const message = err instanceof Error ? err.message : 'Edit failed'
