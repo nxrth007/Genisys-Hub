@@ -62,6 +62,10 @@ type Appointment = {
   slackDelivery?: {
     status: 'delivered' | 'backfilled' | 'failed' | string
     messageTs: string | null
+    /** Slack permalink for the delivered message — set when the
+     *  post was successfully verified via chat.getPermalink. Click
+     *  to jump straight to the channel post and confirm visually. */
+    permalink: string | null
     deliveredAt: string | null
     channelId: string
   } | null
@@ -1899,15 +1903,37 @@ function SlackDeliveryCell({
     const tooltip = delivery?.deliveredAt
       ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}.${staffMode ? ' Click to re-send if it never landed.' : ''}`
       : 'Posted to the client Slack channel'
+    // Wrap the pill in a permalink anchor when we have one — admins
+    // get a one-click verify path so they can confirm the post is
+    // actually visible in the channel rather than trusting the
+    // ledger blindly. Uses a span when no permalink exists (older
+    // delivered rows from before the permalink-verification rollout).
+    const PillContent = (
+      <>
+        <CheckCircle2 className="h-3 w-3" />
+        Delivered
+      </>
+    )
+    const pillCls =
+      'inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-900'
     return (
       <div className="inline-flex items-center gap-1.5">
-        <span
-          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-          title={tooltip}
-        >
-          <CheckCircle2 className="h-3 w-3" />
-          Delivered
-        </span>
+        {delivery?.permalink ? (
+          <a
+            href={delivery.permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={pillCls}
+            title={`${tooltip} Click to open the Slack post in a new tab.`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {PillContent}
+          </a>
+        ) : (
+          <span className={pillCls} title={tooltip}>
+            {PillContent}
+          </span>
+        )}
         {staffMode && (
           <button
             type="button"

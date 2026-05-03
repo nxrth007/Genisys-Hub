@@ -9,6 +9,7 @@ import {
 } from '@/lib/client-routing'
 import {
   formatAppointmentForClientChannel,
+  verifyDeliveryPermalink,
 } from '@/lib/client-delivery'
 import { snapshotSolarFromCache } from '@/lib/solar'
 import { normalizeAddress } from '@/lib/address'
@@ -175,6 +176,15 @@ export async function POST(req: Request) {
         `Slack acknowledged the post without returning a message id (ok=${post.ok}).`,
       )
     }
+    // Permalink-based verification — same defense the cron uses.
+    // If chat.getPermalink can't resolve a URL for the message we
+    // just posted, the post is a silent-fail and we mark the
+    // delivery as failed instead of letting the UI report success.
+    const permalink = await verifyDeliveryPermalink(
+      slack,
+      client.slackChannelId,
+      post.ts,
+    )
     // Update or create the ledger row. If `existing` was non-
     // delivered (backfilled/failed/etc.), flip it to delivered with
     // the fresh messageTs. Otherwise create a new row. Both paths
@@ -185,6 +195,7 @@ export async function POST(req: Request) {
         data: {
           status: 'delivered',
           messageTs: post.ts ?? null,
+          permalink,
           deliveredAt: new Date(),
           errorMessage: null,
           // Refresh the keys to current values so future cron ticks
@@ -202,6 +213,7 @@ export async function POST(req: Request) {
           channelId: client.slackChannelId,
           status: 'delivered',
           messageTs: post.ts ?? null,
+          permalink,
           deliveredAt: new Date(),
           customerPhone: phoneKey,
           apptDateTime: apptDateValid ? apptDate : null,
@@ -211,6 +223,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       messageTs: post.ts ?? null,
+      permalink,
       channelName: client.slackChannelName ?? client.slackChannelId,
     })
   } catch (err) {

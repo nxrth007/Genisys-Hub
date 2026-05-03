@@ -58,6 +58,7 @@ export async function GET() {
       channelId: true,
       status: true,
       messageTs: true,
+      permalink: true,
       deliveredAt: true,
       customerPhone: true,
       apptDateTime: true,
@@ -233,6 +234,7 @@ export async function GET() {
             | 'failed'
             | string,
           messageTs: primary.messageTs,
+          permalink: primary.permalink,
           deliveredAt: primary.deliveredAt
             ? primary.deliveredAt.toISOString()
             : null,

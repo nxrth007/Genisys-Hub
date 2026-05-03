@@ -47,6 +47,51 @@ function normalizePhoneForKey(raw: string | null | undefined): string | null {
   return null // too short to be useful as a dedup key
 }
 
+/**
+ * After posting a message, ask Slack for its permalink. If Slack can
+ * resolve a URL for the (channel, ts) pair, the message exists in the
+ * channel and the post is real. If the lookup fails (404
+ * `message_not_found`, the bot doesn't have the right scope, the
+ * channel was archived between post and verify, etc.), the post is
+ * a silent-fail and we throw so the caller can mark the delivery
+ * row as 'failed' instead of phantom-delivering.
+ *
+ * Why this exists: occasionally Slack returns ok=true with a message
+ * ts from chat.postMessage even though the message never lands in
+ * the channel. This was the cause of Mary's report where two new
+ * rows showed up as `delivered` in the ledger but Alex couldn't
+ * find them in the channel feed. chat.getPermalink uses a different
+ * code path on Slack's side and reliably returns 404 when the
+ * message isn't actually visible — making it a much stricter
+ * verification than postMessage's own ack.
+ *
+ * Cost: one extra API round-trip per delivery (~100-150ms). Worth
+ * it for the reliability gain.
+ */
+export async function verifyDeliveryPermalink(
+  slack: WebClient,
+  channelId: string,
+  messageTs: string,
+): Promise<string | null> {
+  try {
+    const res = await slack.chat.getPermalink({
+      channel: channelId,
+      message_ts: messageTs,
+    })
+    if (!res.ok || !res.permalink) {
+      throw new Error(
+        `Slack returned ok=${res.ok} but no permalink for the just-posted message — treating as silent-fail.`,
+      )
+    }
+    return res.permalink
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `Could not verify the post via chat.getPermalink (channel=${channelId}, ts=${messageTs}): ${msg}. Slack may have accepted the postMessage call without actually delivering the message — marking as failed so the row can be retried.`,
+    )
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Sync                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -266,6 +311,20 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
           `Slack acknowledged the post without returning a message id (ok=${post.ok}). Treating as failed so it can be retried.`,
         )
       }
+      // Second-line defense — call chat.getPermalink for the ts we
+      // just got. If the message actually landed, this returns a
+      // canonical URL we can store + show in the UI. If it doesn't
+      // (e.g. Slack accepted the request but the post never made it
+      // visible — has happened in the wild and is exactly the bug
+      // Mary's two-row silent-fail report described), the lookup
+      // throws and we treat the whole thing as failed. The cost is
+      // one extra round-trip per delivery, ~100ms; the win is no
+      // more phantom 'delivered' rows.
+      const permalink = await verifyDeliveryPermalink(
+        slack,
+        candidate.slackChannelId,
+        post.ts,
+      )
       await prisma.sheetSlackDelivery.create({
         data: {
           sourceKey,
@@ -273,6 +332,7 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
           channelId: candidate.slackChannelId,
           status: 'delivered',
           messageTs: post.ts ?? null,
+          permalink,
           deliveredAt: new Date(),
           // Stable content key — survives row-number shifts in the
           // sheet. The pre-insert dedup query checks both this and

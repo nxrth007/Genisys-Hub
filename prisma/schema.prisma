@@ -693,6 +693,12 @@ model SheetSlackDelivery {
   channelId    String
   status       String   @default("delivered")
   messageTs    String?
+  /** Slack permalink to the delivered message — set immediately
+   *  after posting via chat.getPermalink. Used as both a
+   *  verification gate (if the lookup fails the post is treated
+   *  as silent-fail and the row goes to status='failed') and as
+   *  a click-through affordance in the Master Tracker UI. */
+  permalink    String?
   errorMessage String?  @db.Text
   deliveredAt  DateTime?
   createdAt    DateTime @default(now())
