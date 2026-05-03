@@ -55,6 +55,16 @@ type Appointment = {
   /** Manual hand-off flag — yes / no / unassigned. Goes away once
    *  the Slack auto-deliver workflow ships. */
   sentToClient: 'yes' | 'no' | 'unassigned'
+  /** Optional explicit tz override Mary typed into the sheet's
+   *  Timezone column. Empty / null = the row was parsed via address
+   *  inference. Surfaced in the UI so admins can see exactly which
+   *  source pinned this row's wall-clock time. */
+  timezone: string | null
+  /** IANA zone the row was actually parsed in (explicit when set,
+   *  address-derived otherwise). The time column displays in this
+   *  zone so the Master Tracker view always matches what the
+   *  customer sees. */
+  resolvedTimezone: string
   /** Slack channel delivery status for this row, surfaced from the
    *  SheetSlackDelivery ledger so the row can render a "Delivered ✓"
    *  pill or a manual "Deliver" button. Null = no delivery record
@@ -1153,12 +1163,15 @@ export default function MasterTrackerPage() {
                 {filtered.map((a) => {
                   const when = new Date(a.apptDateTime)
                   // Display the appointment in the CUSTOMER's local
-                  // timezone (derived from address), not the viewer's
-                  // browser tz. Means a "9 AM PT" booking shows as
-                  // "9 AM" to Alex in NH and Mary in Manila alike,
-                  // matching what's actually on the call-center
-                  // sheet rather than shifting per-viewer.
-                  const apptTz = customerTzFromAddress(a.address)
+                  // timezone — explicit Timezone-column override
+                  // first, address-derived inference second. Means a
+                  // "9 AM PT" booking shows as "9 AM" to Alex in NH
+                  // and Mary in Manila alike, matching what's
+                  // actually on the call-center sheet rather than
+                  // shifting per-viewer.
+                  const apptTz =
+                    a.resolvedTimezone ||
+                    customerTzFromAddress(a.address)
                   const isExpanded = expandedId === a.id
                   return (
                     <Fragment key={a.id}>
@@ -2131,6 +2144,7 @@ function AdminEditModal({
         agentName: appointment.agent?.name ?? '',
         agentEmail: appointment.agent?.email ?? '',
         client: appointment.client?.name ?? '',
+        timezone: appointment.timezone ?? '',
         // datetime-local format: YYYY-MM-DDTHH:mm in the user's
         // browser tz, which is what the input expects.
         apptDateTime: appointment.apptDateTime
@@ -2239,12 +2253,33 @@ function AdminEditModal({
               value={values.apptDateTime}
               onChange={(v) => set('apptDateTime', v)}
             />
-            {/* Inline tz hint — same string Mary sees on the agent
-                form. The wall-clock above is read in the customer's
-                zone derived from the address field, not the editor's
-                browser. */}
+            {/* Inline tz hint — explicit Timezone field below wins
+                if set; otherwise we infer from the address. */}
             {(() => {
-              const tz = customerTzFromAddress(values.address || null)
+              const tzFromExplicit = values.timezone?.trim()
+                ? values.timezone.trim()
+                : null
+              // parseTimezoneInput is the same one drive.ts uses on
+              // sheet read, so what's shown here matches what gets
+              // stored.
+              let tz: string
+              if (tzFromExplicit) {
+                // Quick local resolution — the abbreviation map is
+                // small enough to inline so we don't have to ship
+                // it from server code.
+                const upper = tzFromExplicit.toUpperCase().replace(/[^A-Z]/g, '')
+                const ABBR: Record<string, string> = {
+                  PT: 'America/Los_Angeles', PST: 'America/Los_Angeles', PDT: 'America/Los_Angeles',
+                  MT: 'America/Denver', MST: 'America/Phoenix', MDT: 'America/Denver',
+                  CT: 'America/Chicago', CST: 'America/Chicago', CDT: 'America/Chicago',
+                  ET: 'America/New_York', EST: 'America/New_York', EDT: 'America/New_York',
+                  HT: 'Pacific/Honolulu', HST: 'Pacific/Honolulu',
+                  AKT: 'America/Anchorage', AKST: 'America/Anchorage', AKDT: 'America/Anchorage',
+                }
+                tz = ABBR[upper] ?? tzFromExplicit
+              } else {
+                tz = customerTzFromAddress(values.address || null)
+              }
               const shortLabel = (() => {
                 try {
                   const parts = new Intl.DateTimeFormat('en-US', {
@@ -2263,14 +2298,26 @@ function AdminEditModal({
                   Time is read at the customer&apos;s clock —{' '}
                   <span className="font-medium text-zinc-700 dark:text-zinc-300">
                     {shortLabel}
+                  </span>{' '}
+                  <span className="text-zinc-400">
+                    (
+                    {tzFromExplicit
+                      ? `from Timezone field`
+                      : values.address?.trim()
+                        ? `from address`
+                        : `default — pick a tz or add an address`}
+                    ).
                   </span>
-                  {!values.address?.trim() &&
-                    ' (add an address to pin a real tz)'}
-                  .
                 </p>
               )
             })()}
           </div>
+          <EditField
+            label="Timezone (optional)"
+            value={values.timezone}
+            onChange={(v) => set('timezone', v)}
+            placeholder="PT / ET / CT / MT — overrides address"
+          />
           <EditField
             label="Client"
             value={values.client}
@@ -2378,12 +2425,14 @@ function EditField({
   onChange,
   type = 'text',
   multiline,
+  placeholder,
 }: {
   label: string
   value: string
   onChange: (next: string) => void
   type?: string
   multiline?: boolean
+  placeholder?: string
 }) {
   return (
     <label className="block">
@@ -2395,6 +2444,7 @@ function EditField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={3}
+          placeholder={placeholder}
           className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
         />
       ) : (
@@ -2402,6 +2452,7 @@ function EditField({
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
           className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
         />
       )}

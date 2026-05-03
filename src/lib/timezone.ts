@@ -142,21 +142,33 @@ export function timezoneForStateName(
 }
 
 /**
- * Best-effort tz resolution: prefer the address (most specific —
- * a CA address tells us exactly where the customer lives), fall
- * back to the client's nominal state (Mary picked the CA client
- * but hasn't typed the address yet), then to America/New_York.
+ * Best-effort tz resolution. Tiers, in priority order:
+ *   1. Explicit `timezone` — Mary typed e.g. "PT" / "ET" /
+ *      "America/Los_Angeles" into the sheet's Timezone column or
+ *      picked it on the form. Trusted over everything else.
+ *   2. Address-derived — most specific automatic source; a CA
+ *      address pins to PT.
+ *   3. Selected client's nominal state — useful when the address
+ *      hasn't been typed yet but the client has been picked.
+ *   4. Default `America/New_York`.
  *
- * Used by the agent appointment form so picking a client is enough
- * to lock the wall-clock interpretation to that client's zone —
- * before this, an empty-address form silently defaulted to NY
- * regardless of which CA/AZ/UT client was selected, and Mary's
- * "6 PM" would store as 6 PM EDT (= 3 PM PDT).
+ * The explicit tier exists because Mary asked for it: she's the
+ * call-center, she knows the customer's tz before our address
+ * parser does, and she wanted a way to type it directly so there's
+ * no inference-magic in between. As they expand into NJ/IL and
+ * other states, "Mary types 'CT'" beats "we guess from a partial
+ * address" every time.
  */
 export function resolveCustomerTimezone(params: {
+  /** User-supplied tz override — IANA name, common abbreviation
+   *  ("PT" / "PST" / "PDT" / "ET" / etc.), or a US state name /
+   *  code. Empty / null = no override. */
+  timezone?: string | null
   address?: string | null
   clientState?: string | null
 }): string {
+  const explicit = parseTimezoneInput(params.timezone)
+  if (explicit) return explicit
   const fromAddress = stateCodeFromAddress(params.address)
   if (fromAddress && STATE_CODE_TO_TIMEZONE[fromAddress]) {
     return STATE_CODE_TO_TIMEZONE[fromAddress]
@@ -164,6 +176,69 @@ export function resolveCustomerTimezone(params: {
   const fromClient = timezoneForStateName(params.clientState)
   if (fromClient) return fromClient
   return DEFAULT_TIMEZONE
+}
+
+/**
+ * Parse a free-form tz input into an IANA zone. Accepts:
+ *   - IANA names: "America/Los_Angeles", "America/New_York"
+ *   - 3-letter abbreviations: "PT", "ET", "CT", "MT" (plus DST-
+ *     specific "PDT" / "PST" / "EDT" / "EST" / etc.)
+ *   - US state names + codes: "California", "CA"
+ *
+ * Returns null when the input is empty or unrecognized — callers
+ * can then fall through to the next resolution tier.
+ */
+export function parseTimezoneInput(
+  input: string | null | undefined,
+): string | null {
+  if (!input) return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  // 1. Looks like an IANA zone? (has a slash). Verify by attempting
+  //    a format call so a typo'd "America/LosAngles" fails fast.
+  if (trimmed.includes('/')) {
+    try {
+      // Throws on bad zones.
+      new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).format(new Date())
+      return trimmed
+    } catch {
+      // Fall through to abbreviation matching.
+    }
+  }
+
+  // 2. Abbreviation map. Both DST-specific and DST-agnostic forms
+  //    map to the IANA "primary" zone — Intl handles the actual DST
+  //    decision at format-time so we don't need to disambiguate.
+  const upper = trimmed.toUpperCase().replace(/[^A-Z]/g, '')
+  const TZ_ABBR: Record<string, string> = {
+    PT: 'America/Los_Angeles',
+    PST: 'America/Los_Angeles',
+    PDT: 'America/Los_Angeles',
+    MT: 'America/Denver',
+    MST: 'America/Phoenix', // AZ uses MST year-round; closest match
+    MDT: 'America/Denver',
+    CT: 'America/Chicago',
+    CST: 'America/Chicago',
+    CDT: 'America/Chicago',
+    ET: 'America/New_York',
+    EST: 'America/New_York',
+    EDT: 'America/New_York',
+    AKT: 'America/Anchorage',
+    AKST: 'America/Anchorage',
+    AKDT: 'America/Anchorage',
+    HT: 'Pacific/Honolulu',
+    HST: 'Pacific/Honolulu',
+    AT: 'America/Halifax',
+    AST: 'America/Halifax',
+  }
+  if (TZ_ABBR[upper]) return TZ_ABBR[upper]
+
+  // 3. State name or code (Mary types "California" → PT).
+  const fromState = timezoneForStateName(trimmed)
+  if (fromState) return fromState
+
+  return null
 }
 
 /**

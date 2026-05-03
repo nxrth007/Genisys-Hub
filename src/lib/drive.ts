@@ -15,7 +15,12 @@
  */
 import { google, type drive_v3 } from 'googleapis'
 import { prisma } from './prisma'
-import { timezoneForAddress, wallClockInTzToUtcIso } from './timezone'
+import {
+  parseTimezoneInput,
+  resolveCustomerTimezone,
+  timezoneForAddress,
+  wallClockInTzToUtcIso,
+} from './timezone'
 
 export type DriveFile = {
   id: string
@@ -637,6 +642,12 @@ export type CanonicalKey =
   // Slack auto-deliver workflow is live; until then it's a human
   // checkbox column on the master sheet (Yes / No / blank).
   | 'sentToClient'
+  // Explicit per-row customer-timezone override. Mary types e.g.
+  // "PT" / "ET" / "CT" / "MT" or "America/Los_Angeles" — we honor
+  // it as the source of truth for that row's wall-clock
+  // interpretation, ahead of any address-state inference. Optional;
+  // blank cells just fall through to the existing inference path.
+  | 'timezone'
 
 // Normalized alias → canonical key. Normalization lowercases + strips
 // punctuation and whitespace, so "Customer's Phone Number" and
@@ -703,6 +714,16 @@ const COLUMN_ALIASES: Record<string, CanonicalKey> = {
   sent: 'sentToClient',
   delivered: 'sentToClient',
   handedoff: 'sentToClient',
+  // Explicit timezone override — Mary's request: "can u put
+  // timezone instead, so that I can put whatever the cx timezone".
+  // She types "PT" / "ET" / "CT" / "MT" or a full IANA zone in this
+  // column and we trust it over address-state inference.
+  timezone: 'timezone',
+  customertimezone: 'timezone',
+  cxtimezone: 'timezone',
+  cxtz: 'timezone',
+  tz: 'timezone',
+  timezoneoverride: 'timezone',
 }
 
 function normalizeHeader(text: string): string {
@@ -829,6 +850,12 @@ export type AppointmentSyncData = {
   agentName: string | null
   agentEmail: string
   createdAt: Date | string
+  /** Optional explicit timezone override — when present, written
+   *  into the sheet's Timezone column so future re-reads honor it
+   *  the same way Mary's manually-typed entries are honored.
+   *  Pass null / undefined to skip and let address inference handle
+   *  the row. */
+  timezone?: string | null
 }
 
 function toDate(v: Date | string): Date {
@@ -883,6 +910,12 @@ function valueForCanonical(appt: AppointmentSyncData, key: CanonicalKey | null):
       // Once the Slack auto-handoff lands, this case will write 'Yes'
       // automatically on send.
       return ''
+    case 'timezone':
+      // Explicit tz override — Mary picked it on the form, we
+      // forward it to the sheet so re-reads use the same source of
+      // truth. Empty string when not supplied keeps backward
+      // compatibility with sheets that don't have the column yet.
+      return appt.timezone || ''
     default:
       return ''
   }
@@ -972,6 +1005,15 @@ export type MasterTableRow = {
    *  / null = unassigned; "Yes" / "No" otherwise. UI normalizes
    *  case-insensitively so "yes" / "Y" / "1" all map to Yes. */
   sentToClient: string | null
+  /** Raw cell value of the optional Timezone column ("PT", "ET",
+   *  "America/Los_Angeles", etc.). Null when the column doesn't
+   *  exist or the cell is empty. UI surfaces this so admins can
+   *  see whether a row was parsed via explicit tz or fell through
+   *  to address inference. */
+  timezone: string | null
+  /** IANA zone the row was actually parsed in — explicit when set,
+   *  address-derived otherwise. Useful for display + audit. */
+  resolvedTimezone: string
 }
 
 /**
@@ -999,12 +1041,16 @@ function combineDateAndTime(
   dateStr: string,
   timeStr: string,
   address: string | null,
+  /** Optional explicit tz override from the sheet's Timezone
+   *  column. When set, this overrides address-state inference. */
+  explicitTimezone: string | null = null,
 ): string | null {
   const date = (dateStr || '').trim()
   const time = (timeStr || '').trim()
   if (!date && !time) return null
 
-  const tz = timezoneForAddress(address)
+  const tz =
+    parseTimezoneInput(explicitTimezone) ?? timezoneForAddress(address)
   const combined = time ? `${date} ${time}` : date
   const tzAware = wallClockInTzToUtcIso(combined, tz)
   if (tzAware) return tzAware
@@ -1076,12 +1122,19 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
 
     const apptDate = cell(row, 'apptDate')
     const apptTime = cell(row, 'apptTime')
-    // Pull the address up here so combineDateAndTime can derive the
-    // customer's timezone for proper wall-clock interpretation.
+    // Pull the address + explicit tz cell up here so the wall-clock
+    // combiner picks the right tz. Explicit tz wins over address-
+    // state inference — Mary types "PT" / "ET" / "CT" in the
+    // Timezone column and we trust her without parsing the address.
     const rowAddress = cell(row, 'address') || null
+    const explicitTz = cell(row, 'timezone') || null
+    const rowTz = resolveCustomerTimezone({
+      timezone: explicitTz,
+      address: rowAddress,
+    })
     const apptDateTime =
       cell(row, 'apptDateTime') ||
-      combineDateAndTime(apptDate, apptTime, rowAddress) ||
+      combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz) ||
       null
     const isoApptDateTime =
       typeof apptDateTime === 'string' && apptDateTime !== ''
@@ -1089,11 +1142,11 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
           // the same tz-aware combiner so it gets the customer's
           // wall-clock interpretation. Falls back to the raw
           // value's ISO if parsing fails.
-          wallClockInTzToUtcIso(apptDateTime, timezoneForAddress(rowAddress)) ||
+          wallClockInTzToUtcIso(apptDateTime, rowTz) ||
           (() => {
             const d = new Date(apptDateTime)
             return isNaN(d.getTime())
-              ? combineDateAndTime(apptDate, apptTime, rowAddress)
+              ? combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz)
               : d.toISOString()
           })()
         : null
@@ -1117,6 +1170,8 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
       agentName: cell(row, 'agentName') || null,
       agentEmail: cell(row, 'agentEmail') || null,
       loggedAt: cell(row, 'loggedAt') || null,
+      timezone: explicitTz,
+      resolvedTimezone: rowTz,
       sentToClient: cell(row, 'sentToClient') || null,
     })
   }

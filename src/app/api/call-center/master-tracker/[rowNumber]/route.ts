@@ -60,6 +60,10 @@ const FULL_EDIT_FIELDS: Record<string, CanonicalKey> = {
   agentEmail: 'agentEmail',
   client: 'client',
   apptDateTime: 'apptDateTime',
+  // Explicit timezone override Mary can type into the sheet's
+  // Timezone column. Editing it here writes back to the same cell
+  // and the next sheet-read parses the row in the new tz.
+  timezone: 'timezone',
 }
 
 export async function PATCH(

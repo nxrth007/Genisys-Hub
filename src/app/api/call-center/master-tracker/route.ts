@@ -325,6 +325,13 @@ export async function GET() {
       // a "⚠ Possible duplicate" warning so admins can spot and
       // clean up double-entries without auto-hiding real data.
       possibleDuplicateRowIds: duplicateRowIdsByRow.get(r.rowNumber) ?? [],
+      // Explicit tz override Mary typed into the sheet's Timezone
+      // column, plus the resolved IANA zone the row was actually
+      // parsed in. The UI uses `resolvedTimezone` for display so
+      // the time column always matches the customer's clock,
+      // regardless of which source pinned it.
+      timezone: r.timezone,
+      resolvedTimezone: r.resolvedTimezone,
     }
   })
 
