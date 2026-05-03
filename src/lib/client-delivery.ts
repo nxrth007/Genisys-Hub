@@ -219,6 +219,14 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     const candidate = route.client
     if (!candidate.slackChannelId) {
       result.unrouted++
+      // Surface this — silent skip was the source of "I made a test
+      // appointment and nothing fired in Slack" sessions. With the
+      // client name in the cron log, the diagnosis is one tail away
+      // ("Home Energy Upgrade has no slackChannelId set in /settings")
+      // instead of a full audit.
+      console.warn(
+        `[client-delivery] sheet row ${row.rowNumber} routed to ${candidate.name} but that client has no Slack channel configured — skipping. Set the channel in /settings → Clients → ${candidate.name} to start receiving auto-deliveries.`,
+      )
       continue
     }
 
@@ -604,6 +612,16 @@ export async function sendTestClientDelivery(params: {
     client: params.clientName,
     agentName: null,
     agentEmail: null,
+    // Sample row's address pins to Phoenix; pre-resolve so the
+    // formatter renders the time with "MST" suffix instead of the
+    // default-tz fallback. The other raw fields are nullable on real
+    // sheet reads — kept null here since we synthesized the date,
+    // there's no "raw cell" to surface.
+    timezone: null,
+    resolvedTimezone: 'America/Phoenix',
+    apptDateRaw: null,
+    apptTimeRaw: null,
+    apptDateTimeRaw: null,
   }
   const body = formatAppointmentForClientChannel(sample, { isTest: true })
   const post = await slack.chat.postMessage({
@@ -634,7 +652,11 @@ export function formatAppointmentForClientChannel(
 ): string {
   const lines: string[] = []
   const cleanedAddress = normalizeAddress(row.address)
-  const tz = timezoneForAddress(cleanedAddress)
+  // Prefer the row's already-resolved tz (set when the master sheet
+  // was read — explicit Timezone column wins, address tier is the
+  // fallback). Falls back to address-only inference for callers like
+  // the test post that build a row by hand without resolving tz.
+  const tz = row.resolvedTimezone || timezoneForAddress(cleanedAddress)
 
   const apptDate = row.apptDateTime ? new Date(row.apptDateTime) : null
   const apptStr =
@@ -647,6 +669,11 @@ export function formatAppointmentForClientChannel(
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
+          // Surface the zone abbreviation ("PDT", "EST", …) so the
+          // client reading the channel knows the time is THEIR
+          // wall-clock and not whatever zone the call-center was
+          // sitting in when Mary booked it.
+          timeZoneName: 'short',
         })
       : row.apptDateTime || 'Time TBD'
 

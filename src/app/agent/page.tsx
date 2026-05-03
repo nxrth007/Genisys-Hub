@@ -62,9 +62,40 @@ const STATUS_LABELS: Record<string, { label: string; tone: string }> = {
   },
 }
 
+/**
+ * Mary's call-center clock — the canonical "today" for the
+ * "Booked today" chip. Hardcoded because Mary is the only active
+ * agent right now and lives in Asia/Manila; when a second agent
+ * onboards, lift this to a User.timezone field on the session.
+ *
+ * Why not the viewer's browser zone: Alex (EST) opening Mary's
+ * dashboard at 11 PM ET would see "today" roll back ~13h, hiding
+ * appointments Mary just logged. Anchoring to her zone keeps the
+ * filter meaningful regardless of who's looking.
+ */
+const AGENT_TIMEZONE = 'Asia/Manila'
+
+type QuickFilter = null | 'booked-today' | 'appts-today'
+
+/**
+ * Strict day-equality between two dates rendered in `tz`. Avoids the
+ * `getDate()` / `getMonth()` browser-zone trap by formatting both
+ * sides through Intl in the same target zone and string-comparing.
+ */
+function sameDayInTz(a: Date, b: Date, tz: string): boolean {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return fmt.format(a) === fmt.format(b)
+}
+
 export default function AgentDashboardPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null)
 
   const query = useQuery<{ appointments: Appointment[] }>({
     queryKey: ['agent-appointments'],
@@ -85,6 +116,36 @@ export default function AgentDashboardPage() {
     if (statusFilter !== 'all') {
       list = list.filter((a) => a.status === statusFilter)
     }
+    if (quickFilter === 'booked-today') {
+      // "Set today" — when Mary actually entered the row. Anchored to
+      // her tz so 11 PM Manila bookings don't roll over to "tomorrow"
+      // when Alex (EST) loads the page hours later. createdAt for
+      // sheet-only rows is synthesized from the Logged At cell server
+      // -side; rows with no createdAt are excluded since we can't
+      // honestly say when they were booked.
+      const now = new Date()
+      list = list.filter((a) => {
+        if (!a.createdAt) return false
+        const created = new Date(a.createdAt)
+        return !isNaN(created.getTime()) && sameDayInTz(created, now, AGENT_TIMEZONE)
+      })
+    } else if (quickFilter === 'appts-today') {
+      // "Booked for today" — when the appointment is scheduled to
+      // happen, in the CUSTOMER's wall clock (per-row tz from address
+      // + client.state). A 9 PM PT appointment on 5/3 stays "today"
+      // for the whole PT day even though it's already 5/4 in Manila
+      // and Alex's EST wraps at 5/4 midnight ET.
+      const now = new Date()
+      list = list.filter((a) => {
+        const appt = new Date(a.apptDateTime)
+        if (isNaN(appt.getTime())) return false
+        const customerTz = resolveCustomerTimezone({
+          address: a.address,
+          clientState: a.client?.state ?? null,
+        })
+        return sameDayInTz(appt, now, customerTz)
+      })
+    }
     const q = search.trim().toLowerCase()
     if (q) {
       list = list.filter(
@@ -97,7 +158,7 @@ export default function AgentDashboardPage() {
       )
     }
     return list
-  }, [appointments, search, statusFilter])
+  }, [appointments, search, statusFilter, quickFilter])
 
   // Stat counters. Labels are deliberately literal so they're not
   // confusing the way the original "Total booked" / "Active" pair
@@ -148,6 +209,39 @@ export default function AgentDashboardPage() {
         <StatCard label="Pending" value={stats.pending} />
         <StatCard label="Showed" value={stats.showed} />
         <StatCard label="No-show" value={stats.noShow} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          Quick filter
+        </span>
+        <QuickFilterChip
+          label="Set today"
+          hint="Booked by Mary today (Manila)"
+          active={quickFilter === 'booked-today'}
+          tone="emerald"
+          onClick={() =>
+            setQuickFilter(quickFilter === 'booked-today' ? null : 'booked-today')
+          }
+        />
+        <QuickFilterChip
+          label="Appts today"
+          hint="Scheduled for today in customer's tz"
+          active={quickFilter === 'appts-today'}
+          tone="blue"
+          onClick={() =>
+            setQuickFilter(quickFilter === 'appts-today' ? null : 'appts-today')
+          }
+        />
+        {quickFilter && (
+          <button
+            type="button"
+            onClick={() => setQuickFilter(null)}
+            className="ml-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -210,6 +304,40 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
     </div>
+  )
+}
+
+function QuickFilterChip({
+  label,
+  hint,
+  active,
+  tone,
+  onClick,
+}: {
+  label: string
+  hint: string
+  active: boolean
+  tone: 'emerald' | 'blue'
+  onClick: () => void
+}) {
+  const activeTone =
+    tone === 'emerald'
+      ? 'border-emerald-400 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200'
+      : 'border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200'
+  const idleTone =
+    'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+        active ? activeTone : idleTone,
+      )}
+    >
+      {label}
+    </button>
   )
 }
 

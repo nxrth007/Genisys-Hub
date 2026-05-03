@@ -37,7 +37,13 @@ export async function GET() {
   const [dbAppointments, clients, sheetRows] = await Promise.all([
     prisma.appointment.findMany({
       where: { agentUserId: session.user.id },
-      orderBy: { apptDateTime: 'desc' },
+      // Sort by createdAt so the most-recently-booked appointment
+      // floats to the top of Mary's dashboard. The final merge
+      // re-sorts the same way after sheet rows are folded in, but
+      // matching the DB order keeps the result stable across the
+      // sheet-read race window (DB row appears before its loggedAt
+      // is set on the sheet, etc.).
+      orderBy: { createdAt: 'desc' },
       include: {
         client: { select: { id: true, name: true, state: true, color: true } },
       },
@@ -210,10 +216,14 @@ export async function GET() {
       }
     })
 
-  // Merge + sort newest-appointment first, matching the existing UX.
+  // Merge + sort by createdAt DESC — most-recently-booked at the top
+  // is what Mary actually wants to see when she pops the dashboard
+  // (the appointment she just saved, plus whatever else got logged
+  // in the last hour). Sheet-only rows synthesize createdAt from
+  // their loggedAt cell above, so the two sources sort coherently.
   const appointments = [...dbTagged, ...sheetOnly].sort((a, b) => {
-    const at = a.apptDateTime ? new Date(a.apptDateTime).getTime() : 0
-    const bt = b.apptDateTime ? new Date(b.apptDateTime).getTime() : 0
+    const at = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return bt - at
   })
 
