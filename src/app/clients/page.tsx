@@ -319,32 +319,30 @@ function ClientRow({
   onOpen: (c: ClientWithCounts) => void
 }) {
   const initials = clientInitials(client.name)
-  // Cap progress is the new primary delivery metric — how many of
-  // the client's nominal allotment we've delivered. Drives the bar.
-  // When apptCap is null (PPA / sit-down guarantee / uncategorized
-  // 'custom' deals) we fall back to the resolved-share metric so
-  // the column doesn't go totally blank.
+  // Sitdowns progress is the primary fulfillment metric — qualified
+  // appointments against either the client's contracted cap (when
+  // set) or the count of bookings (when uncapped). The bar
+  // visualizes this ratio so admins can spot at a glance whether
+  // a client is hitting fulfillment vs just booking volume.
   const cap = client.apptCap
-  const capPct = cap && cap > 0 ? Math.round((client.total / cap) * 100) : null
-  const resolved = client.showed + client.noShow + client.cancelled
-  const fallbackPct = client.progressPct ?? 0
-  const pct = capPct ?? fallbackPct
+  const sitdownDenom = cap && cap > 0 ? cap : client.total
+  const sitdownPct =
+    sitdownDenom > 0
+      ? Math.round((client.sitdowns / sitdownDenom) * 100)
+      : null
+  const barWidth = sitdownPct ?? 0
   const barColor =
-    capPct == null
-      ? client.progressPct == null
-        ? 'bg-primary'
-        : fallbackPct >= 75
-          ? 'bg-emerald-500'
-          : fallbackPct >= 50
-            ? 'bg-amber-400'
-            : 'bg-rose-500'
-      : capPct >= 100
+    sitdownPct == null
+      ? 'bg-muted-foreground/30'
+      : sitdownPct >= 100
         ? 'bg-emerald-600'
-        : capPct >= 75
+        : sitdownPct >= 75
           ? 'bg-emerald-500'
-          : capPct >= 40
+          : sitdownPct >= 40
             ? 'bg-amber-400'
-            : 'bg-rose-500'
+            : sitdownPct > 0
+              ? 'bg-rose-500'
+              : 'bg-muted-foreground/30'
 
   // Make the click open detail, but the inline status pill swallows
   // its own click so changing status doesn't also open the dialog.
@@ -398,37 +396,35 @@ function ClientRow({
       </span>
 
       <div className="flex flex-col gap-1.5">
+        {/* Top line — just the booked count. Cap (when set) gets
+            implicitly surfaced via the sitdowns line below, where
+            it's the meaningful denominator. */}
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {capPct != null
-            ? `${client.total}/${cap} booked · ${capPct}%${capPct >= 100 ? ' (over cap)' : ''}`
-            : client.progressPct != null
-              ? `${resolved}/${client.total} resolved · ${client.progressPct}%`
-              : client.total > 0
-                ? `0/${client.total} resolved`
-                : '—'}
+          {client.total > 0
+            ? `${client.total} booked${cap && client.total >= cap ? ' (cap reached)' : ''}`
+            : '—'}
         </span>
+        {/* Bar — visualizes sitdowns/cap (or sitdowns/booked when
+            uncapped). Empty grey rail when there's nothing to
+            measure yet. Clamped at 100% on the rare overshoot. */}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={cn('h-full rounded-full', barColor)}
-            // Clamp the visible bar at 100% so over-cap clients don't
-            // overflow the rail; the "(over cap)" label above still
-            // tells the story.
-            style={{ width: `${Math.min(pct, 100)}%` }}
+            style={{ width: `${Math.min(barWidth, 100)}%` }}
           />
         </div>
         {/* Sitdowns — qualified appointments (Sitdown=Yes on Master
-            Tracker). Surfaces the difference between "we booked
-            something" and "the client actually met the customer".
-            Hidden when there are no bookings yet so empty rows
-            stay clean. */}
+            Tracker). Denominator is the contracted cap when set
+            (fulfillment vs commitment), otherwise the booked count
+            (qualified rate). Hidden when there are no bookings yet
+            so empty rows stay clean. */}
         {client.total > 0 && (
           <span
             className="text-[10px] tabular-nums text-muted-foreground"
-            title="Appointments where the client actually met with the customer (Sitdown=Yes on Master Tracker). Set manually by admin."
+            title="Appointments where the client actually met with the customer (Sitdown=Yes on Master Tracker). Set manually by admin. Denominator is the contracted appt cap when configured, otherwise the booked count."
           >
-            {client.sitdowns}/{client.total} sitdowns
-            {client.total > 0 &&
-              ` · ${Math.round((client.sitdowns / client.total) * 100)}%`}
+            {client.sitdowns}/{sitdownDenom} sitdowns
+            {sitdownPct != null && ` · ${sitdownPct}%`}
           </span>
         )}
       </div>
