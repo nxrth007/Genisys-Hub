@@ -139,15 +139,15 @@ export default function AgentDashboardPage() {
     return list
   }, [appointments, search, statusFilter, quickFilter])
 
-  // Stat counters. Labels are deliberately literal so they're not
-  // confusing the way the original "Total booked" / "Active" pair
-  // was — both showed status='booked' counts under different names.
+  // Stat counters for Mary's dashboard. Kept tight to volume +
+  // outcomes — anything else is admin-side noise that doesn't help
+  // her booking workflow.
   //   - total     = every row regardless of status
   //   - thisMonth = appt date is in the current calendar month
-  //   - pending   = status='booked' (still on the books)
   //   - showed    = status='showed'
-  //   - noShow    = status='no_show' (surfaced separately so admin
-  //                 can spot the rate without doing math)
+  //   - noShow    = status='no_show'
+  // (Removed the "Pending" card — it was just status='booked' = the
+  // residual after subtracting outcomes, which is math not insight.)
   const stats = useMemo(() => {
     const total = appointments.length
     const thisMonth = appointments.filter((a) => {
@@ -157,8 +157,7 @@ export default function AgentDashboardPage() {
     }).length
     const showed = appointments.filter((a) => a.status === 'showed').length
     const noShow = appointments.filter((a) => a.status === 'no_show').length
-    const pending = appointments.filter((a) => a.status === 'booked').length
-    return { total, thisMonth, showed, noShow, pending }
+    return { total, thisMonth, showed, noShow }
   }, [appointments])
 
   return (
@@ -185,7 +184,6 @@ export default function AgentDashboardPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Total" value={stats.total} />
         <StatCard label="This month" value={stats.thisMonth} />
-        <StatCard label="Pending" value={stats.pending} />
         <StatCard label="Showed" value={stats.showed} />
         <StatCard label="No-show" value={stats.noShow} />
       </div>
