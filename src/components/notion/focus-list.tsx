@@ -63,6 +63,13 @@ import { EditTaskDialog } from './edit-task-dialog'
 type NotionTask = {
   id: string
   url: string
+  /** Notion auto-stamps every page with a last-edited timestamp. We
+   *  use it as a "completed at" proxy for status changes — when a
+   *  task is marked Done, this bumps. Imperfect (any edit bumps it)
+   *  but good enough to keep today's freshly-completed tasks in the
+   *  active list with strikethrough instead of jumping them into
+   *  the collapsed Done section the moment the box is ticked. */
+  last_edited_time?: string
   properties: Record<string, Record<string, unknown>>
 }
 
@@ -717,28 +724,50 @@ export function FocusList({
             </>
           ) : (
             // Flat checklist mode (used by /today). Active tasks first,
-            // then a Follow-ups subsection (so Ethan can spot people he
-            // owes a text), then Done at the bottom — all rendered
-            // inline in one card. Done items strike through but stay
-            // visible per Ethan's feedback ("strikethrough — don't
-            // disappear immediately"). Drag handles render but only
-            // toggle done via the checkbox in this mode.
-            <FlatChecklist
-              active={[
-                ...groupedTasks.doing,
-                ...groupedTasks.today,
-                ...groupedTasks.upnext,
-                ...groupedTasks.waiting,
-              ]}
-              followUps={groupedTasks.followup}
-              done={groupedTasks.done}
-              doneExpanded={doneExpanded}
-              onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
-              onToggle={toggleComplete}
-              onDelete={(id) => deleteMutation.mutate(id)}
-              onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-              onEdit={(id) => setEditingId(id)}
-            />
+            // then a Follow-ups subsection, then Done-earlier at the
+            // bottom — all in one card. Tasks marked done TODAY stay
+            // in the active list with strikethrough (rendered with
+            // done={true}) so checking the box doesn't make them
+            // jump out of view. Yesterday-and-earlier completed tasks
+            // go into the collapsed Done section. The split uses
+            // last_edited_time as a proxy for "done at" — Notion
+            // bumps it on status change, which is good enough for
+            // the "stay visible until midnight" UX.
+            (() => {
+              const startOfToday = new Date()
+              startOfToday.setHours(0, 0, 0, 0)
+              const isEditedToday = (t: Extracted) => {
+                const ts = t.task.last_edited_time
+                if (!ts) return false
+                const d = new Date(ts)
+                return !isNaN(d.getTime()) && d >= startOfToday
+              }
+              const doneToday = groupedTasks.done.filter(isEditedToday)
+              const doneEarlier = groupedTasks.done.filter(
+                (t) => !isEditedToday(t),
+              )
+              return (
+                <FlatChecklist
+                  active={[
+                    ...groupedTasks.doing,
+                    ...groupedTasks.today,
+                    ...groupedTasks.upnext,
+                    ...groupedTasks.waiting,
+                  ]}
+                  followUps={groupedTasks.followup}
+                  doneToday={doneToday}
+                  done={doneEarlier}
+                  doneExpanded={doneExpanded}
+                  onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
+                  onToggle={toggleComplete}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  onRename={(id, title) =>
+                    renameMutation.mutate({ pageId: id, title })
+                  }
+                  onEdit={(id) => setEditingId(id)}
+                />
+              )
+            })()
           )}
         </div>
 
@@ -876,6 +905,7 @@ const SECTION_TONES: Record<
 function FlatChecklist({
   active,
   followUps,
+  doneToday,
   done,
   doneExpanded,
   onToggleDoneExpanded,
@@ -886,6 +916,12 @@ function FlatChecklist({
 }: {
   active: Extracted[]
   followUps: Extracted[]
+  /** Tasks marked done TODAY — rendered inline with the active
+   *  list, struck through, so checking the box doesn't yank them
+   *  out of view. Roll into the collapsed Done section once the
+   *  day ends (last_edited_time stops being today). */
+  doneToday: Extracted[]
+  /** Tasks completed BEFORE today — collapsed by default. */
   done: Extracted[]
   doneExpanded: boolean
   onToggleDoneExpanded: () => void
@@ -896,7 +932,8 @@ function FlatChecklist({
    *  in-component callers stay typesafe; flat mode passes it. */
   onEdit?: (id: string) => void
 }) {
-  const totalCount = active.length + followUps.length + done.length
+  const totalCount =
+    active.length + followUps.length + doneToday.length + done.length
   if (totalCount === 0) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
@@ -909,14 +946,31 @@ function FlatChecklist({
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Active list */}
-      {active.length > 0 && (
+      {/* Active list — open tasks first, then today's done at the
+          bottom of the same list with strikethrough. The user-visible
+          effect: ticking a checkbox grays + strikes the row but it
+          stays in place. After the day ends the row's last_edited_time
+          falls out of "today" and it migrates to the collapsed Done
+          section below on next render. */}
+      {(active.length > 0 || doneToday.length > 0) && (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {active.map((t) => (
             <li key={t.id}>
               <TaskRow
                 task={t}
                 done={false}
+                onToggle={(d) => onToggle(t.id, d)}
+                onDelete={() => onDelete(t.id)}
+                onRename={(title) => onRename(t.id, title)}
+                onEdit={onEdit ? () => onEdit(t.id) : undefined}
+              />
+            </li>
+          ))}
+          {doneToday.map((t) => (
+            <li key={t.id}>
+              <TaskRow
+                task={t}
+                done
                 onToggle={(d) => onToggle(t.id, d)}
                 onDelete={() => onDelete(t.id)}
                 onRename={(title) => onRename(t.id, title)}
@@ -964,7 +1018,7 @@ function FlatChecklist({
           >
             <span className="flex items-center gap-2">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              Done today ({done.length})
+              Done earlier ({done.length})
             </span>
             <ChevronRight
               className={cn(
