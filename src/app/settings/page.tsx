@@ -1305,6 +1305,12 @@ function ClientAlertsSection() {
         </div>
       </div>
 
+      {/* Direct-test send — fire a sample SMS to any number without
+          needing to set up a client first. Useful for "make sure my
+          GHL config actually works" smoke tests against your own
+          phone before flipping the master toggle on. */}
+      <DirectTestSendRow />
+
       {/* Per-client status + test buttons */}
       <div className="mt-5">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -1323,6 +1329,84 @@ function ClientAlertsSection() {
         )}
       </div>
     </section>
+  )
+}
+
+function DirectTestSendRow() {
+  const [phoneDraft, setPhoneDraft] = useState('')
+  const testMutation = useMutation({
+    mutationFn: async (vars: {
+      recipientPhone: string
+    }): Promise<{
+      ok: true
+      clientName: string
+      recipientPhone: string
+      messageId: string | null
+    }> => {
+      const res = await fetch('/api/admin/client-alerts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientPhone: vars.recipientPhone,
+          label: 'Test recipient',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Test send failed')
+      return data
+    },
+    onSuccess: (data) => {
+      window.alert(
+        `Test SMS sent to ${data.recipientPhone}${data.messageId ? ` (GHL messageId: ${data.messageId})` : ''}. Should arrive within ~30 seconds.`,
+      )
+    },
+    onError: (err) => {
+      window.alert(`Test SMS failed: ${(err as Error).message}`)
+    },
+  })
+
+  return (
+    <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50/40 px-4 py-3 dark:border-purple-900/50 dark:bg-purple-950/20">
+      <label className="text-sm font-medium">Test send to a specific number</label>
+      <p className="mt-0.5 text-xs text-zinc-500">
+        Fire a sample SMS to any phone using the current GHL config —
+        useful for testing against your own number before any client
+        is configured. Any common US format works
+        (<code>(603) 803-4828</code>, <code>603-803-4828</code>, etc.).
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          type="tel"
+          value={phoneDraft}
+          onChange={(e) => setPhoneDraft(e.target.value)}
+          placeholder="(603) 803-4828"
+          className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <button
+          type="button"
+          disabled={!phoneDraft.trim() || testMutation.isPending}
+          onClick={() => {
+            const trimmed = phoneDraft.trim()
+            if (!trimmed) return
+            if (
+              window.confirm(
+                `Send a test SMS to ${trimmed} from your GHL number? This will burn one message segment.`,
+              )
+            ) {
+              testMutation.mutate({ recipientPhone: trimmed })
+            }
+          }}
+          className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
+        >
+          {testMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <PhoneIcon className="h-3 w-3" />
+          )}
+          Send test
+        </button>
+      </div>
+    </div>
   )
 }
 
