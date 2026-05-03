@@ -107,12 +107,14 @@ export async function GET() {
   })
   const byClient = new Map<string, Bucket>()
 
-  // Track which sheet rowNumbers are already covered by a DB row
-  // so the sheet pass doesn't double-count Hub-booked appointments.
-  // Also a content key (phone + apptDateTime to the minute) so the
-  // in-flight sync window doesn't briefly inflate counts.
-  const coveredRowNumbers = new Set<number>()
-  const coveredContent = new Set<string>()
+  // Sheet-presence indexes — built BEFORE the DB pass so we can
+  // skip ghost DB rows (sync failed, never synced, sheet row
+  // deleted). Without this, /clients showed `total = DB count` even
+  // when the sheet had fewer rows, giving Alex the "Brighton 7
+  // booked but master tracker shows 5" footgun. With it, /clients
+  // mirrors what the master tracker actually shows; ghost DB rows
+  // still surface in Settings → Sheet maintenance reconcile so
+  // they're not silently lost.
   function normalizePhoneForKey(raw: string | null | undefined): string | null {
     if (!raw) return null
     const digits = String(raw).replace(/\D/g, '')
@@ -129,10 +131,43 @@ export async function GET() {
       Math.floor(date.getTime() / 60_000) * 60_000,
     ).toISOString()
   }
+  const sheetRowNumbers = new Set<number>()
+  const sheetContentKeys = new Set<string>()
+  for (const r of sheetRows) {
+    sheetRowNumbers.add(r.rowNumber)
+    const phoneKey = normalizePhoneForKey(r.customerPhone)
+    const dateKey = apptKey(r.apptDateTime)
+    if (phoneKey && dateKey) {
+      sheetContentKeys.add(`${phoneKey}|${dateKey}`)
+    }
+  }
 
-  // ---- Pass 1: DB appointments
+  // Track which sheet rowNumbers are already covered by a DB row
+  // so the sheet pass below doesn't double-count Hub-booked
+  // appointments.
+  const coveredRowNumbers = new Set<number>()
+  const coveredContent = new Set<string>()
+
+  // ---- Pass 1: DB appointments (only those present in the sheet)
   for (const a of dbAppts) {
     if (!a.clientId) continue
+    // Skip ghost DB rows so /clients matches /call-center/master-
+    // tracker exactly. A row counts as "in sheet" if either its
+    // masterSheetRowNumber matches a current sheet row, OR the
+    // (phone, apptDateTime) pair appears in the sheet (catches
+    // row-shift cases where rowNumber is stale).
+    const phoneKey = normalizePhoneForKey(a.customerPhone)
+    const dateKey = apptKey(a.apptDateTime)
+    const inSheetByRow =
+      a.masterSheetRowNumber != null &&
+      sheetRowNumbers.has(a.masterSheetRowNumber)
+    const inSheetByContent = !!(
+      phoneKey &&
+      dateKey &&
+      sheetContentKeys.has(`${phoneKey}|${dateKey}`)
+    )
+    if (!inSheetByRow && !inSheetByContent) continue
+
     const b = byClient.get(a.clientId) ?? empty()
     b.total++
     if (a.apptDateTime > now && a.status === 'booked') b.upcoming++
@@ -147,8 +182,6 @@ export async function GET() {
     byClient.set(a.clientId, b)
 
     if (a.masterSheetRowNumber) coveredRowNumbers.add(a.masterSheetRowNumber)
-    const phoneKey = normalizePhoneForKey(a.customerPhone)
-    const dateKey = apptKey(a.apptDateTime)
     if (phoneKey && dateKey) {
       coveredContent.add(`${phoneKey}|${dateKey}`)
     }
