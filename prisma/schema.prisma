@@ -463,6 +463,22 @@ model Client {
   // agents don't see churned clients in their booking picker.
   lifecycle       String   @default("active")
 
+  // ---- Package / delivery commitment -------------------------------------
+  // Which contract tier the client is on. Drives the default appt
+  // cap (Growth → 20, Pro → 30) and lets the Clients page show a
+  // "12/20 delivered" progress bar. PPA = pay-per-appt, no nominal
+  // cap. "custom" = bespoke deal where the cap (or absence of one)
+  // is set manually via apptCap.
+  // Valid values: "ppa" | "growth" | "pro" | "custom"
+  package         String   @default("custom")
+
+  // Nominal appointment cap for the package — null means unlimited
+  // (PPA, or a sit-down-guarantee deal where we keep delivering
+  // past any nominal cap until the sit-down count is hit). The
+  // Clients page treats this as a target, not a hard stop — over-
+  // cap rows still count and surface in green.
+  apptCap         Int?
+
   // Slack channel the bot posts new-appointment notifications into.
   // Setting these (via Settings → Client delivery) opts the client in;
   // null = no auto-delivery. slackChannelName is just a cached label

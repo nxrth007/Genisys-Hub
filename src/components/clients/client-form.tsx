@@ -20,12 +20,18 @@ import { formatPhoneInput } from '@/lib/phone'
 
 export type ClientLifecycle = 'active' | 'onboarding' | 'paused' | 'churned'
 
+export type ClientPackage = 'ppa' | 'growth' | 'pro' | 'custom'
+
 export type ClientFormValues = {
   id?: string
   name: string
   state: string
   color: string
   lifecycle: ClientLifecycle
+  package: ClientPackage
+  /** Stored as a string so the input field stays controlled even
+   *  when blank. Empty string = no cap (unlimited). */
+  apptCap: string
   contactName: string
   contactRole: string
   contactEmail: string
@@ -41,6 +47,8 @@ const EMPTY: ClientFormValues = {
   state: '',
   color: '#0ea5e9',
   lifecycle: 'active',
+  package: 'custom',
+  apptCap: '',
   contactName: '',
   contactRole: '',
   contactEmail: '',
@@ -69,6 +77,24 @@ export const LIFECYCLE_OPTIONS: ReadonlyArray<{
   { id: 'onboarding', label: 'Onboarding', hint: 'In setup, not booking yet' },
   { id: 'paused', label: 'Paused', hint: 'Temporarily on hold' },
   { id: 'churned', label: 'Churned', hint: 'Relationship ended' },
+]
+
+/**
+ * Package tiers — drives default appt caps. Picking a tier auto-
+ * fills the cap input; admins can still override the number for
+ * sit-down-guarantee deals or any bespoke arrangement.
+ */
+export const PACKAGE_OPTIONS: ReadonlyArray<{
+  id: ClientPackage
+  label: string
+  /** Default cap when this tier is selected. null = unlimited. */
+  defaultCap: number | null
+  hint: string
+}> = [
+  { id: 'ppa', label: 'PPA', defaultCap: null, hint: 'Pay per appointment — no cap' },
+  { id: 'growth', label: 'Growth', defaultCap: 20, hint: '20 appointments / period' },
+  { id: 'pro', label: 'Pro', defaultCap: 30, hint: '30 appointments / period' },
+  { id: 'custom', label: 'Custom', defaultCap: null, hint: 'Bespoke deal — set cap manually' },
 ]
 
 export function ClientFormDialog({
@@ -236,6 +262,69 @@ export function ClientFormDialog({
                   </option>
                 ))}
               </select>
+            </Field>
+          </Row>
+        </Section>
+
+        {/* ---- Package / cap ----
+            Pick a tier and the cap auto-fills (Growth → 20, Pro →
+            30, PPA → blank/unlimited). Cap stays editable so a sit-
+            down-guarantee deal can sit at the bespoke number — or
+            be cleared entirely for "we keep delivering until they
+            sit down". The hint under the cap input explains the
+            unlimited-when-blank semantics. */}
+        <Section title="Package">
+          <Row>
+            <Field label="Tier">
+              <select
+                value={values.package}
+                onChange={(e) => {
+                  const next = e.target.value as ClientPackage
+                  const opt = PACKAGE_OPTIONS.find((o) => o.id === next)
+                  setValues((v) => ({
+                    ...v,
+                    package: next,
+                    // Only auto-set the cap when picking a preset tier;
+                    // leave 'custom' alone so admins can keep their
+                    // manually-typed number.
+                    apptCap:
+                      next === 'custom'
+                        ? v.apptCap
+                        : opt?.defaultCap == null
+                          ? ''
+                          : String(opt.defaultCap),
+                  }))
+                }}
+                className={inputCls}
+              >
+                {PACKAGE_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label} — {o.hint}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Appointment cap">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={values.apptCap}
+                onChange={(e) => set('apptCap', e.target.value)}
+                placeholder="No cap"
+                className={inputCls}
+              />
+              <span className="mt-1 text-[11px] text-muted-foreground">
+                Leave blank for unlimited (PPA / sit-down guarantee).
+                {values.package !== 'custom' &&
+                  ` Default for ${
+                    PACKAGE_OPTIONS.find((o) => o.id === values.package)
+                      ?.label
+                  } is ${
+                    PACKAGE_OPTIONS.find((o) => o.id === values.package)
+                      ?.defaultCap ?? 'unlimited'
+                  }.`}
+              </span>
             </Field>
           </Row>
         </Section>
@@ -454,11 +543,19 @@ function Field({
  *  fields as "clear this column" rather than "store an empty string." */
 function toApiPayload(v: ClientFormValues) {
   const blank = (s: string) => (s.trim() ? s.trim() : null)
+  // Cap parses as a positive integer or comes through as null. NaN
+  // and non-positive numbers fall back to null too — we don't want
+  // a typo turning into "0 appointments allowed".
+  const capNum = Number.parseInt(v.apptCap.trim(), 10)
+  const apptCap =
+    Number.isFinite(capNum) && capNum > 0 ? capNum : null
   return {
     name: v.name.trim(),
     state: blank(v.state),
     color: v.color,
     lifecycle: v.lifecycle,
+    package: v.package,
+    apptCap,
     contactName: blank(v.contactName),
     contactRole: blank(v.contactRole),
     contactEmail: blank(v.contactEmail),

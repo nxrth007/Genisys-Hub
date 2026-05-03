@@ -86,6 +86,8 @@ export async function PATCH(
         state: true,
         color: true,
         lifecycle: true,
+        package: true,
+        apptCap: true,
         contactName: true,
         contactRole: true,
         contactEmail: true,

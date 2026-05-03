@@ -25,7 +25,9 @@ import { DropdownPill } from '@/components/ui/dropdown-pill'
 import {
   ClientFormDialog,
   LIFECYCLE_OPTIONS,
+  PACKAGE_OPTIONS,
   type ClientLifecycle,
+  type ClientPackage,
   type ClientFormValues,
 } from '@/components/clients/client-form'
 
@@ -43,6 +45,9 @@ type ClientWithCounts = {
   state: string | null
   color: string
   lifecycle: ClientLifecycle
+  package: ClientPackage
+  /** Nominal appt cap. null = unlimited (PPA / sit-down guarantee). */
+  apptCap: number | null
   contactName: string | null
   contactRole: string | null
   contactEmail: string | null
@@ -68,6 +73,7 @@ type ClientWithCounts = {
 
 type StateFilter = 'all' | 'AZ' | 'CA' | 'UT' | 'other'
 type StatusFilter = 'all' | ClientLifecycle
+type PackageFilter = 'all' | ClientPackage
 
 function stateTone(state: string | null): ChipTone {
   if (!state) return 'amber'
@@ -101,9 +107,27 @@ const LIFECYCLE_LABEL: Record<ClientLifecycle, string> = {
   churned: 'Churned',
 }
 
+/** Tone per package tier — lets the badge color hint at the
+ *  commitment level at a glance (PPA = neutral, Growth/Pro = warm
+ *  brand colors, Custom = muted). */
+const PACKAGE_TONE: Record<ClientPackage, ChipTone> = {
+  ppa: 'blue',
+  growth: 'mint',
+  pro: 'violet',
+  custom: 'amber',
+}
+
+const PACKAGE_LABEL: Record<ClientPackage, string> = {
+  ppa: 'PPA',
+  growth: 'Growth',
+  pro: 'Pro',
+  custom: 'Custom',
+}
+
 export default function ClientsPage() {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [packageFilter, setPackageFilter] = useState<PackageFilter>('all')
   const [active, setActive] = useState<ClientWithCounts | null>(null)
   const [editing, setEditing] = useState<ClientWithCounts | null>(null)
   const [creating, setCreating] = useState(false)
@@ -130,8 +154,11 @@ export default function ClientsPage() {
     if (statusFilter !== 'all') {
       list = list.filter((c) => c.lifecycle === statusFilter)
     }
+    if (packageFilter !== 'all') {
+      list = list.filter((c) => c.package === packageFilter)
+    }
     return list
-  }, [clients, stateFilter, statusFilter])
+  }, [clients, stateFilter, statusFilter, packageFilter])
 
   // Stats — all run over the unfiltered set so the cards show real
   // totals regardless of what's currently filtered.
@@ -184,6 +211,17 @@ export default function ClientsPage() {
           ]}
           onChange={setStatusFilter}
         />
+        <DropdownPill
+          value={packageFilter}
+          options={[
+            { id: 'all', label: 'All packages' },
+            { id: 'ppa', label: 'PPA' },
+            { id: 'growth', label: 'Growth' },
+            { id: 'pro', label: 'Pro' },
+            { id: 'custom', label: 'Custom' },
+          ]}
+          onChange={setPackageFilter}
+        />
       </div>
 
       {/* Stats */}
@@ -225,12 +263,12 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div>
-          <div className="grid grid-cols-[2fr_70px_100px_100px_1.4fr_120px_120px] items-center gap-4 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span>Client</span>
+            <span>Package</span>
             <span>Agents</span>
-            <span>Appts</span>
             <span>State</span>
-            <span>Appointment progress</span>
+            <span>Cap progress</span>
             <span>Last booking</span>
             <span>Status</span>
           </div>
@@ -277,26 +315,39 @@ function ClientRow({
   onOpen: (c: ClientWithCounts) => void
 }) {
   const initials = clientInitials(client.name)
-  // Appointment progress = resolved share. Higher = more bookings have
-  // played out (showed/no-show/cancelled), which is what the call-center
-  // is actually being measured on.
-  const pct = client.progressPct ?? 0
+  // Cap progress is the new primary delivery metric — how many of
+  // the client's nominal allotment we've delivered. Drives the bar.
+  // When apptCap is null (PPA / sit-down guarantee / uncategorized
+  // 'custom' deals) we fall back to the resolved-share metric so
+  // the column doesn't go totally blank.
+  const cap = client.apptCap
+  const capPct = cap && cap > 0 ? Math.round((client.total / cap) * 100) : null
   const resolved = client.showed + client.noShow + client.cancelled
+  const fallbackPct = client.progressPct ?? 0
+  const pct = capPct ?? fallbackPct
   const barColor =
-    client.progressPct == null
-      ? 'bg-primary'
-      : pct >= 75
-        ? 'bg-emerald-500'
-        : pct >= 50
-          ? 'bg-amber-400'
-          : 'bg-rose-500'
+    capPct == null
+      ? client.progressPct == null
+        ? 'bg-primary'
+        : fallbackPct >= 75
+          ? 'bg-emerald-500'
+          : fallbackPct >= 50
+            ? 'bg-amber-400'
+            : 'bg-rose-500'
+      : capPct >= 100
+        ? 'bg-emerald-600'
+        : capPct >= 75
+          ? 'bg-emerald-500'
+          : capPct >= 40
+            ? 'bg-amber-400'
+            : 'bg-rose-500'
 
   // Make the click open detail, but the inline status pill swallows
   // its own click so changing status doesn't also open the dialog.
   return (
     <li
       onClick={() => onOpen(client)}
-      className="grid cursor-pointer grid-cols-[2fr_70px_100px_100px_1.4fr_120px_120px] items-center gap-4 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted"
+      className="grid cursor-pointer grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted"
     >
       <div className="flex min-w-0 items-center gap-3">
         <span
@@ -321,14 +372,22 @@ function ClientRow({
         </div>
       </div>
 
+      {/* Package badge — colored chip shows tier at a glance,
+          plus the cap number underneath so admins can see the
+          commitment without opening the row. */}
+      <div className="flex flex-col items-start gap-0.5">
+        <Chip tone={PACKAGE_TONE[client.package] ?? 'muted'}>
+          {PACKAGE_LABEL[client.package] ?? 'Custom'}
+        </Chip>
+        <span className="text-[10px] tabular-nums text-muted-foreground">
+          {client.apptCap ? `${client.apptCap} appt cap` : 'No cap'}
+        </span>
+      </div>
+
       <div className="flex items-center gap-1.5 text-sm font-medium">
         <Users className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="tabular-nums">{client.agents}</span>
       </div>
-
-      <span className="text-sm font-semibold tabular-nums">
-        {client.total.toLocaleString()}
-      </span>
 
       <span>
         <Chip tone={stateTone(client.state)}>{stateCode(client.state)}</Chip>
@@ -336,16 +395,21 @@ function ClientRow({
 
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {client.progressPct != null
-            ? `${resolved}/${client.total} resolved · ${client.progressPct}%`
-            : client.total > 0
-              ? `0/${client.total} resolved`
-              : '—'}
+          {capPct != null
+            ? `${client.total}/${cap} delivered · ${capPct}%${capPct >= 100 ? ' (over cap)' : ''}`
+            : client.progressPct != null
+              ? `${resolved}/${client.total} resolved · ${client.progressPct}%`
+              : client.total > 0
+                ? `0/${client.total} resolved`
+                : '—'}
         </span>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={cn('h-full rounded-full', barColor)}
-            style={{ width: `${pct}%` }}
+            // Clamp the visible bar at 100% so over-cap clients don't
+            // overflow the rail; the "(over cap)" label above still
+            // tells the story.
+            style={{ width: `${Math.min(pct, 100)}%` }}
           />
         </div>
       </div>
@@ -519,10 +583,16 @@ function ClientDetailDialog({
           </div>
         </div>
 
-        {/* Status + last booking */}
+        {/* Status + package + last booking — three pills in one row.
+            Package chip surfaces the contract tier; the cap label
+            below the progress bar tracks delivery against the cap. */}
         <div className="flex flex-wrap items-center gap-2">
           <Chip tone={LIFECYCLE_TONE[client.lifecycle]} className="font-semibold">
             {LIFECYCLE_LABEL[client.lifecycle]}
+          </Chip>
+          <Chip tone={PACKAGE_TONE[client.package] ?? 'muted'} className="font-semibold">
+            {PACKAGE_LABEL[client.package] ?? 'Custom'}
+            {client.apptCap ? ` · ${client.apptCap}` : ' · no cap'}
           </Chip>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-muted px-2.5 py-1 text-xs font-medium">
             <Clock className="h-3 w-3 text-muted-foreground" />
@@ -791,6 +861,8 @@ function toFormValues(c: ClientWithCounts): ClientFormValues {
     state: c.state ?? '',
     color: c.color,
     lifecycle: c.lifecycle,
+    package: c.package,
+    apptCap: c.apptCap == null ? '' : String(c.apptCap),
     contactName: c.contactName ?? '',
     contactRole: c.contactRole ?? '',
     contactEmail: c.contactEmail ?? '',

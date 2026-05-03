@@ -15,6 +15,28 @@ function isValidLifecycle(v: unknown): v is ClientLifecycle {
   return typeof v === 'string' && (VALID_LIFECYCLES as readonly string[]).includes(v)
 }
 
+/** Contract tiers. PPA = pay per appt (no nominal cap), Growth + Pro
+ *  have nominal caps that drive the Clients-page progress bar, and
+ *  Custom is the bespoke deal where the cap is set entirely by the
+ *  admin (or left blank for sit-down-guarantee arrangements). */
+export const VALID_PACKAGES = ['ppa', 'growth', 'pro', 'custom'] as const
+export type ClientPackage = (typeof VALID_PACKAGES)[number]
+
+function isValidPackage(v: unknown): v is ClientPackage {
+  return typeof v === 'string' && (VALID_PACKAGES as readonly string[]).includes(v)
+}
+
+/** Coerce a raw apptCap value (number / numeric string / null /
+ *  undefined / empty string) into either a positive integer or
+ *  null. Rejects negative / zero / NaN — those would be a typo
+ *  rather than "they have a 0-appt cap". Returning null = unlimited. */
+function normalizeApptCap(v: unknown): number | null {
+  if (v == null || v === '') return null
+  const n = typeof v === 'number' ? v : Number.parseInt(String(v).trim(), 10)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.round(n)
+}
+
 function trimOrNull(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const t = v.trim()
@@ -41,6 +63,8 @@ export function validateClientCreate(
         intakeFormUrl: string | null
         ghlSubaccountUrl: string | null
         lifecycle: ClientLifecycle
+        package: ClientPackage
+        apptCap: number | null
         sortOrder: number
       }
     }
@@ -74,6 +98,9 @@ export function validateClientCreate(
   const rawPhone = trimOrNull(b.contactPhone)
   const contactPhone = rawPhone ? formatPhoneInput(rawPhone) : null
 
+  const pkg: ClientPackage = isValidPackage(b.package) ? b.package : 'custom'
+  const apptCap = normalizeApptCap(b.apptCap)
+
   return {
     ok: true,
     data: {
@@ -89,6 +116,8 @@ export function validateClientCreate(
       intakeFormUrl: trimOrNull(b.intakeFormUrl),
       ghlSubaccountUrl: trimOrNull(b.ghlSubaccountUrl),
       lifecycle,
+      package: pkg,
+      apptCap,
       sortOrder,
     },
   }
@@ -119,6 +148,8 @@ export function normalizeClientPatch(
         ghlSubaccountUrl: string | null
         lifecycle: ClientLifecycle
         active: boolean
+        package: ClientPackage
+        apptCap: number | null
         slackChannelId: string | null
         slackChannelName: string | null
       }>
@@ -142,6 +173,8 @@ export function normalizeClientPatch(
     ghlSubaccountUrl: string | null
     lifecycle: ClientLifecycle
     active: boolean
+    package: ClientPackage
+    apptCap: number | null
     slackChannelId: string | null
     slackChannelName: string | null
   }> = {}
@@ -205,6 +238,22 @@ export function normalizeClientPatch(
   if ('contactPhone' in b) {
     const raw = trimOrNull(b.contactPhone)
     data.contactPhone = raw ? formatPhoneInput(raw) : null
+  }
+
+  // Package + cap — admin-set via the client form. Both fields are
+  // optional in the patch payload; missing keys leave the column
+  // untouched. apptCap explicitly null = clear the cap (unlimited).
+  if ('package' in b) {
+    if (!isValidPackage(b.package)) {
+      return {
+        ok: false,
+        error: `package must be one of ${VALID_PACKAGES.join(', ')}`,
+      }
+    }
+    data.package = b.package
+  }
+  if ('apptCap' in b) {
+    data.apptCap = normalizeApptCap(b.apptCap)
   }
 
   // Slack channel routing — admin-set via Settings → Client delivery.
