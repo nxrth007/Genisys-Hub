@@ -35,20 +35,22 @@ import {
 
 /**
  * Map the scope pill ("Daily" / "Weekly" / "Monthly" / "Quarterly")
- * to a date range starting at today. Lets the scope dropdown drive
- * the calendar pill instead of being decorative — Ethan's complaint
- * was that the filter "doesn't actually do anything".
+ * to a date range ENDING at today and looking backward. The pill
+ * filters tasks by when they were created, so "Weekly" means "the
+ * last 7 days of additions" — looking forward from today wouldn't
+ * include anything yet (no time travel) and would defeat the point
+ * of a calendar that tracks Alex/Ethan's task entry history.
  */
 function rangeForScope(
   scope: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly',
 ): DateRange {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
+  const end = new Date()
+  end.setHours(23, 59, 59, 999)
   const days =
     scope === 'Daily' ? 0 : scope === 'Weekly' ? 6 : scope === 'Monthly' ? 29 : 89
-  const end = new Date(start)
-  end.setDate(end.getDate() + days)
-  end.setHours(23, 59, 59, 999)
+  const start = new Date(end)
+  start.setDate(start.getDate() - days)
+  start.setHours(0, 0, 0, 0)
   return { start, end }
 }
 
@@ -284,27 +286,31 @@ export default function TodayPage() {
 
   const tasks = tasksQuery.data?.tasks ?? []
   const events = calQuery.data?.events ?? []
-  // Filter local tasks by the calendar pill's range. A task matches
-  // the range when ANY of these falls within it:
-  //   - dueAt          (the user's target date for the task)
-  //   - completedAt    (so "Daily" still shows what was finished today)
-  //   - createdAt fallback when no dueAt — "show me tasks I added in
-  //                    this window" for tasks with no scheduled date
-  // Without this filter the calendar pill was decorative; with it,
-  // selecting "Daily" shows today's slice and "Quarterly" shows the
-  // next ~3 months.
+  // Filter local tasks by when they were CREATED — Alex + Ethan
+  // want "what did I add today / this week / this month". createdAt
+  // is auto-stamped by Prisma on insert so it's always present and
+  // never wrong.
   function inRange(iso: string | null): boolean {
     if (!iso) return false
     const t = new Date(iso).getTime()
     if (isNaN(t)) return false
     return t >= range.start.getTime() && t <= range.end.getTime()
   }
-  const tasksInRange = tasks.filter((t) => {
-    if (inRange(t.dueAt)) return true
-    if (inRange(t.completedAt)) return true
-    if (!t.dueAt && inRange(t.createdAt)) return true
-    return false
-  })
+  // Sort completed tasks to the bottom of the same list (instead of
+  // jumping to a separate "Completed today" subsection the moment
+  // the user ticks the box) so checking off a task strikes it
+  // through and leaves it in place. The API already drops
+  // yesterday-and-older completed tasks server-side, so they roll
+  // out of the list naturally after the day ends.
+  const tasksInRange = tasks
+    .filter((t) => inRange(t.createdAt))
+    .slice()
+    .sort((a, b) => {
+      const aDone = !!a.completedAt
+      const bDone = !!b.completedAt
+      if (aDone !== bDone) return aDone ? 1 : -1
+      return 0
+    })
   const incompleteTasks = tasksInRange.filter((t) => !t.completedAt)
   const completedTasks = tasksInRange.filter((t) => t.completedAt)
 
@@ -621,33 +627,21 @@ export default function TodayPage() {
                 )}
               </div>
             ) : (
-              <>
-                {incompleteTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onUpdate={() =>
-                      qc.invalidateQueries({ queryKey: ['today-tasks'] })
-                    }
-                  />
-                ))}
-                {completedTasks.length > 0 && (
-                  <div className="bg-surface-muted">
-                    <div className="px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Completed today ({completedTasks.length})
-                    </div>
-                    {completedTasks.map((task) => (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        onUpdate={() =>
-                          qc.invalidateQueries({ queryKey: ['today-tasks'] })
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
+              // One flat list — completed tasks stay in place with
+              // strikethrough (sorted to the bottom) instead of
+              // jumping to a separate subsection the moment the box
+              // is checked. The API drops yesterday's completed
+              // tasks server-side so they roll out automatically
+              // after the day ends.
+              tasksInRange.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onUpdate={() =>
+                    qc.invalidateQueries({ queryKey: ['today-tasks'] })
+                  }
+                />
+              ))
             )}
           </div>
           <div className="border-t border-border-soft px-3 py-2">
@@ -1068,12 +1062,6 @@ function AddTaskModal({
 }) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
-  // Due date is the field the calendar pill at the top of the page
-  // filters against — without it, the calendar had nothing to do
-  // and felt decorative. <input type="date"> gives a YYYY-MM-DD
-  // string; we anchor the time at noon local so timezone shifts
-  // don't roll the day over when stored as UTC.
-  const [dueDate, setDueDate] = useState('')
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal')
   const [submitting, setSubmitting] = useState(false)
 
@@ -1081,23 +1069,12 @@ function AddTaskModal({
     e.preventDefault()
     setSubmitting(true)
     try {
-      let dueAt: string | null = null
-      if (dueDate) {
-        const [y, m, d] = dueDate.split('-').map((n) => parseInt(n, 10))
-        // Anchor to noon local — keeps the date stable across UTC
-        // serialization regardless of viewer tz (a midnight anchor
-        // would slip back a day for users west of UTC after round-
-        // tripping through new Date(...).toISOString()).
-        const local = new Date(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0, 0)
-        dueAt = local.toISOString()
-      }
       const res = await fetch('/api/today/tasks', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
           notes: notes.trim() || null,
-          dueAt,
           priority,
         }),
       })
@@ -1143,22 +1120,6 @@ function AddTaskModal({
               placeholder="Additional context"
               className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">
-              Due date (optional)
-            </label>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
-            />
-            <p className="mt-1 text-[11px] text-zinc-500">
-              Drives the calendar filter at the top of /today. Leave
-              blank for tasks with no specific date — they show up
-              under the date you added them.
-            </p>
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium">Priority</label>
