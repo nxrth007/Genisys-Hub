@@ -85,6 +85,12 @@ export async function GET() {
     noShow: number
     cancelled: number
     booked: number // status='booked' (still on the books, not yet resolved)
+    // Qualified-appointment count: rows where the Sitdown flag (the
+    // sheet's "Sent to Client?" column under the hood) is set to
+    // "yes" — i.e. the client actually met with the customer. Drives
+    // the client card's "X sitdowns" line so admins see fulfilled
+    // appointments separately from total bookings.
+    sitdowns: number
     agents: Set<string>
     lastBookingAt: Date | null
   }
@@ -95,6 +101,7 @@ export async function GET() {
     noShow: 0,
     cancelled: 0,
     booked: 0,
+    sitdowns: 0,
     agents: new Set<string>(),
     lastBookingAt: null,
   })
@@ -148,15 +155,15 @@ export async function GET() {
   }
 
   // ---- Pass 2: master sheet rows
+  // Sitdown is read from the sheet's "Sent to Client?" / "Sitdown"
+  // column, which has no DB equivalent. To count sitdowns for
+  // DB-tracked rows too, we route every sheet row first, increment
+  // sitdowns unconditionally when the flag is "yes", then skip the
+  // rest of the count fields if the row's already covered by the
+  // DB pass.
   for (const r of sheetRows) {
     if (!r.customerName?.trim()) continue
     if (!r.apptDateTime) continue
-    if (coveredRowNumbers.has(r.rowNumber)) continue
-    const phoneKey = normalizePhoneForKey(r.customerPhone)
-    const dateKey = apptKey(r.apptDateTime)
-    if (phoneKey && dateKey && coveredContent.has(`${phoneKey}|${dateKey}`)) {
-      continue
-    }
 
     const route = routeRowToClient(
       { client: r.client, address: normalizeAddress(r.address) },
@@ -164,8 +171,34 @@ export async function GET() {
     )
     if (route.source === 'unrouted') continue
     const clientId = route.client.id
-
     const b = byClient.get(clientId) ?? empty()
+
+    // Sitdown — every sheet row that routes to a client counts here,
+    // including ones the DB pass already counted for total/upcoming/
+    // etc., because the sentToClient flag lives only on the sheet.
+    const sitdownRaw = String(r.sentToClient ?? '').trim().toLowerCase()
+    if (
+      ['yes', 'y', '1', 'true', 'sent', 'delivered', 'handed off'].includes(
+        sitdownRaw,
+      )
+    ) {
+      b.sitdowns++
+    }
+
+    // Dedup the rest of the count: DB pass already counted this row
+    // for total/upcoming/showed/etc., so skip those increments to
+    // avoid double-counting Hub-booked appointments.
+    if (coveredRowNumbers.has(r.rowNumber)) {
+      byClient.set(clientId, b)
+      continue
+    }
+    const phoneKey = normalizePhoneForKey(r.customerPhone)
+    const dateKey = apptKey(r.apptDateTime)
+    if (phoneKey && dateKey && coveredContent.has(`${phoneKey}|${dateKey}`)) {
+      byClient.set(clientId, b)
+      continue
+    }
+
     b.total++
     const apptDate = new Date(r.apptDateTime)
     const status = (r.status ?? '').toLowerCase().trim()
@@ -239,6 +272,7 @@ export async function GET() {
       showed: stats.showed,
       noShow: stats.noShow,
       cancelled: stats.cancelled,
+      sitdowns: stats.sitdowns,
       progressPct,
       showRate,
       agents: stats.agents.size,

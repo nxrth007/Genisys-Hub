@@ -1251,7 +1251,12 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Bill</th>
                   <th className="px-3 py-2.5">Deal $</th>
                   <th className="px-3 py-2.5">Status</th>
-                  <th className="px-3 py-2.5">Sent</th>
+                  <th
+                    className="px-3 py-2.5"
+                    title="Has the client met with the customer? Set manually by admin to mark whether the appointment is qualified / fulfilled."
+                  >
+                    Sitdown
+                  </th>
                   <th className="px-3 py-2.5">Slack</th>
                   <th className="px-3 py-2.5">Rec</th>
                   {isAdmin && <th className="px-3 py-2.5"></th>}
@@ -2038,12 +2043,18 @@ function StatusCell({
 }
 
 /**
- * Inline Yes / No / Unassigned editor for the "Sent to Client?"
- * column. Same shape as StatusCell — a chip-styled native select
- * that PATCHes the sheet on change with optimistic update + revert.
+ * Inline Yes / No / Unassigned editor for the "Sitdown" column —
+ * tracks whether the client actually met with the customer (i.e.
+ * the appointment is qualified / fulfilled, not just booked).
+ * Same shape as StatusCell — a chip-styled native select that
+ * PATCHes the sheet on change with optimistic update + revert.
  *
- * Tone matches the meaning: Yes = emerald (delivered), No = rose
- * (not delivered, attention needed), Unassigned = neutral zinc.
+ * Internal field is still `sentToClient` for backward compat with
+ * the underlying sheet column + canonical aliases; the UI label
+ * shifted to "Sitdown" to match Alex's vocabulary (sent ≠ met).
+ *
+ * Tone matches the meaning: Yes = emerald (sat down, qualified),
+ * No = rose (no contact made, attention needed), Unassigned = grey.
  */
 function SentToClientCell({
   value,
@@ -2068,7 +2079,7 @@ function SentToClientCell({
       title={
         errored
           ? 'Failed to write to the sheet — please retry.'
-          : 'Has this appointment been delivered to the client?'
+          : 'Did the client actually sit down with the customer? Yes = qualified appointment.'
       }
     >
       <select

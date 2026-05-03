@@ -1620,10 +1620,10 @@ function SheetMaintenanceSection() {
           columnLabel="Agent"
         />
         <SheetMigrationRow
-          title='Add "Sent to Client?" column'
-          description='Adds a column that powers the Yes / No / Unassigned select on Master Tracker. Temporary — once the Slack auto-handoff ships, that flow will write the value automatically and the manual select goes away.'
+          title='Add "Sitdown" column (was "Sent to Client?")'
+          description='Adds the column that powers the Yes / No / Unassigned select on Master Tracker — used by admin to mark whether the client actually met with the customer (qualified appointment). The internal sheet column header is still "Sent to Client?" for backward compatibility; the canonical alias also matches "Sitdown" so admin can rename the header without breaking the sync.'
           endpoint="/api/admin/sheets/migrate-sent-to-client-column"
-          columnLabel="Sent"
+          columnLabel="Sitdown"
         />
         <BackfillLoggedAtRow />
       </div>

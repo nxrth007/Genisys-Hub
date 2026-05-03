@@ -33,6 +33,24 @@ export async function GET() {
   })
   const routingIndex = buildRoutingIndex(clients)
 
+  // Pull every Hub-booked appointment so we can hydrate sheet rows
+  // with the DB's authoritative createdAt when the sheet's Logged At
+  // cell is empty (which it is by default — the sheet doesn't have
+  // a Logged At column header, and we're moving away from the sheet
+  // as source of truth anyway). Two index keys: masterSheetRowNumber
+  // for the fast path; (phone + apptDateTime) for the in-flight
+  // sync window where the row exists in the DB but rowNumber hasn't
+  // been written back yet.
+  const dbAppts = await prisma.appointment.findMany({
+    where: { masterSheetRowNumber: { not: null } },
+    select: {
+      masterSheetRowNumber: true,
+      customerPhone: true,
+      apptDateTime: true,
+      createdAt: true,
+    },
+  })
+
   let rows
   try {
     rows = await readMasterTableRows()
@@ -89,6 +107,23 @@ export async function GET() {
     if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
     if (digits.length >= 10) return `+${digits}`
     return null
+  }
+
+  // Build the DB createdAt index now that normalizePhoneForKey is in
+  // scope. Two paths so a row hits whichever signal is available
+  // first: rowNumber when the sync wrote it back, content key
+  // otherwise.
+  const dbCreatedAtByRow = new Map<number, Date>()
+  const dbCreatedAtByContent = new Map<string, Date>()
+  for (const a of dbAppts) {
+    if (a.masterSheetRowNumber) {
+      dbCreatedAtByRow.set(a.masterSheetRowNumber, a.createdAt)
+    }
+    const phoneKey = normalizePhoneForKey(a.customerPhone)
+    if (phoneKey && a.apptDateTime) {
+      const ck = `${phoneKey}|${a.apptDateTime.toISOString()}`
+      dbCreatedAtByContent.set(ck, a.createdAt)
+    }
   }
 
   // Build a duplicate-detection index. Two rows count as "likely the
@@ -272,13 +307,36 @@ export async function GET() {
       createdAt: r.loggedAt
         ? new Date(r.loggedAt).toISOString()
         : r.apptDateTime || new Date().toISOString(),
-      // Honest timestamp of when the row was logged. Null when the
-      // sheet's Logged At column is blank or the cell value can't be
-      // parsed as a date — we'd rather drop the value than fall back
-      // to apptDateTime (which would silently mislabel rows as
-      // "booked today" by their appointment date). The Master Tracker
-      // "Booked today / this week" filters key off this exclusively.
-      loggedAt: parseSheetDateOrNull(r.loggedAt),
+      // Honest timestamp of when the row was logged. Resolution
+      // order:
+      //   1. Sheet's Logged At cell (parsed) — only present when
+      //      Mary types it manually since the sheet currently has
+      //      no Logged At column header
+      //   2. DB Appointment.createdAt by masterSheetRowNumber — set
+      //      when the Hub form synced the row to the sheet
+      //   3. DB Appointment.createdAt by content key (phone +
+      //      apptDateTime) — catches the in-flight window where the
+      //      DB row exists but rowNumber hasn't been written back
+      //   4. null — sheet-typed rows from before the Hub-form era
+      //      genuinely don't have a logged-at signal; the "Set
+      //      today" filter excludes them rather than mislabel.
+      // This makes the "Set today" chip work for every Hub-booked
+      // appointment without needing a Logged At sheet column. Long-
+      // term the master tracker will read directly from the DB and
+      // skip the sheet round-trip entirely.
+      loggedAt: (() => {
+        const fromSheet = parseSheetDateOrNull(r.loggedAt)
+        if (fromSheet) return fromSheet
+        const byRow = dbCreatedAtByRow.get(r.rowNumber)
+        if (byRow) return byRow.toISOString()
+        const phoneKey = normalizePhoneForKey(r.customerPhone)
+        if (phoneKey && r.apptDateTime) {
+          const ck = `${phoneKey}|${new Date(r.apptDateTime).toISOString()}`
+          const byContent = dbCreatedAtByContent.get(ck)
+          if (byContent) return byContent.toISOString()
+        }
+        return null
+      })(),
       // Sent-to-client manual flag. Normalized to one of three
       // tokens so the UI can render a chip-tone select without
       // worrying about case / synonym sprawl.

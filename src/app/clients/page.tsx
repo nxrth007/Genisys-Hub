@@ -62,6 +62,10 @@ type ClientWithCounts = {
   showed: number
   noShow: number
   cancelled: number
+  /** Sitdowns — appointments where the client actually met the
+   *  customer (Sitdown=Yes on Master Tracker). The "qualified
+   *  appointment" count, separate from raw bookings. */
+  sitdowns: number
   /** Resolved (showed + no-show + cancelled) / total — the "appointment
    *  progress" metric Ethan asked for. Null when total is 0. */
   progressPct: number | null
@@ -232,7 +236,7 @@ export default function ClientsPage() {
           sub={`${clients.length - activeCount} on hold or churned`}
         />
         <SummaryCard
-          label="Appts delivered"
+          label="Appts booked"
           value={totalAppts.toLocaleString()}
           sub={`across ${clients.length} client${clients.length === 1 ? '' : 's'}`}
         />
@@ -396,7 +400,7 @@ function ClientRow({
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
           {capPct != null
-            ? `${client.total}/${cap} delivered · ${capPct}%${capPct >= 100 ? ' (over cap)' : ''}`
+            ? `${client.total}/${cap} booked · ${capPct}%${capPct >= 100 ? ' (over cap)' : ''}`
             : client.progressPct != null
               ? `${resolved}/${client.total} resolved · ${client.progressPct}%`
               : client.total > 0
@@ -412,6 +416,21 @@ function ClientRow({
             style={{ width: `${Math.min(pct, 100)}%` }}
           />
         </div>
+        {/* Sitdowns — qualified appointments (Sitdown=Yes on Master
+            Tracker). Surfaces the difference between "we booked
+            something" and "the client actually met the customer".
+            Hidden when there are no bookings yet so empty rows
+            stay clean. */}
+        {client.total > 0 && (
+          <span
+            className="text-[10px] tabular-nums text-muted-foreground"
+            title="Appointments where the client actually met with the customer (Sitdown=Yes on Master Tracker). Set manually by admin."
+          >
+            {client.sitdowns}/{client.total} sitdowns
+            {client.total > 0 &&
+              ` · ${Math.round((client.sitdowns / client.total) * 100)}%`}
+          </span>
+        )}
       </div>
 
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

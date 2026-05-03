@@ -708,12 +708,23 @@ const COLUMN_ALIASES: Record<string, CanonicalKey> = {
   logged: 'loggedAt',
   createdat: 'loggedAt',
   timestamp: 'loggedAt',
-  // Sent-to-client manual hand-off flag.
+  // Sent-to-client / Sitdown manual flag — tracks whether the
+  // client actually met the customer (qualified appointment). The
+  // canonical key stays `sentToClient` for backward compat with
+  // existing sheets that still use that column header. Either label
+  // (or the new "Sitdown" name we display in the UI) maps to the
+  // same internal field, so admin can rename the sheet column at
+  // any time without breaking the sync.
   senttoclient: 'sentToClient',
   senttoclientyesno: 'sentToClient',
   sent: 'sentToClient',
   delivered: 'sentToClient',
   handedoff: 'sentToClient',
+  sitdown: 'sentToClient',
+  sitdowns: 'sentToClient',
+  satdown: 'sentToClient',
+  met: 'sentToClient',
+  qualified: 'sentToClient',
   // Explicit timezone override — Mary's request: "can u put
   // timezone instead, so that I can put whatever the cx timezone".
   // She types "PT" / "ET" / "CT" / "MT" or a full IANA zone in this
