@@ -87,18 +87,14 @@ export function initScheduler() {
       if (now - lastClientDeliverySyncAt >= CLIENT_DELIVERY_SYNC_INTERVAL_MS) {
         lastClientDeliverySyncAt = now
         const result = await syncClientDeliveriesFromSheet()
-        // Log on actionable activity OR ambiguity — the latter
-        // is silent in counts but signals the "two clients in same
-        // state" case that demands an admin's attention.
-        if (
-          result.delivered > 0 ||
-          result.failed > 0 ||
-          result.ambiguous > 0
-        ) {
-          console.log(
-            `[scheduler] client-delivery sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
-          )
-        }
+        // Heartbeat-log every 5-min tick (not just on activity) so a
+        // test "I made a new appointment, will it auto-deliver?" has
+        // a clear log line to grep for in Render. Without it, a
+        // silently-skipped row was indistinguishable from a cron
+        // that never ran.
+        console.log(
+          `[scheduler] client-delivery sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
+        )
       }
     } catch (err) {
       console.error('[scheduler] client-delivery sync failed:', err)
