@@ -732,6 +732,8 @@ export function FocusList({
               ]}
               followUps={groupedTasks.followup}
               done={groupedTasks.done}
+              doneExpanded={doneExpanded}
+              onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
               onToggle={toggleComplete}
               onDelete={(id) => deleteMutation.mutate(id)}
               onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
@@ -865,16 +867,18 @@ const SECTION_TONES: Record<
 
 /**
  * Flat checklist mode used by /today. Three inline groups in one
- * card: active → follow-ups → done. No collapses — Ethan said
- * completed tasks should stay visible (strikethrough) right where
- * they were rather than vanishing into a collapsed "Done today"
- * fold mid-session. Section sub-headers only render when their
- * group has at least one task so empty boards stay calm.
+ * card: active → follow-ups → done. Done is a collapsible cluster
+ * (closed by default) so the page lands clean without a wall of
+ * yesterday's completed work, but the count stays visible on the
+ * header so you know there's history if you want it. Click to
+ * expand and see strikethrough rows inline.
  */
 function FlatChecklist({
   active,
   followUps,
   done,
+  doneExpanded,
+  onToggleDoneExpanded,
   onToggle,
   onDelete,
   onRename,
@@ -883,6 +887,8 @@ function FlatChecklist({
   active: Extracted[]
   followUps: Extracted[]
   done: Extracted[]
+  doneExpanded: boolean
+  onToggleDoneExpanded: () => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -946,28 +952,43 @@ function FlatChecklist({
         </div>
       )}
 
-      {/* Done — strikethrough rows stay in the list (no collapse).
-          Subheader is faint so the eye still treats them as done. */}
+      {/* Done — collapsible, closed by default. Click the header to
+          expand and see strikethrough rows inline. The count stays
+          on the header so you can tell there's something to expand. */}
       {done.length > 0 && (
         <div className="border-t border-zinc-100 dark:border-zinc-800">
-          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-            Done today ({done.length})
-          </div>
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {done.map((t) => (
-              <li key={t.id}>
-                <TaskRow
-                  task={t}
-                  done
-                  onToggle={(d) => onToggle(t.id, d)}
-                  onDelete={() => onDelete(t.id)}
-                  onRename={(title) => onRename(t.id, title)}
-                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
-                />
-              </li>
-            ))}
-          </ul>
+          <button
+            type="button"
+            onClick={onToggleDoneExpanded}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800/40"
+          >
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              Done today ({done.length})
+            </span>
+            <ChevronRight
+              className={cn(
+                'h-3.5 w-3.5 transition-transform',
+                doneExpanded && 'rotate-90',
+              )}
+            />
+          </button>
+          {doneExpanded && (
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {done.map((t) => (
+                <li key={t.id}>
+                  <TaskRow
+                    task={t}
+                    done
+                    onToggle={(d) => onToggle(t.id, d)}
+                    onDelete={() => onDelete(t.id)}
+                    onRename={(title) => onRename(t.id, title)}
+                    onEdit={onEdit ? () => onEdit(t.id) : undefined}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
