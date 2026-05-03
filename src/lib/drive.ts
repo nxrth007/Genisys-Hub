@@ -1132,10 +1132,26 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
       timezone: explicitTz,
       address: rowAddress,
     })
-    const apptDateTime =
-      cell(row, 'apptDateTime') ||
-      combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz) ||
-      null
+    // Source-of-truth precedence:
+    //   1. Discrete apptDate + apptTime when BOTH are populated.
+    //      Sheets with separate Date / Time columns are the most
+    //      common shape, and they round-trip cleanly through
+    //      combineDateAndTime → wallClockInTzToUtcIso. Edits via
+    //      the master-tracker modal write to these cells, so
+    //      preferring them means a fresh edit always wins over
+    //      whatever stale or formula-driven value sits in the
+    //      combined "Date and Time" column.
+    //   2. The combined apptDateTime cell — used when discrete
+    //      cells are blank (sheet only has a combined column).
+    //   3. Falls back to combineDateAndTime even with one piece
+    //      missing, which preserves the legacy behavior of
+    //      tolerating partial data.
+    const haveDiscreteParts = !!apptDate && !!apptTime
+    const apptDateTime = haveDiscreteParts
+      ? combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz)
+      : cell(row, 'apptDateTime') ||
+        combineDateAndTime(apptDate, apptTime, rowAddress, explicitTz) ||
+        null
     const isoApptDateTime =
       typeof apptDateTime === 'string' && apptDateTime !== ''
         ? // If apptDateTime came in as a single field, route through

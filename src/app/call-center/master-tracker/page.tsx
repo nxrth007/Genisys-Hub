@@ -2295,17 +2295,25 @@ function AdminEditModal({
         const ampm = h >= 12 ? 'PM' : 'AM'
         h = h % 12
         if (h === 0) h = 12
-        diff.apptDate = `${M}/${D}/${Y}`
-        diff.apptTime = `${h}:${String(mn).padStart(2, '0')} ${ampm}`
-        // Drop the combined field so the server's writeFullEdit
-        // doesn't try to write to a non-existent apptDateTime
-        // column or attempt a redundant split.
-        delete diff.apptDateTime
+        const dateStr = `${M}/${D}/${Y}`
+        const timeStr = `${h}:${String(mn).padStart(2, '0')} ${ampm}`
+        // Send ALL THREE forms so every possible sheet schema gets
+        // updated. updateMasterTableCells silently skips canonicals
+        // whose column isn't in the schema, so:
+        //   - sheets with separate Date + Time → those two get written
+        //   - sheets with a combined "Date and Time" → that gets written
+        //   - sheets with all three → all three stay in sync (which
+        //     matters because the read used to pick the combined cell
+        //     and ignore fresh discrete edits)
+        diff.apptDate = dateStr
+        diff.apptTime = timeStr
+        diff.apptDateTime = `${dateStr} ${timeStr}`
       } else if (raw === '') {
-        // User cleared the time — clear both columns.
+        // User cleared the time — clear all three so no stale value
+        // can win on the next read.
         diff.apptDate = ''
         diff.apptTime = ''
-        delete diff.apptDateTime
+        diff.apptDateTime = ''
       }
     }
     return diff
