@@ -491,6 +491,7 @@ model Client {
   reminderTemplates ReminderTemplate[]
   appointmentReminders AppointmentReminder[]
   slackDeliveries   SheetSlackDelivery[]
+  clientAlerts      ClientAlertDelivery[]
 }
 
 model Appointment {
@@ -717,6 +718,54 @@ model SheetSlackDelivery {
   @@index([clientId])
   @@index([status])
   @@index([channelId, customerPhone, apptDateTime], map: "SheetSlackDelivery_content_dedup_idx")
+}
+
+/// "Client Alerts" feature — SMS notifications to a client's
+/// contactPhone whenever a new appointment lands in the master
+/// sheet for them. Mirrors the Slack-channel delivery flow but
+/// over GHL SMS, with its own ledger so failures on one channel
+/// don't suppress the other. Default off — admin opts in via
+/// Settings, which triggers a backfill so first-enable doesn't
+/// blast historical bookings.
+model ClientAlertsConfig {
+  id              String   @id @default("singleton")
+  enabled         Boolean  @default(false)
+  vaultEntryName  String   @default("GHL Genisys Token")
+  /// Optional E.164 sender override (e.g. "+16038034828"). Null
+  /// falls back to the GHL location's default phone.
+  senderPhone     String?
+  updatedAt       DateTime @updatedAt @default(now())
+}
+
+/// Idempotency ledger for Client Alert SMS — parallel to
+/// SheetSlackDelivery. Same dual-key dedup story (sourceKey +
+/// content key with a recency window applied in sync code), kept
+/// in a separate table so SMS history doesn't tangle with Slack
+/// history on retry. recipientPhone is stored verbatim so a later
+/// contactPhone change on the Client doesn't hide what actually
+/// went out.
+model ClientAlertDelivery {
+  id              String   @id @default(cuid())
+  sourceKey       String
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  recipientPhone  String
+  status          String   @default("delivered")
+  messageId       String?
+  conversationId  String?
+  errorMessage    String?  @db.Text
+  deliveredAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// Content-based dedup pair (parallel to SheetSlackDelivery).
+  customerPhone   String?
+  apptDateTime    DateTime?
+
+  @@unique([sourceKey, recipientPhone], map: "ux_client_alert_delivery_source_recipient")
+  @@index([clientId])
+  @@index([status])
+  @@index([recipientPhone, customerPhone, apptDateTime], map: "ClientAlertDelivery_content_dedup_idx")
 }
 
 // Singleton config for the SMS-reminder system. Master enable + which

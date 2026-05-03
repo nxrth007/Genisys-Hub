@@ -17,7 +17,7 @@ import {
   Trash2,
   HardDrive,
   Bell,
-  Phone,
+  Phone as PhoneIcon,
   FileSpreadsheet,
   Wrench,
   Pause,
@@ -25,6 +25,8 @@ import {
   MessagesSquare,
   RefreshCw,
   Sun,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // Importing from the client-safe constants module — pulling from
@@ -65,6 +67,8 @@ export default function SettingsPage() {
       <SlackTestSection />
 
       <ClientSlackDeliverySection />
+
+      <ClientAlertsSection />
 
       <TwilioTestSection />
 
@@ -798,7 +802,7 @@ function ScheduledBriefsSection() {
                   >
                     {s.channel === 'ghl_sms' ? (
                       <span className="inline-flex items-center gap-1">
-                        <Phone className="h-2.5 w-2.5" /> SMS
+                        <PhoneIcon className="h-2.5 w-2.5" /> SMS
                       </span>
                     ) : (
                       'Slack'
@@ -1000,6 +1004,10 @@ type ClientForRouting = {
   lifecycle: string
   slackChannelId: string | null
   slackChannelName: string | null
+  /** Used by the Client Alerts SMS section to surface which clients
+   *  have a phone configured + drive the per-client "Send test SMS"
+   *  button. Null when the client form left it blank. */
+  contactPhone: string | null
 }
 
 type SlackChannelOption = {
@@ -1091,6 +1099,308 @@ function ClientSlackDeliverySection() {
         )}
       </div>
     </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Client Alerts (SMS to clients on new appointments)                 */
+/* ------------------------------------------------------------------ */
+
+type ClientAlertsConfigShape = {
+  enabled: boolean
+  vaultEntryName: string
+  senderPhone: string | null
+}
+
+function ClientAlertsSection() {
+  const qc = useQueryClient()
+
+  const configQuery = useQuery<{ config: ClientAlertsConfigShape }>({
+    queryKey: ['client-alerts-config'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-alerts/config')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load Client Alerts config')
+      }
+      return res.json()
+    },
+  })
+
+  const clientsQuery = useQuery<{ clients: ClientForRouting[] }>({
+    queryKey: ['clients-for-routing'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients?include=routable')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+  })
+
+  const config = configQuery.data?.config
+  const clients = clientsQuery.data?.clients ?? []
+  const enabled = !!config?.enabled
+
+  const [senderDraft, setSenderDraft] = useState<string>('')
+  // Sync the local draft from the server config exactly once after the
+  // first successful fetch — subsequent server-driven re-renders
+  // shouldn't stomp the user's in-progress edits.
+  const syncedRef = useRef(false)
+  useEffect(() => {
+    if (config && !syncedRef.current) {
+      setSenderDraft(config.senderPhone ?? '')
+      syncedRef.current = true
+    }
+  }, [config])
+
+  const senderDirty = (config?.senderPhone ?? '') !== senderDraft.trim()
+
+  const updateMutation = useMutation({
+    mutationFn: async (
+      payload: Partial<ClientAlertsConfigShape>,
+    ): Promise<{
+      config: ClientAlertsConfigShape
+      backfill: { client: string; recorded: number }[] | null
+    }> => {
+      const res = await fetch('/api/admin/client-alerts/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Update failed')
+      return data
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['client-alerts-config'] })
+      if (data.backfill) {
+        const total = data.backfill.reduce((s, b) => s + b.recorded, 0)
+        window.alert(
+          `Client Alerts enabled. Backfilled ${total} historical row${total === 1 ? '' : 's'} as 'already-handled' so the next cron tick won't blast clients with SMS for past bookings. New appointments going forward will fire normally.`,
+        )
+      }
+    },
+    onError: (err) => {
+      window.alert(`Couldn't save Client Alerts config: ${(err as Error).message}`)
+    },
+  })
+
+  function handleToggle(next: boolean) {
+    if (next && clients.every((c) => !c.contactPhone)) {
+      if (
+        !window.confirm(
+          `No client has a contactPhone configured yet — the cron will run but nothing will send. Enable anyway?`,
+        )
+      ) {
+        return
+      }
+    }
+    if (next) {
+      const ok = window.confirm(
+        `Enable Client Alerts? This will SMS each client's contactPhone whenever a new appointment lands in the master sheet for them. On first-enable, every existing sheet row is marked 'already-handled' so historical bookings won't fire. Proceed?`,
+      )
+      if (!ok) return
+    }
+    updateMutation.mutate({ enabled: next })
+  }
+
+  function handleSaveSender() {
+    const trimmed = senderDraft.trim()
+    updateMutation.mutate({ senderPhone: trimmed.length > 0 ? trimmed : null })
+  }
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-purple-50 p-2 dark:bg-purple-950">
+          <PhoneIcon className="h-5 w-5 text-purple-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">Client Alerts (SMS)</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Sends each client an SMS with the same details that go to
+            their Slack channel, whenever a new appointment lands in
+            the master sheet for them. Recipient is taken from each
+            client&apos;s <code>contactPhone</code> — set on{' '}
+            <a href="/clients" className="underline">/clients</a>. Cron
+            ticks every 5 minutes; first-enable backfills historical
+            rows as &quot;already-handled&quot; so existing bookings
+            won&apos;t fire.
+          </p>
+        </div>
+      </div>
+
+      {configQuery.isError && (
+        <div className="mt-4">
+          <Alert variant="error">
+            <div className="font-medium">Couldn&apos;t load config</div>
+            <div className="mt-1 text-xs">
+              {(configQuery.error as Error).message}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      {/* Master toggle */}
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div>
+          <p className="text-sm font-medium">Master enable</p>
+          <p className="text-xs text-zinc-500">
+            {enabled
+              ? 'Cron is sending SMS to clients with a contactPhone configured.'
+              : 'Off — cron logs the heartbeat but sends nothing.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={configQuery.isLoading || updateMutation.isPending}
+          onClick={() => handleToggle(!enabled)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            enabled
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+          )}
+        >
+          {updateMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : enabled ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
+      </div>
+
+      {/* Sender phone */}
+      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <label className="text-sm font-medium">
+          Sender phone (optional)
+        </label>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          E.164 format (e.g. <code>+16038034828</code>). Leave blank to
+          fall back to the GHL location&apos;s default. Make sure the
+          number is provisioned on the GHL sub-account that the{' '}
+          <code>{config?.vaultEntryName ?? 'GHL Genisys Token'}</code>{' '}
+          vault entry points to.
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            value={senderDraft}
+            onChange={(e) => setSenderDraft(e.target.value)}
+            placeholder="+16038034828"
+            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          <button
+            type="button"
+            disabled={!senderDirty || updateMutation.isPending}
+            onClick={handleSaveSender}
+            className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      {/* Per-client status + test buttons */}
+      <div className="mt-5">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Per-client status
+        </p>
+        {clientsQuery.isLoading ? (
+          <p className="text-sm text-zinc-500">Loading clients…</p>
+        ) : clients.length === 0 ? (
+          <p className="text-sm text-zinc-500">No active clients yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {clients.map((c) => (
+              <ClientAlertRow key={c.id} client={c} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function ClientAlertRow({ client }: { client: ClientForRouting }) {
+  const hasPhone = !!client.contactPhone?.trim()
+  const testMutation = useMutation({
+    mutationFn: async (): Promise<{
+      ok: true
+      clientName: string
+      messageId: string | null
+    }> => {
+      const res = await fetch('/api/admin/client-alerts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Test send failed')
+      return data
+    },
+    onSuccess: (data) => {
+      window.alert(
+        `Test SMS sent to ${data.clientName}${data.messageId ? ` (GHL messageId: ${data.messageId})` : ''}. Check the phone — should arrive within ~30 seconds.`,
+      )
+    },
+    onError: (err) => {
+      window.alert(`Test SMS failed: ${(err as Error).message}`)
+    },
+  })
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-center gap-3">
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: client.color }}
+          aria-hidden
+        />
+        <div>
+          <p className="text-sm font-medium">{client.name}</p>
+          {hasPhone ? (
+            <p className="font-mono text-xs text-zinc-500">
+              {client.contactPhone}
+            </p>
+          ) : (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              No contactPhone — set in /clients to enable alerts
+            </p>
+          )}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (
+            window.confirm(
+              `Send a test SMS to ${client.name} at ${client.contactPhone}?`,
+            )
+          ) {
+            testMutation.mutate()
+          }
+        }}
+        disabled={!hasPhone || testMutation.isPending}
+        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        title={
+          hasPhone
+            ? 'Send a sample SMS using the current Client Alerts config.'
+            : 'Add a contactPhone for this client first.'
+        }
+      >
+        {testMutation.isPending ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <PhoneIcon className="h-3 w-3" />
+        )}
+        Send test SMS
+      </button>
+    </div>
   )
 }
 

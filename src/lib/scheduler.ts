@@ -20,6 +20,7 @@ import {
   dispatchDueReminders,
 } from './reminders'
 import { syncClientDeliveriesFromSheet } from './client-delivery'
+import { syncClientAlertsFromSheet } from './client-alert'
 
 let initialized = false
 
@@ -35,6 +36,13 @@ let lastReminderSyncAt = 0
 // + per-feature failure isolation cleaner.
 const CLIENT_DELIVERY_SYNC_INTERVAL_MS = 5 * 60 * 1000
 let lastClientDeliverySyncAt = 0
+
+// Client Alerts SMS sync — independent from the Slack channel sync
+// so a Slack outage doesn't suppress the SMS and vice versa. Same
+// 5-min cadence; cheap no-op when ClientAlertsConfig.enabled is false
+// (the singleton check inside the sync exits before the sheet read).
+const CLIENT_ALERT_SYNC_INTERVAL_MS = 5 * 60 * 1000
+let lastClientAlertSyncAt = 0
 
 export function initScheduler() {
   if (initialized) return
@@ -98,6 +106,25 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] client-delivery sync failed:', err)
+    }
+
+    // Client Alerts SMS sync — sends an SMS to each client's
+    // contactPhone when new appointments land. Independent from the
+    // Slack tick above so a Slack outage doesn't suppress SMS, and
+    // an SMS / GHL outage doesn't suppress Slack. The sync itself
+    // exits early when ClientAlertsConfig.enabled is false, so the
+    // heartbeat will read all-zeros until admin flips it on.
+    try {
+      const now = Date.now()
+      if (now - lastClientAlertSyncAt >= CLIENT_ALERT_SYNC_INTERVAL_MS) {
+        lastClientAlertSyncAt = now
+        const result = await syncClientAlertsFromSheet()
+        console.log(
+          `[scheduler] client-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
+        )
+      }
+    } catch (err) {
+      console.error('[scheduler] client-alert sync failed:', err)
     }
   })
 }
