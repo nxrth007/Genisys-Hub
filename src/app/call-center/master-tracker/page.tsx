@@ -1189,12 +1189,19 @@ export default function MasterTrackerPage() {
                               day: 'numeric',
                             }).format(when)}
                           </div>
+                          {/* Time + customer tz short label (e.g.
+                              "9:00 AM PDT"). Removes the ambiguity
+                              about whose clock the time is in — Mary
+                              in Manila + Alex in NH + Ethan in LA all
+                              now see the same string with the
+                              customer's zone right next to it. */}
                           <div className="text-[10px] text-zinc-400">
                             {new Intl.DateTimeFormat('en-US', {
                               timeZone: apptTz,
                               hour: 'numeric',
                               minute: '2-digit',
                               hour12: true,
+                              timeZoneName: 'short',
                             }).format(when)}
                           </div>
                         </td>
@@ -2199,12 +2206,45 @@ function AdminEditModal({
             value={values.customerPhone}
             onChange={(v) => set('customerPhone', v)}
           />
-          <EditField
-            label="Appointment date / time"
-            type="datetime-local"
-            value={values.apptDateTime}
-            onChange={(v) => set('apptDateTime', v)}
-          />
+          <div>
+            <EditField
+              label="Appointment date / time"
+              type="datetime-local"
+              value={values.apptDateTime}
+              onChange={(v) => set('apptDateTime', v)}
+            />
+            {/* Inline tz hint — same string Mary sees on the agent
+                form. The wall-clock above is read in the customer's
+                zone derived from the address field, not the editor's
+                browser. */}
+            {(() => {
+              const tz = customerTzFromAddress(values.address || null)
+              const shortLabel = (() => {
+                try {
+                  const parts = new Intl.DateTimeFormat('en-US', {
+                    timeZone: tz,
+                    timeZoneName: 'short',
+                  }).formatToParts(new Date())
+                  return (
+                    parts.find((p) => p.type === 'timeZoneName')?.value ?? tz
+                  )
+                } catch {
+                  return tz
+                }
+              })()
+              return (
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Time is read at the customer&apos;s clock —{' '}
+                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                    {shortLabel}
+                  </span>
+                  {!values.address?.trim() &&
+                    ' (add an address to pin a real tz)'}
+                  .
+                </p>
+              )
+            })()}
+          </div>
           <EditField
             label="Client"
             value={values.client}

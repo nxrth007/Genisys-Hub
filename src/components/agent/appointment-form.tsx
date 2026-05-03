@@ -430,6 +430,38 @@ export function AppointmentForm({
             onChange={(next) => set('apptDateTime', next)}
             disabled={submitting}
           />
+          {/* Customer-tz hint — once Mary fills in an address, show
+              her the IANA + short label so she knows whose clock the
+              wall-clock above is being read in. Quietly removes the
+              "what tz is this?" ambiguity for everyone — Manila,
+              NH, LA all see the same thing. */}
+          {(() => {
+            const tz = timezoneForAddress(values.address)
+            const shortLabel = (() => {
+              try {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                  timeZone: tz,
+                  timeZoneName: 'short',
+                }).formatToParts(new Date())
+                return (
+                  parts.find((p) => p.type === 'timeZoneName')?.value ?? tz
+                )
+              } catch {
+                return tz
+              }
+            })()
+            return (
+              <p className="mt-1.5 text-[11px] text-zinc-500">
+                Time is read at the customer&apos;s clock —{' '}
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  {shortLabel}
+                </span>{' '}
+                ({tz}).
+                {!values.address?.trim() &&
+                  ' Add an address above to pin this to the customer’s zone.'}
+              </p>
+            )
+          })()}
           {isoCandidate && hasConflicts && (
             <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950">
               <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
