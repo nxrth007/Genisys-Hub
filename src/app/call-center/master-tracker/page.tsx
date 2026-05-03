@@ -549,6 +549,10 @@ export default function MasterTrackerPage() {
     apptDateCell: string | null
     apptTimeCell: string | null
     resolvedTimezone: string | null
+    rawDateCell: string | null
+    rawTimeCell: string | null
+    rawDateTimeCell: string | null
+    writeSkipped: string[]
   } | null>(null)
 
   // Single mutation handles both DELETE and full-row edit since they
@@ -587,16 +591,21 @@ export default function MasterTrackerPage() {
           apptDateCell: data.verify.apptDateCell ?? null,
           apptTimeCell: data.verify.apptTimeCell ?? null,
           resolvedTimezone: data.verify.resolvedTimezone ?? null,
+          rawDateCell: data.verify.rawDateCell ?? null,
+          rawTimeCell: data.verify.rawTimeCell ?? null,
+          rawDateTimeCell: data.verify.rawDateTimeCell ?? null,
+          writeSkipped: data.verify.writeSkipped ?? [],
         })
       }
     },
   })
 
-  // Auto-dismiss the verify toast after 6s — long enough to read,
-  // short enough to stay out of the way.
+  // Auto-dismiss the verify toast after 30s — long enough to read
+  // the raw cell diagnostics carefully when something looks wrong.
+  // Manual dismiss button still on the toast for clearing sooner.
   useEffect(() => {
     if (!editVerifyToast) return
-    const t = setTimeout(() => setEditVerifyToast(null), 6000)
+    const t = setTimeout(() => setEditVerifyToast(null), 30000)
     return () => clearTimeout(t)
   }, [editVerifyToast])
 
@@ -1503,13 +1512,14 @@ export default function MasterTrackerPage() {
         />
       )}
 
-      {/* Verify toast — confirms what the server actually stored
-          after a full-row edit. Shows the date/time/zone parsed from
-          the freshly-re-read row so Alex can see immediately if the
-          save round-trip went sideways. */}
+      {/* Verify toast — diagnostic. Shows the parsed display value
+          (what the master-tracker will render) AND the literal cell
+          contents from the sheet (Date / Time / Combined). If the
+          parsed result looks wrong, the raw cell readout pinpoints
+          which column is the liar in one screenshot. */}
       {editVerifyToast && (
         <div
-          className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-pop dark:border-emerald-900 dark:bg-emerald-950/90"
+          className="fixed bottom-6 right-6 z-50 max-w-md rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-pop dark:border-emerald-900 dark:bg-emerald-950/90"
           role="status"
         >
           <div className="flex items-start gap-2">
@@ -1527,13 +1537,45 @@ export default function MasterTrackerPage() {
                       {editVerifyToast.apptDateCell} ·{' '}
                       {editVerifyToast.apptTimeCell}
                     </span>
-                    . If that&apos;s not what you intended, click the
-                    row again and re-edit.
                   </>
                 ) : (
                   <>Sheet updated.</>
                 )}
               </p>
+              {/* Diagnostic block — exposes what's literally in each
+                  sheet cell so a stale-cell / wrong-column bug is
+                  obvious. */}
+              <div className="mt-2 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 font-mono text-[10px] text-emerald-900 dark:bg-black/30 dark:text-emerald-100">
+                <p>
+                  Date cell:{' '}
+                  <span className="font-semibold">
+                    {editVerifyToast.rawDateCell !== null
+                      ? `"${editVerifyToast.rawDateCell}"`
+                      : '— (no column)'}
+                  </span>
+                </p>
+                <p>
+                  Time cell:{' '}
+                  <span className="font-semibold">
+                    {editVerifyToast.rawTimeCell !== null
+                      ? `"${editVerifyToast.rawTimeCell}"`
+                      : '— (no column)'}
+                  </span>
+                </p>
+                <p>
+                  Combined cell:{' '}
+                  <span className="font-semibold">
+                    {editVerifyToast.rawDateTimeCell !== null
+                      ? `"${editVerifyToast.rawDateTimeCell}"`
+                      : '— (no column)'}
+                  </span>
+                </p>
+                {editVerifyToast.writeSkipped.length > 0 && (
+                  <p className="mt-1 text-rose-700 dark:text-rose-300">
+                    Skipped (no column): {editVerifyToast.writeSkipped.join(', ')}
+                  </p>
+                )}
+              </div>
             </div>
             <button
               type="button"

@@ -1014,6 +1014,14 @@ export type MasterTableRow = {
   /** IANA zone the row was actually parsed in — explicit when set,
    *  address-derived otherwise. Useful for display + audit. */
   resolvedTimezone: string
+  /** Raw verbatim cell values for the date/time columns. Surface
+   *  these in the verify endpoint so admins can see exactly what
+   *  text the sheet has — bypassing our parse / combine logic so
+   *  a "stale cell wins" bug shows up immediately. Null when the
+   *  cell is empty or the column doesn't exist on this sheet. */
+  apptDateRaw: string | null
+  apptTimeRaw: string | null
+  apptDateTimeRaw: string | null
 }
 
 /**
@@ -1189,6 +1197,13 @@ export async function readMasterTableRows(): Promise<MasterTableRow[]> {
       timezone: explicitTz,
       resolvedTimezone: rowTz,
       sentToClient: cell(row, 'sentToClient') || null,
+      // Raw cells exposed so verify endpoints can show admins
+      // exactly what's in each column without our parse/combine
+      // logic in the way. Critical for diagnosing "stale cell
+      // wins on read" bugs.
+      apptDateRaw: apptDate || null,
+      apptTimeRaw: apptTime || null,
+      apptDateTimeRaw: cell(row, 'apptDateTime') || null,
     })
   }
 

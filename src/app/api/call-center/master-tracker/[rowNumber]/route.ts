@@ -343,6 +343,17 @@ async function writeFullEdit(
       apptTimeCell: string | null
       timezoneCell: string | null
       resolvedTimezone: string | null
+      /** Verbatim cell contents — what the SHEET literally has,
+       *  not our combined/parsed view. Lets admins spot when a
+       *  stale cell is winning over the others. */
+      rawDateCell: string | null
+      rawTimeCell: string | null
+      rawDateTimeCell: string | null
+      /** Names of canonicals the write skipped (column not in
+       *  schema). If apptDate is in here, the sheet has no Date
+       *  column and our split-write didn't update anything for
+       *  the date piece — the combined cell was the only target. */
+      writeSkipped: string[]
     } | null = null
     try {
       const fresh = await readMasterTableRows()
@@ -350,9 +361,6 @@ async function writeFullEdit(
       if (row) {
         verify = {
           apptDateIso: row.apptDateTime,
-          // The sheet read doesn't return raw cells, but resolved
-          // values are what matter for verification — what the
-          // next display + delivery pass will see.
           apptDateCell: row.apptDateTime
             ? new Intl.DateTimeFormat('en-US', {
                 timeZone: row.resolvedTimezone,
@@ -372,9 +380,13 @@ async function writeFullEdit(
             : null,
           timezoneCell: row.timezone,
           resolvedTimezone: row.resolvedTimezone,
+          rawDateCell: row.apptDateRaw,
+          rawTimeCell: row.apptTimeRaw,
+          rawDateTimeCell: row.apptDateTimeRaw,
+          writeSkipped: result.skipped,
         }
         console.log(
-          `[master-tracker PATCH:full] verify row=${rowNumber} → ${verify.apptDateCell} ${verify.apptTimeCell} (${verify.resolvedTimezone})`,
+          `[master-tracker PATCH:full] verify row=${rowNumber} → parsed=${verify.apptDateCell} ${verify.apptTimeCell} (${verify.resolvedTimezone}); rawDate=${JSON.stringify(verify.rawDateCell)} rawTime=${JSON.stringify(verify.rawTimeCell)} rawCombined=${JSON.stringify(verify.rawDateTimeCell)} skipped=${JSON.stringify(verify.writeSkipped)}`,
         )
       }
     } catch (verifyErr) {
