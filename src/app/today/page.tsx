@@ -284,8 +284,29 @@ export default function TodayPage() {
 
   const tasks = tasksQuery.data?.tasks ?? []
   const events = calQuery.data?.events ?? []
-  const incompleteTasks = tasks.filter((t) => !t.completedAt)
-  const completedTasks = tasks.filter((t) => t.completedAt)
+  // Filter local tasks by the calendar pill's range. A task matches
+  // the range when ANY of these falls within it:
+  //   - dueAt          (the user's target date for the task)
+  //   - completedAt    (so "Daily" still shows what was finished today)
+  //   - createdAt fallback when no dueAt — "show me tasks I added in
+  //                    this window" for tasks with no scheduled date
+  // Without this filter the calendar pill was decorative; with it,
+  // selecting "Daily" shows today's slice and "Quarterly" shows the
+  // next ~3 months.
+  function inRange(iso: string | null): boolean {
+    if (!iso) return false
+    const t = new Date(iso).getTime()
+    if (isNaN(t)) return false
+    return t >= range.start.getTime() && t <= range.end.getTime()
+  }
+  const tasksInRange = tasks.filter((t) => {
+    if (inRange(t.dueAt)) return true
+    if (inRange(t.completedAt)) return true
+    if (!t.dueAt && inRange(t.createdAt)) return true
+    return false
+  })
+  const incompleteTasks = tasksInRange.filter((t) => !t.completedAt)
+  const completedTasks = tasksInRange.filter((t) => t.completedAt)
 
   // If a Notion database has been pinned from the task-board page, embed
   // that Kanban on Today instead of the built-in local tasks list. Ethan
@@ -547,11 +568,23 @@ export default function TodayPage() {
           <div className="flex items-center justify-between border-b border-border-soft px-3 py-2">
             <h3 className="text-sm font-semibold">
               Tasks
-              {incompleteTasks.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  ({incompleteTasks.length} remaining)
-                </span>
-              )}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                ·{' '}
+                {scope === 'Daily'
+                  ? 'today'
+                  : scope === 'Weekly'
+                    ? 'this week'
+                    : scope === 'Monthly'
+                      ? 'this month'
+                      : 'this quarter'}
+                {tasksInRange.length > 0 && (
+                  <>
+                    {' '}({incompleteTasks.length} open
+                    {completedTasks.length > 0 && `, ${completedTasks.length} done`}
+                    )
+                  </>
+                )}
+              </span>
             </h3>
             <Link
               href="/notion"
@@ -569,13 +602,23 @@ export default function TodayPage() {
             ) : incompleteTasks.length === 0 && completedTasks.length === 0 ? (
               <div className="px-5 py-12 text-center">
                 <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  No tasks yet. Click &ldquo;New task&rdquo; to get started, or{' '}
-                  <Link href="/notion" className="text-primary hover:underline">
-                    pin a Notion board
-                  </Link>{' '}
-                  to use a Kanban here.
-                </p>
+                {tasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No tasks yet. Click &ldquo;New task&rdquo; to get
+                    started, or{' '}
+                    <Link href="/notion" className="text-primary hover:underline">
+                      pin a Notion board
+                    </Link>{' '}
+                    to use a Kanban here.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No tasks match this date range. You have{' '}
+                    {tasks.length} task{tasks.length === 1 ? '' : 's'} on
+                    other dates — switch the calendar filter above to see
+                    them.
+                  </p>
+                )}
               </div>
             ) : (
               <>
@@ -1025,6 +1068,12 @@ function AddTaskModal({
 }) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
+  // Due date is the field the calendar pill at the top of the page
+  // filters against — without it, the calendar had nothing to do
+  // and felt decorative. <input type="date"> gives a YYYY-MM-DD
+  // string; we anchor the time at noon local so timezone shifts
+  // don't roll the day over when stored as UTC.
+  const [dueDate, setDueDate] = useState('')
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal')
   const [submitting, setSubmitting] = useState(false)
 
@@ -1032,12 +1081,23 @@ function AddTaskModal({
     e.preventDefault()
     setSubmitting(true)
     try {
+      let dueAt: string | null = null
+      if (dueDate) {
+        const [y, m, d] = dueDate.split('-').map((n) => parseInt(n, 10))
+        // Anchor to noon local — keeps the date stable across UTC
+        // serialization regardless of viewer tz (a midnight anchor
+        // would slip back a day for users west of UTC after round-
+        // tripping through new Date(...).toISOString()).
+        const local = new Date(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0, 0)
+        dueAt = local.toISOString()
+      }
       const res = await fetch('/api/today/tasks', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
           notes: notes.trim() || null,
+          dueAt,
           priority,
         }),
       })
@@ -1083,6 +1143,22 @@ function AddTaskModal({
               placeholder="Additional context"
               className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">
+              Due date (optional)
+            </label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              Drives the calendar filter at the top of /today. Leave
+              blank for tasks with no specific date — they show up
+              under the date you added them.
+            </p>
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium">Priority</label>
