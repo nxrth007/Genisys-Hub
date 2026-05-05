@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
+import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
 
@@ -154,6 +155,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // falls back to an append if sync had previously failed.
   syncAppointmentUpdate(updated.id).catch((err) =>
     console.error('[appointments PATCH] sync scheduling failed:', err)
+  )
+
+  // Refresh customer-SMS reminder snapshots — picks up edited
+  // customer name / phone / appt time before the next dispatch
+  // tick. The upsert reschedules pending reminders if apptDateTime
+  // shifted, but leaves already-sent / skipped rows alone.
+  void upsertRemindersForAppointment(updated.id).catch((err) =>
+    console.error('[appointments PATCH] reminders refresh threw:', err),
   )
 
   return NextResponse.json({ ok: true, appointment: updated })

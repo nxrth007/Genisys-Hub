@@ -2988,10 +2988,20 @@ function ReminderTemplatesGrid() {
 
   return (
     <div className="space-y-4">
-      {query.data.rows.map((row) => (
+      {query.data.rows.map((row) => {
+        // Count how many of this row's cells have a per-client
+        // override vs are using the global / default. Used in the
+        // section header so admin sees "All using global default"
+        // at a glance instead of having to expand + scan each chip.
+        const overrideCount = row.cells.filter(
+          (c) => c.source === 'client',
+        ).length
+        const total = row.cells.length
+        const isGlobalSection = row.clientId === null
+        return (
         <details
           key={row.clientId ?? 'global'}
-          open={row.clientId === null}
+          open={isGlobalSection}
           className="rounded-md border border-zinc-200 dark:border-zinc-800"
         >
           <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
@@ -3004,6 +3014,29 @@ function ReminderTemplatesGrid() {
             {row.state && (
               <span className="text-xs font-normal text-zinc-500">
                 · {row.state}
+              </span>
+            )}
+            {/* Per-client section gets a status pill summarizing
+                whether it has any custom overrides. Global section
+                is the templates everyone falls back to, no pill
+                needed. */}
+            {!isGlobalSection && (
+              <span
+                className={cn(
+                  'ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  overrideCount === 0
+                    ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+                )}
+                title={
+                  overrideCount === 0
+                    ? 'This client uses the global default copy for all 4 reminder types — no custom overrides set.'
+                    : `${overrideCount} of ${total} reminder types have custom copy for this client; the rest fall through to the global default.`
+                }
+              >
+                {overrideCount === 0
+                  ? 'All using global default'
+                  : `${overrideCount}/${total} customized`}
               </span>
             )}
           </summary>
@@ -3031,7 +3064,8 @@ function ReminderTemplatesGrid() {
             ))}
           </div>
         </details>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -3111,26 +3145,50 @@ function TemplateCellEditor({
 
   return (
     <div className="rounded-md border border-zinc-100 p-3 dark:border-zinc-800">
-      <div className="mb-1.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider">
             {REMINDER_LABELS[cell.type]}
           </span>
+          {/* Spelled-out source label instead of the cryptic
+              "client / global / default" one-word chip. Tells the
+              admin exactly what copy will go out for this cell, so
+              "the per-client toggle is checked" doesn't read as
+              "this client has its own copy" when it's actually
+              just inheriting the global. */}
           <span
             className={cn(
-              'rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase',
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap',
               cell.source === 'client' &&
                 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
               cell.source === 'global' &&
                 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
               cell.source === 'default' &&
-                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
             )}
+            title={
+              cell.source === 'client'
+                ? 'This client has its own custom copy. The Enabled checkbox + textarea below reflect THAT override, not the global default.'
+                : cell.source === 'global'
+                  ? 'No per-client override; this cell is using the global default copy. Saving an edit creates a per-client override.'
+                  : 'No global override either; this cell is using the built-in fallback copy. Saving an edit creates a global override.'
+            }
           >
-            {cell.source}
+            {cell.source === 'client'
+              ? 'Custom override'
+              : cell.source === 'global'
+                ? 'Using global default'
+                : 'Using built-in default'}
           </span>
         </div>
-        <label className="flex items-center gap-1.5 text-xs">
+        <label
+          className="flex items-center gap-1.5 text-xs whitespace-nowrap"
+          title={
+            cell.source === 'client'
+              ? 'Toggles whether this per-client override fires. Unchecking + saving disables this reminder for THIS client only.'
+              : 'Reflects whether the global / default copy is enabled. Saving an edit creates a per-client override locked to whatever value you set here.'
+          }
+        >
           <input
             type="checkbox"
             checked={enabled}

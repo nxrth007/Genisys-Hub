@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { deliverAppointmentToSlack } from '@/lib/client-delivery'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
+import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
@@ -432,6 +433,32 @@ export async function POST(req: NextRequest) {
     }
   }).catch((err) => {
     console.error('[appointments POST] direct sms threw:', err)
+  })
+
+  // Customer-facing SMS reminders (1-day-out, 2-hr, 30-min, start,
+  // confirmation). Same DB-driven story — queue rows in
+  // AppointmentReminder against the DB id immediately so the
+  // dispatcher can pick them up on its next minute-tick. No sheet
+  // round-trip required. Honors RemindersConfig.enabled +
+  // confirmationEnabled internally; if either is off, the rows
+  // simply aren't created and the sheet-driven sync remains the
+  // backstop for sheet-typed entries.
+  //
+  // Confirmation reminders fire 15 min after queueing (set in
+  // lib/reminders) so Mary has time to fix typos via /agent/
+  // appointments/[id] edit before the customer's phone buzzes.
+  // The edit flow re-runs upsertRemindersForAppointment and
+  // updates the snapshot in place.
+  void upsertRemindersForAppointment(appt.id).then((result) => {
+    if (result.skippedDisabled) {
+      // Quiet log — master toggle is off, this is expected.
+      return
+    }
+    console.log(
+      `[appointments POST] reminders queued: ${result.upserted} new, ${result.skippedPast} past for ${appt.id}`,
+    )
+  }).catch((err) => {
+    console.error('[appointments POST] reminders queue threw:', err)
   })
 
   // Fire-and-forget sheets sync — audit / backup path now, no longer

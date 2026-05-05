@@ -46,14 +46,15 @@ const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> 
  *  the other types use — it should land right after the appointment
  *  is recorded, regardless of when the appointment itself is. We
  *  still set scheduledFor to a real Date so the dispatcher's
- *  due-window query works without special cases; pinning it to
- *  "now" makes the next dispatch tick fire it.
+ *  due-window query works without special cases.
  *
- *  Tiny delay (30s) gives Mary a small window to catch a typo'd
- *  booking before the customer gets a confirmation for the wrong
- *  thing. The dispatcher polls every minute, so the customer still
- *  sees the text within ~1 minute of the row landing in the DB. */
-const CONFIRMATION_DELAY_MS = 30 * 1000
+ *  15-minute delay gives Mary a real window to catch a typo'd
+ *  booking before the customer's phone buzzes. Editing the
+ *  appointment within that window updates the reminder snapshot
+ *  via the upsert path, so the customer gets the corrected info.
+ *  Was 30s originally; bumped after Alex flagged that "fat-finger
+ *  an entry, no time to fix it" was a real risk for live use. */
+const CONFIRMATION_DELAY_MS = 15 * 60 * 1000
 
 // DEFAULT_TEMPLATES + ReminderType are re-exported above; the values
 // live in reminders-constants.ts so client code can import them
@@ -101,6 +102,39 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     clients.map((c) => [c.name.toLowerCase(), c])
   )
 
+  // Pull every Hub-booked appointment that already has reminders
+  // queued via the DB-driven path (sourceKey "db:appointment:*").
+  // We use these to build a content-key set so the sheet-driven
+  // sync below skips any sheet row whose appointment was already
+  // covered by upsertRemindersForAppointment — otherwise the cron
+  // creates a parallel "sheet:Master Table:N" set of reminders and
+  // the customer gets every text twice.
+  const dbReminderApptIds = new Set<string>()
+  {
+    const dbReminders = await prisma.appointmentReminder.findMany({
+      where: { sourceKey: { startsWith: 'db:appointment:' } },
+      select: { appointmentId: true },
+      distinct: ['appointmentId'],
+    })
+    for (const r of dbReminders) {
+      if (r.appointmentId) dbReminderApptIds.add(r.appointmentId)
+    }
+  }
+  // Build a content-key set (phone + apptDateTime to the minute)
+  // for the covered DB appointments. Sheet rows matching one of
+  // these keys are already handled by the DB path.
+  const coveredContentKeys = new Set<string>()
+  if (dbReminderApptIds.size > 0) {
+    const dbAppts = await prisma.appointment.findMany({
+      where: { id: { in: Array.from(dbReminderApptIds) } },
+      select: { customerPhone: true, apptDateTime: true },
+    })
+    for (const a of dbAppts) {
+      const key = sheetContentKey(a.customerPhone, a.apptDateTime)
+      if (key) coveredContentKeys.add(key)
+    }
+  }
+
   // Confirmation reminders are gated on a master flag — leaving it
   // off means the type still appears in the template editor (so
   // admins can author copy ahead of time) but the sync skips
@@ -134,6 +168,14 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     // active. The cancel pass at the end of this function picks
     // these up by NOT adding them to touchedSourceKeys.
     if ((r.status || '').toLowerCase().includes('cancel')) continue
+
+    // Skip sheet rows already covered by the DB-driven upsert path
+    // — those appointments get their reminders queued immediately
+    // on save via /api/agent/appointments POST. Without this skip,
+    // the cron would create a parallel "sheet:Master Table:N" set
+    // and the customer would get every text twice.
+    const contentKey = sheetContentKey(r.customerPhone, r.apptDateTime)
+    if (contentKey && coveredContentKeys.has(contentKey)) continue
 
     const sourceKey = `sheet:${'Master Table'}:${r.rowNumber}`
     touchedSourceKeys.add(sourceKey)
@@ -593,6 +635,29 @@ function isValidUsPhone(phone: string): boolean {
 }
 
 /**
+ * Stable content key (phone digits + apptDateTime to the minute)
+ * used to dedup sheet rows against DB-driven reminder upserts.
+ * Matches the key shape used elsewhere in the codebase (Slack
+ * delivery dedup, /clients ghost-row check).
+ */
+function sheetContentKey(
+  phone: string | null | undefined,
+  apptDateTime: Date | string | null | undefined,
+): string | null {
+  if (!phone || !apptDateTime) return null
+  const digits = String(phone).replace(/\D/g, '')
+  let normalized: string
+  if (digits.length === 10) normalized = `+1${digits}`
+  else if (digits.length === 11 && digits.startsWith('1')) normalized = `+${digits}`
+  else if (digits.length >= 10) normalized = `+${digits}`
+  else return null
+  const d = typeof apptDateTime === 'string' ? new Date(apptDateTime) : apptDateTime
+  if (isNaN(d.getTime())) return null
+  const minute = new Date(Math.floor(d.getTime() / 60_000) * 60_000).toISOString()
+  return `${normalized}|${minute}`
+}
+
+/**
  * Compute "now" in the customer's timezone as an HH:mm string and
  * decide whether it falls inside the configured quiet-hours window.
  * Window wraps midnight when start > end (the common case for
@@ -637,4 +702,167 @@ export function customerFirstNameForSms(fullName: string): string {
     return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
   }
   return first
+}
+
+/* -------------------------------------------------------------------------- */
+/*  DB-driven reminder upsert (immediate trigger from the agent form POST)     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Queue customer-SMS reminders for a Hub-form appointment WITHOUT
+ * round-tripping through the master sheet. Mirrors what
+ * syncRemindersFromSheet would create for the same appointment, but
+ * keys off the DB id so it runs the moment Mary clicks Save (no
+ * 5-min cron wait, no dependency on Google Sheets being up).
+ *
+ * Idempotent — uses sourceKey "db:appointment:{id}" + reminderType
+ * with the same unique index the sheet path uses, so re-saves and
+ * the later cron scan dedup-skip cleanly. When the cron later sees
+ * the matching sheet row, it'd produce sourceKey "sheet:Master
+ * Table:N" which is different — so we ALSO need to ignore the cron's
+ * sheet-side upsert when a db: variant already exists. (Handled
+ * separately in the sync cancel pass; the cron's upsert will
+ * succeed for the sheet variant but the dispatcher only sends ONE
+ * SMS per (customer, type) by content, so no duplicate text.)
+ *
+ * Honors RemindersConfig.enabled for the master gate AND
+ * RemindersConfig.confirmationEnabled for the confirmation sub-gate
+ * — both must be on for the corresponding rows to land in 'pending'.
+ *
+ * Called fire-and-forget from /api/agent/appointments POST after
+ * the DB Appointment is committed.
+ */
+export async function upsertRemindersForAppointment(
+  appointmentId: string,
+): Promise<{
+  upserted: number
+  skippedPast: number
+  skippedDisabled: boolean
+}> {
+  const config = await prisma.remindersConfig.findUnique({
+    where: { id: 'singleton' },
+    select: { enabled: true, confirmationEnabled: true },
+  })
+  if (!config?.enabled) {
+    // Master toggle off — caller's no-op. Returning the flag so the
+    // POST handler's diagnostic log surfaces the reason.
+    return { upserted: 0, skippedPast: 0, skippedDisabled: true }
+  }
+
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      client: { select: { id: true, name: true, contactName: true } },
+    },
+  })
+  if (!appt) {
+    return { upserted: 0, skippedPast: 0, skippedDisabled: false }
+  }
+  if (!appt.customerPhone?.trim()) {
+    return { upserted: 0, skippedPast: 0, skippedDisabled: false }
+  }
+  // Cancelled bookings shouldn't queue reminders — same gate the
+  // sheet-driven sync applies.
+  if ((appt.status || '').toLowerCase().includes('cancel')) {
+    return { upserted: 0, skippedPast: 0, skippedDisabled: false }
+  }
+
+  const tz = timezoneForAddress(appt.address)
+  const phoneInvalid = !isValidUsPhone(appt.customerPhone)
+  const sourceKey = `db:appointment:${appointmentId}`
+  const now = Date.now()
+
+  let upserted = 0
+  let skippedPast = 0
+
+  for (const type of REMINDER_TYPES) {
+    if (type === 'confirmation' && !config.confirmationEnabled) continue
+
+    let fireAt: Date
+    let isPast: boolean
+    if (type === 'confirmation') {
+      fireAt = new Date(now + CONFIRMATION_DELAY_MS)
+      isPast = false
+    } else {
+      fireAt = new Date(
+        appt.apptDateTime.getTime() -
+          REMINDER_OFFSET_MS[type as Exclude<ReminderType, 'confirmation'>],
+      )
+      isPast = fireAt.getTime() <= now
+    }
+
+    const status = phoneInvalid
+      ? 'failed'
+      : isPast
+        ? 'skipped'
+        : 'pending'
+    if (isPast && !phoneInvalid) skippedPast++
+
+    try {
+      const existing = await prisma.appointmentReminder.findUnique({
+        where: {
+          sourceKey_reminderType: { sourceKey, reminderType: type },
+        },
+      })
+      if (existing) {
+        // Edit re-save — refresh the snapshot so a fixed customer
+        // name / phone / appt time gets picked up before fire. The
+        // appt-shifted reschedule is intentionally limited to rows
+        // still 'pending' so a 'sent' or 'skipped' record doesn't
+        // get retroactively re-queued.
+        const apptShifted =
+          existing.apptDateTime.getTime() !== appt.apptDateTime.getTime()
+        await prisma.appointmentReminder.update({
+          where: { id: existing.id },
+          data: {
+            customerName: appt.customerName,
+            customerPhone: appt.customerPhone,
+            customerTimezone: tz,
+            apptDateTime: appt.apptDateTime,
+            clientId: appt.client?.id ?? null,
+            clientName: appt.client?.name ?? null,
+            clientContactName: appt.client?.contactName ?? null,
+            address: appt.address ?? null,
+            agentName: null,
+            appointmentId: appt.id,
+            ...(apptShifted &&
+              existing.status === 'pending' && {
+                scheduledFor: fireAt,
+                status,
+              }),
+          },
+        })
+      } else {
+        await prisma.appointmentReminder.create({
+          data: {
+            sourceKey,
+            reminderType: type,
+            scheduledFor: fireAt,
+            status,
+            errorMessage: phoneInvalid
+              ? `Customer phone "${appt.customerPhone}" is not a valid US 10-digit number — fix the appointment and re-save.`
+              : null,
+            customerName: appt.customerName,
+            customerPhone: appt.customerPhone,
+            customerTimezone: tz,
+            apptDateTime: appt.apptDateTime,
+            clientId: appt.client?.id ?? null,
+            clientName: appt.client?.name ?? null,
+            clientContactName: appt.client?.contactName ?? null,
+            address: appt.address ?? null,
+            agentName: null,
+            appointmentId: appt.id,
+          },
+        })
+        upserted++
+      }
+    } catch (err) {
+      console.error(
+        `[reminders] DB upsert failed for ${sourceKey}/${type}:`,
+        err,
+      )
+    }
+  }
+
+  return { upserted, skippedPast, skippedDisabled: false }
 }
