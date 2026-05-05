@@ -401,6 +401,42 @@ export async function backfillSkippedConfirmations(): Promise<{
   return { recorded, alreadyTracked }
 }
 
+/**
+ * Run when admin flips the master `enabled` flag from false → true.
+ * Marks every currently-pending AppointmentReminder as 'backfilled'
+ * so the dispatcher won't fire any of them.
+ *
+ * Why this exists: the cron's syncRemindersFromSheet has been
+ * running regardless of the master toggle, queueing pending rows
+ * for every master-sheet appointment ever since the reminder
+ * feature was deployed. Without this backfill, flipping master
+ * enable on would walk those queued rows and SMS-blast every
+ * customer already in the CRM as their windows arrive. Alex's
+ * explicit constraint: "from this point forward only — no back-
+ * tracking to existing customers."
+ *
+ * After this runs, only NEW reminders (created post-toggle by the
+ * direct upsertRemindersForAppointment path or the cron picking up
+ * fresh sheet rows) start in 'pending' and the dispatcher fires
+ * them normally.
+ *
+ * Idempotent — re-running is a no-op since rows already in
+ * 'backfilled' aren't matched by the `status: 'pending'` filter.
+ */
+export async function backfillSkippedPendingReminders(): Promise<{
+  marked: number
+}> {
+  const result = await prisma.appointmentReminder.updateMany({
+    where: { status: 'pending' },
+    data: {
+      status: 'backfilled',
+      errorMessage:
+        'Backfilled at first master-enable — pre-existing pending reminder marked skipped so existing CRM customers don’t get retroactive texts.',
+    },
+  })
+  return { marked: result.count }
+}
+
 /* -------------------------------------------------------------------------- */
 
 type DispatchResult = {

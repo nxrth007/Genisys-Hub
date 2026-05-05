@@ -2605,7 +2605,13 @@ function AppointmentRemindersSection() {
   const config = configQuery.data?.config
 
   const updateConfig = useMutation({
-    mutationFn: async (patch: Partial<ReminderConfig>) => {
+    mutationFn: async (
+      patch: Partial<ReminderConfig>,
+    ): Promise<{
+      config: ReminderConfig
+      backfillResult: { recorded: number; alreadyTracked: number } | null
+      pendingBackfillResult: { marked: number } | null
+    }> => {
       const res = await fetch('/api/admin/reminders/config', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -2614,7 +2620,28 @@ function AppointmentRemindersSection() {
       if (!res.ok) throw new Error('Failed to save')
       return res.json()
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reminders-config'] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['reminders-config'] })
+      // Surface the on-enable backfills loudly so admin sees the
+      // safety net actually ran. Without these alerts a master-
+      // enable could look identical to any other config save and
+      // an admin wouldn't know whether the "no retroactive cascade"
+      // promise was honored.
+      const lines: string[] = []
+      if (data.pendingBackfillResult) {
+        lines.push(
+          `Master enable backfill: ${data.pendingBackfillResult.marked} pre-existing pending reminders marked 'backfilled' — they will NOT fire. Future bookings queue fresh pending rows and dispatch normally.`,
+        )
+      }
+      if (data.backfillResult) {
+        lines.push(
+          `Confirmation backfill: ${data.backfillResult.recorded} historical confirmation rows recorded as skipped (${data.backfillResult.alreadyTracked} were already tracked).`,
+        )
+      }
+      if (lines.length > 0) {
+        window.alert(lines.join('\n\n'))
+      }
+    },
   })
 
   const syncMutation = useMutation({

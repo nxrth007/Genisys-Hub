@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireStaff } from '@/lib/auth-helpers'
-import { backfillSkippedConfirmations } from '@/lib/reminders'
+import {
+  backfillSkippedConfirmations,
+  backfillSkippedPendingReminders,
+} from '@/lib/reminders'
 
 /**
  * GET  /api/admin/reminders/config
@@ -91,17 +94,25 @@ export async function PATCH(req: Request) {
     // showing the right format.
   }
 
-  // Detect a confirmation-enable transition BEFORE the upsert so we
-  // know whether to run the backfill. Going false → true triggers a
-  // synchronous backfill that marks every existing appointment's
-  // confirmation row 'skipped', so the next sync tick doesn't blast
-  // every historical booking with a "Thanks for booking!" text.
+  // Detect transitions BEFORE the upsert so we know which backfills
+  // to run. Two distinct off→on cases trigger different backfills:
+  //   - `enabled` (master toggle): every currently-pending reminder
+  //     gets marked 'backfilled' so the dispatcher doesn't blast
+  //     existing CRM customers with the full SMS cascade once it
+  //     starts running. Future bookings queue fresh pending rows
+  //     post-toggle and fire normally.
+  //   - `confirmationEnabled` (sub-toggle): walks the master sheet
+  //     and creates skipped confirmation rows for each appointment
+  //     so the next cron tick doesn't blast historical "Thanks for
+  //     booking!" texts.
+  let priorEnabled = false
   let priorConfirmationEnabled = false
-  if (data.confirmationEnabled === true) {
+  if (data.enabled === true || data.confirmationEnabled === true) {
     const prior = await prisma.remindersConfig.findUnique({
       where: { id: 'singleton' },
-      select: { confirmationEnabled: true },
+      select: { enabled: true, confirmationEnabled: true },
     })
+    priorEnabled = prior?.enabled ?? false
     priorConfirmationEnabled = prior?.confirmationEnabled ?? false
   }
 
@@ -112,6 +123,24 @@ export async function PATCH(req: Request) {
   })
 
   let backfillResult: { recorded: number; alreadyTracked: number } | null = null
+  let pendingBackfillResult: { marked: number } | null = null
+
+  // Master-enable off → on: backfill all currently-pending rows so
+  // the dispatcher doesn't blast existing CRM customers when it
+  // starts running. Order matters — run BEFORE confirmation
+  // backfill so any confirmation rows the cron created in 'pending'
+  // get caught by this sweep too.
+  if (data.enabled === true && !priorEnabled) {
+    try {
+      pendingBackfillResult = await backfillSkippedPendingReminders()
+      console.log(
+        `[reminders] pending backfill on master-enable: ${pendingBackfillResult.marked} reminders marked 'backfilled' (won't fire). New bookings post-toggle will queue fresh pending rows and dispatch normally.`,
+      )
+    } catch (err) {
+      console.error('[reminders] pending backfill failed:', err)
+    }
+  }
+
   if (data.confirmationEnabled === true && !priorConfirmationEnabled) {
     try {
       backfillResult = await backfillSkippedConfirmations()
@@ -127,5 +156,9 @@ export async function PATCH(req: Request) {
     }
   }
 
-  return NextResponse.json({ config, backfillResult })
+  return NextResponse.json({
+    config,
+    backfillResult,
+    pendingBackfillResult,
+  })
 }
