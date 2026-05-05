@@ -12,6 +12,8 @@ import {
   readMasterTableRows,
   type AppointmentSyncData,
 } from './drive'
+import { rekeySlackDeliveryAfterSheetSync } from './client-delivery'
+import { rekeyClientAlertAfterSheetSync } from './client-alert'
 
 type AgentLite = {
   id: string
@@ -115,6 +117,22 @@ export async function syncAppointmentCreate(appointmentId: string): Promise<void
         syncError: null,
       },
     })
+    // Slack + SMS notifications are NOT triggered here — they fire
+    // directly from /api/agent/appointments POST against the DB row
+    // so they don't depend on the sheet round-trip succeeding.
+    // Sheet sync is now strictly an audit / backup path.
+    //
+    // Re-key the delivery records (created by the direct-fire path)
+    // from sourceKey "db:appointment:{id}" to "sheet:Master Table:N"
+    // so the cron's later scan of the same row dedup-matches by
+    // sourceKey too. Without this, the cron would fall back to the
+    // content-key check which has a 48h window — fine for near-term
+    // appointments, but a row scheduled 60 days out would re-post
+    // once the window expired.
+    if (result.masterRow) {
+      void rekeySlackDeliveryAfterSheetSync(appointmentId, result.masterRow)
+      void rekeyClientAlertAfterSheetSync(appointmentId, result.masterRow)
+    }
   } catch (err) {
     console.error('[appointment-sync create] failed:', err)
     await prisma.appointment.update({
@@ -172,6 +190,9 @@ export async function syncAppointmentUpdate(appointmentId: string): Promise<void
         },
       })
     }
+    // Client notifications (Slack + SMS) fire from the POST /api/
+    // agent/appointments handler against the DB row, not from here.
+    // Sheet sync stays decoupled.
   } catch (err) {
     console.error('[appointment-sync update] failed:', err)
     await prisma.appointment.update({

@@ -26,7 +26,11 @@
 import { prisma } from './prisma'
 import { readMasterTableRows, type MasterTableRow } from './drive'
 import { normalizeAddress } from './address'
-import { formatInTimezone, timezoneForAddress } from './timezone'
+import {
+  formatInTimezone,
+  resolveCustomerTimezone,
+  timezoneForAddress,
+} from './timezone'
 import { buildRoutingIndex, routeRowToClient } from './client-routing'
 import { snapshotSolarFromCache, type SolarSummary } from './solar'
 import { sendSmsToPhone } from './ghl'
@@ -254,6 +258,207 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
   }
 
   return result
+}
+
+/* -------------------------------------------------------------------------- */
+/*  DB-driven delivery (immediate trigger from /api/agent/appointments POST)   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Send a Client Alert SMS for a freshly-created DB Appointment,
+ * WITHOUT going through the master sheet. Fires from the agent-form
+ * POST handler so the SMS lands within seconds of save, fully
+ * decoupled from the sheet round-trip.
+ *
+ * Same dual-key idempotency story as the sheet-driven sync —
+ * sourceKey `db:appointment:{id}` + content key (recipientPhone +
+ * customerPhone + apptDateTime within 48h).
+ *
+ * Bails when:
+ *   - ClientAlertsConfig.enabled is false (cron is also a no-op)
+ *   - Routing returns 'unrouted'
+ *   - The matched client has no contactPhone configured
+ *   - A delivery record already exists for this appointment id
+ */
+export async function deliverAppointmentAsSms(
+  appointmentId: string,
+): Promise<{
+  status: 'delivered' | 'skipped' | 'unrouted' | 'no-phone' | 'disabled' | 'failed'
+  reason?: string
+}> {
+  const config = await prisma.clientAlertsConfig.findUnique({
+    where: { id: 'singleton' },
+  })
+  if (!config?.enabled) return { status: 'disabled' }
+
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      client: { select: { id: true, name: true, state: true } },
+    },
+  })
+  if (!appt) return { status: 'failed', reason: 'appointment not found' }
+
+  const allClients = await prisma.client.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      name: true,
+      state: true,
+      contactPhone: true,
+    },
+  })
+  const index = buildRoutingIndex(allClients)
+  const route = routeRowToClient(
+    {
+      client: appt.client?.name ?? null,
+      address: normalizeAddress(appt.address),
+    },
+    index,
+  )
+  if (route.source === 'unrouted') {
+    return { status: 'unrouted', reason: route.reason }
+  }
+  const candidate = route.client
+  const recipientPhone = normalizePhoneForKey(candidate.contactPhone)
+  if (!recipientPhone) {
+    console.warn(
+      `[client-alert] DB appointment ${appointmentId} routed to ${candidate.name} but no contactPhone configured.`,
+    )
+    return { status: 'no-phone' }
+  }
+
+  const sourceKey = `db:appointment:${appointmentId}`
+  const customerPhoneKey = normalizePhoneForKey(appt.customerPhone)
+  const contentMatchSince = new Date(Date.now() - 48 * 60 * 60 * 1000)
+
+  const existing = await prisma.clientAlertDelivery.findFirst({
+    where: {
+      recipientPhone,
+      OR: [
+        { sourceKey },
+        ...(customerPhoneKey
+          ? [
+              {
+                customerPhone: customerPhoneKey,
+                apptDateTime: appt.apptDateTime,
+                createdAt: { gte: contentMatchSince },
+              },
+            ]
+          : []),
+      ],
+    },
+    select: { id: true },
+  })
+  if (existing) return { status: 'skipped', reason: 'already delivered' }
+
+  // Build a synthetic MasterTableRow shape so we can reuse
+  // formatAppointmentForClientSms — same body shape clients see in
+  // Slack, just plain text.
+  const customerTz = resolveCustomerTimezone({
+    address: appt.address,
+    clientState: appt.client?.state ?? null,
+  })
+  const synthRow: MasterTableRow = {
+    rowNumber: 0,
+    apptDateTime: appt.apptDateTime.toISOString(),
+    customerName: appt.customerName,
+    customerPhone: appt.customerPhone,
+    address: appt.address,
+    email: appt.email,
+    monthlyBill: appt.monthlyBill,
+    utilityProvider: appt.utilityProvider,
+    roofType: appt.roofType,
+    roofAge: appt.roofAge,
+    estimatedDealValue: appt.estimatedDealValue,
+    status: appt.status,
+    notes: appt.notes,
+    callRecordingLink: appt.callRecordingLink,
+    loggedAt: appt.createdAt.toISOString(),
+    sentToClient: null,
+    client: appt.client?.name ?? null,
+    agentName: null,
+    agentEmail: null,
+    timezone: null,
+    resolvedTimezone: customerTz,
+    apptDateRaw: null,
+    apptTimeRaw: null,
+    apptDateTimeRaw: null,
+  }
+  const solar = appt.address
+    ? await snapshotSolarFromCache(appt.address).catch(() => null)
+    : null
+  const body = formatAppointmentForClientSms(synthRow, { solar })
+
+  try {
+    const send = await sendSmsToPhone(config.vaultEntryName, {
+      phone: recipientPhone,
+      message: body,
+      firstName: candidate.name,
+      ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+    })
+    await prisma.clientAlertDelivery.create({
+      data: {
+        sourceKey,
+        clientId: candidate.id,
+        recipientPhone,
+        status: 'delivered',
+        messageId: send.messageId ?? null,
+        conversationId: send.conversationId ?? null,
+        deliveredAt: new Date(),
+        customerPhone: customerPhoneKey,
+        apptDateTime: appt.apptDateTime,
+      },
+    })
+    return { status: 'delivered' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'SMS send failed'
+    try {
+      await prisma.clientAlertDelivery.create({
+        data: {
+          sourceKey,
+          clientId: candidate.id,
+          recipientPhone,
+          status: 'failed',
+          errorMessage: message,
+          customerPhone: customerPhoneKey,
+          apptDateTime: appt.apptDateTime,
+        },
+      })
+    } catch {
+      // Race — fine.
+    }
+    console.error(
+      `[client-alert] DB-driven SMS failed for ${appointmentId}:`,
+      message,
+    )
+    return { status: 'failed', reason: message }
+  }
+}
+
+/**
+ * Counterpart to rekeySlackDeliveryAfterSheetSync — same idea for
+ * the SMS ledger. Updates db:* sourceKey to sheet:* once the sheet
+ * sync writes the row, so the cron's later scan dedup-matches by
+ * sourceKey too.
+ */
+export async function rekeyClientAlertAfterSheetSync(
+  appointmentId: string,
+  sheetRowNumber: number,
+): Promise<void> {
+  const dbSourceKey = `db:appointment:${appointmentId}`
+  const sheetSourceKey = `sheet:Master Table:${sheetRowNumber}`
+  try {
+    await prisma.clientAlertDelivery.updateMany({
+      where: { sourceKey: dbSourceKey },
+      data: { sourceKey: sheetSourceKey },
+    })
+  } catch (err) {
+    console.error(
+      `[client-alert] re-key after sheet sync failed for ${appointmentId}:`,
+      err,
+    )
+  }
 }
 
 /* -------------------------------------------------------------------------- */

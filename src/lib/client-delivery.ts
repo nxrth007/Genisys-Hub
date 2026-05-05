@@ -29,7 +29,11 @@ import { prisma } from './prisma'
 import { readMasterTableRows, type MasterTableRow } from './drive'
 import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
-import { formatInTimezone, timezoneForAddress } from './timezone'
+import {
+  formatInTimezone,
+  resolveCustomerTimezone,
+  timezoneForAddress,
+} from './timezone'
 import { buildRoutingIndex, routeRowToClient } from './client-routing'
 import { snapshotSolarFromCache, type SolarSummary } from './solar'
 
@@ -583,6 +587,234 @@ export async function undoClientDeliveries(params: {
     deletedFromSlack,
     ledgerUpdated,
     errors,
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  DB-driven delivery (immediate trigger from /api/agent/appointments POST)   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Post a freshly-created DB Appointment to its client's Slack
+ * channel WITHOUT going through the master sheet. Called from the
+ * agent-form POST handler so the channel ping fires within seconds
+ * of save, fully decoupled from the sheet round-trip (which can be
+ * slow or fail and shouldn't gate the notification).
+ *
+ * Idempotency: records SheetSlackDelivery with sourceKey
+ * `db:appointment:{id}`. Subsequent calls for the same appointment
+ * id are no-ops via the unique-index on (sourceKey, channelId).
+ *
+ * Once the sheet sync completes for the same appointment, the
+ * appointment-sync code updates this delivery's sourceKey to the
+ * sheet's `sheet:Master Table:N` so the cron's later scan also
+ * dedup-matches by sourceKey (in addition to the content key).
+ *
+ * Routing: same brain as the sheet sync (routeRowToClient) so
+ * inferred-state and ambiguous cases behave identically.
+ */
+export async function deliverAppointmentToSlack(
+  appointmentId: string,
+): Promise<{
+  status: 'delivered' | 'skipped' | 'unrouted' | 'no-channel' | 'failed'
+  reason?: string
+}> {
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      client: { select: { id: true, name: true, state: true } },
+    },
+  })
+  if (!appt) return { status: 'failed', reason: 'appointment not found' }
+
+  const allClients = await prisma.client.findMany({
+    where: { active: true },
+    select: {
+      id: true,
+      name: true,
+      state: true,
+      slackChannelId: true,
+      slackChannelName: true,
+    },
+  })
+  const index = buildRoutingIndex(allClients)
+
+  const route = routeRowToClient(
+    {
+      client: appt.client?.name ?? null,
+      address: normalizeAddress(appt.address),
+    },
+    index,
+  )
+  if (route.source === 'unrouted') {
+    return { status: 'unrouted', reason: route.reason }
+  }
+  const candidate = route.client
+  if (!candidate.slackChannelId) {
+    console.warn(
+      `[client-delivery] DB appointment ${appointmentId} routed to ${candidate.name} but client has no Slack channel configured.`,
+    )
+    return { status: 'no-channel' }
+  }
+
+  const sourceKey = `db:appointment:${appointmentId}`
+  const normalizedPhone = normalizePhoneForKey(appt.customerPhone)
+  const apptDate = appt.apptDateTime
+  const contentMatchSince = new Date(Date.now() - 48 * 60 * 60 * 1000)
+
+  // Idempotency — same dual-key story as the sheet-driven sync.
+  const existing = await prisma.sheetSlackDelivery.findFirst({
+    where: {
+      channelId: candidate.slackChannelId,
+      OR: [
+        { sourceKey },
+        ...(normalizedPhone
+          ? [
+              {
+                customerPhone: normalizedPhone,
+                apptDateTime: apptDate,
+                createdAt: { gte: contentMatchSince },
+              },
+            ]
+          : []),
+      ],
+    },
+    select: { id: true, status: true },
+  })
+  if (existing) {
+    return { status: 'skipped', reason: 'already delivered' }
+  }
+
+  // Resolve tz directly from DB fields — no sheet read required.
+  const customerTz = resolveCustomerTimezone({
+    address: appt.address,
+    clientState: appt.client?.state ?? null,
+  })
+
+  // Synthesize a MasterTableRow shape so we can reuse the existing
+  // formatter (formatAppointmentForClientChannel). All fields the
+  // formatter reads come straight from DB columns + the resolved tz.
+  const synthRow: MasterTableRow = {
+    rowNumber: 0,
+    apptDateTime: appt.apptDateTime.toISOString(),
+    customerName: appt.customerName,
+    customerPhone: appt.customerPhone,
+    address: appt.address,
+    email: appt.email,
+    monthlyBill: appt.monthlyBill,
+    utilityProvider: appt.utilityProvider,
+    roofType: appt.roofType,
+    roofAge: appt.roofAge,
+    estimatedDealValue: appt.estimatedDealValue,
+    status: appt.status,
+    notes: appt.notes,
+    callRecordingLink: appt.callRecordingLink,
+    loggedAt: appt.createdAt.toISOString(),
+    sentToClient: null,
+    client: appt.client?.name ?? null,
+    agentName: null,
+    agentEmail: null,
+    timezone: null,
+    resolvedTimezone: customerTz,
+    apptDateRaw: null,
+    apptTimeRaw: null,
+    apptDateTimeRaw: null,
+  }
+
+  // Solar pass (cache-only — no billable lookup).
+  const solar = appt.address
+    ? await snapshotSolarFromCache(appt.address).catch(() => null)
+    : null
+
+  const body = formatAppointmentForClientChannel(synthRow, { solar })
+  const token = await getSecretByName('Slack Bot Token')
+  const slack = new WebClient(token)
+
+  try {
+    const post = await slack.chat.postMessage({
+      channel: candidate.slackChannelId,
+      text: body,
+      mrkdwn: true,
+      unfurl_links: false,
+      unfurl_media: false,
+    })
+    if (!post.ok || !post.ts) {
+      throw new Error(
+        `Slack acknowledged the post without returning a message id (ok=${post.ok}).`,
+      )
+    }
+    const permalink = await verifyDeliveryPermalink(
+      slack,
+      candidate.slackChannelId,
+      post.ts,
+    )
+    await prisma.sheetSlackDelivery.create({
+      data: {
+        sourceKey,
+        clientId: candidate.id,
+        channelId: candidate.slackChannelId,
+        status: 'delivered',
+        messageTs: post.ts ?? null,
+        permalink,
+        deliveredAt: new Date(),
+        customerPhone: normalizedPhone,
+        apptDateTime: apptDate,
+      },
+    })
+    return { status: 'delivered' }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Send failed'
+    try {
+      await prisma.sheetSlackDelivery.create({
+        data: {
+          sourceKey,
+          clientId: candidate.id,
+          channelId: candidate.slackChannelId,
+          status: 'failed',
+          errorMessage: message,
+          customerPhone: normalizedPhone,
+          apptDateTime: apptDate,
+        },
+      })
+    } catch {
+      // Race — fine.
+    }
+    console.error(
+      `[client-delivery] DB-driven delivery failed for ${appointmentId}:`,
+      message,
+    )
+    return { status: 'failed', reason: message }
+  }
+}
+
+/**
+ * After the sheet sync writes a row for an appointment whose Slack
+ * delivery already fired (via deliverAppointmentToSlack), upgrade
+ * the SheetSlackDelivery row's sourceKey from `db:appointment:{id}`
+ * to `sheet:Master Table:{rowNumber}`. Means the cron's later scan
+ * of the sheet hits the sourceKey fast path and skips re-posting,
+ * even after the 48h content-key window expires (relevant for
+ * appointments scheduled far in the future).
+ *
+ * Best-effort — if the update fails (record already migrated, race
+ * condition, etc.), the content-key dedup catches it within 48h.
+ */
+export async function rekeySlackDeliveryAfterSheetSync(
+  appointmentId: string,
+  sheetRowNumber: number,
+): Promise<void> {
+  const dbSourceKey = `db:appointment:${appointmentId}`
+  const sheetSourceKey = `sheet:Master Table:${sheetRowNumber}`
+  try {
+    await prisma.sheetSlackDelivery.updateMany({
+      where: { sourceKey: dbSourceKey },
+      data: { sourceKey: sheetSourceKey },
+    })
+  } catch (err) {
+    console.error(
+      `[client-delivery] re-key after sheet sync failed for ${appointmentId}:`,
+      err,
+    )
   }
 }
 

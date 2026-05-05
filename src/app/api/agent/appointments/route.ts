@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
+import { deliverAppointmentToSlack } from '@/lib/client-delivery'
+import { deliverAppointmentAsSms } from '@/lib/client-alert'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
@@ -403,8 +405,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Fire-and-forget sheets sync. Errors are surfaced on the appointment
-  // record's syncError field for the UI; we don't block the client response.
+  // Fire Slack + SMS notifications IMMEDIATELY off the DB row —
+  // fully decoupled from the sheet sync below. Mary's booking pings
+  // the channel within seconds even if Google Sheets is slow / down,
+  // and even if the cron isn't ticking.
+  //
+  // Each delivery records a SheetSlackDelivery / ClientAlertDelivery
+  // row with sourceKey="db:appointment:{id}" so re-saves and the
+  // later cron scan dedup-skip cleanly. Once the sheet sync writes
+  // a rowNumber, appointment-sync re-keys the delivery sourceKey to
+  // the sheet form so the cron's permanent sourceKey lookup also
+  // matches (covers the >48h-out future-appointment case where the
+  // content-key window has expired).
+  void deliverAppointmentToSlack(appt.id).then((result) => {
+    console.log(
+      `[appointments POST] direct slack: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
+    )
+  }).catch((err) => {
+    console.error('[appointments POST] direct slack threw:', err)
+  })
+  void deliverAppointmentAsSms(appt.id).then((result) => {
+    if (result.status !== 'disabled') {
+      console.log(
+        `[appointments POST] direct sms: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
+      )
+    }
+  }).catch((err) => {
+    console.error('[appointments POST] direct sms threw:', err)
+  })
+
+  // Fire-and-forget sheets sync — audit / backup path now, no longer
+  // the trigger for client notifications. Errors surface on
+  // appointment.syncError for the UI.
   syncAppointmentCreate(appt.id).catch((err) =>
     console.error('[appointments POST] sync scheduling failed:', err)
   )
