@@ -48,13 +48,13 @@ const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> 
  *  still set scheduledFor to a real Date so the dispatcher's
  *  due-window query works without special cases.
  *
- *  15-minute delay gives Mary a real window to catch a typo'd
+ *  20-minute delay gives Mary a real window to catch a typo'd
  *  booking before the customer's phone buzzes. Editing the
  *  appointment within that window updates the reminder snapshot
  *  via the upsert path, so the customer gets the corrected info.
- *  Was 30s originally; bumped after Alex flagged that "fat-finger
- *  an entry, no time to fix it" was a real risk for live use. */
-const CONFIRMATION_DELAY_MS = 15 * 60 * 1000
+ *  Was 30s originally → 15 min when Alex first flagged the
+ *  fat-finger risk → 20 min after live-test feedback. */
+const CONFIRMATION_DELAY_MS = 20 * 60 * 1000
 
 // DEFAULT_TEMPLATES + ReminderType are re-exported above; the values
 // live in reminders-constants.ts so client code can import them
