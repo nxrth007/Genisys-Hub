@@ -3372,6 +3372,7 @@ function SmsLengthHint({ body }: { body: string }) {
 }
 
 function ReminderRecentLog() {
+  const qc = useQueryClient()
   const query = useQuery<{ reminders: ReminderLogEntry[] }>({
     queryKey: ['reminders-log'],
     queryFn: async () => {
@@ -3380,6 +3381,32 @@ function ReminderRecentLog() {
       return res.json()
     },
     refetchInterval: 30_000,
+  })
+
+  // Pause/resume mutation. Single endpoint with action: 'cancel' or
+  // 'resume' — server validates the status transition (e.g. you
+  // can't resume a row whose scheduledFor has passed) and surfaces
+  // a 400 with an explanatory message we forward to a window.alert.
+  const toggleMutation = useMutation({
+    mutationFn: async (vars: {
+      id: string
+      action: 'cancel' | 'resume'
+    }): Promise<{ reminder: ReminderLogEntry }> => {
+      const res = await fetch(`/api/admin/reminders/${vars.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: vars.action }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Action failed')
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reminders-log'] })
+    },
+    onError: (err) => {
+      window.alert((err as Error).message)
+    },
   })
 
   if (query.isLoading)
@@ -3408,6 +3435,7 @@ function ReminderRecentLog() {
             <th className="px-3 py-2">Client</th>
             <th className="px-3 py-2">Scheduled</th>
             <th className="px-3 py-2">Sent</th>
+            <th className="px-3 py-2 text-right">Action</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -3464,12 +3492,102 @@ function ReminderRecentLog() {
                     })
                   : '—'}
               </td>
+              <td className="px-3 py-2 text-right">
+                <ReminderRowAction
+                  reminder={r}
+                  pending={
+                    toggleMutation.isPending &&
+                    toggleMutation.variables?.id === r.id
+                  }
+                  onToggle={(action) =>
+                    toggleMutation.mutate({ id: r.id, action })
+                  }
+                />
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   )
+}
+
+/**
+ * Per-row Pause / Resume affordance for the recent reminders log.
+ * Shape adapts to status:
+ *   - pending                       → "Pause" button (red-ish)
+ *   - cancelled / backfilled        → "Resume" button (blue, only
+ *                                     when scheduledFor > now since
+ *                                     resuming a past row would
+ *                                     immediately fire on the next
+ *                                     dispatch tick — server enforces
+ *                                     the same gate, but disabling
+ *                                     the button is friendlier UX)
+ *   - sent / sending / failed       → no action (disabled state info)
+ */
+function ReminderRowAction({
+  reminder,
+  pending,
+  onToggle,
+}: {
+  reminder: ReminderLogEntry
+  pending: boolean
+  onToggle: (action: 'cancel' | 'resume') => void
+}) {
+  const status = reminder.status
+  const futureScheduled =
+    new Date(reminder.scheduledFor).getTime() > Date.now()
+
+  if (status === 'pending') {
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (
+            window.confirm(
+              `Pause this ${REMINDER_LABELS[reminder.reminderType as ReminderType] ?? reminder.reminderType} reminder for ${reminder.customerName}? It won't fire. Resume from here later if you change your mind.`,
+            )
+          ) {
+            onToggle('cancel')
+          }
+        }}
+        className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-0.5 text-[10px] font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+        title="Cancel this pending reminder so it doesn't fire."
+      >
+        {pending ? '…' : 'Pause'}
+      </button>
+    )
+  }
+
+  if (
+    (status === 'cancelled' || status === 'backfilled' || status === 'skipped') &&
+    futureScheduled
+  ) {
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (
+            window.confirm(
+              `Resume this ${REMINDER_LABELS[reminder.reminderType as ReminderType] ?? reminder.reminderType} reminder for ${reminder.customerName}? It will fire at its scheduled time.`,
+            )
+          ) {
+            onToggle('resume')
+          }
+        }}
+        className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-50 dark:border-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-950/40"
+        title="Flip back to pending — the dispatcher will pick it up at scheduledFor."
+      >
+        {pending ? '…' : 'Resume'}
+      </button>
+    )
+  }
+
+  // Past-due cancelled/backfilled, or terminal (sent/sending/failed)
+  // — no action. Faded em-dash keeps the column visually consistent.
+  return <span className="text-[10px] text-zinc-400">—</span>
 }
 
 /**

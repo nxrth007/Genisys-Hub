@@ -18,7 +18,13 @@ import { formatInTimezone } from '@/lib/timezone'
  * PATCH /api/admin/reminders/:id
  *
  * Per-row admin mutations. Body shape:
- *   { action: 'cancel' }     — mark a pending reminder cancelled
+ *   { action: 'cancel' }     — mark a pending reminder cancelled.
+ *                              The dispatcher won't pick it up.
+ *   { action: 'resume' }     — flip a cancelled / backfilled row
+ *                              back to 'pending' if scheduledFor
+ *                              is still in the future. Lets admin
+ *                              un-pause a reminder without editing
+ *                              the source appointment.
  *   { action: 'send-now' }   — fire it immediately, regardless of
  *                              scheduledFor + quiet hours. Useful
  *                              for manual one-offs or recovering a
@@ -61,6 +67,36 @@ export async function PATCH(
     const updated = await prisma.appointmentReminder.update({
       where: { id },
       data: { status: 'cancelled' },
+    })
+    return NextResponse.json({ reminder: updated })
+  }
+
+  if (action === 'resume') {
+    // Only undo states that are reversible — already-sent / sending /
+    // failed are terminal-ish. cancelled + backfilled + skipped are
+    // the manually-paused / past-due / mass-on-enable states; bringing
+    // those back is safe as long as the schedule hasn't already passed.
+    const reversible = ['cancelled', 'backfilled', 'skipped']
+    if (!reversible.includes(reminder.status)) {
+      return NextResponse.json(
+        {
+          error: `Can't resume a ${reminder.status} reminder. Only ${reversible.join(' / ')} rows can be flipped back to pending.`,
+        },
+        { status: 400 },
+      )
+    }
+    if (reminder.scheduledFor.getTime() <= Date.now()) {
+      return NextResponse.json(
+        {
+          error:
+            'Reminder’s scheduled time has already passed — resuming would make it fire on the next dispatch tick. Use Send-now instead if you actually want it to go out.',
+        },
+        { status: 400 },
+      )
+    }
+    const updated = await prisma.appointmentReminder.update({
+      where: { id },
+      data: { status: 'pending', errorMessage: null },
     })
     return NextResponse.json({ reminder: updated })
   }
@@ -201,7 +237,7 @@ export async function PATCH(
   }
 
   return NextResponse.json(
-    { error: 'unknown action; expected cancel | send-now' },
+    { error: 'unknown action; expected cancel | resume | send-now' },
     { status: 400 }
   )
 }
