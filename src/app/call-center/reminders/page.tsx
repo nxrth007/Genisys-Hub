@@ -9,6 +9,7 @@ import {
   Search,
   Send,
   Ban,
+  Play,
   RotateCcw,
   AlertCircle,
 } from 'lucide-react'
@@ -68,6 +69,7 @@ type StatusFilter =
   | 'failed'
   | 'skipped'
   | 'cancelled'
+  | 'backfilled'
 
 export default function CallCenterRemindersPage() {
   return (
@@ -113,7 +115,8 @@ function RemindersView() {
     (counts.sent ?? 0) +
     (counts.failed ?? 0) +
     (counts.skipped ?? 0) +
-    (counts.cancelled ?? 0)
+    (counts.cancelled ?? 0) +
+    (counts.backfilled ?? 0)
 
   return (
     <div className="mx-auto w-full max-w-[1280px] space-y-6">
@@ -193,6 +196,12 @@ function RemindersView() {
           count={counts.cancelled ?? 0}
           active={statusFilter === 'cancelled'}
           onClick={() => setStatusFilter('cancelled')}
+        />
+        <StatusChip
+          label="Backfilled"
+          count={counts.backfilled ?? 0}
+          active={statusFilter === 'backfilled'}
+          onClick={() => setStatusFilter('backfilled')}
         />
       </div>
 
@@ -284,6 +293,23 @@ function ReminderRow({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['call-center-reminders'] }),
+    onError: (err) => window.alert((err as Error).message),
+  })
+
+  const resumeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/reminders/${reminder.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'resume' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Resume failed')
+      return data
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['call-center-reminders'] }),
+    onError: (err) => window.alert((err as Error).message),
   })
 
   const sendNowMutation = useMutation({
@@ -299,6 +325,7 @@ function ReminderRow({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['call-center-reminders'] }),
+    onError: (err) => window.alert((err as Error).message),
   })
 
   const display = reminder.customerName
@@ -307,6 +334,16 @@ function ReminderRow({
   const apptDate = new Date(reminder.apptDateTime)
 
   const canCancel = reminder.status === 'pending'
+  // Resume is the symmetric un-pause for paused / mass-on-enable /
+  // past-due-but-still-future statuses. Server enforces the "future
+  // scheduledFor" gate; we mirror it here so the button hides
+  // (instead of showing then 400-ing) when the schedule has passed.
+  const futureScheduled = scheduled.getTime() > Date.now()
+  const canResume =
+    futureScheduled &&
+    (reminder.status === 'cancelled' ||
+      reminder.status === 'backfilled' ||
+      reminder.status === 'skipped')
   const canSendNow =
     reminder.status === 'pending' ||
     reminder.status === 'failed' ||
@@ -357,12 +394,43 @@ function ReminderRow({
           {canCancel && (
             <button
               type="button"
-              onClick={() => cancelMutation.mutate()}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Pause this reminder for ${reminder.customerName}? It won't fire. Resume later if you change your mind.`,
+                  )
+                ) {
+                  cancelMutation.mutate()
+                }
+              }}
               disabled={cancelMutation.isPending}
-              title="Cancel"
+              title="Pause — cancel this pending reminder so it doesn't fire."
               className="rounded p-1.5 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-950/40"
             >
               <Ban className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {canResume && (
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Resume this reminder for ${reminder.customerName}? It will fire at its scheduled time.`,
+                  )
+                ) {
+                  resumeMutation.mutate()
+                }
+              }}
+              disabled={resumeMutation.isPending}
+              title="Resume — flip back to pending. Dispatcher will pick it up at scheduledFor."
+              className="rounded p-1.5 text-muted-foreground hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:hover:bg-blue-950/40"
+            >
+              {resumeMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
           {canSendNow && (
@@ -504,10 +572,29 @@ function StatusBadge({
         ? 'blue'
         : status === 'failed'
           ? 'pink'
-          : 'muted'
+          : status === 'backfilled'
+            ? 'amber'
+            : 'muted'
+  // Status-specific tooltip when error isn't set, so admin doesn't
+  // have to memorize what 'backfilled' means vs 'cancelled'.
+  const meaning =
+    error ||
+    (status === 'backfilled'
+      ? 'Pre-existing reminder neutralized when the master Reminders toggle was first flipped on. Won’t fire. Resume from the action button if you want it to.'
+      : status === 'cancelled'
+        ? 'Manually paused or auto-cancelled when the source row was removed. Won’t fire. Resume from the action button if scheduled time is still in the future.'
+        : status === 'skipped'
+          ? 'Past-due at sync time — never attempted. Use Send-now to fire it manually if still relevant.'
+          : status === 'pending'
+            ? 'Queued. Will fire on the dispatcher tick after scheduledFor.'
+            : status === 'sent'
+              ? 'Successfully delivered.'
+              : status === 'failed'
+                ? 'Last attempt failed. Use Send-now to retry once the underlying issue is fixed.'
+                : undefined)
   return (
-    <Chip tone={tone} className="font-semibold" >
-      <span title={error || undefined}>{status}</span>
+    <Chip tone={tone} className="font-semibold">
+      <span title={meaning}>{status}</span>
     </Chip>
   )
 }
