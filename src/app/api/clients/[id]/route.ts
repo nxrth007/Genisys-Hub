@@ -4,6 +4,25 @@ import { prisma } from '@/lib/prisma'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
 import { backfillClientAlerts } from '@/lib/client-alert'
+import { getSecretByName } from '@/lib/vault-service'
+
+/**
+ * Email allowed to perform destructive operations on the Client
+ * table. Hardcoded because Alex is the only person Alex authorized,
+ * and "admin" role isn't strict enough — Ethan is also admin but
+ * shouldn't be able to delete clients without Alex's say-so. If
+ * that calculus changes, lift this to a per-action permission table.
+ */
+const CLIENT_DELETE_AUTHORIZED_EMAIL = 'alex@leadgenisys.com'
+
+/**
+ * Vault entry name holding the password Alex must type to confirm
+ * a client deletion. Stored in the existing vault so it can be
+ * rotated without code changes and never enters the bundle.
+ * Pre-deploy step: Alex creates this vault entry via /vault with
+ * a password of his choosing.
+ */
+const CLIENT_DELETE_PASSWORD_VAULT_ENTRY = 'Client Delete Password'
 
 /**
  * PATCH /api/clients/:id
@@ -172,4 +191,117 @@ export async function PATCH(
     }
     throw err
   }
+}
+
+/**
+ * DELETE /api/clients/:id
+ *
+ * Two gates, both must pass:
+ *   1. Session email matches CLIENT_DELETE_AUTHORIZED_EMAIL exactly.
+ *      Even other admins (Ethan) can't delete clients — only Alex.
+ *   2. Body { password } matches the value stored in the
+ *      "Client Delete Password" vault entry. Compared with a
+ *      timing-safe Buffer.equals so a brute-force attempt can't
+ *      lean on millisecond differences.
+ *
+ * On success: prisma.client.delete cascades per the schema:
+ *   - Appointment.clientId → SetNull (rows survive, lose link)
+ *   - ReminderTemplate.clientId → Cascade (per-client overrides die)
+ *   - AppointmentReminder.clientId → SetNull
+ *   - SheetSlackDelivery.clientId → SetNull
+ *   - ClientAlertDelivery.clientId → SetNull
+ *
+ * Errors:
+ *   401 — not signed in
+ *   403 — signed in as the wrong account, OR password mismatch.
+ *         Both buckets surface the same status so the endpoint
+ *         doesn't leak which gate failed (defense in depth — the
+ *         response body has the human-readable reason for the UI,
+ *         a probing attacker can't distinguish the two without an
+ *         active session as the authorized user).
+ *   404 — client doesn't exist
+ *   503 — vault entry missing
+ */
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  const sessionEmail = (session.user.email ?? '').toLowerCase()
+  if (sessionEmail !== CLIENT_DELETE_AUTHORIZED_EMAIL.toLowerCase()) {
+    return NextResponse.json(
+      {
+        error: `Only ${CLIENT_DELETE_AUTHORIZED_EMAIL} can delete clients.`,
+      },
+      { status: 403 },
+    )
+  }
+
+  const { id } = await params
+
+  let body: { password?: unknown }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 })
+  }
+  const provided =
+    typeof body.password === 'string' ? body.password : ''
+  if (!provided) {
+    return NextResponse.json(
+      { error: 'password is required' },
+      { status: 400 },
+    )
+  }
+
+  let expected: string
+  try {
+    expected = await getSecretByName(CLIENT_DELETE_PASSWORD_VAULT_ENTRY)
+  } catch {
+    return NextResponse.json(
+      {
+        error: `Add a vault entry named "${CLIENT_DELETE_PASSWORD_VAULT_ENTRY}" before deleting clients.`,
+      },
+      { status: 503 },
+    )
+  }
+
+  // Timing-safe compare. Buffer.from with a length mismatch would
+  // throw, so equalize lengths first by checking length explicitly —
+  // unequal lengths short-circuit fast (no timing leak there since
+  // the attacker would need to know the length anyway, which we
+  // already implicitly leak via the human-readable error message
+  // shape). Equal-length comparison goes through the constant-time
+  // path.
+  const a = Buffer.from(provided, 'utf8')
+  const b = Buffer.from(expected, 'utf8')
+  const passwordOk =
+    a.length === b.length &&
+    (await import('node:crypto')).timingSafeEqual(a, b)
+  if (!passwordOk) {
+    return NextResponse.json(
+      { error: 'incorrect password' },
+      { status: 403 },
+    )
+  }
+
+  // Verify existence before delete so we can return 404 cleanly
+  // (delete on a non-existent row throws P2025 but the friendlier
+  // contract is to surface it explicitly).
+  const existing = await prisma.client.findUnique({
+    where: { id },
+    select: { id: true, name: true },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: 'client not found' }, { status: 404 })
+  }
+
+  await prisma.client.delete({ where: { id } })
+  console.log(
+    `[clients DELETE] ${sessionEmail} deleted client "${existing.name}" (${id})`,
+  )
+  return NextResponse.json({ ok: true, deleted: existing })
 }

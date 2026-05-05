@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
@@ -17,6 +17,8 @@ import {
   Pencil,
   FileText,
   StickyNote,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -128,6 +130,15 @@ const PACKAGE_LABEL: Record<ClientPackage, string> = {
   custom: 'Custom',
 }
 
+/**
+ * Email allowed to delete clients. Hardcoded to mirror the server-
+ * side gate in /api/clients/[id] DELETE — keeping them in sync by
+ * convention rather than a shared constant since the server check
+ * is the security boundary; this client-side check is purely UX
+ * (show/hide the Delete button).
+ */
+const CLIENT_DELETE_AUTHORIZED_EMAIL = 'alex@leadgenisys.com'
+
 export default function ClientsPage() {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -135,6 +146,27 @@ export default function ClientsPage() {
   const [active, setActive] = useState<ClientWithCounts | null>(null)
   const [editing, setEditing] = useState<ClientWithCounts | null>(null)
   const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<ClientWithCounts | null>(null)
+
+  // Session — used purely to decide whether to render the Delete
+  // button. Server still independently enforces the email gate, so
+  // a curious user spoofing the session locally would still get a
+  // 403 from /api/clients/[id] DELETE.
+  const sessionQuery = useQuery<{
+    user?: { email?: string | null }
+  }>({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/session')
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  const sessionEmail = (
+    sessionQuery.data?.user?.email ?? ''
+  ).toLowerCase()
+  const canDeleteClients =
+    sessionEmail === CLIENT_DELETE_AUTHORIZED_EMAIL.toLowerCase()
 
   const query = useQuery<{ clients: ClientWithCounts[] }>({
     queryKey: ['clients-with-counts'],
@@ -291,6 +323,15 @@ export default function ClientsPage() {
           setActive(null)
           setEditing(c)
         }}
+        canDelete={canDeleteClients}
+        onDelete={(c) => {
+          setActive(null)
+          setDeleting(c)
+        }}
+      />
+      <DeleteClientDialog
+        client={deleting}
+        onClose={() => setDeleting(null)}
       />
       <ClientFormDialog
         open={creating}
@@ -527,10 +568,17 @@ function ClientDetailDialog({
   client,
   onClose,
   onEdit,
+  canDelete,
+  onDelete,
 }: {
   client: ClientWithCounts | null
   onClose: () => void
   onEdit: (c: ClientWithCounts) => void
+  /** True when the session belongs to the email allowed to delete
+   *  clients. Server independently enforces the same check; this
+   *  prop only controls whether the Delete button renders. */
+  canDelete: boolean
+  onDelete: (c: ClientWithCounts) => void
 }) {
   useEffect(() => {
     if (!client) return
@@ -587,6 +635,16 @@ function ClientDetailDialog({
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(client)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70"
+                title="Delete this client (admin password required)"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -763,6 +821,180 @@ function ClientDetailDialog({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Password-gated delete confirmation. Two-step UX so a misclick
+ * never silently nukes a client + every appointment, sitdown
+ * record, and reminder template attached to it.
+ *
+ * Server-side, /api/clients/[id] DELETE checks BOTH the session
+ * email AND the password. The UI's password input is purely the
+ * "extra friction so a misclick can't fire" layer; the actual
+ * security boundary is the vault-comparison on the server.
+ */
+function DeleteClientDialog({
+  client,
+  onClose,
+}: {
+  client: ClientWithCounts | null
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Reset state every time the dialog opens for a new client so a
+  // previous failed attempt's typo doesn't carry over.
+  useEffect(() => {
+    if (client) {
+      setPassword('')
+      setError(null)
+      // Auto-focus the password input on open. setTimeout 0 yields
+      // to React's render so the input is mounted before .focus()
+      // tries to grab it.
+      setTimeout(() => inputRef.current?.focus(), 0)
+    }
+  }, [client])
+
+  const deleteMutation = useMutation({
+    mutationFn: async (vars: {
+      clientId: string
+      password: string
+    }): Promise<{ ok: true; deleted: { id: string; name: string } }> => {
+      const res = await fetch(`/api/clients/${vars.clientId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: vars.password }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || `Delete failed (${res.status})`)
+      }
+      return data
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['clients-with-counts'] })
+      window.alert(
+        `Deleted "${data.deleted.name}". Any existing appointments for that client are now unassigned (you can re-assign or delete them from the Master Tracker).`,
+      )
+      onClose()
+    },
+    onError: (err) => {
+      setError((err as Error).message)
+    },
+  })
+
+  if (!client) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[10vh] backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!password.trim()) {
+            setError('Password is required.')
+            return
+          }
+          deleteMutation.mutate({
+            clientId: client.id,
+            password: password.trim(),
+          })
+        }}
+        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-rose-200 bg-popover p-6 text-popover-foreground shadow-pop dark:border-rose-900/50"
+      >
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-rose-50 p-2 dark:bg-rose-950">
+            <AlertTriangle className="h-5 w-5 text-rose-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-base font-semibold">
+              Delete &ldquo;{client.name}&rdquo;?
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This is permanent. The client record disappears from{' '}
+              <code>/clients</code> and all routing config (Slack
+              channel, Client Alerts phone) goes with it.
+            </p>
+            <ul className="mt-2 list-disc pl-4 text-xs text-muted-foreground">
+              <li>
+                Appointments for this client become &ldquo;no
+                client&rdquo; — they stay in the Master Tracker and
+                can be re-assigned or deleted manually.
+              </li>
+              <li>Per-client reminder templates are deleted.</li>
+              <li>
+                Slack delivery + Client Alert history records keep
+                their channel/phone info but lose the client link.
+              </li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium">
+            Admin password
+          </label>
+          <input
+            ref={inputRef}
+            type="password"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value)
+              if (error) setError(null)
+            }}
+            placeholder="From the vault entry &quot;Client Delete Password&quot;"
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            autoComplete="off"
+          />
+          {error && (
+            <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">
+              {error}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={deleteMutation.isPending}
+            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!password.trim() || deleteMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+          >
+            {deleteMutation.isPending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3.5 w-3.5" /> Delete client
+              </>
+            )}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
