@@ -433,7 +433,18 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
   const isEmail = mt === 'TYPE_EMAIL' || numType === 3
   const isSms = mt === 'TYPE_SMS' || numType === 2
   const isCall = mt === 'TYPE_CALL' || numType === 1
-  const isOut = msg.direction === 'outbound' || (isEmail && !msg.direction)
+  // Direction inference. The OLD logic `direction === 'outbound' ||
+  // (isEmail && !direction)` defaulted direction-less emails to
+  // outbound — which is wrong for inbound emails that come back
+  // from GHL's messages list with the direction field missing
+  // (Alex's Joe Moder reply: visible in GHL native, here it
+  // rendered as "Email sent" by "You" with empty body, looking
+  // identical to the admin's own outbound placeholder bubbles).
+  // Now: only mark as outbound when GHL explicitly says so.
+  // Anything else falls through as inbound — labeled with the
+  // contact's name + left-aligned, so admin can spot replies they
+  // hadn't noticed.
+  const isOut = msg.direction === 'outbound'
 
   let bg = 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-900'
   let label = isEmail ? 'Email received' : isSms ? 'SMS received' : isCall ? 'Call missed' : 'Received'

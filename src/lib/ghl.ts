@@ -516,6 +516,28 @@ export async function getConversationMessages(
   return ghlFetch(`/conversations/${conversationId}/messages?${params}`, vaultEntryName)
 }
 
+/**
+ * Fetch a single email message by ID from GHL. The conversations
+ * messages list endpoint returns email metadata (id, type, dates,
+ * direction) but NOT the body for inbound emails — those need a
+ * separate call here to surface the actual content. Used by the
+ * thread-view endpoint to hydrate empty-body emails before sending
+ * the response to the page.
+ *
+ * Returns the message object with `body` populated when GHL has it.
+ * 404 / scope-denied errors surface as exceptions so callers can
+ * fall through to the empty-body placeholder gracefully.
+ */
+export async function getEmailMessage(
+  emailMessageId: string,
+  vaultEntryName: string,
+) {
+  return ghlFetch(
+    `/conversations/messages/email/${emailMessageId}`,
+    vaultEntryName,
+  )
+}
+
 /** Shape of a single message entry inside a GHL conversation. The
  *  fields here are the ones we read; GHL returns more (attachments,
  *  email metadata, status flags) that we ignore. */

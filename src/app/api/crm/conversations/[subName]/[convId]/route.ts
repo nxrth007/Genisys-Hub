@@ -5,6 +5,7 @@ import {
   getConversation,
   getConversationMessages,
   getConversations,
+  getEmailMessage,
 } from '@/lib/ghl'
 
 /**
@@ -296,6 +297,52 @@ export async function GET(
       return at - bt
     })
 
+    // Hydrate empty-body emails. The conversations/messages list
+    // endpoint returns email metadata (id, type, direction, dates)
+    // but inbound email body lives on the per-message email
+    // endpoint. Without this, Joe Moder's reply rendered as a
+    // "(no body returned by GHL)" placeholder even though GHL
+    // had the content. Fanned out in parallel + capped so a 30-
+    // email thread doesn't stall the response. Best-effort: any
+    // single fetch failure leaves that bubble as the placeholder.
+    const HYDRATE_CAP = 20
+    const emailIdsToHydrate: string[] = []
+    for (const m of merged) {
+      const mtUpper = String(m.messageType ?? '').toUpperCase()
+      const isEmail =
+        mtUpper === 'TYPE_EMAIL' ||
+        (typeof m.type === 'number' && m.type === 3)
+      if (!isEmail) continue
+      const hasBody =
+        typeof m.body === 'string' && m.body.trim().length > 0
+      if (hasBody) continue
+      const id = typeof m.id === 'string' ? m.id : null
+      if (!id) continue
+      emailIdsToHydrate.push(id)
+      if (emailIdsToHydrate.length >= HYDRATE_CAP) break
+    }
+    if (emailIdsToHydrate.length > 0) {
+      const hydrated = await Promise.all(
+        emailIdsToHydrate.map((id) =>
+          getEmailMessage(id, vaultName)
+            .then((res) => ({ id, body: extractEmailBody(res) }))
+            .catch(() => ({ id, body: null as string | null })),
+        ),
+      )
+      const bodyById = new Map<string, string>()
+      for (const h of hydrated) {
+        if (h.body && h.body.trim()) bodyById.set(h.id, h.body)
+      }
+      if (bodyById.size > 0) {
+        for (const m of merged) {
+          const id = typeof m.id === 'string' ? m.id : null
+          if (id && bodyById.has(id)) {
+            m.body = bodyById.get(id)!
+          }
+        }
+      }
+    }
+
     // entryContact was fetched up top for the phone/email match
     // keys; reuse it here for the response payload instead of a
     // second round-trip.
@@ -350,6 +397,29 @@ export async function GET(
 /** Normalize the message-list shape — GHL has historically returned
  *  both `{ messages: [...] }` and `{ messages: { messages: [...] } }`
  *  depending on version. Accept either; default to []. */
+/** Pull a renderable email body out of GHL's email-detail response.
+ *  GHL has different shapes across versions; try the common ones in
+ *  order of preference: HTML body if present, plain-text body,
+ *  preview snippet. Returns null when nothing usable is there. */
+function extractEmailBody(payload: unknown): string | null {
+  const root = payload as Record<string, unknown> | null | undefined
+  if (!root) return null
+  const candidates: unknown[] = [
+    (root.email as Record<string, unknown> | undefined)?.body,
+    (root.email as Record<string, unknown> | undefined)?.html,
+    (root.email as Record<string, unknown> | undefined)?.text,
+    root.body,
+    root.html,
+    root.text,
+    root.bodyText,
+    root.preview,
+  ]
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c
+  }
+  return null
+}
+
 function extractMessages(payload: unknown): GhlMessage[] {
   const root = payload as { messages?: unknown }
   const nested = root?.messages as
