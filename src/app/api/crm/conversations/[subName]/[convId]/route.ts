@@ -379,6 +379,8 @@ export async function GET(
     // single fetch failure leaves that bubble as the placeholder.
     const HYDRATE_CAP = 20
     const emailIdsToHydrate: string[] = []
+    // First pass: emails missing a body — these we MUST hydrate so
+    // the bubble doesn't render the empty placeholder.
     for (const m of merged) {
       const mtUpper = String(m.messageType ?? '').toUpperCase()
       const isEmail =
@@ -393,12 +395,29 @@ export async function GET(
       emailIdsToHydrate.push(id)
       if (emailIdsToHydrate.length >= HYDRATE_CAP) break
     }
-    // Captured here so diagnostics can dump the FIRST few raw email-
-    // detail responses. We're investigating whether GHL nests inbound
-    // replies inside the parent outbound email's payload (the "+ 3
-    // replies earlier" UI in their native client suggests it). Without
-    // seeing the actual response shape we can't know which field
-    // (`thread`, `replies`, `messages`, `children`...) holds them.
+    // DIAGNOSTIC SECOND PASS: ensure we always fetch ≥3 emails so the
+    // raw-sample drawer has something to show. Without this, threads
+    // where every TYPE_EMAIL already has a body (i.e. all-outbound
+    // threads we send via the agency template) skip hydration entirely
+    // and we never see GHL's response shape. Investigating whether
+    // inbound replies are nested inside the parent outbound email's
+    // detail payload — the "+ 3 replies earlier" we saw in GHL's
+    // native UI but never in /conversations/{id}/messages.
+    const SAMPLE_FORCE_CAP = 3
+    if (emailIdsToHydrate.length < SAMPLE_FORCE_CAP) {
+      for (const m of merged) {
+        const mtUpper = String(m.messageType ?? '').toUpperCase()
+        const isEmail =
+          mtUpper === 'TYPE_EMAIL' ||
+          (typeof m.type === 'number' && m.type === 3)
+        if (!isEmail) continue
+        const id = typeof m.id === 'string' ? m.id : null
+        if (!id) continue
+        if (emailIdsToHydrate.includes(id)) continue
+        emailIdsToHydrate.push(id)
+        if (emailIdsToHydrate.length >= SAMPLE_FORCE_CAP) break
+      }
+    }
     type RawEmailSample = {
       emailId: string
       topLevelKeys: string[]
@@ -412,9 +431,9 @@ export async function GET(
         emailIdsToHydrate.map((id) =>
           getEmailMessage(id, vaultName)
             .then((res) => ({ id, raw: res, body: extractEmailBody(res) }))
-            .catch(() => ({
+            .catch((err) => ({
               id,
-              raw: null as unknown,
+              raw: { __error: String(err) } as unknown,
               body: null as string | null,
             })),
         ),
