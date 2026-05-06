@@ -121,16 +121,30 @@ export default function CrmPage() {
             </p>
           </div>
         </div>
-        {/* Jump to the dedicated reminder-thread experience —
-            same data the "Reminders" filter shows, but with the
-            full thread + reply UI on click. */}
-        <Link
-          href="/crm/messages"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          <MessageSquare className="h-3.5 w-3.5" />
-          Reminder threads
-        </Link>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {/* Client Messages — Genisys-sub-account threads filtered
+              to registered clients only. Lets Alex / Ethan find
+              admin↔client comms without scrolling past customer
+              reminder threads. */}
+          <Link
+            href="/crm/clients"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-purple-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            title="Conversations with registered clients on the Genisys sub-account. Excludes reminder threads."
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            Client Messages
+          </Link>
+          {/* Jump to the dedicated reminder-thread experience —
+              same data the "Reminders" filter shows, but with the
+              full thread + reply UI on click. */}
+          <Link
+            href="/crm/messages"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Reminder threads
+          </Link>
+        </div>
       </div>
 
       {/* Source filter chips — split the noisy "everything mixed
