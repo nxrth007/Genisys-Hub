@@ -220,6 +220,26 @@ export async function GET(
       contactRes &&
       ((contactRes as { contact?: unknown }).contact ?? contactRes)
 
+    // Per-message summary surfaced in diagnostics — lets us spot
+    // "GHL returned the message but body is empty" cases at a
+    // glance. Only the fields we actually care about for debugging,
+    // not the full payload (would balloon the response).
+    const messageSummary = merged.map((m) => ({
+      id: typeof m.id === 'string' ? m.id : null,
+      messageType:
+        (typeof m.messageType === 'string' && m.messageType) ||
+        (typeof m.type === 'string' && m.type) ||
+        (typeof m.type === 'number' ? `numeric:${m.type}` : null),
+      direction: (m as { direction?: string }).direction ?? null,
+      dateAdded: typeof m.dateAdded === 'string' ? m.dateAdded : null,
+      bodyLength:
+        typeof m.body === 'string'
+          ? m.body.trim().length
+          : 0,
+      hasBody:
+        typeof m.body === 'string' && m.body.trim().length > 0,
+    }))
+
     return NextResponse.json({
       conversation,
       messages: merged,
@@ -236,6 +256,7 @@ export async function GET(
         mergedConversationCount: allConversationIds.length,
         totalMessages: merged.length,
         perConversation: perConvo,
+        messageSummary,
       },
     })
   } catch (err) {

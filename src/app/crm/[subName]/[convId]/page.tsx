@@ -63,6 +63,14 @@ export default function ConversationDetailPage() {
       firstMessageDate: string | null
       lastMessageDateInPage: string | null
     }>
+    messageSummary?: Array<{
+      id: string | null
+      messageType: string | null
+      direction: string | null
+      dateAdded: string | null
+      bodyLength: number
+      hasBody: boolean
+    }>
   }
 
   const { data, isLoading, error } = useQuery<{
@@ -280,6 +288,65 @@ export default function ConversationDetailPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Per-message detail — one row per merged message
+                  with type / direction / date / body length. Lets
+                  us identify "X emails returned by GHL but body
+                  is empty so they're invisible bubbles" without
+                  needing to grep server logs. Filterable to just
+                  email rows for compactness. */}
+              {data.diagnostics.messageSummary &&
+                data.diagnostics.messageSummary.length > 0 && (
+                  <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer text-zinc-500 select-none">
+                      Per-message detail (
+                      {data.diagnostics.messageSummary.length})
+                    </summary>
+                    <table className="mt-2 w-full text-[10px]">
+                      <thead className="text-zinc-500">
+                        <tr>
+                          <th className="text-left font-semibold py-1">Type</th>
+                          <th className="text-left font-semibold py-1">Dir</th>
+                          <th className="text-left font-semibold py-1">Date</th>
+                          <th className="text-right font-semibold py-1">Body</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.diagnostics.messageSummary.map((m, i) => (
+                          <tr
+                            key={m.id ?? i}
+                            className="border-t border-zinc-100 dark:border-zinc-800"
+                          >
+                            <td className="py-1">
+                              <code>{m.messageType ?? '—'}</code>
+                            </td>
+                            <td className="py-1">{m.direction ?? '—'}</td>
+                            <td className="py-1 tabular-nums">
+                              {m.dateAdded
+                                ? new Date(m.dateAdded).toLocaleString(
+                                    'en-US',
+                                    {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit',
+                                    },
+                                  )
+                                : '—'}
+                            </td>
+                            <td className="py-1 text-right">
+                              {m.hasBody ? (
+                                <span>{m.bodyLength}</span>
+                              ) : (
+                                <span className="text-rose-500">empty</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
+                )}
             </details>
           )}
         </div>
@@ -379,6 +446,15 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
     align = 'ml-auto'
   }
 
+  // Empty body fallback — GHL sometimes returns email message
+  // records with body=null/"" (especially older inbound emails
+  // whose full content lives on /conversations/messages/email/{id}
+  // rather than the conversations list endpoint). Render a clear
+  // placeholder instead of an invisible bubble so Alex can see
+  // these exist + we can chase the actual content via a follow-up
+  // fetch if it matters.
+  const hasBody = !!(msg.body && String(msg.body).trim())
+
   return (
     <div className={cn('rounded-lg border p-3 max-w-[85%]', bg, align)}>
       <div className="flex justify-between text-[10px] mb-1 gap-2">
@@ -387,7 +463,14 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
           {label} · {formatMsgTime(msg.dateAdded)}
         </span>
       </div>
-      <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
+      {hasBody ? (
+        <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
+      ) : (
+        <p className="text-xs italic text-zinc-400">
+          (no body returned by GHL — full content lives on the
+          message-detail endpoint)
+        </p>
+      )}
     </div>
   )
 }
