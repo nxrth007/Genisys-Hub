@@ -27,9 +27,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
+  // Default to 200 (GHL's per-page ceiling) so Genisys-sub-account
+  // conversations Alex hasn't touched in a while still get matched.
+  // Was 50, but that pushed clients with older last-messages off the
+  // page (Alex flagged Spring Solar specifically). Match rate is the
+  // same — we just have a wider net.
   const limit = Math.min(
     200,
-    Math.max(1, Number(req.nextUrl.searchParams.get('limit') || '50')),
+    Math.max(1, Number(req.nextUrl.searchParams.get('limit') || '200')),
   )
 
   // Pull every active client + the reminder-conversation IDs in
