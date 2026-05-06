@@ -48,7 +48,12 @@ type ClientWithCounts = {
   name: string
   state: string | null
   color: string
-  lifecycle: ClientLifecycle
+  // Broader than ClientLifecycle because the API can return
+  // "pending" / "denied" for self-onboarded clients. Those states
+  // aren't admin-pickable through the form; they only enter via
+  // /signin/client/register and exit via /clients/onboarding's
+  // approve / deny actions.
+  lifecycle: ClientLifecycle | 'pending' | 'denied'
   package: ClientPackage
   /** Nominal appt cap. null = unlimited (PPA / sit-down guarantee). */
   apptCap: number | null
@@ -101,18 +106,26 @@ function stateCode(state: string | null): string {
   return state.slice(0, 2).toUpperCase()
 }
 
-const LIFECYCLE_TONE: Record<ClientLifecycle, ChipTone> = {
+// Tone + label maps cover both the admin-pickable lifecycles AND
+// the self-onboarding states (pending / denied). The latter aren't
+// in LIFECYCLE_OPTIONS — they're not flippable via the inline
+// dropdown — but they still need labels and chip tones for display.
+const LIFECYCLE_TONE: Record<string, ChipTone> = {
   active: 'mint',
   onboarding: 'amber',
   paused: 'blue',
   churned: 'pink',
+  pending: 'muted',
+  denied: 'pink',
 }
 
-const LIFECYCLE_LABEL: Record<ClientLifecycle, string> = {
+const LIFECYCLE_LABEL: Record<string, string> = {
   active: 'Active',
   onboarding: 'Onboarding',
   paused: 'Paused',
   churned: 'Churned',
+  pending: 'Pending review',
+  denied: 'Denied',
 }
 
 /** Tone per package tier — lets the badge color hint at the
@@ -197,6 +210,15 @@ export default function ClientsPage() {
     }
     return list
   }, [clients, stateFilter, statusFilter, packageFilter])
+
+  // Split pending clients off so they render in their own section
+  // below the active list — Alex's spec: pending = self-onboarded,
+  // not yet approved, shouldn't blend in with the live roster.
+  const { activeClients, pendingClients } = useMemo(() => {
+    const pending = filtered.filter((c) => c.lifecycle === 'pending')
+    const rest = filtered.filter((c) => c.lifecycle !== 'pending')
+    return { activeClients: rest, pendingClients: pending }
+  }, [filtered])
 
   // Stats — all run over the unfiltered set so the cards show real
   // totals regardless of what's currently filtered.
@@ -322,10 +344,38 @@ export default function ClientsPage() {
             <span>Status</span>
           </div>
           <ul>
-            {filtered.map((c) => (
+            {activeClients.map((c) => (
               <ClientRow key={c.id} client={c} onOpen={setActive} />
             ))}
           </ul>
+
+          {/* Pending review section. Self-onboarded clients land
+              here until Alex approves them on /clients/onboarding.
+              Visually separated from the active roster so they
+              can't be mistaken for live clients receiving bookings.
+              Hidden entirely when the active list also covers
+              everything (i.e. nothing pending matches filters). */}
+          {pendingClients.length > 0 && (
+            <div className="mt-8">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="inline-block h-3 w-3 rounded-full border-2 border-dashed border-muted-foreground/60" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Pending review · {pendingClients.length}
+                </h3>
+                <Link
+                  href="/clients/onboarding"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Approve or deny →
+                </Link>
+              </div>
+              <ul>
+                {pendingClients.map((c) => (
+                  <ClientRow key={c.id} client={c} onOpen={setActive} />
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -398,17 +448,31 @@ function ClientRow({
               ? 'bg-rose-500'
               : 'bg-muted-foreground/30'
 
+  // Pending = self-onboarded but not yet admin-approved. Renders
+  // with a dashed grey ring + a faded interior so it reads as
+  // "placeholder for an inactive client" instead of blending in
+  // with the live roster.
+  const isPending = client.lifecycle === 'pending'
+
   // Make the click open detail, but the inline status pill swallows
   // its own click so changing status doesn't also open the dialog.
   return (
     <li
       onClick={() => onOpen(client)}
-      className="grid cursor-pointer grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted"
+      className={cn(
+        'grid cursor-pointer grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted',
+        isPending && 'opacity-80',
+      )}
     >
       <div className="flex min-w-0 items-center gap-3">
         <span
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-semibold text-white"
-          style={{ backgroundColor: client.color }}
+          className={cn(
+            'grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-semibold',
+            isPending
+              ? 'border-2 border-dashed border-muted-foreground/60 bg-muted text-muted-foreground'
+              : 'text-white',
+          )}
+          style={isPending ? undefined : { backgroundColor: client.color }}
         >
           {initials}
         </span>
@@ -416,8 +480,15 @@ function ClientRow({
           <p className="truncate text-sm font-semibold">{client.name}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
             <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: client.color }}
+              className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                isPending && 'border border-dashed border-muted-foreground/60',
+              )}
+              style={
+                isPending
+                  ? { backgroundColor: 'transparent' }
+                  : { backgroundColor: client.color }
+              }
               aria-hidden
             />
             <p className="truncate text-xs text-muted-foreground">
@@ -541,6 +612,20 @@ function InlineStatusSelect({ client }: { client: ClientWithCounts }) {
       qc.invalidateQueries({ queryKey: ['clients'] })
     },
   })
+
+  // Pending / denied lifecycles aren't admin-pickable from this
+  // dropdown. Self-onboarded clients enter "pending" via
+  // /signin/client/register and exit via the approve/deny buttons
+  // on /clients/onboarding — letting an admin manually flip another
+  // client TO pending here would be confusing and could orphan a
+  // linked User account. Show a static chip instead.
+  if (client.lifecycle === 'pending' || client.lifecycle === 'denied') {
+    return (
+      <Chip tone={LIFECYCLE_TONE[client.lifecycle] ?? 'muted'}>
+        {LIFECYCLE_LABEL[client.lifecycle] ?? client.lifecycle}
+      </Chip>
+    )
+  }
 
   const tone = LIFECYCLE_TONE[client.lifecycle] ?? 'muted'
   const toneClass =
@@ -1128,12 +1213,21 @@ function formatDate(iso: string | null): string {
 /** Hydrate the form from a row — empty string for null fields so
  *  controlled inputs don't blow up. */
 function toFormValues(c: ClientWithCounts): ClientFormValues {
+  // The edit form only knows the four admin-pickable lifecycles —
+  // coerce pending/denied to "onboarding" so the dropdown has a
+  // valid selection. Saving the form would then move the client
+  // out of the self-onboarding queue into the regular onboarding
+  // state, which is a sensible admin override path.
+  const lifecycle: ClientLifecycle =
+    c.lifecycle === 'pending' || c.lifecycle === 'denied'
+      ? 'onboarding'
+      : c.lifecycle
   return {
     id: c.id,
     name: c.name,
     state: c.state ?? '',
     color: c.color,
-    lifecycle: c.lifecycle,
+    lifecycle,
     package: c.package,
     apptCap: c.apptCap == null ? '' : String(c.apptCap),
     contactName: c.contactName ?? '',
