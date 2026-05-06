@@ -393,17 +393,58 @@ export async function GET(
       emailIdsToHydrate.push(id)
       if (emailIdsToHydrate.length >= HYDRATE_CAP) break
     }
+    // Captured here so diagnostics can dump the FIRST few raw email-
+    // detail responses. We're investigating whether GHL nests inbound
+    // replies inside the parent outbound email's payload (the "+ 3
+    // replies earlier" UI in their native client suggests it). Without
+    // seeing the actual response shape we can't know which field
+    // (`thread`, `replies`, `messages`, `children`...) holds them.
+    type RawEmailSample = {
+      emailId: string
+      topLevelKeys: string[]
+      nestedEmailKeys: string[] | null
+      rawJson: string // truncated to ~4kb so the response stays sane
+    }
+    const rawEmailSamples: RawEmailSample[] = []
+    const RAW_SAMPLE_CAP = 3
     if (emailIdsToHydrate.length > 0) {
       const hydrated = await Promise.all(
         emailIdsToHydrate.map((id) =>
           getEmailMessage(id, vaultName)
-            .then((res) => ({ id, body: extractEmailBody(res) }))
-            .catch(() => ({ id, body: null as string | null })),
+            .then((res) => ({ id, raw: res, body: extractEmailBody(res) }))
+            .catch(() => ({
+              id,
+              raw: null as unknown,
+              body: null as string | null,
+            })),
         ),
       )
       const bodyById = new Map<string, string>()
       for (const h of hydrated) {
         if (h.body && h.body.trim()) bodyById.set(h.id, h.body)
+        if (
+          h.raw &&
+          typeof h.raw === 'object' &&
+          rawEmailSamples.length < RAW_SAMPLE_CAP
+        ) {
+          const root = h.raw as Record<string, unknown>
+          const nestedEmail = root.email as Record<string, unknown> | undefined
+          let rawJson: string
+          try {
+            rawJson = JSON.stringify(h.raw)
+          } catch {
+            rawJson = '[unserializable]'
+          }
+          if (rawJson.length > 4000) {
+            rawJson = rawJson.slice(0, 4000) + '…[truncated]'
+          }
+          rawEmailSamples.push({
+            emailId: h.id,
+            topLevelKeys: Object.keys(root),
+            nestedEmailKeys: nestedEmail ? Object.keys(nestedEmail) : null,
+            rawJson,
+          })
+        }
       }
       if (bodyById.size > 0) {
         for (const m of merged) {
@@ -464,6 +505,11 @@ export async function GET(
          *  cases. Capped at 50 entries to keep the response
          *  payload sane. */
         rejected,
+        /** Up to 3 raw responses from /conversations/messages/email/{id}
+         *  — used to figure out where GHL nests inbound email replies
+         *  (the "+ 3 replies earlier" we saw in their native UI but
+         *  not in /conversations/{id}/messages). Truncated to 4kb each. */
+        rawEmailSamples,
       },
     })
   } catch (err) {

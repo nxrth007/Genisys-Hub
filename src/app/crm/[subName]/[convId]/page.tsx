@@ -81,6 +81,12 @@ export default function ConversationDetailPage() {
       bodyLength: number
       hasBody: boolean
     }>
+    rawEmailSamples?: Array<{
+      emailId: string
+      topLevelKeys: string[]
+      nestedEmailKeys: string[] | null
+      rawJson: string
+    }>
   }
 
   const { data, isLoading, error } = useQuery<{
@@ -421,6 +427,60 @@ export default function ConversationDetailPage() {
                         ))}
                       </tbody>
                     </table>
+                  </details>
+                )}
+
+              {/* Raw GHL email-detail responses — captured so we can
+                  see whether GHL nests inbound replies inside the
+                  parent outbound email's payload. The "+ 3 replies
+                  earlier" we observed in their native UI but never
+                  in /conversations/{id}/messages strongly suggests
+                  threading. Once we know which field holds them
+                  (replies / thread / messages / children), we can
+                  unfurl them into the flat message list. */}
+              {data.diagnostics.rawEmailSamples &&
+                data.diagnostics.rawEmailSamples.length > 0 && (
+                  <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer text-zinc-500 select-none">
+                      Raw email-detail samples (
+                      {data.diagnostics.rawEmailSamples.length})
+                    </summary>
+                    <div className="mt-2 space-y-3">
+                      {data.diagnostics.rawEmailSamples.map((s) => (
+                        <div
+                          key={s.emailId}
+                          className="rounded border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900"
+                        >
+                          <div className="font-mono text-[10px] text-zinc-500">
+                            email id:{' '}
+                            <span className="text-zinc-800 dark:text-zinc-200">
+                              {s.emailId}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[10px]">
+                            <span className="text-zinc-500">
+                              top-level keys:
+                            </span>{' '}
+                            <code className="break-all">
+                              [{s.topLevelKeys.join(', ')}]
+                            </code>
+                          </div>
+                          {s.nestedEmailKeys && (
+                            <div className="text-[10px]">
+                              <span className="text-zinc-500">
+                                nested email keys:
+                              </span>{' '}
+                              <code className="break-all">
+                                [{s.nestedEmailKeys.join(', ')}]
+                              </code>
+                            </div>
+                          )}
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-100 p-1 text-[10px] dark:bg-zinc-950">
+                            {s.rawJson}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
                   </details>
                 )}
             </details>
