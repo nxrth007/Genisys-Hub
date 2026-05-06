@@ -134,6 +134,16 @@ function ClientSignInInner() {
           </button>
         </form>
 
+        <p className="mt-4 text-center text-xs text-zinc-500">
+          New to Lead Genisys?{' '}
+          <Link
+            href="/signin/client/register"
+            className="font-medium text-blue-600 hover:underline"
+          >
+            Register
+          </Link>
+        </p>
+
         <p className="mt-6 text-center text-xs text-zinc-400">
           <Link href="/signin" className="hover:underline">
             ← Staff sign in

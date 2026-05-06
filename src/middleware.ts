@@ -25,6 +25,10 @@ const PUBLIC_PATHS = [
   '/api/health',
   // Agent registration endpoint needs to be reachable anonymously.
   '/api/agent/register',
+  // Client self-registration — anonymous email + password POST that
+  // creates a client_pending User. The follow-up onboarding form is
+  // signed-in (client_pending), gated normally.
+  '/api/client/register',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces
@@ -116,16 +120,37 @@ export default auth((req) => {
     return NextResponse.redirect(new URL('/agent', req.nextUrl.origin))
   }
 
-  // Pending/denied/onboarding clients shouldn't reach anything yet.
-  // Phase 1 only handles client_active; the others land in Phase 2 but
-  // we wire them up now so half-built states don't expose the Hub.
-  if (
-    role === 'client_pending' ||
-    role === 'client_onboarding' ||
-    role === 'client_denied'
-  ) {
-    if (pathname === '/signin/client') return NextResponse.next()
-    return NextResponse.redirect(new URL('/signin/client', req.nextUrl.origin))
+  // Self-registered clients in mid-flow. The signup is a multi-step
+  // funnel — register → onboarding form → admin approval — and we
+  // pin each role to its dedicated screen so users can't jump ahead.
+  //   client_pending     → onboarding form (next step)
+  //   client_onboarding  → "we're reviewing" waiting screen
+  //   client_denied      → terminal denied screen
+  if (role === 'client_pending') {
+    const allowed =
+      pathname === '/signin/client/onboarding-form' ||
+      pathname.startsWith('/api/client/onboarding-form') ||
+      pathname.startsWith('/api/auth')
+    if (allowed) return NextResponse.next()
+    return NextResponse.redirect(
+      new URL('/signin/client/onboarding-form', req.nextUrl.origin),
+    )
+  }
+  if (role === 'client_onboarding') {
+    const allowed =
+      pathname === '/signin/client/pending' || pathname.startsWith('/api/auth')
+    if (allowed) return NextResponse.next()
+    return NextResponse.redirect(
+      new URL('/signin/client/pending', req.nextUrl.origin),
+    )
+  }
+  if (role === 'client_denied') {
+    const allowed =
+      pathname === '/signin/client/denied' || pathname.startsWith('/api/auth')
+    if (allowed) return NextResponse.next()
+    return NextResponse.redirect(
+      new URL('/signin/client/denied', req.nextUrl.origin),
+    )
   }
 
   // Approved clients: /client/* only. If they have a pending password

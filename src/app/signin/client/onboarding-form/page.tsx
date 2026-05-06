@@ -1,0 +1,283 @@
+'use client'
+
+/**
+ * Step 2 of client signup — collects the business + contact info admin
+ * would normally type into "+ New client" on /clients. Posting this
+ * creates the Client row (lifecycle=pending) and bumps the user's role
+ * to client_onboarding, which middleware then routes to the waiting
+ * screen until admin approves.
+ *
+ * Same field set Alex listed in the spec: business name, state, tier,
+ * full name, role, phone, business address, servicing zipcodes.
+ */
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Image from 'next/image'
+import { Building2, AlertCircle } from 'lucide-react'
+
+const TIERS: Array<{ id: string; label: string; sub: string }> = [
+  {
+    id: 'ppa',
+    label: 'Pay-per-appointment',
+    sub: 'Pay only for appointments delivered',
+  },
+  {
+    id: 'growth',
+    label: 'Growth',
+    sub: '20 appointments / month commitment',
+  },
+  {
+    id: 'pro',
+    label: 'Pro',
+    sub: '30 appointments / month commitment',
+  },
+  {
+    id: 'custom',
+    label: 'Custom / I\'m not sure yet',
+    sub: 'We\'ll work it out together',
+  },
+]
+
+export default function OnboardingFormPage() {
+  const router = useRouter()
+  const [businessName, setBusinessName] = useState('')
+  const [state, setState] = useState('')
+  const [tier, setTier] = useState('growth')
+  const [fullName, setFullName] = useState('')
+  const [role, setRole] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [servicingZipcodes, setServicingZipcodes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/client/onboarding-form', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          businessName,
+          state,
+          tier,
+          fullName,
+          role,
+          phone,
+          address,
+          servicingZipcodes,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || 'Failed to submit onboarding form.')
+        return
+      }
+      router.refresh()
+      router.push('/signin/client/pending')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-10 dark:from-zinc-950 dark:to-zinc-900">
+      <div className="w-full max-w-xl rounded-xl border border-zinc-200 bg-white p-8 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mb-5 flex items-center justify-center">
+          <Image
+            src="/genisys-logo.png"
+            alt="Lead Genisys"
+            width={450}
+            height={150}
+            priority
+            className="h-auto w-44 dark:invert"
+          />
+        </div>
+        <div className="mb-2 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
+          <Building2 className="h-4 w-4" />
+          Tell us about your business
+        </div>
+        <p className="mb-6 text-center text-xs text-zinc-500">
+          Step 2 of 2. We&apos;ll review and approve your account
+          shortly after this.
+        </p>
+
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Business name" required>
+            <input
+              type="text"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              required
+              autoFocus
+              className="input"
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Your full name" required>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                autoComplete="name"
+                className="input"
+              />
+            </Field>
+            <Field label="Your role" hint="e.g. Owner, VP Sales">
+              <input
+                type="text"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="input"
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Phone" required>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+                autoComplete="tel"
+                placeholder="(555) 123-4567"
+                className="input"
+              />
+            </Field>
+            <Field label="State" hint="e.g. Arizona">
+              <input
+                type="text"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="input"
+              />
+            </Field>
+          </div>
+
+          <Field label="Business address" required>
+            <input
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              required
+              autoComplete="street-address"
+              placeholder="123 Main St, City, ST 12345"
+              className="input"
+            />
+          </Field>
+
+          <Field
+            label="Servicing zipcodes"
+            hint="Comma-separated. We use this to route appointments your way."
+          >
+            <input
+              type="text"
+              value={servicingZipcodes}
+              onChange={(e) => setServicingZipcodes(e.target.value)}
+              placeholder="85001, 85002, 85003"
+              className="input"
+            />
+          </Field>
+
+          <Field label="Package" required>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {TIERS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTier(t.id)}
+                  className={`rounded-md border p-3 text-left transition ${
+                    tier === t.id
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                      : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <div className="text-xs font-semibold">{t.label}</div>
+                  <div className="text-[11px] text-zinc-500">{t.sub}</div>
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={
+              submitting ||
+              !businessName ||
+              !fullName ||
+              !phone ||
+              !address ||
+              !tier
+            }
+            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            {submitting ? 'Submitting…' : 'Submit for review'}
+          </button>
+        </form>
+
+        {/* Local input style — keeps the field markup clean. Tailwind
+            doesn't support a true component class, so this is a
+            scoped style. */}
+        <style jsx>{`
+          .input {
+            width: 100%;
+            border-radius: 0.375rem;
+            border: 1px solid rgb(228 228 231);
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            background: white;
+            color: rgb(24 24 27);
+          }
+          :global(.dark) .input {
+            border-color: rgb(39 39 42);
+            background: rgb(9 9 11);
+            color: rgb(244 244 245);
+          }
+          .input:focus {
+            outline: none;
+            border-color: rgb(59 130 246);
+          }
+        `}</style>
+      </div>
+    </div>
+  )
+}
+
+function Field({
+  label,
+  hint,
+  required,
+  children,
+}: {
+  label: string
+  hint?: string
+  required?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <label className="mb-1 flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        {label}
+        {required && <span className="text-rose-500">*</span>}
+      </label>
+      {children}
+      {hint && (
+        <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+          {hint}
+        </p>
+      )}
+    </div>
+  )
+}

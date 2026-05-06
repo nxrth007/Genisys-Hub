@@ -27,6 +27,12 @@ import {
   RefreshCcw,
   Copy,
   Check,
+  Building2,
+  Phone,
+  MapPin,
+  User as UserIcon,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 
@@ -125,22 +131,241 @@ function TabButton({
   )
 }
 
-/** Phase-2 placeholder. Self-registration form + approve/deny flow
- *  ships in the next iteration; for Phase 1 we just signal that the
- *  tab is reserved so admin doesn't think it's broken. */
+type PendingClient = {
+  id: string
+  name: string
+  state: string | null
+  color: string
+  package: string
+  contactName: string | null
+  contactRole: string | null
+  contactEmail: string | null
+  contactPhone: string | null
+  address: string | null
+  servicingZipcodes: string | null
+  createdAt: string
+  users: Array<{
+    id: string
+    email: string
+    role: string
+    createdAt: string
+  }>
+}
+
+/** Live list of self-registered clients awaiting admin review.
+ *  Approve flips lifecycle=active + role=client_active; Deny flips
+ *  lifecycle=denied + role=client_denied. Both trigger a notification
+ *  email to the client. */
 function PendingTab() {
+  const { data, isLoading, error } = useQuery<{
+    clients: PendingClient[]
+  }>({
+    queryKey: ['clients-pending'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients/pending')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load pending clients')
+      }
+      return res.json()
+    },
+    refetchInterval: 30_000,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+        Couldn&apos;t load pending applications. Try refreshing.
+      </div>
+    )
+  }
+  const clients = data?.clients ?? []
+
+  if (clients.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <Hourglass className="mx-auto h-10 w-10 text-muted-foreground/50" />
+        <p className="mt-3 text-sm font-medium">
+          No applications waiting on review
+        </p>
+        <p className="mt-1 max-w-md mx-auto text-xs text-muted-foreground">
+          New self-registrations from /signin/client/register will land
+          here once they finish the onboarding form.
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
-      <Hourglass className="mx-auto h-10 w-10 text-muted-foreground/50" />
-      <p className="mt-3 text-sm font-medium">
-        Self-onboarding launches next phase
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {clients.length} application{clients.length === 1 ? '' : 's'}{' '}
+        awaiting review. Approving creates an active /client account
+        and emails the client; denying sends a polite decline.
       </p>
-      <p className="mt-1 max-w-md mx-auto text-xs text-muted-foreground">
-        Once clients can self-register at /signin/client/register, their
-        applications will appear here for you to approve or deny — same
-        flow as the agents page. For now, use the Credentials tab to
-        provision logins for existing clients.
-      </p>
+      <div className="grid grid-cols-1 gap-3">
+        {clients.map((c) => (
+          <PendingClientCard key={c.id} client={c} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PendingClientCard({ client }: { client: PendingClient }) {
+  const qc = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
+  const linkedUser = client.users[0] ?? null
+
+  const decide = useMutation({
+    mutationFn: async (action: 'approve' | 'deny') => {
+      const res = await fetch(
+        `/api/clients/${client.id}/onboarding-decision`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action }),
+        },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Failed to ${action}`)
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients-pending'] })
+      qc.invalidateQueries({ queryKey: ['clients-with-counts'] })
+    },
+    onError: (err) => setError((err as Error).message),
+  })
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            {/* Dashed-circle marker to signal "not yet active" — same
+                visual cue Alex described in the spec. */}
+            <span
+              className="inline-block h-3 w-3 rounded-full border-2 border-dashed"
+              style={{ borderColor: client.color }}
+              aria-hidden
+            />
+            <h3 className="truncate text-sm font-semibold">{client.name}</h3>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {client.package}
+            </span>
+            {client.state && (
+              <span className="text-xs text-muted-foreground">
+                · {client.state}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+            {client.contactName && (
+              <span className="inline-flex items-center gap-1.5">
+                <UserIcon className="h-3 w-3" />
+                {client.contactName}
+                {client.contactRole && (
+                  <span className="text-muted-foreground/70">
+                    · {client.contactRole}
+                  </span>
+                )}
+              </span>
+            )}
+            {client.contactEmail && (
+              <span className="inline-flex items-center gap-1.5">
+                <Mail className="h-3 w-3" />
+                {client.contactEmail}
+              </span>
+            )}
+            {client.contactPhone && (
+              <span className="inline-flex items-center gap-1.5">
+                <Phone className="h-3 w-3" />
+                {client.contactPhone}
+              </span>
+            )}
+            {client.address && (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="h-3 w-3" />
+                {client.address}
+              </span>
+            )}
+            {client.servicingZipcodes && (
+              <span className="inline-flex items-center gap-1.5 sm:col-span-2">
+                <Building2 className="h-3 w-3" />
+                Servicing: {client.servicingZipcodes}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground/80">
+            Submitted{' '}
+            {new Date(client.createdAt).toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+            {linkedUser && (
+              <> · Login: <code>{linkedUser.email}</code></>
+            )}
+          </p>
+        </div>
+
+        <div className="flex flex-shrink-0 flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              decide.mutate('approve')
+            }}
+            disabled={decide.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {decide.isPending && decide.variables === 'approve' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ThumbsUp className="h-3 w-3" />
+            )}
+            Approve
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              if (
+                window.confirm(
+                  `Deny ${client.name}'s application? They'll be notified by email and won't be able to sign in.`,
+                )
+              ) {
+                decide.mutate('deny')
+              }
+            }}
+            disabled={decide.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950"
+          >
+            {decide.isPending && decide.variables === 'deny' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ThumbsDown className="h-3 w-3" />
+            )}
+            Deny
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
     </div>
   )
 }

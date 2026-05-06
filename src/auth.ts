@@ -97,22 +97,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ok = await bcrypt.compare(password, user.passwordHash)
         if (!ok) return null
 
-        // Block agents/clients in pending/denied states from getting a
-        // session at all — they get bounced to a distinct screen.
-        // Errors below are mapped to user-facing routes by the signin
-        // page that triggered the call.
+        // Agents in pending/denied states can't session at all. Clients
+        // in pending/onboarding CAN session, because the multi-step
+        // signup flow (register → onboarding form → admin approval)
+        // needs them logged in to fill out the next screen. Middleware
+        // routes them to the right place; they can't reach /client
+        // until role flips to client_active. Only client_denied is
+        // hard-blocked.
         const allowedRoles = new Set([
           'agent',
           'admin',
           'member',
           'client_active',
+          'client_pending',
+          'client_onboarding',
         ])
         if (!allowedRoles.has(user.role)) {
           if (user.role === 'agent_pending') throw new Error('pending')
           if (user.role === 'agent_denied') throw new Error('denied')
-          if (user.role === 'client_pending') throw new Error('client_pending')
-          if (user.role === 'client_onboarding')
-            throw new Error('client_onboarding')
           if (user.role === 'client_denied') throw new Error('client_denied')
           throw new Error('denied')
         }

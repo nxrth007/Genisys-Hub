@@ -466,11 +466,21 @@ model Client {
   intakeFormUrl   String?
   ghlSubaccountUrl String?
 
+  // Free-text list of zipcodes the client services / wants leads from.
+  // Captured during the self-onboarding form. Stored as a comma- or
+  // whitespace-separated string for now — JSON later if we ever need
+  // to query / index ranges. Optional because admin-created clients
+  // don't always have a fixed service area.
+  servicingZipcodes String?
+
   // Lifecycle status — richer than the boolean `active`. Valid values:
+  //   "pending"      — self-registered + onboarding form submitted,
+  //                    awaiting admin approval (Phase 2 client-access)
   //   "active"       — engaged + booking
   //   "onboarding"   — in setup, not yet receiving bookings
   //   "paused"       — temporarily on hold
   //   "churned"      — relationship ended (kept for historical reporting)
+  //   "denied"       — self-registration was rejected
   // The legacy `active` flag still gates list visibility for now so
   // agents don't see churned clients in their booking picker.
   lifecycle       String   @default("active")
