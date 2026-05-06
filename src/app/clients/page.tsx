@@ -860,6 +860,17 @@ function DeleteClientDialog({
     }
   }, [client])
 
+  // Esc closes — keyboard users need an out since the backdrop is
+  // intentionally non-dismissive (see backdrop comment below).
+  useEffect(() => {
+    if (!client) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [client, onClose])
+
   const deleteMutation = useMutation({
     mutationFn: async (vars: {
       clientId: string
@@ -891,12 +902,14 @@ function DeleteClientDialog({
   if (!client) return null
 
   return (
+    // Backdrop intentionally NOT click-to-close — same fix as the
+    // ClientFormDialog. Losing a half-typed password to an accidental
+    // click-drag is worse than the convenience of click-outside-to-
+    // close. Esc + the X button stay as close affordances.
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[10vh] backdrop-blur-sm"
-      onClick={onClose}
     >
       <form
-        onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault()
           if (!password.trim()) {

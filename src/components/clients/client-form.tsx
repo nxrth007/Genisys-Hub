@@ -182,13 +182,18 @@ export function ClientFormDialog({
   if (!open) return null
 
   return (
+    // Backdrop is intentionally NOT click-to-close. Alex's complaint:
+    // when text-selecting or click-dragging inside the form, releasing
+    // outside the form would fire the backdrop's onClick (mousedown was
+    // inside the form but click bubbled to the common ancestor) and
+    // wipe the half-typed client info. Esc and the X button stay as
+    // close affordances. The stopPropagation on the form was guarding
+    // against in-form clicks but couldn't catch the drag-out case.
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[6vh] backdrop-blur-sm"
-      onClick={() => onOpenChange(false)}
     >
       <form
         onSubmit={submit}
-        onClick={(e) => e.stopPropagation()}
         className="flex w-full max-w-xl flex-col gap-5 rounded-2xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
       >
         <div className="flex items-start justify-between">
