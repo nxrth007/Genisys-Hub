@@ -87,6 +87,14 @@ export default function ConversationDetailPage() {
       nestedEmailKeys: string[] | null
       rawJson: string
     }>
+    convMessageSamples?: Array<{
+      conversationMessageId: string | null
+      topLevelKeys: string[]
+      metaKeys: string[] | null
+      metaEmailKeys: string[] | null
+      extractedEmailIds: string[]
+      rawJson: string
+    }>
   }
 
   const { data, isLoading, error } = useQuery<{
@@ -438,6 +446,77 @@ export default function ConversationDetailPage() {
                   threading. Once we know which field holds them
                   (replies / thread / messages / children), we can
                   unfurl them into the flat message list. */}
+              {/* Raw conversation-message samples (TYPE_EMAIL) —
+                  dumped so we can verify where email-message IDs
+                  nest. The 400s "Email message does not exist"
+                  proved /conversations/{id}/messages returns
+                  conversation-message IDs in a different ID space
+                  than /conversations/messages/email/{id} expects.
+                  The actual email IDs likely live at
+                  meta.email.messageIds[]. */}
+              {data.diagnostics.convMessageSamples &&
+                data.diagnostics.convMessageSamples.length > 0 && (
+                  <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer text-zinc-500 select-none">
+                      Raw conversation-message samples (
+                      {data.diagnostics.convMessageSamples.length})
+                    </summary>
+                    <div className="mt-2 space-y-3">
+                      {data.diagnostics.convMessageSamples.map((s, i) => (
+                        <div
+                          key={s.conversationMessageId ?? i}
+                          className="rounded border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900"
+                        >
+                          <div className="font-mono text-[10px] text-zinc-500">
+                            conv-msg id:{' '}
+                            <span className="text-zinc-800 dark:text-zinc-200">
+                              {s.conversationMessageId ?? '—'}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[10px]">
+                            <span className="text-zinc-500">
+                              top-level keys:
+                            </span>{' '}
+                            <code className="break-all">
+                              [{s.topLevelKeys.join(', ')}]
+                            </code>
+                          </div>
+                          {s.metaKeys && (
+                            <div className="text-[10px]">
+                              <span className="text-zinc-500">meta keys:</span>{' '}
+                              <code className="break-all">
+                                [{s.metaKeys.join(', ')}]
+                              </code>
+                            </div>
+                          )}
+                          {s.metaEmailKeys && (
+                            <div className="text-[10px]">
+                              <span className="text-zinc-500">
+                                meta.email keys:
+                              </span>{' '}
+                              <code className="break-all">
+                                [{s.metaEmailKeys.join(', ')}]
+                              </code>
+                            </div>
+                          )}
+                          <div className="text-[10px]">
+                            <span className="text-zinc-500">
+                              extracted email IDs ({s.extractedEmailIds.length}
+                              ):
+                            </span>{' '}
+                            <code className="break-all">
+                              [{s.extractedEmailIds.join(', ') || '—'}]
+                            </code>
+                          </div>
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-100 p-1 text-[10px] dark:bg-zinc-950">
+                            {s.rawJson}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
               {data.diagnostics.rawEmailSamples &&
                 data.diagnostics.rawEmailSamples.length > 0 && (
                   <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">

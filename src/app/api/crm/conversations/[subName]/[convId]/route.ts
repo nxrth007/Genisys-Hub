@@ -377,55 +377,117 @@ export async function GET(
     // had the content. Fanned out in parallel + capped so a 30-
     // email thread doesn't stall the response. Best-effort: any
     // single fetch failure leaves that bubble as the placeholder.
-    const HYDRATE_CAP = 20
-    const emailIdsToHydrate: string[] = []
-    // First pass: emails missing a body — these we MUST hydrate so
-    // the bubble doesn't render the empty placeholder.
+    // The 400s we got back ("Email message does not exist with id X")
+    // proved that conversation-message IDs are NOT email-message IDs —
+    // they're separate ID spaces. The actual email-message IDs live on
+    // each TYPE_EMAIL conversation-message under a nested field
+    // (likely meta.email.messageIds[] but possibly emailMessageId,
+    // emailIds, etc., depending on GHL version). And `messageIds`
+    // being plural is the hint that threading lives there: a single
+    // outbound email's conversation-message can carry the parent ID
+    // PLUS any inbound reply IDs threaded under it.
+    function extractEmailMessageIdsFromConversationMessage(
+      m: Record<string, unknown>,
+    ): string[] {
+      const out: string[] = []
+      const seen = new Set<string>()
+      const push = (val: unknown) => {
+        if (typeof val === 'string' && val && !seen.has(val)) {
+          seen.add(val)
+          out.push(val)
+        }
+        if (Array.isArray(val)) {
+          for (const v of val) push(v)
+        }
+      }
+      const meta = m.meta as Record<string, unknown> | undefined
+      const metaEmail = meta?.email as Record<string, unknown> | undefined
+      push(metaEmail?.messageIds)
+      push(metaEmail?.messageId)
+      push((m as { emailMessageIds?: unknown }).emailMessageIds)
+      push((m as { emailMessageId?: unknown }).emailMessageId)
+      push((m as { messageIds?: unknown }).messageIds)
+      return out
+    }
+
+    // Raw conversation-message samples — dumped FIRST so we can
+    // visually confirm where email-message IDs nest. If our extractor
+    // above misses them, the JSON blob will show us where they
+    // actually live and we can patch.
+    type ConvMessageSample = {
+      conversationMessageId: string | null
+      topLevelKeys: string[]
+      metaKeys: string[] | null
+      metaEmailKeys: string[] | null
+      extractedEmailIds: string[]
+      rawJson: string
+    }
+    const convMessageSamples: ConvMessageSample[] = []
+    const CONV_SAMPLE_CAP = 3
     for (const m of merged) {
       const mtUpper = String(m.messageType ?? '').toUpperCase()
       const isEmail =
         mtUpper === 'TYPE_EMAIL' ||
         (typeof m.type === 'number' && m.type === 3)
       if (!isEmail) continue
-      const hasBody =
-        typeof m.body === 'string' && m.body.trim().length > 0
-      if (hasBody) continue
-      const id = typeof m.id === 'string' ? m.id : null
-      if (!id) continue
-      emailIdsToHydrate.push(id)
+      const meta = (m as Record<string, unknown>).meta as
+        | Record<string, unknown>
+        | undefined
+      const metaEmail = meta?.email as Record<string, unknown> | undefined
+      let rawJson: string
+      try {
+        rawJson = JSON.stringify(m)
+      } catch {
+        rawJson = '[unserializable]'
+      }
+      if (rawJson.length > 4000) {
+        rawJson = rawJson.slice(0, 4000) + '…[truncated]'
+      }
+      convMessageSamples.push({
+        conversationMessageId: typeof m.id === 'string' ? m.id : null,
+        topLevelKeys: Object.keys(m as Record<string, unknown>),
+        metaKeys: meta ? Object.keys(meta) : null,
+        metaEmailKeys: metaEmail ? Object.keys(metaEmail) : null,
+        extractedEmailIds: extractEmailMessageIdsFromConversationMessage(
+          m as Record<string, unknown>,
+        ),
+        rawJson,
+      })
+      if (convMessageSamples.length >= CONV_SAMPLE_CAP) break
+    }
+
+    // Hydrate empty-body emails AND collect raw-detail samples using
+    // the proper email-message IDs (not conversation-message IDs).
+    const HYDRATE_CAP = 20
+    const emailIdsToHydrate: string[] = []
+    const conversationMessageIdByEmailId = new Map<string, string>()
+    for (const m of merged) {
+      const mtUpper = String(m.messageType ?? '').toUpperCase()
+      const isEmail =
+        mtUpper === 'TYPE_EMAIL' ||
+        (typeof m.type === 'number' && m.type === 3)
+      if (!isEmail) continue
+      const convMsgId = typeof m.id === 'string' ? m.id : null
+      const emailIds = extractEmailMessageIdsFromConversationMessage(
+        m as Record<string, unknown>,
+      )
+      for (const eid of emailIds) {
+        if (emailIdsToHydrate.includes(eid)) continue
+        emailIdsToHydrate.push(eid)
+        if (convMsgId) conversationMessageIdByEmailId.set(eid, convMsgId)
+        if (emailIdsToHydrate.length >= HYDRATE_CAP) break
+      }
       if (emailIdsToHydrate.length >= HYDRATE_CAP) break
     }
-    // DIAGNOSTIC SECOND PASS: ensure we always fetch ≥3 emails so the
-    // raw-sample drawer has something to show. Without this, threads
-    // where every TYPE_EMAIL already has a body (i.e. all-outbound
-    // threads we send via the agency template) skip hydration entirely
-    // and we never see GHL's response shape. Investigating whether
-    // inbound replies are nested inside the parent outbound email's
-    // detail payload — the "+ 3 replies earlier" we saw in GHL's
-    // native UI but never in /conversations/{id}/messages.
-    const SAMPLE_FORCE_CAP = 3
-    if (emailIdsToHydrate.length < SAMPLE_FORCE_CAP) {
-      for (const m of merged) {
-        const mtUpper = String(m.messageType ?? '').toUpperCase()
-        const isEmail =
-          mtUpper === 'TYPE_EMAIL' ||
-          (typeof m.type === 'number' && m.type === 3)
-        if (!isEmail) continue
-        const id = typeof m.id === 'string' ? m.id : null
-        if (!id) continue
-        if (emailIdsToHydrate.includes(id)) continue
-        emailIdsToHydrate.push(id)
-        if (emailIdsToHydrate.length >= SAMPLE_FORCE_CAP) break
-      }
-    }
+
     type RawEmailSample = {
       emailId: string
       topLevelKeys: string[]
       nestedEmailKeys: string[] | null
-      rawJson: string // truncated to ~4kb so the response stays sane
+      rawJson: string
     }
     const rawEmailSamples: RawEmailSample[] = []
-    const RAW_SAMPLE_CAP = 3
+    const RAW_SAMPLE_CAP = 5
     if (emailIdsToHydrate.length > 0) {
       const hydrated = await Promise.all(
         emailIdsToHydrate.map((id) =>
@@ -438,9 +500,14 @@ export async function GET(
             })),
         ),
       )
-      const bodyById = new Map<string, string>()
+      const bodyByConvMsgId = new Map<string, string>()
       for (const h of hydrated) {
-        if (h.body && h.body.trim()) bodyById.set(h.id, h.body)
+        const convMsgId = conversationMessageIdByEmailId.get(h.id)
+        if (h.body && h.body.trim() && convMsgId) {
+          if (!bodyByConvMsgId.has(convMsgId)) {
+            bodyByConvMsgId.set(convMsgId, h.body)
+          }
+        }
         if (
           h.raw &&
           typeof h.raw === 'object' &&
@@ -465,11 +532,11 @@ export async function GET(
           })
         }
       }
-      if (bodyById.size > 0) {
+      if (bodyByConvMsgId.size > 0) {
         for (const m of merged) {
           const id = typeof m.id === 'string' ? m.id : null
-          if (id && bodyById.has(id)) {
-            m.body = bodyById.get(id)!
+          if (id && bodyByConvMsgId.has(id)) {
+            m.body = bodyByConvMsgId.get(id)!
           }
         }
       }
@@ -524,11 +591,17 @@ export async function GET(
          *  cases. Capped at 50 entries to keep the response
          *  payload sane. */
         rejected,
-        /** Up to 3 raw responses from /conversations/messages/email/{id}
-         *  — used to figure out where GHL nests inbound email replies
-         *  (the "+ 3 replies earlier" we saw in their native UI but
-         *  not in /conversations/{id}/messages). Truncated to 4kb each. */
+        /** Raw responses from /conversations/messages/email/{id} —
+         *  used to figure out where GHL nests inbound email replies.
+         *  Truncated to 4kb each. */
         rawEmailSamples,
+        /** Raw conversation-messages of TYPE_EMAIL — dumped so we
+         *  can confirm where email-message IDs actually nest on the
+         *  conversation-message object (we got 400s passing the
+         *  conversation-message id directly, so the email-detail
+         *  endpoint expects a different ID — likely
+         *  meta.email.messageIds[]). */
+        convMessageSamples,
       },
     })
   } catch (err) {
