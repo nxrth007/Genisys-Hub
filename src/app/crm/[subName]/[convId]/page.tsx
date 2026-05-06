@@ -51,10 +51,25 @@ export default function ConversationDetailPage() {
   const [replyText, setReplyText] = useState('')
   const [replyType, setReplyType] = useState<'Email' | 'SMS'>('Email')
 
+  type ThreadDiagnostics = {
+    mergedConversationCount: number
+    totalMessages: number
+    perConversation: Array<{
+      id: string
+      lastMessageType: string | null
+      lastMessageDate: string | null
+      messageCount: number
+      messageTypes: Record<string, number>
+      firstMessageDate: string | null
+      lastMessageDateInPage: string | null
+    }>
+  }
+
   const { data, isLoading, error } = useQuery<{
     conversation: Conversation
     messages: Message[]
     contact: Contact | null
+    diagnostics?: ThreadDiagnostics
   }>({
     queryKey: ['crm-conversation', subName, convId],
     queryFn: async () => {
@@ -202,6 +217,71 @@ export default function ConversationDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Diagnostics drawer — surfaces what GHL actually returned
+              when admin reports "I'm missing messages." Collapsed by
+              default; opens to a per-conversation breakdown that
+              tells us if the contactId search is even returning the
+              expected sibling containers (SMS + Email + Call) or
+              if the merger isn't finding them. */}
+          {data?.diagnostics && (
+            <details className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+              <summary className="cursor-pointer text-zinc-500 select-none">
+                Thread diagnostics — {data.diagnostics.mergedConversationCount}{' '}
+                conversation
+                {data.diagnostics.mergedConversationCount === 1 ? '' : 's'}{' '}
+                merged · {data.diagnostics.totalMessages} message
+                {data.diagnostics.totalMessages === 1 ? '' : 's'}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {data.diagnostics.perConversation.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <code className="truncate text-[10px] text-zinc-500">
+                        {c.id}
+                      </code>
+                      <span className="flex-shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold dark:bg-zinc-800">
+                        {c.messageCount} msg
+                        {c.messageCount === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                      Last GHL meta:{' '}
+                      <code>{c.lastMessageType ?? '—'}</code>
+                      {c.lastMessageDate && (
+                        <> · {new Date(c.lastMessageDate).toLocaleString('en-US')}</>
+                      )}
+                    </div>
+                    {Object.keys(c.messageTypes).length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(c.messageTypes).map(([t, n]) => (
+                          <span
+                            key={t}
+                            className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] dark:bg-zinc-800"
+                          >
+                            {t}: {n}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {c.firstMessageDate && c.lastMessageDateInPage && (
+                      <div className="mt-1 text-[10px] text-zinc-500">
+                        Range:{' '}
+                        {new Date(c.firstMessageDate).toLocaleString('en-US')}{' '}
+                        →{' '}
+                        {new Date(c.lastMessageDateInPage).toLocaleString(
+                          'en-US',
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
 
         {/* Contact panel */}

@@ -68,17 +68,52 @@ export async function GET(
     // any real contact will accumulate, and bounds the per-conversation
     // messages fanout below.
     let allConversationIds: string[] = [convId]
+    type FoundConvo = {
+      id: string
+      lastMessageType: string | null
+      lastMessageDate: string | null
+      type: string | null
+    }
+    let foundConvos: FoundConvo[] = [
+      {
+        id: convId,
+        lastMessageType:
+          (conversation.lastMessageType as string | undefined) ?? null,
+        lastMessageDate:
+          (conversation.lastMessageDate as string | undefined) ?? null,
+        type: (conversation.type as string | undefined) ?? null,
+      },
+    ]
     try {
       const otherConvos = (await getConversations(vaultName, {
         contactId,
         limit: 25,
-      })) as { conversations?: Array<{ id?: string }> }
-      const ids = (otherConvos.conversations ?? [])
-        .map((c) => c.id)
-        .filter((x): x is string => typeof x === 'string')
-      // De-dup with the entry-point id; preserve entry first so its
-      // conversation metadata stays the canonical "current" thread.
-      allConversationIds = Array.from(new Set([convId, ...ids]))
+      })) as {
+        conversations?: Array<{
+          id?: string
+          lastMessageType?: string
+          lastMessageDate?: string
+          type?: string
+        }>
+      }
+      const incoming = (otherConvos.conversations ?? []).filter(
+        (c): c is { id: string } & Record<string, unknown> =>
+          typeof c.id === 'string',
+      )
+      const seenIds = new Set<string>([convId])
+      for (const c of incoming) {
+        if (seenIds.has(c.id)) continue
+        seenIds.add(c.id)
+        foundConvos.push({
+          id: c.id,
+          lastMessageType:
+            (c.lastMessageType as string | undefined) ?? null,
+          lastMessageDate:
+            (c.lastMessageDate as string | undefined) ?? null,
+          type: (c.type as string | undefined) ?? null,
+        })
+      }
+      allConversationIds = foundConvos.map((c) => c.id)
     } catch (err) {
       // contactId search failed — degrade to the single-conversation
       // path rather than blowing up the whole page.
@@ -111,17 +146,69 @@ export async function GET(
     // so the page's existing reverse-render shows newest-first.
     const seen = new Set<string>()
     const merged: GhlMessage[] = []
-    for (const page of messagePages) {
-      if (!page) continue
-      const msgs = extractMessages(page)
-      for (const m of msgs) {
-        const id = m.id
-        if (id) {
-          if (seen.has(id)) continue
-          seen.add(id)
-        }
-        merged.push(m)
+    // Per-conversation diagnostics so we can debug "where did
+    // message X go" without blind-guessing. Built alongside the
+    // merge in the same pass.
+    type PerConvoDiag = {
+      id: string
+      lastMessageType: string | null
+      lastMessageDate: string | null
+      messageCount: number
+      messageTypes: Record<string, number>
+      firstMessageDate: string | null
+      lastMessageDateInPage: string | null
+    }
+    const perConvo: PerConvoDiag[] = []
+    for (let i = 0; i < messagePages.length; i++) {
+      const page = messagePages[i]
+      const cid = allConversationIds[i] ?? '(unknown)'
+      const meta =
+        foundConvos.find((c) => c.id === cid) ??
+        ({
+          id: cid,
+          lastMessageType: null,
+          lastMessageDate: null,
+          type: null,
+        } as FoundConvo)
+      const diag: PerConvoDiag = {
+        id: cid,
+        lastMessageType: meta.lastMessageType,
+        lastMessageDate: meta.lastMessageDate,
+        messageCount: 0,
+        messageTypes: {},
+        firstMessageDate: null,
+        lastMessageDateInPage: null,
       }
+      if (page) {
+        const msgs = extractMessages(page)
+        diag.messageCount = msgs.length
+        for (const m of msgs) {
+          const t =
+            (typeof m.messageType === 'string' && m.messageType) ||
+            (typeof m.type === 'string' && m.type) ||
+            (typeof m.type === 'number' ? `numeric:${m.type}` : null) ||
+            'unknown'
+          diag.messageTypes[t] = (diag.messageTypes[t] ?? 0) + 1
+          if (typeof m.dateAdded === 'string') {
+            if (!diag.firstMessageDate || m.dateAdded < diag.firstMessageDate) {
+              diag.firstMessageDate = m.dateAdded
+            }
+            if (
+              !diag.lastMessageDateInPage ||
+              m.dateAdded > diag.lastMessageDateInPage
+            ) {
+              diag.lastMessageDateInPage = m.dateAdded
+            }
+          }
+          const id = m.id
+          if (id) {
+            if (seen.has(id)) continue
+            seen.add(id)
+          }
+          merged.push(m)
+        }
+      }
+      perConvo.push(diag)
     }
     merged.sort((a, b) => {
       const at = a.dateAdded ? new Date(a.dateAdded).getTime() : 0
@@ -137,13 +224,18 @@ export async function GET(
       conversation,
       messages: merged,
       contact,
-      /** Diagnostic for debugging "I'm missing emails / SMS" cases —
-       *  shows the page how many conversation containers got merged
-       *  for this contact. >1 means SMS + email (or similar) were
-       *  unified server-side. */
+      /** Diagnostic for debugging "messages X is missing from the
+       *  thread" cases. The thread page surfaces this as a
+       *  collapsible footer so admin can see exactly which GHL
+       *  conversation containers were found for the contact, what
+       *  type each was, and how many messages got pulled per
+       *  container. If only the entry-point convo shows up here,
+       *  GHL's contactId search isn't returning the email/SMS
+       *  sibling — different problem than the merger logic. */
       diagnostics: {
         mergedConversationCount: allConversationIds.length,
         totalMessages: merged.length,
+        perConversation: perConvo,
       },
     })
   } catch (err) {
