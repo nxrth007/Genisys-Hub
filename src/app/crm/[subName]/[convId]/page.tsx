@@ -62,6 +62,7 @@ export default function ConversationDetailPage() {
       messageTypes: Record<string, number>
       firstMessageDate: string | null
       lastMessageDateInPage: string | null
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
     }>
     messageSummary?: Array<{
       id: string | null
@@ -251,10 +252,20 @@ export default function ConversationDetailPage() {
                       <code className="truncate text-[10px] text-zinc-500">
                         {c.id}
                       </code>
-                      <span className="flex-shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold dark:bg-zinc-800">
-                        {c.messageCount} msg
-                        {c.messageCount === 1 ? '' : 's'}
-                      </span>
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <span
+                          className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                          title="How this conversation got included in the merged thread."
+                        >
+                          {c.matchedOn === 'self'
+                            ? 'entry'
+                            : `match: ${c.matchedOn}`}
+                        </span>
+                        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold dark:bg-zinc-800">
+                          {c.messageCount} msg
+                          {c.messageCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
                     </div>
                     <div className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                       Last GHL meta:{' '}

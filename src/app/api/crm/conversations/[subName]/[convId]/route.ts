@@ -63,16 +63,73 @@ export async function GET(
       return NextResponse.json({ conversation, messages, contact: null })
     }
 
-    // Gather every conversation tied to this contact (SMS / Email /
-    // anything else GHL stores separately). Cap at 25 — way more than
-    // any real contact will accumulate, and bounds the per-conversation
-    // messages fanout below.
-    let allConversationIds: string[] = [convId]
+    // Pull the contact so we know phone + email to match against.
+    // Used as keys when scanning location-wide conversations below
+    // so sibling threads (different GHL contact records that
+    // happen to share phone or email) are still collected.
+    let entryContact: Record<string, unknown> | null = null
+    try {
+      const cData = await getContact(contactId, vaultName)
+      entryContact =
+        (cData as { contact?: Record<string, unknown> }).contact ??
+        (cData as Record<string, unknown>)
+    } catch (err) {
+      console.error('[crm conversation detail] contact lookup failed:', err)
+    }
+
+    function digitsOnly(raw: string | null | undefined): string | null {
+      if (!raw) return null
+      const d = String(raw).replace(/\D/g, '')
+      if (d.length < 10) return null
+      return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+    }
+    const entryPhoneDigits = digitsOnly(
+      (entryContact?.phone as string | undefined) ?? null,
+    )
+    const entryEmail = (
+      (entryContact?.email as string | undefined) ?? ''
+    )
+      .trim()
+      .toLowerCase()
+    // Also match the entry-conversation's own phone/email — defensive
+    // when the contact record isn't fetched but the conversation
+    // surfaces them directly.
+    const conversationPhoneDigits = digitsOnly(
+      (conversation.phone as string | undefined) ??
+        (conversation.contactPhone as string | undefined) ??
+        null,
+    )
+    const conversationEmail = (
+      (conversation.email as string | undefined) ??
+      (conversation.contactEmail as string | undefined) ??
+      ''
+    )
+      .trim()
+      .toLowerCase()
+    const matchPhones = new Set(
+      [entryPhoneDigits, conversationPhoneDigits].filter(
+        (p): p is string => !!p,
+      ),
+    )
+    const matchEmails = new Set(
+      [entryEmail, conversationEmail].filter(Boolean),
+    )
+
+    // Location-wide conversation search instead of contactId-filtered
+    // search. Why: GHL's contactId filter was returning only the
+    // entry-point conversation for some contacts (Alex confirmed via
+    // diagnostics — Joe Moder's email-thread sibling conversation
+    // wasn't surfacing because GHL split it across separate contact
+    // records by medium). Pulling 100 most-recent location
+    // conversations and filtering client-side by contactId + phone
+    // digits + email catches all sibling threads regardless of how
+    // GHL grouped them internally.
     type FoundConvo = {
       id: string
       lastMessageType: string | null
       lastMessageDate: string | null
       type: string | null
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
     }
     let foundConvos: FoundConvo[] = [
       {
@@ -82,54 +139,74 @@ export async function GET(
         lastMessageDate:
           (conversation.lastMessageDate as string | undefined) ?? null,
         type: (conversation.type as string | undefined) ?? null,
+        matchedOn: 'self',
       },
     ]
+    let allConversationIds: string[] = [convId]
     try {
-      const otherConvos = (await getConversations(vaultName, {
-        contactId,
-        limit: 25,
+      const wideSearch = (await getConversations(vaultName, {
+        limit: 100,
       })) as {
         conversations?: Array<{
           id?: string
+          contactId?: string
+          phone?: string
+          contactPhone?: string
+          email?: string
+          contactEmail?: string
           lastMessageType?: string
           lastMessageDate?: string
           type?: string
         }>
       }
-      const incoming = (otherConvos.conversations ?? []).filter(
-        (c): c is { id: string } & Record<string, unknown> =>
-          typeof c.id === 'string',
-      )
       const seenIds = new Set<string>([convId])
-      for (const c of incoming) {
+      for (const c of wideSearch.conversations ?? []) {
+        if (typeof c.id !== 'string') continue
         if (seenIds.has(c.id)) continue
+
+        // Match priority: contactId is most specific; phone next;
+        // email last. We capture which signal hit so the diagnostic
+        // surface shows admin why a sibling conversation got merged
+        // (or didn't).
+        let matchedOn: FoundConvo['matchedOn'] | null = null
+        if (c.contactId === contactId) matchedOn = 'contactId'
+        if (!matchedOn) {
+          const cPhone = digitsOnly(c.phone ?? c.contactPhone ?? null)
+          if (cPhone && matchPhones.has(cPhone)) matchedOn = 'phone'
+        }
+        if (!matchedOn) {
+          const cEmail = (c.email ?? c.contactEmail ?? '')
+            .trim()
+            .toLowerCase()
+          if (cEmail && matchEmails.has(cEmail)) matchedOn = 'email'
+        }
+        if (!matchedOn) continue
+
         seenIds.add(c.id)
         foundConvos.push({
           id: c.id,
-          lastMessageType:
-            (c.lastMessageType as string | undefined) ?? null,
-          lastMessageDate:
-            (c.lastMessageDate as string | undefined) ?? null,
-          type: (c.type as string | undefined) ?? null,
+          lastMessageType: c.lastMessageType ?? null,
+          lastMessageDate: c.lastMessageDate ?? null,
+          type: c.type ?? null,
+          matchedOn,
         })
       }
       allConversationIds = foundConvos.map((c) => c.id)
     } catch (err) {
-      // contactId search failed — degrade to the single-conversation
-      // path rather than blowing up the whole page.
       console.error(
-        '[crm conversation detail] contactId search failed:',
+        '[crm conversation detail] location-wide conv search failed:',
         err,
       )
     }
 
-    // Fetch messages for every conversation in parallel + the contact
-    // record. Per-conversation 100 limit is GHL's per-page ceiling;
-    // a single contact rarely has >100 messages in any one container,
-    // and even if they do we get the most recent 100 per container.
-    const [contactRes, ...messagePages] = await Promise.all([
-      getContact(contactId, vaultName).catch(() => null),
-      ...allConversationIds.map((id) =>
+    // Fetch messages for every matched conversation in parallel.
+    // Per-conversation 100 limit is GHL's per-page ceiling; a single
+    // contact rarely has >100 messages in any one container, and
+    // even if they do we get the most recent 100 per container.
+    // The contact record was already fetched above for the email/
+    // phone matchers, so it's reused here rather than re-fetched.
+    const messagePages = await Promise.all(
+      allConversationIds.map((id) =>
         getConversationMessages(id, vaultName, 100).catch((err) => {
           console.error(
             `[crm conversation detail] messages fetch failed for ${id}:`,
@@ -138,7 +215,7 @@ export async function GET(
           return null
         }),
       ),
-    ])
+    )
 
     // Merge + dedup messages by id (defensive — if GHL ever returns
     // a message under multiple conversations during a re-id event,
@@ -157,6 +234,7 @@ export async function GET(
       messageTypes: Record<string, number>
       firstMessageDate: string | null
       lastMessageDateInPage: string | null
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
     }
     const perConvo: PerConvoDiag[] = []
     for (let i = 0; i < messagePages.length; i++) {
@@ -169,6 +247,7 @@ export async function GET(
           lastMessageType: null,
           lastMessageDate: null,
           type: null,
+          matchedOn: 'self' as const,
         } as FoundConvo)
       const diag: PerConvoDiag = {
         id: cid,
@@ -178,6 +257,7 @@ export async function GET(
         messageTypes: {},
         firstMessageDate: null,
         lastMessageDateInPage: null,
+        matchedOn: meta.matchedOn,
       }
       if (page) {
         const msgs = extractMessages(page)
@@ -216,9 +296,10 @@ export async function GET(
       return at - bt
     })
 
-    const contact =
-      contactRes &&
-      ((contactRes as { contact?: unknown }).contact ?? contactRes)
+    // entryContact was fetched up top for the phone/email match
+    // keys; reuse it here for the response payload instead of a
+    // second round-trip.
+    const contact = entryContact
 
     // Per-message summary surfaced in diagnostics — lets us spot
     // "GHL returned the message but body is empty" cases at a
