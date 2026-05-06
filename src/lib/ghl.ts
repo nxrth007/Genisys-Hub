@@ -484,7 +484,7 @@ export async function getContact(contactId: string, vaultEntryName = 'GHL Genisy
 
 export async function getConversations(
   vaultEntryName: string,
-  params: { limit?: number; cursor?: string } = {}
+  params: { limit?: number; cursor?: string; contactId?: string } = {}
 ) {
   const { locationId } = await resolveToken(vaultEntryName)
   const search = new URLSearchParams({
@@ -492,6 +492,11 @@ export async function getConversations(
     limit: String(params.limit ?? 20),
   })
   if (params.cursor) search.set('startAfterDate', params.cursor)
+  // contactId filter — used by the contact-centric thread view to
+  // pull every conversation tied to a single contact (SMS, email,
+  // call records often live in separate conversation containers in
+  // GHL even when they're with the same person).
+  if (params.contactId) search.set('contactId', params.contactId)
   return ghlFetch(`/conversations/search?${search}`, vaultEntryName)
 }
 
