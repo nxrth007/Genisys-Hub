@@ -148,46 +148,12 @@ export async function GET(
     )
 
     // Location-wide conversation search instead of contactId-filtered
-    // search. Why: GHL's contactId filter was returning only the
-    // entry-point conversation for some contacts (Alex confirmed via
-    // diagnostics — Joe Moder's email-thread sibling conversation
-    // wasn't surfacing because GHL split it across separate contact
-    // records by medium). Pulling 100 most-recent location
-    // conversations and filtering client-side by contactId + phone
-    // digits + email catches all sibling threads regardless of how
-    // GHL grouped them internally.
-    type FoundConvo = {
-      id: string
-      lastMessageType: string | null
-      lastMessageDate: string | null
-      type: string | null
-      matchedOn: 'self' | 'contactId' | 'phone' | 'email' | 'name'
-    }
-    // Rejected conversations — captured for diagnostics so admin
-    // can see WHY non-matching threads got skipped (and confirm
-    // whether the missing email-thread sibling is even in the
-    // 100-most-recent location pull).
-    type RejectedConvo = {
-      id: string
-      contactId: string | null
-      contactName: string | null
-      phone: string | null
-      email: string | null
-      lastMessageType: string | null
-      lastMessageDate: string | null
-    }
-    const rejected: RejectedConvo[] = []
-    let foundConvos: FoundConvo[] = [
-      {
-        id: convId,
-        lastMessageType:
-          (conversation.lastMessageType as string | undefined) ?? null,
-        lastMessageDate:
-          (conversation.lastMessageDate as string | undefined) ?? null,
-        type: (conversation.type as string | undefined) ?? null,
-        matchedOn: 'self',
-      },
-    ]
+    // search. Why: GHL's contactId filter sometimes returns only the
+    // entry-point conversation when a contact is split across separate
+    // records by medium. Pulling the 100 most-recent location
+    // conversations and filtering client-side by contactId / phone /
+    // email / name catches sibling threads regardless of how GHL
+    // grouped them internally.
     let allConversationIds: string[] = [convId]
     try {
       const wideSearch = (await getConversations(vaultName, {
@@ -202,69 +168,40 @@ export async function GET(
           contactEmail?: string
           contactName?: string
           fullName?: string
-          lastMessageType?: string
-          lastMessageDate?: string
-          type?: string
         }>
       }
       const seenIds = new Set<string>([convId])
+      const matchedIds: string[] = []
       for (const c of wideSearch.conversations ?? []) {
         if (typeof c.id !== 'string') continue
         if (seenIds.has(c.id)) continue
 
         // Match priority: contactId most specific → phone → email
-        // → contactName. Last as a fallback because name collisions
-        // between distinct people are possible (different "Joe
-        // Smith"s) but extremely unlikely at agency scale, where
-        // each registered contact is a known business owner.
-        let matchedOn: FoundConvo['matchedOn'] | null = null
-        if (c.contactId === contactId) matchedOn = 'contactId'
-        if (!matchedOn) {
+        // → contactName. Name is a last-resort fallback because
+        // collisions between distinct people are possible but
+        // extremely unlikely at agency scale.
+        let matched = false
+        if (c.contactId === contactId) matched = true
+        if (!matched) {
           const cPhone = digitsOnly(c.phone ?? c.contactPhone ?? null)
-          if (cPhone && matchPhones.has(cPhone)) matchedOn = 'phone'
+          if (cPhone && matchPhones.has(cPhone)) matched = true
         }
-        if (!matchedOn) {
+        if (!matched) {
           const cEmail = (c.email ?? c.contactEmail ?? '')
             .trim()
             .toLowerCase()
-          if (cEmail && matchEmails.has(cEmail)) matchedOn = 'email'
+          if (cEmail && matchEmails.has(cEmail)) matched = true
         }
-        if (!matchedOn) {
+        if (!matched) {
           const cName = normalizeName(c.contactName ?? c.fullName ?? null)
-          if (cName && matchNames.has(cName)) matchedOn = 'name'
+          if (cName && matchNames.has(cName)) matched = true
         }
-        if (!matchedOn) {
-          // Capture the rejected conversation so we can see what
-          // we're skipping. Limit to 50 entries — bounds the
-          // diagnostic payload but covers the realistic set.
-          if (rejected.length < 50) {
-            rejected.push({
-              id: c.id,
-              contactId: c.contactId ?? null,
-              contactName: c.contactName ?? c.fullName ?? null,
-              phone:
-                digitsOnly(c.phone ?? c.contactPhone ?? null) ??
-                (c.phone ?? c.contactPhone ?? null),
-              email:
-                (c.email ?? c.contactEmail ?? '').trim().toLowerCase() ||
-                null,
-              lastMessageType: c.lastMessageType ?? null,
-              lastMessageDate: c.lastMessageDate ?? null,
-            })
-          }
-          continue
-        }
+        if (!matched) continue
 
         seenIds.add(c.id)
-        foundConvos.push({
-          id: c.id,
-          lastMessageType: c.lastMessageType ?? null,
-          lastMessageDate: c.lastMessageDate ?? null,
-          type: c.type ?? null,
-          matchedOn,
-        })
+        matchedIds.push(c.id)
       }
-      allConversationIds = foundConvos.map((c) => c.id)
+      allConversationIds = [convId, ...matchedIds]
     } catch (err) {
       console.error(
         '[crm conversation detail] location-wide conv search failed:',
@@ -296,72 +233,17 @@ export async function GET(
     // so the page's existing reverse-render shows newest-first.
     const seen = new Set<string>()
     const merged: GhlMessage[] = []
-    // Per-conversation diagnostics so we can debug "where did
-    // message X go" without blind-guessing. Built alongside the
-    // merge in the same pass.
-    type PerConvoDiag = {
-      id: string
-      lastMessageType: string | null
-      lastMessageDate: string | null
-      messageCount: number
-      messageTypes: Record<string, number>
-      firstMessageDate: string | null
-      lastMessageDateInPage: string | null
-      matchedOn: 'self' | 'contactId' | 'phone' | 'email' | 'name'
-    }
-    const perConvo: PerConvoDiag[] = []
-    for (let i = 0; i < messagePages.length; i++) {
-      const page = messagePages[i]
-      const cid = allConversationIds[i] ?? '(unknown)'
-      const meta =
-        foundConvos.find((c) => c.id === cid) ??
-        ({
-          id: cid,
-          lastMessageType: null,
-          lastMessageDate: null,
-          type: null,
-          matchedOn: 'self' as const,
-        } as FoundConvo)
-      const diag: PerConvoDiag = {
-        id: cid,
-        lastMessageType: meta.lastMessageType,
-        lastMessageDate: meta.lastMessageDate,
-        messageCount: 0,
-        messageTypes: {},
-        firstMessageDate: null,
-        lastMessageDateInPage: null,
-        matchedOn: meta.matchedOn,
-      }
-      if (page) {
-        const msgs = extractMessages(page)
-        diag.messageCount = msgs.length
-        for (const m of msgs) {
-          const t =
-            (typeof m.messageType === 'string' && m.messageType) ||
-            (typeof m.type === 'string' && m.type) ||
-            (typeof m.type === 'number' ? `numeric:${m.type}` : null) ||
-            'unknown'
-          diag.messageTypes[t] = (diag.messageTypes[t] ?? 0) + 1
-          if (typeof m.dateAdded === 'string') {
-            if (!diag.firstMessageDate || m.dateAdded < diag.firstMessageDate) {
-              diag.firstMessageDate = m.dateAdded
-            }
-            if (
-              !diag.lastMessageDateInPage ||
-              m.dateAdded > diag.lastMessageDateInPage
-            ) {
-              diag.lastMessageDateInPage = m.dateAdded
-            }
-          }
-          const id = m.id
-          if (id) {
-            if (seen.has(id)) continue
-            seen.add(id)
-          }
-          merged.push(m)
+    for (const page of messagePages) {
+      if (!page) continue
+      const msgs = extractMessages(page)
+      for (const m of msgs) {
+        const id = m.id
+        if (id) {
+          if (seen.has(id)) continue
+          seen.add(id)
         }
+        merged.push(m)
       }
-      perConvo.push(diag)
     }
     merged.sort((a, b) => {
       const at = a.dateAdded ? new Date(a.dateAdded).getTime() : 0
@@ -369,167 +251,52 @@ export async function GET(
       return at - bt
     })
 
-    // Hydrate empty-body emails. The conversations/messages list
-    // endpoint returns email metadata (id, type, direction, dates)
-    // but inbound email body lives on the per-message email
-    // endpoint. Without this, Joe Moder's reply rendered as a
-    // "(no body returned by GHL)" placeholder even though GHL
-    // had the content. Fanned out in parallel + capped so a 30-
-    // email thread doesn't stall the response. Best-effort: any
-    // single fetch failure leaves that bubble as the placeholder.
-    // The 400s we got back ("Email message does not exist with id X")
-    // proved that conversation-message IDs are NOT email-message IDs —
-    // they're separate ID spaces. The actual email-message IDs live on
-    // each TYPE_EMAIL conversation-message under a nested field
-    // (likely meta.email.messageIds[] but possibly emailMessageId,
-    // emailIds, etc., depending on GHL version). And `messageIds`
-    // being plural is the hint that threading lives there: a single
-    // outbound email's conversation-message can carry the parent ID
-    // PLUS any inbound reply IDs threaded under it.
-    function extractEmailMessageIdsFromConversationMessage(
-      m: Record<string, unknown>,
-    ): string[] {
-      const out: string[] = []
-      const seen = new Set<string>()
-      const push = (val: unknown) => {
-        if (typeof val === 'string' && val && !seen.has(val)) {
-          seen.add(val)
-          out.push(val)
-        }
-        if (Array.isArray(val)) {
-          for (const v of val) push(v)
-        }
-      }
-      const meta = m.meta as Record<string, unknown> | undefined
-      const metaEmail = meta?.email as Record<string, unknown> | undefined
-      push(metaEmail?.messageIds)
-      push(metaEmail?.messageId)
-      push((m as { emailMessageIds?: unknown }).emailMessageIds)
-      push((m as { emailMessageId?: unknown }).emailMessageId)
-      push((m as { messageIds?: unknown }).messageIds)
-      return out
-    }
-
-    // Raw conversation-message samples — dumped FIRST so we can
-    // visually confirm where email-message IDs nest. If our extractor
-    // above misses them, the JSON blob will show us where they
-    // actually live and we can patch.
-    type ConvMessageSample = {
-      conversationMessageId: string | null
-      topLevelKeys: string[]
-      metaKeys: string[] | null
-      metaEmailKeys: string[] | null
-      extractedEmailIds: string[]
-      rawJson: string
-    }
-    const convMessageSamples: ConvMessageSample[] = []
-    const CONV_SAMPLE_CAP = 3
-    for (const m of merged) {
-      const mtUpper = String(m.messageType ?? '').toUpperCase()
-      const isEmail =
-        mtUpper === 'TYPE_EMAIL' ||
-        (typeof m.type === 'number' && m.type === 3)
-      if (!isEmail) continue
-      const meta = (m as Record<string, unknown>).meta as
-        | Record<string, unknown>
-        | undefined
-      const metaEmail = meta?.email as Record<string, unknown> | undefined
-      let rawJson: string
-      try {
-        rawJson = JSON.stringify(m)
-      } catch {
-        rawJson = '[unserializable]'
-      }
-      if (rawJson.length > 4000) {
-        rawJson = rawJson.slice(0, 4000) + '…[truncated]'
-      }
-      convMessageSamples.push({
-        conversationMessageId: typeof m.id === 'string' ? m.id : null,
-        topLevelKeys: Object.keys(m as Record<string, unknown>),
-        metaKeys: meta ? Object.keys(meta) : null,
-        metaEmailKeys: metaEmail ? Object.keys(metaEmail) : null,
-        extractedEmailIds: extractEmailMessageIdsFromConversationMessage(
-          m as Record<string, unknown>,
-        ),
-        rawJson,
-      })
-      if (convMessageSamples.length >= CONV_SAMPLE_CAP) break
-    }
-
-    // Hydrate empty-body emails AND collect raw-detail samples using
-    // the proper email-message IDs (not conversation-message IDs).
+    // Hydrate empty-body emails. /conversations/{id}/messages returns
+    // email metadata but inbound bodies don't always come along — we
+    // have to follow up to /conversations/messages/email/{id} per
+    // email-message id. Note: the `id` on each TYPE_EMAIL conv-message
+    // is NOT the email-message id (different ID spaces); the actual
+    // ones live at meta.email.messageIds[]. Fanned out + capped so a
+    // 30-email thread doesn't stall the response.
     const HYDRATE_CAP = 20
     const emailIdsToHydrate: string[] = []
-    const conversationMessageIdByEmailId = new Map<string, string>()
+    const convMsgIdByEmailId = new Map<string, string>()
     for (const m of merged) {
       const mtUpper = String(m.messageType ?? '').toUpperCase()
       const isEmail =
         mtUpper === 'TYPE_EMAIL' ||
         (typeof m.type === 'number' && m.type === 3)
       if (!isEmail) continue
+      const hasBody =
+        typeof m.body === 'string' && m.body.trim().length > 0
+      if (hasBody) continue
       const convMsgId = typeof m.id === 'string' ? m.id : null
-      const emailIds = extractEmailMessageIdsFromConversationMessage(
+      const emailIds = extractEmailMessageIdsFromConvMessage(
         m as Record<string, unknown>,
       )
       for (const eid of emailIds) {
         if (emailIdsToHydrate.includes(eid)) continue
         emailIdsToHydrate.push(eid)
-        if (convMsgId) conversationMessageIdByEmailId.set(eid, convMsgId)
+        if (convMsgId) convMsgIdByEmailId.set(eid, convMsgId)
         if (emailIdsToHydrate.length >= HYDRATE_CAP) break
       }
       if (emailIdsToHydrate.length >= HYDRATE_CAP) break
     }
-
-    type RawEmailSample = {
-      emailId: string
-      topLevelKeys: string[]
-      nestedEmailKeys: string[] | null
-      rawJson: string
-    }
-    const rawEmailSamples: RawEmailSample[] = []
-    const RAW_SAMPLE_CAP = 5
     if (emailIdsToHydrate.length > 0) {
       const hydrated = await Promise.all(
         emailIdsToHydrate.map((id) =>
           getEmailMessage(id, vaultName)
-            .then((res) => ({ id, raw: res, body: extractEmailBody(res) }))
-            .catch((err) => ({
-              id,
-              raw: { __error: String(err) } as unknown,
-              body: null as string | null,
-            })),
+            .then((res) => ({ id, body: extractEmailBody(res) }))
+            .catch(() => ({ id, body: null as string | null })),
         ),
       )
       const bodyByConvMsgId = new Map<string, string>()
       for (const h of hydrated) {
-        const convMsgId = conversationMessageIdByEmailId.get(h.id)
+        const convMsgId = convMsgIdByEmailId.get(h.id)
         if (h.body && h.body.trim() && convMsgId) {
           if (!bodyByConvMsgId.has(convMsgId)) {
             bodyByConvMsgId.set(convMsgId, h.body)
           }
-        }
-        if (
-          h.raw &&
-          typeof h.raw === 'object' &&
-          rawEmailSamples.length < RAW_SAMPLE_CAP
-        ) {
-          const root = h.raw as Record<string, unknown>
-          const nestedEmail = root.email as Record<string, unknown> | undefined
-          let rawJson: string
-          try {
-            rawJson = JSON.stringify(h.raw)
-          } catch {
-            rawJson = '[unserializable]'
-          }
-          if (rawJson.length > 4000) {
-            rawJson = rawJson.slice(0, 4000) + '…[truncated]'
-          }
-          rawEmailSamples.push({
-            emailId: h.id,
-            topLevelKeys: Object.keys(root),
-            nestedEmailKeys: nestedEmail ? Object.keys(nestedEmail) : null,
-            rawJson,
-          })
         }
       }
       if (bodyByConvMsgId.size > 0) {
@@ -542,67 +309,10 @@ export async function GET(
       }
     }
 
-    // entryContact was fetched up top for the phone/email match
-    // keys; reuse it here for the response payload instead of a
-    // second round-trip.
-    const contact = entryContact
-
-    // Per-message summary surfaced in diagnostics — lets us spot
-    // "GHL returned the message but body is empty" cases at a
-    // glance. Only the fields we actually care about for debugging,
-    // not the full payload (would balloon the response).
-    const messageSummary = merged.map((m) => ({
-      id: typeof m.id === 'string' ? m.id : null,
-      messageType:
-        (typeof m.messageType === 'string' && m.messageType) ||
-        (typeof m.type === 'string' && m.type) ||
-        (typeof m.type === 'number' ? `numeric:${m.type}` : null),
-      direction: (m as { direction?: string }).direction ?? null,
-      dateAdded: typeof m.dateAdded === 'string' ? m.dateAdded : null,
-      bodyLength:
-        typeof m.body === 'string'
-          ? m.body.trim().length
-          : 0,
-      hasBody:
-        typeof m.body === 'string' && m.body.trim().length > 0,
-    }))
-
     return NextResponse.json({
       conversation,
       messages: merged,
-      contact,
-      /** Diagnostic for debugging "messages X is missing from the
-       *  thread" cases. The thread page surfaces this as a
-       *  collapsible footer so admin can see exactly which GHL
-       *  conversation containers were found for the contact, what
-       *  type each was, and how many messages got pulled per
-       *  container. If only the entry-point convo shows up here,
-       *  GHL's contactId search isn't returning the email/SMS
-       *  sibling — different problem than the merger logic. */
-      diagnostics: {
-        mergedConversationCount: allConversationIds.length,
-        totalMessages: merged.length,
-        perConversation: perConvo,
-        messageSummary,
-        /** Location-wide conversations that were returned by GHL
-         *  but didn't match any of (contactId / phone / email /
-         *  name). Surfaced so admin can scan for "this row's
-         *  email-thread sibling but with a different contactId"
-         *  cases. Capped at 50 entries to keep the response
-         *  payload sane. */
-        rejected,
-        /** Raw responses from /conversations/messages/email/{id} —
-         *  used to figure out where GHL nests inbound email replies.
-         *  Truncated to 4kb each. */
-        rawEmailSamples,
-        /** Raw conversation-messages of TYPE_EMAIL — dumped so we
-         *  can confirm where email-message IDs actually nest on the
-         *  conversation-message object (we got 400s passing the
-         *  conversation-message id directly, so the email-detail
-         *  endpoint expects a different ID — likely
-         *  meta.email.messageIds[]). */
-        convMessageSamples,
-      },
+      contact: entryContact,
     })
   } catch (err) {
     const message =
@@ -611,25 +321,52 @@ export async function GET(
   }
 }
 
-/** Normalize the message-list shape — GHL has historically returned
- *  both `{ messages: [...] }` and `{ messages: { messages: [...] } }`
- *  depending on version. Accept either; default to []. */
-/** Pull a renderable email body out of GHL's email-detail response.
- *  GHL has different shapes across versions; try the common ones in
- *  order of preference: HTML body if present, plain-text body,
- *  preview snippet. Returns null when nothing usable is there. */
+/** Pull every email-message id we can find off a TYPE_EMAIL conv-message.
+ *  The conv-message `id` itself is NOT a valid email-message id —
+ *  /conversations/messages/email/{id} returns 400 if you pass it.
+ *  Real email-message ids live at meta.email.messageIds[]; the other
+ *  paths are defensive against shape drift across GHL versions. */
+function extractEmailMessageIdsFromConvMessage(
+  m: Record<string, unknown>,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (val: unknown) => {
+    if (typeof val === 'string' && val && !seen.has(val)) {
+      seen.add(val)
+      out.push(val)
+    }
+    if (Array.isArray(val)) {
+      for (const v of val) push(v)
+    }
+  }
+  const meta = m.meta as Record<string, unknown> | undefined
+  const metaEmail = meta?.email as Record<string, unknown> | undefined
+  push(metaEmail?.messageIds)
+  push(metaEmail?.messageId)
+  push((m as { emailMessageIds?: unknown }).emailMessageIds)
+  push((m as { emailMessageId?: unknown }).emailMessageId)
+  return out
+}
+
+/** Pull a renderable email body out of GHL's /messages/email/{id}
+ *  response. The actual response shape is `{ emailMessage: { body } }`;
+ *  the other candidates are defensive against shape drift. */
 function extractEmailBody(payload: unknown): string | null {
   const root = payload as Record<string, unknown> | null | undefined
   if (!root) return null
+  const emailMessage = root.emailMessage as Record<string, unknown> | undefined
+  const email = root.email as Record<string, unknown> | undefined
   const candidates: unknown[] = [
-    (root.email as Record<string, unknown> | undefined)?.body,
-    (root.email as Record<string, unknown> | undefined)?.html,
-    (root.email as Record<string, unknown> | undefined)?.text,
+    emailMessage?.body,
+    emailMessage?.html,
+    emailMessage?.text,
+    email?.body,
+    email?.html,
+    email?.text,
     root.body,
     root.html,
     root.text,
-    root.bodyText,
-    root.preview,
   ]
   for (const c of candidates) {
     if (typeof c === 'string' && c.trim().length > 0) return c
@@ -637,6 +374,9 @@ function extractEmailBody(payload: unknown): string | null {
   return null
 }
 
+/** Normalize the message-list shape — GHL has historically returned
+ *  both `{ messages: [...] }` and `{ messages: { messages: [...] } }`
+ *  depending on version. Accept either; default to []. */
 function extractMessages(payload: unknown): GhlMessage[] {
   const root = payload as { messages?: unknown }
   const nested = root?.messages as
