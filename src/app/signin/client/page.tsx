@@ -16,7 +16,8 @@ import { useState, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Target, Building2, AlertCircle } from 'lucide-react'
+import Image from 'next/image'
+import { Building2, AlertCircle } from 'lucide-react'
 
 function ClientSignInInner() {
   const router = useRouter()
@@ -67,11 +68,21 @@ function ClientSignInInner() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <Target className="h-7 w-7 text-blue-600" />
-          <h1 className="text-xl font-bold">Genisys Hub</h1>
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 dark:from-zinc-950 dark:to-zinc-900">
+      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        {/* Logo. Source art is black on transparent — `dark:invert`
+            flips it to white in dark mode without us having to ship a
+            second asset. Sized to match the visual weight of the
+            old icon-plus-text header. */}
+        <div className="mb-5 flex items-center justify-center">
+          <Image
+            src="/genisys-logo.png"
+            alt="Lead Genisys"
+            width={450}
+            height={150}
+            priority
+            className="h-auto w-44 dark:invert"
+          />
         </div>
         <div className="mb-6 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
           <Building2 className="h-4 w-4" />
