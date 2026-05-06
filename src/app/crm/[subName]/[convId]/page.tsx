@@ -62,7 +62,16 @@ export default function ConversationDetailPage() {
       messageTypes: Record<string, number>
       firstMessageDate: string | null
       lastMessageDateInPage: string | null
-      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email' | 'name'
+    }>
+    rejected?: Array<{
+      id: string
+      contactId: string | null
+      contactName: string | null
+      phone: string | null
+      email: string | null
+      lastMessageType: string | null
+      lastMessageDate: string | null
     }>
     messageSummary?: Array<{
       id: string | null
@@ -300,12 +309,68 @@ export default function ConversationDetailPage() {
                 ))}
               </div>
 
+              {/* Rejected conversations — GHL returned them in the
+                  100-most-recent location pull but none of our
+                  match keys (contactId / phone / email / name)
+                  hit. Lets us see whether the missing email
+                  thread is actually in the result set with a
+                  different identity, or simply not surfaced by
+                  GHL at all. */}
+              {data.diagnostics.rejected &&
+                data.diagnostics.rejected.length > 0 && (
+                  <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer text-zinc-500 select-none">
+                      Rejected (no key match):{' '}
+                      {data.diagnostics.rejected.length}
+                    </summary>
+                    <table className="mt-2 w-full text-[10px]">
+                      <thead className="text-zinc-500">
+                        <tr>
+                          <th className="text-left font-semibold py-1">Name</th>
+                          <th className="text-left font-semibold py-1">Phone</th>
+                          <th className="text-left font-semibold py-1">Email</th>
+                          <th className="text-left font-semibold py-1">Last</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.diagnostics.rejected.map((r) => (
+                          <tr
+                            key={r.id}
+                            className="border-t border-zinc-100 dark:border-zinc-800"
+                          >
+                            <td className="py-1">{r.contactName ?? '—'}</td>
+                            <td className="py-1">{r.phone ?? '—'}</td>
+                            <td className="py-1 truncate max-w-[180px]">
+                              {r.email ?? '—'}
+                            </td>
+                            <td className="py-1 tabular-nums">
+                              <code>{r.lastMessageType ?? '—'}</code>
+                              {r.lastMessageDate && (
+                                <>
+                                  {' · '}
+                                  {new Date(
+                                    r.lastMessageDate,
+                                  ).toLocaleString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                  })}
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
+                )}
+
               {/* Per-message detail — one row per merged message
                   with type / direction / date / body length. Lets
                   us identify "X emails returned by GHL but body
                   is empty so they're invisible bubbles" without
-                  needing to grep server logs. Filterable to just
-                  email rows for compactness. */}
+                  needing to grep server logs. */}
               {data.diagnostics.messageSummary &&
                 data.diagnostics.messageSummary.length > 0 && (
                   <details className="mt-3 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">

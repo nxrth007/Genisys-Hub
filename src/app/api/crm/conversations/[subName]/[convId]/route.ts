@@ -92,9 +92,30 @@ export async function GET(
     )
       .trim()
       .toLowerCase()
-    // Also match the entry-conversation's own phone/email — defensive
-    // when the contact record isn't fetched but the conversation
-    // surfaces them directly.
+    // Build a contact-name key too — GHL sometimes splits contact
+    // records across mediums (SMS contact has phone X with no email,
+    // email contact has email Y with no phone, both records named
+    // "Joe Moder"). If contactId / phone / email don't all collide,
+    // matching on the normalized name catches the split sibling.
+    function normalizeName(raw: string | null | undefined): string | null {
+      if (!raw) return null
+      const trimmed = String(raw).trim().toLowerCase()
+      if (trimmed.length < 3) return null
+      return trimmed
+    }
+    const entryContactName = normalizeName(
+      ((entryContact?.firstName as string | undefined) ?? '') +
+        ' ' +
+        ((entryContact?.lastName as string | undefined) ?? ''),
+    )
+    const fullEntryName = normalizeName(
+      (entryContact?.contactName as string | undefined) ??
+        (entryContact?.fullName as string | undefined) ??
+        null,
+    )
+    // Also match the entry-conversation's own phone/email/name —
+    // defensive when the contact record isn't fetched but the
+    // conversation surfaces them directly.
     const conversationPhoneDigits = digitsOnly(
       (conversation.phone as string | undefined) ??
         (conversation.contactPhone as string | undefined) ??
@@ -107,6 +128,11 @@ export async function GET(
     )
       .trim()
       .toLowerCase()
+    const conversationContactName = normalizeName(
+      (conversation.contactName as string | undefined) ??
+        (conversation.fullName as string | undefined) ??
+        null,
+    )
     const matchPhones = new Set(
       [entryPhoneDigits, conversationPhoneDigits].filter(
         (p): p is string => !!p,
@@ -114,6 +140,11 @@ export async function GET(
     )
     const matchEmails = new Set(
       [entryEmail, conversationEmail].filter(Boolean),
+    )
+    const matchNames = new Set(
+      [entryContactName, fullEntryName, conversationContactName].filter(
+        (n): n is string => !!n,
+      ),
     )
 
     // Location-wide conversation search instead of contactId-filtered
@@ -130,8 +161,22 @@ export async function GET(
       lastMessageType: string | null
       lastMessageDate: string | null
       type: string | null
-      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email' | 'name'
     }
+    // Rejected conversations — captured for diagnostics so admin
+    // can see WHY non-matching threads got skipped (and confirm
+    // whether the missing email-thread sibling is even in the
+    // 100-most-recent location pull).
+    type RejectedConvo = {
+      id: string
+      contactId: string | null
+      contactName: string | null
+      phone: string | null
+      email: string | null
+      lastMessageType: string | null
+      lastMessageDate: string | null
+    }
+    const rejected: RejectedConvo[] = []
     let foundConvos: FoundConvo[] = [
       {
         id: convId,
@@ -155,6 +200,8 @@ export async function GET(
           contactPhone?: string
           email?: string
           contactEmail?: string
+          contactName?: string
+          fullName?: string
           lastMessageType?: string
           lastMessageDate?: string
           type?: string
@@ -165,10 +212,11 @@ export async function GET(
         if (typeof c.id !== 'string') continue
         if (seenIds.has(c.id)) continue
 
-        // Match priority: contactId is most specific; phone next;
-        // email last. We capture which signal hit so the diagnostic
-        // surface shows admin why a sibling conversation got merged
-        // (or didn't).
+        // Match priority: contactId most specific → phone → email
+        // → contactName. Last as a fallback because name collisions
+        // between distinct people are possible (different "Joe
+        // Smith"s) but extremely unlikely at agency scale, where
+        // each registered contact is a known business owner.
         let matchedOn: FoundConvo['matchedOn'] | null = null
         if (c.contactId === contactId) matchedOn = 'contactId'
         if (!matchedOn) {
@@ -181,7 +229,31 @@ export async function GET(
             .toLowerCase()
           if (cEmail && matchEmails.has(cEmail)) matchedOn = 'email'
         }
-        if (!matchedOn) continue
+        if (!matchedOn) {
+          const cName = normalizeName(c.contactName ?? c.fullName ?? null)
+          if (cName && matchNames.has(cName)) matchedOn = 'name'
+        }
+        if (!matchedOn) {
+          // Capture the rejected conversation so we can see what
+          // we're skipping. Limit to 50 entries — bounds the
+          // diagnostic payload but covers the realistic set.
+          if (rejected.length < 50) {
+            rejected.push({
+              id: c.id,
+              contactId: c.contactId ?? null,
+              contactName: c.contactName ?? c.fullName ?? null,
+              phone:
+                digitsOnly(c.phone ?? c.contactPhone ?? null) ??
+                (c.phone ?? c.contactPhone ?? null),
+              email:
+                (c.email ?? c.contactEmail ?? '').trim().toLowerCase() ||
+                null,
+              lastMessageType: c.lastMessageType ?? null,
+              lastMessageDate: c.lastMessageDate ?? null,
+            })
+          }
+          continue
+        }
 
         seenIds.add(c.id)
         foundConvos.push({
@@ -235,7 +307,7 @@ export async function GET(
       messageTypes: Record<string, number>
       firstMessageDate: string | null
       lastMessageDateInPage: string | null
-      matchedOn: 'self' | 'contactId' | 'phone' | 'email'
+      matchedOn: 'self' | 'contactId' | 'phone' | 'email' | 'name'
     }
     const perConvo: PerConvoDiag[] = []
     for (let i = 0; i < messagePages.length; i++) {
@@ -385,6 +457,13 @@ export async function GET(
         totalMessages: merged.length,
         perConversation: perConvo,
         messageSummary,
+        /** Location-wide conversations that were returned by GHL
+         *  but didn't match any of (contactId / phone / email /
+         *  name). Surfaced so admin can scan for "this row's
+         *  email-thread sibling but with a different contactId"
+         *  cases. Capped at 50 entries to keep the response
+         *  payload sane. */
+        rejected,
       },
     })
   } catch (err) {
