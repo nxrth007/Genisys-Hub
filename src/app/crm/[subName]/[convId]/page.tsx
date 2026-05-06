@@ -13,6 +13,10 @@ type Message = {
   direction: string
   type: number | string
   messageType?: string
+  /** Media URLs from GHL — MMS images for SMS, plus email attachments
+   *  hydrated from /conversations/messages/email/{id}. Images render
+   *  inline; everything else renders as a download chip. */
+  attachments?: string[]
 }
 
 type Conversation = {
@@ -319,6 +323,7 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
   // these exist + we can chase the actual content via a follow-up
   // fetch if it matters.
   const hasBody = !!(msg.body && String(msg.body).trim())
+  const attachments = msg.attachments ?? []
 
   return (
     <div className={cn('rounded-lg border p-3 max-w-[85%]', bg, align)}>
@@ -330,13 +335,75 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
       </div>
       {hasBody ? (
         <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
-      ) : (
+      ) : attachments.length === 0 ? (
         <p className="text-xs italic text-zinc-400">
           (no body returned by GHL — full content lives on the
           message-detail endpoint)
         </p>
+      ) : null}
+      {attachments.length > 0 && (
+        <div
+          className={cn(
+            'flex flex-wrap gap-2',
+            hasBody ? 'mt-2' : '',
+          )}
+        >
+          {attachments.map((url) => (
+            <Attachment key={url} url={url} />
+          ))}
+        </div>
       )}
     </div>
+  )
+}
+
+/** Single attachment renderer. Image URLs become inline thumbnails
+ *  (click to open full-size in a new tab); everything else renders as
+ *  a download chip with the filename + extension. GHL serves
+ *  signed/public URLs so we can `<img src>` them directly. */
+function Attachment({ url }: { url: string }) {
+  // Strip query string before sniffing the extension — signed S3 URLs
+  // append `?X-Amz-Signature=…` which would otherwise hide the .jpg.
+  const path = url.split('?')[0] ?? url
+  const lower = path.toLowerCase()
+  const isImage = /\.(jpe?g|png|gif|webp|heic|svg|bmp|avif)$/i.test(lower)
+  const filename = decodeURIComponent(path.split('/').pop() || 'attachment')
+
+  if (isImage) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700"
+        title={filename}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={filename}
+          className="max-h-[280px] max-w-[280px] object-cover"
+        />
+      </a>
+    )
+  }
+
+  // Non-image — small download chip. Extension shows as an uppercase
+  // badge so admin can tell PDFs apart from voice memos at a glance.
+  const ext = (lower.match(/\.([a-z0-9]+)$/)?.[1] ?? 'file').toUpperCase()
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white/60 px-2 py-1 text-[11px] hover:bg-white dark:border-zinc-700 dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
+      title={url}
+    >
+      <span className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+        {ext}
+      </span>
+      <span className="max-w-[180px] truncate">{filename}</span>
+    </a>
   )
 }
 

@@ -251,13 +251,26 @@ export async function GET(
       return at - bt
     })
 
-    // Hydrate empty-body emails. /conversations/{id}/messages returns
-    // email metadata but inbound bodies don't always come along — we
-    // have to follow up to /conversations/messages/email/{id} per
-    // email-message id. Note: the `id` on each TYPE_EMAIL conv-message
-    // is NOT the email-message id (different ID spaces); the actual
-    // ones live at meta.email.messageIds[]. Fanned out + capped so a
-    // 30-email thread doesn't stall the response.
+    // Normalize SMS/MMS attachments straight off the conv-message —
+    // these come back inline on /conversations/{id}/messages so no
+    // hydration is needed for them.
+    for (const m of merged) {
+      const atts = extractAttachmentUrls(
+        (m as { attachments?: unknown }).attachments,
+      )
+      if (atts.length > 0) {
+        ;(m as { attachments?: string[] }).attachments = atts
+      }
+    }
+
+    // Hydrate emails. We fetch /conversations/messages/email/{id} for
+    // every TYPE_EMAIL up to the cap because:
+    //  1. Inbound email bodies aren't always on the conv-message.
+    //  2. Email attachments only live on the per-message endpoint —
+    //     not on the conv-message at all — so without this we have
+    //     no way to know an email had a PDF/image attached.
+    // Note: conv-message id ≠ email-message id (different ID spaces);
+    // real email IDs live at meta.email.messageIds[].
     const HYDRATE_CAP = 20
     const emailIdsToHydrate: string[] = []
     const convMsgIdByEmailId = new Map<string, string>()
@@ -267,9 +280,6 @@ export async function GET(
         mtUpper === 'TYPE_EMAIL' ||
         (typeof m.type === 'number' && m.type === 3)
       if (!isEmail) continue
-      const hasBody =
-        typeof m.body === 'string' && m.body.trim().length > 0
-      if (hasBody) continue
       const convMsgId = typeof m.id === 'string' ? m.id : null
       const emailIds = extractEmailMessageIdsFromConvMessage(
         m as Record<string, unknown>,
@@ -286,25 +296,46 @@ export async function GET(
       const hydrated = await Promise.all(
         emailIdsToHydrate.map((id) =>
           getEmailMessage(id, vaultName)
-            .then((res) => ({ id, body: extractEmailBody(res) }))
-            .catch(() => ({ id, body: null as string | null })),
+            .then((res) => ({
+              id,
+              body: extractEmailBody(res),
+              attachments: extractEmailAttachments(res),
+            }))
+            .catch(() => ({
+              id,
+              body: null as string | null,
+              attachments: [] as string[],
+            })),
         ),
       )
       const bodyByConvMsgId = new Map<string, string>()
+      const attsByConvMsgId = new Map<string, string[]>()
       for (const h of hydrated) {
         const convMsgId = convMsgIdByEmailId.get(h.id)
-        if (h.body && h.body.trim() && convMsgId) {
-          if (!bodyByConvMsgId.has(convMsgId)) {
-            bodyByConvMsgId.set(convMsgId, h.body)
-          }
+        if (!convMsgId) continue
+        if (h.body && h.body.trim() && !bodyByConvMsgId.has(convMsgId)) {
+          bodyByConvMsgId.set(convMsgId, h.body)
+        }
+        if (h.attachments.length > 0) {
+          const existing = attsByConvMsgId.get(convMsgId) ?? []
+          attsByConvMsgId.set(convMsgId, [...existing, ...h.attachments])
         }
       }
-      if (bodyByConvMsgId.size > 0) {
-        for (const m of merged) {
-          const id = typeof m.id === 'string' ? m.id : null
-          if (id && bodyByConvMsgId.has(id)) {
-            m.body = bodyByConvMsgId.get(id)!
-          }
+      for (const m of merged) {
+        const id = typeof m.id === 'string' ? m.id : null
+        if (!id) continue
+        if (bodyByConvMsgId.has(id)) m.body = bodyByConvMsgId.get(id)!
+        if (attsByConvMsgId.has(id)) {
+          // Dedup — an inline image referenced both by conv-message
+          // attachments AND email-detail attachments shouldn't render
+          // twice.
+          const combined = [
+            ...(((m as { attachments?: string[] }).attachments) ?? []),
+            ...attsByConvMsgId.get(id)!,
+          ]
+          ;(m as { attachments?: string[] }).attachments = Array.from(
+            new Set(combined),
+          )
         }
       }
     }
@@ -347,6 +378,53 @@ function extractEmailMessageIdsFromConvMessage(
   push((m as { emailMessageIds?: unknown }).emailMessageIds)
   push((m as { emailMessageId?: unknown }).emailMessageId)
   return out
+}
+
+/** Normalize attachment URLs off any GHL-shaped attachments value.
+ *  GHL has shipped both `attachments: string[]` (URLs) and
+ *  `attachments: { url, name }[]` shapes depending on endpoint and
+ *  version, so we accept both and dedup. Filters out empty / non-http
+ *  values so a stray null doesn't break the front-end renderer. */
+function extractAttachmentUrls(val: unknown): string[] {
+  if (!val) return []
+  if (!Array.isArray(val)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of val) {
+    let url: string | null = null
+    if (typeof item === 'string') {
+      url = item
+    } else if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>
+      url =
+        (typeof o.url === 'string' && o.url) ||
+        (typeof o.fileUrl === 'string' && o.fileUrl) ||
+        (typeof o.link === 'string' && o.link) ||
+        null
+    }
+    if (!url) continue
+    const trimmed = url.trim()
+    if (!trimmed.startsWith('http')) continue
+    if (seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
+}
+
+/** Pull attachment URLs off GHL's /messages/email/{id} response.
+ *  Tries the documented `emailMessage.attachments` shape plus a few
+ *  defensive fallbacks. */
+function extractEmailAttachments(payload: unknown): string[] {
+  const root = payload as Record<string, unknown> | null | undefined
+  if (!root) return []
+  const emailMessage = root.emailMessage as Record<string, unknown> | undefined
+  const email = root.email as Record<string, unknown> | undefined
+  return [
+    ...extractAttachmentUrls(emailMessage?.attachments),
+    ...extractAttachmentUrls(email?.attachments),
+    ...extractAttachmentUrls(root.attachments),
+  ]
 }
 
 /** Pull a renderable email body out of GHL's /messages/email/{id}
