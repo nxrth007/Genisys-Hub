@@ -12,13 +12,11 @@
  */
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Building2, AlertCircle } from 'lucide-react'
 
 export default function ClientRegisterPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -51,8 +49,7 @@ export default function ClientRegisterPage() {
       }
 
       // Auto-signin so the user lands on the onboarding form without
-      // having to re-type credentials. Middleware will route the
-      // resulting client_pending session to /signin/client/onboarding-form.
+      // having to re-type credentials.
       const auth = await signIn('credentials', {
         email: email.trim(),
         password,
@@ -67,8 +64,12 @@ export default function ClientRegisterPage() {
         )
         return
       }
-      router.push('/signin/client/onboarding-form')
-      router.refresh()
+      // Hard reload (not router.push) so the new session cookie is
+      // fully picked up by middleware on the next request. With
+      // router.push, NextAuth's credentials cookie sometimes hasn't
+      // finished writing before the form-submit fetch fires, which
+      // leads to a stale-session 403 from middleware.
+      window.location.assign('/signin/client/onboarding-form')
     } finally {
       setSubmitting(false)
     }

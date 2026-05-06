@@ -37,13 +37,39 @@ function asOptional(v: unknown): string | null {
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
-  if (session.user.role !== 'client_pending') {
+    // Logged so we can tell whether the cookie didn't reach this
+    // handler at all vs. it being a wrong-role situation below.
+    console.warn(
+      '[client/onboarding-form] no session — cookie did not reach handler',
+    )
     return NextResponse.json(
       {
         error:
-          'This step is only available to newly registered accounts. If you have already submitted, you cannot resubmit.',
+          'Your session expired. Please sign in again at /signin/client.',
+      },
+      { status: 401 },
+    )
+  }
+  // Already-submitted: helpful message instead of a confusing 403.
+  // Middleware will route them to /signin/client/pending on their
+  // next navigation.
+  if (session.user.role === 'client_onboarding') {
+    return NextResponse.json(
+      {
+        error:
+          'You have already submitted this form. Our team is reviewing it now — you will get an email when your account is approved.',
+      },
+      { status: 409 },
+    )
+  }
+  if (session.user.role !== 'client_pending') {
+    console.warn(
+      `[client/onboarding-form] unexpected role=${session.user.role} for user ${session.user.id}`,
+    )
+    return NextResponse.json(
+      {
+        error:
+          'This form is only available to newly registered accounts. If you signed in with an existing staff or agent account, sign out and register again with a different email.',
       },
       { status: 403 },
     )
