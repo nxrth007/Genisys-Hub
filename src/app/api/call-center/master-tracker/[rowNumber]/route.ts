@@ -408,6 +408,25 @@ async function writeFullEdit(
       ),
     )
 
+    // Past-appointment safeguard: if admin just assigned a client
+    // to a row whose appointment is already in the past, pre-mark
+    // SheetSlackDelivery + ClientAlertDelivery as 'backfilled' for
+    // (this row, that client's channel/phone). Without this, the
+    // next cron tick would see a freshly-routable past row with no
+    // delivery record and blast the channel/SMS for an already-
+    // completed meeting. For FUTURE appointments we let the cron
+    // fire normally — that's the intended notification.
+    void backfillPastAppointmentOnClientAssign({
+      rowNumber,
+      newClientName: typeof body.client === 'string' ? body.client.trim() : '',
+      verify,
+    }).catch((err) =>
+      console.error(
+        '[master-tracker PATCH:full] past-appt client-assign backfill failed:',
+        err,
+      ),
+    )
+
     return NextResponse.json({ ok: true, ...result, verify })
   } catch (err) {
     console.error('[master-tracker PATCH:full] failed:', err)
@@ -473,4 +492,140 @@ async function writeOne(
     console.error('[master-tracker PATCH] failed:', err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Past-appointment safeguard                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * When admin assigns a client to a row whose appointment date is
+ * ALREADY in the past, write 'backfilled' SheetSlackDelivery +
+ * ClientAlertDelivery records so the cron's next sync doesn't fire
+ * a Slack post / SMS for a completed meeting.
+ *
+ * Why: most rows that lost their explicit Client value did so when
+ * the routing brain switched away from state inference (multiple
+ * clients in the same state made inference ambiguous). When admin
+ * cleans those up by picking a client in the edit modal, ~80% of
+ * those rows are historical bookings — completed meetings that
+ * shouldn't trigger a fresh notification. The remaining 20%
+ * (future appointments) DO fire normally because the safeguard
+ * exits early when apptDateTime > now.
+ *
+ * Idempotent — uses the same sourceKey shape the cron uses
+ * ("sheet:Master Table:N"), and the unique-index on
+ * (sourceKey, channelId / recipientPhone) means re-running is a
+ * no-op when records already exist.
+ */
+async function backfillPastAppointmentOnClientAssign(params: {
+  rowNumber: number
+  newClientName: string
+  verify: { apptDateIso: string | null } | null
+}) {
+  const { rowNumber, newClientName, verify } = params
+  if (!newClientName) return // client wasn't part of this edit
+  const apptIso = verify?.apptDateIso
+  if (!apptIso) return
+  const apptDate = new Date(apptIso)
+  if (isNaN(apptDate.getTime())) return
+  if (apptDate.getTime() > Date.now()) return // future — let cron fire normally
+
+  // Look up the client by name (case-insensitive). If admin typed a
+  // name we don't have a record for (rare — dropdown only shows
+  // registered clients), there's nothing to backfill against.
+  const matched = await prisma.client.findFirst({
+    where: {
+      name: { equals: newClientName, mode: 'insensitive' },
+      active: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      slackChannelId: true,
+      contactPhone: true,
+    },
+  })
+  if (!matched) return
+
+  const sourceKey = `sheet:Master Table:${rowNumber}`
+
+  // Slack-channel side: only backfill when the client has a channel
+  // configured (otherwise there's nothing the cron would post).
+  if (matched.slackChannelId) {
+    try {
+      await prisma.sheetSlackDelivery.create({
+        data: {
+          sourceKey,
+          clientId: matched.id,
+          channelId: matched.slackChannelId,
+          status: 'backfilled',
+          errorMessage:
+            'Past-appointment safeguard — client assigned via Master Tracker edit after appt date had passed.',
+        },
+      })
+      console.log(
+        `[master-tracker PATCH:full] past-appt slack backfill: row ${rowNumber} → ${matched.name} (${matched.slackChannelId})`,
+      )
+    } catch (err) {
+      // Unique constraint hit means a record already exists for
+      // this (sourceKey, channelId) — fine, idempotent no-op.
+      const code =
+        err instanceof Error && 'code' in err
+          ? (err as { code?: string }).code
+          : undefined
+      if (code !== 'P2002') {
+        console.error(
+          '[master-tracker PATCH:full] slack backfill insert failed:',
+          err,
+        )
+      }
+    }
+  }
+
+  // Client Alerts SMS side: only backfill when the client has a
+  // contactPhone configured AND ClientAlertsConfig is enabled. If
+  // the master toggle is off the cron is a no-op anyway, so the
+  // record would be wasted insert.
+  const phoneDigits = String(matched.contactPhone ?? '').replace(/\D/g, '')
+  let recipientPhone: string | null = null
+  if (phoneDigits.length === 10) recipientPhone = `+1${phoneDigits}`
+  else if (phoneDigits.length === 11 && phoneDigits.startsWith('1'))
+    recipientPhone = `+${phoneDigits}`
+  else if (phoneDigits.length >= 10) recipientPhone = `+${phoneDigits}`
+
+  if (recipientPhone) {
+    const alertConfig = await prisma.clientAlertsConfig
+      .findUnique({ where: { id: 'singleton' } })
+      .catch(() => null)
+    if (alertConfig?.enabled) {
+      try {
+        await prisma.clientAlertDelivery.create({
+          data: {
+            sourceKey,
+            clientId: matched.id,
+            recipientPhone,
+            status: 'backfilled',
+            errorMessage:
+              'Past-appointment safeguard — client assigned via Master Tracker edit after appt date had passed.',
+          },
+        })
+        console.log(
+          `[master-tracker PATCH:full] past-appt sms backfill: row ${rowNumber} → ${matched.name} (${recipientPhone})`,
+        )
+      } catch (err) {
+        const code =
+          err instanceof Error && 'code' in err
+            ? (err as { code?: string }).code
+            : undefined
+        if (code !== 'P2002') {
+          console.error(
+            '[master-tracker PATCH:full] sms backfill insert failed:',
+            err,
+          )
+        }
+      }
+    }
+  }
+
 }

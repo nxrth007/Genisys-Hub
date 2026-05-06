@@ -1593,6 +1593,7 @@ export default function MasterTrackerPage() {
               (a) => a.id === editingApptId,
             ) ?? null
           }
+          clients={clients}
           submitting={adminMutation.isPending}
           onCancel={() => setEditingApptId(null)}
           onSave={(payload) => {
@@ -2370,11 +2371,15 @@ function AdminActionsCell({
  */
 function AdminEditModal({
   appointment,
+  clients,
   submitting,
   onSave,
   onCancel,
 }: {
   appointment: Appointment | null
+  /** Registered clients — drives the Client dropdown so admin can
+   *  pick one instead of typing the name. */
+  clients: Client[]
   submitting: boolean
   onSave: (payload: Record<string, string | null>) => void
   onCancel: () => void
@@ -2500,14 +2505,12 @@ function AdminEditModal({
   const hasChanges = Object.keys(diff).length > 0
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12"
-      onClick={onCancel}
-    >
-      <div
-        className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
-        onClick={(e) => e.stopPropagation()}
-      >
+    // Backdrop intentionally NOT click-to-close — same drag-out bug
+    // Alex hit on the New/Edit client modal: text-selecting inside
+    // the form, releasing outside, would close the dialog mid-edit.
+    // X-button + Cancel-button are the close affordances.
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12">
+      <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
           <div>
             <h3 className="text-base font-semibold">
@@ -2658,11 +2661,42 @@ function AdminEditModal({
             onChange={(v) => set('timezone', v)}
             placeholder="PT / ET / CT / MT — overrides address"
           />
-          <EditField
-            label="Client"
-            value={values.client}
-            onChange={(v) => set('client', v)}
-          />
+          {/* Client picker — dropdown of registered clients instead
+              of free text. Many existing rows lost their explicit
+              Client value when the routing brain switched away from
+              state inference (multiple clients per state made the
+              inference ambiguous), so admin needs to backfill. The
+              dropdown surfaces every active client from /clients
+              alphabetically. Falls back to a "current value as
+              option" when the row has a name that doesn't match any
+              registered client (legacy typos, churned clients, etc.)
+              so saving doesn't accidentally clear it. */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Client
+            </label>
+            <select
+              value={values.client}
+              onChange={(e) => set('client', e.target.value)}
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            >
+              <option value="">— No client —</option>
+              {[...clients]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                    {c.state ? ` · ${c.state}` : ''}
+                  </option>
+                ))}
+              {values.client &&
+                !clients.some((c) => c.name === values.client) && (
+                  <option value={values.client}>
+                    {values.client} (unrecognized)
+                  </option>
+                )}
+            </select>
+          </div>
           <div className="sm:col-span-2">
             <EditField
               label="Address"
