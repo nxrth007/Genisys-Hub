@@ -25,14 +25,26 @@ model User {
   image         String?
   emailVerified DateTime?
   // Roles:
-  //   member        — staff, default for Google SSO signups
-  //   admin         — staff with admin privileges (first user, or promoted)
-  //   agent_pending — registered but awaiting approval (no access yet)
-  //   agent         — approved call-center agent, can access /agent only
-  //   agent_denied  — registration denied
+  //   member             — staff, default for Google SSO signups
+  //   admin              — staff with admin privileges (first user, or promoted)
+  //   agent_pending      — registered but awaiting approval (no access yet)
+  //   agent              — approved call-center agent, can access /agent only
+  //   agent_denied       — registration denied
+  //   client_pending     — self-registered client, awaiting onboarding form
+  //   client_onboarding  — onboarding form submitted, awaiting admin approval
+  //   client_active      — approved client, can access /client only
+  //   client_denied      — application denied
   role          String    @default("member")
-  // For Credentials-auth users (agents). Null for Google SSO users.
+  // For Credentials-auth users (agents + clients). Null for Google SSO users.
   passwordHash  String?
+  // Forces a password change on next sign-in. Set true when admin
+  // generates a temporary password for a client; cleared when the
+  // user picks their own.
+  mustChangePassword Boolean @default(false)
+  // Which Client this user belongs to — populated for client_* roles
+  // only. Drives the per-client master-tracker filter on /client.
+  clientId      String?
+  client        Client?   @relation("ClientUsers", fields: [clientId], references: [id], onDelete: SetNull)
   // Which tab title was created in the master appointments spreadsheet for
   // this agent (set when their registration is approved). Null otherwise.
   agentSheetTab String?
@@ -492,6 +504,10 @@ model Client {
   appointmentReminders AppointmentReminder[]
   slackDeliveries   SheetSlackDelivery[]
   clientAlerts      ClientAlertDelivery[]
+  // User accounts that can log in to /client and see only this
+  // client's appointments. Created by admin via the Credentials tab,
+  // or self-registered through the onboarding flow (Phase 2+).
+  users             User[]                @relation("ClientUsers")
 }
 
 model Appointment {

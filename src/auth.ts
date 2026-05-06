@@ -30,11 +30,17 @@ declare module 'next-auth' {
     user: {
       id: string
       role: string
+      // Set for role=client_* users only — drives the /client master-
+      // tracker filter and the forced password-change redirect.
+      clientId?: string | null
+      mustChangePassword?: boolean
     } & DefaultSession['user']
   }
 
   interface User {
     role?: string
+    clientId?: string | null
+    mustChangePassword?: boolean
   }
 }
 
@@ -64,7 +70,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
     Credentials({
-      name: 'Agent',
+      name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
@@ -76,18 +82,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const user = await prisma.user.findUnique({
           where: { email },
-          select: { id: true, email: true, name: true, role: true, passwordHash: true },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            passwordHash: true,
+            clientId: true,
+            mustChangePassword: true,
+          },
         })
         if (!user || !user.passwordHash) return null
 
         const ok = await bcrypt.compare(password, user.passwordHash)
         if (!ok) return null
 
-        // Block pending/denied agents from getting a session at all — they
-        // see a distinct "pending approval" screen after registering.
-        if (user.role !== 'agent' && user.role !== 'admin' && user.role !== 'member') {
-          // Signal with a specific error code the signin page can surface.
-          throw new Error(user.role === 'agent_pending' ? 'pending' : 'denied')
+        // Block agents/clients in pending/denied states from getting a
+        // session at all — they get bounced to a distinct screen.
+        // Errors below are mapped to user-facing routes by the signin
+        // page that triggered the call.
+        const allowedRoles = new Set([
+          'agent',
+          'admin',
+          'member',
+          'client_active',
+        ])
+        if (!allowedRoles.has(user.role)) {
+          if (user.role === 'agent_pending') throw new Error('pending')
+          if (user.role === 'agent_denied') throw new Error('denied')
+          if (user.role === 'client_pending') throw new Error('client_pending')
+          if (user.role === 'client_onboarding')
+            throw new Error('client_onboarding')
+          if (user.role === 'client_denied') throw new Error('client_denied')
+          throw new Error('denied')
         }
 
         return {
@@ -95,6 +122,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
+          clientId: user.clientId,
+          mustChangePassword: user.mustChangePassword,
         }
       },
     }),
@@ -115,19 +144,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true
     },
     async jwt({ token, user }) {
-      // On first sign-in, `user` is populated. Copy id + role into the token.
+      // On first sign-in, `user` is populated. Copy fields into the token.
       if (user) {
-        token.id = (user as { id?: string }).id || token.sub
-        token.role = (user as { role?: string }).role || 'member'
+        const u = user as {
+          id?: string
+          role?: string
+          clientId?: string | null
+          mustChangePassword?: boolean
+        }
+        token.id = u.id || token.sub
+        token.role = u.role || 'member'
+        token.clientId = u.clientId ?? null
+        token.mustChangePassword = u.mustChangePassword ?? false
       }
-      // On subsequent requests refresh role from DB so approval/denial takes
-      // effect without forcing a sign-out.
+      // On subsequent requests refresh role/clientId from DB so admin
+      // approvals, denials, and password-change clears take effect
+      // without forcing a sign-out.
       if (token.id) {
         const fresh = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { role: true },
+          select: {
+            role: true,
+            clientId: true,
+            mustChangePassword: true,
+          },
         })
-        if (fresh) token.role = fresh.role
+        if (fresh) {
+          token.role = fresh.role
+          token.clientId = fresh.clientId
+          token.mustChangePassword = fresh.mustChangePassword
+        }
       }
       return token
     },
@@ -135,6 +181,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = (token.id as string) || session.user.id
         session.user.role = (token.role as string) || 'member'
+        session.user.clientId = (token.clientId as string | null) ?? null
+        session.user.mustChangePassword =
+          (token.mustChangePassword as boolean) ?? false
       }
       return session
     },

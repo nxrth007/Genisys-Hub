@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useMemo } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
@@ -19,6 +20,7 @@ import {
   StickyNote,
   Trash2,
   AlertTriangle,
+  UserPlus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -212,13 +214,24 @@ export default function ClientsPage() {
         title="Clients"
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients' }]}
         actions={
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New client
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Onboarding lives on its own page for Phase 1 — pending
+                self-registrations + Credentials management sit there.
+                Placed to the left of "New client" per Alex's spec. */}
+            <Link
+              href="/clients/onboarding"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              <UserPlus className="h-4 w-4" /> Onboarding
+            </Link>
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" /> New client
+            </button>
+          </div>
         }
       />
 

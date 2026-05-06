@@ -27,6 +27,14 @@ const PUBLIC_PATHS = [
   '/api/agent/register',
 ]
 
+// Routes approved clients are allowed to hit. Anything else bounces
+// back to /client. Same shape as AGENT_ALLOWED_PREFIXES below.
+const CLIENT_ALLOWED_PREFIXES = [
+  '/client',
+  '/api/client',
+  '/api/auth',
+]
+
 // Routes agents are allowed to hit. Anything else bounces back to /agent.
 const AGENT_ALLOWED_PREFIXES = [
   '/agent',
@@ -106,6 +114,43 @@ export default auth((req) => {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
     return NextResponse.redirect(new URL('/agent', req.nextUrl.origin))
+  }
+
+  // Pending/denied/onboarding clients shouldn't reach anything yet.
+  // Phase 1 only handles client_active; the others land in Phase 2 but
+  // we wire them up now so half-built states don't expose the Hub.
+  if (
+    role === 'client_pending' ||
+    role === 'client_onboarding' ||
+    role === 'client_denied'
+  ) {
+    if (pathname === '/signin/client') return NextResponse.next()
+    return NextResponse.redirect(new URL('/signin/client', req.nextUrl.origin))
+  }
+
+  // Approved clients: /client/* only. If they have a pending password
+  // change, force them to /client/change-password before anything else.
+  if (role === 'client_active') {
+    const mustChange = (session.user as { mustChangePassword?: boolean })
+      ?.mustChangePassword
+    if (mustChange) {
+      const allowed =
+        pathname === '/client/change-password' ||
+        pathname.startsWith('/api/client/change-password') ||
+        pathname.startsWith('/api/auth')
+      if (!allowed) {
+        return NextResponse.redirect(
+          new URL('/client/change-password', req.nextUrl.origin),
+        )
+      }
+    }
+    if (matchesPrefix(pathname, CLIENT_ALLOWED_PREFIXES)) {
+      return NextResponse.next()
+    }
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL('/client', req.nextUrl.origin))
   }
 
   // Admin-only gating for staff
