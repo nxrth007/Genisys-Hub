@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
+import { provisionClientWorkspace } from '@/lib/client-workspace'
 
 /**
  * POST /api/clients/[id]/onboarding-decision
@@ -150,6 +151,21 @@ export async function POST(
     }).catch((err) => {
       console.error(
         `[clients/onboarding-decision] email failed for ${u.email}:`,
+        err,
+      )
+    })
+  }
+
+  // On approval, fire-and-forget the Slack workspace provisioning:
+  // private channel + team invites + Slack Connect invite to the
+  // client's contactEmail. The orchestrator never throws; it logs
+  // failures to console + #genisys-alerts so admin can react. We
+  // don't block the API response on this — admin gets their decision
+  // confirmed instantly, the channel shows up shortly after.
+  if (action === 'approve') {
+    provisionClientWorkspace(client.id).catch((err) => {
+      console.error(
+        `[clients/onboarding-decision] Slack provisioning crashed for ${client.id}:`,
         err,
       )
     })

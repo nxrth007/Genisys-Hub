@@ -5,12 +5,44 @@
  * Used for:
  *   1. Morning brief DMs to team members
  *   2. Reading/posting in client channels (Slack module, later)
+ *   3. Auto-provisioning per-client private channels on approval
+ *      (lib/client-workspace.ts orchestrates; this file owns the
+ *      Slack-side primitives)
  *
  * The Slack Web API client is re-created per call because the vault token
  * could be rotated at any time. At our scale (~30 calls/day) this is fine.
  */
 import { WebClient, type ChatPostMessageResponse } from '@slack/web-api'
 import { getSecretByName } from './vault-service'
+
+/**
+ * Default team Slack user IDs to add to every newly-provisioned
+ * client channel. Hardcoded so this works out of the box, but
+ * env-var-overridable (SLACK_TEAM_INVITE_USER_IDS, comma-sep) if
+ * the team roster changes without a code edit.
+ *
+ * Slack user IDs are stable — they don't change when emails rotate
+ * or when someone leaves and rejoins, so this list is durable.
+ *   U0AU2J7P43A — Alexander
+ *   U0AP4HMSMF0 — Ethan
+ *   U0AQ0TPFNBS — Garrett
+ */
+const DEFAULT_TEAM_INVITE_USER_IDS = [
+  'U0AU2J7P43A',
+  'U0AP4HMSMF0',
+  'U0AQ0TPFNBS',
+]
+
+export function getTeamInviteUserIds(): string[] {
+  const envVal = process.env.SLACK_TEAM_INVITE_USER_IDS?.trim()
+  if (envVal) {
+    return envVal
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+  return [...DEFAULT_TEAM_INVITE_USER_IDS]
+}
 
 async function getClient(): Promise<WebClient> {
   const token = await getSecretByName('Slack Bot Token')
@@ -348,4 +380,120 @@ export async function joinChannel(channelId: string): Promise<void> {
     }
     throw err
   }
+}
+
+// -------------------------------------------------------------------------
+// Per-client channel provisioning — used by lib/client-workspace.ts on
+// Client approval. These are the primitive Slack ops; the orchestration
+// (welcome message body, DB writes, alert posting on failure) lives in
+// client-workspace.ts so this file stays Slack-only.
+// -------------------------------------------------------------------------
+
+/**
+ * Slack channel name rules:
+ *   - lowercase only
+ *   - max 80 chars
+ *   - allowed: a-z, 0-9, hyphen, underscore, period
+ * The orchestrator pre-slugifies, but we run a final scrub here as
+ * a safety net so a stray special char never blows up the create.
+ */
+function sanitizeChannelName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 80)
+}
+
+/**
+ * Create a private Slack channel and invite the given workspace
+ * users into it. The bot is automatically a member of any channel
+ * it creates, so postChannelMessage works against the returned id
+ * without a separate join step.
+ *
+ * Team invites are best-effort: if one user ID is bad (left the
+ * workspace, typo'd in env var) we log + continue rather than
+ * losing the channel. The other invites still succeed.
+ */
+export async function createPrivateChannel(params: {
+  name: string
+  topic?: string
+  inviteUserIds: string[]
+}): Promise<{ channelId: string; channelName: string }> {
+  const client = await getClient()
+  const safeName = sanitizeChannelName(params.name)
+  if (!safeName) {
+    throw new Error('Channel name reduced to empty after sanitization')
+  }
+
+  const created = await client.conversations.create({
+    name: safeName,
+    is_private: true,
+  })
+  const channelId = created.channel?.id
+  const channelName = created.channel?.name ?? safeName
+  if (!channelId) {
+    throw new Error('Slack create returned no channel id')
+  }
+
+  if (params.inviteUserIds.length > 0) {
+    try {
+      await client.conversations.invite({
+        channel: channelId,
+        users: params.inviteUserIds.join(','),
+      })
+    } catch (err: unknown) {
+      // Common non-fatals when inviting team members:
+      //   already_in_channel, cant_invite_self, user_not_found.
+      // Any of these still leaves the channel + remaining invites
+      // intact, so we keep going.
+      console.warn(
+        '[slack] createPrivateChannel: some invites failed',
+        formatSlackError(err),
+      )
+    }
+  }
+
+  if (params.topic) {
+    try {
+      await client.conversations.setTopic({
+        channel: channelId,
+        topic: params.topic.slice(0, 250), // Slack hard cap
+      })
+    } catch {
+      /* non-fatal — channel is more important than topic */
+    }
+  }
+
+  return { channelId, channelName }
+}
+
+/**
+ * Send a Slack Connect invite to an external email address. Slack
+ * emails the recipient a "Join channel" link; once they accept
+ * (in their existing Slack workspace, or after creating a free
+ * one), the channel becomes a Slack Connect channel visible in
+ * both workspaces.
+ *
+ * Requires `conversations.connect:write` scope on the bot token,
+ * which is available on Pro plan and up. Throws on failure so
+ * the caller can decide whether to surface to admin or retry.
+ */
+export async function inviteExternalToChannel(params: {
+  channelId: string
+  externalEmail: string
+}): Promise<{ inviteId: string | null }> {
+  const client = await getClient()
+  // The @slack/web-api type may not surface inviteShared directly
+  // depending on SDK version; fall through to apiCall so we don't
+  // ride the type-system roller-coaster.
+  const res = (await client.apiCall('conversations.inviteShared', {
+    channel: params.channelId,
+    emails: [params.externalEmail],
+  })) as { ok?: boolean; invite_id?: string; error?: string }
+  if (!res.ok) {
+    throw new Error(`Slack inviteShared: ${res.error ?? 'unknown error'}`)
+  }
+  return { inviteId: res.invite_id ?? null }
 }

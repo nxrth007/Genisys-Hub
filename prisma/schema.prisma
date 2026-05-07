@@ -510,13 +510,22 @@ model Client {
   // cap rows still count and surface in green.
   apptCap         Int?
 
-  // Slack channel the bot posts new-appointment notifications into.
-  // Setting these (via Settings → Client delivery) opts the client in;
-  // null = no auto-delivery. slackChannelName is just a cached label
-  // so the UI can show the picked channel without an extra Slack
-  // round-trip on every render.
-  slackChannelId   String?
-  slackChannelName String?
+  // Slack channel for this client. Auto-provisioned on approval
+  // by lib/client-workspace.ts: a private "client-{slug}" channel
+  // gets created, the team is invited as members, and the
+  // contactEmail gets a Slack Connect invite. The same channel
+  // doubles as the new-appointment / message-alert delivery target
+  // (was previously set manually via Settings → Client delivery).
+  // null = not yet provisioned (or pre-feature legacy client).
+  // slackChannelName is a cached label so the UI doesn't need to
+  // round-trip Slack on every render.
+  slackChannelId    String?
+  slackChannelName  String?
+  // When the Slack Connect email invite was sent to contactEmail.
+  // null = either contactEmail was missing, the inviteShared call
+  // failed, or this is a legacy pre-feature client. Lets us show
+  // a "resend invite" affordance if the client never accepted.
+  slackInviteSentAt DateTime?
 
   appointments      Appointment[]
   reminderTemplates ReminderTemplate[]
