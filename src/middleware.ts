@@ -137,8 +137,15 @@ export default auth((req) => {
     )
   }
   if (role === 'client_onboarding') {
+    // /payment is the post-onboarding step where they get the
+    // QuickBooks link for their package. /pending is the terminal
+    // waiting screen. /api/client/me is used by /payment to look up
+    // which package they picked. Anything else bounces to /pending.
     const allowed =
-      pathname === '/signin/client/pending' || pathname.startsWith('/api/auth')
+      pathname === '/signin/client/pending' ||
+      pathname === '/signin/client/payment' ||
+      pathname.startsWith('/api/client/me') ||
+      pathname.startsWith('/api/auth')
     if (allowed) return NextResponse.next()
     return NextResponse.redirect(
       new URL('/signin/client/pending', req.nextUrl.origin),

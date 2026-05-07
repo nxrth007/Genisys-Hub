@@ -75,8 +75,12 @@ export default function OnboardingFormPage() {
         setError(data.error || 'Failed to submit onboarding form.')
         return
       }
+      // Send them to the payment step before the pending screen.
+      // Payment is optional (the application still goes to admin
+      // review either way), so the payment page has an "I'll pay
+      // later" button that lands on /signin/client/pending.
       router.refresh()
-      router.push('/signin/client/pending')
+      router.push('/signin/client/payment')
     } finally {
       setSubmitting(false)
     }
