@@ -230,14 +230,17 @@ export function AddressInput({
         label: r.display_name,
         pickedValue: formatAddressLine({ street, city, stateCode, zip }),
         source: 'nominatim' as const,
-        _stateMatch: biasCode ? stateCode === biasCode : true,
+        stateCode,
       }
     })
-    // Bias: prefer in-state matches, but fall back to the full list
-    // when there are none so the user still sees something.
-    const inState = results.filter((r) => r._stateMatch)
-    const ordered = inState.length > 0 ? inState : results
-    return ordered.map((r) => ({
+    // Strict state filter — match the Google route's behavior. When a
+    // bias is set, drop any result whose state doesn't match. No soft
+    // fallback (was previously the case) — admin / client picks a
+    // client first, so showing out-of-state suggestions is wrong.
+    const filtered = biasCode
+      ? results.filter((r) => r.stateCode === biasCode)
+      : results
+    return filtered.map((r) => ({
       key: r.key,
       label: r.label,
       pickedValue: r.pickedValue,
@@ -362,7 +365,9 @@ export function AddressInput({
           )}
           {suggestions.length === 0 && status === 'noResults' && (
             <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
-              No matches yet — keep typing your full address.
+              {biasCode
+                ? `No matches in ${biasCode} — double-check the street, or pick a client in a different state if needed.`
+                : 'No matches yet — keep typing your full address.'}
             </p>
           )}
           {suggestions.length === 0 && status === 'error' && (
@@ -375,7 +380,7 @@ export function AddressInput({
             {usingNominatim
               ? 'Suggestions via OpenStreetMap'
               : 'Suggestions via Google Maps'}
-            {biasCode && !usingNominatim && ` · biased to ${biasCode}`}
+            {biasCode && ` · filtered to ${biasCode}`}
             {' · ↑↓ to navigate · Enter to pick'}
           </p>
         </div>
