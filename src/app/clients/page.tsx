@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Hourglass,
   XCircle,
+  Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATE_NAME_TO_CODE } from '@/lib/address'
@@ -208,6 +209,15 @@ export default function ClientsPage() {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [packageFilter, setPackageFilter] = useState<PackageFilter>('all')
+  // Free-text search — composes with the filter pills above. Multi-
+  // token (whitespace-split): every token must match at least one
+  // searchable field, so "spring solar" returns only rows where
+  // both words land somewhere. Case-insensitive, substring match,
+  // searches across name + contact (name/role/email/phone) + state
+  // (full + 2-letter) + package + lifecycle, and notes. That gives
+  // Alex a single bar that finds clients by basically any field
+  // they remember.
+  const [search, setSearch] = useState('')
   const [active, setActive] = useState<ClientWithCounts | null>(null)
   const [editing, setEditing] = useState<ClientWithCounts | null>(null)
   const [creating, setCreating] = useState(false)
@@ -258,8 +268,42 @@ export default function ClientsPage() {
     if (packageFilter !== 'all') {
       list = list.filter((c) => c.package === packageFilter)
     }
+    // Free-text search — multi-token AND. Build the searchable haystack
+    // once per client by joining every field a human might remember,
+    // lowercase, then check that EVERY token from the query appears
+    // somewhere in that haystack. Cheap because the client list is
+    // tiny and the work is only redone when search/state/etc change.
+    const tokens = search
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+    if (tokens.length > 0) {
+      list = list.filter((c) => {
+        const haystack = [
+          c.name,
+          c.contactName,
+          c.contactRole,
+          c.contactEmail,
+          // Phone normalized to digits-only too so a query like "555"
+          // matches "+1 (555) 803-4828" the same as "(555) 803-4828".
+          c.contactPhone,
+          (c.contactPhone ?? '').replace(/\D/g, ''),
+          c.state,
+          stateCode(c.state),
+          c.package,
+          c.lifecycle,
+          c.address,
+          c.notes,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return tokens.every((t) => haystack.includes(t))
+      })
+    }
     return list
-  }, [clients, stateFilter, statusFilter, packageFilter])
+  }, [clients, stateFilter, statusFilter, packageFilter, search])
 
   // Split pending clients off so they render in their own section
   // below the active list — Alex's spec: pending = self-onboarded,
@@ -364,6 +408,40 @@ export default function ClientsPage() {
         />
       </div>
 
+      {/* Search — composes with the pill filters above. Searches
+          across every human-memorable field (name, contact info,
+          state in either form, package, lifecycle, address, notes)
+          and uses multi-token AND so "spring solar" only matches
+          rows containing both words. The match-count chip on the
+          right is always visible when a query is active so admin
+          knows whether they accidentally narrowed too far. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by client name, contact, email, phone, state…"
+          aria-label="Search clients"
+          className="w-full rounded-full border border-border bg-card py-2.5 pl-11 pr-28 text-sm shadow-soft transition focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+        {search.trim() && (
+          <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {filtered.length} {filtered.length === 1 ? 'match' : 'matches'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="grid h-6 w-6 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
@@ -379,8 +457,28 @@ export default function ClientsPage() {
           <p className="mt-3 text-sm text-muted-foreground">
             {clients.length === 0
               ? 'No clients yet — click "New client" to add one.'
-              : 'No clients match these filters.'}
+              : search.trim()
+                ? `No clients match "${search.trim()}".`
+                : 'No clients match these filters.'}
           </p>
+          {(search.trim() ||
+            stateFilter !== 'all' ||
+            statusFilter !== 'all' ||
+            packageFilter !== 'all') &&
+            clients.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('')
+                  setStateFilter('all')
+                  setStatusFilter('all')
+                  setPackageFilter('all')
+                }}
+                className="mt-3 text-xs font-medium text-primary hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
         </div>
       ) : (
         <div>
