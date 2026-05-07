@@ -69,6 +69,15 @@ type FollowUpResults = {
   counts: { awaiting: number; suggest: number; stale: number; total: number }
   computedAt: string
   lastSyncByAccount: Record<string, string>
+  scan: {
+    gmailThreadsExamined: number
+    gmailThreadsBulkFiltered: number
+    gmailThreadsHealthy: number
+    gmailThreadsDismissed: number
+    ghlConvsExamined: number
+    ghlConvsHealthy: number
+    ghlConvsDismissed: number
+  }
 }
 
 type ActiveTab = 'all' | 'awaiting' | 'suggest' | 'stale'
@@ -222,6 +231,52 @@ export default function FollowUpsPage() {
         </div>
       )}
 
+      {/* Scan diagnostics — small, muted footer that shows what
+          actually got checked. Lets Alex tell at a glance whether
+          a small bucket means "nothing to do" vs "filter / sync
+          quietly broke." Especially useful for the GHL side, since
+          the bucket rules can hide active conversations that just
+          aren't quite stale yet. */}
+      {data && (
+        <div className="mt-4 rounded-xl border border-border bg-card/50 p-4 text-[11px] text-muted-foreground shadow-soft">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>
+              <span className="font-medium text-foreground/80">Gmail:</span>{' '}
+              {data.scan.gmailThreadsExamined} threads scanned ·{' '}
+              {data.scan.gmailThreadsBulkFiltered} bulk filtered ·{' '}
+              {data.scan.gmailThreadsHealthy} healthy
+              {data.scan.gmailThreadsDismissed > 0 && (
+                <> · {data.scan.gmailThreadsDismissed} dismissed</>
+              )}
+            </span>
+            <span className="hidden sm:inline">·</span>
+            <span>
+              <span className="font-medium text-foreground/80">GHL:</span>{' '}
+              {data.scan.ghlConvsExamined} convs scanned ·{' '}
+              {data.scan.ghlConvsHealthy} healthy
+              {data.scan.ghlConvsDismissed > 0 && (
+                <> · {data.scan.ghlConvsDismissed} dismissed</>
+              )}
+            </span>
+          </div>
+          {Object.keys(data.lastSyncByAccount).length > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3">
+              {Object.entries(data.lastSyncByAccount).map(([email, iso]) => (
+                <span key={email}>
+                  Last Gmail sync · {email.replace('@leadgenisys.com', '')}:{' '}
+                  {formatRelativeShort(iso)}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="mt-1 text-[10px] text-muted-foreground/80">
+            &quot;Healthy&quot; = recent activity but doesn&apos;t need a
+            nudge yet (e.g. you replied 1 day ago, or they haven&apos;t
+            had time to respond). Click Refresh to re-sync Gmail.
+          </div>
+        </div>
+      )}
+
       {replyTo && (
         <ReplyDrawer
           candidate={replyTo}
@@ -230,6 +285,20 @@ export default function FollowUpsPage() {
       )}
     </div>
   )
+}
+
+/** Short relative time helper for the diagnostic footer.
+ *  "5m ago" / "2h ago" / "3d ago". */
+function formatRelativeShort(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (isNaN(ms) || ms < 0) return 'just now'
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ago`
 }
 
 /* -------------------------------------------------------------------------- */

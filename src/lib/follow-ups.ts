@@ -37,7 +37,53 @@ import { getConversations, getConversationMessages } from './ghl'
 
 const VAULT_ENTRY_NAME = 'GHL Genisys Token'
 const STAFF_DOMAIN_RE = /@(leadgenisys\.com|trustware\.io)$/i
-const NOREPLY_RE = /noreply|no-reply|notifications?@|donotreply/i
+
+/** Role-based local parts that are essentially never humans. If the
+ *  bit before the @ matches one of these (with optional trailing
+ *  separator like `team-news@` or `hello.us@`), drop it — it's
+ *  automated mail. Real prospects use personal names. */
+const ROLE_LOCAL_PART_RE =
+  /^(?:noreply|no[._-]?reply|donotreply|do[._-]?not[._-]?reply|mailer[._-]?daemon|mailer|robot|bot|automated|automation|notifications?|notice|news|newsletter|updates?|alerts?|messages?|team|hello|hi|info|support|service|services|account|accounts|admin|reply|replies|invoices?|billing|receipts?|payments?|payouts?|deposits?|verify|verification|trusthub|deals?|offers?|engage|engagement|community|members?|membership|onboarding|outreach|broadcast|legal|press|webinars?|partners?|partnerships?|courses?|learn|tips?|inbox|rewards?|tracking|hr|sales|trial|trials|prospects?|leads|leadgen|business[a-z]*|merchant|store|shop|orders?|shipping|delivery|booking|bookings|reservation|reservations|security|alerts|alert|news|update|hello-?us|insights?|digest|weekly|daily|monthly)(?:[._-]|$)/i
+
+/** Common bulk-mail subdomain prefixes — senders isolate marketing
+ *  / transactional traffic onto a subdomain so it doesn't taint
+ *  their main domain reputation. `team@email.rocketlawyer.com` /
+ *  `info@e.atlassian.com` / `hi@mail.cursor.com` etc. */
+const BULK_SUBDOMAIN_RE =
+  /@(?:em|email|emails|mail|mails|engage|news|newsletter|notify|notifications?|broadcast|hello|inbound|tracking|click|updates?|alerts?|messaging|messages?|comms?|reply|replies|notice|info|outbound|smtp|sendgrid|mailgun|sparkpost|mandrill|e|n|m|t|d|cl|p|c)\.[^.@]+\./i
+
+/** Subject-line markers for marketing pushes. Used as a tiebreaker
+ *  signal alongside the local-part / subdomain checks below — a
+ *  borderline-looking sender with one of these subjects gets dropped. */
+const MARKETING_SUBJECT_RE =
+  /(?:unsubscribe|free trial|discount|% off|newsletter|webinar|🎉|🚀|💸|💰|⭐|sale ends|limited time|don't miss|introducing|announcement|tips?\b|how to)/i
+
+/** Last-line defense — explicit known-bulk senders that slip past
+ *  the heuristics above. Add to this list as Alex flags more. */
+const HARDCODED_BULK_SENDERS_RE =
+  /@(?:intuit\.com|rocketlawyer\.com|engage\.zenbusiness\.com|render\.com|atlassian\.com|creatify\.ai|twilio\.com|pdfguru\.com|cursor\.com|notion\.so|linkedin\.com|loom\.com|stripe\.com|github\.com|vercel\.com|cloudflare\.com|namecheap\.com|godaddy\.com|hubspot\.com|mailchimp\.com|substack\.com|medium\.com|wordpress\.com)$/i
+
+/** Combined bulk detector. Drops if ANY signal trips. Order matters
+ *  — local-part check is fastest. */
+function isBulkSender(fromEmail: string, subject: string): boolean {
+  const at = fromEmail.indexOf('@')
+  if (at <= 0) return true // malformed
+  const local = fromEmail.slice(0, at)
+  if (ROLE_LOCAL_PART_RE.test(local)) return true
+  if (BULK_SUBDOMAIN_RE.test(fromEmail)) return true
+  if (HARDCODED_BULK_SENDERS_RE.test(fromEmail)) return true
+  // Borderline + marketing-y subject = drop. Catches things like
+  // `hello@joeagency.com` whose subject is "🎉 Free trial inside" —
+  // technically a human-ish local part, but the subject is clearly
+  // a campaign blast.
+  if (
+    MARKETING_SUBJECT_RE.test(subject) &&
+    /^(?:hello|hi|info|team|sales|outreach|partnerships?)/i.test(local)
+  ) {
+    return true
+  }
+  return false
+}
 
 // Bucket thresholds — keep as constants so they're easy to tune.
 const AWAITING_MIN_AGE_MS = 2 * 60 * 60 * 1000 // 2h
@@ -110,6 +156,18 @@ export type FollowUpResults = {
   /** Last Gmail sync per account. Lets the UI surface "last synced
    *  X minutes ago" so Ethan knows whether to refresh. */
   lastSyncByAccount: Record<string, string>
+  /** Diagnostics for the page footer — lets Alex see WHY a bucket is
+   *  small without us guessing. Real estate well spent because
+   *  "no follow-ups" can mean "nothing to do" or "filtering broke". */
+  scan: {
+    gmailThreadsExamined: number
+    gmailThreadsBulkFiltered: number
+    gmailThreadsHealthy: number
+    gmailThreadsDismissed: number
+    ghlConvsExamined: number
+    ghlConvsHealthy: number
+    ghlConvsDismissed: number
+  }
 }
 
 /** Compute the full follow-up landscape for a user. The dismissal
@@ -179,7 +237,11 @@ export async function computeFollowUps(
   }
 
   const gmailCandidates: FollowUpCandidate[] = []
+  let gmailThreadsExamined = 0
+  let gmailThreadsBulkFiltered = 0
+  let gmailThreadsHealthy = 0
   for (const [threadId, msgs] of byThread.entries()) {
+    gmailThreadsExamined++
     // Sort newest first.
     msgs.sort((a, b) => b.date.getTime() - a.date.getTime())
     const latest = msgs[0]
@@ -195,7 +257,13 @@ export async function computeFollowUps(
     const otherEmail = inferOtherParty(msgs, ourEmails)
     if (!otherEmail) continue
     if (STAFF_DOMAIN_RE.test(otherEmail)) continue // internal noise
-    if (NOREPLY_RE.test(otherEmail)) continue // newsletters / no-reply
+    // Bulk-mail filter (newsletters, transactional, role-based
+    // senders, marketing campaigns). Heuristic-heavy because the
+    // patterns are vast — see isBulkSender for the full surface.
+    if (isBulkSender(otherEmail, latest.subject || '')) {
+      gmailThreadsBulkFiltered++
+      continue
+    }
 
     // Find latest in each direction. "from in ourEmails" = outbound,
     // else inbound.
@@ -225,7 +293,10 @@ export async function computeFollowUps(
       lastInbound: lastInbound?.date ?? null,
       lastOutbound: lastOutbound?.date ?? null,
     })
-    if (!bucket) continue
+    if (!bucket) {
+      gmailThreadsHealthy++ // didn't qualify, but not bulk
+      continue
+    }
 
     const matchedClientName = clientByEmail.get(otherEmail.toLowerCase()) ?? null
     const inboundLatestForName = msgs.find(
@@ -261,7 +332,8 @@ export async function computeFollowUps(
   // Pull location-wide convs, match to active clients, fetch latest
   // message per match for direction + dates. Reuses the same matcher
   // /api/crm/client-conversations + client-message-alert apply.
-  const ghlCandidates = await collectGhlFollowUps(now)
+  const { candidates: ghlCandidates, examined: ghlConvsExamined, healthy: ghlConvsHealthy } =
+    await collectGhlFollowUps(now)
 
   // -- Filter dismissed ----------------------------------------------------
   const dismissals = await prisma.followUpDismissal.findMany({
@@ -270,9 +342,14 @@ export async function computeFollowUps(
   })
   const dismissed = new Set(dismissals.map((d) => d.threadKey))
 
-  const all = [...gmailCandidates, ...ghlCandidates].filter(
-    (c) => !dismissed.has(c.threadKey),
-  )
+  let gmailThreadsDismissed = 0
+  let ghlConvsDismissed = 0
+  const all = [...gmailCandidates, ...ghlCandidates].filter((c) => {
+    if (!dismissed.has(c.threadKey)) return true
+    if (c.source === 'gmail') gmailThreadsDismissed++
+    else ghlConvsDismissed++
+    return false
+  })
 
   const awaiting = all
     .filter((c) => c.bucket === 'awaiting')
@@ -296,6 +373,15 @@ export async function computeFollowUps(
     },
     computedAt: new Date(now).toISOString(),
     lastSyncByAccount,
+    scan: {
+      gmailThreadsExamined,
+      gmailThreadsBulkFiltered,
+      gmailThreadsHealthy,
+      gmailThreadsDismissed,
+      ghlConvsExamined,
+      ghlConvsHealthy,
+      ghlConvsDismissed,
+    },
   }
 }
 
@@ -382,8 +468,19 @@ function inferOtherParty(
  *  and the Slack-alert sync. */
 async function collectGhlFollowUps(
   now: number,
-): Promise<FollowUpCandidate[]> {
+): Promise<{
+  candidates: FollowUpCandidate[]
+  /** Convs that matched a Client and were eligible for bucketing
+   *  (after reminder + horizon filters). Lets the page footer say
+   *  "we checked N GHL convs". */
+  examined: number
+  /** Examined but didn't qualify for any bucket (healthy / too
+   *  recent). */
+  healthy: number
+}> {
   const out: FollowUpCandidate[] = []
+  let examined = 0
+  let healthy = 0
 
   const [clients, reminderConvoIds] = await Promise.all([
     prisma.client.findMany({
@@ -425,7 +522,7 @@ async function collectGhlFollowUps(
     raw = await getConversations(VAULT_ENTRY_NAME, { limit: 100 })
   } catch (err) {
     console.error('[follow-ups] GHL fetch failed:', err)
-    return out
+    return { candidates: out, examined, healthy }
   }
   const conversations =
     ((raw as { conversations?: Record<string, unknown>[] }).conversations ?? [])
@@ -473,6 +570,8 @@ async function collectGhlFollowUps(
     const ageMs = now - lastDate.getTime()
     if (ageMs > HORIZON_MS) continue
 
+    examined++
+
     // Fetch latest 1 message for direction. (The summary doesn't
     // include direction reliably across GHL versions.)
     let latestPage: unknown
@@ -499,7 +598,10 @@ async function collectGhlFollowUps(
       lastInbound: null,
       lastOutbound: null,
     })
-    if (!bucket) continue
+    if (!bucket) {
+      healthy++
+      continue
+    }
 
     const contactName = (rawName?.trim() || hit.contactName?.trim() || hit.name)
     const handle = rawEmail || rawPhone || ''
@@ -526,7 +628,7 @@ async function collectGhlFollowUps(
     })
   }
 
-  return out
+  return { candidates: out, examined, healthy }
 }
 
 function pickLatestMessage(
