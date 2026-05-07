@@ -278,8 +278,16 @@ function markdownToHtml(text: string): string {
       /\[([^\]]+)\]\(([^)]+)\)/g,
       '<a href="$2" style="color:#7c3aed;text-decoration:underline;">$1</a>'
     )
+    // Auto-link bare URLs. Two guards prevent re-wrapping URLs that
+    // already live inside the markdown-link <a href="..."> output of
+    // the previous step:
+    //   1. negative lookbehind (?<!=") skips URLs preceded by `="`
+    //      (i.e. inside an HTML attribute value)
+    //   2. char class excludes `"` so even if lookbehind misses, the
+    //      match stops before the closing quote of the attribute
+    //      and doesn't drag stray HTML into the wrapped <a>
     .replace(
-      /(https?:\/\/[^\s<]+)/g,
+      /(?<!=")(https?:\/\/[^\s<"]+)/g,
       '<a href="$1" style="color:#7c3aed;text-decoration:underline;">$1</a>'
     )
     .replace(/^[\*\-]\s+(.+)$/gm, '<li style="margin-left:20px;margin-bottom:4px;">$1</li>')
@@ -297,6 +305,22 @@ function markdownToHtml(text: string): string {
     .join('\n')
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;max-width:600px;">${html}</body></html>`
+}
+
+/** RFC 2047 encoded-word for non-ASCII Subject headers.
+ *
+ *  Mail headers are spec'd as ASCII; non-ASCII content (em-dashes,
+ *  arrows, accented chars, etc.) needs to be wrapped in
+ *  `=?charset?encoding?content?=` form. Without this wrapping, strict
+ *  clients (Outlook is one) fall back to Latin-1 interpretation of
+ *  raw UTF-8 bytes — producing the classic `Ã¢Â€Â"` mojibake.
+ *
+ *  Pure-ASCII subjects pass through untouched. */
+function encodeSubject(subject: string): string {
+  // Fast path — ASCII only, nothing to encode.
+  if (/^[\x00-\x7F]*$/.test(subject)) return subject
+  const encoded = Buffer.from(subject, 'utf-8').toString('base64')
+  return `=?UTF-8?B?${encoded}?=`
 }
 
 export async function sendEmail(params: {
@@ -317,9 +341,13 @@ export async function sendEmail(params: {
   const headers = [
     `To: ${params.to}`,
     `From: ${params.accountEmail}`,
-    `Subject: ${params.subject}`,
+    `Subject: ${encodeSubject(params.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
+    // 8bit signals that the body contains raw UTF-8 octets (em-dashes,
+    // arrows, etc.) rather than 7-bit ASCII. Without this, some
+    // strict clients fall back to ASCII interpretation of the body.
+    'Content-Transfer-Encoding: 8bit',
   ]
   if (params.inReplyTo) {
     headers.push(`In-Reply-To: ${params.inReplyTo}`)
