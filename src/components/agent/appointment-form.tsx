@@ -365,6 +365,11 @@ export function AppointmentForm({
     router.refresh()
   }
 
+  // Compute the picked client once per render so the address
+  // autocomplete (and any future component) can lean on the same
+  // lookup the form-submit handler already does on line ~289.
+  const selectedClient = clients.find((c) => c.id === values.clientId) ?? null
+
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center justify-between">
@@ -618,11 +623,18 @@ export function AppointmentForm({
             only mandatory part — city / state / zip are nice-to-have
             but the appointment is still useful with just a street. */}
         <Field label="Address" required>
+          {/* Bias autocomplete to the picked client's state so e.g.
+              when Mary picks "Sunny Sky Solar" (NJ) and types
+              "123 Main St", suggestions narrow to NJ addresses
+              instead of every "123 Main St" in the country. Same
+              behavior the client onboarding form has. Falls through
+              to unbiased nationwide when no client is picked yet. */}
           <AddressFields
             value={values.address}
             onChange={(combined) => set('address', combined)}
             disabled={submitting}
             requireStreet
+            stateBias={selectedClient?.state ?? null}
           />
           {/* Embedded Google Maps preview lights up once a vault
               entry named "Google Maps Key" is configured. Until
