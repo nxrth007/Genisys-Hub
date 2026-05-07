@@ -103,6 +103,14 @@ export function AddressInput({
   const [loading, setLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [usingNominatim, setUsingNominatim] = useState(false)
+  // Visible status state — when the autocomplete fetch returns empty
+  // OR errors, we used to silently render nothing. That made silent
+  // failures (auth blocked, vault key missing + Nominatim slow, etc.)
+  // look like a UI bug. Now we surface a one-line status in the
+  // dropdown footer so the user sees what happened.
+  const [status, setStatus] = useState<
+    'idle' | 'searching' | 'noResults' | 'error'
+  >('idle')
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -128,12 +136,15 @@ export function AddressInput({
     const q = draft.trim()
     if (q.length < 3) {
       setSuggestions([])
+      setStatus('idle')
       return
     }
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
         setLoading(true)
+        setStatus('searching')
+        let nextSuggestions: Suggestion[] = []
         if (!usingNominatim) {
           const params = new URLSearchParams({ q })
           if (biasCode) params.set('state', biasCode)
@@ -143,31 +154,39 @@ export function AddressInput({
           )
           if (res.status === 503) {
             setUsingNominatim(true)
-            await fetchNominatim(q, controller.signal)
-            return
-          }
-          if (!res.ok) {
+            nextSuggestions = await fetchNominatim(q, controller.signal)
+          } else if (!res.ok) {
+            // Surface non-OK responses so silent 401/403/500s aren't
+            // mistaken for "no results". Console.warn so admin can
+            // open DevTools and see what actually went wrong.
+            console.warn(
+              `[address-input] ${endpoint}/autocomplete returned ${res.status}`,
+            )
             setSuggestions([])
+            setStatus('error')
             return
-          }
-          const data = (await res.json()) as {
-            predictions: Array<{ description: string; placeId: string }>
-          }
-          setSuggestions(
-            data.predictions.map((p) => ({
+          } else {
+            const data = (await res.json()) as {
+              predictions: Array<{ description: string; placeId: string }>
+            }
+            nextSuggestions = data.predictions.map((p) => ({
               key: p.placeId,
               label: p.description,
               pickedValue: stripCountryTail(p.description),
               source: 'google',
               placeId: p.placeId,
-            })),
-          )
+            }))
+          }
         } else {
-          await fetchNominatim(q, controller.signal)
+          nextSuggestions = await fetchNominatim(q, controller.signal)
         }
+        setSuggestions(nextSuggestions)
+        setStatus(nextSuggestions.length === 0 ? 'noResults' : 'idle')
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
+        console.warn('[address-input] suggestion fetch threw:', err)
         setSuggestions([])
+        setStatus('error')
       } finally {
         setLoading(false)
       }
@@ -179,7 +198,10 @@ export function AddressInput({
     }
   }, [draft, usingNominatim, endpoint, biasCode])
 
-  async function fetchNominatim(q: string, signal: AbortSignal) {
+  async function fetchNominatim(
+    q: string,
+    signal: AbortSignal,
+  ): Promise<Suggestion[]> {
     const url = new URL('https://nominatim.openstreetmap.org/search')
     url.searchParams.set('q', q)
     url.searchParams.set('format', 'json')
@@ -191,8 +213,8 @@ export function AddressInput({
       headers: { Accept: 'application/json' },
     })
     if (!res.ok) {
-      setSuggestions([])
-      return
+      console.warn('[address-input] nominatim returned', res.status)
+      return []
     }
     const data = (await res.json()) as NominatimResult[]
     const results = (data || []).map((r) => {
@@ -208,25 +230,19 @@ export function AddressInput({
         label: r.display_name,
         pickedValue: formatAddressLine({ street, city, stateCode, zip }),
         source: 'nominatim' as const,
-        // Best-effort client-side bias for Nominatim — keep matches in
-        // the requested state if we have one. Nominatim doesn't have
-        // a state-bias param, so we filter post-hoc.
         _stateMatch: biasCode ? stateCode === biasCode : true,
       }
     })
-    // If a bias is set, prefer in-state matches but don't drop the
-    // others entirely — fall back to the unfiltered list when no
-    // in-state match exists so the user still gets suggestions.
+    // Bias: prefer in-state matches, but fall back to the full list
+    // when there are none so the user still sees something.
     const inState = results.filter((r) => r._stateMatch)
     const ordered = inState.length > 0 ? inState : results
-    setSuggestions(
-      ordered.map((r) => ({
-        key: r.key,
-        label: r.label,
-        pickedValue: r.pickedValue,
-        source: r.source,
-      })),
-    )
+    return ordered.map((r) => ({
+      key: r.key,
+      label: r.label,
+      pickedValue: r.pickedValue,
+      source: r.source,
+    }))
   }
 
   // Click-outside closes the dropdown.
@@ -314,7 +330,12 @@ export function AddressInput({
         className={className ?? defaultInputCls}
       />
 
-      {open && suggestions.length > 0 && (
+      {/* Dropdown — renders as long as the user has triggered it,
+          even when there are no suggestions yet. The status footer
+          tells them what's happening (searching / no results /
+          suggestions returned an error) so a silent failure doesn't
+          look like a UI bug. */}
+      {open && draft.trim().length >= 3 && (
         <div className="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
           {suggestions.map((s, i) => (
             <button
@@ -332,6 +353,24 @@ export function AddressInput({
               <span className="leading-tight">{s.label}</span>
             </button>
           ))}
+          {/* Empty / status states. Keep them inside the dropdown so
+              the visual chrome is consistent regardless of outcome. */}
+          {suggestions.length === 0 && status === 'searching' && (
+            <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Searching addresses…
+            </p>
+          )}
+          {suggestions.length === 0 && status === 'noResults' && (
+            <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+              No matches yet — keep typing your full address.
+            </p>
+          )}
+          {suggestions.length === 0 && status === 'error' && (
+            <p className="px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
+              Couldn&apos;t load suggestions right now. You can keep
+              typing your address manually — we&apos;ll save it as-is.
+            </p>
+          )}
           <p className="border-t border-zinc-100 px-3 py-1.5 text-[10px] text-zinc-400 dark:border-zinc-800">
             {usingNominatim
               ? 'Suggestions via OpenStreetMap'
