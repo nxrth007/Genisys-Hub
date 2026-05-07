@@ -28,11 +28,14 @@ import {
   Building2,
   CheckCheck,
   Clock,
+  ExternalLink,
   Inbox,
   Loader2,
   Mail,
   MessageSquare,
+  MoreHorizontal,
   RefreshCcw,
+  Search,
   Send,
   Sparkles,
   X,
@@ -91,6 +94,10 @@ export default function FollowUpsPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<ActiveTab>('all')
   const [replyTo, setReplyTo] = useState<FollowUpCandidate | null>(null)
+  // Free-text search across the visible bucket. Multi-token AND so
+  // "logix chris" only matches rows with both words. Helps once the
+  // list grows past ~20 rows.
+  const [search, setSearch] = useState('')
 
   const query = useQuery<FollowUpResults>({
     queryKey: ['follow-ups'],
@@ -117,7 +124,7 @@ export default function FollowUpsPage() {
 
   const data = query.data
 
-  const visible = (() => {
+  const bucketed = (() => {
     if (!data) return [] as FollowUpCandidate[]
     if (tab === 'awaiting') return data.awaiting
     if (tab === 'suggest') return data.suggest
@@ -125,11 +132,33 @@ export default function FollowUpsPage() {
     return [...data.awaiting, ...data.suggest, ...data.stale]
   })()
 
+  // Search filter — multi-token AND across the human-memorable
+  // fields on each candidate.
+  const tokens = search
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+  const visible =
+    tokens.length === 0
+      ? bucketed
+      : bucketed.filter((c) => {
+          const haystack = [
+            c.contactName,
+            c.contactHandle,
+            c.subject,
+            c.preview,
+            c.gmail?.matchedClientName ?? '',
+            c.accountEmail ?? '',
+          ]
+            .join(' ')
+            .toLowerCase()
+          return tokens.every((t) => haystack.includes(t))
+        })
+
   // Split visible candidates by source so the page can render two
   // distinct sections — Alex's spec was "split section between
-  // emails and GHL conversations." Cleaner UX than interleaving,
-  // makes it obvious when GHL has 0 entries vs. when we just
-  // happened to mix emails first.
+  // emails and GHL conversations."
   const visibleEmail = visible.filter((c) => c.source === 'gmail')
   const visibleGhl = visible.filter((c) => c.source === 'ghl')
 
@@ -173,6 +202,36 @@ export default function FollowUpsPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Search bar — filters whatever bucket tab is active. Pill-
+          shaped + match count chip on the right when there's a query
+          (matches the /clients page convention). */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name, email, subject, or preview…"
+          aria-label="Search follow-ups"
+          className="w-full rounded-full border border-border bg-card py-2.5 pl-11 pr-28 text-sm shadow-soft transition focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+        {search.trim() && (
+          <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {visible.length} {visible.length === 1 ? 'match' : 'matches'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="grid h-6 w-6 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bucket tabs */}
@@ -356,6 +415,30 @@ function formatRelativeShort(iso: string): string {
   return `${d}d ago`
 }
 
+/** Compact timestamp for the thread history rows. "Mar 4" for old
+ *  messages, "2:30 PM" for today, so the eye scans dates fast. */
+function formatThreadTimestamp(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: sameYear ? undefined : 'numeric',
+  })
+}
+
 /* -------------------------------------------------------------------------- */
 
 /* Section header + cards for one source (Email OR GHL). Always
@@ -457,20 +540,23 @@ function CandidateCard({
   onReply: () => void
 }) {
   const qc = useQueryClient()
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
   const dismiss = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (snoozeDays: number | null) => {
       const res = await fetch('/api/follow-ups/dismiss', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           threadKey: candidate.threadKey,
           contactLabel: candidate.contactName,
+          snoozeDays,
         }),
       })
-      if (!res.ok) throw new Error('Failed to dismiss')
+      if (!res.ok) throw new Error('Failed to update')
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['follow-ups'] })
+      setSnoozeMenuOpen(false)
     },
   })
 
@@ -563,20 +649,84 @@ function CandidateCard({
             Open in CRM
           </Link>
         )}
-        <button
-          type="button"
-          onClick={() => dismiss.mutate()}
-          disabled={dismiss.isPending}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:bg-muted disabled:opacity-50"
-          title="Mark this thread as handled — hides it for you, doesn't affect anyone else."
-        >
-          {dismiss.isPending ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <CheckCheck className="h-3 w-3" />
+        {/* Open-in-Gmail — Gmail rows only. Sometimes Ethan wants
+            to handle a thread directly in Gmail (attachments,
+            multiple recipients, etc.). Direct deep-link via the
+            authuser query param so it lands in the right account. */}
+        {candidate.source === 'gmail' && candidate.gmail?.gmailThreadId && (
+          <a
+            href={`https://mail.google.com/mail/u/${encodeURIComponent(candidate.accountEmail ?? '')}/#inbox/${candidate.gmail.gmailThreadId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:bg-muted"
+            title="Open this thread in Gmail"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in Gmail
+          </a>
+        )}
+        {/* Snooze / dismiss menu. Wrapped in a relative div so the
+            popover positions against this button. The popover
+            closes on outside-click via the backdrop. */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setSnoozeMenuOpen((v) => !v)}
+            disabled={dismiss.isPending}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:bg-muted disabled:opacity-50"
+            title="Snooze for a few days, or dismiss permanently"
+          >
+            {dismiss.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <MoreHorizontal className="h-3 w-3" />
+            )}
+            Handle
+          </button>
+          {snoozeMenuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setSnoozeMenuOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-border bg-card text-xs shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => dismiss.mutate(3)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                >
+                  <Clock className="h-3 w-3 text-amber-500" />
+                  Snooze 3 days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss.mutate(7)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                >
+                  <Clock className="h-3 w-3 text-amber-500" />
+                  Snooze 1 week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss.mutate(30)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                >
+                  <Clock className="h-3 w-3 text-amber-500" />
+                  Snooze 1 month
+                </button>
+                <div className="border-t border-border" />
+                <button
+                  type="button"
+                  onClick={() => dismiss.mutate(null)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
+                >
+                  <CheckCheck className="h-3 w-3 text-emerald-500" />
+                  Mark handled (permanent)
+                </button>
+              </div>
+            </>
           )}
-          Mark handled
-        </button>
+        </div>
       </div>
     </div>
   )
@@ -585,6 +735,17 @@ function CandidateCard({
 /* -------------------------------------------------------------------------- */
 /*  Reply drawer — inline composer for Gmail threads                          */
 /* -------------------------------------------------------------------------- */
+
+type ThreadMessage = {
+  id: string
+  from: string
+  fromName: string | null
+  to: string | null
+  subject: string | null
+  body: string
+  date: string
+  direction: 'inbound' | 'outbound'
+}
 
 function ReplyDrawer({
   candidate,
@@ -600,6 +761,25 @@ function ReplyDrawer({
   const subject = baseSubject.toLowerCase().startsWith('re:')
     ? baseSubject
     : `Re: ${baseSubject || 'follow-up'}`
+
+  // Fetch thread history for Gmail rows so the drawer shows the
+  // actual back-and-forth, not just a 200-char snippet of the
+  // latest message. Skipped for GHL (those click out to /crm where
+  // the full thread already renders).
+  const thread = useQuery<{ messages: ThreadMessage[] }>({
+    queryKey: ['follow-up-thread', candidate.threadKey],
+    enabled: candidate.source === 'gmail',
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/follow-ups/thread?threadKey=${encodeURIComponent(candidate.threadKey)}`,
+      )
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load thread')
+      }
+      return res.json()
+    },
+  })
 
   const send = useMutation({
     mutationFn: async () => {
@@ -675,15 +855,75 @@ function ReplyDrawer({
             </p>
           </div>
 
-          {candidate.preview && (
-            <details className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
-              <summary className="cursor-pointer font-medium text-muted-foreground">
-                Show last message preview
-              </summary>
-              <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                {candidate.preview}
-              </p>
-            </details>
+          {/* Thread history. Pulled from /api/follow-ups/thread for
+              Gmail rows. Falls back to the snippet preview while
+              loading or if the fetch errors out. */}
+          {candidate.source === 'gmail' ? (
+            thread.isLoading ? (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading thread…
+              </div>
+            ) : thread.isError || !thread.data?.messages.length ? (
+              candidate.preview && (
+                <details className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                  <summary className="cursor-pointer font-medium text-muted-foreground">
+                    Show last message preview
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                    {candidate.preview}
+                  </p>
+                </details>
+              )
+            ) : (
+              <div className="rounded-md border border-border bg-muted/20">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span>
+                    Thread · last {thread.data.messages.length}{' '}
+                    {thread.data.messages.length === 1
+                      ? 'message'
+                      : 'messages'}
+                  </span>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {thread.data.messages.map((m, idx) => (
+                    <div
+                      key={m.id}
+                      className={`px-3 py-2 text-xs ${
+                        idx > 0 ? 'border-t border-border' : ''
+                      } ${
+                        m.direction === 'outbound'
+                          ? 'bg-primary/5'
+                          : 'bg-transparent'
+                      }`}
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="truncate font-medium">
+                          {m.direction === 'outbound' ? 'You' : (m.fromName || m.from)}
+                        </span>
+                        <span className="flex-shrink-0 text-[10px] text-muted-foreground">
+                          {formatThreadTimestamp(m.date)}
+                        </span>
+                      </div>
+                      <p className="line-clamp-6 whitespace-pre-wrap text-muted-foreground">
+                        {m.body}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          ) : (
+            candidate.preview && (
+              <details className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+                <summary className="cursor-pointer font-medium text-muted-foreground">
+                  Show last message preview
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                  {candidate.preview}
+                </p>
+              </details>
+            )
           )}
 
           <div>

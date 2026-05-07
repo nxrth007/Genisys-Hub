@@ -5,11 +5,16 @@ import { dismissFollowUp } from '@/lib/follow-ups'
 /**
  * POST /api/follow-ups/dismiss
  *
- * Body: { threadKey: string, contactLabel?: string }
+ * Body: {
+ *   threadKey: string,
+ *   contactLabel?: string,
+ *   snoozeDays?: number,   // omit / 0 = permanent dismiss
+ *                          // positive number = re-surface after N days
+ * }
  *
- * Marks a follow-up candidate as handled for the calling user.
- * Idempotent — duplicate dismissals are no-ops via the unique
- * (userId, threadKey) constraint.
+ * Idempotent — duplicate calls with the same threadKey overwrite
+ * the snooze (so snoozing twice with different days lands on the
+ * latest value).
  */
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -21,7 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  let body: { threadKey?: string; contactLabel?: string }
+  let body: { threadKey?: string; contactLabel?: string; snoozeDays?: number }
   try {
     body = await req.json()
   } catch {
@@ -40,6 +45,10 @@ export async function POST(req: NextRequest) {
     threadKey,
     contactLabel:
       typeof body.contactLabel === 'string' ? body.contactLabel : null,
+    snoozeDays:
+      typeof body.snoozeDays === 'number' && body.snoozeDays > 0
+        ? body.snoozeDays
+        : null,
   })
 
   return NextResponse.json({ ok: true })

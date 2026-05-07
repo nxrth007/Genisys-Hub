@@ -369,8 +369,19 @@ export async function computeFollowUps(
   const ghlCandidates = ghl.candidates
 
   // -- Filter dismissed ----------------------------------------------------
+  // A dismissal is active when:
+  //   - snoozeUntil IS NULL (permanent dismiss), OR
+  //   - snoozeUntil > now (snooze hasn't expired yet)
+  // Expired snoozes simply don't filter — the row re-surfaces.
+  const nowDate = new Date(now)
   const dismissals = await prisma.followUpDismissal.findMany({
-    where: { userId },
+    where: {
+      userId,
+      OR: [
+        { snoozeUntil: null },
+        { snoozeUntil: { gt: nowDate } },
+      ],
+    },
     select: { threadKey: true },
   })
   const dismissed = new Set(dismissals.map((d) => d.threadKey))
@@ -423,13 +434,24 @@ export async function computeFollowUps(
   }
 }
 
-/** Drop a thread for the calling user. Idempotent — re-dismissing
- *  is a no-op. */
+/** Drop or snooze a thread for the calling user. Idempotent —
+ *  a second call with the same threadKey overwrites the snooze.
+ *
+ *  snoozeDays semantics:
+ *    undefined / null / 0  → permanent dismiss (snoozeUntil = null)
+ *    positive number       → snooze for that many days
+ */
 export async function dismissFollowUp(params: {
   userId: string
   threadKey: string
   contactLabel?: string | null
+  snoozeDays?: number | null
 }) {
+  const snoozeUntil =
+    params.snoozeDays && params.snoozeDays > 0
+      ? new Date(Date.now() + params.snoozeDays * 24 * 60 * 60 * 1000)
+      : null
+
   await prisma.followUpDismissal.upsert({
     where: {
       userId_threadKey: {
@@ -441,9 +463,11 @@ export async function dismissFollowUp(params: {
       userId: params.userId,
       threadKey: params.threadKey,
       contactLabel: params.contactLabel ?? null,
+      snoozeUntil,
     },
     update: {
       contactLabel: params.contactLabel ?? null,
+      snoozeUntil,
     },
   })
 }

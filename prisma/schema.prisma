@@ -959,10 +959,17 @@ model FollowUpDismissal {
   /// Snapshot of the contact at dismissal time, just so admin can recall
   /// what they marked handled without re-fetching the source thread.
   contactLabel String?
+  /// Snooze expiry. NULL = permanent dismiss (never re-surface). When
+  /// set, the unifier treats this dismissal as inactive once the
+  /// timestamp passes — the row pops back into the follow-ups view
+  /// for a fresh decision. Lets admin say "remind me in 3 days" /
+  /// "1 week" instead of a binary mark-handled.
+  snoozeUntil DateTime?
   createdAt   DateTime @default(now())
 
   @@unique([userId, threadKey], map: "ux_follow_up_dismissal_user_thread")
   @@index([userId])
+  @@index([snoozeUntil])
 }
 
 // -----------------------------------------------------------------------------
