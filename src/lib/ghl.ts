@@ -415,6 +415,51 @@ export async function getEventsAcrossSubAccounts(
   return { events: allEvents, subAccounts: subaccounts }
 }
 
+/** Fetch GHL calendar events between two arbitrary timestamps. The
+ *  Today page's calendar pill uses this to scope "Next up" to the
+ *  picked date range instead of being hard-pinned to the current day.
+ *  start / end are ISO strings (UTC); the caller is responsible for
+ *  computing them in the correct user timezone. */
+export async function getCalendarEventsInRange(
+  vaultEntryName = 'GHL Genisys Token',
+  range: { start: string; end: string },
+) {
+  const calData = await getCalendars(vaultEntryName)
+  const calendars = (calData.calendars || []) as Array<{ id: string; name: string }>
+
+  type CalEvent = Record<string, unknown> & { calendarName: string; calendarId: string }
+  let allEvents: CalEvent[] = []
+
+  for (const cal of calendars) {
+    try {
+      const evData = await getCalendarEvents(
+        cal.id,
+        range.start,
+        range.end,
+        vaultEntryName,
+      )
+      const events = (evData.events || []) as Record<string, unknown>[]
+      allEvents = allEvents.concat(
+        events.map((e) => ({
+          ...e,
+          calendarName: cal.name,
+          calendarId: cal.id,
+        })),
+      )
+    } catch {
+      // skip
+    }
+  }
+
+  allEvents.sort((a, b) => {
+    const dateA = new Date(String(a.startTime || '1970-01-01')).getTime()
+    const dateB = new Date(String(b.startTime || '1970-01-01')).getTime()
+    return dateA - dateB
+  })
+
+  return { events: allEvents, calendars }
+}
+
 export async function getTodayEvents(
   vaultEntryName = 'GHL Genisys Token',
   options: { timeZone?: string } = {}

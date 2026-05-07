@@ -271,10 +271,22 @@ export default function TodayPage() {
     },
   })
 
+  // Calendar query is keyed on the picked range so changing the
+  // calendar pill (Daily / Weekly / Monthly / custom) refetches GHL
+  // events for that span. Without the key dependency, react-query
+  // would serve stale "today" data even after the user re-scoped.
   const calQuery = useQuery<{ events: CalEvent[] }>({
-    queryKey: ['today-calendar'],
+    queryKey: [
+      'today-calendar',
+      range.start.toISOString(),
+      range.end.toISOString(),
+    ],
     queryFn: async () => {
-      const res = await fetch('/api/today/calendar')
+      const params = new URLSearchParams({
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+      })
+      const res = await fetch(`/api/today/calendar?${params.toString()}`)
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to load calendar')
@@ -513,7 +525,15 @@ export default function TodayPage() {
           }
         />
         <StatCard
-          label="Meetings today"
+          label={
+            scope === 'Daily'
+              ? 'Meetings today'
+              : scope === 'Weekly'
+                ? 'Meetings this week'
+                : scope === 'Monthly'
+                  ? 'Meetings this month'
+                  : 'Meetings this quarter'
+          }
           value={events.length}
           subtitle={events.length === 0 ? 'nothing scheduled' : 'scheduled'}
           tone="blue"
@@ -676,7 +696,20 @@ export default function TodayPage() {
           mockup's grid almost exactly. */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[20px] font-semibold tracking-tight">Next up</h2>
+          <h2 className="text-[20px] font-semibold tracking-tight">
+            {scope === 'Daily'
+              ? 'Next up'
+              : scope === 'Weekly'
+                ? 'Meetings this week'
+                : scope === 'Monthly'
+                  ? 'Meetings this month'
+                  : 'Meetings this quarter'}
+            {events.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                · {events.length}
+              </span>
+            )}
+          </h2>
           {events.length > 0 && (
             <Link
               href="/calendar"
@@ -709,7 +742,13 @@ export default function TodayPage() {
           <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center shadow-soft">
             <Calendar className="mx-auto h-7 w-7 text-muted-foreground/40" />
             <p className="mt-2 text-sm text-muted-foreground">
-              No meetings scheduled today.
+              {scope === 'Daily'
+                ? 'No meetings scheduled today.'
+                : scope === 'Weekly'
+                  ? 'No meetings scheduled this week.'
+                  : scope === 'Monthly'
+                    ? 'No meetings scheduled this month.'
+                    : 'No meetings scheduled this quarter.'}
             </p>
           </div>
         ) : (
