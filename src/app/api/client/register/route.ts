@@ -61,8 +61,30 @@ export async function POST(req: NextRequest) {
   const passwordHash = await bcrypt.hash(password, 10)
   const existing = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, role: true },
+    select: { id: true, role: true, clientId: true },
   })
+
+  // Three branches:
+  //   - new user                  → create as client_pending
+  //   - orphaned client User      → reset back to client_pending and
+  //                                 update password (admin deleted
+  //                                 their Client; treat as a fresh
+  //                                 application)
+  //   - any other existing user   → generic-skip (don't expose the
+  //                                 collision; the auto-signin on
+  //                                 the page surfaces a real error
+  //                                 if the password doesn't match)
+  const isOrphanedClient =
+    !!existing &&
+    existing.role.startsWith('client_') &&
+    !existing.clientId
+
+  let createdOrReset: {
+    id: string
+    email: string
+    createdAt: Date
+    reset: boolean
+  } | null = null
 
   if (!existing) {
     const user = await prisma.user.create({
@@ -73,23 +95,49 @@ export async function POST(req: NextRequest) {
       },
       select: { id: true, email: true, createdAt: true },
     })
+    createdOrReset = { ...user, reset: false }
+  } else if (isOrphanedClient) {
+    // Reset path. Wipe `name` too so it doesn't carry over from a
+    // prior business — the user might be re-registering for a
+    // different one.
+    const user = await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        passwordHash,
+        role: 'client_pending',
+        clientId: null,
+        name: null,
+        mustChangePassword: false,
+      },
+      select: { id: true, email: true, createdAt: true },
+    })
+    createdOrReset = { ...user, reset: true }
+  } else {
+    console.warn(
+      `[client/register] duplicate email ${email} (role=${existing.role}, clientId=${existing.clientId}) — returning generic OK without changes`,
+    )
+  }
 
-    // Notify Alex that someone started signup. Onboarding-form
-    // submission triggers a second email; this one's the heads-up
-    // that a registration started so he can sanity-check it's not
-    // spam. Best-effort — don't fail the request.
+  // Notify Alex on the new + reset branches. The reset path gets a
+  // distinct subject so a second registration from a deleted client
+  // doesn't look like a dupe alert.
+  if (createdOrReset) {
     try {
       const origin = getPublicOrigin(req)
       await sendEmail({
         accountEmail: FROM_GMAIL_ACCOUNT,
         to: ADMIN_NOTIFY_EMAIL,
-        subject: `[Genisys Hub] New client registration started: ${email}`,
+        subject: createdOrReset.reset
+          ? `[Genisys Hub] Client re-registration started: ${email}`
+          : `[Genisys Hub] New client registration started: ${email}`,
         body: [
-          `**${email}** just started a client signup on the Hub.`,
+          createdOrReset.reset
+            ? `**${email}** just started signing up again. Their previous client record was deleted, so this is a fresh application.`
+            : `**${email}** just started a client signup on the Hub.`,
           '',
           'They have not yet completed the onboarding form. You will get a second email when they finish — that is when their application appears on the Pending tab for approval.',
           '',
-          `Started at: ${user.createdAt.toISOString()}`,
+          `Started at: ${createdOrReset.createdAt.toISOString()}`,
           `Hub: ${origin}/clients/onboarding`,
           '',
           'If this looks like spam, you can deny their application from the Pending tab once it lands there (or wait — they cannot reach anything until you approve).',
@@ -98,10 +146,6 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[client/register] notify failed:', err)
     }
-  } else {
-    console.warn(
-      `[client/register] duplicate email ${email} (role=${existing.role}) — returning generic OK`,
-    )
   }
 
   // Generic OK regardless of branch. The auto-signin on the page
