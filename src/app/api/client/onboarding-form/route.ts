@@ -23,7 +23,12 @@ const ADMIN_NOTIFY_EMAIL =
 const FROM_GMAIL_ACCOUNT =
   process.env.AGENT_APPROVAL_FROM_EMAIL || ADMIN_NOTIFY_EMAIL
 
-const VALID_PACKAGES = new Set(['ppa', 'growth', 'pro', 'custom'])
+// Pro is intentionally absent — disabled in the UI ("Coming soon")
+// while the QuickBooks $5K multi-use link cap is sorted out. Belt-
+// and-suspenders: if a user bypasses the disabled button via
+// devtools and posts tier=pro, the API rejects it instead of letting
+// an un-payable client through.
+const VALID_PACKAGES = new Set(['ppa', 'growth', 'custom'])
 
 function trim(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
@@ -115,11 +120,19 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
-  if (!VALID_PACKAGES.has(tier)) {
+  if (tier === 'pro') {
     return NextResponse.json(
       {
         error:
-          'Pick a package: pay-per-appointment, growth, pro, or custom.',
+          'The Pro Pack is coming soon — please pick another package for now. Your account manager can move you to Pro later.',
+      },
+      { status: 400 },
+    )
+  }
+  if (!VALID_PACKAGES.has(tier)) {
+    return NextResponse.json(
+      {
+        error: 'Pick a package: pay-per-appointment, growth, or custom.',
       },
       { status: 400 },
     )

@@ -15,7 +15,17 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Building2, AlertCircle } from 'lucide-react'
 
-const TIERS: Array<{ id: string; label: string; sub: string }> = [
+/** Package tiers shown in the onboarding form. `disabled: true` greys
+ *  the option out + blocks selection. Pro is parked here until QB's
+ *  $5K multi-use link cap is sorted (custom invoicing path is in
+ *  flight). When ready, drop the disabled flag and add the QB link
+ *  to PAYMENT_LINKS in /signin/client/payment. */
+const TIERS: Array<{
+  id: string
+  label: string
+  sub: string
+  disabled?: boolean
+}> = [
   {
     id: 'ppa',
     label: 'Pay-per-appointment',
@@ -30,6 +40,7 @@ const TIERS: Array<{ id: string; label: string; sub: string }> = [
     id: 'pro',
     label: 'Pro',
     sub: '30 appointments / month commitment',
+    disabled: true,
   },
   {
     id: 'custom',
@@ -194,14 +205,25 @@ export default function OnboardingFormPage() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setTier(t.id)}
-                  className={`rounded-md border p-3 text-left transition ${
-                    tier === t.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-                      : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                  onClick={() => !t.disabled && setTier(t.id)}
+                  disabled={t.disabled}
+                  aria-disabled={t.disabled}
+                  className={`relative rounded-md border p-3 text-left transition ${
+                    t.disabled
+                      ? 'cursor-not-allowed border-zinc-200 bg-zinc-100 opacity-60 dark:border-zinc-800 dark:bg-zinc-900/40'
+                      : tier === t.id
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                        : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
                   }`}
                 >
-                  <div className="text-xs font-semibold">{t.label}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs font-semibold">{t.label}</div>
+                    {t.disabled && (
+                      <span className="rounded-full border border-zinc-300 bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                        Coming soon
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-zinc-500">{t.sub}</div>
                 </button>
               ))}
