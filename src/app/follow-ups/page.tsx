@@ -72,6 +72,7 @@ type FollowUpResults = {
   scan: {
     gmailThreadsExamined: number
     gmailThreadsBulkFiltered: number
+    gmailThreadsOutreachBlast: number
     gmailThreadsHealthy: number
     gmailThreadsDismissed: number
     ghlConvsFetched: number
@@ -123,6 +124,14 @@ export default function FollowUpsPage() {
     if (tab === 'stale') return data.stale
     return [...data.awaiting, ...data.suggest, ...data.stale]
   })()
+
+  // Split visible candidates by source so the page can render two
+  // distinct sections — Alex's spec was "split section between
+  // emails and GHL conversations." Cleaner UX than interleaving,
+  // makes it obvious when GHL has 0 entries vs. when we just
+  // happened to mix emails first.
+  const visibleEmail = visible.filter((c) => c.source === 'gmail')
+  const visibleGhl = visible.filter((c) => c.source === 'ghl')
 
   return (
     <div className="mx-auto flex max-w-[1100px] flex-col gap-5">
@@ -224,14 +233,23 @@ export default function FollowUpsPage() {
           Nothing in this bucket right now.
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {visible.map((c) => (
-            <CandidateCard
-              key={c.threadKey}
-              candidate={c}
-              onReply={() => setReplyTo(c)}
-            />
-          ))}
+        <div className="flex flex-col gap-5">
+          <SourceSection
+            label="Email follow-ups"
+            sublabel="From alex@ + ethan@ Gmail"
+            icon={<Mail className="h-4 w-4 text-blue-500" />}
+            items={visibleEmail}
+            onReply={(c) => setReplyTo(c)}
+          />
+          <SourceSection
+            label="GHL conversations"
+            sublabel="Genisys sub-account messages from registered clients"
+            icon={
+              <MessageSquare className="h-4 w-4 text-violet-500" />
+            }
+            items={visibleGhl}
+            onReply={(c) => setReplyTo(c)}
+          />
         </div>
       )}
 
@@ -249,6 +267,10 @@ export default function FollowUpsPage() {
               <span>{data.scan.gmailThreadsExamined} threads scanned</span>
               <span>→</span>
               <span>{data.scan.gmailThreadsBulkFiltered} bulk filtered</span>
+              <span>→</span>
+              <span>
+                {data.scan.gmailThreadsOutreachBlast} cold-outreach blasts
+              </span>
               <span>→</span>
               <span>{data.scan.gmailThreadsHealthy} healthy</span>
               {data.scan.gmailThreadsDismissed > 0 && (
@@ -335,6 +357,56 @@ function formatRelativeShort(iso: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/* Section header + cards for one source (Email OR GHL). Always
+   renders the header even when empty so admin sees the count
+   explicitly — answers "is GHL even being checked?" without us
+   guessing. */
+function SourceSection({
+  label,
+  sublabel,
+  icon,
+  items,
+  onReply,
+}: {
+  label: string
+  sublabel: string
+  icon: React.ReactNode
+  items: FollowUpCandidate[]
+  onReply: (c: FollowUpCandidate) => void
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="text-sm font-semibold tracking-tight">
+            {label}
+          </h3>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            {items.length}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">{sublabel}</p>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-5 text-center text-xs text-muted-foreground">
+          Nothing in this section right now.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((c) => (
+            <CandidateCard
+              key={c.threadKey}
+              candidate={c}
+              onReply={() => onReply(c)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
 
 function BucketTab({
   active,

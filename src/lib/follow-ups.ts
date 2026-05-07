@@ -164,6 +164,7 @@ export type FollowUpResults = {
   scan: {
     gmailThreadsExamined: number
     gmailThreadsBulkFiltered: number
+    gmailThreadsOutreachBlast: number
     gmailThreadsHealthy: number
     gmailThreadsDismissed: number
     /** Total convs returned by GHL's location-wide search. */
@@ -195,7 +196,11 @@ export async function computeFollowUps(
   })
   const accountIds = accounts.map((a) => a.id)
   const accountEmailLookup = new Map(accounts.map((a) => [a.id, a.email]))
-  const ourEmails = new Set(accounts.map((a) => a.email.toLowerCase()))
+  // We used to maintain a set of "our" addresses (alex@, ethan@) to
+  // detect direction. The send-as alias problem (e.g. outbound from
+  // fulfillment@gospringsolar.com) made that unreliable; folder
+  // ('sent' vs 'inbox') is now the canonical truth for direction
+  // and inferOtherParty.
 
   const lastSyncByAccount: Record<string, string> = {}
   for (const a of accounts) lastSyncByAccount[a.email] = a.updatedAt.toISOString()
@@ -252,6 +257,7 @@ export async function computeFollowUps(
   let gmailThreadsExamined = 0
   let gmailThreadsBulkFiltered = 0
   let gmailThreadsHealthy = 0
+  let gmailThreadsOutreachBlast = 0
   for (const [threadId, msgs] of byThread.entries()) {
     gmailThreadsExamined++
     // Sort newest first.
@@ -262,11 +268,11 @@ export async function computeFollowUps(
     const accountEmail = accountEmailLookup.get(latest.accountId)
     if (!accountEmail) continue
 
-    // Identify the "other party" — the participant that ISN'T one of
-    // our connected accounts. We use the from-side of the LATEST
-    // inbound message when present (that's the most accurate human
-    // name), else the to-side of an outbound.
-    const otherEmail = inferOtherParty(msgs, ourEmails)
+    // Identify the "other party" — uses folder='sent' to determine
+    // who we are (folder is the truth source; from-header isn't,
+    // because alex@ has send-as aliases like
+    // `fulfillment@gospringsolar.com` for cold outreach blasts).
+    const otherEmail = inferOtherParty(msgs)
     if (!otherEmail) continue
     if (STAFF_DOMAIN_RE.test(otherEmail)) continue // internal noise
     // Bulk-mail filter (newsletters, transactional, role-based
@@ -276,13 +282,24 @@ export async function computeFollowUps(
       gmailThreadsBulkFiltered++
       continue
     }
+    // Cold-outreach blasts WE sent (with unsubscribe footers, single
+    // message, no reply). Alex + Ethan queue 100+ of these to seed
+    // pipelines — they're nurture campaigns, not 1-on-1 follow-ups.
+    // Surfacing them as "needs reply" or "needs follow-up" floods
+    // the view; admin can't realistically chase them individually.
+    if (isOutreachBlast(msgs)) {
+      gmailThreadsOutreachBlast++
+      continue
+    }
 
-    // Find latest in each direction. "from in ourEmails" = outbound,
-    // else inbound.
+    // Direction = folder. `folder='sent'` is set by syncSent on every
+    // outbound mail in our connected accounts, including emails sent
+    // through alias addresses (where the from-header doesn't match
+    // ourEmails). Using folder is the only reliable signal.
     let lastInbound: EmailRow | null = null
     let lastOutbound: EmailRow | null = null
     for (const m of msgs) {
-      const isOutbound = ourEmails.has(m.from.toLowerCase())
+      const isOutbound = m.folder === 'sent'
       if (isOutbound) {
         if (!lastOutbound || m.date > lastOutbound.date) lastOutbound = m
       } else {
@@ -290,11 +307,8 @@ export async function computeFollowUps(
       }
     }
 
-    const latestDirection: 'inbound' | 'outbound' = ourEmails.has(
-      latest.from.toLowerCase(),
-    )
-      ? 'outbound'
-      : 'inbound'
+    const latestDirection: 'inbound' | 'outbound' =
+      latest.folder === 'sent' ? 'outbound' : 'inbound'
     const latestAt = latest.date
     const ageMs = now - latestAt.getTime()
     if (ageMs > HORIZON_MS) continue // older than 60d, drop
@@ -311,13 +325,14 @@ export async function computeFollowUps(
     }
 
     const matchedClientName = clientByEmail.get(otherEmail.toLowerCase()) ?? null
-    const inboundLatestForName = msgs.find(
-      (m) => !ourEmails.has(m.from.toLowerCase()),
-    )
+    // Best human name: the inbound message's fromName (because that
+    // came from THEM and reflects how they identify). Fall back to
+    // the latest message's fromName only if we never received an
+    // inbound (otherwise it'd just be our own from-name on outbound
+    // — useless).
+    const inboundForName = msgs.find((m) => m.folder !== 'sent')
     const contactName =
-      inboundLatestForName?.fromName?.trim() ||
-      latest.fromName?.trim() ||
-      otherEmail
+      inboundForName?.fromName?.trim() || otherEmail
 
     gmailCandidates.push({
       threadKey: `gmail:${threadId}`,
@@ -388,6 +403,7 @@ export async function computeFollowUps(
     scan: {
       gmailThreadsExamined,
       gmailThreadsBulkFiltered,
+      gmailThreadsOutreachBlast,
       gmailThreadsHealthy,
       gmailThreadsDismissed,
       ghlConvsFetched: ghl.fetched,
@@ -454,28 +470,49 @@ function pickBucket(p: BucketInput): FollowUpBucket | null {
   return 'suggest'
 }
 
-/** Determine the "other party" email for a Gmail thread. We look at
- *  inbound messages first (from-address gives us the cleanest human
- *  identity); fall back to the to-address of an outbound. */
+/** Determine the "other party" email for a Gmail thread. Uses
+ *  folder rather than from-set to decide which side is us, because
+ *  alex@'s account has send-as aliases (e.g.
+ *  fulfillment@gospringsolar.com) that show up in the from-header
+ *  on outbound but ARE us. Folder='sent' is the truth source. */
 function inferOtherParty(
-  msgs: Array<{ from: string; to: string }>,
-  ourEmails: Set<string>,
+  msgs: Array<{ from: string; to: string; folder: string }>,
 ): string | null {
+  // First try the from-address of any inbound message — that's the
+  // cleanest, most accurate human identity (came from THEIR side).
   for (const m of msgs) {
-    if (!ourEmails.has(m.from.toLowerCase())) {
-      return m.from.toLowerCase()
-    }
+    if (m.folder !== 'sent') return m.from.toLowerCase()
   }
-  // No inbound — pick the to-address of the most recent outbound.
+  // No inbound — thread is all outbound from us. Pick the to-address
+  // of the latest outbound. Comma-separated to-fields take the first.
   for (const m of msgs) {
+    if (m.folder !== 'sent') continue
     const to = (m.to || '').toLowerCase()
-    if (to && !ourEmails.has(to)) {
-      // The to field can be a comma-separated list; take the first.
-      const first = to.split(',')[0]?.trim() ?? ''
-      return first || null
-    }
+    if (!to) continue
+    const first = to.split(',')[0]?.trim() ?? ''
+    if (first) return first
   }
   return null
+}
+
+/** Detect cold-outreach blasts: outbound messages we sent with an
+ *  unsubscribe footer + no reply. Alex + Ethan queue 100+ of these
+ *  per nurture campaign and the recipients are SUPPOSED to either
+ *  unsub or wait for the next sequenced email — not get personal
+ *  follow-ups. Excluded from the follow-ups view entirely. */
+function isOutreachBlast(
+  msgs: Array<{ folder: string; snippet: string | null; subject: string }>,
+): boolean {
+  // A real conversation has at least one inbound. If we got even one
+  // reply, treat as a real lead — surface in the appropriate bucket.
+  const hasInbound = msgs.some((m) => m.folder !== 'sent')
+  if (hasInbound) return false
+  // Look at the latest outbound for unsub markers. Snippet is what
+  // Gmail trims from the body, so it picks up the visible footer.
+  const latestOutbound = msgs.find((m) => m.folder === 'sent')
+  if (!latestOutbound) return false
+  const haystack = `${latestOutbound.snippet ?? ''} ${latestOutbound.subject ?? ''}`.toLowerCase()
+  return /unsubscribe|opt[\s-]*out|no longer wish to receive/i.test(haystack)
 }
 
 /** Pull GHL conversations on the Genisys sub-account, match to
