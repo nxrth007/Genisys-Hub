@@ -74,7 +74,11 @@ type FollowUpResults = {
     gmailThreadsBulkFiltered: number
     gmailThreadsHealthy: number
     gmailThreadsDismissed: number
-    ghlConvsExamined: number
+    ghlConvsFetched: number
+    ghlConvsAfterReminderFilter: number
+    ghlConvsMatched: number
+    ghlConvsConsidered: number
+    ghlConvsBucketed: number
     ghlConvsHealthy: number
     ghlConvsDismissed: number
   }
@@ -231,36 +235,62 @@ export default function FollowUpsPage() {
         </div>
       )}
 
-      {/* Scan diagnostics — small, muted footer that shows what
-          actually got checked. Lets Alex tell at a glance whether
-          a small bucket means "nothing to do" vs "filter / sync
-          quietly broke." Especially useful for the GHL side, since
-          the bucket rules can hide active conversations that just
-          aren't quite stale yet. */}
+      {/* Scan diagnostics — surfaced as a per-stage breakdown so
+          admin can see exactly where data drops off. Each stage is
+          a filter; if the count goes from non-zero to zero between
+          two stages, that's the broken/missing piece. */}
       {data && (
-        <div className="mt-4 rounded-xl border border-border bg-card/50 p-4 text-[11px] text-muted-foreground shadow-soft">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span>
-              <span className="font-medium text-foreground/80">Gmail:</span>{' '}
-              {data.scan.gmailThreadsExamined} threads scanned ·{' '}
-              {data.scan.gmailThreadsBulkFiltered} bulk filtered ·{' '}
-              {data.scan.gmailThreadsHealthy} healthy
+        <div className="mt-4 space-y-2 rounded-xl border border-border bg-card/50 p-4 text-[11px] text-muted-foreground shadow-soft">
+          <div>
+            <div className="mb-1 font-medium text-foreground/80">
+              Gmail
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <span>{data.scan.gmailThreadsExamined} threads scanned</span>
+              <span>→</span>
+              <span>{data.scan.gmailThreadsBulkFiltered} bulk filtered</span>
+              <span>→</span>
+              <span>{data.scan.gmailThreadsHealthy} healthy</span>
               {data.scan.gmailThreadsDismissed > 0 && (
-                <> · {data.scan.gmailThreadsDismissed} dismissed</>
+                <>
+                  <span>→</span>
+                  <span>{data.scan.gmailThreadsDismissed} dismissed</span>
+                </>
               )}
-            </span>
-            <span className="hidden sm:inline">·</span>
-            <span>
-              <span className="font-medium text-foreground/80">GHL:</span>{' '}
-              {data.scan.ghlConvsExamined} convs scanned ·{' '}
-              {data.scan.ghlConvsHealthy} healthy
+            </div>
+          </div>
+          <div>
+            <div className="mb-1 font-medium text-foreground/80">GHL</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <span>{data.scan.ghlConvsFetched} convs from GHL</span>
+              <span>→</span>
+              <span>
+                {data.scan.ghlConvsAfterReminderFilter} non-reminder
+              </span>
+              <span>→</span>
+              <span>{data.scan.ghlConvsMatched} matched a client</span>
+              <span>→</span>
+              <span>
+                {data.scan.ghlConvsConsidered} considered (≤60 days old)
+              </span>
+              <span>→</span>
+              <span>{data.scan.ghlConvsBucketed} bucketed</span>
+              {data.scan.ghlConvsHealthy > 0 && (
+                <>
+                  <span>·</span>
+                  <span>{data.scan.ghlConvsHealthy} healthy</span>
+                </>
+              )}
               {data.scan.ghlConvsDismissed > 0 && (
-                <> · {data.scan.ghlConvsDismissed} dismissed</>
+                <>
+                  <span>·</span>
+                  <span>{data.scan.ghlConvsDismissed} dismissed</span>
+                </>
               )}
-            </span>
+            </div>
           </div>
           {Object.keys(data.lastSyncByAccount).length > 0 && (
-            <div className="mt-1 flex flex-wrap items-center gap-x-3">
+            <div className="flex flex-wrap items-center gap-x-3 pt-1">
               {Object.entries(data.lastSyncByAccount).map(([email, iso]) => (
                 <span key={email}>
                   Last Gmail sync · {email.replace('@leadgenisys.com', '')}:{' '}
@@ -269,10 +299,13 @@ export default function FollowUpsPage() {
               ))}
             </div>
           )}
-          <div className="mt-1 text-[10px] text-muted-foreground/80">
-            &quot;Healthy&quot; = recent activity but doesn&apos;t need a
-            nudge yet (e.g. you replied 1 day ago, or they haven&apos;t
-            had time to respond). Click Refresh to re-sync Gmail.
+          <div className="text-[10px] text-muted-foreground/80">
+            Each → is a filter. If GHL shows e.g. &quot;5 from GHL → 5
+            non-reminder → 0 matched a client&quot;, the matcher
+            isn&apos;t pairing convs with your registered clients —
+            usually a contactPhone / contactEmail mismatch on the
+            Client record. &quot;Healthy&quot; = recent activity but
+            no nudge needed yet.
           </div>
         </div>
       )}

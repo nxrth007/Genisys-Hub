@@ -156,15 +156,27 @@ export type FollowUpResults = {
   /** Last Gmail sync per account. Lets the UI surface "last synced
    *  X minutes ago" so Ethan knows whether to refresh. */
   lastSyncByAccount: Record<string, string>
-  /** Diagnostics for the page footer — lets Alex see WHY a bucket is
-   *  small without us guessing. Real estate well spent because
-   *  "no follow-ups" can mean "nothing to do" or "filtering broke". */
+  /** Diagnostics for the page footer — staged so admin can see
+   *  exactly where the count drops to zero. Especially useful for
+   *  GHL: if `fetched` is non-zero but `matched` is 0, the matcher
+   *  is the problem; if `matched` is non-zero but `bucketed` is 0,
+   *  the bucket rules are filtering out healthy threads. */
   scan: {
     gmailThreadsExamined: number
     gmailThreadsBulkFiltered: number
     gmailThreadsHealthy: number
     gmailThreadsDismissed: number
-    ghlConvsExamined: number
+    /** Total convs returned by GHL's location-wide search. */
+    ghlConvsFetched: number
+    /** After dropping reminder-system threads. */
+    ghlConvsAfterReminderFilter: number
+    /** After matching to an active Client by phone / email / name. */
+    ghlConvsMatched: number
+    /** After dropping convs missing lastMessageDate or > 60d old. */
+    ghlConvsConsidered: number
+    /** Considered → went into a bucket (awaiting / suggest / stale). */
+    ghlConvsBucketed: number
+    /** Considered → healthy (didn't need a nudge yet). */
     ghlConvsHealthy: number
     ghlConvsDismissed: number
   }
@@ -332,8 +344,8 @@ export async function computeFollowUps(
   // Pull location-wide convs, match to active clients, fetch latest
   // message per match for direction + dates. Reuses the same matcher
   // /api/crm/client-conversations + client-message-alert apply.
-  const { candidates: ghlCandidates, examined: ghlConvsExamined, healthy: ghlConvsHealthy } =
-    await collectGhlFollowUps(now)
+  const ghl = await collectGhlFollowUps(now)
+  const ghlCandidates = ghl.candidates
 
   // -- Filter dismissed ----------------------------------------------------
   const dismissals = await prisma.followUpDismissal.findMany({
@@ -378,8 +390,12 @@ export async function computeFollowUps(
       gmailThreadsBulkFiltered,
       gmailThreadsHealthy,
       gmailThreadsDismissed,
-      ghlConvsExamined,
-      ghlConvsHealthy,
+      ghlConvsFetched: ghl.fetched,
+      ghlConvsAfterReminderFilter: ghl.afterReminderFilter,
+      ghlConvsMatched: ghl.matched,
+      ghlConvsConsidered: ghl.considered,
+      ghlConvsBucketed: ghl.bucketed,
+      ghlConvsHealthy: ghl.healthy,
       ghlConvsDismissed,
     },
   }
@@ -470,16 +486,19 @@ async function collectGhlFollowUps(
   now: number,
 ): Promise<{
   candidates: FollowUpCandidate[]
-  /** Convs that matched a Client and were eligible for bucketing
-   *  (after reminder + horizon filters). Lets the page footer say
-   *  "we checked N GHL convs". */
-  examined: number
-  /** Examined but didn't qualify for any bucket (healthy / too
-   *  recent). */
+  fetched: number
+  afterReminderFilter: number
+  matched: number
+  considered: number
+  bucketed: number
   healthy: number
 }> {
   const out: FollowUpCandidate[] = []
-  let examined = 0
+  let fetched = 0
+  let afterReminderFilter = 0
+  let matched = 0
+  let considered = 0
+  let bucketed = 0
   let healthy = 0
 
   const [clients, reminderConvoIds] = await Promise.all([
@@ -522,15 +541,25 @@ async function collectGhlFollowUps(
     raw = await getConversations(VAULT_ENTRY_NAME, { limit: 100 })
   } catch (err) {
     console.error('[follow-ups] GHL fetch failed:', err)
-    return { candidates: out, examined, healthy }
+    return {
+      candidates: out,
+      fetched: 0,
+      afterReminderFilter: 0,
+      matched: 0,
+      considered: 0,
+      bucketed: 0,
+      healthy: 0,
+    }
   }
   const conversations =
     ((raw as { conversations?: Record<string, unknown>[] }).conversations ?? [])
+  fetched = conversations.length
 
   for (const c of conversations) {
     const id = typeof c.id === 'string' ? c.id : null
     if (!id) continue
     if (reminderConvoIds.has(id)) continue
+    afterReminderFilter++
 
     // Match to a Client (same priorities as the rest of the codebase).
     const rawPhone =
@@ -558,6 +587,7 @@ async function collectGhlFollowUps(
       if (byName.has(n)) hit = byName.get(n)!
     }
     if (!hit) continue
+    matched++
 
     // Use the conversation summary's lastMessageDate to decide
     // whether to even bother fetching messages. Cuts the API calls
@@ -569,8 +599,7 @@ async function collectGhlFollowUps(
     if (isNaN(lastDate.getTime())) continue
     const ageMs = now - lastDate.getTime()
     if (ageMs > HORIZON_MS) continue
-
-    examined++
+    considered++
 
     // Fetch latest 1 message for direction. (The summary doesn't
     // include direction reliably across GHL versions.)
@@ -602,6 +631,7 @@ async function collectGhlFollowUps(
       healthy++
       continue
     }
+    bucketed++
 
     const contactName = (rawName?.trim() || hit.contactName?.trim() || hit.name)
     const handle = rawEmail || rawPhone || ''
@@ -628,7 +658,15 @@ async function collectGhlFollowUps(
     })
   }
 
-  return { candidates: out, examined, healthy }
+  return {
+    candidates: out,
+    fetched,
+    afterReminderFilter,
+    matched,
+    considered,
+    bucketed,
+    healthy,
+  }
 }
 
 function pickLatestMessage(
