@@ -253,6 +253,66 @@ export async function postChannelMessage(
 }
 
 /**
+ * Resolve a channel name (e.g. "genisys-alerts" with or without the
+ * leading "#") to its Slack channel ID. The bot must be a member of
+ * the channel for it to appear in the conversations.list response.
+ *
+ * Cached in-memory for the lifetime of the worker process — channel
+ * IDs don't change once created, and a fresh resolve only takes
+ * one API call. The cache resets on cold-start, which is fine.
+ */
+const channelIdCache = new Map<string, string>()
+
+export async function resolveChannelIdByName(
+  name: string,
+): Promise<string | null> {
+  const trimmed = name.replace(/^#/, '').trim().toLowerCase()
+  if (!trimmed) return null
+  if (channelIdCache.has(trimmed)) return channelIdCache.get(trimmed)!
+
+  const client = await getClient()
+  // Walk pagination — most workspaces fit in one page (200 channels)
+  // but bigger orgs might not. cursor-based loop bails as soon as
+  // we find a match.
+  let cursor: string | undefined
+  do {
+    const res = await client.conversations.list({
+      types: 'public_channel,private_channel',
+      exclude_archived: true,
+      limit: 200,
+      ...(cursor ? { cursor } : {}),
+    })
+    for (const ch of res.channels ?? []) {
+      const chName = (ch.name ?? '').toLowerCase()
+      if (chName) channelIdCache.set(chName, ch.id ?? '')
+      if (chName === trimmed) return ch.id ?? null
+    }
+    cursor = res.response_metadata?.next_cursor || undefined
+  } while (cursor)
+
+  return null
+}
+
+/** Generate a Slack permalink for a posted message — useful so the
+ *  alert ledger can link back to the actual post. Best-effort; the
+ *  caller treats null as "skip the link" and moves on. */
+export async function getMessagePermalink(
+  channelId: string,
+  messageTs: string,
+): Promise<string | null> {
+  try {
+    const client = await getClient()
+    const res = await client.chat.getPermalink({
+      channel: channelId,
+      message_ts: messageTs,
+    })
+    return res.permalink ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Join a public channel. Required before the bot can read messages
  * in a public channel it hasn't been explicitly invited to.
  *

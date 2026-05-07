@@ -24,6 +24,7 @@ import {
   syncClientAlertsFromSheet,
   dispatchPendingClientAlerts,
 } from './client-alert'
+import { syncClientMessageAlerts } from './client-message-alert'
 
 let initialized = false
 
@@ -46,6 +47,12 @@ let lastClientDeliverySyncAt = 0
 // (the singleton check inside the sync exits before the sheet read).
 const CLIENT_ALERT_SYNC_INTERVAL_MS = 5 * 60 * 1000
 let lastClientAlertSyncAt = 0
+
+// Inbound-client-message Slack alerts. Tighter cadence (1 min) than
+// the appointment syncs because the value here is "respond fast";
+// 5 min is too long to wait for a client message ping.
+const CLIENT_MESSAGE_ALERT_INTERVAL_MS = 60 * 1000
+let lastClientMessageAlertAt = 0
 
 export function initScheduler() {
   if (initialized) return
@@ -143,6 +150,28 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] client-alert dispatch failed:', err)
+    }
+
+    // Client message Slack alerts. Scans the Genisys GHL sub-account
+    // every minute for new inbound messages from registered clients
+    // and posts a one-line ping to #genisys-alerts so the team can
+    // respond fast. Reminder-system threads are excluded server-side.
+    try {
+      const now = Date.now()
+      if (
+        now - lastClientMessageAlertAt >=
+        CLIENT_MESSAGE_ALERT_INTERVAL_MS
+      ) {
+        lastClientMessageAlertAt = now
+        const result = await syncClientMessageAlerts()
+        if (result.alerted > 0 || result.failed > 0) {
+          console.log(
+            `[scheduler] client-msg alert: ${result.alerted} new, ${result.skipped} already-alerted, ${result.outbound} our-replies, ${result.unmatched} non-client, ${result.failed} failed (of ${result.scanned} scanned)`,
+          )
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] client-msg alert failed:', err)
     }
   })
 }

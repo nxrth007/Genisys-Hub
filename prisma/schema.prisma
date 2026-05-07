@@ -514,6 +514,7 @@ model Client {
   appointmentReminders AppointmentReminder[]
   slackDeliveries   SheetSlackDelivery[]
   clientAlerts      ClientAlertDelivery[]
+  messageAlerts     ClientMessageAlert[]
   // User accounts that can log in to /client and see only this
   // client's appointments. Created by admin via the Credentials tab,
   // or self-registered through the onboarding flow (Phase 2+).
@@ -928,3 +929,38 @@ model Callback {
   @@index([agentUserId, callbackAt])
   @@index([agentUserId, completedAt])
 }
+
+// -----------------------------------------------------------------------------
+// Slack alerts for inbound client messages on the Genisys GHL sub-account.
+// One row per (conversation, GHL message id) we've alerted on. The cron
+// scans /api/crm/client-conversations every minute, finds conversations
+// whose lastMessageDate moved forward AND whose latest message is inbound,
+// and posts to #genisys-alerts (or whatever channel is configured) so the
+// team can respond faster. The unique (conversationId, lastMessageId) gate
+// keeps duplicate ticks from re-alerting on the same message.
+// -----------------------------------------------------------------------------
+
+model ClientMessageAlert {
+  id              String   @id @default(cuid())
+  /// GHL conversation id (e.g. "A8SPqxrgMH0PGUHJzXFo").
+  conversationId  String
+  /// Linked Client (matched by phone/email/name in the alert sync). SET
+  /// NULL on Client delete so historical alerts stay readable.
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// GHL message id we alerted on. Used as the dedup token — same
+  /// conversation, same lastMessageId = same alert; skip.
+  lastMessageId   String?
+  lastMessageDate DateTime?
+  /// Slack post tracking — channelId + messageTs let us optionally edit
+  /// or thread-reply later if we ever want to acknowledge in-Slack.
+  slackChannelId  String?
+  slackMessageTs  String?
+  permalink       String?
+  alertedAt       DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([clientId])
+  @@unique([conversationId, lastMessageId], map: "ux_client_msg_alert_conv_msg")
+}
+
