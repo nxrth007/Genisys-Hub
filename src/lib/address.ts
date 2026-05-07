@@ -51,6 +51,45 @@ export const STATE_NAME_TO_CODE: Record<string, string> = {
   wisconsin: 'WI', wyoming: 'WY',
 }
 
+/** Reverse map: 2-letter code → properly-cased full name. Built from
+ *  STATE_NAME_TO_CODE so adding a state to one map automatically
+ *  populates the other. Used by canonicalizeStateName below. */
+export const STATE_CODE_TO_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_NAME_TO_CODE).map(([name, code]) => [
+    code,
+    name
+      .split(' ')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' '),
+  ]),
+)
+
+/** Normalize a free-text state input (full name or 2-letter code,
+ *  any case) to the canonical proper-cased full name (e.g. "nh",
+ *  "NH", "new hampshire", "NEW HAMPSHIRE" → "New Hampshire"). Returns
+ *  null when the input is empty / whitespace, or the original
+ *  trimmed input when it doesn't match a known state — that way a
+ *  legitimate territory or typo doesn't get silently dropped. */
+export function canonicalizeStateName(
+  input: string | null | undefined,
+): string | null {
+  if (!input) return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const lower = trimmed.toLowerCase()
+  // Full-name match (handles "new hampshire", "New Jersey", etc.).
+  if (STATE_NAME_TO_CODE[lower]) {
+    return STATE_CODE_TO_NAME[STATE_NAME_TO_CODE[lower]]
+  }
+  // 2-letter code match (handles "NH", "nj", etc.).
+  if (trimmed.length === 2) {
+    const upper = trimmed.toUpperCase()
+    if (STATE_CODE_TO_NAME[upper]) return STATE_CODE_TO_NAME[upper]
+  }
+  // Unknown — return as-typed so the data isn't lost.
+  return trimmed
+}
+
 /**
  * Combine the four parts into a single string. Empty parts are
  * dropped silently — partial entries still produce a sensible display

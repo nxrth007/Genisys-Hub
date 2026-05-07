@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
+import { canonicalizeStateName } from '@/lib/address'
 
 /**
  * POST /api/client/onboarding-form
@@ -173,7 +174,10 @@ export async function POST(req: NextRequest) {
     const client = await tx.client.create({
       data: {
         name: businessName,
-        state: state || null,
+        // Canonicalize so "NH" / "nh" → "New Hampshire" before
+        // hitting the DB. Display + filtering then read consistent
+        // values regardless of how the prospect typed it.
+        state: canonicalizeStateName(state),
         package: tier,
         contactName: fullName,
         contactRole: role || null,

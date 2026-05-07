@@ -1,4 +1,5 @@
 import { formatPhoneInput } from './phone'
+import { canonicalizeStateName } from './address'
 
 /**
  * Server-side validation + normalization helpers for the Client
@@ -106,7 +107,7 @@ export function validateClientCreate(
     ok: true,
     data: {
       name,
-      state: trimOrNull(b.state),
+      state: canonicalizeStateName(b.state as string | null | undefined),
       color,
       contactName: trimOrNull(b.contactName),
       contactRole: trimOrNull(b.contactRole),
@@ -226,7 +227,6 @@ export function normalizeClientPatch(
       | 'servicingZipcodes'
     >
   > = [
-    'state',
     'contactName',
     'contactRole',
     'contactEmail',
@@ -238,6 +238,12 @@ export function normalizeClientPatch(
   ]
   for (const key of textFields) {
     if (key in b) data[key] = trimOrNull(b[key])
+  }
+  // State gets canonicalized so a "NH" / "nh" / "new hampshire"
+  // input lands in the DB as "New Hampshire" — keeps the row
+  // subtitle on /clients consistent regardless of input format.
+  if ('state' in b) {
+    data.state = canonicalizeStateName(b.state as string | null | undefined)
   }
 
   // Phone gets the formatter to keep the DB representation canonical.
