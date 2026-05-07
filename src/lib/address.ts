@@ -90,6 +90,25 @@ export function canonicalizeStateName(
   return trimmed
 }
 
+/** Is this input recognized as a US state / DC? Accepts full name
+ *  or 2-letter code, any case. Empty / whitespace counts as
+ *  recognized (state is an optional field — the validator decides
+ *  separately whether to require it). Used by the create / patch
+ *  validators to reject typos like "Newjerey" before they hit the
+ *  DB. */
+export function isKnownState(input: string | null | undefined): boolean {
+  if (!input) return true
+  const trimmed = input.trim()
+  if (!trimmed) return true
+  const lower = trimmed.toLowerCase()
+  if (STATE_NAME_TO_CODE[lower]) return true
+  if (trimmed.length === 2) {
+    const upper = trimmed.toUpperCase()
+    if (STATE_CODE_TO_NAME[upper]) return true
+  }
+  return false
+}
+
 /**
  * Combine the four parts into a single string. Empty parts are
  * dropped silently — partial entries still produce a sensible display

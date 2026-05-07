@@ -1,5 +1,5 @@
 import { formatPhoneInput } from './phone'
-import { canonicalizeStateName } from './address'
+import { canonicalizeStateName, isKnownState } from './address'
 
 /**
  * Server-side validation + normalization helpers for the Client
@@ -78,6 +78,16 @@ export function validateClientCreate(
 
   const name = typeof b.name === 'string' ? b.name.trim() : ''
   if (!name) return { ok: false, error: 'name is required' }
+
+  // Reject typos in the state field before they hit the DB. Empty
+  // is fine (state is optional); anything non-empty must be a
+  // recognized US state or 2-letter code.
+  if (b.state != null && !isKnownState(b.state as string)) {
+    return {
+      ok: false,
+      error: `"${String(b.state).trim()}" doesn't match a US state. Use the full name (e.g. "New Hampshire") or a 2-letter code (e.g. "NH").`,
+    }
+  }
 
   // Loose hex validation — fall back to schema default if the picker
   // wasn't touched, so a typo doesn't surface as a Prisma error.
@@ -242,7 +252,15 @@ export function normalizeClientPatch(
   // State gets canonicalized so a "NH" / "nh" / "new hampshire"
   // input lands in the DB as "New Hampshire" — keeps the row
   // subtitle on /clients consistent regardless of input format.
+  // Reject unrecognized inputs (typos) so the row's chip + subtitle
+  // never end up out of sync with reality.
   if ('state' in b) {
+    if (!isKnownState(b.state as string | null | undefined)) {
+      return {
+        ok: false,
+        error: `"${String(b.state).trim()}" doesn't match a US state. Use the full name (e.g. "New Hampshire") or a 2-letter code (e.g. "NH"), or leave it blank.`,
+      }
+    }
     data.state = canonicalizeStateName(b.state as string | null | undefined)
   }
 

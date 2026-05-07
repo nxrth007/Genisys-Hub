@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
-import { canonicalizeStateName } from '@/lib/address'
+import { canonicalizeStateName, isKnownState } from '@/lib/address'
 
 /**
  * POST /api/client/onboarding-form
@@ -118,6 +118,16 @@ export async function POST(req: NextRequest) {
   if (!address) {
     return NextResponse.json(
       { error: 'Business address is required.' },
+      { status: 400 },
+    )
+  }
+  // State is optional, but if filled in it must be a recognized US
+  // state. Reject typos before they land in the DB.
+  if (state && !isKnownState(state)) {
+    return NextResponse.json(
+      {
+        error: `"${state}" doesn't match a US state. Use the full name (e.g. "New Hampshire") or a 2-letter code (e.g. "NH"), or leave it blank.`,
+      },
       { status: 400 },
     )
   }
