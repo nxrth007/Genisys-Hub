@@ -203,9 +203,10 @@ export async function POST(req: NextRequest) {
 
   // Notify Alex that there's a real application to review now.
   // Best-effort.
+  const origin = getPublicOrigin(req)
+  const reviewUrl = `${origin}/clients/onboarding`
+  const clientSigninUrl = `${origin}/signin/client`
   try {
-    const origin = getPublicOrigin(req)
-    const reviewUrl = `${origin}/clients/onboarding`
     await sendEmail({
       accountEmail: FROM_GMAIL_ACCOUNT,
       to: ADMIN_NOTIFY_EMAIL,
@@ -231,7 +232,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Confirmation email to the client. Sets expectation that admin
-  // review is the next step.
+  // review is the next step. Includes the sign-in URL so they can
+  // bookmark it for when approval lands — they'll also get a
+  // dedicated approval email with the same link, but having it here
+  // means the URL exists in their inbox the moment they submit.
   try {
     await sendEmail({
       accountEmail: FROM_GMAIL_ACCOUNT,
@@ -242,7 +246,9 @@ export async function POST(req: NextRequest) {
         '',
         `Thanks for completing your onboarding for **${created.client.name}**. Our team is reviewing your application now and will reach out shortly.`,
         '',
-        'You will get another email the moment we approve you — at that point you can sign in and watch your appointments come through in real time.',
+        `You will get another email the moment we approve you — at that point you can sign in here and watch your appointments come through in real time:`,
+        '',
+        `[Sign in →](${clientSigninUrl})`,
         '',
         '— Lead Genisys',
       ].join('\n'),
