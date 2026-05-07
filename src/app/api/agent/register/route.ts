@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/gmail'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 /**
  * POST /api/agent/register
@@ -21,7 +22,34 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+/** Same window we apply to /api/client/register: 5 per IP / 10 min.
+ *  Mostly defends against accidental flooding + spammy registration
+ *  scripts. Buckets are keyed separately from the client-side limit
+ *  so the two endpoints don't share a counter. */
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
+
 export async function POST(req: NextRequest) {
+  const ip = clientIp(req)
+  const limit = checkRateLimit(
+    `agent-register:${ip}`,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW_MS,
+  )
+  if (!limit.ok) {
+    const retryAfterSeconds = Math.ceil(limit.retryAfterMs / 1000)
+    return NextResponse.json(
+      {
+        error:
+          'Too many registration attempts. Please try again in a few minutes.',
+      },
+      {
+        status: 429,
+        headers: { 'retry-after': String(retryAfterSeconds) },
+      },
+    )
+  }
+
   let body: { name?: string; email?: string; password?: string }
   try {
     body = await req.json()
@@ -75,27 +103,27 @@ export async function POST(req: NextRequest) {
     const origin = getPublicOrigin(req)
     const reviewUrl = `${origin}/admin/agents/${user.id}`
 
-    try {
-      await sendEmail({
-        accountEmail: FROM_GMAIL_ACCOUNT,
-        to: ADMIN_NOTIFY_EMAIL,
-        subject: `New agent registration: ${name}`,
-        body: [
-          `**${name}** (${email}) just registered as a call-center agent on Genisys Hub.`,
-          '',
-          `Review and approve or deny their registration here:`,
-          '',
-          `[Review registration](${reviewUrl})`,
-          '',
-          `Registered at: ${user.createdAt.toISOString()}`,
-          '',
-          `If you didn't expect this, deny the registration — they won't be able to sign in.`,
-        ].join('\n'),
-      })
-    } catch (err) {
+    // Fire-and-forget so the public register endpoint doesn't sit on
+    // Gmail latency. If a send fails, it lands in the server log via
+    // .catch — Alex can still approve via /admin/agents manually.
+    sendEmail({
+      accountEmail: FROM_GMAIL_ACCOUNT,
+      to: ADMIN_NOTIFY_EMAIL,
+      subject: `New agent registration: ${name}`,
+      body: [
+        `**${name}** (${email}) just registered as a call-center agent on Genisys Hub.`,
+        '',
+        `Review and approve or deny their registration here:`,
+        '',
+        `[Review registration](${reviewUrl})`,
+        '',
+        `Registered at: ${user.createdAt.toISOString()}`,
+        '',
+        `If you didn't expect this, deny the registration — they won't be able to sign in.`,
+      ].join('\n'),
+    }).catch((err) => {
       console.error('[agent/register] Gmail notification failed:', err)
-      // Swallow — Alex can still approve via /admin/agents manually.
-    }
+    })
   } else {
     // Log for ops visibility; don't expose to the client.
     console.log(

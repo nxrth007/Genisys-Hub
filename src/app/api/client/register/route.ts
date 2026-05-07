@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 /**
  * POST /api/client/register
@@ -31,7 +32,34 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+/** Rate-limit window: 5 registrations per IP per 10 minutes. Tight
+ *  enough to deter naive flooding, loose enough that a legit signup
+ *  with a typo or two still gets through. Swap if abuse patterns
+ *  change. */
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
+
 export async function POST(req: NextRequest) {
+  const ip = clientIp(req)
+  const limit = checkRateLimit(
+    `client-register:${ip}`,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW_MS,
+  )
+  if (!limit.ok) {
+    const retryAfterSeconds = Math.ceil(limit.retryAfterMs / 1000)
+    return NextResponse.json(
+      {
+        error:
+          'Too many registration attempts. Please try again in a few minutes.',
+      },
+      {
+        status: 429,
+        headers: { 'retry-after': String(retryAfterSeconds) },
+      },
+    )
+  }
+
   let body: { email?: string; password?: string }
   try {
     body = await req.json()
@@ -120,32 +148,31 @@ export async function POST(req: NextRequest) {
 
   // Notify Alex on the new + reset branches. The reset path gets a
   // distinct subject so a second registration from a deleted client
-  // doesn't look like a dupe alert.
+  // doesn't look like a dupe alert. Fire-and-forget so the public
+  // register endpoint doesn't sit on Gmail latency.
   if (createdOrReset) {
-    try {
-      const origin = getPublicOrigin(req)
-      await sendEmail({
-        accountEmail: FROM_GMAIL_ACCOUNT,
-        to: ADMIN_NOTIFY_EMAIL,
-        subject: createdOrReset.reset
-          ? `[Genisys Hub] Client re-registration started: ${email}`
-          : `[Genisys Hub] New client registration started: ${email}`,
-        body: [
-          createdOrReset.reset
-            ? `**${email}** just started signing up again. Their previous client record was deleted, so this is a fresh application.`
-            : `**${email}** just started a client signup on the Hub.`,
-          '',
-          'They have not yet completed the onboarding form. You will get a second email when they finish — that is when their application appears on the Pending tab for approval.',
-          '',
-          `Started at: ${createdOrReset.createdAt.toISOString()}`,
-          `Hub: ${origin}/clients/onboarding`,
-          '',
-          'If this looks like spam, you can deny their application from the Pending tab once it lands there (or wait — they cannot reach anything until you approve).',
-        ].join('\n'),
-      })
-    } catch (err) {
+    const origin = getPublicOrigin(req)
+    sendEmail({
+      accountEmail: FROM_GMAIL_ACCOUNT,
+      to: ADMIN_NOTIFY_EMAIL,
+      subject: createdOrReset.reset
+        ? `[Genisys Hub] Client re-registration started: ${email}`
+        : `[Genisys Hub] New client registration started: ${email}`,
+      body: [
+        createdOrReset.reset
+          ? `**${email}** just started signing up again. Their previous client record was deleted, so this is a fresh application.`
+          : `**${email}** just started a client signup on the Hub.`,
+        '',
+        'They have not yet completed the onboarding form. You will get a second email when they finish — that is when their application appears on the Pending tab for approval.',
+        '',
+        `Started at: ${createdOrReset.createdAt.toISOString()}`,
+        `Hub: ${origin}/clients/onboarding`,
+        '',
+        'If this looks like spam, you can deny their application from the Pending tab once it lands there (or wait — they cannot reach anything until you approve).',
+      ].join('\n'),
+    }).catch((err) => {
       console.error('[client/register] notify failed:', err)
-    }
+    })
   }
 
   // Generic OK regardless of branch. The auto-signin on the page

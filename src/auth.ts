@@ -162,6 +162,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // On subsequent requests refresh role/clientId from DB so admin
       // approvals, denials, and password-change clears take effect
       // without forcing a sign-out.
+      //
+      // If the User row is gone (admin manually deleted it via
+      // Prisma Studio / SQL), invalidate the session — returning
+      // null from this callback drops the JWT cookie. Prevents a
+      // deleted User from continuing to access /client (or any
+      // gated route) until the natural JWT expiry.
       if (token.id) {
         const fresh = await prisma.user.findUnique({
           where: { id: token.id as string },
@@ -171,11 +177,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             mustChangePassword: true,
           },
         })
-        if (fresh) {
-          token.role = fresh.role
-          token.clientId = fresh.clientId
-          token.mustChangePassword = fresh.mustChangePassword
+        if (!fresh) {
+          // Force re-login. NextAuth treats a null return from jwt
+          // as "session is invalid".
+          return null
         }
+        token.role = fresh.role
+        token.clientId = fresh.clientId
+        token.mustChangePassword = fresh.mustChangePassword
       }
       return token
     },

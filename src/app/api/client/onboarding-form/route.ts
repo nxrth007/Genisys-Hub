@@ -201,61 +201,56 @@ export async function POST(req: NextRequest) {
     return { client, user }
   })
 
-  // Notify Alex that there's a real application to review now.
-  // Best-effort.
+  // Fire-and-forget both notifications so the user-facing API doesn't
+  // block on Gmail. If a send fails, it lands in the server log via
+  // .catch — admin can resend manually from /clients/onboarding.
   const origin = getPublicOrigin(req)
   const reviewUrl = `${origin}/clients/onboarding`
   const clientSigninUrl = `${origin}/signin/client`
-  try {
-    await sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: ADMIN_NOTIFY_EMAIL,
-      subject: `[Genisys Hub] Onboarding submitted: ${created.client.name}`,
-      body: [
-        `**${fullName}** at **${created.client.name}** just completed the onboarding form.`,
-        '',
-        `Tier: ${created.client.package}`,
-        `Email: ${created.user.email}`,
-        `Phone: ${phone}`,
-        `Address: ${address}`,
-        servicingZipcodes ? `Servicing zipcodes: ${servicingZipcodes}` : '',
-        '',
-        `[Review on Hub →](${reviewUrl})`,
-        '',
-        'Approve or deny on the Onboarding → Pending tab.',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    })
-  } catch (err) {
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: ADMIN_NOTIFY_EMAIL,
+    subject: `[Genisys Hub] Onboarding submitted: ${created.client.name}`,
+    body: [
+      `**${fullName}** at **${created.client.name}** just completed the onboarding form.`,
+      '',
+      `Tier: ${created.client.package}`,
+      `Email: ${created.user.email}`,
+      `Phone: ${phone}`,
+      `Address: ${address}`,
+      servicingZipcodes ? `Servicing zipcodes: ${servicingZipcodes}` : '',
+      '',
+      `[Review on Hub →](${reviewUrl})`,
+      '',
+      'Approve or deny on the Onboarding → Pending tab.',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  }).catch((err) => {
     console.error('[client/onboarding-form] admin notify failed:', err)
-  }
+  })
 
   // Confirmation email to the client. Sets expectation that admin
   // review is the next step. Includes the sign-in URL so they can
-  // bookmark it for when approval lands — they'll also get a
-  // dedicated approval email with the same link, but having it here
-  // means the URL exists in their inbox the moment they submit.
-  try {
-    await sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: created.user.email,
-      subject: 'Your Lead Genisys application is in review',
-      body: [
-        `Hi ${fullName},`,
-        '',
-        `Thanks for completing your onboarding for **${created.client.name}**. Our team is reviewing your application now and will reach out shortly.`,
-        '',
-        `You will get another email the moment we approve you — at that point you can sign in here and watch your appointments come through in real time:`,
-        '',
-        `[Sign in →](${clientSigninUrl})`,
-        '',
-        '— Lead Genisys',
-      ].join('\n'),
-    })
-  } catch (err) {
+  // bookmark it for when approval lands.
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: created.user.email,
+    subject: 'Your Lead Genisys application is in review',
+    body: [
+      `Hi ${fullName},`,
+      '',
+      `Thanks for completing your onboarding for **${created.client.name}**. Our team is reviewing your application now and will reach out shortly.`,
+      '',
+      `You will get another email the moment we approve you — at that point you can sign in here and watch your appointments come through in real time:`,
+      '',
+      `[Sign in →](${clientSigninUrl})`,
+      '',
+      '— Lead Genisys',
+    ].join('\n'),
+  }).catch((err) => {
     console.error('[client/onboarding-form] client notify failed:', err)
-  }
+  })
 
   return NextResponse.json({
     ok: true,

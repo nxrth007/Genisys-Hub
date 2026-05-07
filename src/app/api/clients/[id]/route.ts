@@ -87,15 +87,29 @@ export async function PATCH(
   // null/different to a real value, we need to backfill the delivery
   // ledger so the next cron tick doesn't blast every existing sheet
   // row into the freshly-configured channel.
+  // Same idea for lifecycle — we keep the prior so we can detect a
+  // pending → not-pending transition and sync the linked User's
+  // role accordingly (otherwise the User gets stranded; see the
+  // role-sync block below for the full mapping).
   let priorChannelId: string | null = null
   let priorContactPhone: string | null = null
-  if ('slackChannelId' in parsed.data || 'contactPhone' in parsed.data) {
+  let priorLifecycle: string | null = null
+  if (
+    'slackChannelId' in parsed.data ||
+    'contactPhone' in parsed.data ||
+    'lifecycle' in parsed.data
+  ) {
     const prior = await prisma.client.findUnique({
       where: { id },
-      select: { slackChannelId: true, contactPhone: true },
+      select: {
+        slackChannelId: true,
+        contactPhone: true,
+        lifecycle: true,
+      },
     })
     priorChannelId = prior?.slackChannelId ?? null
     priorContactPhone = prior?.contactPhone ?? null
+    priorLifecycle = prior?.lifecycle ?? null
   }
 
   try {
@@ -123,6 +137,54 @@ export async function PATCH(
         slackChannelName: true,
       },
     })
+
+    // Sync linked User roles when lifecycle changes. Without this, a
+    // self-onboarded client whose lifecycle gets edited from `pending`
+    // (or any state) leaves the linked User permanently stuck in
+    // `client_onboarding` — middleware traps them at /signin/client/
+    // pending and they can never reach /client.
+    //
+    // Mapping:
+    //   active            → client_active   (full /client access)
+    //   onboarding        → client_onboarding (still in setup, blocked
+    //                       at the "we're reviewing" screen)
+    //   paused            → client_active   (paused on the agency side
+    //                       doesn't necessarily mean "lock them out" —
+    //                       they should still be able to view their
+    //                       past appointments)
+    //   churned / denied  → client_denied   (relationship over, lock
+    //                       login)
+    //
+    // Best-effort updateMany so multiple linked logins (an edge case
+    // covered by the credentials endpoint guard) all transition
+    // together.
+    if (
+      'lifecycle' in parsed.data &&
+      parsed.data.lifecycle &&
+      parsed.data.lifecycle !== priorLifecycle
+    ) {
+      const newRole =
+        parsed.data.lifecycle === 'active' ||
+        parsed.data.lifecycle === 'paused'
+          ? 'client_active'
+          : parsed.data.lifecycle === 'churned'
+            ? 'client_denied'
+            : 'client_onboarding'
+      try {
+        await prisma.user.updateMany({
+          where: {
+            clientId: client.id,
+            role: { startsWith: 'client_' },
+          },
+          data: { role: newRole },
+        })
+      } catch (err) {
+        console.error(
+          '[clients] linked-user role sync failed:',
+          err,
+        )
+      }
+    }
 
     // Backfill runs synchronously: when an admin first sets (or
     // re-routes) a channel, we MUST mark every current sheet row as

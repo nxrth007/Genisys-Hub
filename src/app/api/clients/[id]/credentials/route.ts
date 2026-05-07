@@ -104,6 +104,33 @@ export async function POST(
     )
   }
 
+  // Block creating a SECOND login on a client that already has one.
+  // Hits the case where Client.contactEmail was changed after a self-
+  // registered user already linked themselves; without this check
+  // we'd silently spawn a parallel User and the approve/deny flow
+  // would have to flip multiple rows. Reset the existing one (or
+  // change its email) instead.
+  //
+  // Skipped when `existing` is the same User row we'd be updating —
+  // that's a reset, not a new login.
+  if (!existing) {
+    const otherLogin = await prisma.user.findFirst({
+      where: {
+        clientId: id,
+        role: { startsWith: 'client_' },
+      },
+      select: { id: true, email: true, role: true },
+    })
+    if (otherLogin) {
+      return NextResponse.json(
+        {
+          error: `This client already has a login (${otherLogin.email}). Update the contact email to match before generating credentials, or reset that login's password instead of creating a second one.`,
+        },
+        { status: 409 },
+      )
+    }
+  }
+
   // Generate a fresh temp password every time. Even on regenerate
   // (admin "reset password"), the old one is invalidated.
   const tempPassword = generateTempPassword()

@@ -70,16 +70,22 @@ export async function POST(
     )
   }
 
-  // Find the linked user (the one who registered + filled the form).
-  // Should always be exactly one — onboarding form submission set it.
-  const linkedUser = await prisma.user.findFirst({
-    where: { clientId: client.id },
+  // Find every linked user. The original spec assumed exactly one
+  // (the User from the self-registration → onboarding-form flow), but
+  // the credentials endpoint can create a second linked User if the
+  // Client.contactEmail differs from a self-registered user's email
+  // and admin uses "Generate login" before approving. We flip all of
+  // them so no one's left stranded in client_onboarding /
+  // client_pending while the Client itself is approved or denied.
+  const linkedUsers = await prisma.user.findMany({
+    where: { clientId: client.id, role: { startsWith: 'client_' } },
     select: { id: true, email: true, role: true, name: true },
   })
 
-  // Two writes in a transaction: client lifecycle/active + user role.
-  // The user write is best-effort — if for some reason the link got
-  // lost, we still flip the client so admin's decision sticks.
+  // Single transaction: flip the client lifecycle + every linked
+  // User. If a future bug ever leaves zero linked users, the client
+  // still gets the decision applied — admin's intent shouldn't be
+  // blocked by a missing pointer.
   const updated = await prisma.$transaction(async (tx) => {
     const c = await tx.client.update({
       where: { id: client.id },
@@ -89,31 +95,34 @@ export async function POST(
           : { lifecycle: 'denied', active: false },
       select: { id: true, name: true, lifecycle: true, active: true },
     })
-    let u = null as typeof linkedUser
-    if (linkedUser) {
-      u = await tx.user.update({
-        where: { id: linkedUser.id },
-        data: {
-          role: action === 'approve' ? 'client_active' : 'client_denied',
-        },
-        select: { id: true, email: true, role: true, name: true },
+    const newRole = action === 'approve' ? 'client_active' : 'client_denied'
+    if (linkedUsers.length > 0) {
+      await tx.user.updateMany({
+        where: { id: { in: linkedUsers.map((u) => u.id) } },
+        data: { role: newRole },
       })
     }
-    return { client: c, user: u }
+    // Re-read so the response carries the post-flip role values
+    // rather than the stale pre-flip ones.
+    const us = await tx.user.findMany({
+      where: { id: { in: linkedUsers.map((u) => u.id) } },
+      select: { id: true, email: true, role: true, name: true },
+    })
+    return { client: c, users: us }
   })
 
-  // Email the client. Best-effort.
-  if (updated.user?.email) {
-    const origin = getPublicOrigin(req)
-    const signinUrl = `${origin}/signin/client`
-    try {
-      if (action === 'approve') {
-        await sendEmail({
-          accountEmail: FROM_GMAIL_ACCOUNT,
-          to: updated.user.email,
-          subject: 'Welcome to Lead Genisys — your account is approved',
-          body: [
-            `Hi ${client.contactName || updated.user.name || 'there'},`,
+  // Email every linked user. Fire-and-forget so a slow Gmail send
+  // doesn't make the admin sit on the spinner; errors land in the
+  // server log via .catch.
+  const origin = getPublicOrigin(req)
+  const signinUrl = `${origin}/signin/client`
+  for (const u of updated.users) {
+    if (!u.email) continue
+    const greeting = client.contactName || u.name || 'there'
+    const body =
+      action === 'approve'
+        ? [
+            `Hi ${greeting},`,
             '',
             `Your **${client.name}** account is approved. You can sign in and watch your appointments come through in real time.`,
             '',
@@ -122,30 +131,33 @@ export async function POST(
             'If you have any questions, just reply to this email.',
             '',
             '— Lead Genisys',
-          ].join('\n'),
-        })
-      } else {
-        await sendEmail({
-          accountEmail: FROM_GMAIL_ACCOUNT,
-          to: updated.user.email,
-          subject: 'Lead Genisys application update',
-          body: [
-            `Hi ${client.contactName || updated.user.name || 'there'},`,
+          ].join('\n')
+        : [
+            `Hi ${greeting},`,
             '',
             `Thanks for your interest in working with Lead Genisys. Your application for **${client.name}** isn't moving forward at this time. If you think this is a mistake, please reach out and we'll take another look.`,
             '',
             '— Lead Genisys',
-          ].join('\n'),
-        })
-      }
-    } catch (err) {
-      console.error('[clients/onboarding-decision] email failed:', err)
-    }
+          ].join('\n')
+    sendEmail({
+      accountEmail: FROM_GMAIL_ACCOUNT,
+      to: u.email,
+      subject:
+        action === 'approve'
+          ? 'Welcome to Lead Genisys — your account is approved'
+          : 'Lead Genisys application update',
+      body,
+    }).catch((err) => {
+      console.error(
+        `[clients/onboarding-decision] email failed for ${u.email}:`,
+        err,
+      )
+    })
   }
 
   return NextResponse.json({
     ok: true,
     client: updated.client,
-    user: updated.user,
+    users: updated.users,
   })
 }
