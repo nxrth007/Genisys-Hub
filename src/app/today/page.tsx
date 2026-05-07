@@ -21,6 +21,7 @@ import {
   ListChecks,
   KanbanSquare,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
@@ -448,24 +449,38 @@ export default function TodayPage() {
         subtitle={subtitleWithTz}
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Today' }]}
         actions={
-          <button
-            onClick={() => {
-              if (pinnedDbId) {
-                setNewTaskTrigger((n) => n + 1)
-              } else {
-                setShowAdd(true)
+          <div className="flex items-center gap-2">
+            {/* Follow-ups → dedicated /follow-ups view that pulls
+                from Gmail (alex@/ethan@) + GHL convs and surfaces
+                threads needing a reply / nudge. Sits to the left of
+                "+ New task" per Alex's spec. */}
+            <Link
+              href="/follow-ups"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              title="Prospects who need a nudge — from Gmail + GHL"
+            >
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              Follow-ups
+            </Link>
+            <button
+              onClick={() => {
+                if (pinnedDbId) {
+                  setNewTaskTrigger((n) => n + 1)
+                } else {
+                  setShowAdd(true)
+                }
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
+              title={
+                pinnedDbId
+                  ? 'Add a task to the "To Do" column on the pinned board'
+                  : 'Add a new task'
               }
-            }}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
-            title={
-              pinnedDbId
-                ? 'Add a task to the "To Do" column on the pinned board'
-                : 'Add a new task'
-            }
-          >
-            <Plus className="h-4 w-4" />
-            New task
-          </button>
+            >
+              <Plus className="h-4 w-4" />
+              New task
+            </button>
+          </div>
         }
       />
 

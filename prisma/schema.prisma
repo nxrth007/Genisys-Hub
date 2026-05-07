@@ -76,6 +76,7 @@ model User {
   callbacks           Callback[]          @relation("AgentCallbacks")
   documentsUploaded   Document[]          @relation("DocumentUploader")
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
+  followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
 }
 
 model Account {
@@ -936,6 +937,32 @@ model Callback {
 
   @@index([agentUserId, callbackAt])
   @@index([agentUserId, completedAt])
+}
+
+// -----------------------------------------------------------------------------
+// Per-user dismissal of a follow-up candidate. The /follow-ups view groups
+// prospect threads (Gmail + GHL) into urgency buckets; clicking "Mark
+// handled" writes a row here so the thread stops showing for that user.
+// Threads are keyed by source-prefixed strings (e.g. "gmail:abc123",
+// "ghl:xyz789") because cross-source identity collapse is brittle and we
+// punted it for v1. New activity in the same thread doesn't auto-un-
+// dismiss — admin removes the dismissal manually if they want it back
+// (or we add an "include dismissed" toggle later).
+// -----------------------------------------------------------------------------
+
+model FollowUpDismissal {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("FollowUpDismissals", fields: [userId], references: [id], onDelete: Cascade)
+  /// Composite key — "gmail:{threadId}" / "ghl:{conversationId}".
+  threadKey   String
+  /// Snapshot of the contact at dismissal time, just so admin can recall
+  /// what they marked handled without re-fetching the source thread.
+  contactLabel String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, threadKey], map: "ux_follow_up_dismissal_user_thread")
+  @@index([userId])
 }
 
 // -----------------------------------------------------------------------------
