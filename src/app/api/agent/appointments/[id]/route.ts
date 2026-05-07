@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
 import { upsertRemindersForAppointment } from '@/lib/reminders'
+import { deliverAppointmentAsSms } from '@/lib/client-alert'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
 
@@ -163,6 +164,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // shifted, but leaves already-sent / skipped rows alone.
   void upsertRemindersForAppointment(updated.id).catch((err) =>
     console.error('[appointments PATCH] reminders refresh threw:', err),
+  )
+
+  // Roll the client-alert buffer forward — if a pending alert exists
+  // for this appointment, deliverAppointmentAsSms bumps its
+  // scheduledFor by another 20 min so the agency client gets the
+  // corrected info, not a typo. No-op when the alert was already
+  // delivered (window expired) or when alerts are disabled.
+  void deliverAppointmentAsSms(updated.id).then((result) => {
+    if (result.status !== 'disabled' && result.status !== 'skipped') {
+      console.log(
+        `[appointments PATCH] client-alert ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${updated.id}`,
+      )
+    }
+  }).catch((err) =>
+    console.error('[appointments PATCH] client-alert refresh threw:', err),
   )
 
   return NextResponse.json({ ok: true, appointment: updated })

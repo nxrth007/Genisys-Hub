@@ -182,7 +182,15 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
     })
     if (existing) {
       result.skipped++
-      if (existing.sourceKey !== sourceKey) {
+      // Don't migrate sourceKey on pending rows — the dispatcher
+      // parses `db:appointment:<id>` to know which appointment to
+      // re-fetch when sending. Rewriting it to `sheet:Master Table:N`
+      // would break dispatch. Pending rows are short-lived (≤20 min)
+      // anyway; the migration kicks in once they flip to delivered.
+      if (
+        existing.sourceKey !== sourceKey &&
+        existing.status !== 'pending'
+      ) {
         await prisma.clientAlertDelivery
           .update({
             where: { id: existing.id },
@@ -279,12 +287,33 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
  *   - Routing returns 'unrouted'
  *   - The matched client has no contactPhone configured
  *   - A delivery record already exists for this appointment id
+ *
+ * Now QUEUES instead of firing: writes a row with status='pending'
+ * + scheduledFor=now+CLIENT_ALERT_BUFFER_MS, and lets
+ * dispatchPendingClientAlerts() (every-minute cron) actually send the
+ * SMS once the window passes. If the appointment is edited before
+ * the window expires, this function rolls scheduledFor forward so
+ * the alert reflects the latest state and Mary has the full buffer
+ * to fix typos.
  */
+/** 20-minute window between an agent saving and the SMS firing.
+ *  Per Alex's spec — gives Mary room to edit / fix typos before the
+ *  client gets pinged. Each subsequent edit re-bases the timer. */
+const CLIENT_ALERT_BUFFER_MS = 20 * 60 * 1000
+
 export async function deliverAppointmentAsSms(
   appointmentId: string,
 ): Promise<{
-  status: 'delivered' | 'skipped' | 'unrouted' | 'no-phone' | 'disabled' | 'failed'
+  status:
+    | 'queued'
+    | 'rolled'
+    | 'skipped'
+    | 'unrouted'
+    | 'no-phone'
+    | 'disabled'
+    | 'failed'
   reason?: string
+  scheduledFor?: Date
 }> {
   const config = await prisma.clientAlertsConfig.findUnique({
     where: { id: 'singleton' },
@@ -331,7 +360,11 @@ export async function deliverAppointmentAsSms(
   const sourceKey = `db:appointment:${appointmentId}`
   const customerPhoneKey = normalizePhoneForKey(appt.customerPhone)
   const contentMatchSince = new Date(Date.now() - 48 * 60 * 60 * 1000)
+  const newScheduledFor = new Date(Date.now() + CLIENT_ALERT_BUFFER_MS)
 
+  // Look up any existing delivery row for this appointment. We split
+  // by status because pending = roll the buffer; everything else =
+  // already handled, skip.
   const existing = await prisma.clientAlertDelivery.findFirst({
     where: {
       recipientPhone,
@@ -348,92 +381,194 @@ export async function deliverAppointmentAsSms(
           : []),
       ],
     },
-    select: { id: true },
+    select: { id: true, status: true },
   })
-  if (existing) return { status: 'skipped', reason: 'already delivered' }
 
-  // Build a synthetic MasterTableRow shape so we can reuse
-  // formatAppointmentForClientSms — same body shape clients see in
-  // Slack, just plain text.
-  const customerTz = resolveCustomerTimezone({
-    address: appt.address,
-    clientState: appt.client?.state ?? null,
-  })
-  const synthRow: MasterTableRow = {
-    rowNumber: 0,
-    apptDateTime: appt.apptDateTime.toISOString(),
-    customerName: appt.customerName,
-    customerPhone: appt.customerPhone,
-    address: appt.address,
-    email: appt.email,
-    monthlyBill: appt.monthlyBill,
-    utilityProvider: appt.utilityProvider,
-    roofType: appt.roofType,
-    roofAge: appt.roofAge,
-    estimatedDealValue: appt.estimatedDealValue,
-    status: appt.status,
-    notes: appt.notes,
-    callRecordingLink: appt.callRecordingLink,
-    loggedAt: appt.createdAt.toISOString(),
-    sentToClient: null,
-    client: appt.client?.name ?? null,
-    agentName: null,
-    agentEmail: null,
-    timezone: null,
-    resolvedTimezone: customerTz,
-    apptDateRaw: null,
-    apptTimeRaw: null,
-    apptDateTimeRaw: null,
+  if (existing) {
+    if (existing.status === 'pending') {
+      // Roll the buffer — the agent edited the appointment before
+      // the window expired, so push the fire time forward to give
+      // them the full window again. Same pattern as customer-side
+      // confirmation reminders bumping fireAt on each save.
+      await prisma.clientAlertDelivery.update({
+        where: { id: existing.id },
+        data: { scheduledFor: newScheduledFor },
+      })
+      return { status: 'rolled', scheduledFor: newScheduledFor }
+    }
+    // delivered / backfilled / failed — already handled; no-op.
+    return { status: 'skipped', reason: `existing status=${existing.status}` }
   }
-  const solar = appt.address
-    ? await snapshotSolarFromCache(appt.address).catch(() => null)
-    : null
-  const body = formatAppointmentForClientSms(synthRow, { solar })
 
-  try {
-    const send = await sendSmsToPhone(config.vaultEntryName, {
-      phone: recipientPhone,
-      message: body,
-      firstName: candidate.name,
-      ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
-    })
-    await prisma.clientAlertDelivery.create({
-      data: {
-        sourceKey,
-        clientId: candidate.id,
-        recipientPhone,
-        status: 'delivered',
-        messageId: send.messageId ?? null,
-        conversationId: send.conversationId ?? null,
-        deliveredAt: new Date(),
-        customerPhone: customerPhoneKey,
-        apptDateTime: appt.apptDateTime,
+  // No prior row — queue a fresh pending alert.
+  await prisma.clientAlertDelivery.create({
+    data: {
+      sourceKey,
+      clientId: candidate.id,
+      recipientPhone,
+      status: 'pending',
+      scheduledFor: newScheduledFor,
+      customerPhone: customerPhoneKey,
+      apptDateTime: appt.apptDateTime,
+    },
+  })
+  return { status: 'queued', scheduledFor: newScheduledFor }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Pending dispatch — fires queued alerts whose buffer expired                */
+/* -------------------------------------------------------------------------- */
+
+/** Picked up by the every-minute scheduler tick. Finds any pending
+ *  ClientAlertDelivery rows whose scheduledFor has passed, re-fetches
+ *  the underlying Appointment (so any edits during the buffer window
+ *  are reflected in the SMS body), and sends via GHL. Updates status
+ *  to 'delivered' on success or 'failed' on error. */
+export async function dispatchPendingClientAlerts(): Promise<{
+  attempted: number
+  delivered: number
+  failed: number
+  skipped: number
+}> {
+  const result = { attempted: 0, delivered: 0, failed: 0, skipped: 0 }
+
+  const config = await prisma.clientAlertsConfig.findUnique({
+    where: { id: 'singleton' },
+  })
+  if (!config?.enabled) return result
+
+  const due = await prisma.clientAlertDelivery.findMany({
+    where: {
+      status: 'pending',
+      scheduledFor: { lte: new Date() },
+    },
+    select: {
+      id: true,
+      sourceKey: true,
+      clientId: true,
+      recipientPhone: true,
+      customerPhone: true,
+      apptDateTime: true,
+    },
+  })
+
+  for (const row of due) {
+    result.attempted++
+
+    // Only DB-driven pending rows are dispatched here. Sheet-driven
+    // alerts are handled by syncClientAlertsFromSheet (no buffer).
+    // If a pending row's sourceKey doesn't match the db: prefix,
+    // leave it alone so we don't accidentally double-send.
+    const dbMatch = row.sourceKey.match(/^db:appointment:(.+)$/)
+    if (!dbMatch) {
+      result.skipped++
+      continue
+    }
+    const appointmentId = dbMatch[1]
+
+    const appt = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: {
+        client: { select: { id: true, name: true, state: true } },
       },
     })
-    return { status: 'delivered' }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'SMS send failed'
-    try {
-      await prisma.clientAlertDelivery.create({
+    if (!appt) {
+      // Appointment got deleted during the buffer window. Mark as
+      // skipped and move on so the row stops appearing in the
+      // dispatcher's queue.
+      await prisma.clientAlertDelivery.update({
+        where: { id: row.id },
+        data: { status: 'failed', errorMessage: 'appointment deleted' },
+      })
+      result.failed++
+      continue
+    }
+    if ((appt.status ?? '').toLowerCase().includes('cancel')) {
+      // Booking was cancelled inside the window — flip the row to
+      // 'failed' with a clear reason so it's not re-dispatched.
+      await prisma.clientAlertDelivery.update({
+        where: { id: row.id },
         data: {
-          sourceKey,
-          clientId: candidate.id,
-          recipientPhone,
           status: 'failed',
-          errorMessage: message,
-          customerPhone: customerPhoneKey,
+          errorMessage: 'appointment cancelled before buffer expired',
+        },
+      })
+      result.skipped++
+      continue
+    }
+
+    // Build the SMS body using the latest appointment state. Same
+    // synthetic-row trick we used in the immediate-fire version.
+    const customerTz = resolveCustomerTimezone({
+      address: appt.address,
+      clientState: appt.client?.state ?? null,
+    })
+    const synthRow: MasterTableRow = {
+      rowNumber: 0,
+      apptDateTime: appt.apptDateTime.toISOString(),
+      customerName: appt.customerName,
+      customerPhone: appt.customerPhone,
+      address: appt.address,
+      email: appt.email,
+      monthlyBill: appt.monthlyBill,
+      utilityProvider: appt.utilityProvider,
+      roofType: appt.roofType,
+      roofAge: appt.roofAge,
+      estimatedDealValue: appt.estimatedDealValue,
+      status: appt.status,
+      notes: appt.notes,
+      callRecordingLink: appt.callRecordingLink,
+      loggedAt: appt.createdAt.toISOString(),
+      sentToClient: null,
+      client: appt.client?.name ?? null,
+      agentName: null,
+      agentEmail: null,
+      timezone: null,
+      resolvedTimezone: customerTz,
+      apptDateRaw: null,
+      apptTimeRaw: null,
+      apptDateTimeRaw: null,
+    }
+    const solar = appt.address
+      ? await snapshotSolarFromCache(appt.address).catch(() => null)
+      : null
+    const body = formatAppointmentForClientSms(synthRow, { solar })
+
+    try {
+      const send = await sendSmsToPhone(config.vaultEntryName, {
+        phone: row.recipientPhone,
+        message: body,
+        firstName: appt.client?.name ?? 'client',
+        ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+      })
+      await prisma.clientAlertDelivery.update({
+        where: { id: row.id },
+        data: {
+          status: 'delivered',
+          messageId: send.messageId ?? null,
+          conversationId: send.conversationId ?? null,
+          deliveredAt: new Date(),
+          // Refresh apptDateTime in case the agent edited it
+          // during the buffer window.
           apptDateTime: appt.apptDateTime,
         },
       })
-    } catch {
-      // Race — fine.
+      result.delivered++
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'SMS send failed'
+      await prisma.clientAlertDelivery.update({
+        where: { id: row.id },
+        data: { status: 'failed', errorMessage: message },
+      })
+      result.failed++
+      console.error(
+        `[client-alert] dispatch failed for ${appointmentId}:`,
+        message,
+      )
     }
-    console.error(
-      `[client-alert] DB-driven SMS failed for ${appointmentId}:`,
-      message,
-    )
-    return { status: 'failed', reason: message }
   }
+
+  return result
 }
 
 /**

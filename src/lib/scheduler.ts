@@ -20,7 +20,10 @@ import {
   dispatchDueReminders,
 } from './reminders'
 import { syncClientDeliveriesFromSheet } from './client-delivery'
-import { syncClientAlertsFromSheet } from './client-alert'
+import {
+  syncClientAlertsFromSheet,
+  dispatchPendingClientAlerts,
+} from './client-alert'
 
 let initialized = false
 
@@ -125,6 +128,21 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] client-alert sync failed:', err)
+    }
+
+    // Pending-alert dispatch (every minute). Fires DB-driven alerts
+    // whose 20-min buffer expired — gives Mary a window to fix typos
+    // / re-edit before the client gets pinged. Independent from the
+    // sheet sync above so neither path can starve the other.
+    try {
+      const result = await dispatchPendingClientAlerts()
+      if (result.attempted > 0) {
+        console.log(
+          `[scheduler] client-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
+        )
+      }
+    } catch (err) {
+      console.error('[scheduler] client-alert dispatch failed:', err)
     }
   })
 }

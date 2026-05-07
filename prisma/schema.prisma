@@ -776,7 +776,21 @@ model ClientAlertDelivery {
   clientId        String?
   client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   recipientPhone  String
+  // status:
+  //   pending    — DB-driven path queued the alert with a buffer
+  //                window; dispatch fires it once scheduledFor passes.
+  //                Each subsequent edit by the agent rolls scheduledFor
+  //                forward (so the alert reflects the final state).
+  //   delivered  — GHL acknowledged the SMS
+  //   backfilled — pre-existing sheet row at the time the master toggle
+  //                flipped on; never sent
+  //   failed     — GHL returned an error; errorMessage carries detail
   status          String   @default("delivered")
+  /// Set when status='pending' to indicate when the buffer window
+  /// expires and the dispatcher should send. Null for non-pending
+  /// rows (delivered / backfilled / failed). Indexed so the
+  /// dispatcher's "due" query is cheap.
+  scheduledFor    DateTime?
   messageId       String?
   conversationId  String?
   errorMessage    String?  @db.Text
@@ -791,6 +805,7 @@ model ClientAlertDelivery {
   @@unique([sourceKey, recipientPhone], map: "ux_client_alert_delivery_source_recipient")
   @@index([clientId])
   @@index([status])
+  @@index([status, scheduledFor], map: "ClientAlertDelivery_pending_due_idx")
   @@index([recipientPhone, customerPhone, apptDateTime], map: "ClientAlertDelivery_content_dedup_idx")
 }
 

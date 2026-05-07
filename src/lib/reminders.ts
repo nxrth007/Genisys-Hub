@@ -52,9 +52,13 @@ const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> 
  *  booking before the customer's phone buzzes. Editing the
  *  appointment within that window updates the reminder snapshot
  *  via the upsert path, so the customer gets the corrected info.
- *  Was 30s originally → 15 min when Alex first flagged the
- *  fat-finger risk → 20 min after live-test feedback. */
-const CONFIRMATION_DELAY_MS = 20 * 60 * 1000
+ *  Was 30s originally → 15 min → 20 min, then back to 0 once Alex
+ *  flipped the buffer onto the client-alert path instead (see
+ *  CLIENT_ALERT_BUFFER_MS in client-alert.ts). The customer-side
+ *  confirmation now fires on the next dispatch tick (worst case
+ *  ~60s) so the homeowner gets immediate validation that their
+ *  appointment is real. */
+const CONFIRMATION_DELAY_MS = 0
 
 // DEFAULT_TEMPLATES + ReminderType are re-exported above; the values
 // live in reminders-constants.ts so client code can import them
