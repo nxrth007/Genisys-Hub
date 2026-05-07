@@ -28,6 +28,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { STATE_NAME_TO_CODE } from '@/lib/address'
 import { PageHeader } from '@/components/ui/page-header'
 import { Chip, type ChipTone } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
@@ -131,64 +132,9 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-/** Full US state + DC name → 2-letter code map. Lowercased keys so
- *  `state.toLowerCase().trim()` is the lookup. The previous "first
- *  2 chars" fallback was wrong for any multi-word state ("New Jersey"
- *  and "New Hampshire" both collapsed to NE, which is Nebraska's
- *  code, not New England). */
-const STATE_NAME_TO_CODE: Record<string, string> = {
-  alabama: 'AL',
-  alaska: 'AK',
-  arizona: 'AZ',
-  arkansas: 'AR',
-  california: 'CA',
-  colorado: 'CO',
-  connecticut: 'CT',
-  delaware: 'DE',
-  'district of columbia': 'DC',
-  florida: 'FL',
-  georgia: 'GA',
-  hawaii: 'HI',
-  idaho: 'ID',
-  illinois: 'IL',
-  indiana: 'IN',
-  iowa: 'IA',
-  kansas: 'KS',
-  kentucky: 'KY',
-  louisiana: 'LA',
-  maine: 'ME',
-  maryland: 'MD',
-  massachusetts: 'MA',
-  michigan: 'MI',
-  minnesota: 'MN',
-  mississippi: 'MS',
-  missouri: 'MO',
-  montana: 'MT',
-  nebraska: 'NE',
-  nevada: 'NV',
-  'new hampshire': 'NH',
-  'new jersey': 'NJ',
-  'new mexico': 'NM',
-  'new york': 'NY',
-  'north carolina': 'NC',
-  'north dakota': 'ND',
-  ohio: 'OH',
-  oklahoma: 'OK',
-  oregon: 'OR',
-  pennsylvania: 'PA',
-  'rhode island': 'RI',
-  'south carolina': 'SC',
-  'south dakota': 'SD',
-  tennessee: 'TN',
-  texas: 'TX',
-  utah: 'UT',
-  vermont: 'VT',
-  virginia: 'VA',
-  washington: 'WA',
-  'west virginia': 'WV',
-  wisconsin: 'WI',
-  wyoming: 'WY',
-}
+// Reuse the canonical state-name → code map from lib/address. The
+// timezone resolver, sheet-routing brain, and now this page's chip
+// renderer all share one source of truth — drift would be a bug.
 const VALID_STATE_CODES = new Set(Object.values(STATE_NAME_TO_CODE))
 
 function stateCode(state: string | null): string {
