@@ -3,30 +3,26 @@ import { auth } from '@/auth'
 import { getSecretByName } from '@/lib/vault-service'
 
 /**
- * GET /api/agent/maps/places/autocomplete?q=...
+ * GET /api/client/maps/places/autocomplete?q=...&state=...
  *
- * Server-side proxy for Google Places Autocomplete. Pulls the API
- * key from the vault on every request (no env var, no bundle leak)
- * and forwards the query to Google. Same pattern as
- * /api/agent/maps/embed-url and /api/agent/solar/insights.
+ * Parallel to /api/agent/maps/places/autocomplete — same Google
+ * Places passthrough, scoped to the client onboarding flow. We
+ * don't reuse the agent endpoint because the middleware allowlists
+ * are different (agent endpoints are gated to role=agent; this one
+ * is allowed for client_pending / client_onboarding so a prospect
+ * filling out the onboarding form can use autocomplete on their
+ * business address).
  *
- * Used by the appointment form's address autocomplete to give Mary
- * faster + more accurate suggestions than the OpenStreetMap
- * Nominatim fallback.
+ * Auth required (any signed-in user) so the Google API key never
+ * leaks to truly anonymous traffic. The middleware decides which
+ * roles can reach this path.
  *
- * Returns:
- *   200 { predictions: [{ description, placeId }] }
- *     description = "1141 Pleasant Hill Rd, Leander, TX, USA"
- *     placeId     = "ChIJ..." (kept around for future Place Details
- *                    upgrade — not needed for the current
- *                    description-only flow)
- *   400 — q missing
- *   503 { error } — vault key missing; client falls back to Nominatim
- *   502 { error } — Google replied with a non-OK status
- *
- * Filters: country=US (every Genisys client is US), types=address
- * (suppresses business-name predictions that aren't useful for a
- * customer's home).
+ * Query params:
+ *   q       — required, the in-progress address text
+ *   state   — optional 2-letter US state code; biases suggestions
+ *             to that state. Useful when the form already has a
+ *             State value (the onboarding form passes whatever the
+ *             prospect entered above the address field).
  */
 const VAULT_KEY_NAME = 'Google Maps Key'
 
@@ -53,11 +49,6 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  // Legacy Place Autocomplete API — well-supported, simpler response
-  // shape than the v1 New API. Field selection is implicit (we only
-  // read description + place_id below). If we ever need lat/lng or
-  // utc_offset_minutes, add a follow-up Place Details call keyed on
-  // place_id.
   const url = new URL(
     'https://maps.googleapis.com/maps/api/place/autocomplete/json',
   )
@@ -65,10 +56,7 @@ export async function GET(req: NextRequest) {
   url.searchParams.set('key', key)
   url.searchParams.set('types', 'address')
   // country:us covers all 50 states + DC. Optional state bias narrows
-  // it further when the caller already has a state value (e.g. the
-  // client onboarding form has the State field above the address).
-  // Google's `components` filter accepts pipe-separated constraints,
-  // and `administrative_area:CA` biases to that state.
+  // it further when the form has already collected a state.
   const stateBias = (req.nextUrl.searchParams.get('state') ?? '').trim().toUpperCase()
   const components =
     /^[A-Z]{2}$/.test(stateBias)
@@ -80,7 +68,7 @@ export async function GET(req: NextRequest) {
   try {
     res = await fetch(url.toString(), { cache: 'no-store' })
   } catch (err) {
-    console.error('[places autocomplete] fetch failed:', err)
+    console.error('[client/places autocomplete] fetch failed:', err)
     return NextResponse.json(
       { error: 'Google Places request failed' },
       { status: 502 },
@@ -97,11 +85,9 @@ export async function GET(req: NextRequest) {
     predictions?: Array<{ description?: string; place_id?: string }>
     error_message?: string
   }
-  // Google returns 200 with status="OVER_QUERY_LIMIT" / "REQUEST_DENIED"
-  // / etc. — surface those as 502 so the client can fall back gracefully.
   if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
     console.error(
-      `[places autocomplete] Google status=${data.status}: ${data.error_message ?? '(no message)'}`,
+      `[client/places autocomplete] Google status=${data.status}: ${data.error_message ?? '(no message)'}`,
     )
     return NextResponse.json(
       { error: `Google Places: ${data.status}` },

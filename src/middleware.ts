@@ -130,6 +130,10 @@ export default auth((req) => {
     const allowed =
       pathname === '/signin/client/onboarding-form' ||
       pathname.startsWith('/api/client/onboarding-form') ||
+      // Google Places autocomplete on the business-address field —
+      // the prospect needs this while filling out the onboarding
+      // form, before they're approved.
+      pathname.startsWith('/api/client/maps/places') ||
       pathname.startsWith('/api/auth')
     if (allowed) return NextResponse.next()
     return NextResponse.redirect(

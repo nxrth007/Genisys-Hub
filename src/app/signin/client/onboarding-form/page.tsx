@@ -14,6 +14,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { Building2, AlertCircle } from 'lucide-react'
+import { AddressInput } from '@/components/ui/address-input'
 
 /** Package tiers shown in the onboarding form. `disabled: true` greys
  *  the option out + blocks selection. Pro is parked here until QB's
@@ -174,15 +175,29 @@ export default function OnboardingFormPage() {
             </Field>
           </div>
 
-          <Field label="Business address" required>
-            <input
-              type="text"
+          <Field
+            label="Business address"
+            required
+            hint={
+              state
+                ? `Suggestions are biased to ${state} since you filled in the State above.`
+                : 'Start typing — we\'ll suggest addresses across the US. Filling in the State above narrows the suggestions.'
+            }
+          >
+            {/* Same Google Places autocomplete Mary uses on the
+                booking form (with Nominatim fallback when the vault
+                doesn't have a Maps key configured). The stateBias
+                prop tightens suggestions to whatever the prospect
+                already entered in the State field above — typing
+                "123 Main" with state="NH" surfaces NH addresses
+                first instead of every "123 Main" in the country. */}
+            <AddressInput
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              required
-              autoComplete="street-address"
+              onChange={setAddress}
+              endpoint="/api/client/maps/places"
+              stateBias={state}
+              requireStreet
               placeholder="123 Main St, City, ST 12345"
-              className="input"
             />
           </Field>
 
