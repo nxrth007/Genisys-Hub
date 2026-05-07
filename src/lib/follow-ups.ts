@@ -325,14 +325,20 @@ export async function computeFollowUps(
     }
 
     const matchedClientName = clientByEmail.get(otherEmail.toLowerCase()) ?? null
-    // Best human name: the inbound message's fromName (because that
-    // came from THEM and reflects how they identify). Fall back to
-    // the latest message's fromName only if we never received an
-    // inbound (otherwise it'd just be our own from-name on outbound
-    // — useless).
+    // Best human name, in priority order:
+    //   1. fromName of an inbound message — they identified themselves
+    //   2. display name in the to-field of an outbound — useful for
+    //      cold-emails-only threads where Chris hasn't replied yet
+    //   3. the email itself, as a last resort
+    // Crucially: NEVER fall back to fromName of an outbound, because
+    // that's our send-as alias display ("Ethan Thompson" / "Lead
+    // Genisys") which would mislabel the prospect as ourselves.
     const inboundForName = msgs.find((m) => m.folder !== 'sent')
+    const outboundForName = msgs.find((m) => m.folder === 'sent')
     const contactName =
-      inboundForName?.fromName?.trim() || otherEmail
+      inboundForName?.fromName?.trim() ||
+      (outboundForName?.to ? extractDisplayName(outboundForName.to) : null) ||
+      otherEmail
 
     gmailCandidates.push({
       threadKey: `gmail:${threadId}`,
@@ -474,25 +480,68 @@ function pickBucket(p: BucketInput): FollowUpBucket | null {
  *  folder rather than from-set to decide which side is us, because
  *  alex@'s account has send-as aliases (e.g.
  *  fulfillment@gospringsolar.com) that show up in the from-header
- *  on outbound but ARE us. Folder='sent' is the truth source. */
+ *  on outbound but ARE us. Folder='sent' is the truth source.
+ *
+ *  Always returns just the email part — strips RFC 2822 wrapping
+ *  like `"Chris Mackintosh" <chris@logix.com>` down to
+ *  `chris@logix.com`, lowercased. */
 function inferOtherParty(
   msgs: Array<{ from: string; to: string; folder: string }>,
 ): string | null {
   // First try the from-address of any inbound message — that's the
   // cleanest, most accurate human identity (came from THEIR side).
   for (const m of msgs) {
-    if (m.folder !== 'sent') return m.from.toLowerCase()
+    if (m.folder !== 'sent') {
+      const e = extractEmailAddress(m.from)
+      if (e) return e
+    }
   }
   // No inbound — thread is all outbound from us. Pick the to-address
   // of the latest outbound. Comma-separated to-fields take the first.
   for (const m of msgs) {
     if (m.folder !== 'sent') continue
-    const to = (m.to || '').toLowerCase()
+    const to = m.to || ''
     if (!to) continue
     const first = to.split(',')[0]?.trim() ?? ''
-    if (first) return first
+    if (!first) continue
+    const e = extractEmailAddress(first)
+    if (e) return e
   }
   return null
+}
+
+/** Pull the email out of an RFC 2822-style address string. Accepts:
+ *    `"Name" <email@x.com>`
+ *    `Name <email@x.com>`
+ *    `email@x.com`
+ *  Returns null if no email-shaped substring is found. */
+function extractEmailAddress(addr: string): string | null {
+  if (!addr) return null
+  const angle = addr.match(/<([^>]+)>/)
+  if (angle && angle[1]) return angle[1].trim().toLowerCase()
+  const bare = addr.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)
+  return bare ? bare[0].toLowerCase() : null
+}
+
+/** Pull the display name out of an RFC 2822-style address string.
+ *  `"Chris Mackintosh (CEO)" <chris@x.com>` → `Chris Mackintosh (CEO)`.
+ *  Returns null when there's no name part (bare email). */
+function extractDisplayName(addr: string): string | null {
+  if (!addr) return null
+  const match = addr.match(/^\s*"?([^"<]*?)"?\s*</)
+  if (!match || !match[1]) return null
+  const name = match[1].trim()
+  if (!name || name.includes('@')) return null
+  // Gmail sometimes lowercases the display name. If the whole thing
+  // is lowercase, title-case it for nicer display. Names with any
+  // uppercase letter are presumed already-formatted; leave alone.
+  if (!/[A-Z]/.test(name)) {
+    return name.replace(
+      /\b\w+/g,
+      (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+    )
+  }
+  return name
 }
 
 /** Detect cold-outreach blasts: outbound messages we sent with an
