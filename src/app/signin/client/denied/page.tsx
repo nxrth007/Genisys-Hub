@@ -11,8 +11,8 @@ import { XCircle, LogOut } from 'lucide-react'
 
 export default function ClientDeniedPage() {
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 dark:from-zinc-950 dark:to-zinc-900">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-6 dark:from-zinc-950 dark:to-zinc-900">
+      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 text-center shadow-lg sm:p-8 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-5 flex items-center justify-center">
           <Image
             src="/genisys-logo.png"
@@ -20,7 +20,7 @@ export default function ClientDeniedPage() {
             width={450}
             height={150}
             priority
-            className="h-auto w-44 dark:invert"
+            className="h-auto w-40 sm:w-44 dark:invert"
           />
         </div>
         <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-950">

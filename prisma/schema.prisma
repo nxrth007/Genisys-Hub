@@ -41,10 +41,18 @@ model User {
   // generates a temporary password for a client; cleared when the
   // user picks their own.
   mustChangePassword Boolean @default(false)
+  // Forgot-password flow. tokenHash is bcrypt'd; the raw token only
+  // ever exists in the email link. Cleared on successful reset OR
+  // after expiry.
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
   // Which Client this user belongs to — populated for client_* roles
   // only. Drives the per-client master-tracker filter on /client.
+  // CASCADE on delete: when admin deletes a Client, every linked
+  // login row gets removed too. Previously SetNull, which left
+  // orphaned-active users wedged on /client with no recovery path.
   clientId      String?
-  client        Client?   @relation("ClientUsers", fields: [clientId], references: [id], onDelete: SetNull)
+  client        Client?   @relation("ClientUsers", fields: [clientId], references: [id], onDelete: Cascade)
   // Which tab title was created in the master appointments spreadsheet for
   // this agent (set when their registration is approved). Null otherwise.
   agentSheetTab String?

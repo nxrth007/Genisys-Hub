@@ -29,6 +29,11 @@ const PUBLIC_PATHS = [
   // creates a client_pending User. The follow-up onboarding form is
   // signed-in (client_pending), gated normally.
   '/api/client/register',
+  // Forgot/reset password endpoints — both reachable anonymously
+  // because the user can't sign in (that's why they're resetting).
+  // Both rate-limited per IP inside the handlers.
+  '/api/client/forgot-password',
+  '/api/client/reset-password',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces

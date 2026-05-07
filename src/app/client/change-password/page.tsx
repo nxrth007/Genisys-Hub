@@ -53,8 +53,8 @@ export default function ClientChangePasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-6 dark:bg-zinc-950">
+      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 sm:p-8 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-6 flex items-center justify-center gap-2">
           <Building2 className="h-7 w-7 text-blue-600" />
           <h1 className="text-xl font-bold">Genisys Hub</h1>

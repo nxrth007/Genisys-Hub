@@ -97,22 +97,22 @@ export default function ClientHomePage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       {/* Header — minimal, client-facing. No agency-internal nav. */}
-      <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Building2 className="h-5 w-5 text-blue-600" />
-            <div>
-              <h1 className="text-sm font-semibold">
+      <header className="border-b border-zinc-200 bg-white px-4 py-4 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Building2 className="h-5 w-5 shrink-0 text-blue-600" />
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold">
                 {data?.client?.name ?? 'Your appointments'}
               </h1>
-              <p className="text-[11px] text-zinc-500">
+              <p className="truncate text-[11px] text-zinc-500">
                 Booked appointments delivered to your business
               </p>
             </div>
           </div>
           <button
             onClick={() => signOut({ callbackUrl: '/signin/client' })}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <LogOut className="h-3.5 w-3.5" />
             Sign out
@@ -120,7 +120,7 @@ export default function ClientHomePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-6">
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         {data?.warning && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
             Heads up: your account isn&apos;t linked to a business yet.
@@ -167,45 +167,98 @@ export default function ClientHomePage() {
                 : 'No appointments yet — they’ll show up here once we book them.'}
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold">Date</th>
-                  <th className="px-4 py-2 text-left font-semibold">Customer</th>
-                  <th className="px-4 py-2 text-left font-semibold">Phone</th>
-                  <th className="px-4 py-2 text-left font-semibold">Address</th>
-                  <th className="px-4 py-2 text-left font-semibold">Bill</th>
-                  <th className="px-4 py-2 text-left font-semibold">Utility</th>
-                  <th className="px-4 py-2 text-left font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((a) => (
-                  <tr
-                    key={a.id}
-                    className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-950/50"
-                  >
-                    <td className="px-4 py-2 tabular-nums">
-                      {formatDateTime(a.apptDateTime)}
-                    </td>
-                    <td className="px-4 py-2 font-medium">{a.customerName}</td>
-                    <td className="px-4 py-2 tabular-nums">
-                      {a.customerPhone}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-                      {a.address ?? '—'}
-                    </td>
-                    <td className="px-4 py-2 tabular-nums">
-                      {a.monthlyBill ?? '—'}
-                    </td>
-                    <td className="px-4 py-2">{a.utilityProvider ?? '—'}</td>
-                    <td className="px-4 py-2">
-                      <StatusBadge status={a.status} />
-                    </td>
+            <>
+              {/* Desktop / tablet: full table. Hidden below md so phone
+                  users get the card stack below (7-column tables don't
+                  fit on a 375px viewport without horizontal scroll
+                  hell). */}
+              <table className="hidden w-full text-sm md:table">
+                <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2 text-left font-semibold">Customer</th>
+                    <th className="px-4 py-2 text-left font-semibold">Phone</th>
+                    <th className="px-4 py-2 text-left font-semibold">Address</th>
+                    <th className="px-4 py-2 text-left font-semibold">Bill</th>
+                    <th className="px-4 py-2 text-left font-semibold">Utility</th>
+                    <th className="px-4 py-2 text-left font-semibold">Status</th>
                   </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((a) => (
+                    <tr
+                      key={a.id}
+                      className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-950/50"
+                    >
+                      <td className="px-4 py-2 tabular-nums">
+                        {formatDateTime(a.apptDateTime)}
+                      </td>
+                      <td className="px-4 py-2 font-medium">{a.customerName}</td>
+                      <td className="px-4 py-2 tabular-nums">
+                        {a.customerPhone}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                        {a.address ?? '—'}
+                      </td>
+                      <td className="px-4 py-2 tabular-nums">
+                        {a.monthlyBill ?? '—'}
+                      </td>
+                      <td className="px-4 py-2">{a.utilityProvider ?? '—'}</td>
+                      <td className="px-4 py-2">
+                        <StatusBadge status={a.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Mobile: each appointment as a card. Customer name +
+                  status pill at the top for fast scanning, then date,
+                  phone, address, and the secondary fields stacked. */}
+              <ul className="divide-y divide-zinc-100 md:hidden dark:divide-zinc-800">
+                {filtered.map((a) => (
+                  <li key={a.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">
+                          {a.customerName}
+                        </p>
+                        <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+                          {formatDateTime(a.apptDateTime)}
+                        </p>
+                      </div>
+                      <StatusBadge status={a.status} />
+                    </div>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                      <div className="col-span-2">
+                        <dt className="text-zinc-400">Address</dt>
+                        <dd className="text-zinc-600 dark:text-zinc-300">
+                          {a.address ?? '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-400">Phone</dt>
+                        <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                          {a.customerPhone}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-400">Bill</dt>
+                        <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                          {a.monthlyBill ?? '—'}
+                        </dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-zinc-400">Utility</dt>
+                        <dd className="text-zinc-600 dark:text-zinc-300">
+                          {a.utilityProvider ?? '—'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </>
           )}
         </div>
       </main>

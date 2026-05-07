@@ -112,8 +112,8 @@ export default function ClientPaymentPage() {
   const isProOrCustom = pkg === 'pro' || pkg === 'custom'
 
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-10 dark:from-zinc-950 dark:to-zinc-900">
-      <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-8 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-[calc(100vh-64px)] items-start justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-6 sm:items-center sm:py-10 dark:from-zinc-950 dark:to-zinc-900">
+      <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg sm:p-8 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-5 flex items-center justify-center">
           <Image
             src="/genisys-logo.png"
@@ -121,7 +121,7 @@ export default function ClientPaymentPage() {
             width={450}
             height={150}
             priority
-            className="h-auto w-44 dark:invert"
+            className="h-auto w-40 sm:w-44 dark:invert"
           />
         </div>
 

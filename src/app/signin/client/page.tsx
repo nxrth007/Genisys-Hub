@@ -68,8 +68,8 @@ function ClientSignInInner() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 dark:from-zinc-950 dark:to-zinc-900">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-6 dark:from-zinc-950 dark:to-zinc-900">
+      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-lg sm:p-8 dark:border-zinc-800 dark:bg-zinc-900">
         {/* Logo. Source art is black on transparent — `dark:invert`
             flips it to white in dark mode without us having to ship a
             second asset. Sized to match the visual weight of the
@@ -81,7 +81,7 @@ function ClientSignInInner() {
             width={450}
             height={150}
             priority
-            className="h-auto w-44 dark:invert"
+            className="h-auto w-40 sm:w-44 dark:invert"
           />
         </div>
         <div className="mb-6 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
@@ -132,6 +132,15 @@ function ClientSignInInner() {
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
+
+          <p className="text-right text-xs">
+            <Link
+              href="/signin/client/forgot-password"
+              className="text-zinc-500 hover:text-blue-600 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </p>
         </form>
 
         <p className="mt-4 text-center text-xs text-zinc-500">
