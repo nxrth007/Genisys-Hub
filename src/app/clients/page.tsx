@@ -111,13 +111,24 @@ type StateFilter = 'all' | 'AZ' | 'CA' | 'UT' | 'other'
 type StatusFilter = 'all' | ClientLifecycle
 type PackageFilter = 'all' | ClientPackage
 
-function stateTone(state: string | null): ChipTone {
-  if (!state) return 'amber'
-  const s = state.toLowerCase()
-  if (s.includes('arizona') || s === 'az') return 'mint'
-  if (s.includes('california') || s === 'ca') return 'blue'
-  if (s.includes('utah') || s === 'ut') return 'violet'
-  return 'amber'
+/** Convert a 3- or 6-char hex string to an rgba() at the given alpha.
+ *  Used to render the state chip in a tint of the client's brand color
+ *  instead of a fixed-by-state palette — that way the chip color
+ *  matches what the admin set on the edit dialog (and the avatar /
+ *  status dot) instead of being dictated by which US state. */
+function hexToRgba(hex: string, alpha: number): string {
+  const cleaned = (hex || '#3b82f6').replace('#', '')
+  const expanded =
+    cleaned.length === 3
+      ? cleaned
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : cleaned
+  const r = parseInt(expanded.slice(0, 2), 16) || 0
+  const g = parseInt(expanded.slice(2, 4), 16) || 0
+  const b = parseInt(expanded.slice(4, 6), 16) || 0
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 function stateCode(state: string | null): string {
@@ -539,8 +550,11 @@ function ClientRow({
         <span className="tabular-nums">{client.agents}</span>
       </div>
 
+      {/* State chip — tinted with the client's own brand color
+          (set on the edit form) so the column reads as a
+          mini-color-key matching the avatar and status dot. */}
       <span>
-        <Chip tone={stateTone(client.state)}>{stateCode(client.state)}</Chip>
+        <ClientStateChip client={client} />
       </span>
 
       <div className="flex flex-col gap-1.5">
@@ -1135,6 +1149,48 @@ function DeleteClientDialog({
         </div>
       </form>
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+
+/** State chip styled in the client's own brand color (the one Alex
+ *  picks on the edit form). Matches the avatar + status-dot color
+ *  so each client reads as a single visual identity across the row.
+ *
+ *  Tint approach: 14% alpha background + 30% alpha border in the
+ *  client's hex color, with the saturated color used for the chip
+ *  text. Works across light + dark mode without per-theme tweaks
+ *  because the alpha values keep things readable on either bg.
+ *
+ *  Pending clients (lifecycle=pending) get a muted grey treatment
+ *  matching the dashed-circle avatar, so the chip can't be confused
+ *  with a real active client at a glance. */
+function ClientStateChip({ client }: { client: ClientWithCounts }) {
+  const code = stateCode(client.state)
+  const isPending = client.lifecycle === 'pending'
+
+  if (isPending) {
+    return (
+      <span className="inline-flex items-center justify-center rounded-full border border-dashed border-muted-foreground/40 bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+        {code}
+      </span>
+    )
+  }
+
+  const color = client.color || '#3b82f6'
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-semibold"
+      style={{
+        backgroundColor: hexToRgba(color, 0.14),
+        borderColor: hexToRgba(color, 0.3),
+        color,
+      }}
+      title={client.state ?? undefined}
+    >
+      {code}
+    </span>
   )
 }
 
