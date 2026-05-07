@@ -36,7 +36,7 @@ export async function GET() {
   // parallel. Sheet read is best-effort — a transient Drive API
   // failure shouldn't break the page; we'd rather show DB-only
   // counts than no counts at all.
-  const [clients, dbAppts, sheetRows] = await Promise.all([
+  const [clients, dbAppts, sheetRows, clientUsers] = await Promise.all([
     prisma.client.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
@@ -55,6 +55,8 @@ export async function GET() {
         notes: true,
         intakeFormUrl: true,
         ghlSubaccountUrl: true,
+        servicingZipcodes: true,
+        createdAt: true,
       },
     }),
     prisma.appointment.findMany({
@@ -71,6 +73,26 @@ export async function GET() {
     readMasterTableRows().catch((err) => {
       console.error('[clients/with-counts] sheet read failed:', err)
       return [] as Awaited<ReturnType<typeof readMasterTableRows>>
+    }),
+    // Bulk lookup of every /client login linked to a client. Used to
+    // surface "Login active since X" / "Awaiting first sign-in" in
+    // the detail dialog's Additional info panel without N+1 fetches
+    // per client. Matches any client_* role so we cover pending,
+    // onboarding, active and denied states in one pass.
+    prisma.user.findMany({
+      where: {
+        clientId: { not: null },
+        role: { startsWith: 'client_' },
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        clientId: true,
+        mustChangePassword: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     }),
   ])
 
@@ -275,8 +297,23 @@ export async function GET() {
     byClient.set(clientId, b)
   }
 
+  // Index client_* logins by clientId for O(1) lookup in the map
+  // below. We don't expect more than one login per client, but if
+  // there ever is — pick the most recently updated one as the
+  // "current" login surfaced in the dialog (newer mustChangePassword
+  // resets bump updatedAt).
+  const loginByClientId = new Map<string, (typeof clientUsers)[number]>()
+  for (const u of clientUsers) {
+    if (!u.clientId) continue
+    const existing = loginByClientId.get(u.clientId)
+    if (!existing || u.updatedAt > existing.updatedAt) {
+      loginByClientId.set(u.clientId, u)
+    }
+  }
+
   const result = clients.map((c) => {
     const stats = byClient.get(c.id) ?? empty()
+    const login = loginByClientId.get(c.id) ?? null
     // Appointment-progress metric: completed share of all booked
     // appointments. Higher = more appointments have been resolved
     // (showed or no-show), which signals the client is actively
@@ -308,6 +345,22 @@ export async function GET() {
       notes: c.notes,
       intakeFormUrl: c.intakeFormUrl,
       ghlSubaccountUrl: c.ghlSubaccountUrl,
+      servicingZipcodes: c.servicingZipcodes,
+      createdAt: c.createdAt.toISOString(),
+      // null when admin hasn't provisioned a /client login yet (and
+      // the client hasn't self-registered). Surfaced in the detail
+      // dialog's Additional info panel so admin can spot whether a
+      // client has actually signed in.
+      linkedLogin: login
+        ? {
+            id: login.id,
+            email: login.email,
+            role: login.role,
+            mustChangePassword: login.mustChangePassword,
+            createdAt: login.createdAt.toISOString(),
+            updatedAt: login.updatedAt.toISOString(),
+          }
+        : null,
       total: stats.total,
       upcoming: stats.upcoming,
       booked: stats.booked,

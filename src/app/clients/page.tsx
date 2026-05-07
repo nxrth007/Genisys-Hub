@@ -21,6 +21,11 @@ import {
   Trash2,
   AlertTriangle,
   UserPlus,
+  ChevronDown,
+  KeyRound,
+  CheckCircle2,
+  Hourglass,
+  XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -65,6 +70,24 @@ type ClientWithCounts = {
   notes: string | null
   intakeFormUrl: string | null
   ghlSubaccountUrl: string | null
+  /** Comma- or whitespace-separated zipcodes the client services.
+   *  Captured during self-onboarding; admin can edit via the form. */
+  servicingZipcodes: string | null
+  /** When the Client row was created. ISO string. Used in the
+   *  Additional info panel to show "Application date" for self-
+   *  onboarded clients. */
+  createdAt: string
+  /** Linked /client login account, if any. Surfaced in the
+   *  Additional info panel so admin can see whether a client
+   *  actually signed in. Null = no login provisioned yet. */
+  linkedLogin: {
+    id: string
+    email: string
+    role: string
+    mustChangePassword: boolean
+    createdAt: string
+    updatedAt: string
+  } | null
   total: number
   upcoming: number
   booked: number
@@ -871,6 +894,11 @@ function ClientDetailDialog({
           </Section>
         )}
 
+        {/* Additional info — foldable so the dialog stays compact
+            for clients where these fields are empty. Always renders
+            (createdAt is always populated) but defaults closed. */}
+        <AdditionalInfo client={client} />
+
         {/* Resources — Master Tracker shortcut + intake form +
             GoHighLevel sub-account if any are configured. */}
         <Section label="Resources">
@@ -1110,6 +1138,181 @@ function DeleteClientDialog({
   )
 }
 
+/* -------------------------------------------------------------------------- */
+
+/** Foldable "Additional info" panel on the client detail dialog.
+ *  Holds fields that don't belong in the always-visible top of the
+ *  dialog: servicing zipcodes (captured during self-onboarding),
+ *  application date, and the linked /client login (if any).
+ *
+ *  Defaults closed so the dialog stays compact. State is local — the
+ *  panel re-collapses every time the dialog opens, which is the
+ *  desired behavior for an info-dump that admin only needs
+ *  occasionally. */
+function AdditionalInfo({ client }: { client: ClientWithCounts }) {
+  const [open, setOpen] = useState(false)
+  const login = client.linkedLogin
+
+  return (
+    <div className="rounded-xl border border-border-soft bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-left transition hover:bg-surface-muted"
+      >
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Additional info
+        </span>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 text-muted-foreground transition-transform',
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+      {open && (
+        <div className="space-y-2.5 border-t border-border-soft px-3 py-3">
+          <DetailRow
+            icon={MapPin}
+            label="Servicing zipcodes"
+            value={client.servicingZipcodes}
+            empty="Not provided"
+          />
+          {client.contactRole && (
+            <DetailRow
+              icon={Users}
+              label="Contact role"
+              value={client.contactRole}
+            />
+          )}
+          <DetailRow
+            icon={CalendarIcon}
+            label="Application date"
+            value={formatDate(client.createdAt)}
+          />
+          <LoginDetailRow login={login} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Single label / value row in the AdditionalInfo panel. `empty`
+ *  controls what renders when value is null/undefined/empty —
+ *  surfacing "Not provided" is more useful than hiding the row
+ *  (admin can tell the field exists but isn't filled in). Pass
+ *  `empty={null}` to hide the row entirely instead. */
+function DetailRow({
+  icon: Icon,
+  label,
+  value,
+  empty = 'Not provided',
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: string | null | undefined
+  empty?: string | null
+}) {
+  const filled = !!value && String(value).trim().length > 0
+  if (!filled && empty === null) return null
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <p
+          className={cn(
+            'mt-0.5 break-words text-sm',
+            filled ? 'text-foreground/85' : 'italic text-muted-foreground/70',
+          )}
+        >
+          {filled ? value : empty}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** Specialized row for the linked /client login — translates the
+ *  raw role + mustChangePassword fields into a human-readable status
+ *  with an appropriate icon. Hidden cleanly when nothing's linked. */
+function LoginDetailRow({
+  login,
+}: {
+  login: ClientWithCounts['linkedLogin']
+}) {
+  if (!login) {
+    return (
+      <DetailRow
+        icon={KeyRound}
+        label="Client login"
+        value={null}
+        empty="No login provisioned yet"
+      />
+    )
+  }
+
+  const { role, email, mustChangePassword, createdAt, updatedAt } = login
+  let statusIcon: React.ComponentType<{ className?: string }> = CheckCircle2
+  let statusText = 'Active login'
+  let tone = 'text-emerald-600 dark:text-emerald-400'
+
+  if (role === 'client_pending') {
+    statusIcon = Hourglass
+    statusText = 'Self-registered · awaiting onboarding form'
+    tone = 'text-amber-600 dark:text-amber-400'
+  } else if (role === 'client_onboarding') {
+    statusIcon = Hourglass
+    statusText = 'Application submitted · awaiting review'
+    tone = 'text-amber-600 dark:text-amber-400'
+  } else if (role === 'client_denied') {
+    statusIcon = XCircle
+    statusText = 'Login denied'
+    tone = 'text-rose-600 dark:text-rose-400'
+  } else if (role === 'client_active' && mustChangePassword) {
+    statusIcon = Hourglass
+    statusText = 'Active · awaiting first sign-in (temp password sent)'
+    tone = 'text-amber-600 dark:text-amber-400'
+  }
+
+  const StatusIcon = statusIcon
+  // Use updatedAt for the activity timestamp — it bumps on password
+  // change, role flip, and credential reset. createdAt is the
+  // initial provisioning date.
+  const provisioned = formatDate(createdAt)
+  const lastChange = formatDate(updatedAt)
+
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      <KeyRound className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Client login
+        </p>
+        <p className="mt-0.5 break-all text-sm text-foreground/85">{email}</p>
+        <p
+          className={cn(
+            'mt-1 inline-flex items-center gap-1.5 text-xs font-medium',
+            tone,
+          )}
+        >
+          <StatusIcon className="h-3 w-3" />
+          {statusText}
+        </p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Provisioned {provisioned}
+          {lastChange !== provisioned && ` · Last change ${lastChange}`}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+
 function Section({
   label,
   children,
@@ -1238,5 +1441,6 @@ function toFormValues(c: ClientWithCounts): ClientFormValues {
     notes: c.notes ?? '',
     intakeFormUrl: c.intakeFormUrl ?? '',
     ghlSubaccountUrl: c.ghlSubaccountUrl ?? '',
+    servicingZipcodes: c.servicingZipcodes ?? '',
   }
 }

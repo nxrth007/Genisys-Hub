@@ -40,6 +40,11 @@ export type ClientFormValues = {
   notes: string
   intakeFormUrl: string
   ghlSubaccountUrl: string
+  /** Comma- or whitespace-separated zipcodes the client wants
+   *  appointments routed from. Captured during self-onboarding;
+   *  free-text here so admin can edit / append later without a
+   *  schema migration. */
+  servicingZipcodes: string
 }
 
 const EMPTY: ClientFormValues = {
@@ -57,6 +62,7 @@ const EMPTY: ClientFormValues = {
   notes: '',
   intakeFormUrl: '',
   ghlSubaccountUrl: '',
+  servicingZipcodes: '',
 }
 
 const COLOR_PRESETS = [
@@ -391,6 +397,24 @@ export function ClientFormDialog({
               />
             </Field>
           </Row>
+          <Row>
+            <Field
+              label="Servicing zipcodes"
+              icon={MapPin}
+              full
+              hint="Comma- or whitespace-separated. We use this to route appointments their way."
+            >
+              <input
+                type="text"
+                value={values.servicingZipcodes}
+                onChange={(e) =>
+                  set('servicingZipcodes', e.target.value)
+                }
+                placeholder="85001, 85002, 85003"
+                className={inputCls}
+              />
+            </Field>
+          </Row>
         </Section>
 
         {/* ---- Notes + links ---- */}
@@ -521,6 +545,7 @@ function Field({
   required,
   full,
   icon: Icon,
+  hint,
   children,
 }: {
   label: string
@@ -528,6 +553,8 @@ function Field({
   /** Span both columns of the parent row. */
   full?: boolean
   icon?: React.ComponentType<{ className?: string }>
+  /** Optional small grey caption below the input. */
+  hint?: string
   children: React.ReactNode
 }) {
   return (
@@ -538,6 +565,9 @@ function Field({
         {required && <span className="text-destructive">*</span>}
       </span>
       {children}
+      {hint && (
+        <span className="text-[11px] text-muted-foreground">{hint}</span>
+      )}
     </label>
   )
 }
@@ -569,5 +599,6 @@ function toApiPayload(v: ClientFormValues) {
     notes: blank(v.notes),
     intakeFormUrl: blank(v.intakeFormUrl),
     ghlSubaccountUrl: blank(v.ghlSubaccountUrl),
+    servicingZipcodes: blank(v.servicingZipcodes),
   }
 }

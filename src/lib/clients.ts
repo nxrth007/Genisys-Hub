@@ -62,6 +62,7 @@ export function validateClientCreate(
         notes: string | null
         intakeFormUrl: string | null
         ghlSubaccountUrl: string | null
+        servicingZipcodes: string | null
         lifecycle: ClientLifecycle
         package: ClientPackage
         apptCap: number | null
@@ -115,6 +116,7 @@ export function validateClientCreate(
       notes: trimOrNull(b.notes),
       intakeFormUrl: trimOrNull(b.intakeFormUrl),
       ghlSubaccountUrl: trimOrNull(b.ghlSubaccountUrl),
+      servicingZipcodes: trimOrNull(b.servicingZipcodes),
       lifecycle,
       package: pkg,
       apptCap,
@@ -146,6 +148,7 @@ export function normalizeClientPatch(
         notes: string | null
         intakeFormUrl: string | null
         ghlSubaccountUrl: string | null
+        servicingZipcodes: string | null
         lifecycle: ClientLifecycle
         active: boolean
         package: ClientPackage
@@ -171,6 +174,7 @@ export function normalizeClientPatch(
     notes: string | null
     intakeFormUrl: string | null
     ghlSubaccountUrl: string | null
+    servicingZipcodes: string | null
     lifecycle: ClientLifecycle
     active: boolean
     package: ClientPackage
@@ -219,6 +223,7 @@ export function normalizeClientPatch(
       | 'notes'
       | 'intakeFormUrl'
       | 'ghlSubaccountUrl'
+      | 'servicingZipcodes'
     >
   > = [
     'state',
@@ -229,6 +234,7 @@ export function normalizeClientPatch(
     'notes',
     'intakeFormUrl',
     'ghlSubaccountUrl',
+    'servicingZipcodes',
   ]
   for (const key of textFields) {
     if (key in b) data[key] = trimOrNull(b[key])
