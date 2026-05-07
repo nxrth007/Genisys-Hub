@@ -52,17 +52,25 @@ export async function GET(req: NextRequest) {
   const url = new URL(
     'https://maps.googleapis.com/maps/api/place/autocomplete/json',
   )
-  url.searchParams.set('input', q)
   url.searchParams.set('key', key)
   url.searchParams.set('types', 'address')
-  // country:us covers all 50 states + DC. Optional state bias narrows
-  // it further when the form has already collected a state.
-  const stateBias = (req.nextUrl.searchParams.get('state') ?? '').trim().toUpperCase()
-  const components =
-    /^[A-Z]{2}$/.test(stateBias)
-      ? `country:us|administrative_area:${stateBias}`
-      : 'country:us'
-  url.searchParams.set('components', components)
+  url.searchParams.set('components', 'country:us')
+
+  // Optional state bias. The legacy Places Autocomplete API only
+  // supports country filters in `components` — passing
+  // `administrative_area:CA` returns INVALID_REQUEST. So instead of
+  // filtering server-side, we append the state code to the search
+  // text and let Google's NLP bias naturally toward that area.
+  const stateBias = (req.nextUrl.searchParams.get('state') ?? '')
+    .trim()
+    .toUpperCase()
+  const isValidStateBias = /^[A-Z]{2}$/.test(stateBias)
+  const alreadyMentionsState =
+    isValidStateBias &&
+    new RegExp(`\\b${stateBias}\\b`, 'i').test(q)
+  const inputWithBias =
+    isValidStateBias && !alreadyMentionsState ? `${q} ${stateBias}` : q
+  url.searchParams.set('input', inputWithBias)
 
   let res: Response
   try {
