@@ -22,7 +22,6 @@ import {
   Mail,
   Send,
   Hourglass,
-  AlertCircle,
   CheckCircle2,
   RefreshCcw,
   Copy,
@@ -428,7 +427,6 @@ function CredentialsTab() {
 function CredentialsRow({ client }: { client: Client }) {
   const qc = useQueryClient()
   const [tempPassword, setTempPassword] = useState<string | null>(null)
-  const [emailSent, setEmailSent] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
 
   const userQuery = useQuery<{ user: ClientUser }>({
@@ -447,7 +445,6 @@ function CredentialsRow({ client }: { client: Client }) {
       })
       const json = (await res.json().catch(() => ({}))) as {
         tempPassword?: string
-        emailSent?: boolean
         error?: string
       }
       if (!res.ok) throw new Error(json.error || 'Failed to generate login')
@@ -455,7 +452,6 @@ function CredentialsRow({ client }: { client: Client }) {
     },
     onSuccess: (data) => {
       setTempPassword(data.tempPassword ?? null)
-      setEmailSent(data.emailSent ?? false)
       qc.invalidateQueries({ queryKey: ['client-user', client.id] })
     },
   })
@@ -564,17 +560,13 @@ function CredentialsRow({ client }: { client: Client }) {
               <KeyRound className="h-3.5 w-3.5" />
               Temporary password generated
             </div>
-            {emailSent === false && (
-              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
-                <AlertCircle className="h-3 w-3" />
-                Email send failed — copy and send manually
-              </span>
-            )}
-            {emailSent === true && (
-              <span className="text-blue-700 dark:text-blue-300">
-                Emailed to {client.contactEmail}
-              </span>
-            )}
+            {/* Email send is fire-and-forget on the API side now, so
+                we can't tell synchronously whether it landed. Show
+                "Sending to X" + the inline password — admin can copy
+                if the client doesn't see it within a minute. */}
+            <span className="text-blue-700 dark:text-blue-300">
+              Sending to {client.contactEmail}
+            </span>
           </div>
           <div className="mt-2 flex items-center gap-2">
             <code className="flex-1 rounded bg-white px-2 py-1 font-mono text-xs dark:bg-blue-900">

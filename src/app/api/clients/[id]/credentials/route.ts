@@ -159,60 +159,55 @@ export async function POST(
         select: { id: true, email: true, name: true, createdAt: true },
       })
 
-  // Best-effort email — don't fail the API call if Gmail hiccups; the
-  // admin can copy the temp password out of the response and resend
-  // manually if needed.
+  // Fire-and-forget both emails so the admin's "Generate login" click
+  // returns immediately. The response always carries `tempPassword`
+  // (returned ONCE), so even if the client-bound email fails to land,
+  // admin can copy from the inline panel and share manually. Errors
+  // surface in server logs via .catch.
   const origin = getPublicOrigin(req)
   const signinUrl = `${origin}/signin/client`
   const recipient = client.contactName
     ? `${client.contactName} (${client.name})`
     : client.name
-  let emailSent = false
-  try {
-    await sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: email,
-      subject: 'Your Genisys Hub client login is ready',
-      body: [
-        `Hi ${client.contactName || 'there'},`,
-        '',
-        'We just provisioned a Genisys Hub login for you. Sign in to see the appointments we are delivering for your business in real time.',
-        '',
-        `**Sign in:** ${signinUrl}`,
-        `**Email:** ${email}`,
-        `**Temporary password:** ${tempPassword}`,
-        '',
-        'You will be asked to set your own password the first time you sign in.',
-        '',
-        '— Genisys',
-      ].join('\n'),
-    })
-    emailSent = true
-  } catch (err) {
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: email,
+    subject: 'Your Genisys Hub client login is ready',
+    body: [
+      `Hi ${client.contactName || 'there'},`,
+      '',
+      'We just provisioned a Genisys Hub login for you. Sign in to see the appointments we are delivering for your business in real time.',
+      '',
+      `**Sign in:** ${signinUrl}`,
+      `**Email:** ${email}`,
+      `**Temporary password:** ${tempPassword}`,
+      '',
+      'You will be asked to set your own password the first time you sign in.',
+      '',
+      '— Genisys',
+    ].join('\n'),
+  }).catch((err) => {
     console.error('[clients/credentials] email send failed:', err)
-  }
+  })
 
   // Notify Alex too so he has a paper trail of provisioned logins.
-  // Same best-effort posture.
-  try {
-    await sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: 'alex@leadgenisys.com',
-      subject: `[Genisys Hub] Login provisioned for ${client.name}`,
-      body: [
-        `Login generated for ${recipient}.`,
-        '',
-        `Email: ${email}`,
-        `Sign in: ${signinUrl}`,
-        '',
-        'The temp password was emailed to the client.',
-        '',
-        '— Genisys Hub',
-      ].join('\n'),
-    })
-  } catch (err) {
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: 'alex@leadgenisys.com',
+    subject: `[Genisys Hub] Login provisioned for ${client.name}`,
+    body: [
+      `Login generated for ${recipient}.`,
+      '',
+      `Email: ${email}`,
+      `Sign in: ${signinUrl}`,
+      '',
+      'The temp password was emailed to the client.',
+      '',
+      '— Genisys Hub',
+    ].join('\n'),
+  }).catch((err) => {
     console.error('[clients/credentials] alex notify failed:', err)
-  }
+  })
 
   return NextResponse.json({
     user,
@@ -220,7 +215,11 @@ export async function POST(
     /** Returned only on the immediate response so admin can copy it
      *  if the email send failed. Never persisted in plaintext. */
     tempPassword,
-    emailSent,
+    /** Always true now — the email send is fire-and-forget so the
+     *  response can return in milliseconds. The Credentials tab UI
+     *  treats it as "we attempted delivery; copy the inline temp
+     *  password if the client doesn't see the email." */
+    emailDispatched: true,
   })
 }
 

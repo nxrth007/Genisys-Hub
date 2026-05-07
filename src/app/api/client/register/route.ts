@@ -94,17 +94,26 @@ export async function POST(req: NextRequest) {
 
   // Three branches:
   //   - new user                  → create as client_pending
-  //   - orphaned client User      → reset back to client_pending and
-  //                                 update password (admin deleted
-  //                                 their Client; treat as a fresh
-  //                                 application)
+  //   - orphaned mid-flow client  → reset back to client_pending and
+  //                                 update password (they registered
+  //                                 but never finished — or admin
+  //                                 cleaned up the Client mid-flow)
   //   - any other existing user   → generic-skip (don't expose the
   //                                 collision; the auto-signin on
   //                                 the page surfaces a real error
   //                                 if the password doesn't match)
+  //
+  // Reset is INTENTIONALLY narrowed to client_pending /
+  // client_onboarding (no completed application) — anyone who knows
+  // the email could otherwise overwrite the password on a real
+  // client_active or client_denied account that just had its Client
+  // wiped. Those states need an admin to clean up explicitly; we
+  // don't auto-reset them. Future improvement: token-link email
+  // verification would let us safely reset any orphaned account.
   const isOrphanedClient =
     !!existing &&
-    existing.role.startsWith('client_') &&
+    (existing.role === 'client_pending' ||
+      existing.role === 'client_onboarding') &&
     !existing.clientId
 
   let createdOrReset: {
