@@ -389,6 +389,13 @@ export function FocusList({
       // dateless tasks unconditionally") meant scoping back hid
       // nothing, so the calendar pill felt like it didn't track
       // tasks at all.
+      //
+      // Carve-out: incomplete tasks with a stamp BEFORE the
+      // range start are KEPT (they're "leftovers" — stuff Ethan
+      // didn't finish that should still pop into view today
+      // until handled). Done tasks before the range are dropped
+      // because Ethan: "I do not need to know what was done
+      // earlier."
       list = list.filter((t) => {
         const ref =
           t.dueDate ??
@@ -397,7 +404,9 @@ export function FocusList({
         if (!ref) return true
         const d = new Date(ref).getTime()
         if (isNaN(d)) return true
-        return d >= startMs && d <= endMs
+        if (d >= startMs && d <= endMs) return true
+        if (d < startMs && classify(t) !== 'done') return true
+        return false
       })
     }
     return list
@@ -735,31 +744,53 @@ export function FocusList({
               />
             </>
           ) : (
-            // Flat checklist mode (used by /today). Per Ethan:
-            // completed tasks are hidden from this view entirely
-            // (no in-list "Done earlier" collapsible) and the
-            // in-list "Follow-ups" subsection is gone — follow-up
-            // tasks merge into the main active list with their
-            // 🔁 marker still visible in the title. The bottom
-            // blue-phone drawer is the canonical follow-ups
-            // surface now.
-            (
-              <FlatChecklist
-                active={[
-                  ...groupedTasks.doing,
-                  ...groupedTasks.today,
-                  ...groupedTasks.upnext,
-                  ...groupedTasks.followup,
-                  ...groupedTasks.waiting,
-                ]}
-                onToggle={toggleComplete}
-                onDelete={(id) => deleteMutation.mutate(id)}
-                onRename={(id, title) =>
-                  renameMutation.mutate({ pageId: id, title })
-                }
-                onEdit={(id) => setEditingId(id)}
-              />
-            )
+            // Flat checklist mode (used by /today). Per Ethan's
+            // 2026-05-08 follow-up:
+            //   - Checking a task off keeps it visible TODAY with
+            //     the green disc + white check (no strikethrough).
+            //     It rolls off only when the day flips and it's no
+            //     longer in the date range.
+            //   - Tasks from earlier days that are STILL incomplete
+            //     surface in a "Leftover tasks" section so they
+            //     don't get lost. Past completions still don't
+            //     appear (that's the "Done earlier" he didn't want).
+            //   - Follow-up tagged tasks merge into the main list;
+            //     the canonical Follow-ups surface is the bottom
+            //     blue-phone drawer.
+            (() => {
+              const startMs = dateRange?.start.getTime() ?? -Infinity
+              const beforeRange = (t: Extracted) => {
+                const ref =
+                  t.dueDate ??
+                  (t.task.last_edited_time as string | undefined) ??
+                  null
+                if (!ref) return false
+                const d = new Date(ref).getTime()
+                return !isNaN(d) && d < startMs
+              }
+              const allActive = [
+                ...groupedTasks.doing,
+                ...groupedTasks.today,
+                ...groupedTasks.upnext,
+                ...groupedTasks.followup,
+                ...groupedTasks.waiting,
+              ]
+              const leftover = allActive.filter(beforeRange)
+              const active = allActive.filter((t) => !beforeRange(t))
+              return (
+                <FlatChecklist
+                  leftover={leftover}
+                  active={active}
+                  doneInRange={groupedTasks.done}
+                  onToggle={toggleComplete}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                  onRename={(id, title) =>
+                    renameMutation.mutate({ pageId: id, title })
+                  }
+                  onEdit={(id) => setEditingId(id)}
+                />
+              )
+            })()
           )}
         </div>
 
@@ -895,13 +926,26 @@ const SECTION_TONES: Record<
  * expand and see strikethrough rows inline.
  */
 function FlatChecklist({
+  leftover,
   active,
+  doneInRange,
   onToggle,
   onDelete,
   onRename,
   onEdit,
 }: {
+  /** Incomplete tasks whose stamp is BEFORE the current date
+   *  range — they rolled over from earlier days. Rendered in a
+   *  labeled "Leftover tasks" subsection at the top so Ethan
+   *  doesn't lose track of unfinished work. */
+  leftover: Extracted[]
+  /** Tasks within the current range, still incomplete. */
   active: Extracted[]
+  /** Tasks within the range that are marked done. Stay visible
+   *  inline (with the solid green check) until the date rolls
+   *  out of range — Ethan: "It will stay there, the next day it
+   *  won't be in view." */
+  doneInRange: Extracted[]
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -909,12 +953,13 @@ function FlatChecklist({
    *  in-component callers stay typesafe; flat mode passes it. */
   onEdit?: (id: string) => void
 }) {
-  if (active.length === 0) {
+  const total = leftover.length + active.length + doneInRange.length
+  if (total === 0) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
         <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
-          No open tasks. Past completions stay in Notion — scope the
-          calendar pill above backwards to revisit them.
+          No tasks in this range. Past completions stay in Notion —
+          scope the calendar pill above backwards to revisit them.
         </div>
       </div>
     )
@@ -922,24 +967,66 @@ function FlatChecklist({
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Active task list — Ethan: completed rows are hidden from
-          this view; checking a task rolls it off. Past completions
-          stay in Notion + are reachable via scoping the calendar
-          pill backwards. */}
-      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-        {active.map((t) => (
-          <li key={t.id}>
-            <TaskRow
-              task={t}
-              done={false}
-              onToggle={(d) => onToggle(t.id, d)}
-              onDelete={() => onDelete(t.id)}
-              onRename={(title) => onRename(t.id, title)}
-              onEdit={onEdit ? () => onEdit(t.id) : undefined}
-            />
-          </li>
-        ))}
-      </ul>
+      {/* Leftover tasks — incomplete carryover from before the
+          current range. Labeled with an amber accent so Ethan
+          can see at a glance that this stuff was supposed to be
+          done already. Hidden when empty. */}
+      {leftover.length > 0 && (
+        <div className="border-b border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">
+            <Clock className="h-3.5 w-3.5" />
+            Leftover tasks ({leftover.length})
+          </div>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {leftover.map((t) => (
+              <li key={t.id}>
+                <TaskRow
+                  task={t}
+                  done={false}
+                  onToggle={(d) => onToggle(t.id, d)}
+                  onDelete={() => onDelete(t.id)}
+                  onRename={(title) => onRename(t.id, title)}
+                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Main list — open tasks first, then today's completed
+          tasks at the bottom of the same list (with the green
+          check, no strikethrough). When the day rolls and the
+          completed tasks fall out of the date range, they
+          disappear from this list. */}
+      {(active.length > 0 || doneInRange.length > 0) && (
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {active.map((t) => (
+            <li key={t.id}>
+              <TaskRow
+                task={t}
+                done={false}
+                onToggle={(d) => onToggle(t.id, d)}
+                onDelete={() => onDelete(t.id)}
+                onRename={(title) => onRename(t.id, title)}
+                onEdit={onEdit ? () => onEdit(t.id) : undefined}
+              />
+            </li>
+          ))}
+          {doneInRange.map((t) => (
+            <li key={t.id}>
+              <TaskRow
+                task={t}
+                done
+                onToggle={(d) => onToggle(t.id, d)}
+                onDelete={() => onDelete(t.id)}
+                onRename={(title) => onRename(t.id, title)}
+                onEdit={onEdit ? () => onEdit(t.id) : undefined}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/*
         Removed (per Ethan, 2026-05-08):
