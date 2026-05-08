@@ -81,6 +81,38 @@ type Callback = {
   agent?: { id: string; name: string | null; email: string }
 }
 
+/**
+ * Notion-side follow-up task — the 🔁-tagged tasks created via
+ * the New Task dialog. Lifted out of FocusList and surfaced in
+ * the bottom blue-phone drawer alongside callbacks. Just the
+ * fields we need for the row render; the full task lives in
+ * Notion.
+ */
+type NotionFollowUp = {
+  id: string
+  title: string
+  url: string
+  assignee: string
+  priority: string
+  dueDate: string | null
+}
+
+/** Compact date label for the follow-ups drawer ("Mar 4", or
+ *  "Mar 4 2027" if outside the current year). Intentionally
+ *  simpler than formatTime() — drawer rows show DUE DATE, not
+ *  due time. */
+function formatDateOnly(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: sameYear ? undefined : 'numeric',
+  })
+}
+
 type CalEvent = {
   id?: string
   title?: string
@@ -265,30 +297,50 @@ export default function TodayPage() {
     setRange(rangeForScope(next))
   }
 
-  // Assignee filter — defaults to the caller (null = "me", which the
-  // API treats as the session user). Staff (admin/member) can switch
-  // via the dropdown below to inspect a teammate's queue. Per Ethan:
-  // "I just want to default to mine. I do not want to see yours."
+  // Assignee filter — defaults to the caller. State holds either
+  // null ("Me", resolved to the current user from staffQuery.me)
+  // or the picked staff user's id. Per Ethan: default to mine,
+  // can flip to teammates.
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
 
-  // Staff list for the Assignee dropdown. Lightweight call; cached
-  // for 5 min since the team roster changes rarely. Falls back to
-  // an empty array if the user isn't allowed to see it.
+  // Staff list + current user. Lightweight call; cached 5 min
+  // since the team roster changes rarely. `me` is the row
+  // matching the caller — used to resolve null state into a
+  // concrete name when filtering Notion-backed tasks.
   const staffQuery = useQuery<{
     users: Array<{ id: string; name: string | null; email: string; role: string }>
+    me: { id: string; name: string | null; email: string; role: string } | null
   }>({
     queryKey: ['staff-users'],
     queryFn: async () => {
       const res = await fetch('/api/staff')
-      if (!res.ok) return { users: [] }
+      if (!res.ok) return { users: [], me: null }
       return res.json()
     },
     staleTime: 5 * 60_000,
   })
   const staffUsers = staffQuery.data?.users ?? []
+  const me = staffQuery.data?.me ?? null
+
+  // Resolve the assignee state into a Notion-side name string.
+  // null state → current user's name (the "Me" default). Picking
+  // a teammate from the dropdown sets the id; we look it up to
+  // get the display name FocusList filters by.
+  const effectiveAssigneeUser = assigneeId
+    ? staffUsers.find((u) => u.id === assigneeId) ?? null
+    : me
+  const effectiveAssigneeName = effectiveAssigneeUser?.name ?? null
 
   // Detail modal — null = closed; otherwise the task to edit.
   const [detailTask, setDetailTask] = useState<Task | null>(null)
+
+  // Notion follow-ups lifted out of FocusList — when the user
+  // creates a 🔁-tagged task, FocusList omits it from the main
+  // list and reports it via onFollowUpsChange so we can render
+  // it inside the bottom blue-phone drawer instead. Per Ethan:
+  // "Can't those followup tasks actually just go into the
+  // followups section please?"
+  const [notionFollowUps, setNotionFollowUps] = useState<NotionFollowUp[]>([])
 
   const tasksQuery = useQuery<{ tasks: Task[] }>({
     // Key includes assigneeId so switching the filter triggers a
@@ -541,14 +593,12 @@ export default function TodayPage() {
         )}
         {/* Assignee dropdown — defaults to "Me" (filters to caller's
             tasks). Staff can flip to a teammate to inspect their
-            queue. Hidden when the staff list is empty (rare —
-            either every staff member is filtered out, or the API
-            returned 403, which means non-staff aren't seeing this
-            page anyway). */}
+            queue. The caller is excluded from the list since
+            "Me" already covers them. */}
         {staffUsers.length > 0 && (
           <AssigneePill
             value={assigneeId}
-            users={staffUsers}
+            users={staffUsers.filter((u) => u.id !== me?.id)}
             onChange={setAssigneeId}
           />
         )}
@@ -627,6 +677,25 @@ export default function TodayPage() {
               grouped={false}
               showAssigneeSidebar={false}
               dateRange={range}
+              // Filter Notion-backed tasks by the picked assignee
+              // (defaults to the current user's name). Without this
+              // the dropdown only filtered the local Hub task table
+              // and Ethan kept seeing Alex's Notion tasks.
+              assigneeFilter={effectiveAssigneeName}
+              // Lift 🔁-tagged follow-ups out of FocusList — they
+              // render in the bottom blue-phone drawer instead.
+              onFollowUpsChange={(items) =>
+                setNotionFollowUps(
+                  items.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    url: t.url,
+                    assignee: t.assignee,
+                    priority: t.priority,
+                    dueDate: t.dueDate,
+                  })),
+                )
+              }
             />
           ) : (
             <TaskBoard
@@ -737,6 +806,7 @@ export default function TodayPage() {
           response. */}
       <FollowUpsDrawer
         followUps={followUps}
+        notionFollowUps={notionFollowUps}
         loading={followUpsQuery.isLoading}
         error={followUpsQuery.error as Error | null}
       />
@@ -918,10 +988,15 @@ export default function TodayPage() {
  */
 function FollowUpsDrawer({
   followUps,
+  notionFollowUps,
   loading,
   error,
 }: {
   followUps: Callback[]
+  /** Notion-side follow-ups (🔁-tagged tasks) lifted out of
+   *  FocusList — Ethan: "Can't those followup tasks actually
+   *  just go into the followups section please?" */
+  notionFollowUps: NotionFollowUp[]
   loading: boolean
   error: Error | null
 }) {
@@ -936,6 +1011,10 @@ function FollowUpsDrawer({
     const bTime = new Date(b.callbackAt).getTime()
     return aTime - bTime
   })
+  // Combined count = call-center callbacks (this customer needs
+  // a phone callback) + Notion follow-up TASKS (general "follow
+  // up with X" todos). Both surfaces in the same drawer.
+  const totalCount = followUps.length + notionFollowUps.length
   const overdueCount = followUps.filter(
     (c) => new Date(c.callbackAt) < now
   ).length
@@ -985,13 +1064,15 @@ function FollowUpsDrawer({
             <h3 className="text-[15px] font-semibold tracking-tight">
               Follow-ups
               <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
-                {followUps.length}
+                {totalCount}
               </span>
             </h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {overdueCount > 0
-                ? `${overdueCount} overdue · ${followUps.length - overdueCount} upcoming`
-                : 'people to text/call back today'}
+                ? `${overdueCount} overdue · ${totalCount - overdueCount} upcoming`
+                : notionFollowUps.length > 0
+                  ? `${notionFollowUps.length} task${notionFollowUps.length === 1 ? '' : 's'} · ${followUps.length} call${followUps.length === 1 ? '' : 's'}`
+                  : 'people to text/call back today'}
             </p>
           </div>
         </div>
@@ -1005,6 +1086,49 @@ function FollowUpsDrawer({
 
       {expanded && (
         <div className="border-t border-border-soft">
+          {/* Notion-side follow-up tasks first — these are the
+              🔁-tagged tasks Ethan creates from the New Task
+              modal. Lifted out of FocusList so the bottom drawer
+              is the canonical "follow-ups" surface. Each row
+              opens the source page in Notion (no inline complete
+              action — task-state lives in Notion). */}
+          {notionFollowUps.length > 0 && (
+            <ul className="divide-y divide-border-soft border-b border-border-soft">
+              {notionFollowUps.map((t) => {
+                const cleanTitle = t.title.replace(/^🔁\s*/, '')
+                return (
+                  <li key={t.id}>
+                    <a
+                      href={t.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 px-5 py-3 transition hover:bg-muted/40"
+                    >
+                      <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300">
+                        <Phone className="h-3 w-3" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {cleanTitle}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {t.assignee || 'Unassigned'}
+                          {t.dueDate && ` · due ${formatDateOnly(t.dueDate)}`}
+                        </p>
+                      </div>
+                      {t.priority &&
+                        ['high', 'urgent'].includes(t.priority.toLowerCase()) && (
+                          <span className="flex-shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                            {t.priority}
+                          </span>
+                        )}
+                      <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    </a>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
           {loading ? (
             <div className="px-5 py-8 text-center text-sm text-muted-foreground">
               Loading follow-ups…
@@ -1013,10 +1137,15 @@ function FollowUpsDrawer({
             <div className="px-5 py-5 text-sm text-rose-600">
               Couldn&apos;t load follow-ups: {error.message}
             </div>
-          ) : ordered.length === 0 ? (
+          ) : ordered.length === 0 && notionFollowUps.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-              All caught up — no pending callbacks.
+              All caught up — nothing pending.
             </div>
+          ) : ordered.length === 0 ? (
+            // Notion follow-ups already rendered above; no callbacks
+            // to add below. Skip the "all caught up" message because
+            // there's clearly stuff above.
+            null
           ) : (
             <ul className="divide-y divide-border-soft">
               {ordered.map((c) => {

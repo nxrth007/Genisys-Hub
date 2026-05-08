@@ -302,6 +302,8 @@ export function FocusList({
   grouped = true,
   showAssigneeSidebar = true,
   dateRange,
+  assigneeFilter,
+  onFollowUpsChange,
 }: {
   dbId: string
   newTaskTrigger?: number
@@ -318,6 +320,30 @@ export function FocusList({
    *  always shown, since hiding undated work would obscure the
    *  triage list). Wired by /today's scope/calendar filter. */
   dateRange?: { start: Date; end: Date }
+  /** External assignee filter — used by /today's Assignee
+   *  dropdown to scope the Notion-backed task list to one
+   *  teammate. Accepts a Notion-side assignee NAME (matches
+   *  what extractPropValue returns). null = no external filter,
+   *  internal sidebar (when shown) controls the value instead. */
+  assigneeFilter?: string | null
+  /** When defined, FocusList omits 🔁-tagged follow-up tasks from
+   *  its own rendering and reports them via this callback so the
+   *  page can hand them to the FollowUpsDrawer below. Wired by
+   *  /today; other surfaces (e.g. /notion/db/[id]) leave it
+   *  undefined and follow-ups stay in the main list.
+   *
+   *  Shape is a public subset (no Notion internals) so the page
+   *  doesn't need to import Extracted. */
+  onFollowUpsChange?: (
+    followUps: Array<{
+      id: string
+      title: string
+      url: string
+      assignee: string
+      priority: string
+      dueDate: string | null
+    }>,
+  ) => void
 }) {
   const queryClient = useQueryClient()
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
@@ -367,15 +393,23 @@ export function FocusList({
   //   so the focus list isn't gutted by an aggressive scope.
   const filtered = useMemo(() => {
     let list = tasks
-    if (selectedAssignee !== 'all') {
-      if (selectedAssignee === 'unassigned') {
+    // External assignee filter wins when provided — that's the
+    // /today Assignee dropdown taking control. Internal sidebar
+    // state still drives the filter elsewhere (/notion/db/[id]).
+    const effectiveAssignee =
+      assigneeFilter !== undefined && assigneeFilter !== null
+        ? assigneeFilter
+        : selectedAssignee
+    if (effectiveAssignee && effectiveAssignee !== 'all') {
+      if (effectiveAssignee === 'unassigned') {
         list = list.filter((t) => !t.assignee.trim())
       } else {
+        const target = effectiveAssignee.trim().toLowerCase()
         list = list.filter((t) =>
           t.assignee
             .split(',')
-            .map((s) => s.trim())
-            .includes(selectedAssignee),
+            .map((s) => s.trim().toLowerCase())
+            .includes(target),
         )
       }
     }
@@ -433,6 +467,56 @@ export function FocusList({
     g.done.sort(() => 0) // already in Notion order
     return g
   }, [filtered])
+
+  // Follow-ups for the upstream drawer — computed from the full
+  // task set (assignee filter applied, but NOT the date scope) so
+  // the drawer always reflects every open 🔁 task regardless of
+  // whether the calendar is scoped to today / week / month. Done
+  // follow-ups are dropped — drawer is "still need to act on it."
+  const allOpenFollowUps = useMemo(() => {
+    const target =
+      assigneeFilter !== undefined && assigneeFilter !== null
+        ? assigneeFilter
+        : selectedAssignee
+    const matches = (t: Extracted) => {
+      if (!target || target === 'all') return true
+      if (target === 'unassigned') return !t.assignee.trim()
+      const wanted = target.trim().toLowerCase()
+      return t.assignee
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .includes(wanted)
+    }
+    return tasks
+      .filter((t) => matches(t))
+      .filter((t) => isFollowUp(t.title))
+      .filter((t) => classify(t) !== 'done')
+      .sort(
+        (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
+      )
+  }, [tasks, assigneeFilter, selectedAssignee])
+
+  // Lift follow-ups upstream — when /today wires the callback, we
+  // hand it the open-follow-up list so it can render them in the
+  // bottom blue-phone drawer instead of dragging the in-list group
+  // back. Reported via effect (ref guard prevents the no-op-update
+  // loop React Query would trigger if we just called it inline).
+  const onFollowUpsChangeRef = useRef(onFollowUpsChange)
+  useEffect(() => {
+    onFollowUpsChangeRef.current = onFollowUpsChange
+  }, [onFollowUpsChange])
+  useEffect(() => {
+    onFollowUpsChangeRef.current?.(
+      allOpenFollowUps.map((t) => ({
+        id: t.id,
+        title: t.title,
+        url: t.url,
+        assignee: t.assignee,
+        priority: t.priority,
+        dueDate: t.dueDate,
+      })),
+    )
+  }, [allOpenFollowUps])
 
   // Assignee list with counts — always computed from the *unfiltered* task
   // set so the sidebar shows real counts even when a filter is applied.
@@ -768,11 +852,15 @@ export function FocusList({
                 const d = new Date(ref).getTime()
                 return !isNaN(d) && d < startMs
               }
+              // When the page wires onFollowUpsChange (i.e. /today
+              // is rendering the bottom blue-phone drawer), drop
+              // follow-up tasks from the active list — they live in
+              // the drawer instead. Otherwise they merge in here.
               const allActive = [
                 ...groupedTasks.doing,
                 ...groupedTasks.today,
                 ...groupedTasks.upnext,
-                ...groupedTasks.followup,
+                ...(onFollowUpsChange ? [] : groupedTasks.followup),
                 ...groupedTasks.waiting,
               ]
               const leftover = allActive.filter(beforeRange)
@@ -968,16 +1056,17 @@ function FlatChecklist({
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
       {/* Leftover tasks — incomplete carryover from before the
-          current range. Labeled with an amber accent so Ethan
-          can see at a glance that this stuff was supposed to be
-          done already. Hidden when empty. */}
+          current range. Tinted amber background + thicker
+          divider so the section reads as a distinct group, not
+          an extension of today's active list. Hidden when
+          empty. */}
       {leftover.length > 0 && (
-        <div className="border-b border-zinc-100 dark:border-zinc-800">
-          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">
+        <div className="border-b-2 border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
             <Clock className="h-3.5 w-3.5" />
             Leftover tasks ({leftover.length})
           </div>
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          <ul className="divide-y divide-amber-100 dark:divide-amber-900/40">
             {leftover.map((t) => (
               <li key={t.id}>
                 <TaskRow
