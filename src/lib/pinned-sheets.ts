@@ -104,3 +104,13 @@ export function getViewUrl(s: PinnedSheet, gid?: number): string {
   const targetGid = gid ?? s.defaultGid
   return `https://docs.google.com/spreadsheets/d/${s.spreadsheetId}/edit?gid=${targetGid}#gid=${targetGid}`
 }
+
+/**
+ * Look up a pinned sheet by its stable `key`. Used by the detail
+ * route at /documents/sheets/[key] to validate the param + load the
+ * right config. Returns undefined for unknown keys; callers should
+ * 404 on undefined.
+ */
+export function findPinnedSheet(key: string): PinnedSheet | undefined {
+  return PINNED_SHEETS.find((s) => s.key === key)
+}

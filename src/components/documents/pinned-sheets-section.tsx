@@ -18,6 +18,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronDown,
@@ -25,6 +26,7 @@ import {
   ExternalLink,
   FileSpreadsheet,
   Loader2,
+  Maximize2,
   RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -154,16 +156,37 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
             </p>
           </div>
         </div>
-        <a
-          href={sheet.viewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          title="Open in Google Sheets"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Open in Sheets
-        </a>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {/* Detailed view — opens a dedicated route per sheet with
+              KPI strips, per-tab cards, and structured row-level
+              breakdowns. The cramped iframe in this list view is
+              fine for a glance but no good for actually reading the
+              numbers; the detail page gives the workbook proper
+              breathing room. */}
+          <Link
+            href={`/documents/sheets/${sheet.key}`}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition',
+              sheet.accent.badgeBg,
+              sheet.accent.badgeText,
+              'hover:brightness-95',
+            )}
+            title="Open the full detail view"
+          >
+            <Maximize2 className="h-3 w-3" />
+            View detailed
+          </Link>
+          <a
+            href={sheet.viewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            title="Open in Google Sheets"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in Sheets
+          </a>
+        </div>
       </div>
 
       {/* Summary badges — only render if we got values back. */}
