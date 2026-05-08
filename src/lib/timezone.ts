@@ -290,6 +290,52 @@ export function sameDayInTz(a: Date, b: Date, timezone: string): boolean {
 }
 
 /**
+ * Today's calendar date in `timezone`, returned as "YYYY-MM-DD".
+ *
+ * Used to seed agent-side date pickers so "Today" lines up with
+ * the agent's working zone — NOT the viewer's browser zone. If a
+ * caller used `new Date()` instead, evening hours would tip the
+ * picker to tomorrow whenever the browser tz sits west of UTC and
+ * the agent tz sits east of UTC (or vice-versa). Symptom: Mary
+ * picks 7 PM "Today" expecting May 7, but the dropdown defaults
+ * to May 8 because her browser thinks it's already tomorrow.
+ *
+ * en-CA gives YYYY-MM-DD ordering for free; we just join its parts.
+ */
+export function todayInTz(timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+/**
+ * Add `days` to a YYYY-MM-DD calendar date string and return the
+ * resulting YYYY-MM-DD. Pure string arithmetic — no Date object
+ * crossing zone or DST boundaries — so adding 1 day to "2026-03-08"
+ * always gives "2026-03-09" regardless of viewer tz or DST events.
+ *
+ * Anchors at noon UTC during the math just so we can use
+ * Date.UTC + setUTCDate without dragging in a date library; the
+ * anchor is discarded before return.
+ */
+export function addDaysToDateString(date: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+  const anchor = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0))
+  anchor.setUTCDate(anchor.getUTCDate() + days)
+  const yy = anchor.getUTCFullYear()
+  const mm = String(anchor.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(anchor.getUTCDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
+/**
  * Interpret a wall-clock string ("YYYY-MM-DDTHH:mm" or
  * "YYYY-MM-DD HH:mm" or US-style "M/D/YYYY h:mm AM/PM") as if it
  * were typed in the *target* IANA timezone, and return the matching

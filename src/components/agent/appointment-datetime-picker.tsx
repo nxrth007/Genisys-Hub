@@ -2,6 +2,11 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { Check } from 'lucide-react'
+import {
+  AGENT_TIMEZONE,
+  todayInTz,
+  addDaysToDateString,
+} from '@/lib/timezone'
 
 /**
  * Clean two-dropdown date/time picker. Replaces the native datetime-local
@@ -33,24 +38,27 @@ function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-function toLocalDate(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function addDays(base: Date, days: number): Date {
-  const d = new Date(base)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() + days)
-  return d
-}
-
-/** Label a date for the dropdown: "Today · Apr 21", "Wed · Apr 23", etc. */
-function labelForDate(d: Date, offsetFromToday: number): string {
-  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  if (offsetFromToday === 0) return `Today · ${dateStr}`
-  if (offsetFromToday === 1) return `Tomorrow · ${dateStr}`
+/**
+ * Label a date for the dropdown: "Today · Apr 21", "Wed · Apr 23".
+ *
+ * Takes the YYYY-MM-DD string directly. Building the Date via
+ * `new Date(`${dateStr}T12:00:00`)` anchors at LOCAL noon, which is
+ * always on the same calendar day as `dateStr` for any timezone
+ * `toLocaleDateString` might pick — no day-flip risk from a midnight
+ * round-trip. (We only use `toLocaleDateString` here for the visual
+ * "May 8" formatting; the *value* sent on selection is the
+ * tz-anchored YYYY-MM-DD string built upstream.)
+ */
+function labelForDate(dateStr: string, offsetFromToday: number): string {
+  const d = new Date(`${dateStr}T12:00:00`)
+  const formatted = d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+  if (offsetFromToday === 0) return `Today · ${formatted}`
+  if (offsetFromToday === 1) return `Tomorrow · ${formatted}`
   const weekday = d.toLocaleDateString('en-US', { weekday: 'short' })
-  return `${weekday} · ${dateStr}`
+  return `${weekday} · ${formatted}`
 }
 
 /** 8 AM → 9 PM in 30-min steps. Covers virtually every solar-call slot. */
@@ -82,14 +90,20 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
 
   // The preset list covers today + the next 21 days. If the current value
   // falls outside that range (e.g. editing an appointment booked a month
-  // out), the dropdown shows "Other" by default and the native picker
-  // below displays the actual date.
+  // out), the dropdown shows "Select a date…" by default and the native
+  // calendar input below displays the actual date.
+  //
+  // "Today" is anchored to AGENT_TIMEZONE (Manila) — NOT the viewer's
+  // browser zone. Without this anchor, evening hours in zones west of
+  // Manila tip the picker to "tomorrow" because `new Date()` reports
+  // the browser's calendar day, not Mary's. Symptom Mary reported on
+  // 2026-05-07: dropdown defaulted to May 8 because her browser had
+  // already crossed midnight by the time she opened the form.
   const dateOptions = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const todayStr = todayInTz(AGENT_TIMEZONE)
     return Array.from({ length: 22 }, (_, i) => {
-      const d = addDays(today, i)
-      return { value: toLocalDate(d), label: labelForDate(d, i) }
+      const dateStr = addDaysToDateString(todayStr, i)
+      return { value: dateStr, label: labelForDate(dateStr, i) }
     })
   }, [])
 
@@ -117,7 +131,9 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
       onChange('')
       return
     }
-    const d = date || toLocalDate(new Date())
+    // Same Manila-anchor reasoning as dateOptions — if the agent
+    // picked a time but no date, "today" must mean Mary's today.
+    const d = date || todayInTz(AGENT_TIMEZONE)
     const t = time || '10:00'
     onChange(`${d}T${t}`)
   }
