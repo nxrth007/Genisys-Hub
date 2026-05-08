@@ -23,6 +23,7 @@ import {
   KanbanSquare,
   ChevronRight,
   Sparkles,
+  User as UserIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TaskBoard } from '@/components/notion/task-board'
@@ -264,10 +265,40 @@ export default function TodayPage() {
     setRange(rangeForScope(next))
   }
 
-  const tasksQuery = useQuery<{ tasks: Task[] }>({
-    queryKey: ['today-tasks'],
+  // Assignee filter — defaults to the caller (null = "me", which the
+  // API treats as the session user). Staff (admin/member) can switch
+  // via the dropdown below to inspect a teammate's queue. Per Ethan:
+  // "I just want to default to mine. I do not want to see yours."
+  const [assigneeId, setAssigneeId] = useState<string | null>(null)
+
+  // Staff list for the Assignee dropdown. Lightweight call; cached
+  // for 5 min since the team roster changes rarely. Falls back to
+  // an empty array if the user isn't allowed to see it.
+  const staffQuery = useQuery<{
+    users: Array<{ id: string; name: string | null; email: string; role: string }>
+  }>({
+    queryKey: ['staff-users'],
     queryFn: async () => {
-      const res = await fetch('/api/today/tasks')
+      const res = await fetch('/api/staff')
+      if (!res.ok) return { users: [] }
+      return res.json()
+    },
+    staleTime: 5 * 60_000,
+  })
+  const staffUsers = staffQuery.data?.users ?? []
+
+  // Detail modal — null = closed; otherwise the task to edit.
+  const [detailTask, setDetailTask] = useState<Task | null>(null)
+
+  const tasksQuery = useQuery<{ tasks: Task[] }>({
+    // Key includes assigneeId so switching the filter triggers a
+    // refetch — same pattern as the calendar query keying on range.
+    queryKey: ['today-tasks', assigneeId],
+    queryFn: async () => {
+      const url = assigneeId
+        ? `/api/today/tasks?userId=${encodeURIComponent(assigneeId)}`
+        : '/api/today/tasks'
+      const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load tasks')
       return res.json()
     },
@@ -508,6 +539,19 @@ export default function TodayPage() {
             icon={tasksView === 'focus' ? ListChecks : KanbanSquare}
           />
         )}
+        {/* Assignee dropdown — defaults to "Me" (filters to caller's
+            tasks). Staff can flip to a teammate to inspect their
+            queue. Hidden when the staff list is empty (rare —
+            either every staff member is filtered out, or the API
+            returned 403, which means non-staff aren't seeing this
+            page anyway). */}
+        {staffUsers.length > 0 && (
+          <AssigneePill
+            value={assigneeId}
+            users={staffUsers}
+            onChange={setAssigneeId}
+          />
+        )}
       </div>
 
       {/* At-a-glance numbers — three cards mirroring Ethan's mockup.
@@ -668,6 +712,7 @@ export default function TodayPage() {
                   onUpdate={() =>
                     qc.invalidateQueries({ queryKey: ['today-tasks'] })
                   }
+                  onOpenDetail={() => setDetailTask(task)}
                 />
               ))
             )}
@@ -838,6 +883,17 @@ export default function TodayPage() {
           onCreated={() => {
             qc.invalidateQueries({ queryKey: ['today-tasks'] })
             setShowAdd(false)
+          }}
+        />
+      )}
+
+      {detailTask && (
+        <TaskDetailModal
+          task={detailTask}
+          onClose={() => setDetailTask(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ['today-tasks'] })
+            setDetailTask(null)
           }}
         />
       )}
@@ -1021,7 +1077,15 @@ function FollowUpsDrawer({
   )
 }
 
-function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
+function TaskRow({
+  task,
+  onUpdate,
+  onOpenDetail,
+}: {
+  task: Task
+  onUpdate: () => void
+  onOpenDetail?: () => void
+}) {
   const isComplete = !!task.completedAt
 
   const toggleMutation = useMutation({
@@ -1066,7 +1130,12 @@ function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
         )}
       </button>
 
-      <div className="min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={onOpenDetail}
+        className="min-w-0 flex-1 cursor-pointer rounded-md text-left transition hover:bg-muted/40"
+        title="Click for details"
+      >
         <div className="text-sm font-medium">
           {task.priority === 'high' && (
             <span className="text-red-500 mr-1">!</span>
@@ -1076,7 +1145,7 @@ function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
         {task.notes && (
           <div className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{task.notes}</div>
         )}
-      </div>
+      </button>
 
       {task.dueAt && (
         <div className="flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
@@ -1093,6 +1162,253 @@ function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
       >
         <Trash2 className="h-4 w-4" />
       </button>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  AssigneePill — filter the Today task list by who owns the tasks            */
+/* -------------------------------------------------------------------------- */
+
+function AssigneePill({
+  value,
+  users,
+  onChange,
+}: {
+  value: string | null
+  users: Array<{ id: string; name: string | null; email: string }>
+  onChange: (next: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = value ? users.find((u) => u.id === value) : null
+  const label = selected
+    ? selected.name || selected.email.split('@')[0]
+    : 'Me'
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+      >
+        <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">Assignee:</span>
+        <span>{label}</span>
+        <ChevronRight className="h-3 w-3 rotate-90 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-border bg-card shadow-lg">
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted',
+                value === null && 'bg-muted/60 font-semibold',
+              )}
+            >
+              <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              Me
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                default
+              </span>
+            </button>
+            <div className="border-t border-border" />
+            {users.map((u) => (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => {
+                  onChange(u.id)
+                  setOpen(false)
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted',
+                  value === u.id && 'bg-muted/60 font-semibold',
+                )}
+              >
+                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
+                  {(u.name || u.email)[0].toUpperCase()}
+                </span>
+                <span className="truncate">
+                  {u.name || u.email.split('@')[0]}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  TaskDetailModal — click a task to view + edit (title, notes, due, prio)    */
+/* -------------------------------------------------------------------------- */
+
+function TaskDetailModal({
+  task,
+  onClose,
+  onSaved,
+}: {
+  task: Task
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [title, setTitle] = useState(task.title)
+  const [notes, setNotes] = useState(task.notes ?? '')
+  const [priority, setPriority] = useState<'low' | 'normal' | 'high'>(
+    task.priority,
+  )
+  // dueAt is stored as a full ISO datetime; the form uses a
+  // datetime-local input which expects "YYYY-MM-DDTHH:mm" (no
+  // seconds, no zone). Slice the existing value to fit, and on
+  // submit re-attach an ISO so server-side parsing stays uniform.
+  // Empty string = no due date set.
+  const [dueLocal, setDueLocal] = useState<string>(() => {
+    if (!task.dueAt) return ''
+    const d = new Date(task.dueAt)
+    if (isNaN(d.getTime())) return ''
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const dueAt = dueLocal ? new Date(dueLocal).toISOString() : null
+      const res = await fetch(`/api/today/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          notes: notes.trim() || null,
+          priority,
+          dueAt,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to save')
+      }
+      onSaved()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-lg rounded-t-2xl border border-border bg-card shadow-2xl sm:rounded-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h3 className="text-sm font-semibold">Task details</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 p-5">
+          <div>
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Due date
+              </label>
+              <input
+                type="datetime-local"
+                value={dueLocal}
+                onChange={(e) => setDueLocal(e.target.value)}
+                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Priority
+              </label>
+              <select
+                value={priority}
+                onChange={(e) =>
+                  setPriority(e.target.value as 'low' | 'normal' | 'high')
+                }
+                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={submitting || !title.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            >
+              {submitting ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

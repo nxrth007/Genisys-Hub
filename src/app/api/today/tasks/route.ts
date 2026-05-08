@@ -5,9 +5,21 @@ import { prisma } from '@/lib/prisma'
 
 /**
  * GET /api/today/tasks
- * Returns the logged-in user's tasks. Optionally filter by date.
- * ?date=2026-04-15 (ISO date) → tasks due on that date
- * No date param → all incomplete tasks + today's completed tasks
+ *
+ * Returns tasks for the Today view. Defaults to the logged-in
+ * user's own tasks; staff (admin / member) can override via
+ * ?userId=<otherUserId> to inspect a teammate's queue (the
+ * Assignee dropdown on /today uses this). Non-staff get a 403
+ * if they try to look at anyone else's tasks.
+ *
+ * Other params:
+ *   ?date=2026-04-15  → tasks due on that ISO date (also includes
+ *                       incomplete-no-due-date so they don't get
+ *                       hidden when filtering by day)
+ *   no date           → all incomplete tasks + today's completed
+ *                       tasks (the latter is for the post-check
+ *                       in-flight window; the UI hides completed
+ *                       tasks from the list anyway)
  */
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -16,27 +28,41 @@ export async function GET(req: NextRequest) {
   }
 
   const dateParam = req.nextUrl.searchParams.get('date')
+  const userIdParam = req.nextUrl.searchParams.get('userId')?.trim() || null
 
-  let where: Record<string, unknown> = { userId: session.user.id }
+  // Resolve which user's tasks we're returning. Default = caller.
+  // Override allowed only for staff so they can filter the
+  // Assignee dropdown to a teammate; non-staff get a 403 to
+  // prevent leaking tasks across roles.
+  let targetUserId = session.user.id
+  if (userIdParam && userIdParam !== session.user.id) {
+    const role = (session.user as { role?: string } | undefined)?.role
+    if (role !== 'admin' && role !== 'member') {
+      return NextResponse.json(
+        { error: 'forbidden — staff only can view other users tasks' },
+        { status: 403 },
+      )
+    }
+    targetUserId = userIdParam
+  }
+
+  let where: Record<string, unknown> = { userId: targetUserId }
 
   if (dateParam) {
     const day = new Date(dateParam)
     const nextDay = new Date(day.getTime() + 24 * 60 * 60 * 1000)
     where = {
-      userId: session.user.id,
+      userId: targetUserId,
       OR: [
-        // Tasks due on this date (completed or not)
         { dueAt: { gte: day, lt: nextDay } },
-        // Incomplete tasks with no due date (always show)
         { dueAt: null, completedAt: null },
       ],
     }
   } else {
-    // Default: incomplete tasks + tasks completed today
     const today = new Date()
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
     where = {
-      userId: session.user.id,
+      userId: targetUserId,
       OR: [
         { completedAt: null },
         { completedAt: { gte: startOfDay } },

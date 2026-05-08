@@ -24,8 +24,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: 'invalid body', issues: parsed.error.issues }, { status: 400 })
   }
 
-  // Ensure the task belongs to this user.
-  const existing = await prisma.task.findFirst({ where: { id, userId: session.user.id } })
+  // Owner OR staff can edit. Staff cross-edit lets Ethan check off
+  // a task on Garrett's queue when filtered into it via the Today
+  // assignee dropdown — small team, intentional collaboration.
+  // Non-staff are still scoped to their own tasks.
+  const role = (session.user as { role?: string } | undefined)?.role
+  const isStaff = role === 'admin' || role === 'member'
+  const existing = await prisma.task.findFirst({
+    where: isStaff ? { id } : { id, userId: session.user.id },
+  })
   if (!existing) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 })
   }
@@ -53,7 +60,12 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   }
 
   const { id } = await ctx.params
-  const existing = await prisma.task.findFirst({ where: { id, userId: session.user.id } })
+  // Same staff cross-edit rule as PATCH — see comment there.
+  const role = (session.user as { role?: string } | undefined)?.role
+  const isStaff = role === 'admin' || role === 'member'
+  const existing = await prisma.task.findFirst({
+    where: isStaff ? { id } : { id, userId: session.user.id },
+  })
   if (!existing) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 })
   }
