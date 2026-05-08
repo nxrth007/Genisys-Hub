@@ -27,6 +27,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
+import { PinnedSheetsSection } from '@/components/documents/pinned-sheets-section'
 
 type FolderNode = {
   id: string
@@ -401,6 +402,15 @@ export default function DocumentsPage() {
           />
         </div>
       </div>
+
+      {/*
+        Pinned sheets — Genisys Financial Dashboard + Mary's
+        Client/Qualification sheet. Mounted right under the page
+        header so they're the first thing the team sees on
+        /documents. Editing happens in-iframe; "Open in Sheets"
+        kicks out to a full Google tab as a fallback.
+      */}
+      <PinnedSheetsSection />
 
       {/* Search */}
       <div className="relative">
