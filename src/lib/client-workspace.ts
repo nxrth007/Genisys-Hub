@@ -32,6 +32,49 @@ import {
 const ALERT_CHANNEL = 'genisys-alerts'
 
 /**
+ * AppSetting key for the master toggle. When the row is missing or
+ * stores 'true', auto-provisioning runs on Client approval. When
+ * 'false', the approve flow skips the Slack call entirely so admin
+ * can provision channels manually (or hold off until Slack scopes
+ * are configured) — the existing per-client channel assignment in
+ * Settings → ClientSlackDelivery still works while this is off.
+ *
+ * Default ON to preserve the behavior shipped with the feature; the
+ * Settings UI flips this without a deploy.
+ */
+const PROVISIONING_ENABLED_KEY = 'clientWorkspaceProvisioning.enabled'
+
+export async function isClientWorkspaceProvisioningEnabled(): Promise<boolean> {
+  try {
+    const row = await prisma.appSetting.findUnique({
+      where: { key: PROVISIONING_ENABLED_KEY },
+    })
+    if (!row) return true
+    return row.value === 'true'
+  } catch (err) {
+    // DB hiccup — bias toward "feature on" so an outage doesn't
+    // silently disable provisioning. The orchestrator itself
+    // never throws; worst case the channel create fails and we
+    // post to #genisys-alerts.
+    console.error(
+      '[client-workspace] failed to read provisioning toggle, defaulting to enabled',
+      err,
+    )
+    return true
+  }
+}
+
+export async function setClientWorkspaceProvisioningEnabled(
+  enabled: boolean,
+): Promise<void> {
+  await prisma.appSetting.upsert({
+    where: { key: PROVISIONING_ENABLED_KEY },
+    create: { key: PROVISIONING_ENABLED_KEY, value: enabled ? 'true' : 'false' },
+    update: { value: enabled ? 'true' : 'false' },
+  })
+}
+
+/**
  * Slugify a client name into a Slack-safe channel-name fragment.
  * Slack requires lowercase + [a-z0-9._-]; collapsing everything
  * else to single hyphens keeps the result readable.
@@ -65,6 +108,18 @@ async function notifyAlertChannel(text: string): Promise<void> {
 export async function provisionClientWorkspace(
   clientId: string,
 ): Promise<void> {
+  // Master toggle gate. Admin can flip auto-provisioning off via
+  // Settings → Client workspace provisioning if Slack scopes
+  // aren't yet configured, or to provision channels manually for
+  // a stretch. Per-client channel assignment + alert delivery
+  // still works through the existing Settings UI.
+  if (!(await isClientWorkspaceProvisioningEnabled())) {
+    console.log(
+      `[client-workspace] auto-provision toggle is OFF, skipping ${clientId}`,
+    )
+    return
+  }
+
   const client = await prisma.client
     .findUnique({
       where: { id: clientId },

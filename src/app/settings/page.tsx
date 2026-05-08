@@ -68,6 +68,8 @@ export default function SettingsPage() {
 
       <ClientSlackDeliverySection />
 
+      <ClientWorkspaceProvisioningSection />
+
       <ClientAlertsSection />
 
       <TwilioTestSection />
@@ -1097,6 +1099,132 @@ function ClientSlackDeliverySection() {
             />
           ))
         )}
+      </div>
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Client Workspace Provisioning (auto-create Slack channel)          */
+/* ------------------------------------------------------------------ */
+
+function ClientWorkspaceProvisioningSection() {
+  const qc = useQueryClient()
+
+  const configQuery = useQuery<{ enabled: boolean }>({
+    queryKey: ['client-workspace-provisioning-config'],
+    queryFn: async () => {
+      const res = await fetch(
+        '/api/admin/client-workspace-provisioning/config',
+      )
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load provisioning config')
+      }
+      return res.json()
+    },
+  })
+
+  const enabled = !!configQuery.data?.enabled
+
+  const updateMutation = useMutation({
+    mutationFn: async (next: boolean) => {
+      const res = await fetch(
+        '/api/admin/client-workspace-provisioning/config',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        },
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Update failed')
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client-workspace-provisioning-config'] })
+    },
+    onError: (err) => {
+      window.alert(
+        `Couldn't update provisioning toggle: ${(err as Error).message}`,
+      )
+    },
+  })
+
+  function handleToggle(next: boolean) {
+    if (next) {
+      const ok = window.confirm(
+        `Enable Slack channel auto-provisioning?\n\nWhen admin approves a pending client, the bot will:\n  • Create a private "client-{slug}" channel\n  • Invite Alex, Ethan, and Garrett\n  • Send the client's contactEmail a Slack Connect invite\n  • Use the same channel for new-appointment alerts\n\nRequires Slack scopes "groups:write" and "conversations.connect:write" on the bot. Failures post to #genisys-alerts.`,
+      )
+      if (!ok) return
+    }
+    updateMutation.mutate(next)
+  }
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-violet-50 p-2 dark:bg-violet-950">
+          <Hash className="h-5 w-5 text-violet-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">
+            Slack channel auto-provisioning
+          </h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            When admin approves a pending client, the bot creates a
+            private <code>client-{`{slug}`}</code> channel, invites
+            the team as members, and sends the client&apos;s
+            contactEmail a Slack Connect invite so they can join too.
+            The same channel is set as the client&apos;s alert-delivery
+            target. Turning this off does not affect existing channels
+            or the manual delivery picker below.
+          </p>
+        </div>
+      </div>
+
+      {configQuery.isError && (
+        <div className="mt-4">
+          <Alert variant="error">
+            <div className="font-medium">Couldn&apos;t load config</div>
+            <div className="mt-1 text-xs">
+              {(configQuery.error as Error).message}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div>
+          <p className="text-sm font-medium">Auto-create on approval</p>
+          <p className="text-xs text-zinc-500">
+            {enabled
+              ? 'Approving a client will auto-create their Slack channel and invite the team + the client.'
+              : 'Off — channels are not created automatically. Admin can still pick a channel manually below.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={configQuery.isLoading || updateMutation.isPending}
+          onClick={() => handleToggle(!enabled)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            enabled
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+          )}
+        >
+          {updateMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : enabled ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
       </div>
     </section>
   )
