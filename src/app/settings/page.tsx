@@ -1487,6 +1487,7 @@ type ClientAlertRecentRow = {
 }
 
 function ClientAlertsRecentActivity() {
+  const qc = useQueryClient()
   const query = useQuery<{ rows: ClientAlertRecentRow[] }>({
     queryKey: ['client-alerts-recent'],
     queryFn: async () => {
@@ -1503,6 +1504,24 @@ function ClientAlertsRecentActivity() {
   })
 
   const rows = query.data?.rows ?? []
+
+  const cancelMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/client-alerts/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to cancel')
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client-alerts-recent'] })
+    },
+    onError: (err) => {
+      window.alert(`Couldn't cancel: ${(err as Error).message}`)
+    },
+  })
 
   return (
     <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
@@ -1590,8 +1609,28 @@ function ClientAlertsRecentActivity() {
                   )}
                 </div>
               </div>
-              <div className="text-[10px] text-zinc-400">
-                logged {formatShortDateTime(r.createdAt)}
+              <div className="flex items-center gap-2">
+                {r.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Cancel this pending alert to ${r.clientName ?? 'the client'} at ${r.recipientPhone}? It will not fire.`,
+                        )
+                      ) {
+                        cancelMutation.mutate(r.id)
+                      }
+                    }}
+                    disabled={cancelMutation.isPending}
+                    className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <div className="text-[10px] text-zinc-400">
+                  logged {formatShortDateTime(r.createdAt)}
+                </div>
               </div>
             </li>
           ))}
@@ -1612,6 +1651,8 @@ function ClientAlertStatusPill({ status }: { status: string }) {
         return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
       case 'failed':
         return 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+      case 'cancelled':
+        return 'bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800 dark:text-zinc-500'
       case 'backfilled':
         return 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
       default:
