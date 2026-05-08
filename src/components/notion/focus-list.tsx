@@ -271,6 +271,46 @@ function isFollowUp(title: string): boolean {
   return title.startsWith(FOLLOW_UP_MARKER)
 }
 
+/**
+ * Lenient assignee comparison used by the /today filter. Two
+ * surfaces drive the assignee value into FocusList:
+ *
+ *   1. The Hub User table (Hub.User.name) via the Assignee
+ *      dropdown — usually a full "First Last" string.
+ *   2. Notion's people-type column — whatever Notion display name
+ *      the workspace member has, which could be just "Ethan" or
+ *      "Ethan T." or "Ethan Thompson" depending on what they
+ *      typed during Notion sign-up.
+ *
+ * Exact case-insensitive comparison breaks any time those two
+ * formats disagree (Ethan reported an empty list at 2026-05-09
+ * because Hub had "Ethan Thompson" but Notion had a different
+ * variant). We try strict equality first, then fall back to a
+ * first-name match — "ethan" matches "ethan", regardless of
+ * surname presence on either side. Both sides splitting on the
+ * first whitespace token is enough; there are no Ethans + Ethan
+ * Js etc. on this team.
+ *
+ * Returns true if ANY of the comma-separated assignees on the
+ * task matches the target name.
+ */
+function assigneeMatches(taskAssignee: string, target: string): boolean {
+  const targetFull = target.trim().toLowerCase()
+  if (!targetFull) return true
+  const targetFirst = targetFull.split(/[\s,]+/)[0]
+  if (!targetFirst) return false
+  const taskAssignees = taskAssignee
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+  for (const a of taskAssignees) {
+    if (a === targetFull) return true
+    const aFirst = a.split(/[\s,]+/)[0]
+    if (aFirst && aFirst === targetFirst) return true
+  }
+  return false
+}
+
 function classify(task: Extracted): Section {
   const s = normalize(task.status)
   if (DONE_SYNONYMS.has(s)) return 'done'
@@ -404,13 +444,7 @@ export function FocusList({
       if (effectiveAssignee === 'unassigned') {
         list = list.filter((t) => !t.assignee.trim())
       } else {
-        const target = effectiveAssignee.trim().toLowerCase()
-        list = list.filter((t) =>
-          t.assignee
-            .split(',')
-            .map((s) => s.trim().toLowerCase())
-            .includes(target),
-        )
+        list = list.filter((t) => assigneeMatches(t.assignee, effectiveAssignee))
       }
     }
     if (dateRange) {
@@ -481,11 +515,7 @@ export function FocusList({
     const matches = (t: Extracted) => {
       if (!target || target === 'all') return true
       if (target === 'unassigned') return !t.assignee.trim()
-      const wanted = target.trim().toLowerCase()
-      return t.assignee
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .includes(wanted)
+      return assigneeMatches(t.assignee, target)
     }
     return tasks
       .filter((t) => matches(t))
@@ -866,6 +896,11 @@ export function FocusList({
               ]
               const leftover = allActive.filter(beforeRange)
               const active = allActive.filter((t) => !beforeRange(t))
+              const filterIsHidingEverything =
+                tasks.length > 0 &&
+                filtered.length === 0 &&
+                assigneeFilter !== undefined &&
+                assigneeFilter !== null
               return (
                 <div className="space-y-3">
                   {leftover.length > 0 && (
@@ -882,6 +917,9 @@ export function FocusList({
                   <FlatChecklist
                     active={active}
                     doneInRange={groupedTasks.done}
+                    assigneeFilterLabel={
+                      filterIsHidingEverything ? assigneeFilter : null
+                    }
                     onToggle={toggleComplete}
                     onDelete={(id) => deleteMutation.mutate(id)}
                     onRename={(id, title) =>
@@ -1079,6 +1117,7 @@ function LeftoverCard({
 function FlatChecklist({
   active,
   doneInRange,
+  assigneeFilterLabel,
   onToggle,
   onDelete,
   onRename,
@@ -1091,6 +1130,12 @@ function FlatChecklist({
    *  out of range — Ethan: "It will stay there, the next day it
    *  won't be in view." */
   doneInRange: Extracted[]
+  /** When the parent's assignee filter is the reason the list
+   *  is empty (board has tasks but none match), pass the label
+   *  so the empty state can spell that out instead of saying
+   *  "no tasks in this range." Null = either no filter or the
+   *  filter isn't the cause. */
+  assigneeFilterLabel?: string | null
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -1102,9 +1147,30 @@ function FlatChecklist({
   if (total === 0) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
-          No tasks in this range. Past completions stay in Notion —
-          scope the calendar pill above backwards to revisit them.
+        <div className="grid place-items-center px-4 py-12 text-center text-sm text-zinc-500">
+          {assigneeFilterLabel ? (
+            <div className="space-y-1.5">
+              <p>
+                No tasks match{' '}
+                <span className="font-semibold text-foreground">
+                  {assigneeFilterLabel}
+                </span>{' '}
+                in this range.
+              </p>
+              <p className="text-xs text-zinc-400">
+                Switch the Assignee pill above to{' '}
+                <span className="font-medium">All</span> to see every
+                teammate&apos;s tasks, or scope the calendar pill
+                backwards to find older work.
+              </p>
+            </div>
+          ) : (
+            <p>
+              No tasks in this range. Past completions stay in
+              Notion — scope the calendar pill above backwards to
+              revisit them.
+            </p>
+          )}
         </div>
       </div>
     )

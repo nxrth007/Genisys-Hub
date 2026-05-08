@@ -298,10 +298,11 @@ export default function TodayPage() {
     setRange(rangeForScope(next))
   }
 
-  // Assignee filter — defaults to the caller. State holds either
-  // null ("Me", resolved to the current user from staffQuery.me)
-  // or the picked staff user's id. Per Ethan: default to mine,
-  // can flip to teammates.
+  // Assignee filter — defaults to the caller. Three states:
+  //   null   → "Me" (current user, resolved from staffQuery.me)
+  //   'all'  → "All" (no assignee filter at all)
+  //   id     → the picked staff user
+  // Per Ethan: default to mine, can flip to teammates or All.
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
 
   // Staff list + current user. Lightweight call; cached 5 min
@@ -324,13 +325,14 @@ export default function TodayPage() {
   const me = staffQuery.data?.me ?? null
 
   // Resolve the assignee state into a Notion-side name string.
-  // null state → current user's name (the "Me" default). Picking
-  // a teammate from the dropdown sets the id; we look it up to
-  // get the display name FocusList filters by.
-  const effectiveAssigneeUser = assigneeId
-    ? staffUsers.find((u) => u.id === assigneeId) ?? null
-    : me
-  const effectiveAssigneeName = effectiveAssigneeUser?.name ?? null
+  //   null  → current user's name (the "Me" default)
+  //   'all' → null (FocusList sees no filter, shows everyone)
+  //   id    → that user's display name (looked up against staff)
+  const effectiveAssigneeName: string | null = (() => {
+    if (assigneeId === 'all') return null
+    if (assigneeId === null) return me?.name ?? null
+    return staffUsers.find((u) => u.id === assigneeId)?.name ?? null
+  })()
 
   // Detail modal — null = closed; otherwise the task to edit.
   const [detailTask, setDetailTask] = useState<Task | null>(null)
@@ -348,8 +350,16 @@ export default function TodayPage() {
     // refetch — same pattern as the calendar query keying on range.
     queryKey: ['today-tasks', assigneeId],
     queryFn: async () => {
-      const url = assigneeId
-        ? `/api/today/tasks?userId=${encodeURIComponent(assigneeId)}`
+      // Treat 'all' the same as null (no userId override) — the
+      // API's default is the caller's tasks; without admin support
+      // for cross-user "everything" yet, we just fall back to
+      // self when All is picked. The Notion-side filter (which is
+      // the actual one Ethan sees) IS aware of "all" and shows
+      // everyone's tasks via FocusList.
+      const userIdToFetch =
+        assigneeId && assigneeId !== 'all' ? assigneeId : null
+      const url = userIdToFetch
+        ? `/api/today/tasks?userId=${encodeURIComponent(userIdToFetch)}`
         : '/api/today/tasks'
       const res = await fetch(url)
       if (!res.ok) throw new Error('Failed to load tasks')
@@ -1305,15 +1315,20 @@ function AssigneePill({
   users,
   onChange,
 }: {
+  /** null = Me (default), 'all' = All (no filter), other = user id */
   value: string | null
   users: Array<{ id: string; name: string | null; email: string }>
   onChange: (next: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
-  const selected = value ? users.find((u) => u.id === value) : null
-  const label = selected
-    ? selected.name || selected.email.split('@')[0]
-    : 'Me'
+  const selected =
+    value && value !== 'all' ? users.find((u) => u.id === value) : null
+  const label =
+    value === 'all'
+      ? 'All'
+      : selected
+        ? selected.name || selected.email.split('@')[0]
+        : 'Me'
 
   return (
     <div className="relative">
@@ -1349,6 +1364,23 @@ function AssigneePill({
               Me
               <span className="ml-auto text-[10px] text-muted-foreground">
                 default
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onChange('all')
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted',
+                value === 'all' && 'bg-muted/60 font-semibold',
+              )}
+            >
+              <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              All
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                no filter
               </span>
             </button>
             <div className="border-t border-border" />
