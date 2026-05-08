@@ -1439,6 +1439,13 @@ function ClientAlertsSection() {
           phone before flipping the master toggle on. */}
       <DirectTestSendRow />
 
+      {/* Recent activity — answers "did the alert for that booking
+          actually go out?" Shows the last 20 ClientAlertDelivery
+          rows with their status pill + key context. Lets admin
+          tell at a glance whether a missing SMS is in the buffer,
+          failed, or was backfilled at first-enable. */}
+      <ClientAlertsRecentActivity />
+
       {/* Per-client status + test buttons */}
       <div className="mt-5">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -1458,6 +1465,193 @@ function ClientAlertsSection() {
       </div>
     </section>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Recent client-alert deliveries — answers "did it actually fire?"   */
+/* ------------------------------------------------------------------ */
+
+type ClientAlertRecentRow = {
+  id: string
+  status: string
+  clientId: string | null
+  clientName: string | null
+  recipientPhone: string
+  customerPhone: string | null
+  apptDateTime: string | null
+  scheduledFor: string | null
+  deliveredAt: string | null
+  errorMessage: string | null
+  sourceKey: string
+  createdAt: string
+}
+
+function ClientAlertsRecentActivity() {
+  const query = useQuery<{ rows: ClientAlertRecentRow[] }>({
+    queryKey: ['client-alerts-recent'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-alerts/recent?limit=20')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load recent activity')
+      }
+      return res.json()
+    },
+    // Refresh every 30s so admin watching the card sees pending → delivered
+    // transitions without a manual refresh.
+    refetchInterval: 30_000,
+  })
+
+  const rows = query.data?.rows ?? []
+
+  return (
+    <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Recent activity</p>
+          <p className="text-xs text-zinc-500">
+            Last 20 alert attempts. Pending = waiting out the 20-minute
+            buffer; delivered = SMS was sent; failed = GHL errored;
+            backfilled = pre-existing row marked &quot;already-handled&quot;
+            when the master toggle was first flipped on.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          disabled={query.isFetching}
+          className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {query.isFetching ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+          Refresh
+        </button>
+      </div>
+
+      {query.isError && (
+        <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+          Couldn&apos;t load recent activity:{' '}
+          {(query.error as Error).message}
+        </p>
+      )}
+
+      {query.isLoading ? (
+        <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading…
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">
+          No alert deliveries yet. The first booking after enabling the
+          master toggle will show up here.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-1.5">
+          {rows.map((r) => (
+            <li
+              key={r.id}
+              className="flex flex-col gap-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-center sm:gap-3"
+            >
+              <ClientAlertStatusPill status={r.status} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span className="font-medium">
+                    {r.clientName ?? '(unrouted)'}
+                  </span>
+                  <span className="text-zinc-400">·</span>
+                  <span className="font-mono text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">
+                    {r.recipientPhone || '—'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-zinc-500">
+                  {r.apptDateTime
+                    ? `Appt ${formatShortDateTime(r.apptDateTime)}`
+                    : 'No appt time'}
+                  {r.status === 'pending' && r.scheduledFor && (
+                    <>
+                      {' · '}fires {formatShortDateTime(r.scheduledFor)}
+                    </>
+                  )}
+                  {r.status === 'delivered' && r.deliveredAt && (
+                    <>
+                      {' · '}sent {formatShortDateTime(r.deliveredAt)}
+                    </>
+                  )}
+                  {r.errorMessage && (
+                    <>
+                      {' · '}
+                      <span className="text-red-600 dark:text-red-400">
+                        {r.errorMessage}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="text-[10px] text-zinc-400">
+                logged {formatShortDateTime(r.createdAt)}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function ClientAlertStatusPill({ status }: { status: string }) {
+  // Single source of truth for tone-by-status. Mirrors the
+  // statuses defined on ClientAlertDelivery in schema.prisma.
+  const tone = (() => {
+    switch (status) {
+      case 'delivered':
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+      case 'pending':
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+      case 'failed':
+        return 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+      case 'backfilled':
+        return 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+      default:
+        return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+    }
+  })()
+  return (
+    <span
+      className={cn(
+        'inline-flex flex-shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+        tone,
+      )}
+    >
+      {status}
+    </span>
+  )
+}
+
+function formatShortDateTime(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    year: sameYear ? undefined : 'numeric',
+  })
 }
 
 function DirectTestSendRow() {
