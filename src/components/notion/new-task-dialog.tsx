@@ -115,11 +115,13 @@ export function NewTaskDialog({
       if (schema.priorityProp && priority) {
         properties[schema.priorityProp] = { select: { name: priority } }
       }
-      if (schema.dateProp && dueDate) {
+      if (schema.dateProp && dueDate && isFollowUp) {
         // Notion date property accepts a YYYY-MM-DD start
         // (midnight in the user's local zone). Tasks without a
         // due date just skip this property — Notion treats the
-        // missing key as "no date" rather than null.
+        // missing key as "no date" rather than null. Only
+        // FOLLOW-UP tasks get a due date written; regular tasks
+        // intentionally don't have one (per Ethan).
         properties[schema.dateProp] = { date: { start: dueDate } }
       }
       if (schema.assigneeProp && assignee) {
@@ -293,17 +295,20 @@ export function NewTaskDialog({
           {isFollowUp && (
             <p className="mt-1.5 text-[11px] text-zinc-500">
               Tagged with a leading <span className="font-semibold">🔁</span> so
-              you can spot it in Notion. Set a due date below if
-              you want a reminder of when to act on it.
+              you can spot it in Notion. Set a due date below for
+              the reminder.
             </p>
           )}
         </div>
 
-        {/* Due date — shown when the Notion DB has a date column
-            (most do; the schema auto-detects it). Native date
-            picker keeps things lightweight; users can leave it
-            empty for "no due date." */}
-        {schema.dateProp && (
+        {/* Due date — only shown for FOLLOW-UP tasks, not regular
+            tasks. Per Ethan: regular tasks live in the Today list
+            for the day they're created and don't need a date;
+            follow-ups get a date so the reminder pops back into
+            the drawer at the right time. Field hidden entirely
+            when the Follow-up toggle above is off, OR when the
+            Notion DB has no date column. */}
+        {isFollowUp && schema.dateProp && (
           <div>
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               Due date

@@ -829,15 +829,16 @@ export function FocusList({
             </>
           ) : (
             // Flat checklist mode (used by /today). Per Ethan's
-            // 2026-05-08 follow-up:
+            // 2026-05-08 + 2026-05-09 feedback:
             //   - Checking a task off keeps it visible TODAY with
             //     the green disc + white check (no strikethrough).
             //     It rolls off only when the day flips and it's no
             //     longer in the date range.
             //   - Tasks from earlier days that are STILL incomplete
-            //     surface in a "Leftover tasks" section so they
-            //     don't get lost. Past completions still don't
-            //     appear (that's the "Done earlier" he didn't want).
+            //     get their OWN SEPARATE CARD labeled "Leftover
+            //     tasks" so there's zero visual confusion about
+            //     what's today vs carryover. Past completions
+            //     still don't appear.
             //   - Follow-up tagged tasks merge into the main list;
             //     the canonical Follow-ups surface is the bottom
             //     blue-phone drawer.
@@ -866,17 +867,29 @@ export function FocusList({
               const leftover = allActive.filter(beforeRange)
               const active = allActive.filter((t) => !beforeRange(t))
               return (
-                <FlatChecklist
-                  leftover={leftover}
-                  active={active}
-                  doneInRange={groupedTasks.done}
-                  onToggle={toggleComplete}
-                  onDelete={(id) => deleteMutation.mutate(id)}
-                  onRename={(id, title) =>
-                    renameMutation.mutate({ pageId: id, title })
-                  }
-                  onEdit={(id) => setEditingId(id)}
-                />
+                <div className="space-y-3">
+                  {leftover.length > 0 && (
+                    <LeftoverCard
+                      tasks={leftover}
+                      onToggle={toggleComplete}
+                      onDelete={(id) => deleteMutation.mutate(id)}
+                      onRename={(id, title) =>
+                        renameMutation.mutate({ pageId: id, title })
+                      }
+                      onEdit={(id) => setEditingId(id)}
+                    />
+                  )}
+                  <FlatChecklist
+                    active={active}
+                    doneInRange={groupedTasks.done}
+                    onToggle={toggleComplete}
+                    onDelete={(id) => deleteMutation.mutate(id)}
+                    onRename={(id, title) =>
+                      renameMutation.mutate({ pageId: id, title })
+                    }
+                    onEdit={(id) => setEditingId(id)}
+                  />
+                </div>
               )
             })()
           )}
@@ -1013,8 +1026,57 @@ const SECTION_TONES: Record<
  * header so you know there's history if you want it. Click to
  * expand and see strikethrough rows inline.
  */
+/**
+ * Stand-alone "Leftover tasks" card. Sits ABOVE the main
+ * FlatChecklist on /today when the user has incomplete carryover
+ * from earlier days. Per Ethan's 2026-05-09 ask: leftover should
+ * be its OWN section so there's zero confusion telling apart
+ * "what's set for today" vs "what spilled over from yesterday."
+ *
+ * Tinted amber so the card reads as a "needs attention" group at
+ * a glance. Hidden entirely when empty.
+ */
+function LeftoverCard({
+  tasks,
+  onToggle,
+  onDelete,
+  onRename,
+  onEdit,
+}: {
+  tasks: Extracted[]
+  onToggle: (id: string, done: boolean) => void
+  onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
+  onEdit?: (id: string) => void
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/40 shadow-soft dark:border-amber-900/60 dark:bg-amber-950/20">
+      <div className="flex items-center gap-2 border-b border-amber-200/60 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900/40 dark:text-amber-300">
+        <Clock className="h-3.5 w-3.5" />
+        Leftover tasks ({tasks.length})
+        <span className="ml-auto text-[10px] font-normal normal-case tracking-normal text-amber-700/70 dark:text-amber-400/70">
+          carried over from earlier
+        </span>
+      </div>
+      <ul className="divide-y divide-amber-100 dark:divide-amber-900/40">
+        {tasks.map((t) => (
+          <li key={t.id}>
+            <TaskRow
+              task={t}
+              done={false}
+              onToggle={(d) => onToggle(t.id, d)}
+              onDelete={() => onDelete(t.id)}
+              onRename={(title) => onRename(t.id, title)}
+              onEdit={onEdit ? () => onEdit(t.id) : undefined}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function FlatChecklist({
-  leftover,
   active,
   doneInRange,
   onToggle,
@@ -1022,11 +1084,6 @@ function FlatChecklist({
   onRename,
   onEdit,
 }: {
-  /** Incomplete tasks whose stamp is BEFORE the current date
-   *  range — they rolled over from earlier days. Rendered in a
-   *  labeled "Leftover tasks" subsection at the top so Ethan
-   *  doesn't lose track of unfinished work. */
-  leftover: Extracted[]
   /** Tasks within the current range, still incomplete. */
   active: Extracted[]
   /** Tasks within the range that are marked done. Stay visible
@@ -1041,7 +1098,7 @@ function FlatChecklist({
    *  in-component callers stay typesafe; flat mode passes it. */
   onEdit?: (id: string) => void
 }) {
-  const total = leftover.length + active.length + doneInRange.length
+  const total = active.length + doneInRange.length
   if (total === 0) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
@@ -1055,67 +1112,37 @@ function FlatChecklist({
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Leftover tasks — incomplete carryover from before the
-          current range. Tinted amber background + thicker
-          divider so the section reads as a distinct group, not
-          an extension of today's active list. Hidden when
-          empty. */}
-      {leftover.length > 0 && (
-        <div className="border-b-2 border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20">
-          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-            <Clock className="h-3.5 w-3.5" />
-            Leftover tasks ({leftover.length})
-          </div>
-          <ul className="divide-y divide-amber-100 dark:divide-amber-900/40">
-            {leftover.map((t) => (
-              <li key={t.id}>
-                <TaskRow
-                  task={t}
-                  done={false}
-                  onToggle={(d) => onToggle(t.id, d)}
-                  onDelete={() => onDelete(t.id)}
-                  onRename={(title) => onRename(t.id, title)}
-                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* Main list — open tasks first, then today's completed
           tasks at the bottom of the same list (with the green
           check, no strikethrough). When the day rolls and the
           completed tasks fall out of the date range, they
           disappear from this list. */}
-      {(active.length > 0 || doneInRange.length > 0) && (
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {active.map((t) => (
-            <li key={t.id}>
-              <TaskRow
-                task={t}
-                done={false}
-                onToggle={(d) => onToggle(t.id, d)}
-                onDelete={() => onDelete(t.id)}
-                onRename={(title) => onRename(t.id, title)}
-                onEdit={onEdit ? () => onEdit(t.id) : undefined}
-              />
-            </li>
-          ))}
-          {doneInRange.map((t) => (
-            <li key={t.id}>
-              <TaskRow
-                task={t}
-                done
-                onToggle={(d) => onToggle(t.id, d)}
-                onDelete={() => onDelete(t.id)}
-                onRename={(title) => onRename(t.id, title)}
-                onEdit={onEdit ? () => onEdit(t.id) : undefined}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {active.map((t) => (
+          <li key={t.id}>
+            <TaskRow
+              task={t}
+              done={false}
+              onToggle={(d) => onToggle(t.id, d)}
+              onDelete={() => onDelete(t.id)}
+              onRename={(title) => onRename(t.id, title)}
+              onEdit={onEdit ? () => onEdit(t.id) : undefined}
+            />
+          </li>
+        ))}
+        {doneInRange.map((t) => (
+          <li key={t.id}>
+            <TaskRow
+              task={t}
+              done
+              onToggle={(d) => onToggle(t.id, d)}
+              onDelete={() => onDelete(t.id)}
+              onRename={(title) => onRename(t.id, title)}
+              onEdit={onEdit ? () => onEdit(t.id) : undefined}
+            />
+          </li>
+        ))}
+      </ul>
 
       {/*
         Removed (per Ethan, 2026-05-08):

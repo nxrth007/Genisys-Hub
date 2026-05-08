@@ -282,14 +282,15 @@ export default function TodayPage() {
   // Hooking the filters into Notion's date-range query is a separate
   // pass once we agree on which property maps to "due date".
   const [scope, setScope] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Quarterly'>(
-    'Weekly'
+    'Daily'
   )
-  const [range, setRange] = useState<DateRange>(() => rangeForScope('Weekly'))
+  const [range, setRange] = useState<DateRange>(() => rangeForScope('Daily'))
 
   // When the user picks a different scope, snap the calendar pill to
   // match. They can still fine-tune via the date picker afterwards.
-  // Defaulting to Weekly so the page lands on a useful range out of
-  // the box (Daily was hiding tomorrow's tasks).
+  // Defaults to Daily so /today lands on just today's tasks +
+  // meetings — Ethan: "make the default calendar view Daily so it
+  // shows the tasks for the day and the meetings for the day."
   function handleScopeChange(
     next: 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly',
   ) {
