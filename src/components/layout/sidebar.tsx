@@ -87,6 +87,11 @@ const SIMPLIFIED_NAV: NavItem[] = [
   },
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
+  // Documents — Ethan needs the pinned financials + Mary client
+  // sheets at the top of the page just like Alex does. There's
+  // no path-level admin gate on /documents, so just exposing the
+  // nav link makes it reachable.
+  { href: '/documents', label: 'Documents', icon: FolderOpen },
 ]
 
 // Full nav Alex sees. Same module list as before, plus the new
