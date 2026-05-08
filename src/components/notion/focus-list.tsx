@@ -373,7 +373,9 @@ export function FocusList({
    *  undefined and follow-ups stay in the main list.
    *
    *  Shape is a public subset (no Notion internals) so the page
-   *  doesn't need to import Extracted. */
+   *  doesn't need to import Extracted. The `done` flag covers
+   *  today's-done follow-ups that stay visible in the drawer
+   *  with the green check until the day rolls. */
   onFollowUpsChange?: (
     followUps: Array<{
       id: string
@@ -382,6 +384,7 @@ export function FocusList({
       assignee: string
       priority: string
       dueDate: string | null
+      done: boolean
     }>,
   ) => void
 }) {
@@ -510,20 +513,37 @@ export function FocusList({
   }, [filtered])
 
   // Follow-ups for the upstream drawer — computed from the full
-  // task set IGNORING both the assignee filter AND the date scope.
-  // Drawer is the team-wide "people we still need to follow up
-  // with" surface; restricting it by who's logged in or by the
-  // date pill made follow-ups silently disappear when Ethan
-  // switched assignee or scoped the calendar (reported 2026-05-09).
-  // Done follow-ups are still dropped — drawer is "still need to
-  // act on it" only.
-  const allOpenFollowUps = useMemo(() => {
+  // task set IGNORING the assignee filter AND date scope (drawer
+  // is the team-wide "people we still need to follow up with"
+  // surface). Includes today's-done follow-ups too: per Alex
+  // 2026-05-09 they should stay visible with the green check
+  // until the day rolls and only disappear the next day, mirroring
+  // how the main task list handles done-today.
+  const allDrawerFollowUps = useMemo(() => {
+    const todayStart = (() => {
+      const d = new Date()
+      d.setHours(0, 0, 0, 0)
+      return d.getTime()
+    })()
+    const isDoneToday = (t: Extracted) => {
+      if (classify(t) !== 'done') return false
+      const ts = t.task.last_edited_time as string | undefined
+      if (!ts) return false
+      const ms = new Date(ts).getTime()
+      return !isNaN(ms) && ms >= todayStart
+    }
     return tasks
       .filter((t) => isFollowUp(t.title))
-      .filter((t) => classify(t) !== 'done')
-      .sort(
-        (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
-      )
+      .filter((t) => classify(t) !== 'done' || isDoneToday(t))
+      .map((t) => ({ task: t, done: classify(t) === 'done' }))
+      .sort((a, b) => {
+        // Open follow-ups first, then today's-done at the bottom
+        // (same UX as the main task list — done rows stay visible
+        // but slide to the bottom, signaling "handled but still
+        // for today's awareness").
+        if (a.done !== b.done) return a.done ? 1 : -1
+        return priorityRank(a.task.priority) - priorityRank(b.task.priority)
+      })
   }, [tasks])
 
   // Lift follow-ups upstream — when /today wires the callback, we
@@ -537,16 +557,17 @@ export function FocusList({
   }, [onFollowUpsChange])
   useEffect(() => {
     onFollowUpsChangeRef.current?.(
-      allOpenFollowUps.map((t) => ({
+      allDrawerFollowUps.map(({ task: t, done }) => ({
         id: t.id,
         title: t.title,
         url: t.url,
         assignee: t.assignee,
         priority: t.priority,
         dueDate: t.dueDate,
+        done,
       })),
     )
-  }, [allOpenFollowUps])
+  }, [allDrawerFollowUps])
 
   // Assignee list with counts — always computed from the *unfiltered* task
   // set so the sidebar shows real counts even when a filter is applied.
@@ -1609,13 +1630,12 @@ function TaskRow({
                 <span
                   className={cn(
                     'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                    // Keep the priority pill on done rows too — it's
-                    // useful context when triaging the Done section.
-                    // Just dim it so the row's "this is finished"
-                    // signal still reads first.
-                    done
-                      ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500'
-                      : priorityClass
+                    // Per Alex 2026-05-09: keep the urgency chip's
+                    // tier color on done rows too. Was previously
+                    // dimmed gray once checked off, which lost the
+                    // useful "this WAS a high-pri thing" context
+                    // at a glance.
+                    priorityClass,
                   )}
                 >
                   {task.priority}

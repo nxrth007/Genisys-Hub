@@ -95,6 +95,28 @@ type NotionFollowUp = {
   assignee: string
   priority: string
   dueDate: string | null
+  /** True when the follow-up was checked off TODAY. Stays in the
+   *  drawer until midnight so the user gets the green-check
+   *  feedback all day, then rolls off naturally when its
+   *  last_edited_time falls before today's start. */
+  done: boolean
+}
+
+/** Tailwind class for the urgency chip on a follow-up row.
+ *  Mirrors the priority colors FocusList uses so the same
+ *  HIGH / MEDIUM / LOW chip looks the same here as on a task
+ *  in the main list. */
+function priorityChipClass(priorityKey: string): string {
+  const k = priorityKey.trim().toLowerCase()
+  if (['urgent', 'critical', 'p0', 'p1'].includes(k))
+    return 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+  if (k === 'high')
+    return 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+  if (['medium', 'med', 'p2'].includes(k))
+    return 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+  if (['low', 'p3'].includes(k))
+    return 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+  return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
 }
 
 /** Compact date label for the follow-ups drawer ("Mar 4", or
@@ -705,6 +727,7 @@ export default function TodayPage() {
                     assignee: t.assignee,
                     priority: t.priority,
                     dueDate: t.dueDate,
+                    done: t.done,
                   })),
                 )
               }
@@ -819,6 +842,7 @@ export default function TodayPage() {
       <FollowUpsDrawer
         followUps={followUps}
         notionFollowUps={notionFollowUps}
+        notionDbId={pinnedDbId ?? null}
         loading={followUpsQuery.isLoading}
         error={followUpsQuery.error as Error | null}
       />
@@ -1001,6 +1025,7 @@ export default function TodayPage() {
 function FollowUpsDrawer({
   followUps,
   notionFollowUps,
+  notionDbId,
   loading,
   error,
 }: {
@@ -1009,6 +1034,10 @@ function FollowUpsDrawer({
    *  FocusList — Ethan: "Can't those followup tasks actually
    *  just go into the followups section please?" */
   notionFollowUps: NotionFollowUp[]
+  /** Parent Notion DB id for the follow-up tasks. Needed for
+   *  the toggle-status endpoint to look up the schema and pick
+   *  the right Done / To-do option name to write. */
+  notionDbId: string | null
   loading: boolean
   error: Error | null
 }) {
@@ -1061,6 +1090,33 @@ function FollowUpsDrawer({
     },
   })
 
+  // Toggle a Notion follow-up task done / undone. Hits the
+  // /api/notion/pages/[id]/toggle-status endpoint which discovers
+  // the parent DB's status property server-side and picks the
+  // right option name to write — drawer doesn't need to know the
+  // schema. The notion-tasks query is invalidated on success so
+  // FocusList + drawer both reconcile to the new state.
+  const toggleNotionMutation = useMutation({
+    mutationFn: async (params: { pageId: string; nextDone: boolean }) => {
+      if (!notionDbId) throw new Error('no notion db pinned')
+      const res = await fetch(
+        `/api/notion/pages/${encodeURIComponent(params.pageId)}/toggle-status`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dbId: notionDbId, done: params.nextDone }),
+        },
+      )
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to update follow-up')
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notion-tasks', notionDbId] })
+    },
+  })
+
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
       <button
@@ -1108,13 +1164,51 @@ function FollowUpsDrawer({
             <ul className="divide-y divide-border-soft border-b border-border-soft">
               {notionFollowUps.map((t) => {
                 const cleanTitle = t.title.replace(/^🔁\s*/, '')
+                const priorityKey = t.priority.toLowerCase()
+                const priorityColor = priorityChipClass(priorityKey)
                 return (
-                  <li key={t.id}>
+                  <li
+                    key={t.id}
+                    className="flex items-center gap-3 px-5 py-3 transition hover:bg-muted/40"
+                  >
+                    {/* Checkbox — same UX as the main task list:
+                        click toggles the underlying Notion task's
+                        status. Done rows show the solid emerald
+                        disc + white check and stay visible until
+                        the day rolls (per Alex 2026-05-09:
+                        "follow-ups should disappear the next
+                        day"). */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        toggleNotionMutation.mutate({
+                          pageId: t.id,
+                          nextDone: !t.done,
+                        })
+                      }
+                      disabled={toggleNotionMutation.isPending}
+                      className="flex h-5 w-5 flex-shrink-0 items-center justify-center transition disabled:opacity-50"
+                      title={t.done ? 'Mark not done' : 'Mark done'}
+                      aria-label={
+                        t.done ? `Mark ${cleanTitle} not done` : `Mark ${cleanTitle} done`
+                      }
+                    >
+                      {t.done ? (
+                        <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500">
+                          <Check
+                            className="h-3 w-3 text-white"
+                            strokeWidth={3}
+                          />
+                        </span>
+                      ) : (
+                        <Circle className="h-5 w-5 text-zinc-300 hover:text-blue-500 dark:text-zinc-600" />
+                      )}
+                    </button>
                     <a
                       href={t.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-3 px-5 py-3 transition hover:bg-muted/40"
+                      className="flex min-w-0 flex-1 items-center gap-3"
                     >
                       <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300">
                         <Phone className="h-3 w-3" />
@@ -1128,12 +1222,16 @@ function FollowUpsDrawer({
                           {t.dueDate && ` · due ${formatDateOnly(t.dueDate)}`}
                         </p>
                       </div>
-                      {t.priority &&
-                        ['high', 'urgent'].includes(t.priority.toLowerCase()) && (
-                          <span className="flex-shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-                            {t.priority}
-                          </span>
-                        )}
+                      {t.priority && (
+                        <span
+                          className={cn(
+                            'flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+                            priorityColor,
+                          )}
+                        >
+                          {t.priority}
+                        </span>
+                      )}
                       <ExternalLink className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                     </a>
                   </li>
