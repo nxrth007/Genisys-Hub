@@ -93,12 +93,13 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
   // out), the dropdown shows "Select a date…" by default and the native
   // calendar input below displays the actual date.
   //
-  // "Today" is anchored to AGENT_TIMEZONE (Manila) — NOT the viewer's
-  // browser zone. Without this anchor, evening hours in zones west of
-  // Manila tip the picker to "tomorrow" because `new Date()` reports
-  // the browser's calendar day, not Mary's. Symptom Mary reported on
-  // 2026-05-07: dropdown defaulted to May 8 because her browser had
-  // already crossed midnight by the time she opened the form.
+  // "Today" is anchored to AGENT_TIMEZONE (US Pacific) — NOT the
+  // viewer's browser zone. Mary works from Manila but her bookings
+  // are for US customers, so "today" needs to be the US calendar
+  // day. At 6 PM Manila on May 8, US Pacific still reads May 7 —
+  // which matches what Mary's customer sees. Without the anchor
+  // the picker tips to "tomorrow" for ~15 hours of every Manila
+  // workday. (Reported by Mary 2026-05-07.)
   const dateOptions = useMemo(() => {
     const todayStr = todayInTz(AGENT_TIMEZONE)
     return Array.from({ length: 22 }, (_, i) => {

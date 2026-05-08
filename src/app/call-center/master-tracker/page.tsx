@@ -263,8 +263,9 @@ function endOfDay(d: Date): Date {
  * same predicate without duplicating logic.
  *
  * Tz handling:
- *   - `set-today` → loggedAt within today in AGENT_TIMEZONE (Manila)
- *     so 11 PM bookings stay "today" regardless of who's viewing.
+ *   - `set-today` → loggedAt within today in AGENT_TIMEZONE (US
+ *     Pacific) so the filter matches the US calendar day Mary's
+ *     customers see, regardless of who's viewing.
  *   - `booked-today` → apptDateTime within today in the CUSTOMER's tz
  *     (per-row, derived from address + client.state) so a 9 PM PT
  *     appointment stays "today" the whole PT day.

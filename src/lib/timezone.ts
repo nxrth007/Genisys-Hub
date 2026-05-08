@@ -257,17 +257,34 @@ export function formatInTimezone(
 }
 
 /**
- * Mary's call-center clock — the canonical "today" anchor for the
- * "Set today / Set this week" filters. Hardcoded because Mary is the
- * only active agent right now and lives in Asia/Manila; when a second
- * agent onboards, lift this to a User.timezone field on the session.
+ * Canonical "today" anchor for agent-side date logic — the booking
+ * picker default, the "Set today / Set this week" filters in master
+ * tracker, agent home "today" cards, etc.
  *
- * Why not the viewer's browser zone: Alex (EST) opening the Master
- * Tracker at 11 PM ET would see "today" roll back ~13h, hiding rows
- * Mary just logged. Anchoring to her zone keeps the filter meaningful
- * regardless of who's looking.
+ * Anchored to US Pacific even though Mary lives in Asia/Manila:
+ * her bookings are for US customers, so the "today" she cares about
+ * is the US calendar day, not her local one. At 6 PM Manila on
+ * May 8, US Pacific still reads May 7 — and from Mary's customer's
+ * perspective the appointment is on May 7, not May 8. Without this
+ * anchor she sees a "tomorrow" date when she expects "today" for
+ * about a 15-hour window each day. (Reported by Mary 2026-05-07.)
+ *
+ * Pacific specifically (not Eastern / Mountain) because it's the
+ * westernmost US zone — when PT reads May 7 every other US zone
+ * also reads May 7 or has just rolled to May 8 within a 3-hour
+ * window, so the anchor stays "today" for the longest part of
+ * Mary's workday.
+ *
+ * Why not the viewer's browser zone: Alex (EST) opening the
+ * Master Tracker at 11 PM ET would see "today" jump forward, and
+ * Mary at 8 AM Manila would see it jump back, both hiding rows
+ * the other just logged. Anchoring to one canonical zone keeps
+ * the filter meaningful regardless of who's looking.
+ *
+ * If a second agent onboards in a different operating zone, lift
+ * this to a User.timezone field on the session.
  */
-export const AGENT_TIMEZONE = 'Asia/Manila'
+export const AGENT_TIMEZONE = 'America/Los_Angeles'
 
 /**
  * True when `a` and `b` fall on the same calendar day in `timezone`.
