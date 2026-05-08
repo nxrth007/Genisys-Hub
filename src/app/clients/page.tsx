@@ -113,6 +113,45 @@ type StateFilter = 'all' | 'AZ' | 'CA' | 'UT' | 'other'
 type StatusFilter = 'all' | ClientLifecycle
 type PackageFilter = 'all' | ClientPackage
 
+/**
+ * Estimated cap-fulfillment due date for a client, based on the
+ * turnaround window per package:
+ *
+ *   ppa     → 14 days from createdAt (PPA = 10 appts guaranteed, 2-week target)
+ *   growth  → 28 days (3-4 week turnaround, midpoint)
+ *   pro     → 21 days (3-week turnaround)
+ *   custom  → no due date (admin sets the timeline manually elsewhere)
+ *
+ * Anchored to createdAt because we don't have a contract-start
+ * field yet — admin can refine the model later if they need to
+ * "reset" the clock when extending a client's contract.
+ *
+ * Returns null when no turnaround window applies.
+ */
+function computeClientDueDate(
+  clientPackage: string,
+  createdAtIso: string,
+): Date | null {
+  const days = packageTurnaroundDays(clientPackage)
+  if (days == null) return null
+  const start = new Date(createdAtIso)
+  if (isNaN(start.getTime())) return null
+  return new Date(start.getTime() + days * 24 * 60 * 60 * 1000)
+}
+
+function packageTurnaroundDays(pkg: string): number | null {
+  switch (pkg) {
+    case 'ppa':
+      return 14
+    case 'growth':
+      return 28
+    case 'pro':
+      return 21
+    default:
+      return null // "custom" or unknown — no automatic due date
+  }
+}
+
 /** Convert a 3- or 6-char hex string to an rgba() at the given alpha.
  *  Used to render the state chip in a tint of the client's brand color
  *  instead of a fixed-by-state palette — that way the chip color
@@ -571,30 +610,39 @@ function ClientRow({
   onOpen: (c: ClientWithCounts) => void
 }) {
   const initials = clientInitials(client.name)
-  // Sitdowns progress is the primary fulfillment metric — qualified
-  // appointments against either the client's contracted cap (when
-  // set) or the count of bookings (when uncapped). The bar
-  // visualizes this ratio so admins can spot at a glance whether
-  // a client is hitting fulfillment vs just booking volume.
+  // Per Ethan: the bar should track BOOKED APPOINTMENTS toward the
+  // contracted cap, not sit-downs. Sit-downs are the qualification
+  // outcome (was the rep actually able to meet the customer?), but
+  // the operational "are we delivering" question is "how many of
+  // the X appointments we promised have we booked?" Sit-downs get
+  // a small caption underneath as additional context.
   const cap = client.apptCap
-  const sitdownDenom = cap && cap > 0 ? cap : client.total
-  const sitdownPct =
-    sitdownDenom > 0
-      ? Math.round((client.sitdowns / sitdownDenom) * 100)
-      : null
-  const barWidth = sitdownPct ?? 0
+  const bookedPct =
+    cap && cap > 0 ? Math.round((client.total / cap) * 100) : null
+  const barWidth = bookedPct ?? 0
   const barColor =
-    sitdownPct == null
+    bookedPct == null
       ? 'bg-muted-foreground/30'
-      : sitdownPct >= 100
+      : bookedPct >= 100
         ? 'bg-emerald-600'
-        : sitdownPct >= 75
+        : bookedPct >= 75
           ? 'bg-emerald-500'
-          : sitdownPct >= 40
+          : bookedPct >= 40
             ? 'bg-amber-400'
-            : sitdownPct > 0
+            : bookedPct > 0
               ? 'bg-rose-500'
               : 'bg-muted-foreground/30'
+
+  // Due-date heuristic by package — turnaround windows Ethan
+  // outlined in the loom:
+  //   PPA      → 14 days from createdAt (10 appts, 2-week target)
+  //   Growth   → 28 days (3-4 week turnaround, midpoint)
+  //   Pro      → 21 days (3-week turnaround)
+  //   Custom   → no due date (admin sets the timeline manually)
+  // Anchored to createdAt because we don't have a contract-start
+  // field yet; admin can refine later if they need a reset button
+  // when extending a client.
+  const dueDate = computeClientDueDate(client.package, client.createdAt)
 
   // Pending = self-onboarded but not yet admin-approved. Renders
   // with a dashed grey ring + a faded interior so it reads as
@@ -672,42 +720,56 @@ function ClientRow({
       </span>
 
       <div className="flex flex-col gap-1.5">
-        {/* Top line — just the booked count. Cap (when set) gets
-            implicitly surfaced via the sitdowns line below, where
-            it's the meaningful denominator. */}
+        {/* Top line — booked / cap fraction (or just booked when
+            uncapped). Replaces the previous "X booked (cap reached)"
+            string with a clearer "7/20" headline that matches what
+            the bar below visualizes. */}
         <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {client.total > 0
-            ? `${client.total} booked${cap && client.total >= cap ? ' (cap reached)' : ''}`
-            : '—'}
+          {cap && cap > 0
+            ? `${client.total}/${cap} booked${client.total >= cap ? ' · cap reached' : ''}`
+            : client.total > 0
+              ? `${client.total} booked`
+              : '—'}
         </span>
-        {/* Bar — visualizes sitdowns/cap (or sitdowns/booked when
-            uncapped). Empty grey rail when there's nothing to
-            measure yet. Clamped at 100% on the rare overshoot. */}
+        {/* Bar — booked appointments toward the contracted cap.
+            Per Ethan: "this bar needs to represent 20 appointments,
+            and there needs to be green going to here to showcase
+            that seven are booked." Empty grey rail when no cap is
+            set or no bookings yet. */}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
           <div
             className={cn('h-full rounded-full', barColor)}
             style={{ width: `${Math.min(barWidth, 100)}%` }}
           />
         </div>
-        {/* Sitdowns — qualified appointments (Sitdown=Yes on Master
-            Tracker). Denominator is the contracted cap when set
-            (fulfillment vs commitment), otherwise the booked count
-            (qualified rate). Hidden when there are no bookings yet
-            so empty rows stay clean. */}
-        {client.total > 0 && (
-          <span
-            className="text-[10px] tabular-nums text-muted-foreground"
-            title="Appointments where the client actually met with the customer (Sitdown=Yes on Master Tracker). Set manually by admin. Denominator is the contracted appt cap when configured, otherwise the booked count."
-          >
-            {client.sitdowns}/{sitdownDenom} sitdowns
-            {sitdownPct != null && ` · ${sitdownPct}%`}
-          </span>
-        )}
+        {/* Sit-downs — informational caption only, not the bar's
+            denominator. "X sitdowns" instead of the previous
+            "X/Y sitdowns" fraction. Always renders so empty rows
+            still telegraph "0 sitdowns" rather than going silent. */}
+        <span
+          className="text-[10px] tabular-nums text-muted-foreground"
+          title="Appointments where the rep actually met with the customer (Sitdown=Yes on Master Tracker). Set manually by admin."
+        >
+          {client.sitdowns} sitdown{client.sitdowns === 1 ? '' : 's'}
+        </span>
       </div>
 
-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      {/* Due date — computed from package turnaround window
+          anchored to createdAt. Replaces the previous "Last
+          booking" date which Ethan said was "not the metric I
+          care about" — when the contract was set vs when the
+          last appointment landed are different questions, and the
+          ops question is "are we on track for delivery." */}
+      <span
+        className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        title={
+          dueDate
+            ? `Estimated cap-fulfillment date based on the ${client.package.toUpperCase()} package turnaround window.`
+            : 'No turnaround window set for the custom package — set a manual deadline if needed.'
+        }
+      >
         <CalendarIcon className="h-3 w-3" />
-        {formatDate(client.lastBookingAt)}
+        {dueDate ? formatDate(dueDate.toISOString()) : '—'}
       </span>
 
       <div onClick={(e) => e.stopPropagation()}>
@@ -905,9 +967,10 @@ function ClientDetailDialog({
           </div>
         </div>
 
-        {/* Status + package + last booking — three pills in one row.
-            Package chip surfaces the contract tier; the cap label
-            below the progress bar tracks delivery against the cap. */}
+        {/* Status + package + due date — three pills in one row.
+            Package chip surfaces the contract tier; the due-date
+            pill tells admin when the contracted cap should be hit
+            based on the package turnaround window. */}
         <div className="flex flex-wrap items-center gap-2">
           <Chip tone={LIFECYCLE_TONE[client.lifecycle]} className="font-semibold">
             {LIFECYCLE_LABEL[client.lifecycle]}
@@ -916,9 +979,19 @@ function ClientDetailDialog({
             {PACKAGE_LABEL[client.package] ?? 'Custom'}
             {client.apptCap ? ` · ${client.apptCap}` : ' · no cap'}
           </Chip>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-muted px-2.5 py-1 text-xs font-medium">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-muted px-2.5 py-1 text-xs font-medium"
+            title={
+              computeClientDueDate(client.package, client.createdAt)
+                ? `Estimated cap-fulfillment date based on the ${client.package.toUpperCase()} package turnaround.`
+                : 'No turnaround window for the custom package.'
+            }
+          >
             <Clock className="h-3 w-3 text-muted-foreground" />
-            Last booking: {formatDate(client.lastBookingAt)}
+            Due: {(() => {
+              const d = computeClientDueDate(client.package, client.createdAt)
+              return d ? formatDate(d.toISOString()) : '—'
+            })()}
           </span>
         </div>
 
