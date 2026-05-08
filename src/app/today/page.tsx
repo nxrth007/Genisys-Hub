@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2,
+  Check,
   Circle,
   Plus,
   Trash2,
@@ -309,21 +310,13 @@ export default function TodayPage() {
     if (isNaN(t)) return false
     return t >= range.start.getTime() && t <= range.end.getTime()
   }
-  // Sort completed tasks to the bottom of the same list (instead of
-  // jumping to a separate "Completed today" subsection the moment
-  // the user ticks the box) so checking off a task strikes it
-  // through and leaves it in place. The API already drops
-  // yesterday-and-older completed tasks server-side, so they roll
-  // out of the list naturally after the day ends.
-  const tasksInRange = tasks
-    .filter((t) => inRange(t.createdAt))
-    .slice()
-    .sort((a, b) => {
-      const aDone = !!a.completedAt
-      const bDone = !!b.completedAt
-      if (aDone !== bDone) return aDone ? 1 : -1
-      return 0
-    })
+  // Per Ethan: completed tasks should disappear from the Today
+  // view the moment they're checked off. He doesn't want a
+  // strikethrough log of "what got done earlier today" — if he
+  // wants to see what he completed on a past day, that lives on
+  // the calendar, not here. (Was previously a flat list with
+  // completed tasks sorted to the bottom + struck through.)
+  const tasksInRange = tasks.filter((t) => inRange(t.createdAt))
   const incompleteTasks = tasksInRange.filter((t) => !t.completedAt)
   const completedTasks = tasksInRange.filter((t) => t.completedAt)
 
@@ -618,12 +611,8 @@ export default function TodayPage() {
                     : scope === 'Monthly'
                       ? 'this month'
                       : 'this quarter'}
-                {tasksInRange.length > 0 && (
-                  <>
-                    {' '}({incompleteTasks.length} open
-                    {completedTasks.length > 0 && `, ${completedTasks.length} done`}
-                    )
-                  </>
+                {incompleteTasks.length > 0 && (
+                  <> ({incompleteTasks.length} open)</>
                 )}
               </span>
             </h3>
@@ -640,9 +629,9 @@ export default function TodayPage() {
               <div className="px-5 py-8 text-center text-sm text-muted-foreground">
                 Loading tasks…
               </div>
-            ) : incompleteTasks.length === 0 && completedTasks.length === 0 ? (
+            ) : incompleteTasks.length === 0 ? (
               <div className="px-5 py-12 text-center">
-                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-500/60" />
                 {tasks.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No tasks yet. Click &ldquo;New task&rdquo; to get
@@ -651,6 +640,12 @@ export default function TodayPage() {
                       pin a Notion board
                     </Link>{' '}
                     to use a Kanban here.
+                  </p>
+                ) : completedTasks.length > 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    All caught up — every open task in this range is
+                    done. To see what was completed earlier, jump
+                    backwards via the calendar filter above.
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -662,13 +657,11 @@ export default function TodayPage() {
                 )}
               </div>
             ) : (
-              // One flat list — completed tasks stay in place with
-              // strikethrough (sorted to the bottom) instead of
-              // jumping to a separate subsection the moment the box
-              // is checked. The API drops yesterday's completed
-              // tasks server-side so they roll out automatically
-              // after the day ends.
-              tasksInRange.map((task) => (
+              // Only OPEN tasks render. Once a task is checked off
+              // it's gone from this view — Ethan: "I don't need to
+              // know what was done earlier." Past completions stay
+              // accessible via the calendar / date-range filter.
+              incompleteTasks.map((task) => (
                 <TaskRow
                   key={task.id}
                   task={task}
@@ -1052,32 +1045,29 @@ function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
   })
 
   return (
-    <div
-      className={cn(
-        'flex items-center gap-3 px-5 py-3 group',
-        isComplete && 'opacity-60'
-      )}
-    >
+    <div className="flex items-center gap-3 px-5 py-3 group">
       <button
         onClick={() => toggleMutation.mutate()}
         disabled={toggleMutation.isPending}
-        className="flex-shrink-0 text-zinc-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+        className="flex-shrink-0 transition-colors disabled:opacity-50"
         title={isComplete ? 'Mark incomplete' : 'Mark complete'}
       >
         {isComplete ? (
-          <CheckCircle2 className="h-5 w-5 text-green-500" />
+          // Solid green disc + white check — Ethan: "whole green
+          // circles with white checks instead of being slashed
+          // through or greyed out." Mostly a transient state since
+          // completed tasks roll off the view, but un-checking
+          // briefly shows it too.
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500">
+            <Check className="h-3 w-3 text-white" strokeWidth={3} />
+          </span>
         ) : (
-          <Circle className="h-5 w-5" />
+          <Circle className="h-5 w-5 text-zinc-400 hover:text-blue-600" />
         )}
       </button>
 
       <div className="min-w-0 flex-1">
-        <div
-          className={cn(
-            'text-sm font-medium',
-            isComplete && 'line-through text-zinc-400'
-          )}
-        >
+        <div className="text-sm font-medium">
           {task.priority === 'high' && (
             <span className="text-red-500 mr-1">!</span>
           )}
