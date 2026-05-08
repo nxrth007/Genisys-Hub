@@ -610,6 +610,7 @@ export default function TodayPage() {
           <AssigneePill
             value={assigneeId}
             users={staffUsers.filter((u) => u.id !== me?.id)}
+            meName={me?.name ?? null}
             onChange={setAssigneeId}
           />
         )}
@@ -1313,11 +1314,16 @@ function TaskRow({
 function AssigneePill({
   value,
   users,
+  meName,
   onChange,
 }: {
   /** null = Me (default), 'all' = All (no filter), other = user id */
   value: string | null
   users: Array<{ id: string; name: string | null; email: string }>
+  /** Name of the currently-logged-in user, displayed inline with
+   *  the "Me" option so it's obvious whose account is active.
+   *  Helpful when the same person tests in multiple seats. */
+  meName: string | null
   onChange: (next: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -1328,7 +1334,9 @@ function AssigneePill({
       ? 'All'
       : selected
         ? selected.name || selected.email.split('@')[0]
-        : 'Me'
+        : meName
+          ? `Me · ${meName}`
+          : 'Me'
 
   return (
     <div className="relative">
@@ -1361,7 +1369,14 @@ function AssigneePill({
               )}
             >
               <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
-              Me
+              <span className="flex flex-col items-start">
+                <span>Me</span>
+                {meName && (
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    {meName}
+                  </span>
+                )}
+              </span>
               <span className="ml-auto text-[10px] text-muted-foreground">
                 default
               </span>
