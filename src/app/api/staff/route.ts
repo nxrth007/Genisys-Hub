@@ -61,7 +61,35 @@ export async function GET() {
   const extras = EXTRA_TEAM_MEMBERS.filter(
     (u) => !seenEmails.has(u.email.toLowerCase()),
   )
-  const users = [...dbUsers, ...extras].sort((a, b) =>
+  const merged = [...dbUsers, ...extras]
+
+  // Second-pass de-dupe: collapse rows that share a first name
+  // (case-insensitive). Per Alex 2026-05-08, the dropdown was
+  // showing both "Alex" and "Alex Hyatt" — same person, two
+  // accounts in the User table. Prefer the row with the longer
+  // name (assumed more "official"), tied by alphabetical. The
+  // Notion-side filter is first-name based anyway, so dropping
+  // the duplicate doesn't affect what tasks are reachable.
+  const byFirstName = new Map<string, (typeof merged)[number]>()
+  for (const u of merged) {
+    const first = (u.name || u.email).trim().toLowerCase().split(/[\s,]+/)[0]
+    if (!first) continue
+    const existing = byFirstName.get(first)
+    if (!existing) {
+      byFirstName.set(first, u)
+      continue
+    }
+    const existingLen = (existing.name || '').length
+    const candidateLen = (u.name || '').length
+    if (
+      candidateLen > existingLen ||
+      (candidateLen === existingLen &&
+        (u.name || '').localeCompare(existing.name || '') < 0)
+    ) {
+      byFirstName.set(first, u)
+    }
+  }
+  const users = [...byFirstName.values()].sort((a, b) =>
     (a.name || a.email).localeCompare(b.name || b.email),
   )
 

@@ -1427,11 +1427,19 @@ function AssigneePill({
   const [open, setOpen] = useState(false)
   const selected =
     value && value !== 'all' ? users.find((u) => u.id === value) : null
+  // Per Alex 2026-05-08: render first-name only in the dropdown
+  // ("Alex" instead of "Alex Hyatt"). The "Me · ..." pill button
+  // is the one place we keep the full name so the user can tell
+  // whose seat they're testing in at a glance.
+  const firstNameOf = (u: { name: string | null; email: string }) => {
+    const raw = (u.name || u.email.split('@')[0]).trim()
+    return raw.split(/[\s,]+/)[0] || raw
+  }
   const label =
     value === 'all'
       ? 'All'
       : selected
-        ? selected.name || selected.email.split('@')[0]
+        ? firstNameOf(selected)
         : meName
           ? `Me · ${meName}`
           : 'Me'
@@ -1511,11 +1519,9 @@ function AssigneePill({
                 )}
               >
                 <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
-                  {(u.name || u.email)[0].toUpperCase()}
+                  {firstNameOf(u)[0].toUpperCase()}
                 </span>
-                <span className="truncate">
-                  {u.name || u.email.split('@')[0]}
-                </span>
+                <span className="truncate">{firstNameOf(u)}</span>
               </button>
             ))}
           </div>
