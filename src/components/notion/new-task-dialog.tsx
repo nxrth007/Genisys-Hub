@@ -28,6 +28,11 @@ export type NewTaskDialogSchema = {
   assigneePropType?: string
   /** For select / multi_select: the named options from the DB schema. */
   assigneeOptions?: string[]
+  /** Notion date-property name. When set, the dialog shows a
+   *  Due Date field; on submit we write `{ date: { start } }`
+   *  to that property. Auto-detected by FocusList from the DB
+   *  schema (first column with type=date). */
+  dateProp?: string
 }
 
 type NotionUser = { id: string; name: string; email?: string }
@@ -48,6 +53,12 @@ export function NewTaskDialog({
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<string>('')
   const [assignee, setAssignee] = useState<string>('')
+  // Due date — empty string means "no date set" (most tasks
+  // don't need one). Bound to a native <input type="date">
+  // so the picker stays consistent with the agent appointment
+  // picker. Submitted as YYYY-MM-DD to Notion's date property,
+  // which Notion accepts as a midnight-anchored start.
+  const [dueDate, setDueDate] = useState<string>('')
   // Follow-up flag — when true, the submitted title is stamped with
   // a leading marker glyph that the FocusList classifier picks up to
   // route the task into the dedicated Follow-ups section. Lives
@@ -103,6 +114,13 @@ export function NewTaskDialog({
       }
       if (schema.priorityProp && priority) {
         properties[schema.priorityProp] = { select: { name: priority } }
+      }
+      if (schema.dateProp && dueDate) {
+        // Notion date property accepts a YYYY-MM-DD start
+        // (midnight in the user's local zone). Tasks without a
+        // due date just skip this property — Notion treats the
+        // missing key as "no date" rather than null.
+        properties[schema.dateProp] = { date: { start: dueDate } }
       }
       if (schema.assigneeProp && assignee) {
         if (schema.assigneePropType === 'people') {
@@ -274,12 +292,41 @@ export function NewTaskDialog({
           </button>
           {isFollowUp && (
             <p className="mt-1.5 text-[11px] text-zinc-500">
-              Tagged for the Follow-ups section. Title will be saved
-              with a leading <span className="font-semibold">🔁</span> so
-              you can spot it in Notion too.
+              Tagged with a leading <span className="font-semibold">🔁</span> so
+              you can spot it in Notion. Set a due date below if
+              you want a reminder of when to act on it.
             </p>
           )}
         </div>
+
+        {/* Due date — shown when the Notion DB has a date column
+            (most do; the schema auto-detects it). Native date
+            picker keeps things lightweight; users can leave it
+            empty for "no due date." */}
+        {schema.dateProp && (
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              Due date
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-blue-900/60"
+              />
+              {dueDate && (
+                <button
+                  type="button"
+                  onClick={() => setDueDate('')}
+                  className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {error && (
           <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">

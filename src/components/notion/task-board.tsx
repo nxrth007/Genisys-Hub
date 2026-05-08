@@ -1386,6 +1386,11 @@ export function TaskBoard({
             // column is people-type, so only pass select/multi_select
             // options here.
             assigneeOptions: selectAssigneeOptions,
+            // Pass the Notion date property name so the dialog can
+            // surface the Due date field. Auto-detected at the same
+            // place priority / assignee props are detected (the DB
+            // schema scan above).
+            dateProp,
           }}
           targetStatus={newTaskStatus}
           onClose={() => setNewTaskStatus(null)}

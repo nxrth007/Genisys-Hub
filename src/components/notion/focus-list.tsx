@@ -15,6 +15,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import {
+  Check,
   CheckCircle2,
   Circle,
   Zap,
@@ -381,9 +382,20 @@ export function FocusList({
     if (dateRange) {
       const startMs = dateRange.start.getTime()
       const endMs = dateRange.end.getTime()
+      // Scope filter — tasks WITH a dueDate filter by it; tasks
+      // WITHOUT one fall back to last_edited_time (Notion's
+      // built-in stamp). Per Ethan: "if I go back, it should
+      // show me that day" — the previous fallback ("show all
+      // dateless tasks unconditionally") meant scoping back hid
+      // nothing, so the calendar pill felt like it didn't track
+      // tasks at all.
       list = list.filter((t) => {
-        if (!t.dueDate) return true
-        const d = new Date(t.dueDate).getTime()
+        const ref =
+          t.dueDate ??
+          (t.task.last_edited_time as string | undefined) ??
+          null
+        if (!ref) return true
+        const d = new Date(ref).getTime()
         if (isNaN(d)) return true
         return d >= startMs && d <= endMs
       })
@@ -723,51 +735,31 @@ export function FocusList({
               />
             </>
           ) : (
-            // Flat checklist mode (used by /today). Active tasks first,
-            // then a Follow-ups subsection, then Done-earlier at the
-            // bottom — all in one card. Tasks marked done TODAY stay
-            // in the active list with strikethrough (rendered with
-            // done={true}) so checking the box doesn't make them
-            // jump out of view. Yesterday-and-earlier completed tasks
-            // go into the collapsed Done section. The split uses
-            // last_edited_time as a proxy for "done at" — Notion
-            // bumps it on status change, which is good enough for
-            // the "stay visible until midnight" UX.
-            (() => {
-              const startOfToday = new Date()
-              startOfToday.setHours(0, 0, 0, 0)
-              const isEditedToday = (t: Extracted) => {
-                const ts = t.task.last_edited_time
-                if (!ts) return false
-                const d = new Date(ts)
-                return !isNaN(d.getTime()) && d >= startOfToday
-              }
-              const doneToday = groupedTasks.done.filter(isEditedToday)
-              const doneEarlier = groupedTasks.done.filter(
-                (t) => !isEditedToday(t),
-              )
-              return (
-                <FlatChecklist
-                  active={[
-                    ...groupedTasks.doing,
-                    ...groupedTasks.today,
-                    ...groupedTasks.upnext,
-                    ...groupedTasks.waiting,
-                  ]}
-                  followUps={groupedTasks.followup}
-                  doneToday={doneToday}
-                  done={doneEarlier}
-                  doneExpanded={doneExpanded}
-                  onToggleDoneExpanded={() => setDoneExpanded((v) => !v)}
-                  onToggle={toggleComplete}
-                  onDelete={(id) => deleteMutation.mutate(id)}
-                  onRename={(id, title) =>
-                    renameMutation.mutate({ pageId: id, title })
-                  }
-                  onEdit={(id) => setEditingId(id)}
-                />
-              )
-            })()
+            // Flat checklist mode (used by /today). Per Ethan:
+            // completed tasks are hidden from this view entirely
+            // (no in-list "Done earlier" collapsible) and the
+            // in-list "Follow-ups" subsection is gone — follow-up
+            // tasks merge into the main active list with their
+            // 🔁 marker still visible in the title. The bottom
+            // blue-phone drawer is the canonical follow-ups
+            // surface now.
+            (
+              <FlatChecklist
+                active={[
+                  ...groupedTasks.doing,
+                  ...groupedTasks.today,
+                  ...groupedTasks.upnext,
+                  ...groupedTasks.followup,
+                  ...groupedTasks.waiting,
+                ]}
+                onToggle={toggleComplete}
+                onDelete={(id) => deleteMutation.mutate(id)}
+                onRename={(id, title) =>
+                  renameMutation.mutate({ pageId: id, title })
+                }
+                onEdit={(id) => setEditingId(id)}
+              />
+            )
           )}
         </div>
 
@@ -904,27 +896,12 @@ const SECTION_TONES: Record<
  */
 function FlatChecklist({
   active,
-  followUps,
-  doneToday,
-  done,
-  doneExpanded,
-  onToggleDoneExpanded,
   onToggle,
   onDelete,
   onRename,
   onEdit,
 }: {
   active: Extracted[]
-  followUps: Extracted[]
-  /** Tasks marked done TODAY — rendered inline with the active
-   *  list, struck through, so checking the box doesn't yank them
-   *  out of view. Roll into the collapsed Done section once the
-   *  day ends (last_edited_time stops being today). */
-  doneToday: Extracted[]
-  /** Tasks completed BEFORE today — collapsed by default. */
-  done: Extracted[]
-  doneExpanded: boolean
-  onToggleDoneExpanded: () => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -932,13 +909,12 @@ function FlatChecklist({
    *  in-component callers stay typesafe; flat mode passes it. */
   onEdit?: (id: string) => void
 }) {
-  const totalCount =
-    active.length + followUps.length + doneToday.length + done.length
-  if (totalCount === 0) {
+  if (active.length === 0) {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
         <div className="grid place-items-center px-4 py-12 text-sm text-zinc-500">
-          No tasks on this board yet.
+          No open tasks. Past completions stay in Notion — scope the
+          calendar pill above backwards to revisit them.
         </div>
       </div>
     )
@@ -946,105 +922,38 @@ function FlatChecklist({
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Active list — open tasks first, then today's done at the
-          bottom of the same list with strikethrough. The user-visible
-          effect: ticking a checkbox grays + strikes the row but it
-          stays in place. After the day ends the row's last_edited_time
-          falls out of "today" and it migrates to the collapsed Done
-          section below on next render. */}
-      {(active.length > 0 || doneToday.length > 0) && (
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {active.map((t) => (
-            <li key={t.id}>
-              <TaskRow
-                task={t}
-                done={false}
-                onToggle={(d) => onToggle(t.id, d)}
-                onDelete={() => onDelete(t.id)}
-                onRename={(title) => onRename(t.id, title)}
-                onEdit={onEdit ? () => onEdit(t.id) : undefined}
-              />
-            </li>
-          ))}
-          {doneToday.map((t) => (
-            <li key={t.id}>
-              <TaskRow
-                task={t}
-                done
-                onToggle={(d) => onToggle(t.id, d)}
-                onDelete={() => onDelete(t.id)}
-                onRename={(title) => onRename(t.id, title)}
-                onEdit={onEdit ? () => onEdit(t.id) : undefined}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Follow-ups subsection — labeled, but no collapse so the
-          rows are always one glance away. */}
-      {followUps.length > 0 && (
-        <div className="border-t border-zinc-100 dark:border-zinc-800">
-          <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-300">
-            <Repeat className="h-3.5 w-3.5" />
-            Follow-ups ({followUps.length})
-          </div>
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {followUps.map((t) => (
-              <li key={t.id}>
-                <TaskRow
-                  task={t}
-                  done={false}
-                  onToggle={(d) => onToggle(t.id, d)}
-                  onDelete={() => onDelete(t.id)}
-                  onRename={(title) => onRename(t.id, title)}
-                  onEdit={onEdit ? () => onEdit(t.id) : undefined}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Done — collapsible, closed by default. Click the header to
-          expand and see strikethrough rows inline. The count stays
-          on the header so you can tell there's something to expand. */}
-      {done.length > 0 && (
-        <div className="border-t border-zinc-100 dark:border-zinc-800">
-          <button
-            type="button"
-            onClick={onToggleDoneExpanded}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800/40"
-          >
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              Done earlier ({done.length})
-            </span>
-            <ChevronRight
-              className={cn(
-                'h-3.5 w-3.5 transition-transform',
-                doneExpanded && 'rotate-90',
-              )}
+      {/* Active task list — Ethan: completed rows are hidden from
+          this view; checking a task rolls it off. Past completions
+          stay in Notion + are reachable via scoping the calendar
+          pill backwards. */}
+      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        {active.map((t) => (
+          <li key={t.id}>
+            <TaskRow
+              task={t}
+              done={false}
+              onToggle={(d) => onToggle(t.id, d)}
+              onDelete={() => onDelete(t.id)}
+              onRename={(title) => onRename(t.id, title)}
+              onEdit={onEdit ? () => onEdit(t.id) : undefined}
             />
-          </button>
-          {doneExpanded && (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {done.map((t) => (
-                <li key={t.id}>
-                  <TaskRow
-                    task={t}
-                    done
-                    onToggle={(d) => onToggle(t.id, d)}
-                    onDelete={() => onDelete(t.id)}
-                    onRename={(title) => onRename(t.id, title)}
-                    onEdit={onEdit ? () => onEdit(t.id) : undefined}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+          </li>
+        ))}
+      </ul>
+
+      {/*
+        Removed (per Ethan, 2026-05-08):
+          - In-list "Follow-ups" subsection — was a duplicate of the
+            blue-phone Follow-ups drawer at the bottom of /today.
+            Tasks created with the Follow-up toggle still get the
+            🔁 marker prefix in their title and now appear in the
+            main list above; the bottom drawer is the canonical
+            "follow-ups" surface.
+          - "Done earlier (N)" collapsible — Ethan: "I do not need
+            to know what was done earlier." If he wants to see past
+            completions he scopes the date range backwards via the
+            calendar pill above. The Notion DB still has the data.
+      */}
     </div>
   )
 }
@@ -1370,16 +1279,22 @@ function TaskRow({
         )}
       </div>
 
-      {/* Check circle */}
+      {/* Check circle — solid emerald disc + white check when done.
+          Per Ethan: "whole green circles with white checks instead
+          of being slashed through or greyed out." Mostly transient
+          since checking rolls the row off the view (Done Earlier
+          section is gone), but un-checking briefly shows it. */}
       <button
         onClick={() => onToggle(!done)}
         aria-label={done ? 'Mark as not done' : 'Mark as done'}
-        className="flex h-5 flex-shrink-0 items-center text-zinc-300 transition-colors hover:text-blue-500 dark:text-zinc-600"
+        className="flex h-5 flex-shrink-0 items-center transition-colors"
       >
         {done ? (
-          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500">
+            <Check className="h-3 w-3 text-white" strokeWidth={3} />
+          </span>
         ) : (
-          <Circle className="h-5 w-5" />
+          <Circle className="h-5 w-5 text-zinc-300 hover:text-blue-500 dark:text-zinc-600" />
         )}
       </button>
 
@@ -1416,10 +1331,7 @@ function TaskRow({
                   e.preventDefault()
                   if (!done) setIsEditing(true)
                 }}
-                className={cn(
-                  'min-w-0 truncate text-sm font-medium',
-                  done && 'text-zinc-400 line-through dark:text-zinc-500'
-                )}
+                className="min-w-0 truncate text-sm font-medium"
                 title={done ? task.title : `${task.title} — double-click to edit`}
               >
                 {task.title}
