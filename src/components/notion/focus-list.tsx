@@ -478,7 +478,14 @@ export function FocusList({
       })
     }
     return list
-  }, [tasks, selectedAssignee, dateRange])
+    // assigneeFilter MUST be in deps — without it, picking a
+    // different teammate from the /today Assignee dropdown changes
+    // the prop value but doesn't recompute this memo, leaving the
+    // visible task list stale until some unrelated state change
+    // (date pill, task refetch, hot reload) bumps it. Caused
+    // Ethan/Alex to see Alex's tasks while filter said "Me" on
+    // 2026-05-09 -- a real bug, not a UX preference issue.
+  }, [tasks, selectedAssignee, assigneeFilter, dateRange])
 
   // (Renamed from `grouped` to `groupedTasks` so it doesn't shadow
   // the new `grouped` prop above.)
@@ -503,28 +510,21 @@ export function FocusList({
   }, [filtered])
 
   // Follow-ups for the upstream drawer — computed from the full
-  // task set (assignee filter applied, but NOT the date scope) so
-  // the drawer always reflects every open 🔁 task regardless of
-  // whether the calendar is scoped to today / week / month. Done
-  // follow-ups are dropped — drawer is "still need to act on it."
+  // task set IGNORING both the assignee filter AND the date scope.
+  // Drawer is the team-wide "people we still need to follow up
+  // with" surface; restricting it by who's logged in or by the
+  // date pill made follow-ups silently disappear when Ethan
+  // switched assignee or scoped the calendar (reported 2026-05-09).
+  // Done follow-ups are still dropped — drawer is "still need to
+  // act on it" only.
   const allOpenFollowUps = useMemo(() => {
-    const target =
-      assigneeFilter !== undefined && assigneeFilter !== null
-        ? assigneeFilter
-        : selectedAssignee
-    const matches = (t: Extracted) => {
-      if (!target || target === 'all') return true
-      if (target === 'unassigned') return !t.assignee.trim()
-      return assigneeMatches(t.assignee, target)
-    }
     return tasks
-      .filter((t) => matches(t))
       .filter((t) => isFollowUp(t.title))
       .filter((t) => classify(t) !== 'done')
       .sort(
         (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
       )
-  }, [tasks, assigneeFilter, selectedAssignee])
+  }, [tasks])
 
   // Lift follow-ups upstream — when /today wires the callback, we
   // hand it the open-follow-up list so it can render them in the
