@@ -596,7 +596,12 @@ export default function MasterTrackerPage() {
     },
   })
   const userRole = sessionQuery.data?.user?.role ?? ''
-  const isAdmin = isStaffView && userRole === 'admin'
+  // Admin gating is role-based, not path-based: when Alex visits the
+  // agent view (/agent/master-tracker, which re-exports this page),
+  // he should still see admin actions like Edit + Delete. Previously
+  // this was `isStaffView && admin`, which blanked admin tools on the
+  // agent path even for admins.
+  const isAdmin = userRole === 'admin'
 
   // Edit-modal state. We track the currently-being-edited row by id
   // so the modal can pre-fill from the loaded appointments and the
