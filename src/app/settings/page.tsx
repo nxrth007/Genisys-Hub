@@ -1650,13 +1650,34 @@ function ClientAlertsRecentActivity() {
                     Cancel
                   </button>
                 )}
-                {r.status === 'failed' && (
+                {/* Retry: always available except on rows currently
+                    mid-send (status='sending'). Force-fires the SMS
+                    regardless of the row's current state — the most
+                    common use is unsticking a `pending` row whose
+                    scheduledFor has passed but the dispatcher hasn't
+                    picked up yet. The confirm copy adapts to the
+                    current status so admin knows what they're doing. */}
+                {r.status !== 'sending' && (
                   <button
                     type="button"
                     onClick={() => {
+                      const verb =
+                        r.status === 'pending'
+                          ? 'Force-fire this pending alert NOW'
+                          : r.status === 'delivered'
+                            ? 'Re-send this delivered alert (creates a duplicate SMS)'
+                            : r.status === 'failed'
+                              ? 'Retry this failed alert'
+                              : r.status === 'cancelled'
+                                ? 'Override the cancel and fire this alert'
+                                : r.status === 'skipped'
+                                  ? 'Override the skip and fire this alert'
+                                  : r.status === 'backfilled'
+                                    ? 'Send this backfilled alert (it was previously marked already-handled)'
+                                    : 'Force-fire this alert'
                       if (
                         window.confirm(
-                          `Retry sending this SMS to ${r.clientName ?? 'the client'} at ${r.recipientPhone}? Re-fetches the latest appointment data and re-sends through GHL.`,
+                          `${verb} to ${r.clientName ?? 'the client'} at ${r.recipientPhone}?`,
                         )
                       ) {
                         retryMutation.mutate(r.id)
@@ -1666,14 +1687,22 @@ function ClientAlertsRecentActivity() {
                       retryMutation.isPending && retryMutation.variables === r.id
                     }
                     className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
-                    title="Re-fire this alert. Re-fetches appointment data first so the SMS reflects the latest state."
+                    title={
+                      r.status === 'pending'
+                        ? "Force-fire this pending alert now (skips the buffer wait + dispatcher tick)."
+                        : r.status === 'failed'
+                          ? 'Retry the SMS. Re-fetches appointment data first.'
+                          : r.status === 'delivered'
+                            ? 'Send this SMS again. Will create a duplicate at the carrier.'
+                            : 'Force-fire this alert regardless of current status.'
+                    }
                   >
                     {retryMutation.isPending && retryMutation.variables === r.id ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <RefreshCw className="h-3 w-3" />
                     )}
-                    Retry
+                    {r.status === 'pending' ? 'Fire now' : 'Retry'}
                   </button>
                 )}
                 <div className="text-[10px] text-zinc-400">

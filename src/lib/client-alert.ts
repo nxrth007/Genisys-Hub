@@ -625,15 +625,23 @@ export async function dispatchPendingClientAlerts(): Promise<{
 /* -------------------------------------------------------------------------- */
 
 /**
- * Retry a failed Client Alert SMS. Called from the Settings UI's
- * Recent activity panel. Re-fetches fresh data (latest appointment
- * state for db:* rows, latest sheet row for sheet:* rows), rebuilds
- * the SMS body, and fires inline through GHL. Updates the existing
- * ledger row in place — `delivered` on success, or `failed` with a
- * new errorMessage on another error.
+ * Force-fire a Client Alert SMS regardless of current status. Called
+ * from the Settings UI's Recent activity panel "Retry" button.
+ * Re-fetches fresh data (latest appointment state for db:* rows,
+ * latest sheet row for sheet:* rows), rebuilds the SMS body, and
+ * fires inline through GHL. Updates the existing ledger row in
+ * place — `delivered` on success, or `failed` with a new
+ * errorMessage on another error.
  *
- * Only rows with status='failed' are retryable. Anything else is
- * a no-op (returns ok=false with current status).
+ * Refuses only when:
+ *   - row doesn't exist
+ *   - status is `sending` (would double-fire if a tick is mid-send)
+ *
+ * Everything else (pending stuck past scheduledFor, failed, delivered,
+ * backfilled, cancelled, skipped) is allowed because admin clicking
+ * Retry is an explicit override of whatever state the row is in.
+ * Bypasses the master `enabled` toggle for the same reason — admin
+ * is taking manual control.
  */
 export async function retryFailedClientAlert(
   deliveryId: string,
@@ -645,10 +653,11 @@ export async function retryFailedClientAlert(
     where: { id: deliveryId },
   })
   if (!row) return { ok: false, error: 'delivery not found' }
-  if (row.status !== 'failed') {
+  if (row.status === 'sending') {
     return {
       ok: false,
-      error: `only failed rows can be retried (current status: ${row.status})`,
+      error:
+        'this row is currently being sent by the dispatcher — wait a moment and refresh',
       status: row.status,
     }
   }
@@ -656,9 +665,13 @@ export async function retryFailedClientAlert(
   const config = await prisma.clientAlertsConfig.findUnique({
     where: { id: 'singleton' },
   })
-  if (!config?.enabled) {
-    return { ok: false, error: 'Client Alerts is currently disabled' }
+  if (!config) {
+    return { ok: false, error: 'Client Alerts config not found' }
   }
+  // Note: we do NOT check config.enabled here. Manual retry is an
+  // explicit admin override; if they clicked Retry, they want this
+  // SMS fired regardless of whether the master toggle is currently
+  // on. The dispatcher cron still respects the toggle.
 
   // Resolve client name for the GHL contact upsert. clientId is
   // nullable (SetNull on client delete), so fall back gracefully.
