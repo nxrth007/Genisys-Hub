@@ -1563,7 +1563,14 @@ export default function MasterTrackerPage() {
                             colSpan={isAdmin ? 15 : 14}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
-                            <RowDetail appointment={a} />
+                            <RowDetail
+                              appointment={a}
+                              onEdit={
+                                isAdmin
+                                  ? () => setEditingApptId(a.id)
+                                  : undefined
+                              }
+                            />
                           </td>
                         </tr>
                       )}
@@ -1868,7 +1875,16 @@ function ExportItem({
   )
 }
 
-function RowDetail({ appointment }: { appointment: Appointment }) {
+function RowDetail({
+  appointment,
+  onEdit,
+}: {
+  appointment: Appointment
+  /** Optional admin-edit hook. When undefined (non-admin viewer), the
+   *  Edit appointment button is hidden so the drawer's affordances
+   *  match the row's admin column gating exactly. */
+  onEdit?: () => void
+}) {
   return (
     <div className="grid gap-x-8 gap-y-3 text-xs md:grid-cols-3">
       <DetailItem label="Customer">
@@ -1932,17 +1948,30 @@ function RowDetail({ appointment }: { appointment: Appointment }) {
           </div>
         </div>
       )}
-      {appointment.callRecordingLink && (
-        <div className="md:col-span-3">
-          <a
-            href={appointment.callRecordingLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Play call recording
-          </a>
+      {(appointment.callRecordingLink || onEdit) && (
+        <div className="md:col-span-3 flex flex-wrap items-center gap-2">
+          {appointment.callRecordingLink && (
+            <a
+              href={appointment.callRecordingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Play call recording
+            </a>
+          )}
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              title="Edit this row's appointment details (date/time, customer, notes, etc.)"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit appointment
+            </button>
+          )}
         </div>
       )}
     </div>
