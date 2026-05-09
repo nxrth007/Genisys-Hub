@@ -38,6 +38,30 @@ function normalizeApptCap(v: unknown): number | null {
   return Math.round(n)
 }
 
+/** Coerce a raw dueDate value (ISO string / Date / null / empty
+ *  string) into either a Date or null. Returning null = "use the
+ *  computed package default". Invalid strings throw — caller
+ *  catches and surfaces as a validation error. */
+function normalizeDueDate(v: unknown): Date | null {
+  if (v == null || v === '') return null
+  if (v instanceof Date) {
+    return Number.isNaN(v.getTime()) ? null : v
+  }
+  if (typeof v !== 'string') return null
+  const trimmed = v.trim()
+  if (!trimmed) return null
+  // Accept either a date-only string ("2026-05-22" — what the
+  // <input type="date"> sends) or a full ISO timestamp. For
+  // date-only, anchor to UTC midnight so timezone conversions on
+  // render don't shift the displayed day.
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+  const d = dateOnly ? new Date(`${trimmed}T00:00:00.000Z`) : new Date(trimmed)
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`dueDate is not a valid date: "${trimmed}"`)
+  }
+  return d
+}
+
 function trimOrNull(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const t = v.trim()
@@ -67,6 +91,7 @@ export function validateClientCreate(
         lifecycle: ClientLifecycle
         package: ClientPackage
         apptCap: number | null
+        dueDate: Date | null
         sortOrder: number
       }
     }
@@ -113,6 +138,16 @@ export function validateClientCreate(
   const pkg: ClientPackage = isValidPackage(b.package) ? b.package : 'custom'
   const apptCap = normalizeApptCap(b.apptCap)
 
+  let dueDate: Date | null
+  try {
+    dueDate = normalizeDueDate(b.dueDate)
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'invalid dueDate',
+    }
+  }
+
   return {
     ok: true,
     data: {
@@ -131,6 +166,7 @@ export function validateClientCreate(
       lifecycle,
       package: pkg,
       apptCap,
+      dueDate,
       sortOrder,
     },
   }
@@ -164,6 +200,7 @@ export function normalizeClientPatch(
         active: boolean
         package: ClientPackage
         apptCap: number | null
+        dueDate: Date | null
         slackChannelId: string | null
         slackChannelName: string | null
       }>
@@ -190,6 +227,7 @@ export function normalizeClientPatch(
     active: boolean
     package: ClientPackage
     apptCap: number | null
+    dueDate: Date | null
     slackChannelId: string | null
     slackChannelName: string | null
   }> = {}
@@ -284,6 +322,21 @@ export function normalizeClientPatch(
   }
   if ('apptCap' in b) {
     data.apptCap = normalizeApptCap(b.apptCap)
+  }
+
+  // dueDate — explicit null / empty string clears the override and
+  // falls back to the per-package computed default. Anything else
+  // gets parsed; invalid dates surface a clear error rather than
+  // silently no-op'ing.
+  if ('dueDate' in b) {
+    try {
+      data.dueDate = normalizeDueDate(b.dueDate)
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'invalid dueDate',
+      }
+    }
   }
 
   // Slack channel routing — admin-set via Settings → Client delivery.

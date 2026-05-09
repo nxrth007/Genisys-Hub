@@ -504,11 +504,22 @@ model Client {
   package         String   @default("custom")
 
   // Nominal appointment cap for the package — null means unlimited
-  // (PPA, or a sit-down-guarantee deal where we keep delivering
-  // past any nominal cap until the sit-down count is hit). The
-  // Clients page treats this as a target, not a hard stop — over-
-  // cap rows still count and surface in green.
+  // (sit-down-guarantee deal where we keep delivering past any
+  // nominal cap until the sit-down count is hit). The Clients page
+  // treats this as a target, not a hard stop — over-cap rows still
+  // count and surface in green. PPA now defaults to 10 (was null
+  // historically); existing rows are not backfilled by the migration.
   apptCap         Int?
+
+  // Manual override for the cap-fulfillment due date. When null, the
+  // Clients page shows a computed default per package:
+  //   PPA     → 14 days from createdAt (within 2 weeks)
+  //   Growth  → 21 days (within 3 weeks)
+  //   Pro     → 28 days (within 4 weeks)
+  //   Custom  → no default (admin sets manually)
+  // Set via the date picker in the edit form when the contract
+  // turnaround diverges from the package default.
+  dueDate         DateTime?
 
   // Slack channel for this client. Auto-provisioned on approval
   // by lib/client-workspace.ts: a private "client-{slug}" channel

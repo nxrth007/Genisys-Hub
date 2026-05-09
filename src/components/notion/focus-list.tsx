@@ -32,7 +32,6 @@ import {
   GripVertical,
   Pencil,
   RotateCcw,
-  Repeat,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
@@ -102,7 +101,6 @@ type Section =
   | 'doing'
   | 'today'
   | 'upnext'
-  | 'followup'
   | 'waiting'
   | 'done'
 
@@ -316,10 +314,11 @@ function classify(task: Extracted): Section {
   if (DONE_SYNONYMS.has(s)) return 'done'
   if (BLOCKED_SYNONYMS.has(s)) return 'waiting'
   if (DOING_SYNONYMS.has(s)) return 'doing'
-  // Title-prefix follow-ups get their own bucket so Ethan can scan
-  // "people I owe a text" separately from regular work.
-  if (isFollowUp(task.title)) return 'followup'
-  // To-do bucket — split by urgency
+  // Per Ethan (2026-05-08): follow-up tagged tasks should follow the
+  // exact same bucketing logic as regular tasks — only difference is
+  // they have a due date. So no special-case routing here; 🔁-tagged
+  // tasks fall into Today / Up next / Waiting / Done by status +
+  // priority just like everything else.
   const isHigh = HIGH_PRIORITY.has(normalize(task.priority))
   const due = isDueTodayOrOverdue(task.dueDate)
   if (isHigh || due) return 'today'
@@ -343,7 +342,6 @@ export function FocusList({
   showAssigneeSidebar = true,
   dateRange,
   assigneeFilter,
-  onFollowUpsChange,
 }: {
   dbId: string
   newTaskTrigger?: number
@@ -366,27 +364,6 @@ export function FocusList({
    *  what extractPropValue returns). null = no external filter,
    *  internal sidebar (when shown) controls the value instead. */
   assigneeFilter?: string | null
-  /** When defined, FocusList omits 🔁-tagged follow-up tasks from
-   *  its own rendering and reports them via this callback so the
-   *  page can hand them to the FollowUpsDrawer below. Wired by
-   *  /today; other surfaces (e.g. /notion/db/[id]) leave it
-   *  undefined and follow-ups stay in the main list.
-   *
-   *  Shape is a public subset (no Notion internals) so the page
-   *  doesn't need to import Extracted. The `done` flag covers
-   *  today's-done follow-ups that stay visible in the drawer
-   *  with the green check until the day rolls. */
-  onFollowUpsChange?: (
-    followUps: Array<{
-      id: string
-      title: string
-      url: string
-      assignee: string
-      priority: string
-      dueDate: string | null
-      done: boolean
-    }>,
-  ) => void
 }) {
   const queryClient = useQueryClient()
   const [selectedAssignee, setSelectedAssignee] = useState<string>('all')
@@ -497,7 +474,6 @@ export function FocusList({
       doing: [],
       today: [],
       upnext: [],
-      followup: [],
       waiting: [],
       done: [],
     }
@@ -505,69 +481,9 @@ export function FocusList({
     // Sort each section
     g.today.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
     g.upnext.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
-    g.followup.sort(
-      (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
-    )
     g.done.sort(() => 0) // already in Notion order
     return g
   }, [filtered])
-
-  // Follow-ups for the upstream drawer — computed from the full
-  // task set IGNORING the assignee filter AND date scope (drawer
-  // is the team-wide "people we still need to follow up with"
-  // surface). Includes today's-done follow-ups too: per Alex
-  // 2026-05-09 they should stay visible with the green check
-  // until the day rolls and only disappear the next day, mirroring
-  // how the main task list handles done-today.
-  const allDrawerFollowUps = useMemo(() => {
-    const todayStart = (() => {
-      const d = new Date()
-      d.setHours(0, 0, 0, 0)
-      return d.getTime()
-    })()
-    const isDoneToday = (t: Extracted) => {
-      if (classify(t) !== 'done') return false
-      const ts = t.task.last_edited_time as string | undefined
-      if (!ts) return false
-      const ms = new Date(ts).getTime()
-      return !isNaN(ms) && ms >= todayStart
-    }
-    return tasks
-      .filter((t) => isFollowUp(t.title))
-      .filter((t) => classify(t) !== 'done' || isDoneToday(t))
-      .map((t) => ({ task: t, done: classify(t) === 'done' }))
-      .sort((a, b) => {
-        // Open follow-ups first, then today's-done at the bottom
-        // (same UX as the main task list — done rows stay visible
-        // but slide to the bottom, signaling "handled but still
-        // for today's awareness").
-        if (a.done !== b.done) return a.done ? 1 : -1
-        return priorityRank(a.task.priority) - priorityRank(b.task.priority)
-      })
-  }, [tasks])
-
-  // Lift follow-ups upstream — when /today wires the callback, we
-  // hand it the open-follow-up list so it can render them in the
-  // bottom blue-phone drawer instead of dragging the in-list group
-  // back. Reported via effect (ref guard prevents the no-op-update
-  // loop React Query would trigger if we just called it inline).
-  const onFollowUpsChangeRef = useRef(onFollowUpsChange)
-  useEffect(() => {
-    onFollowUpsChangeRef.current = onFollowUpsChange
-  }, [onFollowUpsChange])
-  useEffect(() => {
-    onFollowUpsChangeRef.current?.(
-      allDrawerFollowUps.map(({ task: t, done }) => ({
-        id: t.id,
-        title: t.title,
-        url: t.url,
-        assignee: t.assignee,
-        priority: t.priority,
-        dueDate: t.dueDate,
-        done,
-      })),
-    )
-  }, [allDrawerFollowUps])
 
   // Assignee list with counts — always computed from the *unfiltered* task
   // set so the sidebar shows real counts even when a filter is applied.
@@ -598,13 +514,6 @@ export function FocusList({
     doing: DOING_SYNONYMS,
     today: TODO_SYNONYMS,
     upnext: TODO_SYNONYMS,
-    // Follow-ups live in TODO column under the hood — dropping a
-    // task into the Follow-ups section can't itself add the marker
-    // prefix to the title (drag move only changes status), so a
-    // dropped task lands in TODO and only flips bucket if its title
-    // happens to already start with "🔁 ". The intentional "create a
-    // follow-up" path is the New-task button.
-    followup: TODO_SYNONYMS,
     waiting: BLOCKED_SYNONYMS,
     done: DONE_SYNONYMS,
   }
@@ -839,19 +748,6 @@ export function FocusList({
                 emptyHint="Backlog is clear."
               />
               <FocusSection
-                section="followup"
-                icon={Repeat}
-                label="Follow-ups"
-                count={groupedTasks.followup.length}
-                tone="violet"
-                tasks={groupedTasks.followup}
-                onToggle={toggleComplete}
-                onDelete={(id) => deleteMutation.mutate(id)}
-                onRename={(id, title) => renameMutation.mutate({ pageId: id, title })}
-                onEdit={(id) => setEditingId(id)}
-                emptyHint='No follow-ups queued. Click "New task" and toggle Follow-up to add one.'
-              />
-              <FocusSection
                 section="waiting"
                 icon={PauseCircle}
                 label="Waiting / Blocked"
@@ -890,9 +786,9 @@ export function FocusList({
             //     tasks" so there's zero visual confusion about
             //     what's today vs carryover. Past completions
             //     still don't appear.
-            //   - Follow-up tagged tasks merge into the main list;
-            //     the canonical Follow-ups surface is the bottom
-            //     blue-phone drawer.
+            //   - Follow-up tagged tasks (🔁) follow the same
+            //     bucketing logic as regular tasks and merge into
+            //     the main list (Ethan, 2026-05-08).
             (() => {
               const startMs = dateRange?.start.getTime() ?? -Infinity
               const beforeRange = (t: Extracted) => {
@@ -904,15 +800,10 @@ export function FocusList({
                 const d = new Date(ref).getTime()
                 return !isNaN(d) && d < startMs
               }
-              // When the page wires onFollowUpsChange (i.e. /today
-              // is rendering the bottom blue-phone drawer), drop
-              // follow-up tasks from the active list — they live in
-              // the drawer instead. Otherwise they merge in here.
               const allActive = [
                 ...groupedTasks.doing,
                 ...groupedTasks.today,
                 ...groupedTasks.upnext,
-                ...(onFollowUpsChange ? [] : groupedTasks.followup),
                 ...groupedTasks.waiting,
               ]
               const leftover = allActive.filter(beforeRange)
@@ -1440,7 +1331,7 @@ function FocusDndWrapper({
     const pageId = String(e.active.id)
     const overId = String(e.over.id)
     const match = overId.match(
-      /^section-(doing|today|upnext|followup|waiting|done)$/,
+      /^section-(doing|today|upnext|waiting|done)$/,
     )
     if (!match) return
     const target = match[1] as Section
