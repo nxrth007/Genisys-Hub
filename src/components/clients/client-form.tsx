@@ -32,6 +32,10 @@ export type ClientFormValues = {
   /** Stored as a string so the input field stays controlled even
    *  when blank. Empty string = no cap (unlimited). */
   apptCap: string
+  /** Manual override for the cap-fulfillment due date. YYYY-MM-DD
+   *  string from <input type="date">; empty string = use the
+   *  package-default heuristic on the Clients page. */
+  dueDate: string
   contactName: string
   contactRole: string
   contactEmail: string
@@ -54,6 +58,7 @@ const EMPTY: ClientFormValues = {
   lifecycle: 'active',
   package: 'custom',
   apptCap: '',
+  dueDate: '',
   contactName: '',
   contactRole: '',
   contactEmail: '',
@@ -97,11 +102,29 @@ export const PACKAGE_OPTIONS: ReadonlyArray<{
   defaultCap: number | null
   hint: string
 }> = [
-  { id: 'ppa', label: 'PPA', defaultCap: null, hint: 'Pay per appointment — no cap' },
+  { id: 'ppa', label: 'PPA', defaultCap: 10, hint: '10 appointments / period' },
   { id: 'growth', label: 'Growth', defaultCap: 20, hint: '20 appointments / period' },
   { id: 'pro', label: 'Pro', defaultCap: 30, hint: '30 appointments / period' },
   { id: 'custom', label: 'Custom', defaultCap: null, hint: 'Bespoke deal — set cap manually' },
 ]
+
+/** Default cap-fulfillment due-window per package, in days. Mirrors
+ *  the `packageTurnaroundDays` helper on /clients (kept in sync by
+ *  convention — there's no shared module yet). The form uses this
+ *  to render the hint under the Due date input so admin knows what
+ *  the system falls back to when the field is blank. */
+export function packageDefaultDueDays(pkg: ClientPackage): number | null {
+  switch (pkg) {
+    case 'ppa':
+      return 14
+    case 'growth':
+      return 21
+    case 'pro':
+      return 28
+    default:
+      return null
+  }
+}
 
 export function ClientFormDialog({
   open,
@@ -326,7 +349,7 @@ export function ClientFormDialog({
                 className={inputCls}
               />
               <span className="mt-1 text-[11px] text-muted-foreground">
-                Leave blank for unlimited (PPA / sit-down guarantee).
+                Leave blank for unlimited (sit-down guarantee).
                 {values.package !== 'custom' &&
                   ` Default for ${
                     PACKAGE_OPTIONS.find((o) => o.id === values.package)
@@ -335,6 +358,27 @@ export function ClientFormDialog({
                     PACKAGE_OPTIONS.find((o) => o.id === values.package)
                       ?.defaultCap ?? 'unlimited'
                   }.`}
+              </span>
+            </Field>
+          </Row>
+          <Row>
+            <Field label="Due date">
+              <input
+                type="date"
+                value={values.dueDate}
+                onChange={(e) => set('dueDate', e.target.value)}
+                className={inputCls}
+              />
+              <span className="mt-1 text-[11px] text-muted-foreground">
+                {(() => {
+                  const days = packageDefaultDueDays(values.package)
+                  return days == null
+                    ? 'Leave blank for no automatic deadline. Set a date to give this client a custom due date.'
+                    : `Leave blank to use the ${
+                        PACKAGE_OPTIONS.find((o) => o.id === values.package)
+                          ?.label
+                      } default (within ${days} days of contract start). Set a date to override.`
+                })()}
               </span>
             </Field>
           </Row>
@@ -591,6 +635,10 @@ function toApiPayload(v: ClientFormValues) {
     lifecycle: v.lifecycle,
     package: v.package,
     apptCap,
+    // Empty = clear the override (server falls back to the per-package
+    // default). Non-empty = explicit override; lib/clients.ts parses
+    // YYYY-MM-DD into a UTC-midnight timestamp.
+    dueDate: blank(v.dueDate),
     contactName: blank(v.contactName),
     contactRole: blank(v.contactRole),
     contactEmail: blank(v.contactEmail),

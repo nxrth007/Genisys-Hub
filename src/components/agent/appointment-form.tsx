@@ -23,6 +23,15 @@ type Conflict = {
   agent: { id: string; name: string | null; email: string }
 }
 
+/** Strip everything but digits and take the last 10 — gives us a
+ *  stable comparison key that doesn't care about formatting
+ *  ("(603) 555-1234" vs "+16035551234" vs "603.555.1234" all match). */
+function phoneDigits(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const digits = String(raw).replace(/\D/g, '')
+  return digits.length >= 10 ? digits.slice(-10) : digits
+}
+
 type Client = {
   id: string
   name: string
@@ -336,7 +345,7 @@ export function AppointmentForm({
         setOverrideConflict(false)
         setAcknowledgedIds([])
         setError(
-          'Someone booked in this time slot while you were filling out the form. Review the updated conflicts above and tick "Book anyway" again if you still want to proceed.'
+          'There\'s a conflict at this time slot that needs your attention. Scroll up, review the warning, and either click "Edit this one" if it\'s the same customer — or re-tick "Book anyway" if you still want to create a separate record.'
         )
         return
       }
@@ -484,27 +493,84 @@ export function AppointmentForm({
               </p>
             )
           })()}
-          {isoCandidate && hasConflicts && (
-            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950">
-              <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+          {isoCandidate && hasConflicts && (() => {
+            // Compare each conflict's customerPhone against what the
+            // agent typed — if they match (last 10 digits), this is the
+            // same customer rebooking and the right action is to edit
+            // the existing appointment, not create a duplicate.
+            const typedDigits = phoneDigits(values.customerPhone)
+            const isSameCustomer = (c: Conflict) =>
+              typedDigits.length === 10 &&
+              phoneDigits(c.customerPhone) === typedDigits
+            const sameCustomerConflicts = conflicts.filter(isSameCustomer)
+            const otherConflicts = conflicts.filter((c) => !isSameCustomer(c))
+            const hasSameCustomer = sameCustomerConflicts.length > 0
+            // Sort so same-customer rows render at the top (most
+            // actionable), then everything else.
+            const orderedConflicts = [
+              ...sameCustomerConflicts,
+              ...otherConflicts,
+            ]
+            return (
+            <div
+              className={cn(
+                'mt-2 rounded-md border p-3 text-xs',
+                hasSameCustomer
+                  ? 'border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950'
+                  : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950',
+              )}
+            >
+              <div
+                className={cn(
+                  'flex items-start gap-2',
+                  hasSameCustomer
+                    ? 'text-rose-900 dark:text-rose-200'
+                    : 'text-amber-900 dark:text-amber-200',
+                )}
+              >
                 <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold">
-                    Time conflicts with {conflicts.length} existing booking
-                    {conflicts.length === 1 ? '' : 's'}
-                  </p>
-                  <p className="mt-0.5 text-amber-800 dark:text-amber-300">
-                    Another agent (or you) already has something booked within
-                    an hour of this slot. Shared calendar — the closer can&apos;t
-                    take two at once.
-                  </p>
+                  {hasSameCustomer ? (
+                    <>
+                      <p className="font-semibold">
+                        This customer already has an appointment.
+                      </p>
+                      <p className="mt-0.5 text-rose-800 dark:text-rose-300">
+                        Don&apos;t create a duplicate — open the existing
+                        appointment and update its date/time + notes
+                        instead. Use the &quot;Edit this one&quot; button
+                        below.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-semibold">
+                        Time conflicts with {conflicts.length} existing
+                        booking{conflicts.length === 1 ? '' : 's'}
+                      </p>
+                      <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+                        Another agent (or you) already has something booked
+                        within an hour of this slot. Shared calendar — the
+                        closer can&apos;t take two at once.
+                      </p>
+                    </>
+                  )}
                   <ul className="mt-2 space-y-1.5">
-                    {conflicts.map((c) => {
+                    {orderedConflicts.map((c) => {
                       const when = new Date(c.apptDateTime)
+                      const same = isSameCustomer(c)
                       return (
-                        <li key={c.id} className="flex items-start gap-2">
-                          <span className="mt-0.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
-                          <span>
+                        <li
+                          key={c.id}
+                          className="flex flex-wrap items-start gap-x-2 gap-y-1"
+                        >
+                          <span
+                            className={cn(
+                              'mt-0.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full',
+                              same ? 'bg-rose-500' : 'bg-amber-500',
+                            )}
+                          />
+                          <span className="flex-1 min-w-0">
                             <span className="font-medium">
                               {when.toLocaleString('en-US', {
                                 month: 'short',
@@ -516,8 +582,20 @@ export function AppointmentForm({
                             </span>
                             {' — '}
                             {c.customerName} ({c.customerPhone})
+                            {same && (
+                              <span className="ml-1.5 rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                                Same customer
+                              </span>
+                            )}
                             {c.agent.name && (
-                              <span className="ml-1 text-amber-700 dark:text-amber-400">
+                              <span
+                                className={cn(
+                                  'ml-1',
+                                  same
+                                    ? 'text-rose-700 dark:text-rose-400'
+                                    : 'text-amber-700 dark:text-amber-400',
+                                )}
+                              >
                                 · booked by {c.agent.name}
                               </span>
                             )}
@@ -528,17 +606,41 @@ export function AppointmentForm({
                                   ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                                   : c.status === 'showed'
                                     ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
                               )}
                             >
                               {c.status}
                             </span>
                           </span>
+                          {/* Edit-this-one shortcut: takes the agent
+                              straight to the existing appointment's
+                              edit page so they can update date/time
+                              + notes instead of creating a duplicate.
+                              Mary's main blocker per Ethan, 2026-05-08. */}
+                          <Link
+                            href={`/agent/appointments/${c.id}`}
+                            className={cn(
+                              'inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold transition',
+                              same
+                                ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                : 'border border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900',
+                            )}
+                            title="Open this appointment to edit its date/time and notes instead of creating a duplicate."
+                          >
+                            {same ? 'Edit this one →' : 'Edit →'}
+                          </Link>
                         </li>
                       )
                     })}
                   </ul>
-                  <label className="mt-3 flex items-center gap-2 text-amber-900 dark:text-amber-200">
+                  <label
+                    className={cn(
+                      'mt-3 flex items-center gap-2',
+                      hasSameCustomer
+                        ? 'text-rose-900 dark:text-rose-200'
+                        : 'text-amber-900 dark:text-amber-200',
+                    )}
+                  >
                     <input
                       type="checkbox"
                       checked={overrideConflict}
@@ -554,17 +656,22 @@ export function AppointmentForm({
                         // the form drops back to the background query's data.
                         if (e.target.checked) setRaceConflicts(null)
                       }}
-                      className="h-3.5 w-3.5 rounded border-amber-400 text-blue-600 focus:ring-blue-500"
+                      className={cn(
+                        'h-3.5 w-3.5 rounded text-blue-600 focus:ring-blue-500',
+                        hasSameCustomer ? 'border-rose-400' : 'border-amber-400',
+                      )}
                     />
                     <span className="text-xs font-medium">
-                      Book anyway — there&apos;s a reason to double-book this
-                      slot
+                      {hasSameCustomer
+                        ? 'Book anyway — I know this is the same customer and I want a second record'
+                        : "Book anyway — there's a reason to double-book this slot"}
                     </span>
                   </label>
                 </div>
               </div>
             </div>
-          )}
+            )
+          })()}
           {conflictsQuery.isFetching && !hasConflicts && isoCandidate && (
             <p className="mt-1 text-[10px] text-zinc-400">Checking for conflicts…</p>
           )}

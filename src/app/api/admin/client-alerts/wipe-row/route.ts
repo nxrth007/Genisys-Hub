@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { requireStaff } from '@/lib/auth-helpers'
+import { requireAdmin } from '@/lib/auth-helpers'
 import { readMasterTableRows } from '@/lib/drive'
 
 /**
@@ -29,7 +29,7 @@ function normalizePhoneForKey(raw: string | null | undefined): string | null {
 }
 
 export async function POST(req: Request) {
-  const denial = await requireStaff()
+  const denial = await requireAdmin()
   if (denial) return denial
 
   let body: { rowNumber?: unknown }

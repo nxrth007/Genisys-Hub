@@ -400,18 +400,34 @@ export async function deliverAppointmentAsSms(
     return { status: 'skipped', reason: `existing status=${existing.status}` }
   }
 
-  // No prior row — queue a fresh pending alert.
-  await prisma.clientAlertDelivery.create({
-    data: {
-      sourceKey,
-      clientId: candidate.id,
-      recipientPhone,
-      status: 'pending',
-      scheduledFor: newScheduledFor,
-      customerPhone: customerPhoneKey,
-      apptDateTime: appt.apptDateTime,
-    },
-  })
+  // No prior row — queue a fresh pending alert. Wrap in try/catch
+  // for P2002: a near-simultaneous POST + PATCH can both pass the
+  // findFirst above and race into create. The unique index on
+  // (sourceKey, recipientPhone) guarantees only one row lands; we
+  // treat the loser of the race as "already queued" so the caller
+  // never sees an unhandled rejection.
+  try {
+    await prisma.clientAlertDelivery.create({
+      data: {
+        sourceKey,
+        clientId: candidate.id,
+        recipientPhone,
+        status: 'pending',
+        scheduledFor: newScheduledFor,
+        customerPhone: customerPhoneKey,
+        apptDateTime: appt.apptDateTime,
+      },
+    })
+  } catch (err) {
+    const code =
+      err instanceof Error && 'code' in err
+        ? (err as { code?: string }).code
+        : undefined
+    if (code === 'P2002') {
+      return { status: 'skipped', reason: 'duplicate (race)' }
+    }
+    throw err
+  }
   return { status: 'queued', scheduledFor: newScheduledFor }
 }
 
@@ -419,11 +435,21 @@ export async function deliverAppointmentAsSms(
 /*  Pending dispatch — fires queued alerts whose buffer expired                */
 /* -------------------------------------------------------------------------- */
 
+/** How long a row can stay in `sending` before we assume the worker
+ *  crashed mid-send and reset it back to `pending`. */
+const STUCK_SENDING_MS = 10 * 60 * 1000
+
 /** Picked up by the every-minute scheduler tick. Finds any pending
  *  ClientAlertDelivery rows whose scheduledFor has passed, re-fetches
  *  the underlying Appointment (so any edits during the buffer window
  *  are reflected in the SMS body), and sends via GHL. Updates status
- *  to 'delivered' on success or 'failed' on error. */
+ *  to 'delivered' on success or 'failed' on error.
+ *
+ *  Concurrency: each row is claimed via an atomic `pending → sending`
+ *  updateMany before the SMS fires, so an overlapping tick (or a
+ *  rolling-deploy overlap) can't double-send. Stuck `sending` rows
+ *  older than STUCK_SENDING_MS are reset to `pending` at the top of
+ *  each tick so a crashed worker self-heals on the next run. */
 export async function dispatchPendingClientAlerts(): Promise<{
   attempted: number
   delivered: number
@@ -436,6 +462,17 @@ export async function dispatchPendingClientAlerts(): Promise<{
     where: { id: 'singleton' },
   })
   if (!config?.enabled) return result
+
+  // Stuck-state recovery: any row left in `sending` past the cutoff
+  // belongs to a previous tick that crashed (or a deploy that killed
+  // the worker mid-send). Reset to `pending` so this tick picks it up.
+  await prisma.clientAlertDelivery.updateMany({
+    where: {
+      status: 'sending',
+      updatedAt: { lt: new Date(Date.now() - STUCK_SENDING_MS) },
+    },
+    data: { status: 'pending' },
+  })
 
   const due = await prisma.clientAlertDelivery.findMany({
     where: {
@@ -466,6 +503,18 @@ export async function dispatchPendingClientAlerts(): Promise<{
     }
     const appointmentId = dbMatch[1]
 
+    // Atomic claim — flip pending → sending only if the row is still
+    // pending. If count is 0, another tick (or a manual retry) won
+    // the race, so this loop iteration is a no-op.
+    const claim = await prisma.clientAlertDelivery.updateMany({
+      where: { id: row.id, status: 'pending' },
+      data: { status: 'sending' },
+    })
+    if (claim.count === 0) {
+      result.skipped++
+      continue
+    }
+
     const appt = await prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
@@ -474,22 +523,22 @@ export async function dispatchPendingClientAlerts(): Promise<{
     })
     if (!appt) {
       // Appointment got deleted during the buffer window. Mark as
-      // skipped and move on so the row stops appearing in the
-      // dispatcher's queue.
+      // skipped (not failed — this isn't an SMS error, it's an
+      // intentional non-send) and move on.
       await prisma.clientAlertDelivery.update({
         where: { id: row.id },
-        data: { status: 'failed', errorMessage: 'appointment deleted' },
+        data: { status: 'skipped', errorMessage: 'appointment deleted' },
       })
-      result.failed++
+      result.skipped++
       continue
     }
     if ((appt.status ?? '').toLowerCase().includes('cancel')) {
       // Booking was cancelled inside the window — flip the row to
-      // 'failed' with a clear reason so it's not re-dispatched.
+      // 'skipped' with a clear reason so it's not re-dispatched.
       await prisma.clientAlertDelivery.update({
         where: { id: row.id },
         data: {
-          status: 'failed',
+          status: 'skipped',
           errorMessage: 'appointment cancelled before buffer expired',
         },
       })
@@ -569,6 +618,166 @@ export async function dispatchPendingClientAlerts(): Promise<{
   }
 
   return result
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Manual retry                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Retry a failed Client Alert SMS. Called from the Settings UI's
+ * Recent activity panel. Re-fetches fresh data (latest appointment
+ * state for db:* rows, latest sheet row for sheet:* rows), rebuilds
+ * the SMS body, and fires inline through GHL. Updates the existing
+ * ledger row in place — `delivered` on success, or `failed` with a
+ * new errorMessage on another error.
+ *
+ * Only rows with status='failed' are retryable. Anything else is
+ * a no-op (returns ok=false with current status).
+ */
+export async function retryFailedClientAlert(
+  deliveryId: string,
+): Promise<
+  | { ok: true; messageId: string | null }
+  | { ok: false; error: string; status?: string }
+> {
+  const row = await prisma.clientAlertDelivery.findUnique({
+    where: { id: deliveryId },
+  })
+  if (!row) return { ok: false, error: 'delivery not found' }
+  if (row.status !== 'failed') {
+    return {
+      ok: false,
+      error: `only failed rows can be retried (current status: ${row.status})`,
+      status: row.status,
+    }
+  }
+
+  const config = await prisma.clientAlertsConfig.findUnique({
+    where: { id: 'singleton' },
+  })
+  if (!config?.enabled) {
+    return { ok: false, error: 'Client Alerts is currently disabled' }
+  }
+
+  // Resolve client name for the GHL contact upsert. clientId is
+  // nullable (SetNull on client delete), so fall back gracefully.
+  const client = row.clientId
+    ? await prisma.client.findUnique({
+        where: { id: row.clientId },
+        select: { id: true, name: true, state: true },
+      })
+    : null
+
+  // Build the SMS body from fresh source data so the retry reflects
+  // the latest state — same principle as the dispatcher's "synthRow"
+  // trick.
+  let body: string
+  const dbMatch = row.sourceKey.match(/^db:appointment:(.+)$/)
+  const sheetMatch = row.sourceKey.match(/^sheet:Master Table:(\d+)$/)
+
+  if (dbMatch) {
+    const appointmentId = dbMatch[1]
+    const appt = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { client: { select: { id: true, name: true, state: true } } },
+    })
+    if (!appt) {
+      return { ok: false, error: 'underlying appointment was deleted' }
+    }
+    if ((appt.status ?? '').toLowerCase().includes('cancel')) {
+      return { ok: false, error: 'appointment is cancelled' }
+    }
+    const customerTz = resolveCustomerTimezone({
+      address: appt.address,
+      clientState: appt.client?.state ?? null,
+    })
+    const synthRow: MasterTableRow = {
+      rowNumber: 0,
+      apptDateTime: appt.apptDateTime.toISOString(),
+      customerName: appt.customerName,
+      customerPhone: appt.customerPhone,
+      address: appt.address,
+      email: appt.email,
+      monthlyBill: appt.monthlyBill,
+      utilityProvider: appt.utilityProvider,
+      roofType: appt.roofType,
+      roofAge: appt.roofAge,
+      estimatedDealValue: appt.estimatedDealValue,
+      status: appt.status,
+      notes: appt.notes,
+      callRecordingLink: appt.callRecordingLink,
+      loggedAt: appt.createdAt.toISOString(),
+      sentToClient: null,
+      client: appt.client?.name ?? null,
+      agentName: null,
+      agentEmail: null,
+      timezone: null,
+      resolvedTimezone: customerTz,
+      apptDateRaw: null,
+      apptTimeRaw: null,
+      apptDateTimeRaw: null,
+    }
+    const solar = appt.address
+      ? await snapshotSolarFromCache(appt.address).catch(() => null)
+      : null
+    body = formatAppointmentForClientSms(synthRow, { solar })
+  } else if (sheetMatch) {
+    const sheetRowNumber = parseInt(sheetMatch[1]!, 10)
+    let rows: MasterTableRow[]
+    try {
+      rows = await readMasterTableRows()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'sheet read failed'
+      return { ok: false, error: `couldn't read master sheet: ${message}` }
+    }
+    const sheetRow = rows.find((r) => r.rowNumber === sheetRowNumber)
+    if (!sheetRow) {
+      return {
+        ok: false,
+        error: `sheet row ${sheetRowNumber} no longer exists`,
+      }
+    }
+    if ((sheetRow.status || '').toLowerCase().includes('cancel')) {
+      return { ok: false, error: 'sheet row is marked cancelled' }
+    }
+    const solar = sheetRow.address
+      ? await snapshotSolarFromCache(sheetRow.address).catch(() => null)
+      : null
+    body = formatAppointmentForClientSms(sheetRow, { solar })
+  } else {
+    return {
+      ok: false,
+      error: `unrecognized sourceKey shape: ${row.sourceKey}`,
+    }
+  }
+
+  try {
+    const send = await sendSmsToPhone(config.vaultEntryName, {
+      phone: row.recipientPhone,
+      message: body,
+      firstName: client?.name ?? 'client',
+      ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+    })
+    await prisma.clientAlertDelivery.update({
+      where: { id: row.id },
+      data: {
+        status: 'delivered',
+        messageId: send.messageId ?? null,
+        conversationId: send.conversationId ?? null,
+        deliveredAt: new Date(),
+        errorMessage: null,
+      },
+    })
+    return { ok: true, messageId: send.messageId ?? null }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'SMS send failed'
+    await prisma.clientAlertDelivery.update({
+      where: { id: row.id },
+      data: { status: 'failed', errorMessage: message },
+    })
+    return { ok: false, error: message }
+  }
 }
 
 /**

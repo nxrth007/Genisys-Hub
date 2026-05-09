@@ -62,8 +62,12 @@ type ClientWithCounts = {
   // approve / deny actions.
   lifecycle: ClientLifecycle | 'pending' | 'denied'
   package: ClientPackage
-  /** Nominal appt cap. null = unlimited (PPA / sit-down guarantee). */
+  /** Nominal appt cap. null = unlimited (sit-down guarantee). */
   apptCap: number | null
+  /** Manual override for the cap-fulfillment due date. Null falls
+   *  back to the per-package computed default (PPA 14d, Growth 21d,
+   *  Pro 28d, Custom = none). Set via the date picker in the edit form. */
+  dueDate: string | null
   contactName: string | null
   contactRole: string | null
   contactEmail: string | null
@@ -115,16 +119,16 @@ type PackageFilter = 'all' | ClientPackage
 
 /**
  * Estimated cap-fulfillment due date for a client, based on the
- * turnaround window per package:
+ * turnaround window per package (per Ethan, 2026-05-08):
  *
- *   ppa     → 14 days from createdAt (PPA = 10 appts guaranteed, 2-week target)
- *   growth  → 28 days (3-4 week turnaround, midpoint)
- *   pro     → 21 days (3-week turnaround)
+ *   ppa     → 14 days from createdAt (within 2 weeks)
+ *   growth  → 21 days (within 3 weeks)
+ *   pro     → 28 days (within 4 weeks)
  *   custom  → no due date (admin sets the timeline manually elsewhere)
  *
  * Anchored to createdAt because we don't have a contract-start
- * field yet — admin can refine the model later if they need to
- * "reset" the clock when extending a client's contract.
+ * field yet — admin can refine the model later by setting an explicit
+ * client.dueDate override via the edit form.
  *
  * Returns null when no turnaround window applies.
  */
@@ -144,9 +148,9 @@ function packageTurnaroundDays(pkg: string): number | null {
     case 'ppa':
       return 14
     case 'growth':
-      return 28
-    case 'pro':
       return 21
+    case 'pro':
+      return 28
     default:
       return null // "custom" or unknown — no automatic due date
   }
@@ -521,13 +525,14 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div>
-          <div className="grid grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-[2fr_90px_70px_90px_1.4fr_100px_100px_110px] items-center gap-3 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <span>Client</span>
             <span>Package</span>
             <span>Agents</span>
             <span>State</span>
             <span>Cap progress</span>
             <span>Last booking</span>
+            <span>Due date</span>
             <span>Status</span>
           </div>
           <ul>
@@ -620,29 +625,22 @@ function ClientRow({
   const bookedPct =
     cap && cap > 0 ? Math.round((client.total / cap) * 100) : null
   const barWidth = bookedPct ?? 0
-  const barColor =
-    bookedPct == null
-      ? 'bg-muted-foreground/30'
-      : bookedPct >= 100
-        ? 'bg-emerald-600'
-        : bookedPct >= 75
-          ? 'bg-emerald-500'
-          : bookedPct >= 40
-            ? 'bg-amber-400'
-            : bookedPct > 0
-              ? 'bg-rose-500'
-              : 'bg-muted-foreground/30'
+  // Per Ethan: a single gradient-green bar for every client
+  // regardless of progress %. The previous red/amber/emerald
+  // gradient-by-percent was visually noisy; green for everyone keeps
+  // the column scannable and reserves color for status / state chips.
+  // Empty / no-cap rows still render a neutral rail so the column
+  // doesn't go ghost.
+  const showBar = bookedPct != null && bookedPct > 0
+  const barClass = 'bg-gradient-to-r from-emerald-400 to-emerald-600'
 
-  // Due-date heuristic by package — turnaround windows Ethan
-  // outlined in the loom:
-  //   PPA      → 14 days from createdAt (10 appts, 2-week target)
-  //   Growth   → 28 days (3-4 week turnaround, midpoint)
-  //   Pro      → 21 days (3-week turnaround)
-  //   Custom   → no due date (admin sets the timeline manually)
-  // Anchored to createdAt because we don't have a contract-start
-  // field yet; admin can refine later if they need a reset button
-  // when extending a client.
-  const dueDate = computeClientDueDate(client.package, client.createdAt)
+  // Due date — manual override on the Client record wins; otherwise
+  // fall back to the package-default heuristic. Per Ethan: PPA 14d,
+  // Growth 21d, Pro 28d, Custom = none.
+  const dueDate = client.dueDate
+    ? new Date(client.dueDate)
+    : computeClientDueDate(client.package, client.createdAt)
+  const dueDateIsOverride = !!client.dueDate
 
   // Pending = self-onboarded but not yet admin-approved. Renders
   // with a dashed grey ring + a faded interior so it reads as
@@ -656,7 +654,7 @@ function ClientRow({
     <li
       onClick={() => onOpen(client)}
       className={cn(
-        'grid cursor-pointer grid-cols-[2fr_90px_70px_90px_1.4fr_110px_110px] items-center gap-3 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted',
+        'grid cursor-pointer grid-cols-[2fr_90px_70px_90px_1.4fr_100px_100px_110px] items-center gap-3 border-t border-border-soft px-2 py-4 transition hover:bg-surface-muted',
         isPending && 'opacity-80',
       )}
     >
@@ -732,15 +730,15 @@ function ClientRow({
               : '—'}
         </span>
         {/* Bar — booked appointments toward the contracted cap.
-            Per Ethan: "this bar needs to represent 20 appointments,
-            and there needs to be green going to here to showcase
-            that seven are booked." Empty grey rail when no cap is
-            set or no bookings yet. */}
+            Single gradient green for every client (Ethan, 2026-05-08);
+            muted rail when no cap or no bookings yet. */}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn('h-full rounded-full', barColor)}
-            style={{ width: `${Math.min(barWidth, 100)}%` }}
-          />
+          {showBar && (
+            <div
+              className={cn('h-full rounded-full', barClass)}
+              style={{ width: `${Math.min(barWidth, 100)}%` }}
+            />
+          )}
         </div>
         {/* Sit-downs — informational caption only, not the bar's
             denominator. "X sitdowns" instead of the previous
@@ -754,18 +752,35 @@ function ClientRow({
         </span>
       </div>
 
-      {/* Due date — computed from package turnaround window
-          anchored to createdAt. Replaces the previous "Last
-          booking" date which Ethan said was "not the metric I
-          care about" — when the contract was set vs when the
-          last appointment landed are different questions, and the
-          ops question is "are we on track for delivery." */}
+      {/* Last booking — when the most recent appointment for this
+          client landed. Anchored on Master Tracker bookings. */}
       <span
         className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        title="Most recent appointment booked for this client."
+      >
+        <CalendarIcon className="h-3 w-3" />
+        {client.lastBookingAt ? formatDate(client.lastBookingAt) : '—'}
+      </span>
+
+      {/* Due date — manual override on the Client record wins;
+          otherwise falls back to the package-default heuristic
+          (PPA 14d, Growth 21d, Pro 28d, Custom none). Italics
+          telegraph "this is the package default, not a custom
+          deadline" so admin can spot which clients have an
+          explicit override vs the inherited turnaround. */}
+      <span
+        className={cn(
+          'flex items-center gap-1.5 text-xs',
+          dueDateIsOverride
+            ? 'text-foreground'
+            : 'italic text-muted-foreground',
+        )}
         title={
           dueDate
-            ? `Estimated cap-fulfillment date based on the ${client.package.toUpperCase()} package turnaround window.`
-            : 'No turnaround window set for the custom package — set a manual deadline if needed.'
+            ? dueDateIsOverride
+              ? 'Manually set in the edit form.'
+              : `Default for ${client.package.toUpperCase()} (set a manual override in the edit form to change).`
+            : 'No turnaround window — set a manual deadline in the edit form if needed.'
         }
       >
         <CalendarIcon className="h-3 w-3" />
@@ -982,14 +997,18 @@ function ClientDetailDialog({
           <span
             className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-muted px-2.5 py-1 text-xs font-medium"
             title={
-              computeClientDueDate(client.package, client.createdAt)
-                ? `Estimated cap-fulfillment date based on the ${client.package.toUpperCase()} package turnaround.`
-                : 'No turnaround window for the custom package.'
+              client.dueDate
+                ? 'Manually set in the edit form.'
+                : computeClientDueDate(client.package, client.createdAt)
+                  ? `Default for ${client.package.toUpperCase()} (set a manual override in the edit form to change).`
+                  : 'No turnaround window for the custom package.'
             }
           >
             <Clock className="h-3 w-3 text-muted-foreground" />
             Due: {(() => {
-              const d = computeClientDueDate(client.package, client.createdAt)
+              const d = client.dueDate
+                ? new Date(client.dueDate)
+                : computeClientDueDate(client.package, client.createdAt)
               return d ? formatDate(d.toISOString()) : '—'
             })()}
           </span>
@@ -1676,6 +1695,10 @@ function toFormValues(c: ClientWithCounts): ClientFormValues {
     lifecycle,
     package: c.package,
     apptCap: c.apptCap == null ? '' : String(c.apptCap),
+    // dueDate is an ISO timestamp on the wire; the <input type="date">
+    // wants a YYYY-MM-DD string. Slice the date portion (the override
+    // is stored at UTC midnight on the server so this never shifts).
+    dueDate: c.dueDate ? c.dueDate.slice(0, 10) : '',
     contactName: c.contactName ?? '',
     contactRole: c.contactRole ?? '',
     contactEmail: c.contactEmail ?? '',

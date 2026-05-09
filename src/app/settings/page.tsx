@@ -1523,6 +1523,28 @@ function ClientAlertsRecentActivity() {
     },
   })
 
+  // Retry mutation — re-fires a failed alert. Same endpoint as cancel
+  // but with action='retry'. Server is admin-gated; the UI also gates
+  // by status='failed' so the button only appears on rows where it
+  // makes sense.
+  const retryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/admin/client-alerts/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'retry' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to retry')
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client-alerts-recent'] })
+    },
+    onError: (err) => {
+      window.alert(`Couldn't retry: ${(err as Error).message}`)
+    },
+  })
+
   return (
     <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center justify-between gap-2">
@@ -1628,6 +1650,32 @@ function ClientAlertsRecentActivity() {
                     Cancel
                   </button>
                 )}
+                {r.status === 'failed' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Retry sending this SMS to ${r.clientName ?? 'the client'} at ${r.recipientPhone}? Re-fetches the latest appointment data and re-sends through GHL.`,
+                        )
+                      ) {
+                        retryMutation.mutate(r.id)
+                      }
+                    }}
+                    disabled={
+                      retryMutation.isPending && retryMutation.variables === r.id
+                    }
+                    className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+                    title="Re-fire this alert. Re-fetches appointment data first so the SMS reflects the latest state."
+                  >
+                    {retryMutation.isPending && retryMutation.variables === r.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    Retry
+                  </button>
+                )}
                 <div className="text-[10px] text-zinc-400">
                   logged {formatShortDateTime(r.createdAt)}
                 </div>
@@ -1712,6 +1760,11 @@ function DirectTestSendRow() {
         body: JSON.stringify({
           recipientPhone: vars.recipientPhone,
           label: 'Test recipient',
+          // Server requires explicit confirm for direct-recipient
+          // mode so a stale-cookie replay can't fire SMS to attacker-
+          // chosen numbers. The window.confirm() in the UI is the
+          // human gate; this is the unspoofable server-side counterpart.
+          confirm: true,
         }),
       })
       const data = await res.json()
