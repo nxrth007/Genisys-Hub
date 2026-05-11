@@ -12,7 +12,6 @@ import {
   Phone,
   Building2,
   LayoutGrid,
-  LayoutDashboard,
   Inbox,
   Send,
   MessageSquare,
@@ -94,12 +93,15 @@ const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/documents', label: 'Documents', icon: FolderOpen },
 ]
 
-// Full nav Alex sees. Same module list as before, plus the new
-// Clients page. /today is the canonical "Tasks" view (where the
-// embedded TaskBoard + meetings live); /notion stays separate as the
-// broader Notion DB browser for power users.
+// Full nav Alex sees. /today is the canonical landing page (the
+// root `/` redirects there); /notion stays separate as the broader
+// Notion DB browser for power users.
+//
+// The Dashboard entry was removed 2026-05-11 (Alex + Ethan): the
+// old welcome / module-grid page was redundant with this sidebar,
+// so /app/page.tsx is now a redirect to /today and the nav entry
+// pointed at the same place. Removing it deduplicates the nav.
 const FULL_NAV: NavItem[] = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/today', label: 'Today', icon: CheckCircle2 },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/outbox', label: 'Outbox', icon: Send },
