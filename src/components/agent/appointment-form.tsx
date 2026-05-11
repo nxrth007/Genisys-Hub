@@ -83,6 +83,8 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'booked', label: 'Booked' },
   { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'showed', label: 'Showed' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
   { value: 'no_show', label: 'No-show' },
   { value: 'cancelled', label: 'Cancelled' },
 ]

@@ -101,6 +101,20 @@ function getStatusStyle(status: string | undefined) {
         bg: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800',
         label: 'Showed',
       }
+    case 'won':
+      return {
+        icon: CheckCircle2,
+        color: 'text-green-700',
+        bg: 'bg-green-100 border-green-300 dark:bg-green-900 dark:border-green-700',
+        label: 'Won',
+      }
+    case 'lost':
+      return {
+        icon: XCircle,
+        color: 'text-stone-700',
+        bg: 'bg-stone-100 border-stone-300 dark:bg-stone-800 dark:border-stone-600',
+        label: 'Lost',
+      }
     case 'noshow':
     case 'no_show':
       return {
@@ -247,7 +261,10 @@ export default function CalendarPage() {
     return {
       total: allEvents.length,
       confirmed: statusCount('confirmed'),
-      showed: statusCount('showed'),
+      // Won/lost are outcomes of an appointment the customer attended,
+      // so they count toward "showed" for the calendar stat.
+      showed:
+        statusCount('showed') + statusCount('won') + statusCount('lost'),
       cancelled: statusCount('cancelled') + statusCount('noshow') + statusCount('no_show'),
     }
   }, [allEvents])

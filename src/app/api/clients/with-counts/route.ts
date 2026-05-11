@@ -203,7 +203,12 @@ export async function GET() {
     const b = byClient.get(a.clientId) ?? empty()
     b.total++
     if (a.apptDateTime > now && a.status === 'booked') b.upcoming++
-    if (a.status === 'showed') b.showed++
+    // showed counts every "sat down" case: showed, won, lost. Won/lost
+    // are deal outcomes on top of showing up; including them keeps
+    // the show-rate metric honest (closing a deal shouldn't lower it).
+    if (a.status === 'showed' || a.status === 'won' || a.status === 'lost') {
+      b.showed++
+    }
     if (a.status === 'no_show') b.noShow++
     if (a.status === 'cancelled') b.cancelled++
     if (a.status === 'booked') b.booked++
@@ -270,7 +275,22 @@ export async function GET() {
     const isBookedStatus =
       !status || status === 'booked' || status === 'rescheduled'
     if (apptDate > now && isBookedStatus) b.upcoming++
-    if (status === 'showed' || status === 'show' || status === 'shown')
+    // showed counts every "sat down" case: showed, won, lost. Same
+    // semantics as the DB branch above. Sheet entries are free-text
+    // so accept obvious variants (won/closed/sold; lost/no sale).
+    if (
+      status === 'showed' ||
+      status === 'show' ||
+      status === 'shown' ||
+      status === 'won' ||
+      status === 'closed' ||
+      status === 'sold' ||
+      status === 'win' ||
+      status === 'lost' ||
+      status === 'no sale' ||
+      status === 'no-sale' ||
+      status === 'loss'
+    )
       b.showed++
     if (
       status === 'no show' ||

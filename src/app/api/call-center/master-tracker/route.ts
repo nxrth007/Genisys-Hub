@@ -176,6 +176,14 @@ export async function GET() {
     if (s === 'cancelled' || s === 'canceled' || s === 'cancel') {
       return 'cancelled'
     }
+    // Won/lost are closer outcomes captured after the appointment.
+    // Accept the obvious variants Mary or admin might type.
+    if (s === 'won' || s === 'closed' || s === 'sold' || s === 'win') {
+      return 'won'
+    }
+    if (s === 'lost' || s === 'no sale' || s === 'no-sale' || s === 'loss') {
+      return 'lost'
+    }
     return 'booked'
   }
 

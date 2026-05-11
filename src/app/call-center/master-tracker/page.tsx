@@ -145,6 +145,8 @@ const STATUSES = [
   { value: 'booked', label: 'Booked' },
   { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'showed', label: 'Showed' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
   { value: 'no_show', label: 'No-show' },
   { value: 'cancelled', label: 'Cancelled' },
 ]
@@ -153,6 +155,12 @@ const STATUS_TONE: Record<string, string> = {
   booked: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
   rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   showed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  // won/lost are outcomes ON TOP of showing up. won = bolder green
+  // than showed (signals "they sat down AND closed"); lost = warm
+  // neutral (sat down but didn't close — distinct from cancelled's
+  // zinc which means "never sat down").
+  won: 'bg-green-200 text-green-900 dark:bg-green-900 dark:text-green-200',
+  lost: 'bg-stone-200 text-stone-800 dark:bg-stone-800 dark:text-stone-300',
   no_show: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
   cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
 }
@@ -837,9 +845,29 @@ export default function MasterTrackerPage() {
     const weekStart = startOfThisWeek()
     const monthStart = startOfThisMonth()
     for (const a of filtered) {
-      if (a.status === 'showed') showed++
+      // "Sat down" = showed, won, or lost. Won/lost are deal outcomes
+      // ON TOP of the customer actually showing up to the appt, so
+      // they should count as a successful show in the show-rate stat
+      // (otherwise closing more deals would mysteriously LOWER the
+      // show rate — which is backwards).
+      if (
+        a.status === 'showed' ||
+        a.status === 'won' ||
+        a.status === 'lost'
+      ) {
+        showed++
+      }
       if (a.status === 'no_show') no_show++
-      if (a.status !== 'cancelled' && a.status !== 'no_show') {
+      // Pipeline = deals still in motion. Excludes resolved/closed
+      // states (cancelled, no_show, won, lost) because those values
+      // are already realized: won = revenue captured, lost = revenue
+      // gone. Only booked/rescheduled/showed-but-no-outcome-yet
+      // contribute to the open pipeline.
+      if (
+        a.status === 'booked' ||
+        a.status === 'rescheduled' ||
+        a.status === 'showed'
+      ) {
         pipeline += parseMoney(a.estimatedDealValue)
       }
       const ad = new Date(a.apptDateTime)

@@ -113,10 +113,25 @@ export default function AgentDetailPage({
     let booked = 0
     let pipeline = 0
     for (const a of appointments) {
-      if (a.status === 'showed') showed++
+      // Won/lost are outcomes of a "sat down" appointment — count
+      // them in showed so closing more deals doesn't lower this
+      // agent's show rate.
+      if (
+        a.status === 'showed' ||
+        a.status === 'won' ||
+        a.status === 'lost'
+      ) {
+        showed++
+      }
       if (a.status === 'no_show') noShow++
       if (a.status === 'booked') booked++
-      if (a.status !== 'cancelled' && a.status !== 'no_show') {
+      // Pipeline = open deals only. Exclude already-resolved states
+      // (cancelled, no_show, won, lost).
+      if (
+        a.status === 'booked' ||
+        a.status === 'rescheduled' ||
+        a.status === 'showed'
+      ) {
         pipeline += parseMoney(a.estimatedDealValue)
       }
     }

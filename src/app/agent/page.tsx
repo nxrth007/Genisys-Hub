@@ -155,7 +155,12 @@ export default function AgentDashboardPage() {
       const now = new Date()
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).length
-    const showed = appointments.filter((a) => a.status === 'showed').length
+    // showed counts every "sat down" outcome: showed, won, lost.
+    // Won/lost are deal results on top of showing up, so they should
+    // count toward Mary's show stat.
+    const showed = appointments.filter(
+      (a) => a.status === 'showed' || a.status === 'won' || a.status === 'lost',
+    ).length
     const noShow = appointments.filter((a) => a.status === 'no_show').length
     return { total, thisMonth, showed, noShow }
   }, [appointments])
