@@ -92,14 +92,51 @@ export type StructuredCard = {
   }
 }
 
+/** Auto-discovers cards by scanning a row of titles. Use this instead
+ *  of declaring N explicit `cards` entries when a workbook lays out a
+ *  variable number of cards in a regular column pattern (e.g. Mary's
+ *  sheet has 5 client cards in alternating columns B/D/F/H/J).
+ *
+ *  The analyzer walks `titleRow` from `startCol` stepping by `colStep`,
+ *  emitting one card per non-empty title cell. Stops at the first
+ *  empty title (after seeing at least one) or at `maxCards` (safety cap),
+ *  so adding a 6th client to the sheet means the card appears without
+ *  any config change. */
+export type StructuredCardTemplate = {
+  /** 1-indexed sheet row containing the per-card titles. */
+  titleRow: number
+  /** 1-indexed starting column (A=1, B=2, …). */
+  startCol: number
+  /** Step between adjacent cards. 2 = alternating columns (because
+   *  Mary's sheet uses narrow spacer columns A/C/E/…). */
+  colStep: number
+  /** Stop discovering after this many cards. Default 50. */
+  maxCards?: number
+  /** Optional headline metric — read from the same column as the
+   *  title, at the named row. */
+  headline?: { label: string; row: number; format: CellFormat }
+  /** Optional bullets — read from the same column as the title,
+   *  starting at `rowStart` through `rowEnd` inclusive. Empty cells
+   *  in the range are dropped so cards size to their content. */
+  bullets?: { sectionLabel: string; rowStart: number; rowEnd: number }
+}
+
 /** Description of an inline grid (e.g. the Monthly P&L block). */
 export type StructuredGrid = {
   title: string
   /** 1-indexed sheet row containing column headers. */
   headerRow: number
-  /** Inclusive 1-indexed row range containing data rows. */
+  /** 1-indexed starting row for data. */
   dataRowsStart: number
-  dataRowsEnd: number
+  /** Optional explicit end row. When omitted, the analyzer auto-
+   *  expands from `dataRowsStart` until it hits a terminator row:
+   *  either a fully-empty row (within the column range) or a row with
+   *  only the leftmost column populated (footer / merged-cell row
+   *  pattern). This makes grids fluid — admin can add more rows
+   *  without updating the layout config. Capped at `maxDataRows`. */
+  dataRowsEnd?: number
+  /** Safety cap on auto-expansion. Default 200. */
+  maxDataRows?: number
   /** 1-indexed sheet row containing the totals/sum row. Optional. */
   totalsRow?: number
   /** Inclusive 1-indexed column range (A=1, B=2, …) to show. */
@@ -129,8 +166,16 @@ export type StructuredLayout = {
   grids?: StructuredGrid[]
   /** Optional cards — for sheets that lay out content horizontally,
    *  one card per column block (e.g. Mary's Client Sheet has 5
-   *  per-client cards in alternating columns B/D/F/H/J). */
+   *  per-client cards in alternating columns B/D/F/H/J). Use this
+   *  for one-off card declarations with unique cell positions. */
   cards?: StructuredCard[]
+  /** Optional card template — auto-discovers cards by scanning a row
+   *  of titles in a regular column pattern. Use this when the workbook
+   *  has a variable number of cards that all share the same vertical
+   *  shape (Mary's sheet). Adding/removing cards in the sheet doesn't
+   *  require config changes. Generated cards are concatenated with
+   *  the explicit `cards` array (if both are present). */
+  cardTemplate?: StructuredCardTemplate
 }
 
 export type PinnedSheet = {
@@ -288,62 +333,33 @@ export const PINNED_SHEETS: PinnedSheet[] = [
     // Verified against the actual workbook on 2026-05-11.
     layout: {
       tab: 'Marys Clients',
-      cards: [
-        {
-          nameCell: 'B5',
-          headline: { label: 'Leads needed', cell: 'B7', format: 'integer' },
-          bullets: {
-            sectionLabel: 'Qualification criteria',
-            startCell: 'B10',
-            endRow: 17,
-          },
+      // Card template: titles in row 5, alternating columns starting
+      // at B (col 2), step 2. The analyzer walks the title row and
+      // emits one card per non-empty title cell — so adding a 6th
+      // client to column L (or 7th to column N, etc.) shows up in
+      // the Hub immediately without any config edit.
+      cardTemplate: {
+        titleRow: 5,
+        startCol: 2, // B
+        colStep: 2,
+        headline: { label: 'Leads needed', row: 7, format: 'integer' },
+        bullets: {
+          sectionLabel: 'Qualification criteria',
+          rowStart: 10,
+          rowEnd: 17,
         },
-        {
-          nameCell: 'D5',
-          headline: { label: 'Leads needed', cell: 'D7', format: 'integer' },
-          bullets: {
-            sectionLabel: 'Qualification criteria',
-            startCell: 'D10',
-            endRow: 17,
-          },
-        },
-        {
-          nameCell: 'F5',
-          headline: { label: 'Leads needed', cell: 'F7', format: 'integer' },
-          bullets: {
-            sectionLabel: 'Qualification criteria',
-            startCell: 'F10',
-            endRow: 17,
-          },
-        },
-        {
-          nameCell: 'H5',
-          headline: { label: 'Leads needed', cell: 'H7', format: 'integer' },
-          bullets: {
-            sectionLabel: 'Qualification criteria',
-            startCell: 'H10',
-            endRow: 17,
-          },
-        },
-        {
-          nameCell: 'J5',
-          headline: { label: 'Leads needed', cell: 'J7', format: 'integer' },
-          bullets: {
-            sectionLabel: 'Qualification criteria',
-            startCell: 'J10',
-            endRow: 17,
-          },
-        },
-      ],
+      },
       grids: [
         {
-          // Target Areas table sits below the cards. Headers in row
-          // 22 (CLIENT | TARGET AREA | APPOINTMENT FORMAT), data
-          // rows 23-27 (one per client). No totals row.
+          // Target Areas table sits below the cards. Header in row 22
+          // (CLIENT | TARGET AREA | APPOINTMENT FORMAT), data rows
+          // starting at 23. No dataRowsEnd specified — the analyzer
+          // auto-expands until it hits a terminator (empty row or
+          // footer-shaped row with only the first column populated),
+          // so adding a 6th client row also Just Works.
           title: 'Target areas',
           headerRow: 22,
           dataRowsStart: 23,
-          dataRowsEnd: 27,
           columnsStart: 2, // B
           columnsEnd: 6,   // F
           columnFormats: [

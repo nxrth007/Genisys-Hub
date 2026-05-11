@@ -290,6 +290,7 @@ import type {
   StructuredMetricSection,
   StructuredGrid,
   StructuredCard,
+  StructuredCardTemplate,
 } from './pinned-sheets'
 
 /** Parse "B6" / "AA12" into 0-indexed { row, col }. Returns null on
@@ -459,19 +460,45 @@ function resolveGrid(values: string[][], grid: StructuredGrid): ResolvedGrid {
     headers.push(readCellValue(values, ref).trim() || '')
   }
 
+  // When dataRowsEnd is omitted, auto-expand from dataRowsStart and
+  // stop on the first terminator row. This makes the grid fluid —
+  // admin can add rows to the sheet without updating the layout.
+  // Terminators: (a) every column in range is empty, or (b) only the
+  // leftmost column has content (typical for footer/merged-cell rows
+  // like Mary's "If a homeowner doesn't meet criteria..." note).
+  const explicitEnd = grid.dataRowsEnd
+  const maxRows = grid.maxDataRows ?? 200
+  const scanEnd =
+    explicitEnd != null
+      ? explicitEnd
+      : grid.dataRowsStart + maxRows - 1
+
   const rows: string[][] = []
-  for (let r = grid.dataRowsStart; r <= grid.dataRowsEnd; r++) {
+  for (let r = grid.dataRowsStart; r <= scanEnd; r++) {
     const row: string[] = []
-    let hasAnyValue = false
+    let nonEmptyCount = 0
     for (let c = grid.columnsStart; c <= grid.columnsEnd; c++) {
       const ref = colNumberToLetter(c) + r
       const raw = readCellValue(values, ref)
-      if (raw.trim()) hasAnyValue = true
+      if (raw.trim()) nonEmptyCount++
       const fmtIdx = c - grid.columnsStart
       const fmt = grid.columnFormats[fmtIdx] ?? 'string'
       row.push(formatCellValue(raw, fmt))
     }
-    if (hasAnyValue) rows.push(row)
+
+    if (explicitEnd != null) {
+      // Explicit end: just drop empty rows, keep walking.
+      if (nonEmptyCount > 0) rows.push(row)
+    } else {
+      // Auto-expand: terminate on empty / footer-shaped rows once
+      // we've collected at least one data row.
+      if (nonEmptyCount === 0) {
+        if (rows.length > 0) break
+        continue // tolerate leading blank rows
+      }
+      if (nonEmptyCount === 1 && rows.length > 0) break
+      rows.push(row)
+    }
   }
 
   let totals: string[] | null = null
@@ -534,6 +561,66 @@ function resolveCard(values: string[][], card: StructuredCard): ResolvedCard {
   return { title, headline, bullets }
 }
 
+/** Expand a card template into ResolvedCards by scanning the title row.
+ *  Walks `template.titleRow` starting at `template.startCol`, stepping
+ *  by `template.colStep`. Emits one card per non-empty title cell;
+ *  stops at the first empty title once at least one card has been
+ *  found, or at `maxCards` (safety cap, default 50).
+ *
+ *  This is what makes Mary's Client Sheet fluid — adding a 6th client
+ *  in column L shows up automatically without any layout config edit. */
+function expandCardTemplate(
+  values: string[][],
+  template: StructuredCardTemplate,
+): ResolvedCard[] {
+  const maxCards = template.maxCards ?? 50
+  const cards: ResolvedCard[] = []
+
+  for (let i = 0; i < maxCards; i++) {
+    const col = template.startCol + i * template.colStep
+    const titleRef = colNumberToLetter(col) + template.titleRow
+    const title = readCellValue(values, titleRef).trim()
+
+    if (!title) {
+      // Stop at first empty title once we've collected at least one
+      // card. Tolerate leading empty columns just in case.
+      if (cards.length > 0) break
+      continue
+    }
+
+    let headline: ResolvedCard['headline'] = null
+    if (template.headline) {
+      const ref = colNumberToLetter(col) + template.headline.row
+      headline = {
+        label: template.headline.label,
+        value: formatCellValue(
+          readCellValue(values, ref),
+          template.headline.format,
+        ),
+      }
+    }
+
+    let bullets: ResolvedCard['bullets'] = null
+    if (template.bullets) {
+      const items: string[] = []
+      for (let r = template.bullets.rowStart; r <= template.bullets.rowEnd; r++) {
+        const ref = colNumberToLetter(col) + r
+        const raw = readCellValue(values, ref).trim()
+        if (!raw) continue
+        const cleaned = raw.replace(/^[•▪▫■◦●·*\-–—]\s*/, '').trim()
+        if (cleaned) items.push(cleaned)
+      }
+      if (items.length > 0) {
+        bullets = { sectionLabel: template.bullets.sectionLabel, items }
+      }
+    }
+
+    cards.push({ title, headline, bullets })
+  }
+
+  return cards
+}
+
 /** Convert 1-indexed column number (A=1, B=2, ..., Z=26, AA=27, ...) to letters. */
 export function colNumberToLetter(n: number): string {
   let s = ''
@@ -560,6 +647,15 @@ export function summarizeStructured(
 ): StructuredSummary | null {
   if (!values || values.length === 0) return null
 
+  // Cards: explicit declarations + auto-discovered from template.
+  // Concatenated so a workbook can use both (e.g. one bespoke card
+  // plus a template-discovered list) — though typical configs use
+  // only one or the other.
+  const explicitCards = (layout.cards ?? []).map((c) => resolveCard(values, c))
+  const templatedCards = layout.cardTemplate
+    ? expandCardTemplate(values, layout.cardTemplate)
+    : []
+
   return {
     tab: layout.tab,
     headlineKpis: (layout.headlineKpis ?? []).map((k) => resolveKpi(values, k)),
@@ -567,6 +663,6 @@ export function summarizeStructured(
       resolveSection(values, s),
     ),
     grids: (layout.grids ?? []).map((g) => resolveGrid(values, g)),
-    cards: (layout.cards ?? []).map((c) => resolveCard(values, c)),
+    cards: [...explicitCards, ...templatedCards],
   }
 }
