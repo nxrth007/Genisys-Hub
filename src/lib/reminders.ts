@@ -545,27 +545,106 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
         ),
       })
 
-      const result = await sendSmsToPhone(config.vaultEntryName, {
-        phone: primaryPhoneFor(reminder.customerPhone),
-        message: body,
-        firstName: firstNameOf(reminder.customerName),
-        lastName: lastNameOf(reminder.customerName),
-        fromNumber: config.senderPhone || undefined,
-      })
+      // Send the reminder to EVERY phone on the customer record
+      // (deduplicated). Most common case is a husband-wife household
+      // where Mary listed both lines in the same field — both spouses
+      // should know the appointment is on. Rolls up to "sent" if at
+      // least one phone succeeded, "failed" only when every send
+      // failed. Per-phone outcomes are captured in errorMessage when
+      // the rollup is partial so admin can spot a bad number even
+      // when the overall reminder shows as delivered.
+      const phones = extractedPhonesFor(reminder.customerPhone)
+      if (phones.length === 0) {
+        // Validator should have caught this upstream, but defend
+        // against any drift between validator + dispatcher.
+        throw new Error(
+          `No deliverable phone number in "${reminder.customerPhone}"`,
+        )
+      }
 
-      await prisma.appointmentReminder.update({
-        where: { id: reminder.id },
-        data: {
-          status: 'sent',
-          sentAt: new Date(),
-          messageBody: body,
-          ghlContactId: result.contactId,
-          ghlMessageId: result.messageId ?? null,
-          ghlConversationId: result.conversationId ?? null,
-          errorMessage: null,
-        },
-      })
-      sent++
+      type PerPhone =
+        | {
+            phone: string
+            ok: true
+            contactId: string | null
+            messageId: string | null
+            conversationId: string | null
+          }
+        | { phone: string; ok: false; error: string }
+
+      const sendResults: PerPhone[] = []
+      for (const phone of phones) {
+        try {
+          const r = await sendSmsToPhone(config.vaultEntryName, {
+            phone,
+            message: body,
+            firstName: firstNameOf(reminder.customerName),
+            lastName: lastNameOf(reminder.customerName),
+            fromNumber: config.senderPhone || undefined,
+          })
+          sendResults.push({
+            phone,
+            ok: true,
+            contactId: r.contactId,
+            messageId: r.messageId ?? null,
+            conversationId: r.conversationId ?? null,
+          })
+        } catch (err) {
+          sendResults.push({
+            phone,
+            ok: false,
+            error: err instanceof Error ? err.message : 'Send failed',
+          })
+        }
+      }
+
+      const successes = sendResults.filter(
+        (r): r is Extract<PerPhone, { ok: true }> => r.ok,
+      )
+      const failures = sendResults.filter(
+        (r): r is Extract<PerPhone, { ok: false }> => !r.ok,
+      )
+
+      if (successes.length === 0) {
+        // Every send failed — mark the row failed with combined
+        // error detail so admin can see which numbers errored and
+        // why (typo? GHL outage? carrier rejection?).
+        const detail = failures
+          .map((f) => `${f.phone} — ${f.error}`)
+          .join('; ')
+        await prisma.appointmentReminder.update({
+          where: { id: reminder.id },
+          data: {
+            status: 'failed',
+            errorMessage: `All ${phones.length} phone${phones.length === 1 ? '' : 's'} failed: ${detail}`,
+          },
+        })
+        failed++
+      } else {
+        // At least one phone got the text. Store the IDs from the
+        // first success as the canonical GHL trail (the Recent
+        // Activity panel only displays one anyway). Surface partial
+        // failures in errorMessage so admin notices a bad number
+        // without changing the overall rollup status.
+        const first = successes[0]
+        const errorMessage =
+          failures.length === 0
+            ? null
+            : `Sent to ${successes.length} of ${phones.length} phones. Failed: ${failures.map((f) => `${f.phone} — ${f.error}`).join('; ')}`
+        await prisma.appointmentReminder.update({
+          where: { id: reminder.id },
+          data: {
+            status: 'sent',
+            sentAt: new Date(),
+            messageBody: body,
+            ghlContactId: first.contactId,
+            ghlMessageId: first.messageId,
+            ghlConversationId: first.conversationId,
+            errorMessage,
+          },
+        })
+        sent++
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Send failed'
       await prisma.appointmentReminder.update({
@@ -639,6 +718,11 @@ export function renderTemplate(
  * Texting a landline isn't ideal but isn't catastrophic — most
  * carriers silently drop it. Picking the mobile when present avoids
  * that whenever Mary has labeled the entries.
+ *
+ * NOTE: as of 2026-05-11 the customer-reminder dispatcher uses
+ * extractedPhonesFor() and sends to EVERY phone in a multi-phone
+ * field (e.g. husband + wife). primaryPhoneFor() is kept for legacy
+ * call sites that still need a single best-guess number.
  */
 export function primaryPhoneFor(raw: string | null | undefined): string {
   if (!raw) return ''
@@ -648,6 +732,52 @@ export function primaryPhoneFor(raw: string | null | undefined): string {
     (e) => e.label === 'Mobile' || e.label === 'Cell'
   )
   return (mobile ?? entries[0]).number
+}
+
+/**
+ * Extract EVERY phone number from a customerPhone field, deduplicated
+ * by E.164 digits. Used by the reminder dispatcher to send the same
+ * SMS to all valid lines on a customer record — most common case is
+ * a household with mobile + home (or husband's + wife's lines on the
+ * same row, e.g. "Isaac and Naomi Mizie" with two phones). Sending
+ * to all of them keeps both spouses in sync about their appointment
+ * without forcing Mary to think about which number is "primary."
+ *
+ * Dedup catches the case where Mary fat-fingered the same number
+ * twice — only one SMS goes out per unique phone.
+ *
+ * Returns an empty array when no phones can be parsed (caller should
+ * surface as a failed reminder with a clear error). Returns the raw
+ * string in a singleton array as a fallback only when isValidUsPhone
+ * already accepted it — keeps unusual one-off formats from getting
+ * silently dropped.
+ */
+export function extractedPhonesFor(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  const { entries } = parsePhoneEntries(raw)
+  if (entries.length === 0) {
+    // Defensive fallback: if the raw string contains a 10/11-digit
+    // sequence (the validator accepts it), pass it through as one
+    // entry. Belt-and-suspenders for unusual formats the regex didn't
+    // catch but the validator did.
+    const digits = raw.replace(/\D/g, '')
+    if (
+      digits.length === 10 ||
+      (digits.length === 11 && digits.startsWith('1'))
+    ) {
+      return [raw]
+    }
+    return []
+  }
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const e of entries) {
+    const key = e.number.replace(/\D/g, '')
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(e.number)
+  }
+  return out
 }
 
 function firstNameOf(name: string): string | undefined {
