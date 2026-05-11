@@ -43,12 +43,25 @@ export type StructuredKpi = {
   format: CellFormat
   /** Optional secondary line under the value (e.g. "of total X"). */
   hint?: string
+  /** When defined, this row renders "—" instead of its computed
+   *  value if the guard cell is empty or zero. Used for DERIVED
+   *  metrics (rates, averages, cost-per-X) where the underlying
+   *  formula returns 0 when there's no input data, making "0%" or
+   *  "$0" misleading. E.g. Mary's Show Rate at I12 should be "—"
+   *  not "0%" when she's booked zero appointments (I10). */
+  nullWhenZero?: CellRef
 }
 
 /** A logical group of metrics rendered as a labeled list/table. */
 export type StructuredMetricSection = {
   title: string
-  rows: Array<{ label: string; cell: CellRef; format: CellFormat }>
+  rows: Array<{
+    label: string
+    cell: CellRef
+    format: CellFormat
+    /** See StructuredKpi.nullWhenZero. Same semantics for section rows. */
+    nullWhenZero?: CellRef
+  }>
 }
 
 /** Description of an inline grid (e.g. the Monthly P&L block). */
@@ -157,6 +170,9 @@ export const PINNED_SHEETS: PinnedSheet[] = [
           ],
         },
         {
+          // Total Expenses is shown in the headline KPI strip already;
+          // omitting from this section avoids duplicating the same
+          // number twice on the same view.
           title: 'Cost breakdown',
           rows: [
             { label: 'Mary (Setter)', cell: 'F10', format: 'currency' },
@@ -165,20 +181,25 @@ export const PINNED_SHEETS: PinnedSheet[] = [
             { label: 'Software / Subscriptions', cell: 'F13', format: 'currency' },
             { label: 'Payroll / Contractors', cell: 'F14', format: 'currency' },
             { label: 'Other', cell: 'F15', format: 'currency' },
-            { label: 'Total Expenses', cell: 'F16', format: 'currency' },
           ],
         },
         {
+          // Show Rate / Cost-per-Sit are derived metrics. The sheet's
+          // IFERROR(..., 0) wrapper returns 0 when the denominator is
+          // missing, which would render as "0%" / "$0" — misleading
+          // (reads like "0% show rate" when really it's "no data yet").
+          // nullWhenZero points at the upstream count cell so the row
+          // renders "—" instead when that count is empty / zero.
           title: 'Appointment metrics',
           rows: [
             { label: 'Mary — Booked', cell: 'I10', format: 'integer' },
             { label: 'Mary — Sits', cell: 'I11', format: 'integer' },
-            { label: 'Mary — Show Rate', cell: 'I12', format: 'percent' },
-            { label: 'Mary — Cost / Sit', cell: 'I13', format: 'currency' },
+            { label: 'Mary — Show Rate', cell: 'I12', format: 'percent', nullWhenZero: 'I10' },
+            { label: 'Mary — Cost / Sit', cell: 'I13', format: 'currency', nullWhenZero: 'I11' },
             { label: 'Yassine — Booked', cell: 'I14', format: 'integer' },
             { label: 'Yassine — Sits', cell: 'I15', format: 'integer' },
-            { label: 'Yassine — Show Rate', cell: 'I16', format: 'percent' },
-            { label: 'Yassine — Cost / Sit', cell: 'I17', format: 'currency' },
+            { label: 'Yassine — Show Rate', cell: 'I16', format: 'percent', nullWhenZero: 'I14' },
+            { label: 'Yassine — Cost / Sit', cell: 'I17', format: 'currency', nullWhenZero: 'I15' },
           ],
         },
       ],

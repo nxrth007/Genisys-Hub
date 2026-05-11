@@ -389,7 +389,30 @@ export type StructuredSummary = {
   grids: ResolvedGrid[]
 }
 
+/** Returns true when the cell's raw value parses as 0 or is blank /
+ *  missing. Used to gate derived metrics (Show Rate, Cost-per-Sit)
+ *  whose underlying formula returns 0 when the input is empty —
+ *  rendering "0%" or "$0" in that case is misleading. */
+function isZeroOrEmpty(raw: string): boolean {
+  const trimmed = (raw ?? '').trim()
+  if (!trimmed) return true
+  // Strip currency / percent / paren / comma formatting before
+  // parsing. Treats "(0)", "$0.00", "0%", "0" all as zero.
+  const cleaned = trimmed.replace(/[$,%()\s]/g, '')
+  const n = Number(cleaned)
+  return Number.isFinite(n) && n === 0
+}
+
 function resolveKpi(values: string[][], kpi: StructuredKpi): ResolvedKpi {
+  // Guard: when the row points at a derived metric, check the upstream
+  // count cell first. If empty/zero, render "—" instead of the
+  // formula's IFERROR fallback value.
+  if (kpi.nullWhenZero) {
+    const guard = readCellValue(values, kpi.nullWhenZero)
+    if (isZeroOrEmpty(guard)) {
+      return { label: kpi.label, value: '—', hint: kpi.hint }
+    }
+  }
   return {
     label: kpi.label,
     value: formatCellValue(readCellValue(values, kpi.cell), kpi.format),
@@ -403,10 +426,21 @@ function resolveSection(
 ): ResolvedSection {
   return {
     title: section.title,
-    rows: section.rows.map((r) => ({
-      label: r.label,
-      value: formatCellValue(readCellValue(values, r.cell), r.format),
-    })),
+    rows: section.rows.map((r) => {
+      // Same guard logic as resolveKpi — when the upstream count
+      // cell is empty/zero, render "—" so the derived metric doesn't
+      // confuse "no data" with "0%".
+      if (r.nullWhenZero) {
+        const guard = readCellValue(values, r.nullWhenZero)
+        if (isZeroOrEmpty(guard)) {
+          return { label: r.label, value: '—' }
+        }
+      }
+      return {
+        label: r.label,
+        value: formatCellValue(readCellValue(values, r.cell), r.format),
+      }
+    }),
   }
 }
 
