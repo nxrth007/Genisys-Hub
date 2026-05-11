@@ -116,7 +116,16 @@ export default function PinnedSheetDetailPage({
       }
       return res.json()
     },
-    staleTime: 60_000,
+    // Refresh strategy: refetch every 60s while the page is visible so
+    // values pulled from the Google Sheet (KPI tiles, monthly P&L grid)
+    // stay close to live without spamming the Sheets API. Each fetch
+    // does a parallel read of every tab in the workbook, so this is one
+    // Sheets API call per tab per minute per open tab. Manual Refresh
+    // button below the header gives an instant-update affordance for
+    // when admin just edited a cell and doesn't want to wait.
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   })
 
   if (query.isLoading) {
@@ -149,7 +158,11 @@ export default function PinnedSheetDetailPage({
 
   return (
     <div className="space-y-5">
-      <DetailHeader data={data} isFetching={query.isFetching} />
+      <DetailHeader
+        data={data}
+        isFetching={query.isFetching}
+        onRefresh={() => query.refetch()}
+      />
 
       {data.globalReadError && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -175,9 +188,14 @@ export default function PinnedSheetDetailPage({
 function DetailHeader({
   data,
   isFetching,
+  onRefresh,
 }: {
   data: DetailResponse
   isFetching: boolean
+  /** Trigger an immediate refetch. The page also auto-polls every 60s
+   *  in the background, but this is the "I just edited a cell, show
+   *  me the update now" affordance. */
+  onRefresh: () => void
 }) {
   return (
     <div className="space-y-3">
@@ -210,15 +228,29 @@ function DetailHeader({
             </p>
           </div>
         </div>
-        <a
-          href={data.viewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Open in Google Sheets
-        </a>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isFetching}
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            title="Pull the latest values from the Google Sheet right now. The page also auto-refreshes every 60 seconds."
+          >
+            <RefreshCw
+              className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')}
+            />
+            Refresh
+          </button>
+          <a
+            href={data.viewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open in Google Sheets
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -337,6 +369,17 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                 <p className="mt-2 flex items-center gap-1 text-[11px] text-amber-700">
                   <AlertCircle className="h-3 w-3" />
                   {tab.readError}
+                </p>
+              ) : data.structuredSummary ? (
+                // Structured layout owns the accurate KPIs above; the
+                // per-tab card stays as an iframe-focus toggle. Showing
+                // the generic dollar-sign inference here would just
+                // contradict the headline numbers (it triple-counts
+                // cross-tab formula values), so we hide it.
+                <p className="mt-2 text-[11px] text-zinc-400">
+                  {data.structuredSummary.tab === tab.title
+                    ? 'Source of headline KPIs above'
+                    : 'Click to focus the iframe on this tab'}
                 </p>
               ) : tab.summary && tab.summary.items.length > 0 ? (
                 <ul className="mt-2 space-y-1">

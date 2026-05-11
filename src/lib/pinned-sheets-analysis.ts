@@ -150,9 +150,14 @@ export function parseCurrency(raw: string): number | null {
 }
 
 export function formatCurrency(n: number): string {
+  // Precision tiers tuned for a small-agency dashboard. Previously
+  // anything >= $10K got rounded to thousands ("$21K"), which hid the
+  // bottom $500 of a $20,500 figure — meaningful at this revenue size.
+  // New tiers: full dollar amount up through ~$100K, K-shorthand only
+  // when the digits stop fitting comfortably, M-shorthand above $1M.
   const abs = Math.abs(n)
   if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
-  if (abs >= 10_000) return `$${Math.round(n / 1_000).toLocaleString()}K`
+  if (abs >= 100_000) return `$${Math.round(n / 1_000).toLocaleString()}K`
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
