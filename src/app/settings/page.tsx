@@ -1337,7 +1337,14 @@ function ClientAlertsSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section
+      id="client-alerts"
+      // Anchor lets the orange "Client SMS" button on /clients link
+      // straight here (/settings#client-alerts). scroll-mt offsets the
+      // browser's scroll target so the section heading isn't pinned
+      // flush against the top edge after the jump.
+      className="scroll-mt-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
       <div className="flex items-start gap-3">
         <div className="rounded-lg bg-purple-50 p-2 dark:bg-purple-950">
           <PhoneIcon className="h-5 w-5 text-purple-600" />

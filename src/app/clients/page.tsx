@@ -374,6 +374,19 @@ export default function ClientsPage() {
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients' }]}
         actions={
           <div className="flex items-center gap-2">
+            {/* Client SMS — jumps to the Client Alerts section in
+                Settings (Recent activity feed, retry/cancel actions,
+                test sends, master toggle). Placed at the left of the
+                action group so it's the first thing in admin's eyeline
+                when they hit this page; the Recent activity panel is
+                where you go when something goes wrong with the SMS
+                pipeline, so quick access matters. */}
+            <Link
+              href="/settings#client-alerts"
+              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-orange-600"
+            >
+              <PhoneIcon className="h-4 w-4" /> Client SMS
+            </Link>
             {/* Onboarding lives on its own page for Phase 1 — pending
                 self-registrations + Credentials management sit there.
                 Placed to the left of "New client" per Alex's spec. */}
