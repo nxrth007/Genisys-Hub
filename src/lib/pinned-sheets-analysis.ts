@@ -634,6 +634,70 @@ export function colNumberToLetter(n: number): string {
 }
 
 /**
+ * Convert a full StructuredSummary into compact SheetSummaryItem
+ * badges suitable for the /documents listing tile (where each pinned
+ * sheet gets a small preview card). Prefers headline KPIs when the
+ * layout defines them; otherwise derives "Clients · N" and a
+ * "Total <headline label>" pair from the auto-discovered cards.
+ *
+ * Used by the listing endpoint to replace the noisy generic dollar-
+ * sign inference with accurate, layout-aware preview numbers.
+ */
+export function deriveListingSummary(
+  summary: StructuredSummary,
+): SheetSummaryItem[] {
+  // Workbook with headline KPIs (e.g. the financial dashboard's
+  // Total Revenue / Expenses / Net Profit) — pass them through.
+  if (summary.headlineKpis.length > 0) {
+    return summary.headlineKpis.map((k) => ({
+      label: k.label,
+      value: k.value,
+      hint: k.hint,
+    }))
+  }
+
+  // Card-driven workbook (e.g. Mary's Client Sheet) — derive a count
+  // tile, plus a sum-of-headlines tile when every card's headline
+  // shares the same label AND every value is numeric.
+  const items: SheetSummaryItem[] = []
+  if (summary.cards.length > 0) {
+    items.push({
+      label: summary.cards.length === 1 ? 'Card' : 'Cards',
+      value: String(summary.cards.length),
+    })
+
+    const firstHeadline = summary.cards[0]?.headline
+    if (firstHeadline) {
+      const allMatchLabel = summary.cards.every(
+        (c) => c.headline?.label === firstHeadline.label,
+      )
+      if (allMatchLabel) {
+        let sum = 0
+        let allNumeric = true
+        for (const card of summary.cards) {
+          const raw = (card.headline?.value ?? '').replace(/[$,%\s]/g, '')
+          const n = Number(raw)
+          if (Number.isFinite(n)) {
+            sum += n
+          } else {
+            allNumeric = false
+            break
+          }
+        }
+        if (allNumeric) {
+          items.push({
+            label: `Total ${firstHeadline.label.toLowerCase()}`,
+            value: sum.toLocaleString(),
+          })
+        }
+      }
+    }
+  }
+
+  return items
+}
+
+/**
  * Build the full structured summary for a workbook based on its
  * declared StructuredLayout. Callers find the named tab's values in
  * their tab list and pass them in (the layout config names which tab).

@@ -3,7 +3,11 @@ import { requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { PINNED_SHEETS, getEmbedUrl, getViewUrl } from '@/lib/pinned-sheets'
 import { getSheetData } from '@/lib/drive'
-import { summarize } from '@/lib/pinned-sheets-analysis'
+import {
+  summarize,
+  summarizeStructured,
+  deriveListingSummary,
+} from '@/lib/pinned-sheets-analysis'
 
 /**
  * GET /api/documents/pinned-sheets
@@ -49,6 +53,25 @@ export async function GET() {
 
       try {
         const data = await getSheetData(account.email, sheet.spreadsheetId)
+
+        // Prefer the layout-aware summary when the sheet has a
+        // declared structure AND we just read the right tab. This
+        // gives /documents accurate preview tiles (the financial
+        // dashboard's Net Profit, Mary's "5 Clients · 50 Total leads
+        // needed") instead of the generic dollar-sign inference,
+        // which double-counts cross-tab formulas and mislabels
+        // labels-above-values workbooks.
+        let summary = summarize(sheet.key, data.activeTab, data.values)
+        if (sheet.layout && data.activeTab === sheet.layout.tab) {
+          const structured = summarizeStructured(data.values, sheet.layout)
+          if (structured) {
+            const items = deriveListingSummary(structured)
+            if (items.length > 0) {
+              summary = { items, activeTab: data.activeTab }
+            }
+          }
+        }
+
         return {
           ...base,
           tabs: data.tabs.map((t) => ({
@@ -57,7 +80,7 @@ export async function GET() {
             rowCount: t.rowCount,
             columnCount: t.columnCount,
           })),
-          summary: summarize(sheet.key, data.activeTab, data.values),
+          summary,
           readError: null,
         }
       } catch (err: unknown) {

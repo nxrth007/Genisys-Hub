@@ -3,26 +3,24 @@
 /**
  * Pinned-sheets banner at the top of /documents.
  *
- * Renders a card per sheet from /api/documents/pinned-sheets:
- *   - Header row with title + description + "Open in Sheets" button
- *   - Summary badges (top revenue figure, qualified-client count, …)
- *   - Tab switcher across the visible sheet's tabs (each click swaps
- *     the iframe gid)
- *   - The actual editable iframe (Google Sheets in-place)
- *   - Toggle to expand/collapse the iframe so admin can hide it once
- *     they've checked the headline numbers
+ * Renders a compact preview tile per sheet from /api/documents/pinned-sheets:
+ *   - Title + description on the left
+ *   - "View detailed" (primary CTA) + "Open in Sheets" buttons on the right
+ *   - Summary KPI badges below (accurate layout-aware values when the
+ *     sheet declares a structured layout, generic inference otherwise)
  *
- * Editing inside the iframe works for users signed into Google in
- * the same browser. If third-party cookies are blocked or they're
- * in incognito, "Open in Google Sheets" launches a full tab.
+ * The live Google Sheets iframe was removed from this listing 2026-05-11
+ * (per Alex): two full 640px-tall iframes stacked on /documents was
+ * overwhelming as a landing-page experience. The iframe still lives on
+ * the per-sheet detail page at /documents/sheets/[key], where it has
+ * the full width and the structured KPI cards above it. /documents
+ * itself is now a clean overview — quick-glance numbers + a click to
+ * drill in.
  */
 
-import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   FileSpreadsheet,
   Loader2,
@@ -79,9 +77,11 @@ export function PinnedSheetsSection() {
       }
       return res.json()
     },
-    // Sheets metadata is light; refresh every minute so summary
-    // badges stay roughly current as people edit.
+    // Tile summary numbers refresh every minute so the headline values
+    // stay roughly current as people edit the underlying sheet.
     staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   })
 
   if (query.isLoading) {
@@ -123,26 +123,20 @@ export function PinnedSheetsSection() {
 }
 
 function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
-  const [expanded, setExpanded] = useState(true)
-  const [activeGid, setActiveGid] = useState<number>(sheet.defaultGid)
-
-  const tabs = sheet.tabs ?? []
-
-  // Build the embed URL with the currently-selected gid. Memoized
-  // so we don't reconstruct the iframe src on every parent render
-  // (which would force-reload the iframe and lose the user's
-  // scroll/edit position).
-  const embedUrl = useMemo(() => {
-    const base = sheet.embedUrl.split('#')[0].split('?')[0]
-    return `${base}?embedded=true&rm=minimal&gid=${activeGid}#gid=${activeGid}`
-  }, [sheet.embedUrl, activeGid])
+  const items = sheet.summary?.items ?? []
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Card header */}
-      <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-        <div className="flex items-start gap-3">
-          <div className={cn('rounded-lg p-2', sheet.accent.iconBg)}>
+    <Link
+      href={`/documents/sheets/${sheet.key}`}
+      className="group block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+      title="Open the full detail view"
+    >
+      {/* Card header — title + description on the left, action buttons
+          on the right. The whole card is a Link so clicking anywhere
+          (except the buttons themselves) opens the detail view. */}
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={cn('flex-shrink-0 rounded-lg p-2', sheet.accent.iconBg)}>
             <FileSpreadsheet
               className={cn('h-5 w-5', sheet.accent.iconText)}
             />
@@ -156,30 +150,28 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
             </p>
           </div>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-2">
-          {/* Detailed view — opens a dedicated route per sheet with
-              KPI strips, per-tab cards, and structured row-level
-              breakdowns. The cramped iframe in this list view is
-              fine for a glance but no good for actually reading the
-              numbers; the detail page gives the workbook proper
-              breathing room. */}
-          <Link
-            href={`/documents/sheets/${sheet.key}`}
+        <div
+          className="flex flex-shrink-0 items-center gap-2"
+          // Buttons inside a Link — stop propagation so external-link
+          // click doesn't ALSO trigger the card-level navigation.
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition',
               sheet.accent.badgeBg,
               sheet.accent.badgeText,
-              'hover:brightness-95',
+              'group-hover:brightness-95',
             )}
-            title="Open the full detail view"
           >
             <Maximize2 className="h-3 w-3" />
             View detailed
-          </Link>
+          </span>
           <a
             href={sheet.viewUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
             title="Open in Google Sheets"
           >
@@ -189,115 +181,46 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
         </div>
       </div>
 
-      {/* Summary badges — only render if we got values back. */}
-      {sheet.summary && sheet.summary.items.length > 0 && (
-        <div className="flex flex-wrap items-stretch gap-2 border-b border-zinc-200 bg-zinc-50/50 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-950/50">
-          {sheet.summary.items.map((item, i) => (
-            <div
-              key={`${item.label}-${i}`}
-              className={cn(
-                'rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900',
-              )}
-            >
-              <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                {item.label}
-              </div>
-              <div
-                className={cn(
-                  'mt-0.5 text-sm font-semibold tabular-nums',
-                  sheet.accent.badgeText,
-                )}
-              >
-                {item.value}
-              </div>
-              {item.hint && (
-                <div className="mt-0.5 text-[10px] text-zinc-400">
-                  {item.hint}
-                </div>
-              )}
-            </div>
-          ))}
-          <div className="ml-auto self-end text-[10px] text-zinc-400">
-            Active tab: {sheet.summary.activeTab}
-          </div>
-        </div>
-      )}
-
       {sheet.readError && (
-        <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          Couldn&apos;t read sheet metadata ({sheet.readError}). The iframe
-          below still works — you may just need to share this sheet with a
-          connected Drive account to enable summary stats.
+        <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          Couldn&apos;t read summary metadata ({sheet.readError}). Open the
+          detailed view or Google Sheets for the live data.
         </div>
       )}
 
-      {/* Tab switcher — only meaningful when there's >1 tab. */}
-      {tabs.length > 1 && (
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-zinc-200 bg-zinc-50/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/30">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveGid(tab.id)}
-              className={cn(
-                'flex-shrink-0 rounded-md px-2.5 py-1 text-[11px] font-medium transition',
-                activeGid === tab.id
-                  ? cn(
-                      sheet.accent.badgeBg,
-                      sheet.accent.badgeText,
-                      'ring-1 ring-current/20',
-                    )
-                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300',
-              )}
-            >
-              {tab.title}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* The iframe — Google Sheets full UI in place. Editing works
-          for users signed into Google in this browser. Height is
-          generous (640px) so admin doesn't have to scroll inside
-          the iframe to see most of the visible region. */}
-      <div className={cn('relative bg-white dark:bg-zinc-900')}>
-        {expanded ? (
-          <iframe
-            // The key forces a remount when the gid changes — Google
-            // Sheets won't re-navigate inside an iframe just because
-            // the src hash changes, so we force a fresh load.
-            key={activeGid}
-            src={embedUrl}
-            title={sheet.title}
-            className="h-[640px] w-full border-0"
-            // Allow same-origin so the user's Google session cookie
-            // is present in the iframe context.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-          />
-        ) : (
-          <div className="px-5 py-8 text-center text-xs text-zinc-400">
-            Sheet hidden — click Expand to load the embed.
+      {/* Summary KPI strip — the only "content" on this tile now that
+          the iframe lives on the detail page. Compact, readable, gives
+          admin a one-glance answer to "what's in this workbook." */}
+      {items.length > 0 && (
+        <div className="border-t border-zinc-200 bg-zinc-50/50 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-950/50">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {items.slice(0, 6).map((item, i) => (
+              <div
+                key={`${item.label}-${i}`}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="truncate text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  {item.label}
+                </div>
+                <div
+                  className={cn(
+                    'mt-0.5 truncate text-sm font-semibold tabular-nums',
+                    sheet.accent.badgeText,
+                  )}
+                  title={item.value}
+                >
+                  {item.value}
+                </div>
+                {item.hint && (
+                  <div className="mt-0.5 truncate text-[10px] text-zinc-400">
+                    {item.hint}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-center gap-1.5 border-t border-zinc-200 bg-zinc-50 py-2 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
-      >
-        {expanded ? (
-          <>
-            <ChevronUp className="h-3 w-3" />
-            Collapse
-          </>
-        ) : (
-          <>
-            <ChevronDown className="h-3 w-3" />
-            Expand
-          </>
-        )}
-      </button>
-    </div>
+        </div>
+      )}
+    </Link>
   )
 }
