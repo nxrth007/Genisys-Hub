@@ -374,15 +374,15 @@ export default function ClientsPage() {
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients' }]}
         actions={
           <div className="flex items-center gap-2">
-            {/* Client SMS — jumps to the Client Alerts section in
-                Settings (Recent activity feed, retry/cancel actions,
-                test sends, master toggle). Placed at the left of the
-                action group so it's the first thing in admin's eyeline
-                when they hit this page; the Recent activity panel is
-                where you go when something goes wrong with the SMS
-                pipeline, so quick access matters. */}
+            {/* Client SMS — opens the dedicated /settings/client-alerts
+                focused view (master toggle, sender number, per-client
+                routing, Recent activity feed with retry/cancel, test
+                sends). Per Alex 2026-05-11 this lives at its own
+                route, not as an anchor into the full Settings page,
+                so admin only sees the SMS controls without the rest
+                of Settings coming along. */}
             <Link
-              href="/settings#client-alerts"
+              href="/settings/client-alerts"
               className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-orange-600"
             >
               <PhoneIcon className="h-4 w-4" /> Client SMS

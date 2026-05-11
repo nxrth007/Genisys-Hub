@@ -1240,7 +1240,12 @@ type ClientAlertsConfigShape = {
   senderPhone: string | null
 }
 
-function ClientAlertsSection() {
+// Exported so the dedicated /settings/client-alerts route can render
+// just this section in isolation (per Alex 2026-05-11 — the orange
+// "Client SMS" button on /clients should land you on a focused view,
+// not the full Settings page). Other sections still live as inline
+// components in this file; only this one needs the external entry point.
+export function ClientAlertsSection() {
   const qc = useQueryClient()
 
   const configQuery = useQuery<{ config: ClientAlertsConfigShape }>({
@@ -1337,14 +1342,7 @@ function ClientAlertsSection() {
   }
 
   return (
-    <section
-      id="client-alerts"
-      // Anchor lets the orange "Client SMS" button on /clients link
-      // straight here (/settings#client-alerts). scroll-mt offsets the
-      // browser's scroll target so the section heading isn't pinned
-      // flush against the top edge after the jump.
-      className="scroll-mt-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-    >
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-start gap-3">
         <div className="rounded-lg bg-purple-50 p-2 dark:bg-purple-950">
           <PhoneIcon className="h-5 w-5 text-purple-600" />
