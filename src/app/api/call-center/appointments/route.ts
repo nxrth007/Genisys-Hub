@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
  * GET /api/call-center/appointments
  * Returns every agent's appointments (staff-only; middleware already blocks
  * role=agent from reaching this route). Supports filters:
- *   status  — booked|rescheduled|showed|no_show|cancelled|all (default all)
+ *   status  — booked|rescheduled|showed|won|lost|no_show|cancelled|all (default all)
  *   agent   — filter by a specific agent userId, "all" by default
  *   since   — ISO date; only appointments on/after this appt date
  *   until   — ISO date; only appointments on/before this appt date

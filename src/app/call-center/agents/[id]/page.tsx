@@ -371,7 +371,7 @@ export default function AgentDetailPage({
             Appointments ({appointments.length})
           </h3>
           <div className="flex items-center gap-1 overflow-x-auto">
-            {['all', 'booked', 'rescheduled', 'showed', 'no_show', 'cancelled'].map(
+            {['all', 'booked', 'rescheduled', 'showed', 'won', 'lost', 'no_show', 'cancelled'].map(
               (s) => (
                 <button
                   key={s}

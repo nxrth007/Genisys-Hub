@@ -33,6 +33,11 @@ const STATUS_LABEL: Record<string, string> = {
   booked: 'Booked',
   rescheduled: 'Rescheduled',
   showed: 'Showed',
+  // Won/Lost are deal-outcome statuses captured after the appt.
+  // They imply the customer sat down (so they roll up into "showed"
+  // for show-rate calcs) but record whether the deal closed.
+  won: 'Won',
+  lost: 'Lost',
   no_show: 'No Show',
   cancelled: 'Cancelled',
 }
@@ -173,7 +178,7 @@ export async function PATCH(
       return NextResponse.json(
         {
           error:
-            'status must be one of: booked, rescheduled, showed, no_show, cancelled',
+            'status must be one of: booked, rescheduled, showed, won, lost, no_show, cancelled',
         },
         { status: 400 },
       )
