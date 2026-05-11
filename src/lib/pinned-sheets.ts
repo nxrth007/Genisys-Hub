@@ -29,6 +29,62 @@
  * changes needed.
  */
 
+/** A single cell or column reference in A1 notation, e.g. "B6" or "C10".
+ *  Parsed by readCellValue() / parseCellRef() in pinned-sheets-analysis.ts. */
+export type CellRef = string
+
+/** How to coerce a cell's raw string into a display value. */
+export type CellFormat = 'currency' | 'integer' | 'percent' | 'string'
+
+/** A single KPI tile — reads one cell, formats it, shows it under a label. */
+export type StructuredKpi = {
+  label: string
+  cell: CellRef
+  format: CellFormat
+  /** Optional secondary line under the value (e.g. "of total X"). */
+  hint?: string
+}
+
+/** A logical group of metrics rendered as a labeled list/table. */
+export type StructuredMetricSection = {
+  title: string
+  rows: Array<{ label: string; cell: CellRef; format: CellFormat }>
+}
+
+/** Description of an inline grid (e.g. the Monthly P&L block). */
+export type StructuredGrid = {
+  title: string
+  /** 1-indexed sheet row containing column headers. */
+  headerRow: number
+  /** Inclusive 1-indexed row range containing data rows. */
+  dataRowsStart: number
+  dataRowsEnd: number
+  /** 1-indexed sheet row containing the totals/sum row. Optional. */
+  totalsRow?: number
+  /** Inclusive 1-indexed column range (A=1, B=2, …) to show. */
+  columnsStart: number
+  columnsEnd: number
+  /** Per-column display formatting. Length must match columnsEnd - columnsStart + 1.
+   *  First entry is for the column at columnsStart (usually the row label, 'string'). */
+  columnFormats: CellFormat[]
+}
+
+/** Full layout config for a workbook. When present, the detail view
+ *  renders structured KPIs / metric sections / grids instead of running
+ *  the generic "find the dollar signs" inference. The named tab must
+ *  exist in the workbook; if it doesn't, the structured render falls
+ *  back to the generic path. */
+export type StructuredLayout = {
+  /** Tab name (sheet title) whose values feed every cell ref below. */
+  tab: string
+  /** Headline KPI strip at the top of the detail page. */
+  headlineKpis: StructuredKpi[]
+  /** Grouped metric sections rendered below the headline. */
+  metricSections?: StructuredMetricSection[]
+  /** Optional inline grids (rendered as small tables). */
+  grids?: StructuredGrid[]
+}
+
 export type PinnedSheet = {
   /** Stable key used in React keys + analysis dispatch. */
   key: 'financials' | 'fulfillment'
@@ -51,6 +107,13 @@ export type PinnedSheet = {
     iconBg: string
     iconText: string
   }
+  /** Optional declarative layout. When set, the detail page renders
+   *  the structured KPIs / sections / grids defined here instead of
+   *  running the generic dollar-sign inference (which produces noisy
+   *  results on workbooks that already have a structured Dashboard
+   *  tab — see /lib/pinned-sheets-analysis.ts). Omit for sheets
+   *  where the generic inference is fine (Mary's Client Sheet). */
+  layout?: StructuredLayout
 }
 
 export const PINNED_SHEETS: PinnedSheet[] = [
@@ -66,6 +129,82 @@ export const PINNED_SHEETS: PinnedSheet[] = [
       badgeText: 'text-emerald-700 dark:text-emerald-300',
       iconBg: 'bg-emerald-50 dark:bg-emerald-950',
       iconText: 'text-emerald-600 dark:text-emerald-300',
+    },
+    // Cell map for the Genisys Financial Dashboard. Verified against
+    // the actual workbook on 2026-05-11. The Dashboard tab has a
+    // "labels above values" layout (row 5 holds KPI labels, row 6
+    // holds the values), which the generic dollar-sign inference
+    // cannot handle — hence reading by cell ref here.
+    layout: {
+      tab: 'Dashboard',
+      headlineKpis: [
+        { label: 'Total Revenue', cell: 'B6', format: 'currency' },
+        { label: 'Total Expenses', cell: 'E6', format: 'currency' },
+        { label: 'Net Profit', cell: 'H6', format: 'currency' },
+      ],
+      metricSections: [
+        {
+          title: 'Business metrics',
+          rows: [
+            { label: 'Active Clients', cell: 'C10', format: 'integer' },
+            { label: 'Total Contract Value', cell: 'C11', format: 'currency' },
+            { label: 'Revenue Collected', cell: 'C12', format: 'currency' },
+            { label: 'Outstanding Receivables', cell: 'C13', format: 'currency' },
+            { label: 'Appointments Promised', cell: 'C14', format: 'integer' },
+            { label: 'Appointments Delivered (Sits)', cell: 'C15', format: 'integer' },
+            { label: 'Appointments Remaining', cell: 'C16', format: 'integer' },
+            { label: 'Total Ad Spend', cell: 'C17', format: 'currency' },
+          ],
+        },
+        {
+          title: 'Cost breakdown',
+          rows: [
+            { label: 'Mary (Setter)', cell: 'F10', format: 'currency' },
+            { label: 'Yassine (Setter)', cell: 'F11', format: 'currency' },
+            { label: 'Ad Spend (Meta)', cell: 'F12', format: 'currency' },
+            { label: 'Software / Subscriptions', cell: 'F13', format: 'currency' },
+            { label: 'Payroll / Contractors', cell: 'F14', format: 'currency' },
+            { label: 'Other', cell: 'F15', format: 'currency' },
+            { label: 'Total Expenses', cell: 'F16', format: 'currency' },
+          ],
+        },
+        {
+          title: 'Appointment metrics',
+          rows: [
+            { label: 'Mary — Booked', cell: 'I10', format: 'integer' },
+            { label: 'Mary — Sits', cell: 'I11', format: 'integer' },
+            { label: 'Mary — Show Rate', cell: 'I12', format: 'percent' },
+            { label: 'Mary — Cost / Sit', cell: 'I13', format: 'currency' },
+            { label: 'Yassine — Booked', cell: 'I14', format: 'integer' },
+            { label: 'Yassine — Sits', cell: 'I15', format: 'integer' },
+            { label: 'Yassine — Show Rate', cell: 'I16', format: 'percent' },
+            { label: 'Yassine — Cost / Sit', cell: 'I17', format: 'currency' },
+          ],
+        },
+      ],
+      grids: [
+        {
+          // Monthly P&L block — header row at 21, data rows 22-27
+          // (Mar-Aug 2026), totals row 28. Columns B-I.
+          title: 'Monthly P&L',
+          headerRow: 21,
+          dataRowsStart: 22,
+          dataRowsEnd: 27,
+          totalsRow: 28,
+          columnsStart: 2, // B
+          columnsEnd: 9,   // I
+          columnFormats: [
+            'string',   // B - Month
+            'currency', // C - Revenue
+            'currency', // D - Setter Costs
+            'currency', // E - Ad Spend
+            'currency', // F - Subs
+            'currency', // G - Payroll
+            'currency', // H - Other
+            'currency', // I - Net Profit
+          ],
+        },
+      ],
     },
   },
   {

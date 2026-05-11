@@ -257,3 +257,226 @@ export function titleCase(s: string): string {
     .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
     .join(' ')
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Structured layout reader                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Cell-by-cell readers + formatters used when a pinned sheet declares
+ * an explicit StructuredLayout (see lib/pinned-sheets.ts). These bypass
+ * the generic dollar-sign inference entirely — for workbooks whose
+ * authors already laid out fixed KPI cells (B6 = Total Revenue, etc.),
+ * reading by cell ref is both more accurate and orders of magnitude
+ * less noisy than scanning every cell for currency-shaped strings.
+ *
+ * The Genisys Financial Dashboard is the motivating example: it stores
+ * labels ABOVE values ("TOTAL REVENUE" in B5, the value in B6), which
+ * the generic cellLabel() helper can't see because it only walks left.
+ * Plus it has the same revenue figure repeated in 4+ cells via
+ * cross-tab formulas, so any sum-positive-cells aggregate triple-counts.
+ */
+
+import type {
+  CellRef,
+  CellFormat,
+  StructuredLayout,
+  StructuredKpi,
+  StructuredMetricSection,
+  StructuredGrid,
+} from './pinned-sheets'
+
+/** Parse "B6" / "AA12" into 0-indexed { row, col }. Returns null on
+ *  invalid input (caller surfaces as N/A in the rendered tile). */
+export function parseCellRef(ref: CellRef): { row: number; col: number } | null {
+  const m = /^([A-Za-z]+)(\d+)$/.exec(ref.trim())
+  if (!m) return null
+  const colLetters = m[1].toUpperCase()
+  const rowNumber = parseInt(m[2], 10)
+  if (!Number.isFinite(rowNumber) || rowNumber < 1) return null
+  // A=1, B=2, ..., Z=26, AA=27. Convert to 0-indexed.
+  let colOneBased = 0
+  for (const ch of colLetters) {
+    colOneBased = colOneBased * 26 + (ch.charCodeAt(0) - 64)
+  }
+  return { row: rowNumber - 1, col: colOneBased - 1 }
+}
+
+/** Read a cell from a 2D values array using A1 notation. Returns empty
+ *  string if out of bounds, the cell is missing, or the ref is invalid. */
+export function readCellValue(values: string[][], ref: CellRef): string {
+  const parsed = parseCellRef(ref)
+  if (!parsed) return ''
+  const row = values[parsed.row]
+  if (!row) return ''
+  return row[parsed.col] ?? ''
+}
+
+/** Format a raw cell string for display in a KPI tile. Defensive against
+ *  the Sheets API returning currency strings ("$20,500.00"), already-
+ *  rounded numbers ("7"), percentages ("0.85" or "85%"), and totally
+ *  empty cells.
+ *
+ *  Conventions:
+ *    currency: shows "$1,234" or "$1.2M"/"$320K" for magnitude; "$0" for zero.
+ *    integer:  shows "7"; "0" stays "0" (not "—") so admin sees the real value.
+ *    percent:  shows "85%". Tolerates input as "0.85" or "85" or "85%".
+ *    string:   trimmed verbatim. Empty string → "—".
+ */
+export function formatCellValue(raw: string, format: CellFormat): string {
+  const trimmed = (raw ?? '').trim()
+  if (!trimmed) return '—'
+
+  if (format === 'string') return trimmed
+
+  if (format === 'currency') {
+    // Strip $ and commas, treat parentheses as negative.
+    const isParenNeg = /^\(.*\)$/.test(trimmed)
+    const cleaned = trimmed.replace(/[$,()]/g, '').replace(/\s/g, '')
+    const n = Number(cleaned)
+    if (!Number.isFinite(n)) return trimmed
+    const signed = isParenNeg ? -n : n
+    return formatCurrency(signed)
+  }
+
+  if (format === 'integer') {
+    const n = Number(trimmed.replace(/[,$\s]/g, ''))
+    if (!Number.isFinite(n)) return trimmed
+    return Math.round(n).toLocaleString()
+  }
+
+  if (format === 'percent') {
+    // Either "0.85" → 85%, or "85" → 85%, or "85%" → 85%
+    const hadPercent = /%\s*$/.test(trimmed)
+    const cleaned = trimmed.replace(/%/g, '').replace(/[,\s]/g, '')
+    const n = Number(cleaned)
+    if (!Number.isFinite(n)) return trimmed
+    const pct = hadPercent || Math.abs(n) > 1 ? n : n * 100
+    return `${pct.toFixed(0)}%`
+  }
+
+  return trimmed
+}
+
+export type ResolvedKpi = {
+  label: string
+  value: string
+  hint?: string
+}
+
+export type ResolvedSection = {
+  title: string
+  rows: Array<{ label: string; value: string }>
+}
+
+export type ResolvedGrid = {
+  title: string
+  headers: string[]
+  rows: string[][]
+  totals: string[] | null
+}
+
+export type StructuredSummary = {
+  /** Tab name the structured summary was computed from. */
+  tab: string
+  headlineKpis: ResolvedKpi[]
+  metricSections: ResolvedSection[]
+  grids: ResolvedGrid[]
+}
+
+function resolveKpi(values: string[][], kpi: StructuredKpi): ResolvedKpi {
+  return {
+    label: kpi.label,
+    value: formatCellValue(readCellValue(values, kpi.cell), kpi.format),
+    hint: kpi.hint,
+  }
+}
+
+function resolveSection(
+  values: string[][],
+  section: StructuredMetricSection,
+): ResolvedSection {
+  return {
+    title: section.title,
+    rows: section.rows.map((r) => ({
+      label: r.label,
+      value: formatCellValue(readCellValue(values, r.cell), r.format),
+    })),
+  }
+}
+
+function resolveGrid(values: string[][], grid: StructuredGrid): ResolvedGrid {
+  const headers: string[] = []
+  for (let c = grid.columnsStart; c <= grid.columnsEnd; c++) {
+    const ref = colNumberToLetter(c) + grid.headerRow
+    headers.push(readCellValue(values, ref).trim() || '')
+  }
+
+  const rows: string[][] = []
+  for (let r = grid.dataRowsStart; r <= grid.dataRowsEnd; r++) {
+    const row: string[] = []
+    let hasAnyValue = false
+    for (let c = grid.columnsStart; c <= grid.columnsEnd; c++) {
+      const ref = colNumberToLetter(c) + r
+      const raw = readCellValue(values, ref)
+      if (raw.trim()) hasAnyValue = true
+      const fmtIdx = c - grid.columnsStart
+      const fmt = grid.columnFormats[fmtIdx] ?? 'string'
+      row.push(formatCellValue(raw, fmt))
+    }
+    if (hasAnyValue) rows.push(row)
+  }
+
+  let totals: string[] | null = null
+  if (grid.totalsRow) {
+    totals = []
+    let hasAnyValue = false
+    for (let c = grid.columnsStart; c <= grid.columnsEnd; c++) {
+      const ref = colNumberToLetter(c) + grid.totalsRow
+      const raw = readCellValue(values, ref)
+      if (raw.trim()) hasAnyValue = true
+      const fmtIdx = c - grid.columnsStart
+      const fmt = grid.columnFormats[fmtIdx] ?? 'string'
+      totals.push(formatCellValue(raw, fmt))
+    }
+    if (!hasAnyValue) totals = null
+  }
+
+  return { title: grid.title, headers, rows, totals }
+}
+
+/** Convert 1-indexed column number (A=1, B=2, ..., Z=26, AA=27, ...) to letters. */
+export function colNumberToLetter(n: number): string {
+  let s = ''
+  let x = n
+  while (x > 0) {
+    const rem = (x - 1) % 26
+    s = String.fromCharCode(65 + rem) + s
+    x = Math.floor((x - 1) / 26)
+  }
+  return s
+}
+
+/**
+ * Build the full structured summary for a workbook based on its
+ * declared StructuredLayout. Callers find the named tab's values in
+ * their tab list and pass them in (the layout config names which tab).
+ *
+ * Returns null when values is missing/empty so callers can fall back
+ * to the generic summarizer.
+ */
+export function summarizeStructured(
+  values: string[][],
+  layout: StructuredLayout,
+): StructuredSummary | null {
+  if (!values || values.length === 0) return null
+
+  return {
+    tab: layout.tab,
+    headlineKpis: layout.headlineKpis.map((k) => resolveKpi(values, k)),
+    metricSections: (layout.metricSections ?? []).map((s) =>
+      resolveSection(values, s),
+    ),
+    grids: (layout.grids ?? []).map((g) => resolveGrid(values, g)),
+  }
+}

@@ -7,7 +7,12 @@ import {
   getViewUrl,
 } from '@/lib/pinned-sheets'
 import { getSheetData } from '@/lib/drive'
-import { summarize, type SheetSummary } from '@/lib/pinned-sheets-analysis'
+import {
+  summarize,
+  summarizeStructured,
+  type SheetSummary,
+  type StructuredSummary,
+} from '@/lib/pinned-sheets-analysis'
 
 /**
  * GET /api/documents/pinned-sheets/[key]
@@ -58,6 +63,12 @@ export type PinnedSheetDetailResponse = {
   }
   sourceAccountEmail: string | null
   tabs: PinnedSheetTabDetail[]
+  /** Pre-computed structured summary when the workbook has an
+   *  explicit layout config (see lib/pinned-sheets.ts). When present,
+   *  the detail view renders these as the headline KPIs instead of
+   *  running the generic dollar-sign inference, which is noisy on
+   *  workbooks with cross-tab formulas + labels-above-values layout. */
+  structuredSummary: StructuredSummary | null
   globalReadError: string | null
 }
 
@@ -95,6 +106,7 @@ export async function GET(
     return NextResponse.json({
       ...base,
       tabs: [],
+      structuredSummary: null,
       globalReadError:
         'No Drive account connected. Iframe still works; connect a Drive account in Settings to enable per-tab analysis.',
     } satisfies PinnedSheetDetailResponse)
@@ -109,6 +121,7 @@ export async function GET(
     return NextResponse.json({
       ...base,
       tabs: [],
+      structuredSummary: null,
       globalReadError:
         err instanceof Error ? err.message : 'Failed to load workbook',
     } satisfies PinnedSheetDetailResponse)
@@ -166,9 +179,26 @@ export async function GET(
     ),
   )
 
+  // Structured summary — when the sheet has a declared layout, find
+  // the named tab and compute the KPIs/sections/grids from its values.
+  // Falls back to null when the layout's named tab isn't present in
+  // the workbook (renamed, deleted, etc.) so the UI can fall back to
+  // the generic per-tab cards.
+  let structuredSummary: StructuredSummary | null = null
+  if (sheet.layout) {
+    const layoutTab = tabs.find((t) => t.title === sheet.layout!.tab)
+    if (layoutTab?.preview && !layoutTab.readError) {
+      structuredSummary = summarizeStructured(
+        layoutTab.preview,
+        sheet.layout,
+      )
+    }
+  }
+
   return NextResponse.json({
     ...base,
     tabs,
+    structuredSummary,
     globalReadError: null,
   } satisfies PinnedSheetDetailResponse)
 }

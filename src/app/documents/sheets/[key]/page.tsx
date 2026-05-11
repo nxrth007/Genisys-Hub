@@ -57,6 +57,24 @@ type TabDetail = {
   readError: string | null
 }
 
+type ResolvedKpi = { label: string; value: string; hint?: string }
+type ResolvedSection = {
+  title: string
+  rows: Array<{ label: string; value: string }>
+}
+type ResolvedGrid = {
+  title: string
+  headers: string[]
+  rows: string[][]
+  totals: string[] | null
+}
+type StructuredSummary = {
+  tab: string
+  headlineKpis: ResolvedKpi[]
+  metricSections: ResolvedSection[]
+  grids: ResolvedGrid[]
+}
+
 type DetailResponse = {
   key: string
   title: string
@@ -73,6 +91,11 @@ type DetailResponse = {
   }
   sourceAccountEmail: string | null
   tabs: TabDetail[]
+  /** Pre-computed structured summary from the workbook's declared
+   *  layout. When present, the financials view renders these as the
+   *  headline KPIs (accurate, by cell ref) instead of the noisy
+   *  dollar-sign inference. Null for sheets without a layout config. */
+  structuredSummary: StructuredSummary | null
   globalReadError: string | null
 }
 
@@ -212,50 +235,76 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
     [data.tabs, activeGid],
   )
 
-  // Aggregate KPIs across all tabs — give the team a "whole workbook
-  // at a glance" feel, not just the first tab's numbers.
-  const aggregate = useMemo(() => computeFinancialAggregate(data.tabs), [data.tabs])
+  // When the workbook has a declared layout, use the pre-computed
+  // structured summary — it reads cells by reference (B6 = Total
+  // Revenue, etc.) and is accurate. Otherwise fall back to the
+  // generic "find the dollar signs" aggregate, which is fine for
+  // simpler workbooks but produces noise on the Genisys Dashboard
+  // (cross-tab formulas triple-count revenue, labels-above-values
+  // layout defeats cellLabel, etc.).
+  const aggregate = useMemo(
+    () =>
+      data.structuredSummary ? null : computeFinancialAggregate(data.tabs),
+    [data.tabs, data.structuredSummary],
+  )
 
   return (
     <div className="space-y-5">
-      {/* KPI strip across the top */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KPICard
-          label="Top figure (workbook)"
-          value={aggregate.topFigure?.value ?? '—'}
-          hint={aggregate.topFigure?.label ?? 'No currency cells found'}
-          accent={data.accent.badgeText}
-          icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
-        />
-        <KPICard
-          label="Sum positive cells"
-          value={aggregate.sumPositive ?? '—'}
-          hint={
-            aggregate.positiveCellCount
-              ? `approx · ${aggregate.positiveCellCount} cells across tabs`
-              : undefined
-          }
-          accent={data.accent.badgeText}
-          icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
-        />
-        <KPICard
-          label="Sum negative cells"
-          value={aggregate.sumNegative ?? '—'}
-          hint={
-            aggregate.negativeCellCount
-              ? `approx · ${aggregate.negativeCellCount} cells across tabs`
-              : undefined
-          }
-          accent={data.accent.badgeText}
-          icon={<TrendingDown className="h-4 w-4 text-rose-500" />}
-        />
-        <KPICard
-          label="Tabs · rows"
-          value={`${data.tabs.length} · ${aggregate.totalRows}`}
-          hint="Sum across every tab"
+      {/* Headline KPI strip. Structured path (when layout is declared)
+          renders the exact named cells; generic fallback renders the
+          inferred Top figure / sum-positive / sum-negative tiles. */}
+      {data.structuredSummary ? (
+        <StructuredHeadline
+          summary={data.structuredSummary}
           accent={data.accent.badgeText}
         />
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KPICard
+            label="Top figure (workbook)"
+            value={aggregate!.topFigure?.value ?? '—'}
+            hint={aggregate!.topFigure?.label ?? 'No currency cells found'}
+            accent={data.accent.badgeText}
+            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
+          />
+          <KPICard
+            label="Sum positive cells"
+            value={aggregate!.sumPositive ?? '—'}
+            hint={
+              aggregate!.positiveCellCount
+                ? `approx · ${aggregate!.positiveCellCount} cells across tabs`
+                : undefined
+            }
+            accent={data.accent.badgeText}
+            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
+          />
+          <KPICard
+            label="Sum negative cells"
+            value={aggregate!.sumNegative ?? '—'}
+            hint={
+              aggregate!.negativeCellCount
+                ? `approx · ${aggregate!.negativeCellCount} cells across tabs`
+                : undefined
+            }
+            accent={data.accent.badgeText}
+            icon={<TrendingDown className="h-4 w-4 text-rose-500" />}
+          />
+          <KPICard
+            label="Tabs · rows"
+            value={`${data.tabs.length} · ${aggregate!.totalRows}`}
+            hint="Sum across every tab"
+            accent={data.accent.badgeText}
+          />
+        </div>
+      )}
+
+      {/* Metric sections + grids — only when structured layout is active */}
+      {data.structuredSummary && (
+        <StructuredSections
+          summary={data.structuredSummary}
+          accent={data.accent.badgeText}
+        />
+      )}
 
       {/* Per-tab grid — clickable to focus iframe */}
       <section>
@@ -672,6 +721,175 @@ function GenericDetailView({ data }: { data: DetailResponse }) {
         activeGid={activeGid}
         activeTabTitle={activeTab?.title ?? null}
       />
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Structured render (driven by lib/pinned-sheets.ts layout)                  */
+/* -------------------------------------------------------------------------- */
+
+/** Headline KPI strip from a workbook's declared layout. Reads named
+ *  cells (B6 = Total Revenue, etc.) instead of inferring — accurate,
+ *  not noisy. */
+function StructuredHeadline({
+  summary,
+  accent,
+}: {
+  summary: StructuredSummary
+  accent: string
+}) {
+  return (
+    <div
+      className={cn(
+        'grid grid-cols-1 gap-3',
+        summary.headlineKpis.length === 2 && 'sm:grid-cols-2',
+        summary.headlineKpis.length === 3 && 'sm:grid-cols-2 lg:grid-cols-3',
+        summary.headlineKpis.length >= 4 && 'sm:grid-cols-2 lg:grid-cols-4',
+      )}
+    >
+      {summary.headlineKpis.map((kpi, i) => (
+        <KPICard
+          key={`${kpi.label}-${i}`}
+          label={kpi.label}
+          value={kpi.value}
+          hint={kpi.hint}
+          accent={accent}
+          icon={
+            kpi.label.toLowerCase().includes('profit') ? (
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
+            ) : kpi.label.toLowerCase().includes('expense') ? (
+              <TrendingDown className="h-4 w-4 text-rose-500" />
+            ) : (
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
+            )
+          }
+        />
+      ))}
+    </div>
+  )
+}
+
+/** Metric sections + grids from a workbook's declared layout. Each
+ *  section renders as a labeled list (label → value pairs); each grid
+ *  renders as a small inline table with optional totals row. */
+function StructuredSections({
+  summary,
+  accent,
+}: {
+  summary: StructuredSummary
+  accent: string
+}) {
+  if (
+    summary.metricSections.length === 0 &&
+    summary.grids.length === 0
+  ) {
+    return null
+  }
+  return (
+    <div className="space-y-5">
+      {summary.metricSections.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {summary.metricSections.map((section, i) => (
+            <div
+              key={`${section.title}-${i}`}
+              className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                {section.title}
+              </h3>
+              <ul className="space-y-1.5">
+                {section.rows.map((r, j) => (
+                  <li
+                    key={`${r.label}-${j}`}
+                    className="flex items-start justify-between gap-3 text-xs"
+                  >
+                    <span className="text-zinc-600 dark:text-zinc-400">
+                      {r.label}
+                    </span>
+                    <span
+                      className={cn(
+                        'flex-shrink-0 font-semibold tabular-nums',
+                        accent,
+                      )}
+                    >
+                      {r.value}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {summary.grids.map((grid, i) => (
+        <section
+          key={`${grid.title}-${i}`}
+          className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            {grid.title}
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wider text-zinc-500 dark:border-zinc-800">
+                  {grid.headers.map((h, j) => (
+                    <th
+                      key={`${h}-${j}`}
+                      className={cn(
+                        'px-3 py-2',
+                        j === 0 ? 'text-left' : 'text-right',
+                      )}
+                    >
+                      {h || ' '}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {grid.rows.map((row, r) => (
+                  <tr
+                    key={r}
+                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                  >
+                    {row.map((cell, c) => (
+                      <td
+                        key={c}
+                        className={cn(
+                          'px-3 py-2 tabular-nums',
+                          c === 0
+                            ? 'text-left font-medium'
+                            : 'text-right',
+                          c === row.length - 1 && 'font-semibold',
+                        )}
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {grid.totals && (
+                  <tr className="border-t-2 border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950">
+                    {grid.totals.map((cell, c) => (
+                      <td
+                        key={c}
+                        className={cn(
+                          'px-3 py-2 font-semibold tabular-nums',
+                          c === 0 ? 'text-left' : 'text-right',
+                        )}
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
