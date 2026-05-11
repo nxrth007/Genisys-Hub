@@ -289,6 +289,7 @@ import type {
   StructuredKpi,
   StructuredMetricSection,
   StructuredGrid,
+  StructuredCard,
 } from './pinned-sheets'
 
 /** Parse "B6" / "AA12" into 0-indexed { row, col }. Returns null on
@@ -381,12 +382,19 @@ export type ResolvedGrid = {
   totals: string[] | null
 }
 
+export type ResolvedCard = {
+  title: string
+  headline: { label: string; value: string } | null
+  bullets: { sectionLabel: string; items: string[] } | null
+}
+
 export type StructuredSummary = {
   /** Tab name the structured summary was computed from. */
   tab: string
   headlineKpis: ResolvedKpi[]
   metricSections: ResolvedSection[]
   grids: ResolvedGrid[]
+  cards: ResolvedCard[]
 }
 
 /** Returns true when the cell's raw value parses as 0 or is blank /
@@ -484,6 +492,48 @@ function resolveGrid(values: string[][], grid: StructuredGrid): ResolvedGrid {
   return { title: grid.title, headers, rows, totals }
 }
 
+function resolveCard(values: string[][], card: StructuredCard): ResolvedCard {
+  const title = readCellValue(values, card.nameCell).trim() || '(untitled)'
+
+  let headline: ResolvedCard['headline'] = null
+  if (card.headline) {
+    headline = {
+      label: card.headline.label,
+      value: formatCellValue(
+        readCellValue(values, card.headline.cell),
+        card.headline.format,
+      ),
+    }
+  }
+
+  let bullets: ResolvedCard['bullets'] = null
+  if (card.bullets) {
+    const start = parseCellRef(card.bullets.startCell)
+    if (start) {
+      const items: string[] = []
+      // Walk from startCell down through endRow inclusive. The
+      // bullets in Mary's sheet start with a "•" / "▪" glyph; strip
+      // it so the UI can apply its own consistent bullet styling.
+      const endRowIdx = card.bullets.endRow - 1 // 1-indexed → 0-indexed
+      for (let r = start.row; r <= endRowIdx; r++) {
+        const row = values[r]
+        if (!row) continue
+        const raw = (row[start.col] ?? '').trim()
+        if (!raw) continue
+        // Strip leading bullet glyphs + whitespace. Covers •, ▪, *, -,
+        // and the common "·" alternative.
+        const cleaned = raw.replace(/^[•▪▫■◦●·*\-–—]\s*/, '').trim()
+        if (cleaned) items.push(cleaned)
+      }
+      if (items.length > 0) {
+        bullets = { sectionLabel: card.bullets.sectionLabel, items }
+      }
+    }
+  }
+
+  return { title, headline, bullets }
+}
+
 /** Convert 1-indexed column number (A=1, B=2, ..., Z=26, AA=27, ...) to letters. */
 export function colNumberToLetter(n: number): string {
   let s = ''
@@ -512,10 +562,11 @@ export function summarizeStructured(
 
   return {
     tab: layout.tab,
-    headlineKpis: layout.headlineKpis.map((k) => resolveKpi(values, k)),
+    headlineKpis: (layout.headlineKpis ?? []).map((k) => resolveKpi(values, k)),
     metricSections: (layout.metricSections ?? []).map((s) =>
       resolveSection(values, s),
     ),
     grids: (layout.grids ?? []).map((g) => resolveGrid(values, g)),
+    cards: (layout.cards ?? []).map((c) => resolveCard(values, c)),
   }
 }

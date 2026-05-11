@@ -68,11 +68,17 @@ type ResolvedGrid = {
   rows: string[][]
   totals: string[] | null
 }
+type ResolvedCard = {
+  title: string
+  headline: { label: string; value: string } | null
+  bullets: { sectionLabel: string; items: string[] } | null
+}
 type StructuredSummary = {
   tab: string
   headlineKpis: ResolvedKpi[]
   metricSections: ResolvedSection[]
   grids: ResolvedGrid[]
+  cards: ResolvedCard[]
 }
 
 type DetailResponse = {
@@ -490,7 +496,20 @@ function rankCurrencyString(s: string): number {
 /*  Fulfillment detail                                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Dispatcher: routes to the structured renderer when a layout is
+ * declared (Mary's Client Sheet has one), or the original generic
+ * renderer otherwise. Kept as a pure dispatcher with no hooks of its
+ * own so each branch's child component has a stable hook order.
+ */
 function FulfillmentDetailView({ data }: { data: DetailResponse }) {
+  if (data.structuredSummary) {
+    return <StructuredFulfillmentBody data={data} />
+  }
+  return <GenericFulfillmentBody data={data} />
+}
+
+function GenericFulfillmentBody({ data }: { data: DetailResponse }) {
   // Find the largest tab by row count — that's almost certainly the
   // "client list" tab. We make it the default for both the breakdown
   // cards AND the iframe focus.
@@ -934,6 +953,155 @@ function StructuredSections({
         </section>
       ))}
     </div>
+  )
+}
+
+/**
+ * Structured fulfillment view — used when a fulfillment-style sheet
+ * declares a layout (Mary's Client Sheet has 5 horizontal client
+ * cards). Replaces the generic "find the status column + pivot first
+ * column" approach entirely; that path would produce gibberish for a
+ * sheet without a tabular row structure.
+ */
+function StructuredFulfillmentBody({ data }: { data: DetailResponse }) {
+  const summary = data.structuredSummary!
+  const [activeGid, setActiveGid] = useState<number>(data.defaultGid)
+  const activeTab = useMemo(
+    () => data.tabs.find((t) => t.id === activeGid),
+    [data.tabs, activeGid],
+  )
+
+  return (
+    <div className="space-y-5">
+      {/* Card grid — one card per client, with title, headline metric,
+          and bulleted qualification criteria. The variable-length
+          bullet list means cards size themselves to their content. */}
+      {summary.cards.length > 0 && (
+        <StructuredCards cards={summary.cards} accent={data.accent.badgeText} />
+      )}
+
+      {/* Any inline grids declared in the layout (Mary's sheet has a
+          Target Areas table below the cards). */}
+      {summary.grids.length > 0 && (
+        <StructuredSections summary={summary} accent={data.accent.badgeText} />
+      )}
+
+      {/* Per-tab grid — still useful for focusing the iframe on
+          different tabs if there are multiple. Hidden when there's
+          only one tab (no navigation needed). */}
+      {data.tabs.length > 1 && (
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Tabs · click to focus the iframe
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {data.tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveGid(tab.id)}
+                className={cn(
+                  'rounded-xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md dark:bg-zinc-900',
+                  activeGid === tab.id
+                    ? 'border-blue-300 ring-2 ring-blue-200 dark:border-blue-800 dark:ring-blue-900'
+                    : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="truncate text-sm font-semibold">{tab.title}</h3>
+                  {activeGid === tab.id && (
+                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  {tab.rowCount} rows · {tab.columnCount} cols
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* The iframe — focused on the active tab */}
+      <SheetIframe
+        sheet={data}
+        activeGid={activeGid}
+        activeTabTitle={activeTab?.title ?? null}
+      />
+    </div>
+  )
+}
+
+/** Renders a grid of cards. Each card has a title, an optional
+ *  headline metric, and an optional bulleted list. Used by the
+ *  fulfillment structured view (Mary's per-client cards). */
+function StructuredCards({
+  cards,
+  accent,
+}: {
+  cards: ResolvedCard[]
+  accent: string
+}) {
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Clients
+      </h2>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card, i) => (
+          <div
+            key={`${card.title}-${i}`}
+            className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-sm font-semibold tracking-tight">
+                {card.title}
+              </h3>
+              {card.headline && (
+                <div className="flex-shrink-0 text-right">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                    {card.headline.label}
+                  </p>
+                  <p
+                    className={cn(
+                      'text-base font-semibold tabular-nums',
+                      accent,
+                    )}
+                  >
+                    {card.headline.value}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {card.bullets && card.bullets.items.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  {card.bullets.sectionLabel}
+                </p>
+                <ul className="space-y-1">
+                  {card.bullets.items.map((item, j) => (
+                    <li
+                      key={j}
+                      className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300"
+                    >
+                      <span
+                        className={cn(
+                          'mt-1.5 inline-block h-1 w-1 flex-shrink-0 rounded-full',
+                          accent.replace('text-', 'bg-'),
+                        )}
+                        aria-hidden
+                      />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

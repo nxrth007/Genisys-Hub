@@ -64,6 +64,34 @@ export type StructuredMetricSection = {
   }>
 }
 
+/** A vertical card built from a single column of cells. Used by sheets
+ *  that lay out content as horizontal cards (Mary's Client Sheet has
+ *  one card per client in alternating columns B/D/F/H/J), rather than
+ *  the more typical "rows of records" tabular layout.
+ *
+ *  Each card has a title (read from `nameCell`), an optional headline
+ *  metric (e.g. "Leads Needed: 10"), and a variable-length list of
+ *  bullets read from a column range. Empty cells in the bullet range
+ *  are dropped so the card sizes itself to its content. */
+export type StructuredCard = {
+  /** Cell that holds the card's title (e.g. B5 → "JOE — ILLINOIS"). */
+  nameCell: CellRef
+  /** Optional headline metric rendered just under the title. */
+  headline?: {
+    label: string
+    cell: CellRef
+    format: CellFormat
+  }
+  /** Vertical range to scan for bullet rows. The column comes from
+   *  `startCell`; the analyzer reads from `startCell`'s row down
+   *  through `endRow` inclusive, dropping empty cells. */
+  bullets?: {
+    sectionLabel: string
+    startCell: CellRef
+    endRow: number
+  }
+}
+
 /** Description of an inline grid (e.g. the Monthly P&L block). */
 export type StructuredGrid = {
   title: string
@@ -90,12 +118,19 @@ export type StructuredGrid = {
 export type StructuredLayout = {
   /** Tab name (sheet title) whose values feed every cell ref below. */
   tab: string
-  /** Headline KPI strip at the top of the detail page. */
-  headlineKpis: StructuredKpi[]
+  /** Headline KPI strip at the top of the detail page. Optional —
+   *  sheets that are all qualitative (no headline numbers, like
+   *  Mary's Client Sheet) can leave this off and lead with cards
+   *  or grids instead. */
+  headlineKpis?: StructuredKpi[]
   /** Grouped metric sections rendered below the headline. */
   metricSections?: StructuredMetricSection[]
   /** Optional inline grids (rendered as small tables). */
   grids?: StructuredGrid[]
+  /** Optional cards — for sheets that lay out content horizontally,
+   *  one card per column block (e.g. Mary's Client Sheet has 5
+   *  per-client cards in alternating columns B/D/F/H/J). */
+  cards?: StructuredCard[]
 }
 
 export type PinnedSheet = {
@@ -240,6 +275,86 @@ export const PINNED_SHEETS: PinnedSheet[] = [
       badgeText: 'text-violet-700 dark:text-violet-300',
       iconBg: 'bg-violet-50 dark:bg-violet-950',
       iconText: 'text-violet-600 dark:text-violet-300',
+    },
+    // Mary's sheet uses a UNIQUE horizontal-card layout: 5 client
+    // cards arranged in alternating columns (B, D, F, H, J), each
+    // with title in row 5, "Leads needed" value in row 7, then
+    // variable-length qualification criteria bullets in rows 10-17.
+    // A separate Target Areas table sits below at rows 22-27.
+    //
+    // Generic fulfillment summarizer (count rows, find status column,
+    // pivot first-column uniques) produces gibberish here -- there's
+    // no header row, no status column, and column A is empty spacer.
+    // Verified against the actual workbook on 2026-05-11.
+    layout: {
+      tab: 'Marys Clients',
+      cards: [
+        {
+          nameCell: 'B5',
+          headline: { label: 'Leads needed', cell: 'B7', format: 'integer' },
+          bullets: {
+            sectionLabel: 'Qualification criteria',
+            startCell: 'B10',
+            endRow: 17,
+          },
+        },
+        {
+          nameCell: 'D5',
+          headline: { label: 'Leads needed', cell: 'D7', format: 'integer' },
+          bullets: {
+            sectionLabel: 'Qualification criteria',
+            startCell: 'D10',
+            endRow: 17,
+          },
+        },
+        {
+          nameCell: 'F5',
+          headline: { label: 'Leads needed', cell: 'F7', format: 'integer' },
+          bullets: {
+            sectionLabel: 'Qualification criteria',
+            startCell: 'F10',
+            endRow: 17,
+          },
+        },
+        {
+          nameCell: 'H5',
+          headline: { label: 'Leads needed', cell: 'H7', format: 'integer' },
+          bullets: {
+            sectionLabel: 'Qualification criteria',
+            startCell: 'H10',
+            endRow: 17,
+          },
+        },
+        {
+          nameCell: 'J5',
+          headline: { label: 'Leads needed', cell: 'J7', format: 'integer' },
+          bullets: {
+            sectionLabel: 'Qualification criteria',
+            startCell: 'J10',
+            endRow: 17,
+          },
+        },
+      ],
+      grids: [
+        {
+          // Target Areas table sits below the cards. Headers in row
+          // 22 (CLIENT | TARGET AREA | APPOINTMENT FORMAT), data
+          // rows 23-27 (one per client). No totals row.
+          title: 'Target areas',
+          headerRow: 22,
+          dataRowsStart: 23,
+          dataRowsEnd: 27,
+          columnsStart: 2, // B
+          columnsEnd: 6,   // F
+          columnFormats: [
+            'string', // B - Client
+            'string', // C - (spacer)
+            'string', // D - Target area
+            'string', // E - (spacer)
+            'string', // F - Appointment format
+          ],
+        },
+      ],
     },
   },
 ]
