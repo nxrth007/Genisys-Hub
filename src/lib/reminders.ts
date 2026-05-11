@@ -663,15 +663,39 @@ function lastNameOf(name: string): string | undefined {
 }
 
 /**
- * Loose validation — accept anything that contains a 10-digit US
- * phone number. Sheet entries are wildly inconsistent in formatting
- * ("(555) 123-4567" / "5551234567" / "1-555-123-4567"), so we strip
- * non-digits and check the digit count rather than enforcing a
- * specific format. The send path normalizes to E.164 separately.
+ * Loose validation — accept any field that contains AT LEAST ONE
+ * valid US phone number. Sheet entries are wildly inconsistent in
+ * formatting ("(555) 123-4567" / "5551234567" / "1-555-123-4567"),
+ * AND Mary often enters two phones in the same field ("(201)
+ * 674-4561 (201) 248-9140" for a household with a mobile + home).
+ *
+ * Previously this stripped non-digits from the WHOLE raw string and
+ * checked length — which fails two-phone entries (20 digits ≠ 10/11)
+ * and falsely marks the reminder as "invalid phone" before the
+ * dispatch path could parse out the primary number. Now we delegate
+ * to parsePhoneEntries (which the send-path's primaryPhoneFor()
+ * already uses) and accept if any extracted entry is a 10/11-digit
+ * US number. Single-phone entries still validate via the same regex.
  */
 function isValidUsPhone(phone: string): boolean {
+  const { entries } = parsePhoneEntries(phone)
+  if (entries.length > 0) {
+    return entries.some((e) => {
+      const digits = e.number.replace(/\D/g, '')
+      return (
+        digits.length === 10 ||
+        (digits.length === 11 && digits.startsWith('1'))
+      )
+    })
+  }
+  // Defensive fallback when the parser finds nothing: behave like the
+  // old loose check on the raw string so we don't regress edge cases
+  // where the format is unusual but a 10-digit sequence is present.
   const digits = phone.replace(/\D/g, '')
-  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'))
+  return (
+    digits.length === 10 ||
+    (digits.length === 11 && digits.startsWith('1'))
+  )
 }
 
 /**
