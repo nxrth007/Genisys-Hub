@@ -125,40 +125,27 @@ export default auth((req) => {
     return NextResponse.redirect(new URL('/agent', req.nextUrl.origin))
   }
 
-  // Self-registered clients in mid-flow. The signup is a multi-step
-  // funnel — register → onboarding form → admin approval — and we
-  // pin each role to its dedicated screen so users can't jump ahead.
-  //   client_pending     → onboarding form (next step)
-  //   client_onboarding  → "we're reviewing" waiting screen
+  // Self-registered clients in mid-flow. As of 2026-05-11 the flow
+  // is: register → /client (pre-pay welcome + plan picker) → admin
+  // approves → /client (onboarding form embedded) → /client (live
+  // tracker). One destination, content adapts to role — feels like
+  // the user is "in" the product instead of navigating a funnel.
+  //   client_pending     → /client renders pre-pay welcome + plan picker
+  //   client_onboarding  → /client renders the onboarding form
   //   client_denied      → terminal denied screen
-  if (role === 'client_pending') {
+  if (role === 'client_pending' || role === 'client_onboarding') {
     const allowed =
+      pathname === '/client' ||
+      pathname.startsWith('/api/client/') ||
+      pathname.startsWith('/api/auth') ||
+      // Legacy redirects — kept alive so any bookmarks from the old
+      // funnel land on /client cleanly. The pages themselves now
+      // redirect to /client.
       pathname === '/signin/client/onboarding-form' ||
-      pathname.startsWith('/api/client/onboarding-form') ||
-      // Google Places autocomplete on the business-address field —
-      // the prospect needs this while filling out the onboarding
-      // form, before they're approved.
-      pathname.startsWith('/api/client/maps/places') ||
-      pathname.startsWith('/api/auth')
-    if (allowed) return NextResponse.next()
-    return NextResponse.redirect(
-      new URL('/signin/client/onboarding-form', req.nextUrl.origin),
-    )
-  }
-  if (role === 'client_onboarding') {
-    // /payment is the post-onboarding step where they get the
-    // QuickBooks link for their package. /pending is the terminal
-    // waiting screen. /api/client/me is used by /payment to look up
-    // which package they picked. Anything else bounces to /pending.
-    const allowed =
-      pathname === '/signin/client/pending' ||
       pathname === '/signin/client/payment' ||
-      pathname.startsWith('/api/client/me') ||
-      pathname.startsWith('/api/auth')
+      pathname === '/signin/client/pending'
     if (allowed) return NextResponse.next()
-    return NextResponse.redirect(
-      new URL('/signin/client/pending', req.nextUrl.origin),
-    )
+    return NextResponse.redirect(new URL('/client', req.nextUrl.origin))
   }
   if (role === 'client_denied') {
     const allowed =

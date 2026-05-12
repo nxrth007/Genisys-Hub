@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
 import { canonicalizeStateName, isKnownState } from '@/lib/address'
+import { provisionClientWorkspace } from '@/lib/client-workspace'
 
 /**
  * POST /api/client/onboarding-form
@@ -61,26 +62,35 @@ export async function POST(req: NextRequest) {
       { status: 401 },
     )
   }
-  // Already-submitted: helpful message instead of a confusing 403.
-  // Middleware will route them to /signin/client/pending on their
-  // next navigation.
-  if (session.user.role === 'client_onboarding') {
-    return NextResponse.json(
-      {
-        error:
-          'You have already submitted this form. Our team is reviewing it now — you will get an email when your account is approved.',
-      },
-      { status: 409 },
-    )
-  }
-  if (session.user.role !== 'client_pending') {
+  // As of 2026-05-11 the onboarding form is filled out AFTER admin
+  // approves the prospect (post-payment). Role must be
+  // 'client_onboarding'; anyone else gets a clear redirect message.
+  if (session.user.role !== 'client_onboarding') {
+    if (session.user.role === 'client_active') {
+      return NextResponse.json(
+        {
+          error:
+            'You have already completed onboarding. Refresh the page to see your tracker.',
+        },
+        { status: 409 },
+      )
+    }
+    if (session.user.role === 'client_pending') {
+      return NextResponse.json(
+        {
+          error:
+            'Please complete payment first. We will review your account before you can fill out the onboarding form.',
+        },
+        { status: 403 },
+      )
+    }
     console.warn(
       `[client/onboarding-form] unexpected role=${session.user.role} for user ${session.user.id}`,
     )
     return NextResponse.json(
       {
         error:
-          'This form is only available to newly registered accounts. If you signed in with an existing staff or agent account, sign out and register again with a different email.',
+          'This form is only available to approved clients filling out their onboarding. If you signed in with a different account, sign out and use your client account.',
       },
       { status: 403 },
     )
@@ -208,13 +218,34 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Block name collisions with existing clients — Client.name is
-  // unique. Friendly error rather than a Prisma constraint blow-up.
-  const existingClient = await prisma.client.findUnique({
-    where: { name: businessName },
+  // Re-fetch the user (need clientId + email). The Client row was
+  // created at select-plan time; this handler updates it in place.
+  const me = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true, clientId: true },
+  })
+  if (!me) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+  if (!me.clientId) {
+    return NextResponse.json(
+      {
+        error:
+          'Your account is missing its client record. Contact support — this should never happen for an approved client.',
+      },
+      { status: 409 },
+    )
+  }
+
+  // Block name collisions with OTHER clients — Client.name is
+  // unique. The current Client (this user's own) is excluded so
+  // changing other details while keeping the same business name
+  // doesn't trip the constraint.
+  const nameTaken = await prisma.client.findFirst({
+    where: { name: businessName, id: { not: me.clientId } },
     select: { id: true },
   })
-  if (existingClient) {
+  if (nameTaken) {
     return NextResponse.json(
       {
         error:
@@ -224,29 +255,22 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Re-fetch the user to be sure the role-flip happens against the
-  // latest server state (and to grab the email for the contactEmail
-  // default — Phase 2 uses the signin email as the client's contact
-  // email by default, admin can edit later).
-  const me = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { id: true, email: true },
-  })
-  if (!me) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
-
-  // Two writes in one transaction: create the Client + flip the User
-  // role + clientId pointer. Atomic so we never end up with a Client
-  // row that no User points to (or vice-versa).
-  const created = await prisma.$transaction(async (tx) => {
-    const client = await tx.client.create({
+  // Update the existing Client (created at select-plan time) +
+  // flip the user role to client_active. Atomic so a partial
+  // failure can't leave the user in an inconsistent state.
+  const updated = await prisma.$transaction(async (tx) => {
+    const client = await tx.client.update({
+      where: { id: me.clientId! },
       data: {
         name: businessName,
         // Canonicalize so "NH" / "nh" → "New Hampshire" before
         // hitting the DB. Display + filtering then read consistent
         // values regardless of how the prospect typed it.
         state: canonicalizeStateName(state),
+        // Tier may have been changed since the select-plan step
+        // (admin might have edited it during review, or the user
+        // submitted a different value here). Trust what's on the
+        // form now.
         package: tier,
         contactName: fullName,
         contactRole: role || null,
@@ -265,28 +289,31 @@ export async function POST(req: NextRequest) {
         bookWeekends,
         website,
         providesBatteryBackup,
-        // Long-form intake answers — optional, can be null.
+        // Long-form intake answers — optional, can be null. The
+        // select-plan step stashed a payment-option note here; this
+        // submission replaces it with the prospect's own notes (if
+        // any). Admin can still see the original note in the email
+        // notification that fired at select-plan time.
         qualificationCriteria,
         onboardingNotes,
-        lifecycle: 'pending',
-        // Hide pending clients from the booking picker so agents
-        // don't accidentally start logging appointments against an
-        // unapproved business.
-        active: false,
+        lifecycle: 'active',
+        active: true,
       },
       select: { id: true, name: true, package: true },
     })
     const user = await tx.user.update({
       where: { id: me.id },
       data: {
-        clientId: client.id,
-        role: 'client_onboarding',
+        role: 'client_active',
         name: fullName,
       },
       select: { id: true, email: true, name: true },
     })
     return { client, user }
   })
+
+  // Reuse the variable name the rest of the file expects.
+  const created = updated
 
   // Fire-and-forget both notifications so the user-facing API doesn't
   // block on Gmail. If a send fails, it lands in the server log via
@@ -297,9 +324,9 @@ export async function POST(req: NextRequest) {
   sendEmail({
     accountEmail: FROM_GMAIL_ACCOUNT,
     to: ADMIN_NOTIFY_EMAIL,
-    subject: `[Genisys Hub] Onboarding submitted: ${created.client.name}`,
+    subject: `[Genisys Hub] Onboarding details submitted: ${created.client.name}`,
     body: [
-      `**${fullName}** at **${created.client.name}** just completed the onboarding form.`,
+      `**${fullName}** at **${created.client.name}** just submitted their full onboarding details. The account is now active and they can see appointments come through as Mary books them.`,
       '',
       `Tier: ${created.client.package}`,
       `Email: ${created.user.email}`,
@@ -324,9 +351,9 @@ export async function POST(req: NextRequest) {
         : '',
       onboardingNotes ? `\nAdditional notes:\n${onboardingNotes}` : '',
       '',
-      `[Review on Hub →](${reviewUrl})`,
+      `[View on Hub →](${reviewUrl})`,
       '',
-      'Approve or deny on the Onboarding → Pending tab.',
+      'Their account is already active; this email is a heads-up so you can spot-check the details if needed.',
     ]
       .filter(Boolean)
       .join('\n'),
@@ -334,26 +361,39 @@ export async function POST(req: NextRequest) {
     console.error('[client/onboarding-form] admin notify failed:', err)
   })
 
-  // Confirmation email to the client. Sets expectation that admin
-  // review is the next step. Includes the sign-in URL so they can
-  // bookmark it for when approval lands.
+  // Confirmation email to the client. They're already approved at
+  // this point (this submission is the LAST step of the funnel
+  // post-approval), so the message reads as a welcome rather than a
+  // "you're under review" note.
   sendEmail({
     accountEmail: FROM_GMAIL_ACCOUNT,
     to: created.user.email,
-    subject: 'Your Lead Genisys application is in review',
+    subject: `Welcome to Lead Genisys, ${created.client.name}`,
     body: [
       `Hi ${fullName},`,
       '',
-      `Thanks for completing your onboarding for **${created.client.name}**. Our team is reviewing your application now and will reach out shortly.`,
+      `You're all set! Your onboarding for **${created.client.name}** is complete and your dashboard is live.`,
       '',
-      `You will get another email the moment we approve you — at that point you can sign in here and watch your appointments come through in real time:`,
+      `Appointments will show up in real time as we book them for you:`,
       '',
-      `[Sign in →](${clientSigninUrl})`,
+      `[Open your dashboard →](${clientSigninUrl})`,
       '',
       '— Lead Genisys',
     ].join('\n'),
   }).catch((err) => {
     console.error('[client/onboarding-form] client notify failed:', err)
+  })
+
+  // Slack workspace provisioning (private channel, team invites,
+  // Slack Connect invite to the client's contactEmail) fires here
+  // now that the business name + contact details are finalized.
+  // The approval API skips provisioning when needsOnboarding=true
+  // for exactly this reason — wait until the name is stable.
+  provisionClientWorkspace(created.client.id).catch((err) => {
+    console.error(
+      `[client/onboarding-form] Slack provisioning crashed for ${created.client.id}:`,
+      err,
+    )
   })
 
   return NextResponse.json({

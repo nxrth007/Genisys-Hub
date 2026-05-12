@@ -69,7 +69,13 @@ export default function ClientRegisterPage() {
       // router.push, NextAuth's credentials cookie sometimes hasn't
       // finished writing before the form-submit fetch fires, which
       // leads to a stale-session 403 from middleware.
-      window.location.assign('/signin/client/onboarding-form')
+      //
+      // Lands on /client (the new flow as of 2026-05-11). The
+      // /client page renders a pre-pay welcome + plan picker while
+      // the user is still client_pending; after admin approval the
+      // SAME route renders the onboarding form, then the live
+      // tracker. One destination, content adapts to role.
+      window.location.assign('/client')
     } finally {
       setSubmitting(false)
     }

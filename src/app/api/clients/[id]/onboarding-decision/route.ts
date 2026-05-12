@@ -83,20 +83,39 @@ export async function POST(
     select: { id: true, email: true, role: true, name: true },
   })
 
+  // Approval routing (2026-05-11 flow change): clients who self-
+  // registered through the new funnel come into approval with only
+  // name + package set on the Client row (from select-plan). They
+  // still need to fill out the full onboarding form AFTER approval.
+  // The signal is contactName — null means "select-plan only, hasn't
+  // done the form yet"; non-null means "form already submitted"
+  // (legacy flow OR clients admin pre-filled manually).
+  const needsOnboarding = action === 'approve' && !client.contactName
+
   // Single transaction: flip the client lifecycle + every linked
   // User. If a future bug ever leaves zero linked users, the client
   // still gets the decision applied — admin's intent shouldn't be
   // blocked by a missing pointer.
   const updated = await prisma.$transaction(async (tx) => {
+    const clientData =
+      action === 'deny'
+        ? { lifecycle: 'denied', active: false }
+        : needsOnboarding
+          ? // Approved but still needs to fill out details — visible
+            // to admin / not visible to agents as a booking target.
+            { lifecycle: 'onboarding', active: false }
+          : { lifecycle: 'active', active: true }
     const c = await tx.client.update({
       where: { id: client.id },
-      data:
-        action === 'approve'
-          ? { lifecycle: 'active', active: true }
-          : { lifecycle: 'denied', active: false },
+      data: clientData,
       select: { id: true, name: true, lifecycle: true, active: true },
     })
-    const newRole = action === 'approve' ? 'client_active' : 'client_denied'
+    const newRole =
+      action === 'deny'
+        ? 'client_denied'
+        : needsOnboarding
+          ? 'client_onboarding'
+          : 'client_active'
     if (linkedUsers.length > 0) {
       await tx.user.updateMany({
         where: { id: { in: linkedUsers.map((u) => u.id) } },
@@ -122,17 +141,29 @@ export async function POST(
     const greeting = client.contactName || u.name || 'there'
     const body =
       action === 'approve'
-        ? [
-            `Hi ${greeting},`,
-            '',
-            `Your **${client.name}** account is approved. You can sign in and watch your appointments come through in real time.`,
-            '',
-            `[Sign in →](${signinUrl})`,
-            '',
-            'If you have any questions, just reply to this email.',
-            '',
-            '— Lead Genisys',
-          ].join('\n')
+        ? needsOnboarding
+          ? [
+              `Hi ${greeting},`,
+              '',
+              `Your **${client.name}** payment is confirmed and your account is approved. The last step is filling out a short onboarding form so we know exactly how to qualify leads for you.`,
+              '',
+              `[Sign in to finish setup →](${signinUrl})`,
+              '',
+              'Once that\'s done your dashboard goes live and appointments will start showing up there in real time.',
+              '',
+              '— Lead Genisys',
+            ].join('\n')
+          : [
+              `Hi ${greeting},`,
+              '',
+              `Your **${client.name}** account is approved. You can sign in and watch your appointments come through in real time.`,
+              '',
+              `[Sign in →](${signinUrl})`,
+              '',
+              'If you have any questions, just reply to this email.',
+              '',
+              '— Lead Genisys',
+            ].join('\n')
         : [
             `Hi ${greeting},`,
             '',
@@ -145,7 +176,9 @@ export async function POST(
       to: u.email,
       subject:
         action === 'approve'
-          ? 'Welcome to Lead Genisys — your account is approved'
+          ? needsOnboarding
+            ? 'Your Lead Genisys account is approved — one quick step to go'
+            : 'Welcome to Lead Genisys — your account is approved'
           : 'Lead Genisys application update',
       body,
     }).catch((err) => {
@@ -156,13 +189,15 @@ export async function POST(
     })
   }
 
-  // On approval, fire-and-forget the Slack workspace provisioning:
-  // private channel + team invites + Slack Connect invite to the
-  // client's contactEmail. The orchestrator never throws; it logs
-  // failures to console + #genisys-alerts so admin can react. We
-  // don't block the API response on this — admin gets their decision
-  // confirmed instantly, the channel shows up shortly after.
-  if (action === 'approve') {
+  // On full approval (lifecycle going straight to 'active'),
+  // fire-and-forget Slack workspace provisioning: private channel
+  // + team invites + Slack Connect invite to the client's
+  // contactEmail. We skip this when needsOnboarding=true since the
+  // business name may still change on the onboarding form, and we
+  // don't want to create a channel that gets renamed in 5 minutes.
+  // The onboarding-form submission route triggers provisioning at
+  // that point instead.
+  if (action === 'approve' && !needsOnboarding) {
     provisionClientWorkspace(client.id).catch((err) => {
       console.error(
         `[clients/onboarding-decision] Slack provisioning crashed for ${client.id}:`,
