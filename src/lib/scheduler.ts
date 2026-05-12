@@ -53,6 +53,17 @@ let lastClientAlertSyncAt = 0
 // 5 min is too long to wait for a client message ping.
 const CLIENT_MESSAGE_ALERT_INTERVAL_MS = 60 * 1000
 let lastClientMessageAlertAt = 0
+// In-flight guard. node-cron's '* * * * *' fires every minute
+// regardless of whether the previous tick finished — when a GHL fetch
+// + 100-conversation scan takes >60s, two ticks of syncClientMessageAlerts
+// run concurrently and race on the (conversationId, lastMessageId)
+// dedup insert. This flag skips the new tick if the previous one is
+// still running. Symptom we're fixing: occasional prisma:error
+// "Unique constraint failed" stacks in the Render logs even after the
+// findFirst pre-check — pure race, app-level dedup still correct, but
+// noisy. Same pattern would help the other long-running jobs but only
+// the client-msg alert was hot enough to spam logs in practice.
+let clientMessageAlertInFlight = false
 
 export function initScheduler() {
   if (initialized) return
@@ -156,22 +167,37 @@ export function initScheduler() {
     // every minute for new inbound messages from registered clients
     // and posts a one-line ping to #genisys-alerts so the team can
     // respond fast. Reminder-system threads are excluded server-side.
-    try {
+    //
+    // Wrapped in clientMessageAlertInFlight guard so a slow GHL fetch
+    // (which can push one tick past the 60s mark) doesn't cause the
+    // next tick to start a second concurrent scan — that race was the
+    // source of the "Unique constraint failed" prisma:error stacks we
+    // were chasing in the logs.
+    if (clientMessageAlertInFlight) {
+      // Previous tick still running. Skip silently — no log line so we
+      // don't spam under sustained slowness; the next free tick will
+      // pick things up.
+    } else {
       const now = Date.now()
       if (
         now - lastClientMessageAlertAt >=
         CLIENT_MESSAGE_ALERT_INTERVAL_MS
       ) {
         lastClientMessageAlertAt = now
-        const result = await syncClientMessageAlerts()
-        if (result.alerted > 0 || result.failed > 0) {
-          console.log(
-            `[scheduler] client-msg alert: ${result.alerted} new, ${result.skipped} already-alerted, ${result.outbound} our-replies, ${result.unmatched} non-client, ${result.failed} failed (of ${result.scanned} scanned)`,
-          )
+        clientMessageAlertInFlight = true
+        try {
+          const result = await syncClientMessageAlerts()
+          if (result.alerted > 0 || result.failed > 0) {
+            console.log(
+              `[scheduler] client-msg alert: ${result.alerted} new, ${result.skipped} already-alerted, ${result.outbound} our-replies, ${result.unmatched} non-client, ${result.failed} failed (of ${result.scanned} scanned)`,
+            )
+          }
+        } catch (err) {
+          console.error('[scheduler] client-msg alert failed:', err)
+        } finally {
+          clientMessageAlertInFlight = false
         }
       }
-    } catch (err) {
-      console.error('[scheduler] client-msg alert failed:', err)
     }
   })
 }
