@@ -27,7 +27,7 @@
  * doesn't get past the middleware check above this layer).
  */
 
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
@@ -40,6 +40,8 @@ import {
   LogOut,
   Search,
   Sparkles,
+  Trophy,
+  XCircle,
 } from 'lucide-react'
 import { signOut } from 'next-auth/react'
 
@@ -61,6 +63,9 @@ type MeClient = {
   package: string
   lifecycle: string
   contactName: string | null
+  apptCap: number | null
+  slackChannelId: string | null
+  slackChannelName: string | null
 }
 
 type MeResponse = {
@@ -134,6 +139,14 @@ export default function ClientHomePage() {
       <DashboardHeader
         title={client?.name ?? 'Your Lead Genisys account'}
         subtitle={subtitleFor(user.role)}
+        slackChannel={
+          client?.slackChannelId
+            ? {
+                id: client.slackChannelId,
+                name: client.slackChannelName,
+              }
+            : null
+        }
       />
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         {user.role === 'client_pending' && !client && (
@@ -181,10 +194,19 @@ function subtitleFor(role: string): string {
 function DashboardHeader({
   title,
   subtitle,
+  slackChannel,
 }: {
   title: string
   subtitle: string
+  slackChannel: { id: string; name: string | null } | null
 }) {
+  // Slack universal redirect URL: works in app + browser regardless of
+  // which workspace they're signed into. Clients almost always forget
+  // they have a private channel with us, so surfacing it here cuts
+  // support tickets ("hey how do I reach you?" → "click the pill").
+  const slackUrl = slackChannel
+    ? `https://slack.com/app_redirect?channel=${slackChannel.id}`
+    : null
   return (
     <header className="border-b border-zinc-200 bg-white px-4 py-4 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
@@ -195,13 +217,48 @@ function DashboardHeader({
             <p className="truncate text-[11px] text-zinc-500">{subtitle}</p>
           </div>
         </div>
-        <button
-          onClick={() => signOut({ callbackUrl: '/signin/client' })}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Sign out
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {slackUrl && (
+            <a
+              href={slackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={
+                slackChannel?.name
+                  ? `Open #${slackChannel.name} in Slack`
+                  : 'Open your Slack channel'
+              }
+              className="hidden items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 sm:inline-flex dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200 dark:hover:bg-violet-900"
+            >
+              <span aria-hidden>#</span>
+              <span className="max-w-[120px] truncate">
+                {slackChannel?.name ?? 'Slack channel'}
+              </span>
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {slackUrl && (
+            <a
+              href={slackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open Slack"
+              aria-label="Open Slack channel"
+              className="inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-violet-700 hover:bg-violet-100 sm:hidden dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200"
+            >
+              <span className="text-xs font-semibold leading-none" aria-hidden>
+                #
+              </span>
+            </a>
+          )}
+          <button
+            onClick={() => signOut({ callbackUrl: '/signin/client' })}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Sign out</span>
+          </button>
+        </div>
       </div>
     </header>
   )
@@ -939,8 +996,14 @@ function Field({
 
 function TrackerView() {
   const [search, setSearch] = useState('')
+  const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<{
-    client: { id: string; name: string } | null
+    client: {
+      id: string
+      name: string
+      package: string
+      apptCap: number | null
+    } | null
     appointments: Appointment[]
     warning?: string
   }>({
@@ -955,6 +1018,32 @@ function TrackerView() {
     },
   })
 
+  // Client-side Won/Lost mutation. Optimistically updates the cached
+  // appointments list so the button state flips instantly; on error we
+  // refetch to resync. Server enforces auth + state-machine guard so
+  // a misbehaving client can't escalate.
+  const setOutcome = useMutation({
+    mutationFn: async ({
+      id,
+      outcome,
+    }: {
+      id: string
+      outcome: 'won' | 'lost' | 'clear'
+    }) => {
+      const res = await fetch(`/api/client/appointments/${id}/outcome`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outcome }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to update')
+      return json
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['client-appointments'] })
+    },
+  })
+
   const filtered = (data?.appointments ?? []).filter((a) => {
     if (!search.trim()) return true
     const q = search.toLowerCase()
@@ -966,25 +1055,69 @@ function TrackerView() {
     )
   })
 
-  // Stat counts. "Upcoming" is workflow-state-based (booked or
-  // rescheduled) rather than timestamp-based — cleaner semantics
-  // for a client view (they care about pipeline state, not whether
-  // the clock has crossed the appointment boundary by a few minutes).
-  // Won/Lost roll up into "Showed" since they're outcomes ON TOP of
-  // showing up; closing a deal shouldn't lower the show count.
+  // Headline stats — three numbers that actually matter to a client
+  // checking the page: how many came in this calendar month, what %
+  // of past appointments showed up, and (for Growth Pack only) how
+  // close they are to the monthly cap they're paying for.
+  //
+  // "Showed" rollup logic: an appointment whose status is 'showed',
+  // 'won', or 'lost' counts as a show (won/lost are outcomes layered
+  // ON a show). Denominator excludes booked/rescheduled — those
+  // haven't had a chance to show yet, so including them would drag
+  // the rate down artificially.
   const stats = useMemo(() => {
     const all = data?.appointments ?? []
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+    const thisMonth = all.filter((a) => {
+      const d = new Date(a.apptDateTime)
+      return d >= monthStart && d <= now
+    }).length
+
+    const showedish = all.filter(
+      (a) => a.status === 'showed' || a.status === 'won' || a.status === 'lost',
+    ).length
+    const noShowed = all.filter((a) => a.status === 'no_show').length
+    const hadChance = showedish + noShowed
+    const showRate = hadChance > 0 ? Math.round((showedish / hadChance) * 100) : null
+
+    const upcoming = all.filter((a) => {
+      const d = new Date(a.apptDateTime)
+      return (
+        (a.status === 'booked' || a.status === 'rescheduled') &&
+        d >= now &&
+        d <= weekFromNow
+      )
+    })
+
     return {
-      total: all.length,
-      upcoming: all.filter(
-        (a) => a.status === 'booked' || a.status === 'rescheduled',
-      ).length,
-      showed: all.filter(
-        (a) =>
-          a.status === 'showed' || a.status === 'won' || a.status === 'lost',
-      ).length,
-      noShow: all.filter((a) => a.status === 'no_show').length,
+      thisMonth,
+      showRate,
+      upcomingNext7: upcoming.length,
+      upcomingList: upcoming
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(a.apptDateTime).getTime() -
+            new Date(b.apptDateTime).getTime(),
+        )
+        .slice(0, 3),
     }
+  }, [data?.appointments])
+
+  const isGrowth = data?.client?.package === 'growth'
+  const cap = data?.client?.apptCap ?? null
+  // Cap is monthly. Count appointments in current month regardless of
+  // status — what the client paid for is delivery, not show rate.
+  const monthDelivered = useMemo(() => {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    return (data?.appointments ?? []).filter((a) => {
+      const d = new Date(a.apptDateTime)
+      return d >= monthStart
+    }).length
   }, [data?.appointments])
 
   return (
@@ -996,12 +1129,70 @@ function TrackerView() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Total" value={stats.total} />
-        <StatCard label="Upcoming" value={stats.upcoming} />
-        <StatCard label="Showed" value={stats.showed} tone="green" />
-        <StatCard label="No-show" value={stats.noShow} tone="rose" />
+      {/* Headline stats — three (or four with cap) numbers. Mobile
+          gets 2-up; desktop expands to 3- or 4-up so the row stays
+          compact without wrapping awkwardly. */}
+      <div
+        className={`mb-4 grid grid-cols-2 gap-3 ${
+          isGrowth && cap ? 'md:grid-cols-4' : 'md:grid-cols-3'
+        }`}
+      >
+        <StatCard label="This month" value={stats.thisMonth} />
+        <StatCard
+          label="Show rate"
+          value={stats.showRate === null ? '—' : `${stats.showRate}%`}
+          tone={
+            stats.showRate === null
+              ? undefined
+              : stats.showRate >= 70
+                ? 'green'
+                : stats.showRate >= 50
+                  ? undefined
+                  : 'rose'
+          }
+        />
+        <StatCard label="Next 7 days" value={stats.upcomingNext7} />
+        {isGrowth && cap && (
+          <PaceCard delivered={monthDelivered} cap={cap} />
+        )}
       </div>
+
+      {/* Upcoming-this-week callout. Hidden when nothing is on the
+          books in the next 7 days — avoids visual clutter on quiet
+          weeks. */}
+      {stats.upcomingList.length > 0 && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/50">
+          <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-blue-800 dark:text-blue-200">
+            <Calendar className="h-3.5 w-3.5" />
+            Coming up this week
+          </div>
+          <ul className="space-y-1 text-blue-900 dark:text-blue-100">
+            {stats.upcomingList.map((a) => (
+              <li
+                key={a.id}
+                className="flex flex-wrap items-baseline gap-x-2 tabular-nums"
+              >
+                <span className="font-medium">{formatDateTime(a.apptDateTime)}</span>
+                <span className="text-blue-700 dark:text-blue-300">·</span>
+                <span>{a.customerName}</span>
+                {a.address && (
+                  <>
+                    <span className="text-blue-700 dark:text-blue-300">·</span>
+                    <span className="truncate text-blue-700 dark:text-blue-300">
+                      {a.address}
+                    </span>
+                  </>
+                )}
+              </li>
+            ))}
+            {stats.upcomingNext7 > stats.upcomingList.length && (
+              <li className="text-blue-700 dark:text-blue-300">
+                + {stats.upcomingNext7 - stats.upcomingList.length} more this week
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
 
       <div className="mb-4 flex items-center gap-2">
         <div className="relative max-w-sm flex-1">
@@ -1041,6 +1232,7 @@ function TrackerView() {
                   <th className="px-4 py-2 text-left font-semibold">Bill</th>
                   <th className="px-4 py-2 text-left font-semibold">Utility</th>
                   <th className="px-4 py-2 text-left font-semibold">Status</th>
+                  <th className="px-4 py-2 text-left font-semibold">Outcome</th>
                 </tr>
               </thead>
               <tbody>
@@ -1063,6 +1255,18 @@ function TrackerView() {
                     <td className="px-4 py-2">{a.utilityProvider ?? '—'}</td>
                     <td className="px-4 py-2">
                       <StatusBadge status={a.status} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <OutcomeActions
+                        status={a.status}
+                        pending={
+                          setOutcome.isPending &&
+                          setOutcome.variables?.id === a.id
+                        }
+                        onMark={(outcome) =>
+                          setOutcome.mutate({ id: a.id, outcome })
+                        }
+                      />
                     </td>
                   </tr>
                 ))}
@@ -1109,6 +1313,22 @@ function TrackerView() {
                       </dd>
                     </div>
                   </dl>
+                  {(a.status === 'showed' ||
+                    a.status === 'won' ||
+                    a.status === 'lost') && (
+                    <div className="mt-3 flex justify-end">
+                      <OutcomeActions
+                        status={a.status}
+                        pending={
+                          setOutcome.isPending &&
+                          setOutcome.variables?.id === a.id
+                        }
+                        onMark={(outcome) =>
+                          setOutcome.mutate({ id: a.id, outcome })
+                        }
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1125,7 +1345,7 @@ function StatCard({
   tone,
 }: {
   label: string
-  value: number
+  value: number | string
   tone?: 'green' | 'rose'
 }) {
   const valueColor =
@@ -1142,6 +1362,87 @@ function StatCard({
       <p className={`mt-1 text-2xl font-bold tabular-nums ${valueColor}`}>
         {value}
       </p>
+    </div>
+  )
+}
+
+/** Growth-Pack-only pace card. Shows X / cap for the current month
+ *  with a thin progress bar. Hidden for PPA (no monthly cap there). */
+function PaceCard({ delivered, cap }: { delivered: number; cap: number }) {
+  const pct = Math.min(100, Math.round((delivered / cap) * 100))
+  const tone =
+    pct >= 100
+      ? 'bg-emerald-500'
+      : pct >= 75
+        ? 'bg-blue-500'
+        : 'bg-blue-400'
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+        Pace this month
+      </p>
+      <p className="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">
+        {delivered}
+        <span className="text-sm font-normal text-zinc-400"> / {cap}</span>
+      </p>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <div
+          className={`h-full rounded-full ${tone}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+/** Won / Lost buttons for the client to mark deal outcome. Only shown
+ *  when the appointment status is showed/won/lost — earlier states
+ *  belong to Mary/admin. Won state highlights the Won button; clicking
+ *  the active button "clears" back to plain Showed (oops, wrong row). */
+function OutcomeActions({
+  status,
+  pending,
+  onMark,
+}: {
+  status: string
+  pending: boolean
+  onMark: (outcome: 'won' | 'lost' | 'clear') => void
+}) {
+  if (status !== 'showed' && status !== 'won' && status !== 'lost') {
+    return null
+  }
+  const isWon = status === 'won'
+  const isLost = status === 'lost'
+  return (
+    <div className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onMark(isWon ? 'clear' : 'won')}
+        title={isWon ? 'Clear (mark as just showed)' : 'Mark as Won — deal closed'}
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-50 ${
+          isWon
+            ? 'border-green-300 bg-green-100 text-green-800 hover:bg-green-200 dark:border-green-700 dark:bg-green-900 dark:text-green-100'
+            : 'border-zinc-200 bg-white text-zinc-600 hover:border-green-300 hover:bg-green-50 hover:text-green-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-green-950'
+        }`}
+      >
+        <Trophy className="h-3 w-3" />
+        Won
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onMark(isLost ? 'clear' : 'lost')}
+        title={isLost ? 'Clear (mark as just showed)' : 'Mark as Lost — deal did not close'}
+        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-50 ${
+          isLost
+            ? 'border-stone-300 bg-stone-100 text-stone-700 hover:bg-stone-200 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200'
+            : 'border-zinc-200 bg-white text-zinc-600 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-stone-800'
+        }`}
+      >
+        <XCircle className="h-3 w-3" />
+        Lost
+      </button>
     </div>
   )
 }

@@ -33,6 +33,9 @@ export async function GET() {
           package: true,
           lifecycle: true,
           contactName: true,
+          apptCap: true,
+          slackChannelId: true,
+          slackChannelName: true,
         },
       })
     : null
