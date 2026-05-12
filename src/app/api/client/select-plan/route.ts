@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { sendEmail, getPublicOrigin } from '@/lib/gmail'
+
+const ADMIN_NOTIFY_EMAIL =
+  process.env.CLIENT_ONBOARDING_NOTIFY_EMAIL ||
+  process.env.AGENT_APPROVAL_NOTIFY_EMAIL ||
+  'alex@leadgenisys.com'
+const FROM_GMAIL_ACCOUNT =
+  process.env.AGENT_APPROVAL_FROM_EMAIL || ADMIN_NOTIFY_EMAIL
 
 /**
  * POST /api/client/select-plan
@@ -127,6 +135,13 @@ export async function POST(req: NextRequest) {
         },
         select: { id: true, name: true, package: true },
       })
+      notifyAdminPlanSelected(req, {
+        kind: 'changed',
+        clientName: updated.name,
+        package: updated.package,
+        paymentOption,
+        userEmail: me.email,
+      })
       return NextResponse.json({
         ok: true,
         clientId: updated.id,
@@ -182,10 +197,63 @@ export async function POST(req: NextRequest) {
     return client
   })
 
+  notifyAdminPlanSelected(req, {
+    kind: 'new',
+    clientName: created.name,
+    package: created.package,
+    paymentOption,
+    userEmail: me.email,
+  })
+
   return NextResponse.json({
     ok: true,
     clientId: created.id,
     package: created.package,
+  })
+}
+
+/** Fire-and-forget admin email at the moment the prospect picks a plan
+ *  and gets sent to QuickBooks — this is the actual "ready for review"
+ *  signal. The register-step email is too early (no business name yet);
+ *  the onboarding-form email is too late (post-approval). This one
+ *  lands when the prospect actually shows up on the Pending tab. */
+function notifyAdminPlanSelected(
+  req: NextRequest,
+  payload: {
+    kind: 'new' | 'changed'
+    clientName: string
+    package: string
+    paymentOption: string
+    userEmail: string | null
+  },
+) {
+  const origin = getPublicOrigin(req)
+  const label = paymentOptionNote(payload.paymentOption) || payload.paymentOption
+  const subject =
+    payload.kind === 'new'
+      ? `[Genisys Hub] Plan picked — ready for review: ${payload.clientName}`
+      : `[Genisys Hub] Plan changed (still pending): ${payload.clientName}`
+  const lead =
+    payload.kind === 'new'
+      ? `**${payload.clientName}** just picked a plan and was sent to QuickBooks to pay. They are now on the Pending tab waiting for your approval (once Ethan confirms payment landed).`
+      : `**${payload.clientName}** changed their plan selection before approval. Updated selection below.`
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: ADMIN_NOTIFY_EMAIL,
+    subject,
+    body: [
+      lead,
+      '',
+      `Package: ${payload.package}`,
+      `${label}`,
+      payload.userEmail ? `Signin email: ${payload.userEmail}` : '',
+      '',
+      `[Open Pending tab →](${origin}/clients/onboarding)`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  }).catch((err) => {
+    console.error('[client/select-plan] admin notify failed:', err)
   })
 }
 

@@ -8,12 +8,14 @@ import { checkRateLimit, clientIp } from '@/lib/rate-limit'
  * POST /api/client/register
  *
  * Public endpoint (whitelisted in middleware). Step 1 of the client
- * self-onboarding flow:
+ * self-onboarding funnel (revised 2026-05-11):
  *   1. POST /api/client/register             ← creates User(client_pending)
- *   2. Auto-signin client-side               ← middleware bounces to step 3
- *   3. /signin/client/onboarding-form        ← business + contact details
- *   4. POST /api/client/onboarding-form      ← creates Client(lifecycle=pending)
- *   5. Admin reviews on /clients/onboarding  ← approve/deny
+ *   2. Auto-signin → land on /client         ← polymorphic dashboard
+ *   3. /client renders PrePayPlanPicker      ← name + plan + QB link
+ *   4. POST /api/client/select-plan          ← creates Client(lifecycle=pending)
+ *   5. Client pays via QuickBooks (out-of-band)
+ *   6. Admin reviews on /clients/onboarding  ← approve/deny
+ *   7. After approve, /client renders the onboarding form, then tracker
  *
  * Mirrors /api/agent/register's generic-response pattern: return 200
  * regardless of whether the email is new, already taken, or already a
@@ -172,12 +174,12 @@ export async function POST(req: NextRequest) {
           ? `**${email}** just started signing up again. Their previous client record was deleted, so this is a fresh application.`
           : `**${email}** just started a client signup on the Hub.`,
         '',
-        'They have not yet completed the onboarding form. You will get a second email when they finish — that is when their application appears on the Pending tab for approval.',
+        'They have only set a password so far — no business name, no plan picked, no payment. You will get a second email when they pick a plan and head to QuickBooks; that is when they land on the Pending tab ready for approval.',
         '',
         `Started at: ${createdOrReset.createdAt.toISOString()}`,
         `Hub: ${origin}/clients/onboarding`,
         '',
-        'If this looks like spam, you can deny their application from the Pending tab once it lands there (or wait — they cannot reach anything until you approve).',
+        'If this looks like spam, no action needed — they cannot reach anything until you approve, and abandoned signups never make it to the Pending tab.',
       ].join('\n'),
     }).catch((err) => {
       console.error('[client/register] notify failed:', err)
