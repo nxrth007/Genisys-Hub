@@ -218,6 +218,8 @@ export function normalizeClientPatch(
         bookWeekends: boolean | null
         website: string | null
         providesBatteryBackup: boolean | null
+        qualificationCriteria: string | null
+        onboardingNotes: string | null
         slackChannelId: string | null
         slackChannelName: string | null
       }>
@@ -249,6 +251,8 @@ export function normalizeClientPatch(
     bookWeekends: boolean | null
     website: string | null
     providesBatteryBackup: boolean | null
+    qualificationCriteria: string | null
+    onboardingNotes: string | null
     slackChannelId: string | null
     slackChannelName: string | null
   }> = {}
@@ -400,6 +404,14 @@ export function normalizeClientPatch(
         error: 'providesBatteryBackup must be true or false',
       }
     }
+  }
+  // Long-form intake answers — admin can edit post-onboarding.
+  // Null / empty string clears; anything else is stored verbatim.
+  if ('qualificationCriteria' in b) {
+    data.qualificationCriteria = trimOrNull(b.qualificationCriteria)
+  }
+  if ('onboardingNotes' in b) {
+    data.onboardingNotes = trimOrNull(b.onboardingNotes)
   }
 
   // Slack channel routing — admin-set via Settings → Client delivery.

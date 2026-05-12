@@ -510,6 +510,22 @@ model Client {
   website               String?
   providesBatteryBackup Boolean?
 
+  // Free-form intake answers from the self-onboarding form (added
+  // 2026-05-11). Both optional + long-form (@db.Text) so prospects
+  // can type as much or as little as they want.
+  //
+  //   qualificationCriteria — the client's own description of what
+  //     makes a good lead for them (e.g. "homeowner, 680+ credit,
+  //     $150+/mo bill, no shading"). Pairs with Mary's own client
+  //     reference sheet — eventually we want the answer here to
+  //     replace the manual sheet entirely.
+  //
+  //   onboardingNotes — catch-all "anything else admin should know"
+  //     from the client at signup time. Distinct from `notes` above,
+  //     which is ADMIN's internal notes ABOUT the client.
+  qualificationCriteria String? @db.Text
+  onboardingNotes       String? @db.Text
+
   // Lifecycle status — richer than the boolean `active`. Valid values:
   //   "pending"      — self-registered + onboarding form submitted,
   //                    awaiting admin approval (Phase 2 client-access)

@@ -87,6 +87,10 @@ type ClientWithCounts = {
   bookWeekends: boolean | null
   website: string | null
   providesBatteryBackup: boolean | null
+  /** Long-form intake answers from the self-onboarding form. Both
+   *  optional; admin can fill in / edit via the client edit dialog. */
+  qualificationCriteria: string | null
+  onboardingNotes: string | null
   /** When the Client row was created. ISO string. Used in the
    *  Additional info panel to show "Application date" for self-
    *  onboarded clients. */
@@ -1514,6 +1518,33 @@ function AdditionalInfo({ client }: { client: ClientWithCounts }) {
               empty="Not provided"
             />
           )}
+          {/* Long-form intake answers — preserve newlines so a
+              client's bulleted list still reads as one. Both fields
+              hide entirely when empty (no "Not provided" placeholder)
+              since they're optional and there's nothing actionable
+              about a missing answer. */}
+          {client.qualificationCriteria && (
+            <DetailRow
+              icon={FileText}
+              label="Qualification criteria"
+              value={
+                <span className="whitespace-pre-wrap">
+                  {client.qualificationCriteria}
+                </span>
+              }
+            />
+          )}
+          {client.onboardingNotes && (
+            <DetailRow
+              icon={StickyNote}
+              label="Additional notes"
+              value={
+                <span className="whitespace-pre-wrap">
+                  {client.onboardingNotes}
+                </span>
+              }
+            />
+          )}
           <DetailRow
             icon={CalendarIcon}
             label="Application date"
@@ -1812,6 +1843,8 @@ function toFormValues(c: ClientWithCounts): ClientFormValues {
         : c.providesBatteryBackup === false
           ? 'no'
           : '',
+    qualificationCriteria: c.qualificationCriteria ?? '',
+    onboardingNotes: c.onboardingNotes ?? '',
     contactName: c.contactName ?? '',
     contactRole: c.contactRole ?? '',
     contactEmail: c.contactEmail ?? '',

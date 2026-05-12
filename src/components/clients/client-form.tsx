@@ -43,6 +43,10 @@ export type ClientFormValues = {
   bookWeekends: '' | 'yes' | 'no'
   website: string
   providesBatteryBackup: '' | 'yes' | 'no'
+  /** Long-form intake answers — qualification criteria + "anything
+   *  else admin should know" notes. Both optional. */
+  qualificationCriteria: string
+  onboardingNotes: string
   contactName: string
   contactRole: string
   contactEmail: string
@@ -70,6 +74,8 @@ const EMPTY: ClientFormValues = {
   bookWeekends: '',
   website: '',
   providesBatteryBackup: '',
+  qualificationCriteria: '',
+  onboardingNotes: '',
   contactName: '',
   contactRole: '',
   contactEmail: '',
@@ -541,6 +547,40 @@ export function ClientFormDialog({
               />
             </Field>
           </Row>
+          <Row>
+            <Field
+              label="Qualification criteria"
+              icon={FileText}
+              full
+              hint="What makes a good lead for this client. Filled in by the client during onboarding; editable here."
+            >
+              <textarea
+                value={values.qualificationCriteria}
+                onChange={(e) =>
+                  set('qualificationCriteria', e.target.value)
+                }
+                placeholder="Homeowner, credit 680+, electric bill $150+/mo…"
+                rows={3}
+                className={cn(inputCls, 'min-h-[80px] resize-y')}
+              />
+            </Field>
+          </Row>
+          <Row>
+            <Field
+              label="Additional notes (from client)"
+              icon={FileText}
+              full
+              hint="Anything else the client mentioned at signup. Distinct from your admin notes below."
+            >
+              <textarea
+                value={values.onboardingNotes}
+                onChange={(e) => set('onboardingNotes', e.target.value)}
+                placeholder="Special requests, scripts they prefer, quirks of their sales process…"
+                rows={3}
+                className={cn(inputCls, 'min-h-[80px] resize-y')}
+              />
+            </Field>
+          </Row>
         </Section>
 
         {/* ---- Notes + links ---- */}
@@ -742,5 +782,7 @@ function toApiPayload(v: ClientFormValues) {
         : v.providesBatteryBackup === 'no'
           ? false
           : null,
+    qualificationCriteria: blank(v.qualificationCriteria),
+    onboardingNotes: blank(v.onboardingNotes),
   }
 }

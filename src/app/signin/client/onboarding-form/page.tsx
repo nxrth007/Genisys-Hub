@@ -72,6 +72,15 @@ export default function OnboardingFormPage() {
   const [providesBatteryBackup, setProvidesBatteryBackup] = useState<
     'yes' | 'no' | ''
   >('')
+  // Business contact email — defaults to the signin email on the
+  // server side if left blank. Letting the prospect override means
+  // a personal signin (e.g. owner's email) can still result in a
+  // business contactEmail (info@company.com) being recorded.
+  const [email, setEmail] = useState('')
+  // Long-form intake answers. Both optional — prospects can leave
+  // blank if they prefer to discuss on the call.
+  const [qualificationCriteria, setQualificationCriteria] = useState('')
+  const [onboardingNotes, setOnboardingNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,6 +105,9 @@ export default function OnboardingFormPage() {
           bookWeekends: bookWeekends === 'yes',
           website,
           providesBatteryBackup: providesBatteryBackup === 'yes',
+          email,
+          qualificationCriteria,
+          onboardingNotes,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -192,6 +204,20 @@ export default function OnboardingFormPage() {
           </div>
 
           <Field
+            label="Business email"
+            hint="Where we should send onboarding + appointment notifications. Leave blank to use your sign-in email."
+          >
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="info@yourcompany.com"
+              autoComplete="email"
+              className="input"
+            />
+          </Field>
+
+          <Field
             label="Business address"
             required
             hint={
@@ -281,6 +307,34 @@ export default function OnboardingFormPage() {
               onChange={(e) => setWebsite(e.target.value)}
               placeholder="https://yourcompany.com"
               className="input"
+            />
+          </Field>
+
+          <Field
+            label="Qualification criteria"
+            hint="What makes a good lead for you? Homeowner status, credit, electric bill, roof, anything else our call center should screen for. Short or long — whatever works."
+          >
+            <textarea
+              value={qualificationCriteria}
+              onChange={(e) => setQualificationCriteria(e.target.value)}
+              placeholder="Homeowner, credit 680+, electric bill $150+/mo, asphalt or metal roof, little shading…"
+              rows={3}
+              className="input"
+              style={{ resize: 'vertical', minHeight: '80px' }}
+            />
+          </Field>
+
+          <Field
+            label="Additional notes"
+            hint="Optional — anything else we should know? Special requests, scripts you prefer, quirks of your sales process."
+          >
+            <textarea
+              value={onboardingNotes}
+              onChange={(e) => setOnboardingNotes(e.target.value)}
+              placeholder="Anything else worth noting…"
+              rows={3}
+              className="input"
+              style={{ resize: 'vertical', minHeight: '80px' }}
             />
           </Field>
 

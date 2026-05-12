@@ -112,6 +112,11 @@ export async function POST(req: NextRequest) {
     typeof body.providesBatteryBackup === 'boolean'
       ? body.providesBatteryBackup
       : null
+  // Optional business contact email — defaults to signin email below.
+  const emailInput = asOptional(body.email)
+  // Long-form intake answers. Both optional; empty string -> null.
+  const qualificationCriteria = asOptional(body.qualificationCriteria)
+  const onboardingNotes = asOptional(body.onboardingNotes)
 
   if (!businessName) {
     return NextResponse.json(
@@ -190,6 +195,18 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  // Loose email check — if the prospect provided a business email
+  // explicitly, validate the shape. Blank is fine (falls back to
+  // signin email below).
+  if (emailInput && !/^\S+@\S+\.\S+$/.test(emailInput)) {
+    return NextResponse.json(
+      {
+        error:
+          'That business email doesn\'t look right. Please double-check or leave it blank to use your sign-in email.',
+      },
+      { status: 400 },
+    )
+  }
 
   // Block name collisions with existing clients — Client.name is
   // unique. Friendly error rather than a Prisma constraint blow-up.
@@ -233,7 +250,12 @@ export async function POST(req: NextRequest) {
         package: tier,
         contactName: fullName,
         contactRole: role || null,
-        contactEmail: me.email,
+        // contactEmail comes from the explicit form field when
+        // provided (lets prospects record a business address like
+        // info@company.com), otherwise falls back to their signin
+        // email. The signin email itself never changes — that's
+        // their login.
+        contactEmail: emailInput ?? me.email,
         contactPhone: phone,
         address,
         servicingZipcodes,
@@ -243,6 +265,9 @@ export async function POST(req: NextRequest) {
         bookWeekends,
         website,
         providesBatteryBackup,
+        // Long-form intake answers — optional, can be null.
+        qualificationCriteria,
+        onboardingNotes,
         lifecycle: 'pending',
         // Hide pending clients from the booking picker so agents
         // don't accidentally start logging appointments against an
@@ -291,6 +316,13 @@ export async function POST(req: NextRequest) {
       `Weekends: ${bookWeekends ? 'Yes' : 'No'}`,
       `Battery backup: ${providesBatteryBackup ? 'Yes' : 'No'}`,
       website ? `Website: ${website}` : '',
+      emailInput && emailInput !== me.email
+        ? `Business email: ${emailInput} (signin: ${me.email})`
+        : '',
+      qualificationCriteria
+        ? `\nQualification criteria:\n${qualificationCriteria}`
+        : '',
+      onboardingNotes ? `\nAdditional notes:\n${onboardingNotes}` : '',
       '',
       `[Review on Hub →](${reviewUrl})`,
       '',
