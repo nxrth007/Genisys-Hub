@@ -209,19 +209,44 @@ export async function syncClientMessageAlerts(): Promise<SyncResult> {
       ? new Date(latest.dateAdded)
       : null
 
-    // Dedup against the ledger. Using upsert-style: try to create, if
-    // unique constraint fires we know we already alerted. The actual
-    // post happens BEFORE the insert so we don't claim "alerted" on
-    // a Slack failure — but we DO write a placeholder up front to
-    // prevent two concurrent ticks from double-posting. Order:
+    // Dedup against the ledger. The common case on every tick is
+    // "already alerted" — most active conversations sit there with the
+    // same lastMessageId between inbound bursts, so we'd otherwise
+    // re-attempt the same insert every minute. Two failure modes if
+    // we just speculatively create-and-catch-P2002:
+    //   - Prisma logs "prisma:error … Unique constraint failed" BEFORE
+    //     our catch runs, so the Render logs fill with noise even
+    //     though app behavior is correct.
+    //   - Wasted INSERT round-trip every tick per active client convo.
+    //
+    // Cheap pre-check via findFirst on the (conversationId, lastMessageId)
+    // unique pair (Postgres uses the unique index for the lookup). If
+    // it exists, skip silently. Only attempt the INSERT for genuinely
+    // new (conv, msgId) pairs.
+    //
+    // We keep the create's try/catch P2002 as a defensive race-condition
+    // fallback — two concurrent ticks could both see null on findFirst
+    // and both try to create. Single-instance Render makes this rare,
+    // but it's free to leave the safety net in place.
+    //
+    // Post-claim flow (unchanged):
     //   1. Pre-claim the (conv, msgId) row (status="pending")
     //   2. Post to Slack
     //   3. Update the row with ts/permalink (status="delivered")
     // If step 2 fails, the placeholder row prevents retries on the
     // next tick — the message stays unalerted but stable. Acceptable
-    // tradeoff: we'd rather drop one alert than spam Slack on a
-    // transient outage. Admin can manually post in #genisys-alerts
-    // if they need to.
+    // tradeoff: drop one alert rather than spam Slack on transient
+    // outage. Admin can manually post in #genisys-alerts if needed.
+
+    const existingClaim = await prisma.clientMessageAlert.findFirst({
+      where: { conversationId: id, lastMessageId: messageId },
+      select: { id: true },
+    })
+    if (existingClaim) {
+      // Already alerted on this exact (conv, msgId). Common path.
+      result.skipped++
+      continue
+    }
 
     let claim
     try {
@@ -240,7 +265,8 @@ export async function syncClientMessageAlerts(): Promise<SyncResult> {
           ? (err as { code?: string }).code
           : undefined
       if (code === 'P2002') {
-        // Already alerted on this exact (conv, msgId).
+        // Race: a concurrent tick claimed the same (conv, msgId)
+        // between our findFirst and create. Treat as skip.
         result.skipped++
         continue
       }
