@@ -36,6 +36,13 @@ export type ClientFormValues = {
    *  string from <input type="date">; empty string = use the
    *  package-default heuristic on the Clients page. */
   dueDate: string
+  /** Intake answers — captured during self-onboarding (and editable
+   *  here for admin-created or post-onboarding edits). Empty string =
+   *  "not answered" for the booleans + appointmentTypes. */
+  appointmentTypes: '' | 'in_person' | 'virtual' | 'both'
+  bookWeekends: '' | 'yes' | 'no'
+  website: string
+  providesBatteryBackup: '' | 'yes' | 'no'
   contactName: string
   contactRole: string
   contactEmail: string
@@ -59,6 +66,10 @@ const EMPTY: ClientFormValues = {
   package: 'custom',
   apptCap: '',
   dueDate: '',
+  appointmentTypes: '',
+  bookWeekends: '',
+  website: '',
+  providesBatteryBackup: '',
   contactName: '',
   contactRole: '',
   contactEmail: '',
@@ -461,6 +472,77 @@ export function ClientFormDialog({
           </Row>
         </Section>
 
+        {/* ---- Intake answers ----
+            Captured from the self-onboarding form; editable here so
+            admin can fix typos or fill them in for clients created
+            directly from this dialog. Empty option = "not answered." */}
+        <Section title="Intake answers">
+          <Row>
+            <Field label="Appointment types accepted" full>
+              <select
+                value={values.appointmentTypes}
+                onChange={(e) =>
+                  set(
+                    'appointmentTypes',
+                    e.target.value as ClientFormValues['appointmentTypes'],
+                  )
+                }
+                className={inputCls}
+              >
+                <option value="">Not answered</option>
+                <option value="in_person">In-person</option>
+                <option value="virtual">Virtual</option>
+                <option value="both">Both</option>
+              </select>
+            </Field>
+          </Row>
+          <Row>
+            <Field label="Book during weekends?">
+              <select
+                value={values.bookWeekends}
+                onChange={(e) =>
+                  set(
+                    'bookWeekends',
+                    e.target.value as ClientFormValues['bookWeekends'],
+                  )
+                }
+                className={inputCls}
+              >
+                <option value="">Not answered</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </Field>
+            <Field label="Provides battery backup installs?">
+              <select
+                value={values.providesBatteryBackup}
+                onChange={(e) =>
+                  set(
+                    'providesBatteryBackup',
+                    e.target.value as ClientFormValues['providesBatteryBackup'],
+                  )
+                }
+                className={inputCls}
+              >
+                <option value="">Not answered</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </Field>
+          </Row>
+          <Row>
+            <Field label="Website" icon={Link2} full>
+              <input
+                type="url"
+                value={values.website}
+                onChange={(e) => set('website', e.target.value)}
+                placeholder="https://yourcompany.com"
+                className={inputCls}
+              />
+            </Field>
+          </Row>
+        </Section>
+
         {/* ---- Notes + links ---- */}
         <Section title="Notes & resources">
           <Row>
@@ -648,5 +730,17 @@ function toApiPayload(v: ClientFormValues) {
     intakeFormUrl: blank(v.intakeFormUrl),
     ghlSubaccountUrl: blank(v.ghlSubaccountUrl),
     servicingZipcodes: blank(v.servicingZipcodes),
+    // Intake answers — null when admin selected "Not answered" so
+    // the server clears the field; otherwise pass through.
+    appointmentTypes: v.appointmentTypes ? v.appointmentTypes : null,
+    bookWeekends:
+      v.bookWeekends === 'yes' ? true : v.bookWeekends === 'no' ? false : null,
+    website: blank(v.website),
+    providesBatteryBackup:
+      v.providesBatteryBackup === 'yes'
+        ? true
+        : v.providesBatteryBackup === 'no'
+          ? false
+          : null,
   }
 }

@@ -27,6 +27,19 @@ function isValidPackage(v: unknown): v is ClientPackage {
   return typeof v === 'string' && (VALID_PACKAGES as readonly string[]).includes(v)
 }
 
+/** Preferred appointment-meeting format. Captured during onboarding;
+ *  used by Mary when qualifying leads (e.g. a virtual-only client
+ *  shouldn't get drive-out appointments). */
+export const VALID_APPOINTMENT_TYPES = ['in_person', 'virtual', 'both'] as const
+export type AppointmentType = (typeof VALID_APPOINTMENT_TYPES)[number]
+
+function isValidAppointmentType(v: unknown): v is AppointmentType {
+  return (
+    typeof v === 'string' &&
+    (VALID_APPOINTMENT_TYPES as readonly string[]).includes(v)
+  )
+}
+
 /** Coerce a raw apptCap value (number / numeric string / null /
  *  undefined / empty string) into either a positive integer or
  *  null. Rejects negative / zero / NaN — those would be a typo
@@ -201,6 +214,10 @@ export function normalizeClientPatch(
         package: ClientPackage
         apptCap: number | null
         dueDate: Date | null
+        appointmentTypes: AppointmentType | null
+        bookWeekends: boolean | null
+        website: string | null
+        providesBatteryBackup: boolean | null
         slackChannelId: string | null
         slackChannelName: string | null
       }>
@@ -228,6 +245,10 @@ export function normalizeClientPatch(
     package: ClientPackage
     apptCap: number | null
     dueDate: Date | null
+    appointmentTypes: AppointmentType | null
+    bookWeekends: boolean | null
+    website: string | null
+    providesBatteryBackup: boolean | null
     slackChannelId: string | null
     slackChannelName: string | null
   }> = {}
@@ -335,6 +356,48 @@ export function normalizeClientPatch(
       return {
         ok: false,
         error: err instanceof Error ? err.message : 'invalid dueDate',
+      }
+    }
+  }
+
+  // Intake answers — admin can edit these post-onboarding via the
+  // client edit dialog. Null / empty clears the field; valid values
+  // overwrite.
+  if ('appointmentTypes' in b) {
+    if (b.appointmentTypes == null || b.appointmentTypes === '') {
+      data.appointmentTypes = null
+    } else if (isValidAppointmentType(b.appointmentTypes)) {
+      data.appointmentTypes = b.appointmentTypes
+    } else {
+      return {
+        ok: false,
+        error: `appointmentTypes must be one of ${VALID_APPOINTMENT_TYPES.join(
+          ', ',
+        )}`,
+      }
+    }
+  }
+  if ('bookWeekends' in b) {
+    if (b.bookWeekends == null) {
+      data.bookWeekends = null
+    } else if (typeof b.bookWeekends === 'boolean') {
+      data.bookWeekends = b.bookWeekends
+    } else {
+      return { ok: false, error: 'bookWeekends must be true or false' }
+    }
+  }
+  if ('website' in b) {
+    data.website = trimOrNull(b.website)
+  }
+  if ('providesBatteryBackup' in b) {
+    if (b.providesBatteryBackup == null) {
+      data.providesBatteryBackup = null
+    } else if (typeof b.providesBatteryBackup === 'boolean') {
+      data.providesBatteryBackup = b.providesBatteryBackup
+    } else {
+      return {
+        ok: false,
+        error: 'providesBatteryBackup must be true or false',
       }
     }
   }

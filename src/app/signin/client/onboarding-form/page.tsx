@@ -60,6 +60,18 @@ export default function OnboardingFormPage() {
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
   const [servicingZipcodes, setServicingZipcodes] = useState('')
+  // Intake questions added 2026-05-11 — recorded on the Client row
+  // and shown in the admin Additional info panel after submission.
+  // Empty string for the booleans = "not answered yet" so the form
+  // can force a choice before letting the user submit.
+  const [appointmentTypes, setAppointmentTypes] = useState<
+    'in_person' | 'virtual' | 'both' | ''
+  >('')
+  const [bookWeekends, setBookWeekends] = useState<'yes' | 'no' | ''>('')
+  const [website, setWebsite] = useState('')
+  const [providesBatteryBackup, setProvidesBatteryBackup] = useState<
+    'yes' | 'no' | ''
+  >('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,6 +92,10 @@ export default function OnboardingFormPage() {
           phone,
           address,
           servicingZipcodes,
+          appointmentTypes,
+          bookWeekends: bookWeekends === 'yes',
+          website,
+          providesBatteryBackup: providesBatteryBackup === 'yes',
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -214,6 +230,60 @@ export default function OnboardingFormPage() {
             />
           </Field>
 
+          {/* Intake questions — recorded on the Client and shown in
+              the admin Additional info panel so Mary has a quick
+              reference when qualifying leads (preferred meeting
+              format, weekend availability, battery backup offer). */}
+          <Field label="Appointment types you accept" required>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {(
+                [
+                  { id: 'in_person', label: 'In-person' },
+                  { id: 'virtual', label: 'Virtual' },
+                  { id: 'both', label: 'Both' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setAppointmentTypes(opt.id)}
+                  className={`rounded-md border p-2.5 text-left text-xs font-semibold transition ${
+                    appointmentTypes === opt.id
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                      : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Book during weekends?" required>
+              <YesNoToggle value={bookWeekends} onChange={setBookWeekends} />
+            </Field>
+            <Field label="Do you provide battery backup installs?" required>
+              <YesNoToggle
+                value={providesBatteryBackup}
+                onChange={setProvidesBatteryBackup}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="Website"
+            hint="Optional — link admin can use to verify your business."
+          >
+            <input
+              type="url"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://yourcompany.com"
+              className="input"
+            />
+          </Field>
+
           <Field label="Package" required>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {TIERS.map((t) => (
@@ -260,7 +330,10 @@ export default function OnboardingFormPage() {
               !fullName ||
               !phone ||
               !address ||
-              !tier
+              !tier ||
+              !appointmentTypes ||
+              !bookWeekends ||
+              !providesBatteryBackup
             }
             className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
@@ -292,6 +365,36 @@ export default function OnboardingFormPage() {
           }
         `}</style>
       </div>
+    </div>
+  )
+}
+
+/** Yes / No segmented toggle for the intake question booleans.
+ *  Forces an explicit answer (the parent's disabled-submit check
+ *  reads `value !== ''` as "answered"). */
+function YesNoToggle({
+  value,
+  onChange,
+}: {
+  value: 'yes' | 'no' | ''
+  onChange: (next: 'yes' | 'no') => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {(['yes', 'no'] as const).map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`rounded-md border p-2.5 text-center text-xs font-semibold capitalize transition ${
+            value === opt
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+              : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
     </div>
   )
 }

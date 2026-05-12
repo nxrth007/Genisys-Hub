@@ -31,6 +31,11 @@ const FROM_GMAIL_ACCOUNT =
 // an un-payable client through.
 const VALID_PACKAGES = new Set(['ppa', 'growth', 'custom'])
 
+// Appointment-types enum — keep narrow so admin reports + filters
+// have a stable vocabulary. Free-text "hybrid" / "either" inputs map
+// to "both" at validation time.
+const VALID_APPOINTMENT_TYPES = new Set(['in_person', 'virtual', 'both'])
+
 function trim(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
@@ -96,6 +101,17 @@ export async function POST(req: NextRequest) {
   const phone = trim(body.phone)
   const address = trim(body.address)
   const servicingZipcodes = asOptional(body.servicingZipcodes)
+  const appointmentTypesRaw = trim(body.appointmentTypes).toLowerCase()
+  const website = asOptional(body.website)
+  // Booleans posted explicitly as `true` / `false`; reject anything else
+  // (don't silently coerce a missing field to false, since the form
+  // is supposed to force an answer).
+  const bookWeekends =
+    typeof body.bookWeekends === 'boolean' ? body.bookWeekends : null
+  const providesBatteryBackup =
+    typeof body.providesBatteryBackup === 'boolean'
+      ? body.providesBatteryBackup
+      : null
 
   if (!businessName) {
     return NextResponse.json(
@@ -148,6 +164,32 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  if (!VALID_APPOINTMENT_TYPES.has(appointmentTypesRaw)) {
+    return NextResponse.json(
+      {
+        error:
+          'Pick an appointment type: in-person, virtual, or both.',
+      },
+      { status: 400 },
+    )
+  }
+  if (bookWeekends === null) {
+    return NextResponse.json(
+      {
+        error: 'Please answer whether you book during weekends.',
+      },
+      { status: 400 },
+    )
+  }
+  if (providesBatteryBackup === null) {
+    return NextResponse.json(
+      {
+        error:
+          'Please answer whether you provide battery backup installs.',
+      },
+      { status: 400 },
+    )
+  }
 
   // Block name collisions with existing clients — Client.name is
   // unique. Friendly error rather than a Prisma constraint blow-up.
@@ -195,6 +237,12 @@ export async function POST(req: NextRequest) {
         contactPhone: phone,
         address,
         servicingZipcodes,
+        // Intake answers (added 2026-05-11). Required at the form,
+        // so guaranteed non-null here.
+        appointmentTypes: appointmentTypesRaw,
+        bookWeekends,
+        website,
+        providesBatteryBackup,
         lifecycle: 'pending',
         // Hide pending clients from the booking picker so agents
         // don't accidentally start logging appointments against an
@@ -233,6 +281,16 @@ export async function POST(req: NextRequest) {
       `Phone: ${phone}`,
       `Address: ${address}`,
       servicingZipcodes ? `Servicing zipcodes: ${servicingZipcodes}` : '',
+      `Appointment types: ${
+        appointmentTypesRaw === 'in_person'
+          ? 'In-person'
+          : appointmentTypesRaw === 'virtual'
+            ? 'Virtual'
+            : 'Both'
+      }`,
+      `Weekends: ${bookWeekends ? 'Yes' : 'No'}`,
+      `Battery backup: ${providesBatteryBackup ? 'Yes' : 'No'}`,
+      website ? `Website: ${website}` : '',
       '',
       `[Review on Hub →](${reviewUrl})`,
       '',

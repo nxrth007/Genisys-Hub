@@ -79,6 +79,14 @@ type ClientWithCounts = {
   /** Comma- or whitespace-separated zipcodes the client services.
    *  Captured during self-onboarding; admin can edit via the form. */
   servicingZipcodes: string | null
+  /** Intake answers captured during self-onboarding (added
+   *  2026-05-11). Nullable for legacy clients who registered before
+   *  these fields existed; admin can fill them in after the fact
+   *  via the edit dialog. */
+  appointmentTypes: 'in_person' | 'virtual' | 'both' | null
+  bookWeekends: boolean | null
+  website: string | null
+  providesBatteryBackup: boolean | null
   /** When the Client row was created. ISO string. Used in the
    *  Additional info panel to show "Application date" for self-
    *  onboarded clients. */
@@ -1461,6 +1469,51 @@ function AdditionalInfo({ client }: { client: ClientWithCounts }) {
               value={client.contactRole}
             />
           )}
+          {/* Intake answers from the self-onboarding form (2026-05-11).
+              All four are nullable for legacy clients; render
+              "Not provided" so admin can spot the gap and fill it
+              in via the edit dialog. */}
+          <DetailRow
+            icon={CalendarIcon}
+            label="Appointment types"
+            value={formatAppointmentTypes(client.appointmentTypes)}
+            empty="Not provided"
+          />
+          <DetailRow
+            icon={CalendarIcon}
+            label="Books weekends"
+            value={formatYesNo(client.bookWeekends)}
+            empty="Not provided"
+          />
+          <DetailRow
+            icon={CheckCircle2}
+            label="Battery backup installs"
+            value={formatYesNo(client.providesBatteryBackup)}
+            empty="Not provided"
+          />
+          {client.website ? (
+            <DetailRow
+              icon={ExternalLink}
+              label="Website"
+              value={
+                <a
+                  href={withProtocol(client.website)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {client.website}
+                </a>
+              }
+            />
+          ) : (
+            <DetailRow
+              icon={ExternalLink}
+              label="Website"
+              value={null}
+              empty="Not provided"
+            />
+          )}
           <DetailRow
             icon={CalendarIcon}
             label="Application date"
@@ -1486,10 +1539,16 @@ function DetailRow({
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
-  value: string | null | undefined
+  /** Can be a string (renders as text) or React node (e.g. a link).
+   *  Strings are checked for "is this empty?"; nodes always render
+   *  as-is. Pass null to fall through to the `empty` placeholder. */
+  value: string | null | undefined | React.ReactNode
   empty?: string | null
 }) {
-  const filled = !!value && String(value).trim().length > 0
+  const isStringy = value == null || typeof value === 'string'
+  const filled = isStringy
+    ? !!value && String(value).trim().length > 0
+    : true
   if (!filled && empty === null) return null
   return (
     <div className="flex items-start gap-2 text-sm">
@@ -1509,6 +1568,34 @@ function DetailRow({
       </div>
     </div>
   )
+}
+
+/** Translate the appointmentTypes enum into the human label admin
+ *  sees in the Additional info panel. Null falls through to the
+ *  DetailRow's "Not provided" placeholder. */
+function formatAppointmentTypes(
+  v: 'in_person' | 'virtual' | 'both' | null | undefined,
+): string | null {
+  if (!v) return null
+  if (v === 'in_person') return 'In-person'
+  if (v === 'virtual') return 'Virtual'
+  if (v === 'both') return 'In-person or virtual'
+  return null
+}
+
+/** Boolean → "Yes" / "No". Null/undefined returns null so the
+ *  DetailRow's empty placeholder shows instead of "No" (those two
+ *  read very differently to admin). */
+function formatYesNo(v: boolean | null | undefined): string | null {
+  if (v == null) return null
+  return v ? 'Yes' : 'No'
+}
+
+/** Ensure a URL has a protocol so <a href> doesn't treat
+ *  "example.com" as a relative path. */
+function withProtocol(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url
+  return `https://${url}`
 }
 
 /** Specialized row for the linked /client login — translates the
@@ -1712,6 +1799,19 @@ function toFormValues(c: ClientWithCounts): ClientFormValues {
     // wants a YYYY-MM-DD string. Slice the date portion (the override
     // is stored at UTC midnight on the server so this never shifts).
     dueDate: c.dueDate ? c.dueDate.slice(0, 10) : '',
+    // Intake answers — empty string = "not answered yet" so the form's
+    // YesNoToggle shows neither button as selected, matching the
+    // legacy / no-answer case.
+    appointmentTypes: c.appointmentTypes ?? '',
+    bookWeekends:
+      c.bookWeekends === true ? 'yes' : c.bookWeekends === false ? 'no' : '',
+    website: c.website ?? '',
+    providesBatteryBackup:
+      c.providesBatteryBackup === true
+        ? 'yes'
+        : c.providesBatteryBackup === false
+          ? 'no'
+          : '',
     contactName: c.contactName ?? '',
     contactRole: c.contactRole ?? '',
     contactEmail: c.contactEmail ?? '',

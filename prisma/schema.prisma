@@ -482,6 +482,34 @@ model Client {
   // don't always have a fixed service area.
   servicingZipcodes String?
 
+  // Intake answers captured during the self-onboarding form (added
+  // 2026-05-11). All nullable so existing clients aren't broken; the
+  // form requires the booleans + appointmentTypes on submission so
+  // new clients always have values. Admin can edit any of these
+  // later via the client edit dialog.
+  //
+  //   appointmentTypes — preferred meeting format. One of:
+  //     "in_person" | "virtual" | "both"
+  //     Used by Mary when qualifying leads — a virtual-only client
+  //     shouldn't get drive-out appointments.
+  //
+  //   bookWeekends — whether the client accepts Saturday/Sunday
+  //     appointments. Constrains the booking calendar Mary works
+  //     against.
+  //
+  //   website — optional URL the client shared during onboarding.
+  //     Surfaced in the admin Additional info panel as a clickable
+  //     link so the team can verify the business at a glance.
+  //
+  //   providesBatteryBackup — whether the client installs battery
+  //     backup systems alongside solar. Affects which leads qualify
+  //     (some homeowners specifically want battery; if the client
+  //     doesn't install them, the lead is a mismatch).
+  appointmentTypes      String?
+  bookWeekends          Boolean?
+  website               String?
+  providesBatteryBackup Boolean?
+
   // Lifecycle status — richer than the boolean `active`. Valid values:
   //   "pending"      — self-registered + onboarding form submitted,
   //                    awaiting admin approval (Phase 2 client-access)
