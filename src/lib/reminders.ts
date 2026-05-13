@@ -70,6 +70,7 @@ type SyncResult = {
   scanned: number
   upserted: number
   skippedPast: number
+  skippedDuplicatePhone: number
   cancelled: number
 }
 
@@ -94,7 +95,13 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     // Non-fatal: a one-off Drive failure shouldn't break the cron.
     // The next tick re-tries.
     console.error('[reminders] sync: failed to read sheet:', err)
-    return { scanned: 0, upserted: 0, skippedPast: 0, cancelled: 0 }
+    return {
+      scanned: 0,
+      upserted: 0,
+      skippedPast: 0,
+      skippedDuplicatePhone: 0,
+      cancelled: 0,
+    }
   }
 
   // Pull existing client list once so we can map sheet "Client" cell
@@ -159,6 +166,30 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   let upserted = 0
   let skippedPast = 0
 
+  // Phone-level dedup within this sync run. One customer phone =
+  // one reminder set, regardless of how many sheet rows mention
+  // them. Added 2026-05-13 after Ron Running showed up with 8 pending
+  // reminders (two sheet rows entered by mistake, four reminders
+  // each). The unique constraint on (sourceKey, reminderType) only
+  // prevents duplicates within the same sheet row; without phone
+  // dedup, two rows for the same customer each produced their own
+  // four reminders.
+  //
+  // First sheet row encountered wins (rows arrive in sheet row-
+  // number order). Subsequent rows with the same phone get skipped,
+  // and the cancel pass at the bottom marks any leftover reminders
+  // from their sourceKey as cancelled — so existing duplicates
+  // self-heal on the next tick. If the winning row's appt time gets
+  // edited, the upsert path updates scheduledFor in place; the
+  // customer's single reminder set just shifts.
+  //
+  // Tradeoff: a customer with two genuinely-distinct appointments
+  // (e.g. consultation in the morning, follow-up in the afternoon)
+  // only gets reminders for one. That's rare enough to be acceptable;
+  // admin can always send a manual SMS for the second appt.
+  const seenSheetPhones = new Set<string>()
+  let skippedDuplicatePhone = 0
+
   const now = Date.now()
 
   for (const r of rows) {
@@ -180,6 +211,24 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     // and the customer would get every text twice.
     const contentKey = sheetContentKey(r.customerPhone, r.apptDateTime)
     if (contentKey && coveredContentKeys.has(contentKey)) continue
+
+    // Phone-only dedup — one customer = one reminder set per sync
+    // run. See the seenSheetPhones declaration above for the why.
+    // First sheet row encountered wins; subsequent rows for the same
+    // phone get skipped, and the cancel pass at the bottom cleans up
+    // any stranded reminders from their sourceKey on this and future
+    // ticks.
+    const phoneDigits = digitsOnlyPhone(r.customerPhone)
+    if (phoneDigits) {
+      if (seenSheetPhones.has(phoneDigits)) {
+        skippedDuplicatePhone++
+        console.log(
+          `[reminders] skipping sheet row ${r.rowNumber} — phone ${phoneDigits} already covered earlier in this run (likely duplicate booking on the sheet)`,
+        )
+        continue
+      }
+      seenSheetPhones.add(phoneDigits)
+    }
 
     const sourceKey = `sheet:${'Master Table'}:${r.rowNumber}`
     touchedSourceKeys.add(sourceKey)
@@ -317,8 +366,28 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     scanned: rows.length,
     upserted,
     skippedPast,
+    skippedDuplicatePhone,
     cancelled: stranded.count,
   }
+}
+
+/** Strip all non-digits and normalize to the 10-digit US form for
+ *  customer-phone equality. Handles "(909) 732-2032", "9097322032",
+ *  "+1 909-732-2032", and "1-909-732-2032" all → "9097322032". Used
+ *  as the dedup key in syncRemindersFromSheet so two sheet rows with
+ *  the same customer (in any phone formatting) collapse to one
+ *  reminder set. Returns empty string for inputs that don't have at
+ *  least 10 digits — callers treat that as "no dedup key, skip
+ *  dedup". */
+function digitsOnlyPhone(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const d = String(raw).replace(/\D/g, '')
+  if (d.length < 10) return ''
+  // Drop a leading "1" so "+19097322032" and "9097322032" match.
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1)
+  // 12+ digits → take the last 10 as a best guess. Rare edge case.
+  if (d.length > 10) return d.slice(-10)
+  return d
 }
 
 /* -------------------------------------------------------------------------- */

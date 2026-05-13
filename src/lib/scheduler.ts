@@ -87,9 +87,13 @@ export function initScheduler() {
       if (now - lastReminderSyncAt >= REMINDER_SYNC_INTERVAL_MS) {
         lastReminderSyncAt = now
         const result = await syncRemindersFromSheet()
-        if (result.upserted > 0 || result.cancelled > 0) {
+        if (
+          result.upserted > 0 ||
+          result.cancelled > 0 ||
+          result.skippedDuplicatePhone > 0
+        ) {
           console.log(
-            `[scheduler] reminders sync: ${result.upserted} new, ${result.skippedPast} past, ${result.cancelled} cancelled (of ${result.scanned} scanned)`
+            `[scheduler] reminders sync: ${result.upserted} new, ${result.skippedPast} past, ${result.skippedDuplicatePhone} dupe-phone skipped, ${result.cancelled} cancelled (of ${result.scanned} scanned)`
           )
         }
       }
