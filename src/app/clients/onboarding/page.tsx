@@ -32,6 +32,7 @@ import {
   User as UserIcon,
   ThumbsUp,
   ThumbsDown,
+  Trash2,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 
@@ -224,7 +225,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
   const linkedUser = client.users[0] ?? null
 
   const decide = useMutation({
-    mutationFn: async (action: 'approve' | 'deny') => {
+    mutationFn: async (action: 'approve' | 'deny' | 'delete') => {
       const res = await fetch(
         `/api/clients/${client.id}/onboarding-decision`,
         {
@@ -356,6 +357,35 @@ function PendingClientCard({ client }: { client: PendingClient }) {
               <ThumbsDown className="h-3 w-3" />
             )}
             Deny
+          </button>
+          {/* Delete is for spam / test / duplicate cleanup. No email
+              fires; the Client row and linked sign-in account are
+              hard-deleted (schema cascade handles the User + their
+              Sessions). Only available for lifecycle=pending — active
+              clients have to go through the password-gated DELETE on
+              /api/clients/[id]. */}
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              if (
+                window.confirm(
+                  `Delete ${client.name}? Their signup record and sign-in account get permanently removed. No email is sent. This cannot be undone — use Deny if you just want to reject the application.`,
+                )
+              ) {
+                decide.mutate('delete')
+              }
+            }}
+            disabled={decide.isPending}
+            title="Permanently remove this pending signup (spam / test / duplicate)"
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-red-950 dark:hover:text-red-300"
+          >
+            {decide.isPending && decide.variables === 'delete' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Trash2 className="h-3 w-3" />
+            )}
+            Delete
           </button>
         </div>
       </div>

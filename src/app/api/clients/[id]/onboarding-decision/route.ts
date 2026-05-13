@@ -7,16 +7,24 @@ import { provisionClientWorkspace } from '@/lib/client-workspace'
 /**
  * POST /api/clients/[id]/onboarding-decision
  *
- * Approve or deny a Client whose lifecycle is "pending" (came in via
- * /signin/client/register + /signin/client/onboarding-form).
+ * Approve, deny, or delete a Client whose lifecycle is "pending"
+ * (came in via /signin/client/register + plan-picker on /client).
  *
  * Approve  → Client.lifecycle = "active"  + active=true
  *            User.role        = "client_active"
  *            (User keeps the password they picked at registration)
  * Deny     → Client.lifecycle = "denied"
  *            User.role        = "client_denied"
+ * Delete   → Client row hard-deleted. User row(s) cascade-delete via
+ *            the FK onDelete: Cascade on User.clientId, taking their
+ *            Sessions + Accounts with them. No email — this path is
+ *            for spam / test / duplicate cleanup where notifying the
+ *            registrant is exactly what we DON'T want. Gated to
+ *            lifecycle=pending so it can never nuke an active client
+ *            (those go through the heavy DELETE on /api/clients/[id]
+ *            with vault password + authorized-email check).
  *
- * Either way the client gets an email. Approval includes the sign-in
+ * Approve/deny: client gets an email. Approval includes the sign-in
  * URL; denial is a polite generic note (matches the agent-denied
  * email tone — we're not auto-disclosing reasons).
  */
@@ -41,9 +49,9 @@ export async function POST(
     action?: unknown
   }
   const action = typeof body.action === 'string' ? body.action : ''
-  if (action !== 'approve' && action !== 'deny') {
+  if (action !== 'approve' && action !== 'deny' && action !== 'delete') {
     return NextResponse.json(
-      { error: 'action must be "approve" or "deny"' },
+      { error: 'action must be "approve", "deny", or "delete"' },
       { status: 400 },
     )
   }
@@ -69,6 +77,26 @@ export async function POST(
       },
       { status: 409 },
     )
+  }
+
+  // Delete path bails out early — no email, no Slack provisioning, no
+  // lifecycle flip. Schema cascade handles the linked User(s) + their
+  // Sessions/Accounts via onDelete: Cascade on User.clientId. Anything
+  // pointing at the Client via SetNull (Appointments, AppointmentReminders,
+  // ClientMessageAlerts) simply loses the link — though for a pending
+  // client none of those should exist anyway.
+  if (action === 'delete') {
+    const linkedUserCount = await prisma.user.count({
+      where: { clientId: client.id, role: { startsWith: 'client_' } },
+    })
+    await prisma.client.delete({ where: { id: client.id } })
+    console.log(
+      `[clients/onboarding-decision] admin ${session.user.id} deleted pending client "${client.name}" (${client.id}) — cascade dropped ${linkedUserCount} linked user(s)`,
+    )
+    return NextResponse.json({
+      ok: true,
+      deleted: { id: client.id, name: client.name, linkedUsers: linkedUserCount },
+    })
   }
 
   // Find every linked user. The original spec assumed exactly one
