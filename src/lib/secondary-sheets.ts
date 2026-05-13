@@ -235,6 +235,14 @@ function yassinMapping(
     .filter(Boolean)
     .join('\n')
 
+  // Yassin's reps cram structured fields (bill, utility, roof) into
+  // the free-text Notes blob instead of separate columns. Parse them
+  // out so the Master Tracker's column display + the per-client
+  // tracker on /client don't show "—" for fields the customer
+  // actually told us about. The original notes string still gets
+  // displayed verbatim — extraction is additive, never destructive.
+  const parsed = parseYassinNotes(notes || rawNotes || '')
+
   return {
     rowNumber: rowIndex + 2, // 1-based + skip header row
     apptDateTime,
@@ -243,10 +251,10 @@ function yassinMapping(
     customerPhone,
     address,
     email: orNull(get(4)),
-    monthlyBill: null,
-    utilityProvider: null,
-    roofType: null,
-    roofAge: null,
+    monthlyBill: parsed.monthlyBill,
+    utilityProvider: parsed.utilityProvider,
+    roofType: parsed.roofType,
+    roofAge: parsed.roofAge,
     status: orNull(normalizeYassinStatus(get(12))),
     estimatedDealValue: null,
     notes: notes.length > 0 ? notes : null,
@@ -372,6 +380,155 @@ export function rowSourceKey(row: SourcedRow): string {
     return `sheet:Master Table:${row.rowNumber}`
   }
   return `sheet:${row.source.spreadsheetId}:${row.rowNumber}`
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Notes-blob parsing (extract structured fields from free text)             */
+/* -------------------------------------------------------------------------- */
+
+/** Parses the free-text Notes blob Yassin's reps fill in to pull out
+ *  structured fields (monthly bill, utility provider, roof type, roof
+ *  age) the master sheet has dedicated columns for. We're conservative:
+ *  only populate a field when the pattern is unambiguous; otherwise
+ *  leave it null and let the notes blob be the source of truth.
+ *
+ *  Sample input (lightly tidied from a real Yassin row):
+ *    "Name: Jialin L Zhang, single family yes, bill 200+, FPL,
+ *     credit 660+, no shading, good shingle roof, virtual 5/12 10am,
+ *     sole decision maker"
+ *
+ *  Extracted:
+ *    monthlyBill:     '$200'
+ *    utilityProvider: 'FPL'
+ *    roofType:        'Asphalt Shingle'
+ *    roofAge:         null   (no explicit age cue)
+ *
+ *  Exported for use in the diagnostic endpoint + future test cases. */
+export function parseYassinNotes(raw: string): {
+  monthlyBill: string | null
+  utilityProvider: string | null
+  roofType: string | null
+  roofAge: string | null
+} {
+  const empty = {
+    monthlyBill: null,
+    utilityProvider: null,
+    roofType: null,
+    roofAge: null,
+  }
+  if (!raw || !raw.trim()) return empty
+
+  return {
+    monthlyBill: extractMonthlyBill(raw),
+    utilityProvider: extractUtility(raw),
+    roofType: extractRoofType(raw),
+    roofAge: extractRoofAge(raw),
+  }
+}
+
+/** Bill detection patterns, ordered most-specific first. We anchor on
+ *  context cues ("bill", "/mo", "monthly") so a bare "$200" in another
+ *  context (e.g. "$200 deposit") doesn't get mistaken for a bill. */
+function extractMonthlyBill(text: string): string | null {
+  // "bill 200", "bill: $245", "monthly bill 320", "electric bill $180"
+  const labeled = text.match(
+    /\b(?:monthly\s+bill|electric\s+bill|bill)[\s:]*\$?\s*(\d{2,4})\+?/i,
+  )
+  if (labeled) return `$${labeled[1]}`
+  // "$250/mo", "$300 monthly", "245 per month"
+  const slashMo = text.match(
+    /\$?\s*(\d{2,4})\s*\+?\s*\/?\s*(?:mo\b|month\b|monthly\b|per\s+month)/i,
+  )
+  if (slashMo) return `$${slashMo[1]}`
+  return null
+}
+
+/** Known US residential electricity providers. Kept as a list with a
+ *  display label so we can match against case-insensitive variants but
+ *  store a clean canonical name. Order matters slightly: longer / more
+ *  specific names should appear before short abbreviations (e.g.
+ *  "Florida Power & Light" before "FPL") so a row that spells out the
+ *  full name doesn't half-match an abbreviation accidentally. */
+const KNOWN_UTILITIES: Array<{ label: string; aliases: string[] }> = [
+  { label: 'FPL', aliases: ['florida power & light', 'florida power and light', 'fpl'] },
+  { label: 'TECO', aliases: ['teco', 'tampa electric'] },
+  { label: 'Duke Energy', aliases: ['duke energy', 'duke power'] },
+  { label: 'JEA', aliases: ['jea'] },
+  { label: 'Eversource', aliases: ['eversource'] },
+  { label: 'Con Edison', aliases: ['con edison', 'coned', 'consolidated edison'] },
+  { label: 'National Grid', aliases: ['national grid'] },
+  { label: 'PSE&G', aliases: ['pseg', 'pse&g', 'public service electric'] },
+  { label: 'PG&E', aliases: ['pg&e', 'pg and e', 'pacific gas & electric', 'pacific gas and electric'] },
+  { label: 'SCE', aliases: ['southern california edison', 'sce'] },
+  { label: 'SDG&E', aliases: ['sdg&e', 'san diego gas', 'san diego gas & electric'] },
+  { label: 'LADWP', aliases: ['ladwp', 'la dwp', 'los angeles dwp', 'los angeles department of water'] },
+  { label: 'APS', aliases: ['arizona public service', 'aps'] },
+  { label: 'SRP', aliases: ['srp', 'salt river project'] },
+  { label: 'TXU Energy', aliases: ['txu energy', 'txu'] },
+  { label: 'Reliant', aliases: ['reliant energy', 'reliant'] },
+  { label: 'Direct Energy', aliases: ['direct energy'] },
+  { label: 'Dominion', aliases: ['dominion energy', 'dominion'] },
+  { label: 'Xcel Energy', aliases: ['xcel energy', 'xcel'] },
+  { label: 'Georgia Power', aliases: ['georgia power'] },
+  { label: 'Alabama Power', aliases: ['alabama power'] },
+  { label: 'Entergy', aliases: ['entergy'] },
+  { label: 'NV Energy', aliases: ['nv energy'] },
+  { label: 'PPL Electric', aliases: ['ppl electric', 'ppl'] },
+  { label: 'PECO', aliases: ['peco'] },
+  { label: 'BGE', aliases: ['bge', 'baltimore gas'] },
+]
+
+function extractUtility(text: string): string | null {
+  const lower = text.toLowerCase()
+  for (const u of KNOWN_UTILITIES) {
+    for (const alias of u.aliases) {
+      // Word-boundary match for short codes (≤4 chars) to avoid
+      // substring false positives like "aps" matching "apps". Plain
+      // includes for longer phrase aliases.
+      if (alias.length <= 4) {
+        const pattern = new RegExp(
+          `(?:^|[^a-z0-9])${escapeRegex(alias)}(?:$|[^a-z0-9])`,
+          'i',
+        )
+        if (pattern.test(text)) return u.label
+      } else if (lower.includes(alias)) {
+        return u.label
+      }
+    }
+  }
+  return null
+}
+
+/** Roof type keywords. Order: more specific terms first so "wood shake"
+ *  doesn't get clobbered by a later "wood" rule. */
+function extractRoofType(text: string): string | null {
+  const lower = text.toLowerCase()
+  if (/\b(?:wood\s+shake|shake\s+roof|cedar\s+shake)\b/.test(lower)) return 'Wood Shake'
+  if (/\b(?:asphalt|shingle)\b/.test(lower)) return 'Asphalt Shingle'
+  if (/\btile\s+roof|\bclay\s+tile|\bspanish\s+tile|\btile\b/.test(lower)) return 'Tile'
+  if (/\bmetal\s+roof|\bstanding\s+seam|\bmetal\b/.test(lower)) return 'Metal'
+  if (/\bflat\s+roof|\btar\s+roof|\bbuilt[\s-]up\s+roof/.test(lower)) return 'Flat'
+  return null
+}
+
+/** Roof age extraction. Heuristics — "new roof" → < 5y, numeric
+ *  patterns parse the digit. Returns the same human-readable strings
+ *  the master-sheet column uses (the Hub's normalizeRoofAge helper
+ *  ultimately tidies these on insert if they hit the DB path). */
+function extractRoofAge(text: string): string | null {
+  if (/\bnew\s+roof\b|\broof\s+is\s+new\b|\bbrand\s+new\s+roof\b/i.test(text)) {
+    return 'New'
+  }
+  // "10 yr", "5 years", "15-year-old", "8yo"
+  const m = text.match(
+    /\b(\d{1,2})\s*(?:-|\s)?(?:yr|year|years|yo|y\.o\.|y\s*\/?\s*o)\b/i,
+  )
+  if (m) return `${m[1]} years`
+  return null
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /** Yassin's status vocab is roughly the same as ours but with
