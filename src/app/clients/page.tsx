@@ -1000,6 +1000,20 @@ function ClientDetailDialog({
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* + Add appointment lives in the same action row as Edit /
+                Delete (per Alex's screenshot). Both alex@ and ethan@
+                hit /clients so we don't need a per-email gate here —
+                middleware already keeps agents out of /clients. The
+                link lands on /agent/appointments/new with the client
+                pre-selected; from there it's the same booking flow
+                Mary uses, just attributed to whoever's signed in. */}
+            <Link
+              href={`/agent/appointments/new?clientId=${client.id}`}
+              title={`Add a new appointment for ${client.name}`}
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add appointment
+            </Link>
             <button
               type="button"
               onClick={() => onEdit(client)}
