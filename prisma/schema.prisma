@@ -588,6 +588,10 @@ model Client {
   slackDeliveries   SheetSlackDelivery[]
   clientAlerts      ClientAlertDelivery[]
   messageAlerts     ClientMessageAlert[]
+  // Secondary Google Sheets that feed this client's appointments
+  // (partner call centers like Yassin's team running their own
+  // sheets — see model SecondarySheet at the bottom of the file).
+  secondarySheets   SecondarySheet[]
   // User accounts that can log in to /client and see only this
   // client's appointments. Created by admin via the Credentials tab,
   // or self-registered through the onboarding flow (Phase 2+).
@@ -1068,5 +1072,54 @@ model ClientMessageAlert {
   @@index([conversationId])
   @@index([clientId])
   @@unique([conversationId, lastMessageId], map: "ux_client_msg_alert_conv_msg")
+}
+
+/// Additional Google Sheets that feed the Master Tracker beyond the
+/// primary "Master Table." Added so partner call centers (Yassin's
+/// team for Forward Energy Solutions + Brighton Capital Solar, as of
+/// 2026-05-13) can keep using their own sheets without us forcing a
+/// format change on them.
+///
+/// Each row links a spreadsheet ID + tab title to a single Client.
+/// Every appointment in that sheet is hard-attributed to that client
+/// — no routing brain inference. Mary's master tracker hides these
+/// rows (admin/member only), but all the same downstream pipelines
+/// fire: customer SMS reminders, client SMS / Slack alerts, /clients
+/// counts, the per-client tracker on /client.
+///
+/// `columnMappingKey` picks one of the named column-mapping presets
+/// in lib/secondary-sheets.ts. Yassin's two sheets share an identical
+/// 15-column layout ('yassin'); future partners with different layouts
+/// just need a new preset added to that file.
+model SecondarySheet {
+  id               String   @id @default(cuid())
+  /// Google Drive file ID (the long string in the sheet's URL after
+  /// /spreadsheets/d/).
+  spreadsheetId    String
+  /// Specific tab inside the spreadsheet. Defaults to the first tab
+  /// name when not provided; admins can override if a sheet has
+  /// multiple relevant tabs.
+  tabTitle         String   @default("Sheet1")
+  /// Hard-attributed client. Every row in this sheet is treated as
+  /// belonging to this client. SetNull on Client delete so the
+  /// row stays for audit; sync skips orphaned SecondarySheet rows.
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Picks a column-mapping preset by name (see lib/secondary-sheets.ts).
+  /// 'yassin' = Forward Energy + Brighton Capital layout (Lead Name /
+  /// Phone / HO' Address / Appointment Date + Appt. Time / etc.).
+  columnMappingKey String   @default("yassin")
+  /// Set false to temporarily pause ingestion without deleting the row.
+  enabled          Boolean  @default(true)
+  /// Free-text label shown in the admin UI ("Yassin — Forward Energy").
+  label            String?
+  /// Admin who added the sheet. Null for seed rows.
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([spreadsheetId, tabTitle], map: "ux_secondary_sheet_sheet_tab")
+  @@index([clientId])
+  @@index([enabled])
 }
 

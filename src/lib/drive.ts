@@ -977,7 +977,7 @@ function buildRowForSchema(schema: TableSchema, appt: AppointmentSyncData): stri
 
 // ---- Auth + tab helpers -------------------------------------------------
 
-async function getSheetsClient(accountEmail: string) {
+export async function getSheetsClient(accountEmail: string) {
   const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
   if (!account) throw new Error(`No Drive account for ${accountEmail}`)
   const oauth2Client = new google.auth.OAuth2(
@@ -1004,7 +1004,7 @@ async function getSheetsClient(accountEmail: string) {
 }
 
 /** Prefer alex@leadgenisys.com (sheet owner), fall back to any Drive account. */
-async function getWriterAccountEmail(): Promise<string> {
+export async function getWriterAccountEmail(): Promise<string> {
   const preferred = await prisma.driveAccount.findUnique({
     where: { email: 'alex@leadgenisys.com' },
   })
