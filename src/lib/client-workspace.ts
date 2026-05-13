@@ -2,7 +2,8 @@
  * Per-client Slack workspace provisioning.
  *
  * On Client approval, we auto-create a private Slack channel
- * "client-{slug}", invite the team (Alex / Ethan / Garrett) as
+ * named after the business (e.g. "solar-guys-llc"), invite the
+ * team (Alex / Ethan / Garrett) as
  * full members, and send the client's contactEmail a Slack
  * Connect invite. Once the client accepts the invite, the channel
  * shows up in both workspaces — they can chat directly with the
@@ -87,7 +88,11 @@ function slugifyForSlack(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 70) // leave room for the "client-" prefix
+    // Slack channel names cap at 80 chars. We previously reserved
+    // room for a "client-" prefix; that's gone now (Alex's preference,
+    // 2026-05-12) but keeping the safety margin so collision-resolver
+    // suffixes ("-2", "-3") still fit.
+    .slice(0, 76)
 }
 
 /**
@@ -156,8 +161,12 @@ export async function provisionClientWorkspace(
   }
 
   // 1. Create channel + invite team members.
+  // Channel name = the business name as a slack-safe slug. No more
+  // "client-" prefix (2026-05-12 per Alex) — the channel obviously
+  // belongs to a client by virtue of being in our workspace, so the
+  // prefix was just noise. Example: "Solar Guys LLC" → "solar-guys-llc".
   const slug = slugifyForSlack(client.name) || `c-${clientId.slice(-6)}`
-  const channelBaseName = `client-${slug}`
+  const channelBaseName = slug
   let channelId: string
   let channelName: string
   try {
