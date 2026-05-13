@@ -95,18 +95,13 @@ export async function readSecondarySheetRows(): Promise<SourcedRow[]> {
 
     let rows: string[][]
     try {
-      const range = `'${s.tabTitle.replace(/'/g, "''")}'!A2:Z`
-      const res = await client.spreadsheets.values.get({
-        spreadsheetId: s.spreadsheetId,
-        range,
-        valueRenderOption: 'FORMATTED_VALUE',
-      })
-      rows = (res.data.values ?? []) as string[][]
+      rows = await fetchSheetRowsWithFallback(client, s.spreadsheetId, s.tabTitle)
     } catch (err) {
       // Don't let one bad sheet take down the whole sync. Common
       // causes: file deleted, share permission revoked, API quota
-      // burst. Logged so admin can see why a client suddenly has no
-      // sheet-keyed appointments.
+      // burst, configured tab name doesn't exist AND the spreadsheet
+      // has no readable first tab either. Logged so admin can see
+      // why a client suddenly has no sheet-keyed appointments.
       console.error(
         `[secondary-sheets] failed to read ${s.spreadsheetId} / ${s.tabTitle}:`,
         err,
@@ -298,6 +293,73 @@ export async function readAllSheetRows(): Promise<SourcedRow[]> {
     source: { kind: 'primary' as const },
   }))
   return [...tagged, ...secondary]
+}
+
+/**
+ * Fetch every data row (header excluded) from a secondary sheet,
+ * with a fallback path for the common "Yassin renamed the tab"
+ * failure mode. Behavior:
+ *
+ *   1. Try the configured tabTitle first. If it works, return the
+ *      A2:Z slice.
+ *   2. If Google rejects the range as unparsable, fetch the
+ *      spreadsheet's metadata, find the first visible tab, and
+ *      retry against that. This makes the integration robust to
+ *      partners renaming tabs without us redeploying.
+ *   3. If even the metadata fetch fails or the spreadsheet has no
+ *      sheets at all, rethrow so the caller logs and skips.
+ *
+ * Exported so the diagnostic endpoint can use the same logic — that
+ * way "what does production actually see for this sheet" matches
+ * what the cron sees during sync.
+ */
+export async function fetchSheetRowsWithFallback(
+  client: Awaited<ReturnType<typeof getSheetsClient>>,
+  spreadsheetId: string,
+  preferredTabTitle: string,
+): Promise<string[][]> {
+  const tryFetch = async (tabTitle: string) => {
+    const range = `'${tabTitle.replace(/'/g, "''")}'!A2:Z`
+    const res = await client.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+      valueRenderOption: 'FORMATTED_VALUE',
+    })
+    return (res.data.values ?? []) as string[][]
+  }
+
+  try {
+    return await tryFetch(preferredTabTitle)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : ''
+    // Only fall back on "Unable to parse range" — that's the Sheets
+    // API's signal for "this tab name doesn't exist." Auth /
+    // permission / network errors should bubble up so the caller
+    // logs them clearly instead of getting swallowed by a fallback.
+    if (!/parse range|Unable to parse/i.test(message)) {
+      throw err
+    }
+    // Look up the spreadsheet's actual sheet list and try the first
+    // visible one. This handles partners who renamed the default tab
+    // from "Sheet1" to "Appointments" / "Form Responses 1" / etc.
+    const meta = await client.spreadsheets.get({
+      spreadsheetId,
+      includeGridData: false,
+    })
+    const firstSheet = (meta.data.sheets ?? []).find(
+      (s) => s.properties?.title && !s.properties?.hidden,
+    )
+    const firstTabTitle = firstSheet?.properties?.title
+    if (!firstTabTitle) {
+      throw new Error(
+        `Spreadsheet ${spreadsheetId} has no visible tabs — configured tab "${preferredTabTitle}" not found and no fallback available`,
+      )
+    }
+    console.warn(
+      `[secondary-sheets] configured tab "${preferredTabTitle}" not found in ${spreadsheetId}, falling back to first tab "${firstTabTitle}"`,
+    )
+    return await tryFetch(firstTabTitle)
+  }
 }
 
 /** Returns a stable, globally-unique sourceKey for a row's reminder

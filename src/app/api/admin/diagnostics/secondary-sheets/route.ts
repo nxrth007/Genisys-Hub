@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { readSecondarySheetRows } from '@/lib/secondary-sheets'
+import {
+  readSecondarySheetRows,
+  fetchSheetRowsWithFallback,
+} from '@/lib/secondary-sheets'
 import {
   getSheetsClient,
   getWriterAccountEmail,
@@ -77,7 +80,7 @@ export async function GET() {
     sheets.map(async (s) => {
       const result: Record<string, unknown> = {
         spreadsheetId: s.spreadsheetId,
-        tabTitle: s.tabTitle,
+        configuredTabTitle: s.tabTitle,
         clientId: s.clientId,
         clientName: s.client?.name ?? null,
         enabled: s.enabled,
@@ -87,18 +90,35 @@ export async function GET() {
         result.error = 'No Drive client available (no writer account configured)'
         return result
       }
+      // First — fetch spreadsheet metadata so we know what tabs
+      // actually exist in the file. Surfaces them in the diagnostic
+      // output even when the configured tab is wrong, so admin can
+      // see "oh, the tab is called X" at a glance.
       try {
-        const range = `'${s.tabTitle.replace(/'/g, "''")}'!A1:Z`
-        const res = await driveClient.spreadsheets.values.get({
+        const meta = await driveClient.spreadsheets.get({
           spreadsheetId: s.spreadsheetId,
-          range,
-          valueRenderOption: 'FORMATTED_VALUE',
+          includeGridData: false,
         })
-        const allRows = (res.data.values ?? []) as string[][]
-        const headerRow = allRows[0] ?? []
-        const dataRows = allRows.slice(1)
+        result.availableTabs = (meta.data.sheets ?? []).map((sheet) => ({
+          title: sheet.properties?.title ?? null,
+          hidden: !!sheet.properties?.hidden,
+        }))
+      } catch (err) {
+        result.availableTabs = null
+        result.metadataError =
+          err instanceof Error
+            ? `${err.name}: ${err.message}`
+            : 'Unknown error fetching metadata'
+      }
+      // Then run the same fetch-with-fallback the cron uses, so the
+      // diagnostic mirrors production behavior.
+      try {
+        const dataRows = await fetchSheetRowsWithFallback(
+          driveClient,
+          s.spreadsheetId,
+          s.tabTitle,
+        )
         result.fetchOk = true
-        result.headerRow = headerRow
         result.dataRowCount = dataRows.length
         result.firstThreeDataRows = dataRows.slice(0, 3)
       } catch (err) {
