@@ -36,11 +36,14 @@ import {
   Clock,
   CreditCard,
   ExternalLink,
+  Eye,
+  Info,
   Loader2,
   LogOut,
   Search,
   Sparkles,
   Trophy,
+  X,
   XCircle,
 } from 'lucide-react'
 import { signOut } from 'next-auth/react'
@@ -502,54 +505,455 @@ const PACKAGE_LABEL: Record<string, string> = {
 /* -------------------------------------------------------------------------- */
 
 function TrackerPreview() {
+  const [open, setOpen] = useState(false)
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          <Sparkles className="h-3.5 w-3.5" />
-          Preview — your dashboard once you&apos;re live
-        </div>
-      </div>
-      <div className="relative">
-        <div className="pointer-events-none opacity-40">
-          <div className="grid grid-cols-2 gap-3 px-5 py-4 md:grid-cols-4">
-            <PreviewStat label="Total" value="—" />
-            <PreviewStat label="Upcoming" value="—" />
-            <PreviewStat label="Showed" value="—" tone="green" />
-            <PreviewStat label="No-show" value="—" tone="rose" />
+    <>
+      <section className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <Sparkles className="h-3.5 w-3.5" />
+            Preview — your dashboard once you&apos;re live
           </div>
-          <div className="border-t border-zinc-100 dark:border-zinc-800">
-            <table className="hidden w-full text-sm md:table">
-              <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold">Date</th>
-                  <th className="px-4 py-2 text-left font-semibold">Customer</th>
-                  <th className="px-4 py-2 text-left font-semibold">Phone</th>
-                  <th className="px-4 py-2 text-left font-semibold">Address</th>
-                  <th className="px-4 py-2 text-left font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800">
-                    <td className="px-4 py-2 text-zinc-400">———</td>
-                    <td className="px-4 py-2 text-zinc-400">———</td>
-                    <td className="px-4 py-2 text-zinc-400">———</td>
-                    <td className="px-4 py-2 text-zinc-400">———</td>
-                    <td className="px-4 py-2 text-zinc-400">———</td>
+        </div>
+        <div className="relative">
+          <div className="pointer-events-none opacity-40">
+            <div className="grid grid-cols-2 gap-3 px-5 py-4 md:grid-cols-4">
+              <PreviewStat label="Total" value="—" />
+              <PreviewStat label="Upcoming" value="—" />
+              <PreviewStat label="Showed" value="—" tone="green" />
+              <PreviewStat label="No-show" value="—" tone="rose" />
+            </div>
+            <div className="border-t border-zinc-100 dark:border-zinc-800">
+              <table className="hidden w-full text-sm md:table">
+                <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2 text-left font-semibold">Customer</th>
+                    <th className="px-4 py-2 text-left font-semibold">Phone</th>
+                    <th className="px-4 py-2 text-left font-semibold">Address</th>
+                    <th className="px-4 py-2 text-left font-semibold">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800">
+                      <td className="px-4 py-2 text-zinc-400">———</td>
+                      <td className="px-4 py-2 text-zinc-400">———</td>
+                      <td className="px-4 py-2 text-zinc-400">———</td>
+                      <td className="px-4 py-2 text-zinc-400">———</td>
+                      <td className="px-4 py-2 text-zinc-400">———</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-transparent via-white/70 to-white dark:via-zinc-900/70 dark:to-zinc-900">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview
+            </button>
           </div>
         </div>
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-b from-transparent via-white/70 to-white dark:via-zinc-900/70 dark:to-zinc-900">
-          <span className="rounded-full bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm">
-            Pay to unlock
-          </span>
+      </section>
+      {open && <PreviewWalkthroughModal onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Preview walkthrough modal — interactive mockup of the live tracker        */
+/* -------------------------------------------------------------------------- */
+
+/** Sample appointments for the preview. Deliberately fictional (555
+ *  phone numbers, generic names + addresses) so it's clearly a demo,
+ *  not someone's real data. Mix of statuses so the client sees what
+ *  each state looks like — including the Won/Lost row outcomes they
+ *  can mark themselves. */
+const PREVIEW_APPOINTMENTS: Array<{
+  id: string
+  date: string
+  customerName: string
+  phone: string
+  address: string
+  bill: string
+  utility: string
+  status: 'booked' | 'rescheduled' | 'showed' | 'won' | 'lost' | 'no_show'
+}> = [
+  {
+    id: 'demo-1',
+    date: 'Tomorrow, 2:00 PM',
+    customerName: 'Sarah Johnson',
+    phone: '(555) 412-9087',
+    address: '142 Oak Avenue',
+    bill: '$245/mo',
+    utility: 'Con Edison',
+    status: 'booked',
+  },
+  {
+    id: 'demo-2',
+    date: 'Thu, 10:30 AM',
+    customerName: 'Mike Chen',
+    phone: '(555) 803-2241',
+    address: '88 Maple Street',
+    bill: '$312/mo',
+    utility: 'PG&E',
+    status: 'booked',
+  },
+  {
+    id: 'demo-3',
+    date: 'Fri, 4:00 PM',
+    customerName: 'Linda Rodriguez',
+    phone: '(555) 654-1108',
+    address: '27 Cedar Lane',
+    bill: '$178/mo',
+    utility: 'Duke Energy',
+    status: 'rescheduled',
+  },
+  {
+    id: 'demo-4',
+    date: 'Last Mon, 1:00 PM',
+    customerName: 'David Park',
+    phone: '(555) 290-7762',
+    address: '519 Birch Road',
+    bill: '$398/mo',
+    utility: 'Con Edison',
+    status: 'showed',
+  },
+  {
+    id: 'demo-5',
+    date: 'Last Wed, 11:00 AM',
+    customerName: 'Jennifer Wallace',
+    phone: '(555) 117-4493',
+    address: '903 Pine Boulevard',
+    bill: '$267/mo',
+    utility: 'Eversource',
+    status: 'won',
+  },
+  {
+    id: 'demo-6',
+    date: 'Last Fri, 3:30 PM',
+    customerName: 'Robert Kim',
+    phone: '(555) 776-5520',
+    address: '64 Elm Court',
+    bill: '$201/mo',
+    utility: 'PG&E',
+    status: 'lost',
+  },
+]
+
+function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
+  // Local-only state so clicking Won/Lost in the preview actually
+  // toggles — gives the client a tactile sense of how they'll mark
+  // outcomes. Nothing hits the API.
+  const [statuses, setStatuses] = useState<Record<string, string>>(() =>
+    Object.fromEntries(PREVIEW_APPOINTMENTS.map((a) => [a.id, a.status])),
+  )
+
+  // Close on ESC. Click-outside is handled by the backdrop onClick.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    // Lock scroll while modal is open so the page underneath doesn't
+    // jiggle behind the backdrop.
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+
+  const markOutcome = (id: string, outcome: 'won' | 'lost' | 'clear') => {
+    setStatuses((s) => ({
+      ...s,
+      [id]: outcome === 'clear' ? 'showed' : outcome,
+    }))
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-6 backdrop-blur-sm sm:py-10"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Live dashboard preview"
+    >
+      <div
+        className="relative w-full max-w-5xl rounded-2xl bg-white shadow-2xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-2xl border-b border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold sm:text-base">
+              Your live dashboard — interactive preview
+            </h2>
+            <p className="text-[11px] text-zinc-500">
+              Sample data. This is exactly how the page will look once we
+              start booking for you.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close preview"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-6 px-5 py-5 sm:px-6 sm:py-6">
+          {/* Demo banner */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              All names, phone numbers, and appointments below are fake
+              demo data. Your real dashboard will populate as we book
+              appointments for your business.
+            </span>
+          </div>
+
+          {/* Headline stats — same shape as live TrackerView */}
+          <div>
+            <PreviewAnnotation
+              text="Three numbers that always sit up top — how this month is going at a glance."
+            />
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <StatCard label="This month" value={12} />
+              <StatCard label="Show rate" value="83%" tone="green" />
+              <StatCard label="Next 7 days" value={3} />
+            </div>
+          </div>
+
+          {/* Upcoming-this-week callout */}
+          <div>
+            <PreviewAnnotation
+              text="When you have appointments coming up in the next 7 days, they're called out here so you can prep."
+            />
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/50">
+              <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-blue-800 dark:text-blue-200">
+                <Calendar className="h-3.5 w-3.5" />
+                Coming up this week
+              </div>
+              <ul className="space-y-1 text-blue-900 dark:text-blue-100">
+                <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
+                  <span className="font-medium">Tomorrow, 2:00 PM</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span>Sarah Johnson</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-blue-700 dark:text-blue-300">
+                    142 Oak Avenue
+                  </span>
+                </li>
+                <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
+                  <span className="font-medium">Thu, 10:30 AM</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span>Mike Chen</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-blue-700 dark:text-blue-300">
+                    88 Maple Street
+                  </span>
+                </li>
+                <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
+                  <span className="font-medium">Fri, 4:00 PM</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span>Linda Rodriguez</span>
+                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-blue-700 dark:text-blue-300">
+                    27 Cedar Lane
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Appointment table */}
+          <div>
+            <PreviewAnnotation
+              text="Every appointment we book for you lands here in real time. Showed-up appointments get a Won/Lost button so you can mark deal outcomes yourself — try it below."
+            />
+            <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+              <table className="hidden w-full text-sm md:table">
+                <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2 text-left font-semibold">Customer</th>
+                    <th className="px-4 py-2 text-left font-semibold">Phone</th>
+                    <th className="px-4 py-2 text-left font-semibold">Address</th>
+                    <th className="px-4 py-2 text-left font-semibold">Bill</th>
+                    <th className="px-4 py-2 text-left font-semibold">Utility</th>
+                    <th className="px-4 py-2 text-left font-semibold">Status</th>
+                    <th className="px-4 py-2 text-left font-semibold">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {PREVIEW_APPOINTMENTS.map((a) => {
+                    const status = statuses[a.id] ?? a.status
+                    return (
+                      <tr
+                        key={a.id}
+                        className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-950/50"
+                      >
+                        <td className="px-4 py-2 tabular-nums">{a.date}</td>
+                        <td className="px-4 py-2 font-medium">
+                          {a.customerName}
+                        </td>
+                        <td className="px-4 py-2 tabular-nums">{a.phone}</td>
+                        <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                          {a.address}
+                        </td>
+                        <td className="px-4 py-2 tabular-nums">{a.bill}</td>
+                        <td className="px-4 py-2">{a.utility}</td>
+                        <td className="px-4 py-2">
+                          <StatusBadge status={status} />
+                        </td>
+                        <td className="px-4 py-2">
+                          <OutcomeActions
+                            status={status}
+                            pending={false}
+                            onMark={(outcome) => markOutcome(a.id, outcome)}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+
+              {/* Mobile card list — same as live TrackerView */}
+              <ul className="divide-y divide-zinc-100 md:hidden dark:divide-zinc-800">
+                {PREVIEW_APPOINTMENTS.map((a) => {
+                  const status = statuses[a.id] ?? a.status
+                  return (
+                    <li key={a.id} className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">
+                            {a.customerName}
+                          </p>
+                          <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+                            {a.date}
+                          </p>
+                        </div>
+                        <StatusBadge status={status} />
+                      </div>
+                      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                        <div className="col-span-2">
+                          <dt className="text-zinc-400">Address</dt>
+                          <dd className="text-zinc-600 dark:text-zinc-300">
+                            {a.address}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-zinc-400">Phone</dt>
+                          <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                            {a.phone}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-zinc-400">Bill</dt>
+                          <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                            {a.bill}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-zinc-400">Utility</dt>
+                          <dd className="text-zinc-600 dark:text-zinc-300">
+                            {a.utility}
+                          </dd>
+                        </div>
+                      </dl>
+                      {(status === 'showed' ||
+                        status === 'won' ||
+                        status === 'lost') && (
+                        <div className="mt-3 flex justify-end">
+                          <OutcomeActions
+                            status={status}
+                            pending={false}
+                            onMark={(outcome) => markOutcome(a.id, outcome)}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </div>
+
+          {/* What you'll see when live — quick recap */}
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-950/50">
+            <div className="mb-2 flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+              What you&apos;ll see once we start booking
+            </div>
+            <ul className="space-y-1.5 text-zinc-600 dark:text-zinc-400">
+              <li className="flex gap-2">
+                <span className="text-blue-600">·</span>
+                <span>
+                  Appointments appear here in real time as soon as Mary
+                  books them on a call.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">·</span>
+                <span>
+                  Full customer details: name, phone, address, bill
+                  amount, utility — everything you need to walk in
+                  prepared.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">·</span>
+                <span>
+                  Mark Won / Lost yourself after each appointment so your
+                  show rate + outcomes stay accurate.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-blue-600">·</span>
+                <span>
+                  A private Slack channel with your account manager opens
+                  the moment you go live — no support tickets, just chat.
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Close CTA at the bottom for thumb reach on mobile */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Got it
+            </button>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
+  )
+}
+
+/** Small inline callout that explains what the next section is. Sits
+ *  above each major block in the preview modal so the client knows
+ *  what they're looking at without us having to do a full multi-step
+ *  tour overlay. */
+function PreviewAnnotation({ text }: { text: string }) {
+  return (
+    <div className="mb-2 flex items-start gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+      <Info className="mt-0.5 h-3 w-3 shrink-0 text-blue-500" />
+      <span>{text}</span>
+    </div>
   )
 }
 
