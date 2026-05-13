@@ -192,12 +192,24 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     return slackClient
   }
 
+  // Stale-appointment cutoff — same guard added to client-alert.ts.
+  // Historical rows (more than 24h past) get recorded as 'backfilled'
+  // rather than posting to the client's Slack channel. Catches the
+  // catch-up-data-entry case where adding old appointments would
+  // otherwise blast the client with old leads.
+  const STALE_HOURS = 24
+  const staleThreshold = new Date(Date.now() - STALE_HOURS * 60 * 60 * 1000)
+
   for (const row of rows) {
     if (!row.customerName?.trim() || !row.customerPhone?.trim()) continue
     if (!row.apptDateTime) continue
     // Cancelled rows shouldn't get announced. The cron already cancels
     // pending reminders for these; same logic applies to delivery.
     if ((row.status || '').toLowerCase().includes('cancel')) continue
+
+    const rowApptDate = new Date(row.apptDateTime)
+    const apptIsStale =
+      !isNaN(rowApptDate.getTime()) && rowApptDate < staleThreshold
 
     const sourceKey = `sheet:Master Table:${row.rowNumber}`
     const route = routeRowToClient(
@@ -298,6 +310,41 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
             // them in place.
           })
       }
+      continue
+    }
+
+    // Stale-row safety net: no prior delivery on file AND the
+    // appointment is more than 24h in the past. Record 'backfilled'
+    // so the next sync tick doesn't treat it as new either, but
+    // skip the Slack post entirely. Catches Yassin / Mary catch-up
+    // data entry without blasting the client with old leads.
+    if (apptIsStale) {
+      try {
+        await prisma.sheetSlackDelivery.create({
+          data: {
+            sourceKey,
+            channelId: candidate.slackChannelId,
+            status: 'backfilled',
+            customerPhone: normalizedPhone,
+            apptDateTime: apptDateValid ? apptDate : null,
+          },
+        })
+      } catch (err) {
+        const code =
+          err instanceof Error && 'code' in err
+            ? (err as { code?: string }).code
+            : undefined
+        if (code !== 'P2002') {
+          console.error(
+            '[client-delivery] stale-row backfill insert failed:',
+            err,
+          )
+        }
+      }
+      result.skipped++
+      console.log(
+        `[client-delivery] skipped historical row (appt ${rowApptDate.toISOString()}, sourceKey=${sourceKey}) — recorded as backfilled instead of posting to ${candidate.name}'s channel.`,
+      )
       continue
     }
 

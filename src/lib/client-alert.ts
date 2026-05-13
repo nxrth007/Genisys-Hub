@@ -125,10 +125,30 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
   }
   result.scanned = rows.length
 
+  // Stale-appointment cutoff: skip rows whose appointment is more
+  // than STALE_HOURS in the past. Without this guard, adding a new
+  // secondary sheet (or any catch-up data entry of historical rows
+  // on the master sheet) would blast every old row to the client's
+  // contactPhone as if it were a fresh booking. Mary's "I'm typing
+  // in a row whose appointment is in 30 min" case is still fine —
+  // we only skip when the appointment is meaningfully old. 24h
+  // chosen because anything older than that is almost certainly
+  // historical data, not a fresh booking we missed.
+  const STALE_HOURS = 24
+  const staleThreshold = new Date(Date.now() - STALE_HOURS * 60 * 60 * 1000)
+
   for (const row of rows) {
     if (!row.customerName?.trim() || !row.customerPhone?.trim()) continue
     if (!row.apptDateTime) continue
     if ((row.status || '').toLowerCase().includes('cancel')) continue
+
+    // Skip old appointments without firing the SMS. We still record
+    // a 'backfilled' delivery row below the dedup check so the audit
+    // log keeps consistent state and a later sync run can't suddenly
+    // decide it's new.
+    const rowApptDate = new Date(row.apptDateTime)
+    const apptIsStale =
+      !isNaN(rowApptDate.getTime()) && rowApptDate < staleThreshold
 
     // sourceKey via rowSourceKey so primary rows keep the legacy
     // "sheet:Master Table:N" shape while secondaries get
@@ -217,6 +237,43 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
             // delivery; safe to leave them in place.
           })
       }
+      continue
+    }
+
+    // Stale-row safety net: row passed the idempotency check (no
+    // prior delivery on file), but the appointment itself is more
+    // than 24h in the past. Don't send — just record a 'backfilled'
+    // row so the next sync tick (or later edits) doesn't think it's
+    // new again. Catches the "Yassin's team backfills a historical
+    // row" and "Mary catches up on data entry days later" cases.
+    if (apptIsStale) {
+      try {
+        await prisma.clientAlertDelivery.create({
+          data: {
+            sourceKey,
+            clientId: candidate.id,
+            recipientPhone,
+            status: 'backfilled',
+            customerPhone: customerPhoneKey,
+            apptDateTime: apptDateValid ? apptDate : null,
+          },
+        })
+      } catch (err) {
+        const code =
+          err instanceof Error && 'code' in err
+            ? (err as { code?: string }).code
+            : undefined
+        if (code !== 'P2002') {
+          console.error(
+            '[client-alert] stale-row backfill insert failed:',
+            err,
+          )
+        }
+      }
+      result.skipped++
+      console.log(
+        `[client-alert] skipped historical row (appt ${rowApptDate.toISOString()}, sourceKey=${sourceKey}) — recorded as backfilled instead of blasting client.`,
+      )
       continue
     }
 
