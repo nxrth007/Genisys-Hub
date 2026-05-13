@@ -105,6 +105,21 @@ type Appointment = {
    *  small hint so Ethan can spot which rows still need the Client
    *  column filled in upstream. */
   clientInferred?: boolean
+  /** Which sheet this row came from. Primary = main "Master Table"
+   *  (Mary's sheet). Secondary = a registered partner-call-center
+   *  sheet (Yassin's Forward Energy / Brighton Capital). Mary's view
+   *  filters secondaries out server-side, so on /agent/master-tracker
+   *  this will always be 'primary'. Used here on the admin view to
+   *  render a small source badge so Alex / Ethan can see at a glance
+   *  which rows came from where. */
+  source?:
+    | { kind: 'primary' }
+    | {
+        kind: 'secondary'
+        label: string | null
+        spreadsheetId: string
+        tabTitle: string
+      }
 }
 
 type Client = {
@@ -1375,7 +1390,7 @@ export default function MasterTrackerPage() {
                             // can spot rows that need their Client column
                             // explicitly filled in upstream.
                             <span
-                              className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
+                              className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
                               title={
                                 a.clientInferred
                                   ? `Inferred from address (${a.client.state || ''}) — Client column was blank in the sheet`
@@ -1392,6 +1407,26 @@ export default function MasterTrackerPage() {
                                 aria-hidden
                               />
                               {a.client.name}
+                              {/* Source badge for rows that came from a
+                                  partner-call-center secondary sheet
+                                  (Yassin's Forward Energy / Brighton
+                                  Capital). Mary never sees this — the
+                                  API filters secondaries out for her —
+                                  so the badge is purely an admin "this
+                                  came from elsewhere" indicator. The
+                                  title attribute shows the sheet label
+                                  on hover for full context. */}
+                              {a.source?.kind === 'secondary' && (
+                                <span
+                                  className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                                  title={
+                                    a.source.label ??
+                                    `Imported from ${a.source.tabTitle}`
+                                  }
+                                >
+                                  partner
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-zinc-400">—</span>
