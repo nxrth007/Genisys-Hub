@@ -375,7 +375,6 @@ function PrePayPlanPicker({
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <WelcomeBanner
-        user={user}
         message="Pick a plan + tell us your business name to get started. Payment opens in a new tab — your account manager approves you once it lands."
       />
 
@@ -1007,19 +1006,22 @@ function PreviewStat({
 /* -------------------------------------------------------------------------- */
 
 function WelcomeBanner({
-  user,
   message,
 }: {
-  user: MeUser
   message: string
 }) {
-  const greeting = user.name?.split(' ')[0] || 'there'
+  // No personalization — fresh registrants don't have a name on file
+  // yet (they only entered email + password at /signin/client/register),
+  // so the fallback was always "there" which read awkwardly. Cleaner
+  // to greet generically until they fill out the onboarding form,
+  // where the post-active TrackerView shows their business name in
+  // the header anyway.
   return (
     <section className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-blue-50 to-white p-5 dark:border-zinc-800 dark:from-blue-950/40 dark:to-zinc-900">
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-blue-600" />
         <h2 className="text-lg font-semibold">
-          Welcome to Lead Genisys, {greeting}.
+          Hello, Welcome to Lead Genisys
         </h2>
       </div>
       <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
