@@ -689,6 +689,21 @@ export async function sendSmsToPhone(
      *  reminder line vs. agent outbound). The reminders dispatcher and
      *  morning brief sender both pass this from RemindersConfig.senderPhone. */
     fromNumber?: string
+    /** When true, the contact upsert does not pass firstName/lastName
+     *  to GHL, so an existing contact's name fields are never
+     *  overwritten. Used by the client-alert SMS path where we only
+     *  need the contact ID to attach the SMS — we do NOT want to
+     *  rebrand the customer's CRM contact with our client's business
+     *  name (the 2026-05-13 "Brett Cooper renamed to Sunny Sky Solar
+     *  Cooper" bug). Customer reminders intentionally leave this
+     *  false so the customer's name DOES populate / stay current on
+     *  their GHL contact — that's a legitimate naming case.
+     *
+     *  NOTE: when the contact doesn't exist yet, GHL creates one
+     *  with no name. That's fine; we never query GHL by name. The
+     *  contact at Sunny Sky's contactPhone being nameless on GHL is
+     *  cosmetic — the SMS still delivers correctly. */
+    preserveContactName?: boolean
   }
 ): Promise<{
   contactId: string
@@ -703,8 +718,8 @@ export async function sendSmsToPhone(
     : undefined
   const { id: contactId } = await upsertContactByPhone(vaultEntryName, {
     phone: normalizedPhone,
-    firstName: params.firstName,
-    lastName: params.lastName,
+    firstName: params.preserveContactName ? undefined : params.firstName,
+    lastName: params.preserveContactName ? undefined : params.lastName,
   })
 
   const res = (await ghlFetch('/conversations/messages', vaultEntryName, {

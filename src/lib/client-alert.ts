@@ -291,6 +291,10 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
         // location's default phone. Settings UI surfaces the field
         // so admin can pin a dedicated number (e.g. 603-803-4828).
         ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+        // Never overwrite an existing GHL contact's name from this
+        // path. See sendSmsToPhone for the full Brett-Cooper-renamed
+        // -to-Sunny-Sky-Solar-Cooper story.
+        preserveContactName: true,
       })
 
       await prisma.clientAlertDelivery.create({
@@ -695,6 +699,10 @@ export async function dispatchPendingClientAlerts(): Promise<{
         message: body,
         firstName: appt.client?.name ?? 'client',
         ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+        // Never overwrite an existing GHL contact's name from this
+        // path. See sendSmsToPhone for the full Brett-Cooper-renamed
+        // -to-Sunny-Sky-Solar-Cooper story.
+        preserveContactName: true,
       })
       await prisma.clientAlertDelivery.update({
         where: { id: row.id },
@@ -877,6 +885,9 @@ export async function retryFailedClientAlert(
       message: body,
       firstName: client?.name ?? 'client',
       ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
+      // Never overwrite an existing GHL contact's name — see
+      // sendSmsToPhone for the Brett-Cooper-renamed bug.
+      preserveContactName: true,
     })
     await prisma.clientAlertDelivery.update({
       where: { id: row.id },
@@ -1078,6 +1089,9 @@ export async function sendTestClientAlert(params: {
     message: body,
     firstName: params.clientName,
     ...(params.senderPhone ? { fromNumber: params.senderPhone } : {}),
+    // Test sends shouldn't rebrand existing GHL contacts either.
+    // Even an admin "send test SMS" should be safe.
+    preserveContactName: true,
   })
   return { ok: true, messageId: send.messageId ?? null }
 }
