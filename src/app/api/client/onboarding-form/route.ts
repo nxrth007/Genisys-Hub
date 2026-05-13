@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
   const address = trim(body.address)
   const servicingZipcodes = asOptional(body.servicingZipcodes)
   const appointmentTypesRaw = trim(body.appointmentTypes).toLowerCase()
-  const website = asOptional(body.website)
+  const website = normalizeWebsite(asOptional(body.website))
   // Booleans posted explicitly as `true` / `false`; reject anything else
   // (don't silently coerce a missing field to false, since the form
   // is supposed to force an answer).
@@ -401,4 +401,25 @@ export async function POST(req: NextRequest) {
     clientId: created.client.id,
     clientName: created.client.name,
   })
+}
+
+/** Normalize a website value typed by a client. Most clients type
+ *  "solarguys.com" (or worse, "www.solarguys.com") and expect it to
+ *  Just Work. Without a scheme, the stored value isn't a valid URL —
+ *  links from admin tooling won't open in a new tab, etc. Prepend
+ *  https:// when there's no scheme; otherwise pass through. Returns
+ *  null on empty so the column stays nullable as before. */
+function normalizeWebsite(input: string | null): string | null {
+  if (!input) return null
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  // Already has a scheme — accept as-is. Cover http(s)://, plus the
+  // rare ftp:// / mailto: a client might paste. The point is "if
+  // they specified a protocol, don't second-guess it."
+  if (/^[a-z][a-z0-9+.\-]*:\/\//i.test(trimmed)) return trimmed
+  if (/^mailto:/i.test(trimmed)) return trimmed
+  // Bare domain → assume https. Don't try to validate the domain
+  // shape; the form is optional and a typo'd value is recoverable
+  // by admin editing later.
+  return `https://${trimmed}`
 }

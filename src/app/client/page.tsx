@@ -43,10 +43,14 @@ import {
   Search,
   Sparkles,
   Trophy,
+  UserCircle2,
   X,
   XCircle,
 } from 'lucide-react'
+import Link from 'next/link'
 import { signOut } from 'next-auth/react'
+import { AddressInput } from '@/components/ui/address-input'
+import { formatPhoneInput } from '@/lib/phone'
 
 /* -------------------------------------------------------------------------- */
 /*  Shared types                                                              */
@@ -150,6 +154,7 @@ export default function ClientHomePage() {
               }
             : null
         }
+        showAccountLink={user.role === 'client_active'}
       />
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         {user.role === 'client_pending' && !client && (
@@ -198,10 +203,15 @@ function DashboardHeader({
   title,
   subtitle,
   slackChannel,
+  showAccountLink,
 }: {
   title: string
   subtitle: string
   slackChannel: { id: string; name: string | null } | null
+  /** Hide the My Account pill while the client is mid-funnel
+   *  (pending/onboarding) — they don't have a real account view yet
+   *  and the page would feel confusing. Only surface it once active. */
+  showAccountLink: boolean
 }) {
   // Slack universal redirect URL: works in app + browser regardless of
   // which workspace they're signed into. Clients almost always forget
@@ -253,6 +263,16 @@ function DashboardHeader({
                 #
               </span>
             </a>
+          )}
+          {showAccountLink && (
+            <Link
+              href="/client/account"
+              title="My account — profile + change password"
+              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              <UserCircle2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">My account</span>
+            </Link>
           )}
           <button
             onClick={() => signOut({ callbackUrl: '/signin/client' })}
@@ -1174,7 +1194,11 @@ function ClientOnboardingForm({
           <input
             type="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            // Live formatter: strip everything but digits, then group
+            // into (XXX) XXX-XXXX as they type. Same helper the agent
+            // booking form uses. Clients can paste any format (dashes,
+            // dots, "+1") and it normalizes through the same path.
+            onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
             required
             autoComplete="tel"
             placeholder="(555) 123-4567"
@@ -1205,14 +1229,29 @@ function ClientOnboardingForm({
         />
       </Field>
 
-      <Field label="Business address" required>
-        <input
-          type="text"
+      <Field
+        label="Business address"
+        hint={
+          state.trim()
+            ? `Suggestions filtered to ${state.trim()}.`
+            : 'Fill in your State above to filter suggestions.'
+        }
+        required
+      >
+        {/* Google Places autocomplete (Nominatim fallback when the
+            Google Maps Key vault entry isn't configured). The
+            endpoint prop points at the client-onboarding-allowed
+            proxy so prospects with role=client_onboarding can use it
+            without bumping the agent-only middleware rules. State
+            value above is passed as the bias so a client in Arizona
+            doesn't see Florida addresses in the dropdown. */}
+        <AddressInput
           value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          required
-          placeholder="123 Main St, City, ST 12345"
-          className="input"
+          onChange={setAddress}
+          endpoint="/api/client/maps/places"
+          stateBias={state}
+          requireStreet
+          placeholder="Start typing — e.g. 123 Main St Phoenix AZ"
         />
       </Field>
 
@@ -1266,12 +1305,20 @@ function ClientOnboardingForm({
         </Field>
       </div>
 
-      <Field label="Website" hint="Optional.">
+      <Field
+        label="Website"
+        hint="Optional — no https:// needed, just type the domain."
+      >
+        {/* Plain text (not type="url") because the URL constraint
+            insists on a scheme and clients reliably type "solarguys.com"
+            without thinking about it. Server prepends https:// before
+            saving so links stored in the DB are always clickable. */}
         <input
-          type="url"
+          type="text"
           value={website}
           onChange={(e) => setWebsite(e.target.value)}
-          placeholder="https://yourcompany.com"
+          placeholder="yourcompany.com"
+          autoComplete="url"
           className="input"
         />
       </Field>

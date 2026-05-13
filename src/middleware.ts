@@ -31,9 +31,12 @@ const PUBLIC_PATHS = [
   '/api/client/register',
   // Forgot/reset password endpoints — both reachable anonymously
   // because the user can't sign in (that's why they're resetting).
-  // Both rate-limited per IP inside the handlers.
+  // Rate-limited per IP inside each handler. Agent + client parallel
+  // tracks — staff use Google OAuth and don't have password resets.
   '/api/client/forgot-password',
   '/api/client/reset-password',
+  '/api/agent/forgot-password',
+  '/api/agent/reset-password',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces

@@ -106,6 +106,15 @@ function AgentSignInInner() {
           </button>
         </form>
 
+        <p className="mt-3 text-center text-xs">
+          <Link
+            href="/signin/agent/forgot-password"
+            className="font-medium text-blue-600 hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </p>
+
         <p className="mt-4 text-center text-xs text-zinc-500">
           New agent?{' '}
           <Link href="/signin/agent/register" className="font-medium text-blue-600 hover:underline">

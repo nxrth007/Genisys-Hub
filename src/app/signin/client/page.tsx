@@ -153,11 +153,10 @@ function ClientSignInInner() {
           </Link>
         </p>
 
-        <p className="mt-6 text-center text-xs text-zinc-400">
-          <Link href="/signin" className="hover:underline">
-            ← Staff sign in
-          </Link>
-        </p>
+        {/* Staff sign-in link intentionally removed (2026-05-12) —
+            clients shouldn't see internal sign-in surfaces, and Alex
+            doesn't want them clicking through to a screen they can't
+            use. Staff still reach /signin directly by URL. */}
       </div>
     </div>
   )
