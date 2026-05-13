@@ -99,6 +99,11 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
       name: true,
       state: true,
       contactPhone: true,
+      // Used for GHL contact firstName/lastName when creating a NEW
+      // contact at the client's contactPhone. Existing GHL contacts
+      // are not touched (findContactByPhone short-circuits upsert),
+      // so this is purely a create-time hint.
+      contactName: true,
     },
   })
 
@@ -283,18 +288,24 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
     const body = formatAppointmentForClientSms(row, { solar })
 
     try {
+      // GHL contact naming: companyName goes in GHL's proper
+      // "Business name" field (not firstName — the old bug).
+      // firstName/lastName come from Client.contactName if filled
+      // in (e.g. "Ray Rodriguez" → firstName="Ray" / lastName=
+      // "Rodriguez"). All three are only used when GHL CREATES a
+      // new contact — existing contacts are left fully untouched
+      // by the find-first logic in upsertContactByPhone.
+      const contactNames = splitContactName(candidate.contactName)
       const send = await sendSmsToPhone(config.vaultEntryName, {
         phone: recipientPhone,
         message: body,
-        firstName: candidate.name,
+        firstName: contactNames.firstName,
+        lastName: contactNames.lastName,
+        companyName: candidate.name,
         // Optional sender override — when null, GHL routes via the
         // location's default phone. Settings UI surfaces the field
         // so admin can pin a dedicated number (e.g. 603-803-4828).
         ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
-        // Never overwrite an existing GHL contact's name from this
-        // path. See sendSmsToPhone for the full Brett-Cooper-renamed
-        // -to-Sunny-Sky-Solar-Cooper story.
-        preserveContactName: true,
       })
 
       await prisma.clientAlertDelivery.create({
@@ -411,6 +422,11 @@ export async function deliverAppointmentAsSms(
       name: true,
       state: true,
       contactPhone: true,
+      // Used for GHL contact firstName/lastName when creating a NEW
+      // contact at the client's contactPhone. Existing GHL contacts
+      // are not touched (findContactByPhone short-circuits upsert),
+      // so this is purely a create-time hint.
+      contactName: true,
     },
   })
   const index = buildRoutingIndex(allClients)
@@ -694,15 +710,15 @@ export async function dispatchPendingClientAlerts(): Promise<{
     const body = formatAppointmentForClientSms(synthRow, { solar })
 
     try {
+      // Business name goes to GHL's companyName field. firstName/
+      // lastName left blank here — this path doesn't currently carry
+      // the Client.contactName through, and find-first means existing
+      // contacts aren't touched anyway.
       const send = await sendSmsToPhone(config.vaultEntryName, {
         phone: row.recipientPhone,
         message: body,
-        firstName: appt.client?.name ?? 'client',
+        companyName: appt.client?.name ?? undefined,
         ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
-        // Never overwrite an existing GHL contact's name from this
-        // path. See sendSmsToPhone for the full Brett-Cooper-renamed
-        // -to-Sunny-Sky-Solar-Cooper story.
-        preserveContactName: true,
       })
       await prisma.clientAlertDelivery.update({
         where: { id: row.id },
@@ -883,11 +899,10 @@ export async function retryFailedClientAlert(
     const send = await sendSmsToPhone(config.vaultEntryName, {
       phone: row.recipientPhone,
       message: body,
-      firstName: client?.name ?? 'client',
+      // Business name → GHL companyName (not firstName). Existing
+      // contacts at this phone are left untouched by find-first.
+      companyName: client?.name ?? undefined,
       ...(config.senderPhone ? { fromNumber: config.senderPhone } : {}),
-      // Never overwrite an existing GHL contact's name — see
-      // sendSmsToPhone for the Brett-Cooper-renamed bug.
-      preserveContactName: true,
     })
     await prisma.clientAlertDelivery.update({
       where: { id: row.id },
@@ -1087,11 +1102,10 @@ export async function sendTestClientAlert(params: {
   const send = await sendSmsToPhone(params.vaultEntryName, {
     phone: recipient,
     message: body,
-    firstName: params.clientName,
+    // Business name → companyName. Existing GHL contacts at this
+    // phone are left untouched by find-first inside the upsert.
+    companyName: params.clientName,
     ...(params.senderPhone ? { fromNumber: params.senderPhone } : {}),
-    // Test sends shouldn't rebrand existing GHL contacts either.
-    // Even an admin "send test SMS" should be safe.
-    preserveContactName: true,
   })
   return { ok: true, messageId: send.messageId ?? null }
 }
@@ -1201,4 +1215,20 @@ export function formatAppointmentForClientSms(
   lines.push('Reply STOP to opt out.')
 
   return lines.join('\n')
+}
+
+/** Split a full name into firstName + lastName for GHL contact create.
+ *  "Ray Rodriguez" → firstName="Ray", lastName="Rodriguez".
+ *  "Ray" alone → firstName="Ray", lastName=undefined. Empty / null →
+ *  both undefined. Names with 3+ words put the rest in lastName so
+ *  multi-part names stay together. */
+function splitContactName(raw: string | null | undefined): {
+  firstName: string | undefined
+  lastName: string | undefined
+} {
+  if (!raw) return { firstName: undefined, lastName: undefined }
+  const parts = raw.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return { firstName: undefined, lastName: undefined }
+  if (parts.length === 1) return { firstName: parts[0], lastName: undefined }
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
 }

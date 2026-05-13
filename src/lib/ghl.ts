@@ -641,25 +641,105 @@ function normalizePhone(raw: string): string {
 }
 
 /**
- * Upsert a GHL contact by phone number. Uses the POST /contacts/upsert
- * endpoint which does a find-by-phone-first, creates if missing. Returns
- * the contact id so the caller can send messages to it.
+ * Best-effort find of an existing GHL contact by phone number. Returns
+ * null when no match OR when the search endpoint errors out (we fall
+ * back to "treat as new contact" in that case — slightly worse than
+ * a real find-first miss, but avoids hanging the upsert path on a
+ * transient GHL outage).
+ *
+ * Used by upsertContactByPhone so SMS sends to a phone that already
+ * has a GHL contact skip the upsert call entirely. GHL's
+ * /contacts/upsert is destructive: it overwrites firstName / lastName
+ * / companyName / etc. with whatever we pass when the contact already
+ * exists. That cost Alex a renamed contact ("Brett Cooper" → "Sunny
+ * Sky Solar Cooper") on 2026-05-13 when a client-alert send
+ * coincidentally matched an existing contact at a different person's
+ * phone. Find-first eliminates that whole class of bug.
+ */
+export async function findContactByPhone(
+  vaultEntryName: string,
+  phone: string,
+): Promise<{ id: string } | null> {
+  try {
+    const { locationId } = await resolveToken(vaultEntryName)
+    const normalizedPhone = normalizePhone(phone)
+    const search = new URLSearchParams({
+      locationId,
+      query: normalizedPhone,
+      limit: '1',
+    })
+    const res = (await ghlFetch(
+      `/contacts/?${search.toString()}`,
+      vaultEntryName,
+      { method: 'GET' },
+    )) as { contacts?: Array<{ id: string; phone?: string }> }
+    const matches = res.contacts ?? []
+    if (matches.length === 0) return null
+    // Defensive: GHL's `query` does substring match on multiple
+    // fields, so confirm the matched contact actually has this phone
+    // before claiming a hit. Normalize both sides for comparison.
+    const targetDigits = normalizedPhone.replace(/\D/g, '').slice(-10)
+    const confirmed = matches.find((c) => {
+      const d = (c.phone ?? '').replace(/\D/g, '').slice(-10)
+      return d.length === 10 && d === targetDigits
+    })
+    return confirmed ? { id: confirmed.id } : null
+  } catch (err) {
+    console.warn(
+      '[ghl] findContactByPhone error (treating as no existing contact):',
+      err,
+    )
+    return null
+  }
+}
+
+/**
+ * Upsert a GHL contact by phone number. Strategy:
+ *   1. Find existing contact by phone first (cheap GET).
+ *   2. If found: return its id without touching any fields. Avoids
+ *      GHL's destructive-upsert behavior overwriting an existing
+ *      contact's name / company / email with our values.
+ *   3. If not found: create via the upsert endpoint with whatever
+ *      name + company + email fields the caller provided.
+ *
+ * `companyName` populates GHL's "Business name" field, which is the
+ * proper place for our agency-client business name (Sunny Sky Solar,
+ * etc.) — not firstName, which was the previous wrong approach.
  */
 export async function upsertContactByPhone(
   vaultEntryName: string,
-  params: { phone: string; firstName?: string; lastName?: string; email?: string }
+  params: {
+    phone: string
+    firstName?: string
+    lastName?: string
+    email?: string
+    /** GHL's "Business name" field on the contact. Pass the agency
+     *  client's business name here (Sunny Sky Solar, Pro Energy
+     *  Savers, etc.) so the GHL contact carries proper company
+     *  metadata. Was previously crammed into firstName, which
+     *  caused the Brett-Cooper-renamed bug on 2026-05-13. */
+    companyName?: string
+  },
 ): Promise<{ id: string }> {
-  const { locationId } = await resolveToken(vaultEntryName)
   const phone = normalizePhone(params.phone)
+
+  // Find-first: if a contact already exists at this phone, just
+  // return its id. Never touch its fields.
+  const existing = await findContactByPhone(vaultEntryName, phone)
+  if (existing) return existing
+
+  // No existing contact — create one with whatever fields the caller
+  // provided. GHL's upsert is fine to use here: with no existing
+  // contact to overwrite, the "upsert" is a pure create.
+  const { locationId } = await resolveToken(vaultEntryName)
+  const body: Record<string, unknown> = { locationId, phone }
+  if (params.firstName) body.firstName = params.firstName
+  if (params.lastName) body.lastName = params.lastName
+  if (params.email) body.email = params.email
+  if (params.companyName) body.companyName = params.companyName
   const res = (await ghlFetch('/contacts/upsert', vaultEntryName, {
     method: 'POST',
-    body: JSON.stringify({
-      locationId,
-      phone,
-      firstName: params.firstName,
-      lastName: params.lastName,
-      email: params.email,
-    }),
+    body: JSON.stringify(body),
   })) as { contact?: { id?: string }; id?: string }
   const id = res.contact?.id || res.id
   if (!id) throw new Error('GHL did not return a contact id after upsert')
@@ -681,29 +761,24 @@ export async function sendSmsToPhone(
   params: {
     phone: string
     message: string
+    /** Used only when creating a NEW GHL contact (no existing
+     *  contact at this phone). Existing contacts are never touched
+     *  thanks to the find-first logic in upsertContactByPhone, so
+     *  these can be safely passed without risk of overwriting
+     *  someone else's CRM record. */
     firstName?: string
     lastName?: string
+    /** GHL "Business name" — populated on new contact create. Pass
+     *  the agency client's business name (Sunny Sky Solar, etc.) so
+     *  the contact carries proper company metadata. Existing
+     *  contacts are not modified. */
+    companyName?: string
     /** E.164 sender number ("+16038034828"). When omitted, GHL routes
      *  via the location's default phone number — fine for prototypes,
      *  not so much when an agency runs multiple numbers (e.g. dedicated
      *  reminder line vs. agent outbound). The reminders dispatcher and
      *  morning brief sender both pass this from RemindersConfig.senderPhone. */
     fromNumber?: string
-    /** When true, the contact upsert does not pass firstName/lastName
-     *  to GHL, so an existing contact's name fields are never
-     *  overwritten. Used by the client-alert SMS path where we only
-     *  need the contact ID to attach the SMS — we do NOT want to
-     *  rebrand the customer's CRM contact with our client's business
-     *  name (the 2026-05-13 "Brett Cooper renamed to Sunny Sky Solar
-     *  Cooper" bug). Customer reminders intentionally leave this
-     *  false so the customer's name DOES populate / stay current on
-     *  their GHL contact — that's a legitimate naming case.
-     *
-     *  NOTE: when the contact doesn't exist yet, GHL creates one
-     *  with no name. That's fine; we never query GHL by name. The
-     *  contact at Sunny Sky's contactPhone being nameless on GHL is
-     *  cosmetic — the SMS still delivers correctly. */
-    preserveContactName?: boolean
   }
 ): Promise<{
   contactId: string
@@ -718,8 +793,9 @@ export async function sendSmsToPhone(
     : undefined
   const { id: contactId } = await upsertContactByPhone(vaultEntryName, {
     phone: normalizedPhone,
-    firstName: params.preserveContactName ? undefined : params.firstName,
-    lastName: params.preserveContactName ? undefined : params.lastName,
+    firstName: params.firstName,
+    lastName: params.lastName,
+    companyName: params.companyName,
   })
 
   const res = (await ghlFetch('/conversations/messages', vaultEntryName, {
