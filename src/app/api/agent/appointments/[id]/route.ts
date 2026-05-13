@@ -6,6 +6,10 @@ import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
+import {
+  diffSnapshots,
+  recordAppointmentEdit,
+} from '@/lib/appointment-edit-log'
 
 /**
  * GET    /api/agent/appointments/[id]  → one appointment (must be agent's own)
@@ -56,11 +60,32 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const owned = await prisma.appointment.findFirst({
+  // Pull the pre-edit snapshot for the audit log. Only the fields the
+  // PATCH can actually modify — anything else (createdAt, agentUserId,
+  // etc.) isn't user-editable, so capturing it would just be noise.
+  const before = await prisma.appointment.findFirst({
     where: { id, agentUserId: session.user.id },
-    select: { id: true },
+    select: {
+      id: true,
+      apptDateTime: true,
+      customerName: true,
+      customerPhone: true,
+      address: true,
+      email: true,
+      monthlyBill: true,
+      utilityProvider: true,
+      roofType: true,
+      roofAge: true,
+      estimatedDealValue: true,
+      notes: true,
+      callRecordingLink: true,
+      bookedByName: true,
+      status: true,
+      clientId: true,
+      client: { select: { id: true, name: true } },
+    },
   })
-  if (!owned) return NextResponse.json({ error: 'not found' }, { status: 404 })
+  if (!before) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
   const data: Record<string, unknown> = {}
 
@@ -132,6 +157,56 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const updated = await prisma.appointment.update({ where: { id }, data })
+
+  // Audit log — diff before vs after on the editable fields and
+  // write a row if anything actually changed. Fire-and-forget so a
+  // slow write here doesn't stall the user's save. Nothing about
+  // this is on the critical path; if it fails, the appointment
+  // edit still landed correctly.
+  const auditKeys = [
+    'apptDateTime',
+    'customerName',
+    'customerPhone',
+    'address',
+    'email',
+    'monthlyBill',
+    'utilityProvider',
+    'roofType',
+    'roofAge',
+    'estimatedDealValue',
+    'notes',
+    'callRecordingLink',
+    'bookedByName',
+    'status',
+    'clientId',
+  ] as const
+  const changes = diffSnapshots(
+    before as unknown as Record<string, unknown>,
+    updated as unknown as Record<string, unknown>,
+    auditKeys,
+  )
+  if (Object.keys(changes).length > 0) {
+    // Pull editor's display name from the session user record. Snapshot
+    // both at write time so the log row reads cleanly even if the user
+    // gets removed later.
+    const editor = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { name: true, email: true },
+    })
+    void recordAppointmentEdit({
+      appointmentId: updated.id,
+      clientId: updated.clientId,
+      clientName: before.client?.name ?? null,
+      editorUserId: session.user.id,
+      editorEmail: editor?.email ?? null,
+      editorName: editor?.name ?? null,
+      customerName: updated.customerName,
+      customerPhone: updated.customerPhone,
+      apptDateTime: updated.apptDateTime,
+      source: 'agent-form',
+      changes,
+    })
+  }
 
   // If the address moved (or was set for the first time), refresh
   // the solar snapshot from cache. Same cache-only contract as the

@@ -12,6 +12,9 @@ import {
   Clock,
   UserX,
   Loader2,
+  History,
+  FileSpreadsheet,
+  PencilLine,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -30,7 +33,9 @@ type Agent = {
 
 export default function AgentsAdminPage() {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'pending' | 'approved' | 'denied'>('pending')
+  const [tab, setTab] = useState<
+    'pending' | 'approved' | 'denied' | 'edits'
+  >('pending')
 
   const agentsQuery = useQuery<{ agents: Agent[] }>({
     queryKey: ['admin-agents'],
@@ -76,9 +81,15 @@ export default function AgentsAdminPage() {
           <UserX className="h-3.5 w-3.5" />
           Denied ({denied.length})
         </TabButton>
+        <TabButton active={tab === 'edits'} onClick={() => setTab('edits')}>
+          <History className="h-3.5 w-3.5" />
+          Appointment edits
+        </TabButton>
       </div>
 
-      {agentsQuery.isLoading ? (
+      {tab === 'edits' ? (
+        <AppointmentEditsTab />
+      ) : agentsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         </div>
@@ -101,6 +112,193 @@ export default function AgentsAdminPage() {
       )}
     </div>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Appointment edits tab                                              */
+/* ------------------------------------------------------------------ */
+
+type AppointmentEdit = {
+  id: string
+  appointmentId: string | null
+  sheetTabTitle: string | null
+  sheetRowNumber: number | null
+  clientId: string | null
+  clientName: string | null
+  editorUserId: string | null
+  editorEmail: string | null
+  editorName: string | null
+  customerName: string | null
+  customerPhone: string | null
+  apptDateTime: string | null
+  source: 'agent-form' | 'master-tracker' | string
+  changes: Record<string, { from: unknown; to: unknown }>
+  createdAt: string
+}
+
+function AppointmentEditsTab() {
+  const editsQuery = useQuery<{ edits: AppointmentEdit[] }>({
+    queryKey: ['appointment-edits'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/appointment-edits')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load edits')
+      }
+      return res.json()
+    },
+  })
+
+  if (editsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  if (editsQuery.isError) {
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        {(editsQuery.error as Error).message}
+      </div>
+    )
+  }
+
+  const edits = editsQuery.data?.edits ?? []
+  if (edits.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
+        <p className="text-sm text-zinc-500">
+          No appointment edits yet. When Mary (or anyone) changes a field on an
+          existing appointment, the change shows up here with who / what /
+          when.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {edits.map((e) => (
+        <AppointmentEditRow key={e.id} edit={e} />
+      ))}
+    </div>
+  )
+}
+
+function AppointmentEditRow({ edit }: { edit: AppointmentEdit }) {
+  const changeEntries = Object.entries(edit.changes ?? {})
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold">
+              {edit.customerName || '(unknown customer)'}
+            </span>
+            {edit.clientName && (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                {edit.clientName}
+              </span>
+            )}
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+              {edit.source === 'agent-form' ? (
+                <>
+                  <PencilLine className="mr-0.5 inline h-2.5 w-2.5 align-text-bottom" />
+                  Hub form
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="mr-0.5 inline h-2.5 w-2.5 align-text-bottom" />
+                  Master tracker
+                </>
+              )}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {edit.editorName || edit.editorEmail || '(unknown editor)'} ·{' '}
+            {new Date(edit.createdAt).toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+            {edit.apptDateTime && (
+              <>
+                {' '}· Appt{' '}
+                {new Date(edit.apptDateTime).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </>
+            )}
+            {edit.customerPhone && <> · {edit.customerPhone}</>}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        {changeEntries.length === 0 ? (
+          <p className="text-xs text-zinc-400">No tracked field changes.</p>
+        ) : (
+          changeEntries.map(([field, change]) => (
+            <div
+              key={field}
+              className="flex flex-wrap items-baseline gap-x-2 text-xs"
+            >
+              <span className="font-mono font-medium text-zinc-500">
+                {field}
+              </span>
+              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 line-through decoration-rose-400 dark:bg-rose-950/40 dark:text-rose-300">
+                {formatChangeValue(change.from)}
+              </span>
+              <span className="text-zinc-400">→</span>
+              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                {formatChangeValue(change.to)}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Render a from/to value for display. Null/empty → "(empty)" so
+ *  admin can tell apart "field was unset" from "field is whitespace."
+ *  Dates ISO-ish → human-friendly. Everything else → JSON if it isn't
+ *  already a string, so an object value (rare) doesn't render as
+ *  "[object Object]". */
+function formatChangeValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '(empty)'
+  if (typeof v === 'string') {
+    // Best-effort ISO datetime → human-readable. The .endsWith('Z')
+    // check is a tight signal for "this is a UTC ISO string we stored
+    // in the audit log." Other date-ish strings pass through as-is.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+      const d = new Date(v)
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      }
+    }
+    return v
+  }
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
 }
 
 function TabButton({

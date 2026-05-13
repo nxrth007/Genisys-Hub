@@ -77,6 +77,7 @@ model User {
   documentsUploaded   Document[]          @relation("DocumentUploader")
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
   followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
+  appointmentEdits    AppointmentEditLog[] @relation("AppointmentEditor")
 }
 
 model Account {
@@ -592,6 +593,7 @@ model Client {
   // (partner call centers like Yassin's team running their own
   // sheets — see model SecondarySheet at the bottom of the file).
   secondarySheets   SecondarySheet[]
+  appointmentEdits  AppointmentEditLog[] @relation("ClientAppointmentEdits")
   // User accounts that can log in to /client and see only this
   // client's appointments. Created by admin via the Credentials tab,
   // or self-registered through the onboarding flow (Phase 2+).
@@ -650,6 +652,7 @@ model Appointment {
   updatedAt DateTime @updatedAt
 
   reminders AppointmentReminder[]
+  editLogs  AppointmentEditLog[]
 
   @@index([agentUserId, createdAt])
   @@index([status])
@@ -1121,5 +1124,65 @@ model SecondarySheet {
   @@unique([spreadsheetId, tabTitle], map: "ux_secondary_sheet_sheet_tab")
   @@index([clientId])
   @@index([enabled])
+}
+
+/// Audit log of appointment edits. One row per save that actually
+/// changed something — created on PATCH at /api/agent/appointments/[id]
+/// (Hub form full edits) and /api/call-center/master-tracker/[rowNumber]
+/// (inline status / sent-to-client / full-edit modal). Powers the
+/// "Appointment edits" tab under /agents so Alex can see what Mary or
+/// admin changed and when.
+///
+/// Snapshot fields (editorEmail / customerName / etc.) are stored so
+/// the log renders correctly even after a User gets removed or an
+/// Appointment row gets deleted — the FK relations use SetNull /
+/// Cascade respectively but the snapshot stays put.
+///
+/// `changes` is a Prisma JSON column with shape:
+///   { fieldName: { from: <old>, to: <new> } }
+/// where values are stringified for display ("2026-05-13T16:00:00Z" ↔
+/// "showed" ↔ "(480) 555-1234" all readable as-is).
+model AppointmentEditLog {
+  id              String   @id @default(cuid())
+  /// Set when the edit targeted a DB Appointment row (Hub-form path,
+  /// or master-tracker edit on a row that has an Appointment behind
+  /// it). Null for sheet-only rows where no DB Appointment exists.
+  appointmentId   String?
+  appointment     Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  /// Sheet coordinates when the edit came through the master tracker.
+  /// Both fields together identify a sheet row. Useful for sheet-only
+  /// rows that don't have an appointmentId.
+  sheetTabTitle   String?
+  sheetRowNumber  Int?
+  /// Linked client at the time of the edit (snapshot via the relation
+  /// + clientName below in case the Client gets deleted).
+  clientId        String?
+  client          Client?  @relation("ClientAppointmentEdits", fields: [clientId], references: [id], onDelete: SetNull)
+  clientName      String?
+  /// Who made the edit. SetNull on User delete; editorEmail/Name
+  /// snapshots below let the log keep rendering anyway.
+  editorUserId    String?
+  editor          User?    @relation("AppointmentEditor", fields: [editorUserId], references: [id], onDelete: SetNull)
+  editorEmail     String?
+  editorName      String?
+  /// Snapshots for display so the log row reads naturally even after
+  /// the underlying Appointment is gone.
+  customerName    String?
+  customerPhone   String?
+  apptDateTime    DateTime?
+  /// Where the edit happened: 'agent-form' (the Hub agent appointment
+  /// form, full edit modal) or 'master-tracker' (the inline status /
+  /// sent-to-client selects, or the master tracker's edit modal).
+  source          String
+  /// Compact JSON diff: { fieldName: { from, to } }. Only fields
+  /// whose value actually changed are recorded — same-value writes
+  /// don't log.
+  changes         Json
+  createdAt       DateTime @default(now())
+
+  @@index([appointmentId])
+  @@index([editorUserId])
+  @@index([createdAt])
+  @@index([clientId])
 }
 

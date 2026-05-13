@@ -11,6 +11,59 @@ import {
 } from '@/lib/drive'
 import { syncRemindersFromSheet } from '@/lib/reminders'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
+
+/** Diff helper for sheet-edit audit logging. Read before-snapshot
+ *  values + body intent here, write an AppointmentEditLog row after
+ *  the cell write succeeds. Fire-and-forget — never block the response
+ *  on the audit pipeline. */
+type EditAuditContext = {
+  rowNumber: number
+  userId: string
+  beforeRow: Awaited<ReturnType<typeof readMasterTableRows>>[number] | null
+}
+
+async function logSheetEdit(
+  ctx: EditAuditContext,
+  changes: Record<string, { from: unknown; to: unknown }>,
+) {
+  if (Object.keys(changes).length === 0) return
+  const before = ctx.beforeRow
+  // Try to link the sheet edit to its DB Appointment counterpart if
+  // there is one — admins can then jump from the audit row to the
+  // appointment record without a separate lookup.
+  const matching = await prisma.appointment
+    .findFirst({
+      where: { masterSheetRowNumber: ctx.rowNumber },
+      select: {
+        id: true,
+        clientId: true,
+        client: { select: { name: true } },
+      },
+    })
+    .catch(() => null)
+  const editor = await prisma.user
+    .findUnique({
+      where: { id: ctx.userId },
+      select: { name: true, email: true },
+    })
+    .catch(() => null)
+  void recordAppointmentEdit({
+    appointmentId: matching?.id ?? null,
+    sheetTabTitle: 'Master Table',
+    sheetRowNumber: ctx.rowNumber,
+    clientId: matching?.clientId ?? null,
+    clientName: matching?.client?.name ?? before?.client ?? null,
+    editorUserId: ctx.userId,
+    editorEmail: editor?.email ?? null,
+    editorName: editor?.name ?? null,
+    customerName: before?.customerName ?? null,
+    customerPhone: before?.customerPhone ?? null,
+    apptDateTime: before?.apptDateTime ?? null,
+    source: 'master-tracker',
+    changes,
+  })
+}
 
 /**
  * /api/call-center/master-tracker/:rowNumber
@@ -165,10 +218,30 @@ export async function PATCH(
     (k) => !inlineKeys.includes(k) && k in FULL_EDIT_FIELDS,
   )
 
+  // Pre-edit snapshot for the audit log. Read once at the top so all
+  // dispatch paths share it; one Drive call per edit is fine. If the
+  // read fails for any reason we proceed with a null snapshot — the
+  // audit log entry will still get written but with sparser before-
+  // value detail.
+  const beforeRow = await readMasterTableRows()
+    .then((rows) => rows.find((r) => r.rowNumber === rowNumber) ?? null)
+    .catch((err) => {
+      console.warn(
+        '[master-tracker PATCH] pre-edit snapshot read failed (audit log will be sparse):',
+        err,
+      )
+      return null
+    })
+  const auditCtx: EditAuditContext = {
+    rowNumber,
+    userId: session.user.id,
+    beforeRow,
+  }
+
   if (hasFullEditField) {
     const denial = await requireAdmin()
     if (denial) return denial
-    return await writeFullEdit(rowNumber, body)
+    return await writeFullEdit(rowNumber, body, auditCtx)
   }
 
   // Inline edits — same dispatch as before. Status takes precedence
@@ -188,6 +261,9 @@ export async function PATCH(
       'status',
       STATUS_LABEL[body.status as string],
       { status: body.status as string },
+      auditCtx,
+      'status',
+      body.status as string,
     )
   }
 
@@ -203,6 +279,9 @@ export async function PATCH(
       'sentToClient',
       SENT_TO_CLIENT_LABEL[body.sentToClient as string],
       { sentToClient: body.sentToClient as string },
+      auditCtx,
+      'sentToClient',
+      body.sentToClient as string,
     )
   }
 
@@ -272,6 +351,7 @@ export async function DELETE(
 async function writeFullEdit(
   rowNumber: number,
   body: Record<string, unknown>,
+  auditCtx?: EditAuditContext,
 ) {
   // Build the field updates from the allowlist. String values pass
   // through (with trim); empty string / null clears the cell.
@@ -432,6 +512,38 @@ async function writeFullEdit(
       ),
     )
 
+    // Audit log — compute the diff from the before-snapshot against
+    // the body's intent (we know what fields admin meant to change,
+    // and the request succeeded above). Fire-and-forget; nothing
+    // here should block the response.
+    if (auditCtx) {
+      const before = auditCtx.beforeRow
+      const changes: Record<string, { from: unknown; to: unknown }> = {}
+      // Iterate the same allowlist writeFullEdit used to build updates.
+      for (const [bodyKey] of Object.entries(FULL_EDIT_FIELDS)) {
+        if (!(bodyKey in body)) continue
+        const newVal = body[bodyKey]
+        const newNormalized =
+          newVal === null || newVal === undefined
+            ? null
+            : String(newVal).trim() || null
+        const oldNormalized = before
+          ? readBeforeField(before, bodyKey)
+          : null
+        if (oldNormalized !== newNormalized) {
+          changes[bodyKey] = { from: oldNormalized, to: newNormalized }
+        }
+      }
+      // Status comes through as a body-level field too (token form).
+      if (typeof body.status === 'string' && STATUS_LABEL[body.status]) {
+        const oldStatus = before ? normalizeBeforeStatus(before.status) : null
+        if (oldStatus !== body.status) {
+          changes.status = { from: oldStatus, to: body.status }
+        }
+      }
+      void logSheetEdit(auditCtx, changes)
+    }
+
     return NextResponse.json({ ok: true, ...result, verify })
   } catch (err) {
     console.error('[master-tracker PATCH:full] failed:', err)
@@ -445,6 +557,13 @@ async function writeOne(
   canonical: 'status' | 'sentToClient',
   value: string,
   echo: Record<string, string>,
+  auditCtx?: EditAuditContext,
+  /** The audit-facing field name (matches the body key, not the
+   *  sheet's display label). Status uses lowercase tokens; the sheet
+   *  cell value is the display form ("Booked"). We want the token in
+   *  the audit log so consumers don't have to translate. */
+  auditField?: 'status' | 'sentToClient',
+  auditNewValue?: string,
 ) {
   try {
     await updateMasterTableCell({ rowNumber, canonical, value })
@@ -456,6 +575,23 @@ async function writeOne(
           err,
         ),
       )
+    }
+
+    // Audit log — only when we have a snapshot context AND the new
+    // value differs from what was already there. Saves a phantom log
+    // row when admin re-saves a row without changing the value.
+    if (auditCtx && auditField && auditNewValue !== undefined) {
+      const before = auditCtx.beforeRow
+      const oldValue = before
+        ? canonical === 'status'
+          ? normalizeBeforeStatus(before.status)
+          : normalizeBeforeSentToClient(before.sentToClient)
+        : null
+      if (oldValue !== auditNewValue) {
+        void logSheetEdit(auditCtx, {
+          [auditField]: { from: oldValue, to: auditNewValue },
+        })
+      }
     }
 
     return NextResponse.json({ ok: true, ...echo })
@@ -633,4 +769,90 @@ async function backfillPastAppointmentOnClientAssign(params: {
     }
   }
 
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Audit-log normalization helpers                                            */
+/* -------------------------------------------------------------------------- */
+
+/** Convert the sheet's display-form status ("Booked", "No Show") to
+ *  the lowercase token form admin sees in the UI ("booked", "no_show").
+ *  Returns null for empty / unrecognized values so the audit log
+ *  records the absence rather than a phantom token. */
+function normalizeBeforeStatus(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const s = String(raw).trim().toLowerCase()
+  if (!s) return null
+  if (s === 'no show' || s === 'no-show' || s === 'noshow') return 'no_show'
+  if (s === 'rescheduled' || s === 'reschedule') return 'rescheduled'
+  if (s === 'showed' || s === 'show' || s === 'shown') return 'showed'
+  if (s === 'cancelled' || s === 'canceled' || s === 'cancel') return 'cancelled'
+  if (s === 'won' || s === 'closed' || s === 'sold' || s === 'win') return 'won'
+  if (s === 'lost' || s === 'no sale' || s === 'no-sale') return 'lost'
+  if (s === 'booked' || s === 'book') return 'booked'
+  return s
+}
+
+/** Same idea for the Sent to Client column — sheet has "Yes" / "No"
+ *  / blank; admin's UI uses 'yes' / 'no' / 'unassigned' tokens. */
+function normalizeBeforeSentToClient(
+  raw: string | null | undefined,
+): 'yes' | 'no' | 'unassigned' {
+  if (!raw) return 'unassigned'
+  const s = String(raw).trim().toLowerCase()
+  if (!s) return 'unassigned'
+  if (['yes', 'y', '1', 'true', 'sent', 'delivered', 'handed off'].includes(s))
+    return 'yes'
+  if (['no', 'n', '0', 'false', 'not sent'].includes(s)) return 'no'
+  return 'unassigned'
+}
+
+/** Pull a normalized "before" value off the sheet-row snapshot by
+ *  body-key name. The body keys map to MasterTableRow fields one-to-
+ *  one for most fields; status / sentToClient need their own
+ *  normalizers above. */
+function readBeforeField(
+  row: Awaited<ReturnType<typeof readMasterTableRows>>[number],
+  bodyKey: string,
+): string | null {
+  switch (bodyKey) {
+    case 'customerName':
+      return row.customerName?.trim() || null
+    case 'customerPhone':
+      return row.customerPhone?.trim() || null
+    case 'address':
+      return row.address?.trim() || null
+    case 'email':
+      return row.email?.trim() || null
+    case 'monthlyBill':
+      return row.monthlyBill?.trim() || null
+    case 'utilityProvider':
+      return row.utilityProvider?.trim() || null
+    case 'roofType':
+      return row.roofType?.trim() || null
+    case 'roofAge':
+      return row.roofAge?.trim() || null
+    case 'estimatedDealValue':
+      return row.estimatedDealValue?.trim() || null
+    case 'notes':
+      return row.notes?.trim() || null
+    case 'callRecordingLink':
+      return row.callRecordingLink?.trim() || null
+    case 'agentName':
+      return row.agentName?.trim() || null
+    case 'agentEmail':
+      return row.agentEmail?.trim() || null
+    case 'client':
+      return row.client?.trim() || null
+    case 'timezone':
+      return row.timezone?.trim() || null
+    case 'apptDate':
+      return row.apptDateRaw?.trim() || null
+    case 'apptTime':
+      return row.apptTimeRaw?.trim() || null
+    case 'apptDateTime':
+      return row.apptDateTime ?? null
+    default:
+      return null
+  }
 }
