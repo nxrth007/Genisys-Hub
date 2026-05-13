@@ -30,7 +30,7 @@ import { prisma } from './prisma'
 // sheets. Sync + backfill use readAllSheetRows so secondaries get
 // the same SMS coverage as primary.
 import { readMasterTableRows, type MasterTableRow } from './drive'
-import { readAllSheetRows } from './secondary-sheets'
+import { readAllSheetRows, rowSourceKey } from './secondary-sheets'
 import { normalizeAddress } from './address'
 import {
   formatInTimezone,
@@ -130,7 +130,11 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
     if (!row.apptDateTime) continue
     if ((row.status || '').toLowerCase().includes('cancel')) continue
 
-    const sourceKey = `sheet:Master Table:${row.rowNumber}`
+    // sourceKey via rowSourceKey so primary rows keep the legacy
+    // "sheet:Master Table:N" shape while secondaries get
+    // "sheet:<spreadsheetId>:N". Otherwise primary row 5 and any
+    // secondary sheet's row 5 would collide in the unique index.
+    const sourceKey = rowSourceKey(row)
     const route = routeRowToClient(
       { client: row.client, address: normalizeAddress(row.address) },
       index,
@@ -503,16 +507,50 @@ export async function dispatchPendingClientAlerts(): Promise<{
   for (const row of due) {
     result.attempted++
 
-    // Only DB-driven pending rows are dispatched here. Sheet-driven
-    // alerts are handled by syncClientAlertsFromSheet (no buffer).
-    // If a pending row's sourceKey doesn't match the db: prefix,
-    // leave it alone so we don't accidentally double-send.
+    // Primary path: pending row keyed by db:appointment:<id>. Most
+    // pending rows arrive here — the Hub form's POST handler queues
+    // them with a 20-min buffer.
+    let appointmentId: string | null = null
     const dbMatch = row.sourceKey.match(/^db:appointment:(.+)$/)
-    if (!dbMatch) {
+    if (dbMatch) {
+      appointmentId = dbMatch[1]!
+    } else {
+      // Self-heal path: pending row with a sheet sourceKey. Shouldn't
+      // happen in normal operation — sheet sync writes 'delivered' /
+      // 'failed' rows directly, never 'pending'. Historically these
+      // appeared because rekeyClientAlertAfterSheetSync used to flip
+      // sourceKey on pending rows (db:* → sheet:*) before the
+      // dispatcher had a chance to fire them, leaving the row
+      // orphaned with a key shape the dispatcher refused to handle.
+      // Now: try to recover by looking up the Appointment via the
+      // sheet rowNumber. If we find one, treat the row as if it had
+      // its original db: shape. If we don't, skip silently (could
+      // be a row for a secondary sheet that genuinely has no DB
+      // appointment).
+      const primarySheetMatch = row.sourceKey.match(
+        /^sheet:Master Table:(\d+)$/,
+      )
+      if (primarySheetMatch) {
+        const rowNumber = parseInt(primarySheetMatch[1]!, 10)
+        if (Number.isFinite(rowNumber) && rowNumber > 0) {
+          const matching = await prisma.appointment.findFirst({
+            where: { masterSheetRowNumber: rowNumber },
+            select: { id: true },
+          })
+          if (matching) {
+            appointmentId = matching.id
+            console.warn(
+              `[client-alert] dispatch self-heal: pending row ${row.id} had sourceKey "${row.sourceKey}" but matches Appointment ${matching.id} — firing through DB path.`,
+            )
+          }
+        }
+      }
+    }
+
+    if (!appointmentId) {
       result.skipped++
       continue
     }
-    const appointmentId = dbMatch[1]
 
     // Atomic claim — flip pending → sending only if the row is still
     // pending. If count is 0, another tick (or a manual retry) won
@@ -817,8 +855,24 @@ export async function rekeyClientAlertAfterSheetSync(
   const dbSourceKey = `db:appointment:${appointmentId}`
   const sheetSourceKey = `sheet:Master Table:${sheetRowNumber}`
   try {
+    // CRITICAL: only rekey rows that are NOT pending. The dispatcher
+    // (dispatchPendingClientAlerts) only fires rows whose sourceKey
+    // starts with "db:appointment:" — if we rekey a pending row to
+    // "sheet:Master Table:N", the dispatcher skips it forever, the
+    // row stays pending, and Mary's client SMS never fires.
+    //
+    // This was Alex's reported bug on 2026-05-13: customer reminders
+    // worked (different pipeline, no rekey) but client SMS alerts
+    // silently never fired after Hub-form bookings. The cron log
+    // would show "0 delivered, 0 failed, N skipped (of N due)" with
+    // the same N rows skipping every minute. Lines 201-210 of the
+    // sheet sync already had this guard; the rekey function was
+    // missing it.
     await prisma.clientAlertDelivery.updateMany({
-      where: { sourceKey: dbSourceKey },
+      where: {
+        sourceKey: dbSourceKey,
+        NOT: { status: 'pending' },
+      },
       data: { sourceKey: sheetSourceKey },
     })
   } catch (err) {
