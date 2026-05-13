@@ -13,7 +13,8 @@
  */
 
 import { prisma } from './prisma'
-import { readMasterTableRows, type MasterTableRow } from './drive'
+import { type MasterTableRow } from './drive'
+import { readAllSheetRows, rowSourceKey } from './secondary-sheets'
 import { sendSmsToPhone } from './ghl'
 import { formatInTimezone, timezoneForAddress } from './timezone'
 import { parsePhoneEntries } from './phone'
@@ -86,11 +87,13 @@ type SyncResult = {
  *   - The source row's apptDateTime moved (we cancel + recreate)
  */
 export async function syncRemindersFromSheet(): Promise<SyncResult> {
-  // Read sheet — same source the Master Tracker UI uses, so manual
-  // entries + Hub-booked rows are both covered.
-  let rows: MasterTableRow[]
+  // Read every configured sheet (primary "Master Table" + every
+  // registered SecondarySheet — e.g. Yassin's Forward Energy +
+  // Brighton Capital sheets). Each row arrives tagged with its
+  // source so we can build per-sheet dedup keys below.
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     // Non-fatal: a one-off Drive failure shouldn't break the cron.
     // The next tick re-tries.
@@ -230,7 +233,12 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
       seenSheetPhones.add(phoneDigits)
     }
 
-    const sourceKey = `sheet:${'Master Table'}:${r.rowNumber}`
+    // sourceKey shape: "sheet:Master Table:N" for primary rows
+    // (legacy format, keeps existing reminder ledger entries
+    // matching), "sheet:<spreadsheetId>:N" for secondary-sheet
+    // rows so two secondary sheets can have a row 5 without
+    // colliding in the unique index.
+    const sourceKey = rowSourceKey(r)
     touchedSourceKeys.add(sourceKey)
 
     const tz = timezoneForAddress(r.address)
@@ -335,7 +343,12 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
               clientContactName: clientLookup?.contactName ?? null,
               address: r.address ?? null,
               agentName: r.agentName ?? null,
-              sheetTabTitle: 'Master Table',
+              // Sheet metadata: track which sheet/tab this row came
+              // from so admin tooling can navigate to the source. For
+              // primary rows this is always "Master Table"; for
+              // secondaries it's the SecondarySheet.tabTitle.
+              sheetTabTitle:
+                r.source.kind === 'secondary' ? r.source.tabTitle : 'Master Table',
               sheetRowNumber: r.rowNumber,
             },
           })
@@ -353,10 +366,18 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   // Cancel pass — anything still pending whose sourceKey wasn't
   // touched this run means the source row is gone (deleted or
   // cancelled). Mark them cancelled so they stop firing.
+  //
+  // The startsWith prefix used to be "sheet:Master Table:" — narrow
+  // enough that secondary-sheet sourceKeys ("sheet:<id>:N") slipped
+  // through and never got cancelled. Broadened to "sheet:" now,
+  // which covers both. Note: DB-keyed reminders ("db:appointment:*")
+  // are untouched — those have their own lifecycle tied to the
+  // Appointment row's onDelete: Cascade, which already removes
+  // their reminders.
   const stranded = await prisma.appointmentReminder.updateMany({
     where: {
       status: 'pending',
-      sourceKey: { startsWith: 'sheet:Master Table:' },
+      sourceKey: { startsWith: 'sheet:' },
       NOT: { sourceKey: { in: Array.from(touchedSourceKeys) } },
     },
     data: { status: 'cancelled' },
@@ -408,9 +429,9 @@ export async function backfillSkippedConfirmations(): Promise<{
   recorded: number
   alreadyTracked: number
 }> {
-  let rows: MasterTableRow[]
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     console.error('[reminders] confirmation backfill: sheet read failed:', err)
     return { recorded: 0, alreadyTracked: 0 }
@@ -426,7 +447,7 @@ export async function backfillSkippedConfirmations(): Promise<{
     if (isNaN(apptDate.getTime())) continue
     if ((r.status || '').toLowerCase().includes('cancel')) continue
 
-    const sourceKey = `sheet:Master Table:${r.rowNumber}`
+    const sourceKey = rowSourceKey(r)
     const tz = timezoneForAddress(r.address)
 
     try {
@@ -449,7 +470,10 @@ export async function backfillSkippedConfirmations(): Promise<{
           clientName: r.client ?? null,
           address: r.address ?? null,
           agentName: r.agentName ?? null,
-          sheetTabTitle: 'Master Table',
+          sheetTabTitle:
+            r.source.kind === 'secondary'
+              ? r.source.tabTitle
+              : 'Master Table',
           sheetRowNumber: r.rowNumber,
         },
       })

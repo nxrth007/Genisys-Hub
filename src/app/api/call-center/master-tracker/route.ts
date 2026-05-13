@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { readMasterTableRows } from '@/lib/drive'
 import { normalizeAddress } from '@/lib/address'
 import { buildRoutingIndex, routeRowToClient } from '@/lib/client-routing'
+import { readAllSheetRows, rowSourceKey } from '@/lib/secondary-sheets'
 
 /**
  * GET /api/call-center/master-tracker
@@ -51,12 +51,23 @@ export async function GET() {
     },
   })
 
-  let rows
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to read sheet'
     return NextResponse.json({ error: message }, { status: 500 })
+  }
+
+  // Visibility filter: Mary (role=agent) only sees the primary
+  // "Master Table" sheet. Secondary partner-call-center sheets
+  // (Yassin's Forward Energy + Brighton Capital, as of 2026-05-13)
+  // are admin/member-only per Ethan's spec — Mary doesn't book for
+  // those clients and shouldn't see those rows mixed in with her own
+  // pipeline. Admin/member sees everything regardless.
+  const role = (session.user as { role?: string }).role
+  if (role === 'agent') {
+    rows = rows.filter((r) => r.source.kind === 'primary')
   }
 
   // Fetch every Slack delivery record so each row can render its
@@ -67,9 +78,13 @@ export async function GET() {
   // primary match; secondary content-key match (channel + phone +
   // apptDateTime) catches rows whose rowNumber shifted after the
   // ledger entry was created.
+  // Broadened from "sheet:Master Table:" → "sheet:" so Slack delivery
+  // records for secondary-sheet rows also surface here. Secondary
+  // sourceKeys look like "sheet:<spreadsheetId>:<rowNumber>"; the
+  // shared "sheet:" prefix catches both.
   const deliveries = await prisma.sheetSlackDelivery.findMany({
     where: {
-      sourceKey: { startsWith: 'sheet:Master Table:' },
+      sourceKey: { startsWith: 'sheet:' },
     },
     select: {
       sourceKey: true,
@@ -214,8 +229,11 @@ export async function GET() {
     // (fast path) AND content key (for rows that drifted post-
     // delivery via row-number shifts in the sheet). Pick the most
     // recent matching record so the "delivered" status wins over
-    // an older "failed" attempt for the same row.
-    const sourceKey = `sheet:Master Table:${r.rowNumber}`
+    // an older "failed" attempt for the same row. sourceKey comes
+    // from secondary-sheets.rowSourceKey so primary rows keep the
+    // legacy "sheet:Master Table:N" shape and secondary rows use
+    // "sheet:<spreadsheetId>:N".
+    const sourceKey = rowSourceKey(r)
     const phoneKey = normalizePhoneForKey(r.customerPhone)
     const apptISO = r.apptDateTime
       ? new Date(r.apptDateTime).toISOString()
@@ -286,9 +304,28 @@ export async function GET() {
       : null
 
     return {
-      // Synthetic id from the sheet row number — stable across reads as
-      // long as the sheet's row order doesn't change. Used as React key.
-      id: `sheet:${r.rowNumber}`,
+      // Synthetic id from the sheet source + row number — stable across
+      // reads as long as row order doesn't change. Primary rows keep
+      // the legacy "sheet:N" id shape so the per-row PATCH endpoint
+      // continues to work. Secondary rows use a "secondary:<sheetId>:N"
+      // prefix so React keys stay unique across sheets AND the PATCH
+      // endpoint can refuse to write to a read-only secondary sheet.
+      id:
+        r.source.kind === 'secondary'
+          ? `secondary:${r.source.spreadsheetId}:${r.rowNumber}`
+          : `sheet:${r.rowNumber}`,
+      // Source tag surfaced to the UI so admin can render a badge
+      // ("via Yassin's sheet"). Mary never sees this since secondary
+      // rows are filtered out for role=agent above.
+      source:
+        r.source.kind === 'secondary'
+          ? {
+              kind: 'secondary' as const,
+              label: r.source.sheetLabel,
+              spreadsheetId: r.source.spreadsheetId,
+              tabTitle: r.source.tabTitle,
+            }
+          : { kind: 'primary' as const },
       apptDateTime:
         r.apptDateTime ||
         // Fall back to today midnight so the row still renders if the

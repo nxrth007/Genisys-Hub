@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { readMasterTableRows } from '@/lib/drive'
+import { readAllSheetRows } from '@/lib/secondary-sheets'
 import { buildRoutingIndex, routeRowToClient } from '@/lib/client-routing'
 import { normalizeAddress } from '@/lib/address'
 
@@ -77,9 +77,12 @@ export async function GET() {
         customerPhone: true,
       },
     }),
-    readMasterTableRows().catch((err) => {
+    // Read primary + every enabled SecondarySheet. Yassin-booked
+    // appointments count toward per-client totals just like Mary's
+    // — same dedup / routing brain applies to both.
+    readAllSheetRows().catch((err) => {
       console.error('[clients/with-counts] sheet read failed:', err)
-      return [] as Awaited<ReturnType<typeof readMasterTableRows>>
+      return [] as Awaited<ReturnType<typeof readAllSheetRows>>
     }),
     // Bulk lookup of every /client login linked to a client. Used to
     // surface "Login active since X" / "Awaiting first sign-in" in

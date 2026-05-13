@@ -26,7 +26,8 @@
 
 import { WebClient } from '@slack/web-api'
 import { prisma } from './prisma'
-import { readMasterTableRows, type MasterTableRow } from './drive'
+import { type MasterTableRow } from './drive'
+import { readAllSheetRows } from './secondary-sheets'
 import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
 import {
@@ -169,9 +170,11 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
 
   const index = buildRoutingIndex(clients)
 
-  let rows: MasterTableRow[]
+  // Include every registered SecondarySheet so Slack channel posts
+  // fire for Yassin's bookings the same way they do for Mary's.
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     console.error('[client-delivery] failed to read sheet:', err)
     return result
@@ -444,9 +447,12 @@ export async function backfillClientDeliveries(params: {
 
   const index = buildRoutingIndex(allClients)
 
-  let rows: MasterTableRow[]
+  // Backfill walks every configured sheet — same rationale as the
+  // client-alert backfill: don't blast historical secondary-sheet
+  // rows when admin first enables them.
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     console.error('[client-delivery] backfill: sheet read failed:', err)
     return { recorded: 0, alreadyTracked: 0 }

@@ -24,7 +24,13 @@
  */
 
 import { prisma } from './prisma'
+// readMasterTableRows is still used for the admin "deliver this row
+// by rowNumber" tool — that path only operates on the primary sheet
+// because rowNumber alone doesn't disambiguate across multiple
+// sheets. Sync + backfill use readAllSheetRows so secondaries get
+// the same SMS coverage as primary.
 import { readMasterTableRows, type MasterTableRow } from './drive'
+import { readAllSheetRows } from './secondary-sheets'
 import { normalizeAddress } from './address'
 import {
   formatInTimezone,
@@ -105,9 +111,14 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
 
   const index = buildRoutingIndex(clients)
 
-  let rows: MasterTableRow[]
+  // All configured sheets — primary + every enabled SecondarySheet.
+  // Yassin's call center rows (Forward Energy + Brighton Capital)
+  // flow through the same client-alert SMS pipeline as Mary's master-
+  // sheet bookings; clients should hear about new appointments
+  // regardless of which sheet they were typed into.
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     console.error('[client-alert] failed to read sheet:', err)
     return result
@@ -849,9 +860,13 @@ export async function backfillClientAlerts(params: {
 
   const index = buildRoutingIndex(allClients)
 
-  let rows: MasterTableRow[]
+  // Backfill walks every configured sheet so newly-registered
+  // secondary sheets are skipped-record'd alongside the primary —
+  // otherwise flipping a secondary on would blast every historical
+  // row in that sheet at the next sync tick.
+  let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
-    rows = await readMasterTableRows()
+    rows = await readAllSheetRows()
   } catch (err) {
     console.error('[client-alert] backfill: sheet read failed:', err)
     return { recorded: 0, alreadyTracked: 0 }
