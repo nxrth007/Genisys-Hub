@@ -899,8 +899,8 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
               <li className="flex gap-2">
                 <span className="text-blue-600">·</span>
                 <span>
-                  Appointments appear here in real time as soon as Mary
-                  books them on a call.
+                  Appointments appear here in real time as soon as we
+                  book them on a call.
                 </span>
               </li>
               <li className="flex gap-2">
