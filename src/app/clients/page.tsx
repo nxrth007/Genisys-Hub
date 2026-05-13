@@ -360,12 +360,26 @@ export default function ClientsPage() {
     return list
   }, [clients, stateFilter, statusFilter, packageFilter, search])
 
-  // Split pending clients off so they render in their own section
-  // below the active list — Alex's spec: pending = self-onboarded,
-  // not yet approved, shouldn't blend in with the live roster.
+  // Split clients-not-yet-fully-set-up off so they render in their
+  // own gray section below the active list. Two sub-states sit in
+  // this bucket and read visually identical so admin sees one
+  // "still in the funnel" stack instead of having to track two:
+  //   1. lifecycle === 'pending'                     — self-registered,
+  //      hasn't been approved yet (payment still in flight or admin
+  //      hasn't reviewed). Approve / Deny / Delete lives on
+  //      /clients/onboarding.
+  //   2. lifecycle === 'onboarding' && !contactName  — already
+  //      approved (admin clicked Approve) but the client hasn't
+  //      submitted the full onboarding form yet, so we still have
+  //      no contact info / address / qualification criteria. They
+  //      can sign in, see the embedded form on /client, and lift
+  //      themselves into 'active' by submitting.
+  // Existing 'onboarding' clients that admin pre-filled manually
+  // (contactName non-null) stay in the active list — those have
+  // all the data needed to take real bookings.
   const { activeClients, pendingClients } = useMemo(() => {
-    const pending = filtered.filter((c) => c.lifecycle === 'pending')
-    const rest = filtered.filter((c) => c.lifecycle !== 'pending')
+    const pending = filtered.filter(awaitsSetup)
+    const rest = filtered.filter((c) => !awaitsSetup(c))
     return { activeClients: rest, pendingClients: pending }
   }, [filtered])
 
@@ -373,7 +387,9 @@ export default function ClientsPage() {
   // totals regardless of what's currently filtered.
   const totalAppts = clients.reduce((s, c) => s + c.total, 0)
   const activeCount = clients.filter(
-    (c) => c.lifecycle === 'active' || c.lifecycle === 'onboarding'
+    (c) =>
+      (c.lifecycle === 'active' || c.lifecycle === 'onboarding') &&
+      !awaitsSetup(c),
   ).length
   const completed = clients.reduce((s, c) => s + c.showed + c.noShow, 0)
   const showed = clients.reduce((s, c) => s + c.showed, 0)
@@ -566,24 +582,25 @@ export default function ClientsPage() {
             ))}
           </ul>
 
-          {/* Pending review section. Self-onboarded clients land
-              here until Alex approves them on /clients/onboarding.
-              Visually separated from the active roster so they
-              can't be mistaken for live clients receiving bookings.
-              Hidden entirely when the active list also covers
-              everything (i.e. nothing pending matches filters). */}
+          {/* Pending section. Two sub-states share this bucket:
+              self-registered clients who haven't been approved yet,
+              and approved-but-no-form-yet clients waiting on the
+              client to fill out their onboarding details. Both stay
+              here until they have a complete profile + non-null
+              contactName — at which point they move into the active
+              list above. */}
           {pendingClients.length > 0 && (
             <div className="mt-8">
               <div className="mb-3 flex items-center gap-3">
                 <span className="inline-block h-3 w-3 rounded-full border-2 border-dashed border-muted-foreground/60" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Pending review · {pendingClients.length}
+                  Pending · {pendingClients.length}
                 </h3>
                 <Link
                   href="/clients/onboarding"
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Approve or deny →
+                  Approval queue →
                 </Link>
               </div>
               <ul>
@@ -667,11 +684,16 @@ function ClientRow({
     : computeClientDueDate(client.package, client.createdAt)
   const dueDateIsOverride = !!client.dueDate
 
-  // Pending = self-onboarded but not yet admin-approved. Renders
-  // with a dashed grey ring + a faded interior so it reads as
-  // "placeholder for an inactive client" instead of blending in
-  // with the live roster.
-  const isPending = client.lifecycle === 'pending'
+  // "Pending" visual = client isn't fully set up yet. Two paths in:
+  //   - lifecycle === 'pending' (self-registered, not yet approved)
+  //   - lifecycle === 'onboarding' && !contactName (approved but
+  //     hasn't submitted the full onboarding form yet, so we have
+  //     no real contact data on them)
+  // Both render with a dashed grey ring + faded interior so they
+  // read as "placeholder for an inactive client" instead of blending
+  // in with the live roster. See awaitsSetup() at the bottom of this
+  // file for the canonical predicate.
+  const isPending = awaitsSetup(client)
 
   // Make the click open detail, but the inline status pill swallows
   // its own click so changing status doesn't also open the dialog.
@@ -1399,7 +1421,7 @@ function DeleteClientDialog({
  *  with a real active client at a glance. */
 function ClientStateChip({ client }: { client: ClientWithCounts }) {
   const code = stateCode(client.state)
-  const isPending = client.lifecycle === 'pending'
+  const isPending = awaitsSetup(client)
 
   if (isPending) {
     return (
@@ -1795,6 +1817,30 @@ function clientInitials(name: string): string {
   if (words.length === 0) return '?'
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
   return (words[0][0] + words[1][0]).toUpperCase()
+}
+
+/** Canonical "this client isn't ready for prime time yet" predicate.
+ *  Two reasons a client lives in the gray Pending section instead of
+ *  the live roster:
+ *
+ *    1. lifecycle === 'pending' — self-registered through the funnel
+ *       but admin hasn't approved them yet (payment confirmation
+ *       still pending).
+ *    2. lifecycle === 'onboarding' && contactName == null — admin
+ *       approved them but they haven't submitted the full onboarding
+ *       form yet, so we still have no contact details / address /
+ *       qualification criteria. They sit here until they submit
+ *       /api/client/onboarding-form, which flips lifecycle to 'active'.
+ *
+ *  Note the contactName guard. Admin can manually create or edit a
+ *  client into 'onboarding' lifecycle as a tracking signal ("I'm
+ *  setting up this account") — those have contactName filled in and
+ *  belong in the active list, not here. The predicate only catches
+ *  the self-registered + post-approval-pre-form path. */
+function awaitsSetup(c: ClientWithCounts): boolean {
+  if (c.lifecycle === 'pending') return true
+  if (c.lifecycle === 'onboarding' && !c.contactName) return true
+  return false
 }
 
 function formatDate(iso: string | null): string {
