@@ -76,6 +76,8 @@ export default function SettingsPage() {
 
       <SheetMaintenanceSection />
 
+      <SecondarySheetsSection />
+
       <AppointmentRemindersSection />
 
       <SolarApiUsageSection />
@@ -3040,6 +3042,391 @@ type ReminderLogEntry = {
   clientName: string | null
   client: { id: string; name: string; color: string } | null
   messageBody: string | null
+}
+
+/* ------------------------------------------------------------------ */
+/*  Secondary Sheets — partner-call-center sheet registry              */
+/* ------------------------------------------------------------------ */
+
+type SecondarySheet = {
+  id: string
+  spreadsheetId: string
+  tabTitle: string
+  clientId: string | null
+  columnMappingKey: string
+  enabled: boolean
+  label: string | null
+  createdAt: string
+  updatedAt: string
+  client: { id: string; name: string } | null
+}
+
+function SecondarySheetsSection() {
+  const qc = useQueryClient()
+  const sheetsQuery = useQuery<{ sheets: SecondarySheet[] }>({
+    queryKey: ['secondary-sheets'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/secondary-sheets')
+      if (!res.ok) throw new Error('Failed to load partner sheets')
+      return res.json()
+    },
+  })
+  const clientsQuery = useQuery<{ clients: ClientForRouting[] }>({
+    queryKey: ['clients-for-routing'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients?include=routable')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+  })
+  const sheets = sheetsQuery.data?.sheets ?? []
+  const clients = clientsQuery.data?.clients ?? []
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-violet-50 p-2 dark:bg-violet-950">
+          <FileSpreadsheet className="h-5 w-5 text-violet-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">Partner sheets</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Register additional Google Sheets that partner call centers
+            (Yassin&apos;s team, etc.) use to log appointments. Each sheet
+            is hard-attributed to a single client — every row in it gets
+            treated as belonging to that client. Customer reminders,
+            client SMS alerts, and Slack channel posts fire just like
+            they do for the primary master sheet. Mary&apos;s Master
+            Tracker hides these rows; you and Ethan see them with a
+            &quot;partner&quot; badge.
+          </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Make sure each sheet is shared with{' '}
+            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+              alex@leadgenisys.com
+            </code>{' '}
+            (Viewer access is enough). Tab name defaults to{' '}
+            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+              Sheet1
+            </code>{' '}
+            — if the partner renamed it, we auto-fall-back to the first
+            visible tab, so you usually don&apos;t have to touch it.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-2">
+        {sheetsQuery.isLoading ? (
+          <p className="text-sm text-zinc-500">Loading registered sheets…</p>
+        ) : sheets.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+            No partner sheets registered yet. Add one below.
+          </p>
+        ) : (
+          sheets.map((s) => (
+            <SecondarySheetRow
+              key={s.id}
+              sheet={s}
+              clients={clients}
+              onChanged={() => {
+                qc.invalidateQueries({ queryKey: ['secondary-sheets'] })
+              }}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="mt-6 border-t border-zinc-100 pt-5 dark:border-zinc-800">
+        <h4 className="mb-3 text-sm font-semibold">Add a sheet</h4>
+        <SecondarySheetCreateForm
+          clients={clients}
+          disabled={clientsQuery.isLoading}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['secondary-sheets'] })
+          }}
+        />
+      </div>
+    </section>
+  )
+}
+
+function SecondarySheetRow({
+  sheet,
+  clients,
+  onChanged,
+}: {
+  sheet: SecondarySheet
+  clients: ClientForRouting[]
+  onChanged: () => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+
+  const patch = useMutation({
+    mutationFn: async (data: Partial<SecondarySheet>) => {
+      const res = await fetch(`/api/admin/secondary-sheets/${sheet.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to update')
+      return json
+    },
+    onSuccess: () => {
+      setError(null)
+      onChanged()
+    },
+    onError: (err) => setError((err as Error).message),
+  })
+
+  const remove = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/secondary-sheets/${sheet.id}`, {
+        method: 'DELETE',
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to remove')
+      return json
+    },
+    onSuccess: () => {
+      setError(null)
+      onChanged()
+    },
+    onError: (err) => setError((err as Error).message),
+  })
+
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/edit`
+
+  return (
+    <div className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate text-sm font-semibold text-blue-600 hover:underline"
+              title={sheet.spreadsheetId}
+            >
+              {sheet.label || 'Untitled partner sheet'}
+            </a>
+            {sheet.enabled ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                Enabled
+              </span>
+            ) : (
+              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                Paused
+              </span>
+            )}
+          </div>
+          <p className="mt-1 truncate text-[11px] text-zinc-500">
+            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+              {sheet.spreadsheetId}
+            </code>{' '}
+            · tab <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{sheet.tabTitle}</code>
+            {' '}· mapping <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{sheet.columnMappingKey}</code>
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <select
+            value={sheet.clientId ?? ''}
+            onChange={(e) => patch.mutate({ clientId: e.target.value })}
+            disabled={patch.isPending}
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="" disabled>
+              Pick a client…
+            </option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => patch.mutate({ enabled: !sheet.enabled })}
+            disabled={patch.isPending}
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            title={sheet.enabled ? 'Pause this sheet (stop ingesting)' : 'Resume ingestion for this sheet'}
+          >
+            {sheet.enabled ? (
+              <Pause className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Remove this partner sheet? Existing appointment / reminder records stay; the cron just stops reading the sheet.`,
+                )
+              ) {
+                remove.mutate()
+              }
+            }}
+            disabled={remove.isPending}
+            className="rounded-md border border-rose-200 bg-white px-2 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SecondarySheetCreateForm({
+  clients,
+  disabled,
+  onCreated,
+}: {
+  clients: ClientForRouting[]
+  disabled: boolean
+  onCreated: () => void
+}) {
+  const [spreadsheetUrlOrId, setSpreadsheetUrlOrId] = useState('')
+  const [tabTitle, setTabTitle] = useState('Sheet1')
+  const [clientId, setClientId] = useState('')
+  const [label, setLabel] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const create = useMutation({
+    mutationFn: async () => {
+      // Tolerate pasting a full URL — extract the spreadsheet ID from
+      // the path. Saves the admin from having to manually slice it.
+      const idMatch = spreadsheetUrlOrId.match(/\/d\/([a-zA-Z0-9-_]+)/)
+      const spreadsheetId = idMatch ? idMatch[1] : spreadsheetUrlOrId.trim()
+
+      const res = await fetch('/api/admin/secondary-sheets', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          spreadsheetId,
+          tabTitle: tabTitle.trim() || 'Sheet1',
+          clientId,
+          columnMappingKey: 'yassin',
+          label: label.trim() || null,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to add sheet')
+      return json
+    },
+    onSuccess: () => {
+      setError(null)
+      setSpreadsheetUrlOrId('')
+      setTabTitle('Sheet1')
+      setClientId('')
+      setLabel('')
+      onCreated()
+    },
+    onError: (err) => setError((err as Error).message),
+  })
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!spreadsheetUrlOrId.trim() || !clientId) return
+        create.mutate()
+      }}
+      className="space-y-3"
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Spreadsheet URL or ID
+          </span>
+          <input
+            type="text"
+            value={spreadsheetUrlOrId}
+            onChange={(e) => setSpreadsheetUrlOrId(e.target.value)}
+            required
+            placeholder="https://docs.google.com/spreadsheets/d/ABC..."
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Client this sheet is for
+          </span>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            required
+            disabled={disabled}
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950"
+          >
+            <option value="" disabled>
+              Pick a client…
+            </option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Tab name (optional)
+          </span>
+          <input
+            type="text"
+            value={tabTitle}
+            onChange={(e) => setTabTitle(e.target.value)}
+            placeholder="Sheet1"
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+            Label (optional)
+          </span>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Yassin — Sunny Sky Solar"
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          />
+        </label>
+      </div>
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          {error}
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={
+          create.isPending ||
+          !spreadsheetUrlOrId.trim() ||
+          !clientId
+        }
+        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        {create.isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Plus className="h-3.5 w-3.5" />
+        )}
+        Add sheet
+      </button>
+    </form>
+  )
 }
 
 function AppointmentRemindersSection() {
