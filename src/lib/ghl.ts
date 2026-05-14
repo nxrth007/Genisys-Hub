@@ -694,17 +694,33 @@ export async function findContactByPhone(
 }
 
 /**
- * Upsert a GHL contact by phone number. Strategy:
- *   1. Find existing contact by phone first (cheap GET).
- *   2. If found: return its id without touching any fields. Avoids
- *      GHL's destructive-upsert behavior overwriting an existing
- *      contact's name / company / email with our values.
- *   3. If not found: create via the upsert endpoint with whatever
- *      name + company + email fields the caller provided.
+ * Upsert a GHL contact by phone number. Three layers of safety:
  *
- * `companyName` populates GHL's "Business name" field, which is the
- * proper place for our agency-client business name (Sunny Sky Solar,
- * etc.) — not firstName, which was the previous wrong approach.
+ *   1. Find existing contact by phone first (cheap GET).
+ *      If found → return its id, never touch any fields.
+ *
+ *   2. If find-first returns nothing, do a SECOND lookup via the
+ *      `/contacts/upsert` endpoint itself with phone only (no name
+ *      fields). GHL's upsert returns the existing contact's id if
+ *      one already exists at that phone — but since we passed no
+ *      name fields, nothing gets overwritten. This is the "GHL
+ *      itself confirmed there's no contact" round.
+ *
+ *   3. Only if step 2 returns a brand-new contact id (i.e. GHL
+ *      actually created it) do we run a final PATCH that sets the
+ *      firstName / lastName / companyName / email fields the caller
+ *      provided. This guarantees we never overwrite an existing
+ *      contact's fields, even if step 1 had a false negative
+ *      because the find-first endpoint's `query` substring search
+ *      missed the contact.
+ *
+ * Result: even if findContactByPhone silently fails to match an
+ * existing contact (GHL API quirk, weird normalization, whatever),
+ * the upsert call itself can't corrupt that contact's name fields
+ * because we don't pass them.
+ *
+ * Was renamed-Brett-Cooper-Sunny-Sky / William-Pagani-Home-Energy-
+ * Upgrade bug on 2026-05-13 — same root cause for both.
  */
 export async function upsertContactByPhone(
   vaultEntryName: string,
@@ -716,34 +732,69 @@ export async function upsertContactByPhone(
     /** GHL's "Business name" field on the contact. Pass the agency
      *  client's business name here (Sunny Sky Solar, Pro Energy
      *  Savers, etc.) so the GHL contact carries proper company
-     *  metadata. Was previously crammed into firstName, which
-     *  caused the Brett-Cooper-renamed bug on 2026-05-13. */
+     *  metadata. */
     companyName?: string
   },
 ): Promise<{ id: string }> {
   const phone = normalizePhone(params.phone)
 
-  // Find-first: if a contact already exists at this phone, just
-  // return its id. Never touch its fields.
+  // Layer 1: explicit find via GET /contacts/?query=<phone>.
   const existing = await findContactByPhone(vaultEntryName, phone)
   if (existing) return existing
 
-  // No existing contact — create one with whatever fields the caller
-  // provided. GHL's upsert is fine to use here: with no existing
-  // contact to overwrite, the "upsert" is a pure create.
+  // Layer 2: defensive upsert with phone ONLY. If GHL already has
+  // a contact at this phone (i.e. our find-first missed it), this
+  // call returns that contact's id without touching its name
+  // fields — because we passed none. If GHL truly has no contact,
+  // this creates one with no name, and we name it in layer 3.
   const { locationId } = await resolveToken(vaultEntryName)
-  const body: Record<string, unknown> = { locationId, phone }
-  if (params.firstName) body.firstName = params.firstName
-  if (params.lastName) body.lastName = params.lastName
-  if (params.email) body.email = params.email
-  if (params.companyName) body.companyName = params.companyName
-  const res = (await ghlFetch('/contacts/upsert', vaultEntryName, {
+  const probeRes = (await ghlFetch('/contacts/upsert', vaultEntryName, {
     method: 'POST',
-    body: JSON.stringify(body),
-  })) as { contact?: { id?: string }; id?: string }
-  const id = res.contact?.id || res.id
-  if (!id) throw new Error('GHL did not return a contact id after upsert')
-  return { id }
+    body: JSON.stringify({ locationId, phone }),
+  })) as {
+    contact?: { id?: string; new?: boolean }
+    id?: string
+    new?: boolean
+  }
+  const contactId = probeRes.contact?.id || probeRes.id
+  if (!contactId) throw new Error('GHL did not return a contact id after upsert')
+
+  // GHL's upsert response includes a `new` flag (sometimes nested,
+  // sometimes top-level) indicating whether the contact was just
+  // created. Only when truly new — and only if the caller provided
+  // any name/company fields — do we PATCH the field values onto it.
+  // If we can't tell from the response, default to NOT updating
+  // (safer to leave a contact unnamed than to risk overwriting).
+  const wasJustCreated =
+    probeRes.new === true || probeRes.contact?.new === true
+  const hasNameToSet =
+    !!params.firstName ||
+    !!params.lastName ||
+    !!params.email ||
+    !!params.companyName
+  if (wasJustCreated && hasNameToSet) {
+    const patchBody: Record<string, unknown> = {}
+    if (params.firstName) patchBody.firstName = params.firstName
+    if (params.lastName) patchBody.lastName = params.lastName
+    if (params.email) patchBody.email = params.email
+    if (params.companyName) patchBody.companyName = params.companyName
+    try {
+      await ghlFetch(`/contacts/${contactId}`, vaultEntryName, {
+        method: 'PUT',
+        body: JSON.stringify(patchBody),
+      })
+    } catch (err) {
+      // Non-fatal — the contact exists and the SMS will still
+      // deliver; the field-population is a nice-to-have for a
+      // freshly-created contact. Logged so we can spot patterns
+      // if a particular field shape keeps failing.
+      console.warn(
+        `[ghl] failed to set fields on newly-created contact ${contactId}:`,
+        err,
+      )
+    }
+  }
+  return { id: contactId }
 }
 
 /**
