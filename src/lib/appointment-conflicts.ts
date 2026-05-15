@@ -6,9 +6,12 @@
  * (solar consults typically run 60-90 minutes). An appointment at 2:00
  * overlaps anything booked between 1:00 and 3:00.
  *
- * Conflicts include every agent's bookings globally — the rationale is
- * that the customer-facing calendar (the closer's calendar) is shared.
- * Cancelled appointments are excluded since they free up the slot.
+ * Conflicts are scoped to a single client. Each Genisys client has its
+ * own closer / pipeline / calendar, so a 1pm booking for Spring Solar
+ * (UT) does not collide with a 2pm booking for Brighton (AZ) — they go
+ * to different closers. We only look for other bookings under the same
+ * clientId. Cancelled appointments are excluded since they free up the
+ * slot.
  *
  * Editing an existing appointment passes its id as excludeId so it doesn't
  * flag itself.
@@ -36,6 +39,9 @@ export type AppointmentConflict = {
  */
 export async function findConflicts(params: {
   apptDateTime: Date
+  /** Client whose calendar we're checking. Required — conflicts are
+   *  per-client (see file header). */
+  clientId: string
   durationMinutes?: number
   excludeId?: string
   /** Optional transaction client so the conflict check can share a tx with
@@ -51,6 +57,7 @@ export async function findConflicts(params: {
   const rows = await client.appointment.findMany({
     where: {
       ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+      clientId: params.clientId,
       status: { notIn: ['cancelled'] },
       apptDateTime: { gte: windowStart, lte: windowEnd },
     },

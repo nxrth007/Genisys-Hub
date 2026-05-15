@@ -203,15 +203,18 @@ export function AppointmentForm({
   })()
 
   const conflictsQuery = useQuery<{ conflicts: Conflict[] }>({
-    queryKey: ['agent-appt-conflicts', isoCandidate, appointmentId ?? null],
+    queryKey: ['agent-appt-conflicts', isoCandidate, values.clientId, appointmentId ?? null],
     queryFn: async () => {
-      const sp = new URLSearchParams({ at: isoCandidate! })
+      const sp = new URLSearchParams({ at: isoCandidate!, clientId: values.clientId })
       if (appointmentId) sp.set('exclude', appointmentId)
       const res = await fetch(`/api/agent/appointments/conflicts?${sp.toString()}`)
       if (!res.ok) throw new Error('Failed to check conflicts')
       return res.json()
     },
-    enabled: !!isoCandidate,
+    // Conflicts are per-client (different closers / calendars), so we
+    // can't check until a client is picked. The form blocks submit on
+    // missing clientId separately.
+    enabled: !!isoCandidate && !!values.clientId,
     // Short stale to catch bookings from other agents happening in parallel
     staleTime: 5_000,
   })
@@ -551,9 +554,10 @@ export function AppointmentForm({
                         booking{conflicts.length === 1 ? '' : 's'}
                       </p>
                       <p className="mt-0.5 text-amber-800 dark:text-amber-300">
-                        Another agent (or you) already has something booked
-                        within an hour of this slot. Shared calendar — the
-                        closer can&apos;t take two at once.
+                        This client already has something booked within an
+                        hour of this slot — the closer can&apos;t take two
+                        at once. Bookings for other clients in the same
+                        timeframe are fine and won&apos;t show up here.
                       </p>
                     </>
                   )}

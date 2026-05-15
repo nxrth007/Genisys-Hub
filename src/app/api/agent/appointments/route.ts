@@ -337,6 +337,7 @@ export async function POST(req: NextRequest) {
     appt = await prisma.$transaction(async (tx) => {
       const currentConflicts = await findConflicts({
         apptDateTime: parsedDate,
+        clientId: client.id,
         excludeId: undefined,
         tx,
       })
