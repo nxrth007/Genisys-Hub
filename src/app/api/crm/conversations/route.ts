@@ -4,6 +4,27 @@ import { listSubAccounts, getConversations } from '@/lib/ghl'
 import { prisma } from '@/lib/prisma'
 
 /**
+ * Sub-accounts to hide from the CRM page. Case-insensitive substring
+ * match against the GHL location name AND the vault entry name (so we
+ * hide both successfully-resolved rows and resolution-error rows).
+ *
+ * We currently hide Brighton Solar + Spring Solar because we downgraded
+ * the GHL plan and their sub-accounts are off the active tier — every
+ * call against their PIT returns 401, which clutters the CRM. Remove
+ * an entry from this list once the sub-account is reactivated and the
+ * Private Integration token is re-issued in the vault.
+ */
+const HIDDEN_SUBACCOUNT_PATTERNS: readonly string[] = ['brighton', 'spring']
+
+function isHiddenSubaccount(...candidates: Array<string | undefined>): boolean {
+  return candidates.some((s) => {
+    if (!s) return false
+    const lower = s.toLowerCase()
+    return HIDDEN_SUBACCOUNT_PATTERNS.some((p) => lower.includes(p))
+  })
+}
+
+/**
  * GET /api/crm/conversations
  * Fetches conversations from every GHL sub-account in parallel.
  * Returns results grouped by sub-account.
@@ -19,7 +40,17 @@ export async function GET(req: NextRequest) {
   const limit = Number(req.nextUrl.searchParams.get('limit') || '20')
 
   try {
-    const { subaccounts, errors, discoveredEntries } = await listSubAccounts()
+    const discovery = await listSubAccounts()
+    // Drop hidden sub-accounts before we spend a round-trip per group
+    // on conversation fetches. Filter both the resolved list and the
+    // resolution-error list so the UI never surfaces them either way.
+    const subaccounts = discovery.subaccounts.filter(
+      (s) => !isHiddenSubaccount(s.locationName, s.vaultName),
+    )
+    const errors = discovery.errors.filter(
+      (e) => !isHiddenSubaccount(e.vaultName),
+    )
+    const discoveredEntries = discovery.discoveredEntries
 
     // Fetch GHL conversations across sub-accounts in parallel, AND
     // pull the set of conversation IDs the reminder system has ever
