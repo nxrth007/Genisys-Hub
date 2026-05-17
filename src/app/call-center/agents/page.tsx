@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { Suspense, useMemo } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -108,7 +108,29 @@ type ApiResponse = {
   clients: ClientChip[]
 }
 
+/**
+ * Suspense wrapper — Next.js requires it whenever the page reads
+ * useSearchParams(), otherwise `next build` fails the static-export
+ * step ("missing-suspense-with-csr-bailout"). The fallback mirrors
+ * the loading state of the real page so there's no visual flash.
+ */
 export default function CallCenterAgentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto w-full max-w-[1280px]">
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        </div>
+      }
+    >
+      <CallCenterAgentsPageInner />
+    </Suspense>
+  )
+}
+
+function CallCenterAgentsPageInner() {
   const router = useRouter()
   const sp = useSearchParams()
   const range = ((sp.get('range') as Range | null) || '30d') as Range
