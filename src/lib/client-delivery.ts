@@ -98,6 +98,204 @@ export async function verifyDeliveryPermalink(
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Internal-alerts mirror                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Channel that receives a copy of every successful client-channel
+ * delivery — the "re-enforced internal logging" surface so admin has
+ * a single feed of every appointment landing across all clients
+ * without having to hop between per-client channels.
+ *
+ * Defaults to `genisys-alerts` (the channel already used by
+ * client-workspace provisioning + client-message alerts). The env
+ * override exists for local dev / future renames.
+ *
+ * Disable in an emergency by setting INTERNAL_APPOINTMENT_MIRROR_DISABLED=true.
+ */
+const INTERNAL_MIRROR_CHANNEL_NAME: string =
+  process.env.INTERNAL_APPOINTMENT_MIRROR_CHANNEL || 'genisys-alerts'
+
+const INTERNAL_MIRROR_DISABLED: boolean =
+  (process.env.INTERNAL_APPOINTMENT_MIRROR_DISABLED || '').toLowerCase() ===
+  'true'
+
+/** Per-process cache for the resolved mirror channel ID. `null` means
+ *  "lookup ran but the channel isn't visible to the bot" (channel
+ *  doesn't exist or the bot was never invited) — we don't want to
+ *  retry every tick when the operator hasn't fixed it. `undefined`
+ *  means "not yet resolved this process lifetime." */
+let cachedMirrorChannelId: string | null | undefined = undefined
+
+async function resolveMirrorChannelId(slack: WebClient): Promise<string | null> {
+  if (cachedMirrorChannelId !== undefined) return cachedMirrorChannelId
+  try {
+    const trimmed = INTERNAL_MIRROR_CHANNEL_NAME.replace(/^#/, '')
+      .trim()
+      .toLowerCase()
+    if (!trimmed) {
+      cachedMirrorChannelId = null
+      return null
+    }
+    let cursor: string | undefined
+    let found: string | null = null
+    do {
+      const res = await slack.conversations.list({
+        types: 'public_channel,private_channel',
+        exclude_archived: true,
+        limit: 200,
+        ...(cursor ? { cursor } : {}),
+      })
+      for (const ch of res.channels ?? []) {
+        if ((ch.name ?? '').toLowerCase() === trimmed) {
+          found = ch.id ?? null
+          break
+        }
+      }
+      if (found) break
+      cursor = res.response_metadata?.next_cursor || undefined
+    } while (cursor)
+    cachedMirrorChannelId = found
+    if (!found) {
+      console.warn(
+        `[client-delivery mirror] channel "#${INTERNAL_MIRROR_CHANNEL_NAME}" not visible to the bot — invite the bot to that channel (or set INTERNAL_APPOINTMENT_MIRROR_CHANNEL to one it can see). Mirror posts will be skipped until this is fixed.`,
+      )
+    }
+    return found
+  } catch (err) {
+    console.error(
+      '[client-delivery mirror] failed to resolve mirror channel id:',
+      err,
+    )
+    cachedMirrorChannelId = null
+    return null
+  }
+}
+
+/**
+ * Best-effort mirror of a successful client-channel delivery into
+ * the internal alerts channel. Same `SheetSlackDelivery` ledger as
+ * the primary post — the `(sourceKey, channelId)` unique index gives
+ * us free dedup since the mirror channel ID differs from the
+ * primary's, so we never need a separate table.
+ *
+ * Failure mode is silent: a Slack outage on the mirror side must
+ * never roll back or otherwise affect the primary delivery the
+ * client is counting on. We do record a `failed` ledger row so
+ * admin can see mirror failures in the Settings activity panel.
+ */
+export async function mirrorAppointmentToInternalAlerts(params: {
+  slack: WebClient
+  clientId: string
+  clientName: string
+  primaryChannelId: string
+  primaryChannelName: string | null
+  sourceKey: string
+  body: string
+  customerPhone: string | null
+  apptDateTime: Date | null
+}): Promise<void> {
+  if (INTERNAL_MIRROR_DISABLED) return
+
+  const mirrorChannelId = await resolveMirrorChannelId(params.slack)
+  if (!mirrorChannelId) return
+  // Defensive: if someone configures a client channel to be the
+  // alerts channel, don't mirror back to it (would post twice).
+  if (mirrorChannelId === params.primaryChannelId) return
+
+  // Cheap dedup precheck — covers the cron-replay case where the
+  // primary already posted on a prior tick and we somehow missed
+  // the mirror at the time. The unique index below catches the
+  // race; this just avoids a wasted Slack round-trip in the common
+  // "already mirrored" case.
+  const already = await prisma.sheetSlackDelivery
+    .findFirst({
+      where: { sourceKey: params.sourceKey, channelId: mirrorChannelId },
+      select: { id: true },
+    })
+    .catch(() => null)
+  if (already) return
+
+  const channelRef = params.primaryChannelName
+    ? `#${params.primaryChannelName}`
+    : `<#${params.primaryChannelId}>`
+  const mirrorBody =
+    `:mailbox_with_mail: *Internal mirror* — appointment for *${params.clientName}* (also posted to ${channelRef})\n\n` +
+    params.body
+
+  try {
+    const post = await params.slack.chat.postMessage({
+      channel: mirrorChannelId,
+      text: mirrorBody,
+      mrkdwn: true,
+      unfurl_links: false,
+      unfurl_media: false,
+    })
+    if (!post.ok || !post.ts) {
+      throw new Error(
+        `Slack acknowledged mirror post without a message id (ok=${post.ok}).`,
+      )
+    }
+    const permalink = await verifyDeliveryPermalink(
+      params.slack,
+      mirrorChannelId,
+      post.ts,
+    ).catch(() => null)
+    await prisma.sheetSlackDelivery
+      .create({
+        data: {
+          sourceKey: params.sourceKey,
+          clientId: params.clientId,
+          channelId: mirrorChannelId,
+          status: 'delivered',
+          messageTs: post.ts ?? null,
+          permalink,
+          deliveredAt: new Date(),
+          customerPhone: params.customerPhone,
+          apptDateTime: params.apptDateTime,
+        },
+      })
+      .catch((err: unknown) => {
+        const code =
+          err instanceof Error && 'code' in err
+            ? (err as { code?: string }).code
+            : undefined
+        // Race — a concurrent tick already wrote the mirror ledger
+        // row. Fine; both represent the same successful post.
+        if (code === 'P2002') return
+        console.error(
+          '[client-delivery mirror] ledger insert failed (post already sent):',
+          err,
+        )
+      })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'mirror post failed'
+    console.error(
+      `[client-delivery mirror] failed to mirror ${params.sourceKey} to #${INTERNAL_MIRROR_CHANNEL_NAME}:`,
+      message,
+    )
+    // Record the failure so it's visible in the activity panel and
+    // doesn't get re-attempted on every cron tick. Admin can clear
+    // the row manually to retry once the underlying issue is fixed.
+    try {
+      await prisma.sheetSlackDelivery.create({
+        data: {
+          sourceKey: params.sourceKey,
+          clientId: params.clientId,
+          channelId: mirrorChannelId,
+          status: 'failed',
+          errorMessage: `mirror: ${message}`,
+          customerPhone: params.customerPhone,
+          apptDateTime: params.apptDateTime,
+        },
+      })
+    } catch {
+      // P2002 race — already recorded. Fine.
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Sync                                                                       */
 /* -------------------------------------------------------------------------- */
 
@@ -418,6 +616,22 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
           `[client-delivery] sheet row ${row.rowNumber} routed to ${candidate.name} via address-state inference (${route.matchedState}). Client column was blank — consider filling it for clarity.`
         )
       }
+      // Internal-alerts mirror — best-effort copy to #genisys-alerts
+      // (or whatever INTERNAL_APPOINTMENT_MIRROR_CHANNEL points at) so
+      // admin has a single feed of every appointment delivery across
+      // all clients. Never throws — failures land as `failed` rows
+      // against the mirror channel id in the same ledger.
+      await mirrorAppointmentToInternalAlerts({
+        slack,
+        clientId: candidate.id,
+        clientName: candidate.name,
+        primaryChannelId: candidate.slackChannelId,
+        primaryChannelName: candidate.slackChannelName ?? null,
+        sourceKey,
+        body,
+        customerPhone: normalizedPhone,
+        apptDateTime: apptDateValid ? apptDate : null,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Send failed'
       // Record a failed-status row so we don't retry indefinitely on a

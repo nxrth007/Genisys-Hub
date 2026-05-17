@@ -9,6 +9,7 @@ import {
 } from '@/lib/client-routing'
 import {
   formatAppointmentForClientChannel,
+  mirrorAppointmentToInternalAlerts,
   verifyDeliveryPermalink,
 } from '@/lib/client-delivery'
 import { snapshotSolarFromCache } from '@/lib/solar'
@@ -220,6 +221,19 @@ export async function POST(req: Request) {
         },
       })
     }
+    // Internal-alerts mirror — same best-effort copy the cron sync
+    // does, so manual deliveries also show up in #genisys-alerts.
+    await mirrorAppointmentToInternalAlerts({
+      slack,
+      clientId: client.id,
+      clientName: client.name,
+      primaryChannelId: client.slackChannelId,
+      primaryChannelName: client.slackChannelName ?? null,
+      sourceKey,
+      body: body_,
+      customerPhone: phoneKey,
+      apptDateTime: apptDateValid ? apptDate : null,
+    })
     return NextResponse.json({
       ok: true,
       messageTs: post.ts ?? null,
