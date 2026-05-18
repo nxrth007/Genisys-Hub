@@ -25,6 +25,7 @@ import {
   dispatchPendingClientAlerts,
 } from './client-alert'
 import { syncClientMessageAlerts } from './client-message-alert'
+import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 
 let initialized = false
 
@@ -53,6 +54,23 @@ let lastClientAlertSyncAt = 0
 // 5 min is too long to wait for a client message ping.
 const CLIENT_MESSAGE_ALERT_INTERVAL_MS = 60 * 1000
 let lastClientMessageAlertAt = 0
+
+// Gmail Inbox/Outbox auto-sync. Runs every 12 hours per Alex's spec —
+// the "Sync" button on /inbox is still there for manual pulls, but
+// the cron means new emails land in the DB without anyone having to
+// click. The two-per-day cadence is light enough that the Gmail API
+// quota is never a concern even with many connected accounts.
+// On a process cold-start (fresh deploy) lastGmailSyncAt resets to 0
+// so the first tick fires the sync within a minute — gives every
+// deploy a free fresh-mail pull as a side effect.
+const GMAIL_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000
+let lastGmailSyncAt = 0
+// In-flight guard. A first-time sync on a busy account can take
+// 30-60s per folder per account; if a tick somehow fires while a
+// previous run is still going (clock skew on a deploy boundary,
+// for instance) we skip silently rather than stack a second pull
+// on top.
+let gmailSyncInFlight = false
 // In-flight guard. node-cron's '* * * * *' fires every minute
 // regardless of whether the previous tick finished — when a GHL fetch
 // + 100-conversation scan takes >60s, two ticks of syncClientMessageAlerts
@@ -201,6 +219,68 @@ export function initScheduler() {
         } finally {
           clientMessageAlertInFlight = false
         }
+      }
+    }
+
+    // Gmail Inbox + Sent auto-sync (every 12h). Pulls fresh messages
+    // for every connected Gmail account into the Email table so the
+    // /inbox + /outbox views don't depend on someone clicking Sync.
+    // Same per-account error isolation as the manual /api/gmail/sync
+    // route — one account's auth failure (e.g. expired refresh token)
+    // never blocks the others.
+    if (!gmailSyncInFlight) {
+      const now = Date.now()
+      if (now - lastGmailSyncAt >= GMAIL_SYNC_INTERVAL_MS) {
+        lastGmailSyncAt = now
+        gmailSyncInFlight = true
+        // Fire-and-forget — Gmail sync can take 30-60s on first-pull
+        // accounts, and we don't want to block the rest of the cron
+        // tick (briefs, dispatch, etc.) waiting on it. The next
+        // tick's in-flight guard prevents overlap.
+        ;(async () => {
+          try {
+            const accounts = await listConnectedAccounts()
+            if (accounts.length === 0) return
+            // Bump maxResults from the API default (50) to give
+            // headroom for high-volume accounts between syncs. 100
+            // is well under Gmail's rate limit and covers ~12h on
+            // even the busiest inboxes we have.
+            const MAX = 100
+            let totalInboxNew = 0
+            let totalSentNew = 0
+            const errors: Array<{ email: string; error: string }> = []
+            for (const acct of accounts) {
+              try {
+                const inboxResult = await syncInbox(acct.email, MAX)
+                const sentResult = await syncSent(acct.email, MAX)
+                // syncInbox / syncSent currently return { synced,
+                // skipped } — defensive about that contract so a
+                // future refactor doesn't crash the cron.
+                const inboxNew = (inboxResult as { synced?: number })
+                  ?.synced ?? 0
+                const sentNew = (sentResult as { synced?: number })
+                  ?.synced ?? 0
+                totalInboxNew += inboxNew
+                totalSentNew += sentNew
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : 'sync failed'
+                errors.push({ email: acct.email, error: message })
+                console.error(
+                  `[scheduler] gmail sync failed for ${acct.email}:`,
+                  message,
+                )
+              }
+            }
+            console.log(
+              `[scheduler] gmail sync: ${totalInboxNew} new inbox + ${totalSentNew} new sent across ${accounts.length} account${accounts.length === 1 ? '' : 's'}${errors.length ? `, ${errors.length} failed` : ''}`,
+            )
+          } catch (err) {
+            console.error('[scheduler] gmail sync (outer) failed:', err)
+          } finally {
+            gmailSyncInFlight = false
+          }
+        })()
       }
     }
   })
