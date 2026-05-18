@@ -241,6 +241,17 @@ export default function TodayPage() {
   // can flip to "board" via the toggle to see the old Kanban.
   const [tasksView, setTasksView] = useState<'focus' | 'board'>('focus')
 
+  // Ticking "now" for time-based UI affordances (e.g. the "Over" chip
+  // on meetings that ended 10+ min ago). 60s cadence is plenty —
+  // chip-precision on the minute mark is not worth the re-render cost
+  // of a faster interval. Lives at the page level so every meeting
+  // row reads the same "now" within a render.
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Scope + date-range — match the mockup's filter bar. Scope is the
   // "Daily / Weekly / Monthly / Quarterly" pill; the date range
   // pill on the right is a 2-month calendar popover with quick
@@ -830,6 +841,17 @@ export default function TodayPage() {
             {events.map((ev, i) => {
               const link = findMeetingLink(ev)
               const isFirst = i === 0
+              // "Over" chip — flips on 10 min after the meeting's
+              // scheduled end. Skipped silently when the event has
+              // no endTime (some GHL events ship without one) or
+              // when endTime fails to parse, since we can't be
+              // honest about staleness without a real end time.
+              const meetingEndedLongAgo = (() => {
+                if (!ev.endTime) return false
+                const end = Date.parse(ev.endTime)
+                if (isNaN(end)) return false
+                return nowMs - end > 10 * 60 * 1000
+              })()
               return (
                 <li
                   key={ev.id || i}
@@ -874,23 +896,37 @@ export default function TodayPage() {
                       </p>
                     )}
                   </div>
-                  {link ? (
-                    <JoinButton link={link} highlighted={isFirst} />
-                  ) : (
-                    // No meeting URL — show a neutral "Details" pill
-                    // so the row still terminates with an action and
-                    // the layout stays consistent across rows.
-                    <span
-                      className={cn(
-                        'rounded-full px-4 py-1.5 text-xs font-semibold',
-                        isFirst
-                          ? 'bg-primary text-primary-foreground'
-                          : 'border border-border bg-card text-foreground/80'
-                      )}
-                    >
-                      Details
-                    </span>
-                  )}
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {meetingEndedLongAgo && (
+                      <span
+                        className="inline-flex items-center rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white"
+                        title={
+                          ev.endTime
+                            ? `Meeting ended at ${formatTime(ev.endTime)} (10+ min ago)`
+                            : 'Meeting is over'
+                        }
+                      >
+                        Over
+                      </span>
+                    )}
+                    {link ? (
+                      <JoinButton link={link} highlighted={isFirst} />
+                    ) : (
+                      // No meeting URL — show a neutral "Details" pill
+                      // so the row still terminates with an action and
+                      // the layout stays consistent across rows.
+                      <span
+                        className={cn(
+                          'rounded-full px-4 py-1.5 text-xs font-semibold',
+                          isFirst
+                            ? 'bg-primary text-primary-foreground'
+                            : 'border border-border bg-card text-foreground/80'
+                        )}
+                      >
+                        Details
+                      </span>
+                    )}
+                  </div>
                 </li>
               )
             })}
