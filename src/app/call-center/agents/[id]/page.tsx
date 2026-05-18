@@ -248,11 +248,11 @@ export default function AgentDetailPage({
     return (
       <div className="mx-auto max-w-2xl space-y-4">
         <Link
-          href="/call-center/master-tracker"
+          href="/call-center/agents"
           className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Call Center
+          Back to Agents
         </Link>
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
           Agent not found.
