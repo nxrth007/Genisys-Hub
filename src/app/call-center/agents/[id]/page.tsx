@@ -33,6 +33,10 @@ type Appointment = {
   callRecordingLink: string | null
   createdAt: string
   agent: { id: string; name: string | null; email: string }
+  /** Which Genisys client this appointment is booked for. Null on
+   *  legacy rows that pre-date the Client feature or rows whose
+   *  routing was ambiguous at create time. */
+  client: { id: string; name: string; state: string | null; color: string } | null
 }
 
 type AgentSummary = {
@@ -178,6 +182,7 @@ export default function AgentDetailPage({
     const headers = [
       'Appt Date',
       'Appt Time',
+      'Client',
       'Customer Name',
       'Phone',
       'Address',
@@ -198,6 +203,7 @@ export default function AgentDetailPage({
       return [
         d.toLocaleDateString('en-US'),
         d.toLocaleTimeString('en-US', { hour12: true }),
+        a.client?.name || '',
         a.customerName,
         a.customerPhone,
         a.address || '',
@@ -452,7 +458,33 @@ export default function AgentDetailPage({
                             })}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-medium">{a.customerName}</td>
+                        <td className="px-3 py-2.5 font-medium">
+                          <div>{a.customerName}</div>
+                          {a.client ? (
+                            <span
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                              title={
+                                a.client.state
+                                  ? `Booked for ${a.client.name} (${a.client.state})`
+                                  : `Booked for ${a.client.name}`
+                              }
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: a.client.color }}
+                                aria-hidden
+                              />
+                              {a.client.name}
+                            </span>
+                          ) : (
+                            <span
+                              className="mt-0.5 inline-block text-[10px] text-zinc-400"
+                              title="No client linked to this booking — usually a pre-Client-feature row or one whose routing was ambiguous."
+                            >
+                              no client
+                            </span>
+                          )}
+                        </td>
                         <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px]">
                           {a.customerPhone}
                         </td>
