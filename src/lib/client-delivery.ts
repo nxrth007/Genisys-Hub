@@ -120,23 +120,30 @@ const INTERNAL_MIRROR_DISABLED: boolean =
   (process.env.INTERNAL_APPOINTMENT_MIRROR_DISABLED || '').toLowerCase() ===
   'true'
 
-/** Per-process cache for the resolved mirror channel ID. `null` means
- *  "lookup ran but the channel isn't visible to the bot" (channel
- *  doesn't exist or the bot was never invited) — we don't want to
- *  retry every tick when the operator hasn't fixed it. `undefined`
- *  means "not yet resolved this process lifetime." */
-let cachedMirrorChannelId: string | null | undefined = undefined
+/** Per-process cache for the resolved mirror channel ID.
+ *
+ *  Only POSITIVE resolutions are cached — once we know the channel ID,
+ *  it doesn't change for the lifetime of the process. Null results
+ *  (channel not visible to the bot yet, transient Slack error, etc.)
+ *  are NOT cached, so the moment an operator invites the bot to the
+ *  alerts channel the very next cron tick picks it up — no redeploy
+ *  needed. Earlier version cached the null case for the process
+ *  lifetime, which meant the cron stayed broken until someone forced
+ *  a restart, easy to miss. */
+let cachedMirrorChannelId: string | null = null
+/** Soft rate-limit on the "not found" warn log so we don't fill the
+ *  Render logs with the same line every 5 minutes while waiting for
+ *  the operator to invite the bot. 30 min between warns. */
+let lastMirrorMissWarnAt = 0
+const MIRROR_MISS_WARN_INTERVAL_MS = 30 * 60 * 1000
 
 async function resolveMirrorChannelId(slack: WebClient): Promise<string | null> {
-  if (cachedMirrorChannelId !== undefined) return cachedMirrorChannelId
+  if (cachedMirrorChannelId) return cachedMirrorChannelId
   try {
     const trimmed = INTERNAL_MIRROR_CHANNEL_NAME.replace(/^#/, '')
       .trim()
       .toLowerCase()
-    if (!trimmed) {
-      cachedMirrorChannelId = null
-      return null
-    }
+    if (!trimmed) return null
     let cursor: string | undefined
     let found: string | null = null
     do {
@@ -155,19 +162,26 @@ async function resolveMirrorChannelId(slack: WebClient): Promise<string | null> 
       if (found) break
       cursor = res.response_metadata?.next_cursor || undefined
     } while (cursor)
-    cachedMirrorChannelId = found
-    if (!found) {
+    if (found) {
+      cachedMirrorChannelId = found
+      return found
+    }
+    // Not cached — next tick will retry. Warn at most every
+    // MIRROR_MISS_WARN_INTERVAL_MS so the operator gets a clear
+    // log line without log spam.
+    const now = Date.now()
+    if (now - lastMirrorMissWarnAt >= MIRROR_MISS_WARN_INTERVAL_MS) {
+      lastMirrorMissWarnAt = now
       console.warn(
-        `[client-delivery mirror] channel "#${INTERNAL_MIRROR_CHANNEL_NAME}" not visible to the bot — invite the bot to that channel (or set INTERNAL_APPOINTMENT_MIRROR_CHANNEL to one it can see). Mirror posts will be skipped until this is fixed.`,
+        `[client-delivery mirror] channel "#${INTERNAL_MIRROR_CHANNEL_NAME}" not visible to the bot — invite the bot to that channel (or set INTERNAL_APPOINTMENT_MIRROR_CHANNEL to one it can see). Mirror posts will retry every cron tick until this is fixed.`,
       )
     }
-    return found
+    return null
   } catch (err) {
     console.error(
       '[client-delivery mirror] failed to resolve mirror channel id:',
       err,
     )
-    cachedMirrorChannelId = null
     return null
   }
 }
