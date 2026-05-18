@@ -264,11 +264,11 @@ export default function AgentDetailPage({
   return (
     <div className="max-w-6xl space-y-6">
       <Link
-        href="/call-center"
+        href="/call-center/agents"
         className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Call Center
+        Back to Agents
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
