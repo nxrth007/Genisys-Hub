@@ -344,6 +344,12 @@ function PrePayPlanPicker({
   const [businessName, setBusinessName] = useState('')
   const [picked, setPicked] = useState<PaymentOption | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Set when the prospect ticks "I have already paid" — they still
+   *  need to pick which plan they paid for (so admin + the Client
+   *  row both know which package to provision), but clicking the
+   *  plan button skips the QuickBooks redirect and just marks the
+   *  selection for admin to verify against an existing payment. */
+  const [alreadyPaid, setAlreadyPaid] = useState(false)
 
   const submit = useMutation({
     mutationFn: async (opt: PaymentOption) => {
@@ -354,6 +360,7 @@ function PrePayPlanPicker({
           businessName,
           tier: opt.tier,
           paymentOption: opt.id,
+          alreadyPaid,
         }),
       })
       const data = await res.json()
@@ -361,10 +368,13 @@ function PrePayPlanPicker({
       return data
     },
     onSuccess: (_data, opt) => {
-      // Open the QuickBooks link in a new tab right after saving the
-      // plan choice. The user comes back to /client and sees the
-      // "awaiting approval" state (refresh triggered by onComplete).
-      window.open(opt.href, '_blank', 'noopener,noreferrer')
+      // Default flow: open the QuickBooks link in a new tab right
+      // after saving the plan choice. Skipped when the prospect
+      // ticked "I have already paid" — they don't need to pay
+      // again; admin verifies their existing payment + approves.
+      if (!alreadyPaid) {
+        window.open(opt.href, '_blank', 'noopener,noreferrer')
+      }
       onComplete()
     },
     onError: (err) => {
@@ -411,23 +421,52 @@ function PrePayPlanPicker({
               }}
               className="group flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-blue-950/30"
             >
-              <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+              {alreadyPaid ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+              ) : (
+                <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold">{opt.label}</div>
                 <div className="mt-0.5 text-xs text-zinc-500">{opt.sub}</div>
               </div>
               {submit.isPending && picked?.id === opt.id ? (
                 <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+              ) : alreadyPaid ? (
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+                  Submit
+                </span>
               ) : (
                 <ExternalLink className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400 transition group-hover:text-blue-600" />
               )}
             </button>
           ))}
         </div>
+
+        {/* "I have already paid" toggle — for prospects who paid via
+            an out-of-band channel (Stripe link, wire, prior QuickBooks
+            invoice, etc.). Same plan choice flow, but skips the
+            QuickBooks redirect and tags the Client row so admin
+            verifies the existing payment before approving. */}
+        <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs dark:border-zinc-700 dark:bg-zinc-900/60">
+          <input
+            type="checkbox"
+            checked={alreadyPaid}
+            onChange={(e) => setAlreadyPaid(e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 accent-emerald-600"
+          />
+          <span className="flex-1 leading-relaxed text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold">I have already paid for this plan.</span>{' '}
+            Pick the plan you paid for above — we&apos;ll mark your account
+            for verification by your account manager instead of sending you
+            back to QuickBooks.
+          </span>
+        </label>
+
         <p className="text-[11px] text-zinc-500">
-          Clicking a plan saves your selection and opens the secure
-          QuickBooks payment page in a new tab. After payment lands, your
-          account manager approves your account.
+          {alreadyPaid
+            ? 'Picking a plan submits your selection for admin verification. No payment page will open.'
+            : 'Clicking a plan saves your selection and opens the secure QuickBooks payment page in a new tab. After payment lands, your account manager approves your account.'}
         </p>
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">

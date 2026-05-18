@@ -70,6 +70,11 @@ export async function POST(req: NextRequest) {
   const businessName = trim(body.businessName)
   const tier = trim(body.tier).toLowerCase()
   const paymentOption = trim(body.paymentOption).toLowerCase()
+  /** Flag from the "I have already paid" checkbox on /client step 2.
+   *  When true the prospect still picked a plan (so we know what
+   *  package to provision) but skipped the QuickBooks redirect —
+   *  admin must verify their existing payment before approving. */
+  const alreadyPaid = body.alreadyPaid === true
 
   if (!businessName) {
     return NextResponse.json(
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest) {
           // admin sees "(Growth — 50% upfront)" in the review queue.
           // Cleaner than adding a column for a value we mostly only
           // use at review time.
-          onboardingNotes: paymentOptionNote(paymentOption),
+          onboardingNotes: paymentOptionNote(paymentOption, alreadyPaid),
         },
         select: { id: true, name: true, package: true },
       })
@@ -140,6 +145,7 @@ export async function POST(req: NextRequest) {
         clientName: updated.name,
         package: updated.package,
         paymentOption,
+        alreadyPaid,
         userEmail: me.email,
       })
       return NextResponse.json({
@@ -184,7 +190,7 @@ export async function POST(req: NextRequest) {
         name: businessName,
         package: tier,
         contactEmail: me.email,
-        onboardingNotes: paymentOptionNote(paymentOption),
+        onboardingNotes: paymentOptionNote(paymentOption, alreadyPaid),
         lifecycle: 'pending',
         active: false,
       },
@@ -202,6 +208,7 @@ export async function POST(req: NextRequest) {
     clientName: created.name,
     package: created.package,
     paymentOption,
+    alreadyPaid,
     userEmail: me.email,
   })
 
@@ -224,17 +231,26 @@ function notifyAdminPlanSelected(
     clientName: string
     package: string
     paymentOption: string
+    alreadyPaid: boolean
     userEmail: string | null
   },
 ) {
   const origin = getPublicOrigin(req)
-  const label = paymentOptionNote(payload.paymentOption) || payload.paymentOption
-  const subject =
-    payload.kind === 'new'
+  const label =
+    paymentOptionNote(payload.paymentOption, payload.alreadyPaid) ||
+    payload.paymentOption
+  // "Already paid" prospects need different framing — Ethan can't
+  // wait for a fresh QuickBooks notification because there isn't
+  // one. Surface it loudly in the subject and the lead so the
+  // alert never gets approved without a payment verification.
+  const subject = payload.alreadyPaid
+    ? `[Genisys Hub] ⚠️ Verify payment before approving: ${payload.clientName}`
+    : payload.kind === 'new'
       ? `[Genisys Hub] Plan picked — ready for review: ${payload.clientName}`
       : `[Genisys Hub] Plan changed (still pending): ${payload.clientName}`
-  const lead =
-    payload.kind === 'new'
+  const lead = payload.alreadyPaid
+    ? `**${payload.clientName}** picked a plan and ticked "I have already paid." They were NOT redirected to QuickBooks. **Confirm with Ethan that a matching payment exists before approving** — they are now on the Pending tab.`
+    : payload.kind === 'new'
       ? `**${payload.clientName}** just picked a plan and was sent to QuickBooks to pay. They are now on the Pending tab waiting for your approval (once Ethan confirms payment landed).`
       : `**${payload.clientName}** changed their plan selection before approval. Updated selection below.`
   sendEmail({
@@ -259,12 +275,23 @@ function notifyAdminPlanSelected(
 
 /** Human-readable payment-option label that gets stashed in
  *  onboardingNotes so admin sees "(Growth — 50% upfront)" in the
- *  approval queue. Replaced verbatim if the user submits the full
- *  onboarding form later (which has its own Additional notes field). */
-function paymentOptionNote(opt: string): string {
-  if (opt === 'ppa') return 'Selected: Pay-per-appointment'
-  if (opt === 'growth_full') return 'Selected: Growth Pack — Pay in full'
-  if (opt === 'growth_half')
-    return 'Selected: Growth Pack — Pay 50% upfront'
-  return ''
+ *  approval queue. When `alreadyPaid` is set the prefix changes to
+ *  an explicit warning marker so the row visually pops in the
+ *  Pending tab — admin should never auto-approve these without
+ *  Ethan confirming the existing payment first. Replaced verbatim
+ *  if the user submits the full onboarding form later (which has
+ *  its own Additional notes field). */
+function paymentOptionNote(opt: string, alreadyPaid: boolean): string {
+  const base =
+    opt === 'ppa'
+      ? 'Pay-per-appointment'
+      : opt === 'growth_full'
+        ? 'Growth Pack — Pay in full'
+        : opt === 'growth_half'
+          ? 'Growth Pack — Pay 50% upfront'
+          : ''
+  if (!base) return ''
+  return alreadyPaid
+    ? `⚠️ Claims already paid — VERIFY before approving. Plan: ${base}`
+    : `Selected: ${base}`
 }
