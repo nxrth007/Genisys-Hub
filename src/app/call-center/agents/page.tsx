@@ -98,6 +98,7 @@ type ApiResponse = {
   activeOnly: boolean
   excludedHidden: number
   unattributedSheetRows: number
+  unattributedBreakdown: { primary: number; secondary: number }
   totalSheetRowsConsidered: number
   summary: {
     activeAgents: number
@@ -324,6 +325,7 @@ function CallCenterAgentsPageInner() {
           {data.unattributedSheetRows > 0 && (
             <UnattributedBanner
               count={data.unattributedSheetRows}
+              breakdown={data.unattributedBreakdown}
               total={data.totalSheetRowsConsidered}
             />
           )}
@@ -340,23 +342,51 @@ function CallCenterAgentsPageInner() {
 
 function UnattributedBanner({
   count,
+  breakdown,
   total,
 }: {
   count: number
+  breakdown: { primary: number; secondary: number }
   total: number
 }) {
+  // Secondary-only is expected (partner call-center sheets whose
+  // agents aren't Hub users); render that case as informational
+  // rather than as a data-quality warning. Primary-sheet leftovers
+  // are the real concern — anything not auto-resolved by the sole-
+  // agent fallback means a multi-agent workspace with missing data.
+  const onlySecondary = breakdown.primary === 0 && breakdown.secondary > 0
+  const tone = onlySecondary
+    ? 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200'
+    : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs dark:border-amber-900 dark:bg-amber-950/40">
-      <p className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+    <div className={cn('rounded-2xl border px-4 py-3 text-xs', tone)}>
+      <p className="flex items-start gap-2">
         <CircleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
         <span>
-          <strong>{count}</strong> of {total} master-tracker rows couldn&apos;t
-          be attributed to a Hub agent. Usually means the sheet&apos;s{' '}
-          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">
-            agent email
-          </code>{' '}
-          column is blank for those rows, or the email doesn&apos;t match any
-          approved Hub agent. Fill it in to get accurate per-agent counts.
+          {onlySecondary ? (
+            <>
+              <strong>{count}</strong> of {total} master-tracker rows are
+              from partner call-center sheets (Yassin&apos;s team) and
+              aren&apos;t booked by Hub agents — that&apos;s normal and
+              they&apos;re excluded from per-agent counts.
+            </>
+          ) : (
+            <>
+              <strong>{count}</strong> of {total} master-tracker rows
+              couldn&apos;t be attributed to a Hub agent
+              {breakdown.secondary > 0 && (
+                <>
+                  {' '}
+                  ({breakdown.primary} on the primary sheet, {breakdown.secondary}{' '}
+                  on partner sheets)
+                </>
+              )}
+              . The primary-sheet rows usually mean the sheet&apos;s{' '}
+              <code className="rounded bg-current/10 px-1">agent email</code>{' '}
+              column is blank — fill it in to get accurate per-agent counts
+              when the workspace has 2+ agents.
+            </>
+          )}
         </span>
       </p>
     </div>

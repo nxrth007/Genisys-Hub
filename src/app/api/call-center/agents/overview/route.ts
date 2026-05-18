@@ -23,7 +23,15 @@ import { normalizeAddress } from '@/lib/address'
  *   2. fall back to DB Appointment.agentUserId via masterSheetRowNumber
  *      or (phone + apptDateTime) content key — catches Hub-form
  *      bookings where the sheet's agentEmail column wasn't backfilled
- *   3. otherwise: counted as "unattributed sheet rows" and surfaced
+ *   3. PRIMARY SHEET sole-agent fallback: if exactly one approved Hub
+ *      agent exists (Mary, today), every primary-sheet row that
+ *      wasn't matched by (1) or (2) attributes to her. Scoped to the
+ *      primary sheet only — secondary partner sheets (Yassin's team)
+ *      are NOT Mary's even when their agent column is blank, so they
+ *      keep falling through. This rule self-disables the moment a
+ *      second agent onboards — at that point the banner reappears
+ *      and we surface the data gap instead of guessing.
+ *   4. otherwise: counted as "unattributed sheet rows" and surfaced
  *      to the UI as a data-quality banner
  *
  * EOD reports + callbacks are still DB-only (they're Hub-native, never
@@ -311,7 +319,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Attribution priority: sheet's own agentEmail → DB row →
-    // unattributed.
+    // primary-sheet sole-agent fallback → unattributed.
     let agentId: string | null = null
     if (row.agentEmail) {
       agentId = emailToAgentId.get(row.agentEmail.toLowerCase()) ?? null
@@ -323,6 +331,16 @@ export async function GET(req: NextRequest) {
       if (rosterIds.includes(dbMatch.agentUserId)) {
         agentId = dbMatch.agentUserId
       }
+    }
+    if (
+      !agentId &&
+      row.source.kind === 'primary' &&
+      agents.length === 1
+    ) {
+      // Sole-agent fallback. Documented in the file header — only
+      // primary-sheet rows, only when one approved Hub agent exists.
+      // Yassin's secondary-sheet rows never reach this branch.
+      agentId = agents[0]!.id
     }
 
     const loggedAt = bestLoggedAt(row, dbMatch?.createdAt ?? null)
@@ -667,10 +685,23 @@ export async function GET(req: NextRequest) {
     excludedHidden: agentsRaw.length - agents.length,
     /** Sheet rows that couldn't be attributed to any roster agent —
      *  no matching agentEmail, no DB row, OR DB row pointed at a
-     *  hidden test account. Surfaced as a data-quality banner on
-     *  the page so admin can chase down the missing attribution
-     *  (usually a blank agentEmail column on a manual sheet entry). */
+     *  hidden test account, AND the sole-agent fallback didn't apply.
+     *  Surfaced as a data-quality banner on the page so admin can
+     *  chase down missing attribution (usually a blank agentEmail
+     *  column on a manual sheet entry). */
     unattributedSheetRows: unattributed.length,
+    /** Breakdown by sheet source — secondary-sheet rows almost
+     *  always come from partner call centers (Yassin's team) whose
+     *  agents aren't Hub users, so a non-zero `secondary` count is
+     *  expected and not a data quality problem. Primary-sheet
+     *  unattributed rows ARE a problem and should be zero on a
+     *  single-agent workspace thanks to the sole-agent fallback. */
+    unattributedBreakdown: {
+      primary: unattributed.filter((e) => e.row.source.kind === 'primary')
+        .length,
+      secondary: unattributed.filter((e) => e.row.source.kind === 'secondary')
+        .length,
+    },
     /** Total sheet rows we considered after dropping empty rows.
      *  Lets the UI show "X attributed · Y unattributed" if useful. */
     totalSheetRowsConsidered,
