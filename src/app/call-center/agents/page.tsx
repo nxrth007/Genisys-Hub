@@ -76,6 +76,9 @@ type AgentRow = {
   agentSheetTab: string | null
   lastActivityAt: string | null
   activityStatus: ActivityStatus
+  /** Lifetime sheet rows attributed to this agent — useful for
+   *  sanity-checking against the master tracker's total. */
+  lifetimeTotal: number
   bookings: Bookings
   activity: Activity
   perClient: PerClient[]
@@ -94,6 +97,8 @@ type ApiResponse = {
   clientFilter: string
   activeOnly: boolean
   excludedHidden: number
+  unattributedSheetRows: number
+  totalSheetRowsConsidered: number
   summary: {
     activeAgents: number
     totalAgents: number
@@ -316,11 +321,44 @@ function CallCenterAgentsPageInner() {
         </div>
       ) : data ? (
         <div className="flex flex-col gap-4">
+          {data.unattributedSheetRows > 0 && (
+            <UnattributedBanner
+              count={data.unattributedSheetRows}
+              total={data.totalSheetRowsConsidered}
+            />
+          )}
           {data.agents.map((a) => (
             <AgentCard key={a.id} agent={a} windowLabel={windowLabel} />
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+
+function UnattributedBanner({
+  count,
+  total,
+}: {
+  count: number
+  total: number
+}) {
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs dark:border-amber-900 dark:bg-amber-950/40">
+      <p className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+        <CircleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+        <span>
+          <strong>{count}</strong> of {total} master-tracker rows couldn&apos;t
+          be attributed to a Hub agent. Usually means the sheet&apos;s{' '}
+          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">
+            agent email
+          </code>{' '}
+          column is blank for those rows, or the email doesn&apos;t match any
+          approved Hub agent. Fill it in to get accurate per-agent counts.
+        </span>
+      </p>
     </div>
   )
 }
@@ -419,6 +457,14 @@ function AgentCard({
                 ? `${agent.bookings.upcoming} upcoming`
                 : 'no upcoming'}
             </span>
+            {agent.lifetimeTotal > agent.bookings.total && (
+              <span
+                className="text-[10px] text-muted-foreground/80"
+                title="Lifetime total across the master tracker (all time, all clients) — matches the count in /call-center/master-tracker."
+              >
+                · {agent.lifetimeTotal} lifetime
+              </span>
+            )}
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <Tag dot="bg-blue-500" label={`${agent.bookings.booked} booked`} />

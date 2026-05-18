@@ -1,25 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { readAllSheetRows } from '@/lib/secondary-sheets'
+import { buildRoutingIndex, routeRowToClient } from '@/lib/client-routing'
+import { normalizeAddress } from '@/lib/address'
 
 /**
  * GET /api/call-center/agents/overview
  *
  * Agent-first roster + per-agent operational signals for the Call
- * Center → Agents tab. Replaces the previous /by-pod endpoint, which
- * grouped each agent under their single "primary" client — wrong for
- * Genisys, where a single agent (Mary today, more eventually) books
- * for every client. The old shape was hiding most of Mary's work.
+ * Center → Agents tab.
+ *
+ * Source-of-truth: the Master Tracker (the Google Sheet, read via
+ * readAllSheetRows). Same canonical view the /master-tracker page
+ * uses, so the counts on this page can never diverge from what
+ * admin sees on the tracker itself. Previous DB-only implementation
+ * undercounted because rows entered directly into the sheet (manual
+ * entries, sync gaps) never had a corresponding Appointment row.
+ *
+ * Attribution (per sheet row):
+ *   1. row.agentEmail → roster agent by exact email match
+ *   2. fall back to DB Appointment.agentUserId via masterSheetRowNumber
+ *      or (phone + apptDateTime) content key — catches Hub-form
+ *      bookings where the sheet's agentEmail column wasn't backfilled
+ *   3. otherwise: counted as "unattributed sheet rows" and surfaced
+ *      to the UI as a data-quality banner
+ *
+ * EOD reports + callbacks are still DB-only (they're Hub-native, never
+ * touched the sheet), and we include them in the "last activity"
+ * recency calculation that drives each agent's status badge.
  *
  * Query params:
  *   range       — '7d' | '30d' | '90d' | 'all'   (default '30d')
  *   client      — Client.id | 'all'              (default 'all')
  *   activeOnly  — 'true' | 'false'               (default 'true')
- *
- * "Active" = approvedAt != null AND has at least one signal
- * (appointment, EOD report, callback) within the last 60 days. Test /
- * dormant accounts are hidden by default so live metrics don't get
- * diluted; the page exposes a toggle to bring them back.
  *
  * Staff-only — middleware blocks role=agent from /api/call-center/*.
  */
@@ -36,21 +50,19 @@ const EXCLUDED_AGENT_EMAILS: ReadonlySet<string> = new Set([
 ])
 
 /** How recently an agent must have done *something* (book, EOD, or
- *  callback) to count as "active" for the default filter. Picked at
- *  60d so genuine call-center agents who took a vacation don't get
- *  hidden but a long-abandoned test account does. */
+ *  callback) to count as "active" for the default filter. */
 const ACTIVE_RECENCY_DAYS = 60
 
 function daysAgoUtc(n: number): Date {
   const d = new Date()
   d.setUTCHours(0, 0, 0, 0)
-  d.setUTCDate(d.getUTCDate() - n + 1) // inclusive of today → n-day window
+  d.setUTCDate(d.getUTCDate() - n + 1)
   return d
 }
 
-function parseMoney(raw: string | null): number {
+function parseMoney(raw: string | null | undefined): number {
   if (!raw) return 0
-  const n = Number(raw.replace(/[^0-9.-]/g, ''))
+  const n = Number(String(raw).replace(/[^0-9.-]/g, ''))
   return Number.isFinite(n) ? n : 0
 }
 
@@ -67,10 +79,6 @@ function isSameUtcDay(a: Date, b: Date): boolean {
   )
 }
 
-/** Count weekdays (Mon-Fri UTC) in the half-open interval [start, end).
- *  Used as the "expected EOD reports" denominator — a rough proxy for
- *  shift days when we don't track actual schedules. Documented in the
- *  payload so the UI can label it accordingly. */
 function weekdaysBetween(start: Date, end: Date): number {
   let count = 0
   const cursor = new Date(start)
@@ -78,11 +86,58 @@ function weekdaysBetween(start: Date, end: Date): number {
   const stop = new Date(end)
   stop.setUTCHours(0, 0, 0, 0)
   while (cursor < stop) {
-    const day = cursor.getUTCDay() // 0=Sun, 6=Sat
+    const day = cursor.getUTCDay()
     if (day !== 0 && day !== 6) count++
     cursor.setUTCDate(cursor.getUTCDate() + 1)
   }
   return count
+}
+
+function normalizePhoneForKey(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (digits.length >= 10) return `+${digits}`
+  return null
+}
+
+/** Sheet's `status` column is free-text — normalize into the same
+ *  tokens the master tracker UI uses so show-rate math stays
+ *  consistent across pages. Mirrors the helper in
+ *  /api/call-center/master-tracker; duplicated here to keep this
+ *  route self-contained. */
+function normalizeStatus(raw: string | null | undefined): string {
+  if (!raw) return 'booked'
+  const s = String(raw).toLowerCase().trim()
+  if (s === 'no show' || s === 'no-show' || s === 'noshow') return 'no_show'
+  if (s === 'rescheduled' || s === 'reschedule') return 'rescheduled'
+  if (s === 'showed' || s === 'show' || s === 'shown') return 'showed'
+  if (s === 'cancelled' || s === 'canceled' || s === 'cancel') return 'cancelled'
+  if (s === 'won' || s === 'closed' || s === 'sold' || s === 'win') return 'won'
+  if (s === 'lost' || s === 'no sale' || s === 'no-sale' || s === 'loss') return 'lost'
+  return 'booked'
+}
+
+/** Best-available timestamp for "when this row was logged." Used
+ *  for window filtering, prior-window delta, trend buckets, and the
+ *  per-agent last-activity calc. Sheet's loggedAt column wins;
+ *  falls through to DB createdAt when matched; then apptDateTime;
+ *  then null (row gets dropped from windowed views). */
+function bestLoggedAt(
+  row: { loggedAt: string | null; apptDateTime: string | null },
+  dbCreatedAt: Date | null,
+): Date | null {
+  if (row.loggedAt) {
+    const d = new Date(row.loggedAt)
+    if (!isNaN(d.getTime())) return d
+  }
+  if (dbCreatedAt) return dbCreatedAt
+  if (row.apptDateTime) {
+    const d = new Date(row.apptDateTime)
+    if (!isNaN(d.getTime())) return d
+  }
+  return null
 }
 
 export async function GET(req: NextRequest) {
@@ -96,9 +151,6 @@ export async function GET(req: NextRequest) {
   const clientFilter = sp.get('client') || 'all'
   const activeOnly = (sp.get('activeOnly') ?? 'true') !== 'false'
 
-  // Resolve the window. We also compute a "prior" window of the same
-  // length immediately before `since` so the header can show WoW /
-  // MoM deltas without a second round-trip.
   const now = new Date()
   let since: Date | null
   let windowDays: number
@@ -110,7 +162,7 @@ export async function GET(req: NextRequest) {
     windowDays = 90
   } else if (range === 'all') {
     since = null
-    windowDays = 0 // sentinel — prior-window math skipped below
+    windowDays = 0
   } else {
     since = daysAgoUtc(30)
     windowDays = 30
@@ -121,10 +173,9 @@ export async function GET(req: NextRequest) {
       : null
   const priorUntil = since
 
-  // Roster. We pull every approved agent and then optionally filter
-  // for recency at the end — letting the activeOnly=false caller see
-  // everyone in one query.
-  const agents = await prisma.user.findMany({
+  // Roster — every approved Hub agent. We post-filter test/dummy
+  // accounts so they never inflate counters even if activeOnly=false.
+  const agentsRaw = await prisma.user.findMany({
     where: { role: 'agent', approvedAt: { not: null } },
     select: {
       id: true,
@@ -136,12 +187,16 @@ export async function GET(req: NextRequest) {
     },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
   })
-  const rosterIds = agents
-    .filter((a) => !EXCLUDED_AGENT_EMAILS.has(a.email.toLowerCase()))
-    .map((a) => a.id)
-  const visibleAgents = agents.filter((a) => rosterIds.includes(a.id))
+  type AgentLite = (typeof agentsRaw)[number]
+  const agents: AgentLite[] = agentsRaw.filter(
+    (a) => !EXCLUDED_AGENT_EMAILS.has(a.email.toLowerCase()),
+  )
+  const rosterIds = agents.map((a) => a.id)
+  const emailToAgentId = new Map<string, string>(
+    agents.map((a) => [a.email.toLowerCase(), a.id]),
+  )
 
-  // Clients — drives the filter chips + per-client breakdown bar.
+  // Clients — filter chips + per-client breakdown.
   type ClientLite = {
     id: string
     name: string
@@ -156,124 +211,192 @@ export async function GET(req: NextRequest) {
   const clientById: Map<string, ClientLite> = new Map(
     clients.map((c: ClientLite) => [c.id, c]),
   )
-
-  // Appointments in the active window. We also load a tiny "any time"
-  // query per-agent for last-activity-at and the active-recency check;
-  // see below. The clientId filter applies to appointment stats only
-  // (EOD reports aren't per-client by design — they're per-shift).
-  const apptWhere: Record<string, unknown> = { agentUserId: { in: rosterIds } }
-  if (since) apptWhere.createdAt = { gte: since }
-  if (clientFilter && clientFilter !== 'all') {
-    apptWhere.clientId = clientFilter
-  }
-  const appointments = await prisma.appointment.findMany({
-    where: apptWhere,
-    select: {
-      agentUserId: true,
-      clientId: true,
-      status: true,
-      apptDateTime: true,
-      createdAt: true,
-      estimatedDealValue: true,
-    },
-  })
-
-  // Prior-window appointments — same filters, just shifted back so
-  // the header can show "X bookings, +Y vs. last <window>". Skipped
-  // when range=all (no meaningful prior to compare against).
-  const priorAppointments =
-    priorSince && priorUntil
-      ? await prisma.appointment.findMany({
-          where: {
-            agentUserId: { in: rosterIds },
-            createdAt: { gte: priorSince, lt: priorUntil },
-            ...(clientFilter !== 'all' ? { clientId: clientFilter } : {}),
-          },
-          select: { id: true, agentUserId: true },
-        })
-      : []
-
-  // EOD reports in the active window. Not affected by clientFilter
-  // (reports are per-shift, cross-client).
-  const eodReports = await prisma.eodReport.findMany({
-    where: {
-      agentUserId: { in: rosterIds },
-      ...(since ? { reportDate: { gte: since } } : {}),
-    },
-    select: {
-      agentUserId: true,
-      reportDate: true,
-      dialsMade: true,
-      contactsReached: true,
-      appointmentsGenerated: true,
-      callbacksScheduled: true,
-    },
-  })
-
-  // Callbacks in the active window. Mostly for the recency check
-  // (counts toward "active" status) and a small footer count.
-  const callbacks = await prisma.callback.findMany({
-    where: {
-      agentUserId: { in: rosterIds },
-      ...(since ? { createdAt: { gte: since } } : {}),
-    },
-    select: { agentUserId: true, createdAt: true, completedAt: true },
-  })
-
-  // Recency lookup — "last time this agent did *anything*". One small
-  // findFirst per agent per signal stream; the roster is small enough
-  // (single-digit agents) that this is fine and beats hand-rolling a
-  // groupBy. If the roster grows past ~50 we can flip to a raw SQL
-  // unionMax.
-  const recencyCutoff = new Date(
-    Date.now() - ACTIVE_RECENCY_DAYS * 24 * 60 * 60 * 1000,
+  const routingIndex = buildRoutingIndex(
+    clients.map((c) => ({ id: c.id, name: c.name, state: c.state })),
   )
-  const lastActivityByAgent = new Map<string, Date | null>()
-  await Promise.all(
-    rosterIds.map(async (id) => {
-      const [lastAppt, lastEod, lastCallback] = await Promise.all([
-        prisma.appointment.findFirst({
-          where: { agentUserId: id },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        }),
-        prisma.eodReport.findFirst({
-          where: { agentUserId: id },
-          orderBy: { reportDate: 'desc' },
-          select: { reportDate: true },
-        }),
-        prisma.callback.findFirst({
-          where: { agentUserId: id },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        }),
-      ])
-      const candidates = [
-        lastAppt?.createdAt ?? null,
-        lastEod?.reportDate ?? null,
-        lastCallback?.createdAt ?? null,
-      ].filter((d): d is Date => d !== null)
-      lastActivityByAgent.set(
-        id,
-        candidates.length
-          ? candidates.reduce((a, b) => (a > b ? a : b))
-          : null,
-      )
+
+  // Master Tracker (source of truth) + DB appointments in parallel.
+  // The sheet read also pulls every secondary sheet so partner-call-
+  // center bookings (Yassin's team) are visible — they attribute to
+  // whichever email is in that row, which won't match any roster
+  // agent and so lands in the "unattributed" bucket. That's exactly
+  // what we want until/unless those agents get Hub accounts.
+  const [sheetRows, dbAppts, eodReports, callbacks] = await Promise.all([
+    readAllSheetRows().catch((err) => {
+      console.error('[agents/overview] sheet read failed:', err)
+      return [] as Awaited<ReturnType<typeof readAllSheetRows>>
     }),
-  )
+    prisma.appointment.findMany({
+      select: {
+        id: true,
+        agentUserId: true,
+        masterSheetRowNumber: true,
+        customerPhone: true,
+        apptDateTime: true,
+        createdAt: true,
+        status: true,
+        estimatedDealValue: true,
+        clientId: true,
+      },
+    }),
+    prisma.eodReport.findMany({
+      where: { agentUserId: { in: rosterIds } },
+      select: {
+        agentUserId: true,
+        reportDate: true,
+        dialsMade: true,
+        contactsReached: true,
+        appointmentsGenerated: true,
+        callbacksScheduled: true,
+      },
+    }),
+    prisma.callback.findMany({
+      where: { agentUserId: { in: rosterIds } },
+      select: { agentUserId: true, createdAt: true, completedAt: true },
+    }),
+  ])
 
-  // Per-agent rollups.
+  // DB index — used for attribution fallback (sheet row → agentUserId
+  // via DB match) AND for loggedAt enrichment (sheet's logged-at
+  // column is often blank for Hub-synced rows; DB createdAt is
+  // authoritative when it exists).
+  const dbByRowNumber = new Map<number, (typeof dbAppts)[number]>()
+  const dbByContent = new Map<string, (typeof dbAppts)[number]>()
+  for (const a of dbAppts) {
+    if (a.masterSheetRowNumber) {
+      dbByRowNumber.set(a.masterSheetRowNumber, a)
+    }
+    const phoneKey = normalizePhoneForKey(a.customerPhone)
+    if (phoneKey && a.apptDateTime) {
+      dbByContent.set(
+        `${phoneKey}|${a.apptDateTime.toISOString()}`,
+        a,
+      )
+    }
+  }
+
+  type SheetRow = (typeof sheetRows)[number]
+  type AttributedRow = {
+    row: SheetRow
+    dbMatch: (typeof dbAppts)[number] | null
+    loggedAt: Date | null
+    agentId: string | null
+  }
+
+  // Walk every sheet row, resolve attribution + best loggedAt.
+  const attributedByAgent = new Map<string, AttributedRow[]>()
+  const unattributed: AttributedRow[] = []
+  let totalSheetRowsConsidered = 0
+  for (const row of sheetRows) {
+    if (!row.customerName?.trim()) continue
+    totalSheetRowsConsidered++
+
+    // Match the DB appointment for this row (if any). Primary path:
+    // masterSheetRowNumber, only meaningful for the primary sheet
+    // since secondary rows live in different spreadsheets. Fallback:
+    // content key (phone + apptDateTime).
+    let dbMatch: (typeof dbAppts)[number] | null = null
+    if (row.source.kind === 'primary') {
+      dbMatch = dbByRowNumber.get(row.rowNumber) ?? null
+    }
+    if (!dbMatch && row.customerPhone && row.apptDateTime) {
+      const phoneKey = normalizePhoneForKey(row.customerPhone)
+      if (phoneKey) {
+        const apptDate = new Date(row.apptDateTime)
+        if (!isNaN(apptDate.getTime())) {
+          dbMatch =
+            dbByContent.get(`${phoneKey}|${apptDate.toISOString()}`) ?? null
+        }
+      }
+    }
+
+    // Attribution priority: sheet's own agentEmail → DB row →
+    // unattributed.
+    let agentId: string | null = null
+    if (row.agentEmail) {
+      agentId = emailToAgentId.get(row.agentEmail.toLowerCase()) ?? null
+    }
+    if (!agentId && dbMatch?.agentUserId) {
+      // Don't fall back to a DB attribution that points at a hidden
+      // (excluded) account — that would smuggle test-account rows
+      // back into the counts. Check against the roster.
+      if (rosterIds.includes(dbMatch.agentUserId)) {
+        agentId = dbMatch.agentUserId
+      }
+    }
+
+    const loggedAt = bestLoggedAt(row, dbMatch?.createdAt ?? null)
+
+    const entry: AttributedRow = {
+      row,
+      dbMatch,
+      loggedAt,
+      agentId,
+    }
+    if (agentId) {
+      const list = attributedByAgent.get(agentId) ?? []
+      list.push(entry)
+      attributedByAgent.set(agentId, list)
+    } else {
+      unattributed.push(entry)
+    }
+  }
+
+  // Apply window + client filters to a row list. Returns the rows
+  // and an "all-time" sub-count for the per-client breakdown
+  // (which always shows lifetime to be useful).
+  function applyWindow(rows: AttributedRow[]): AttributedRow[] {
+    if (!since) return rows
+    return rows.filter((r) => r.loggedAt !== null && r.loggedAt >= since)
+  }
+  function applyClient(rows: AttributedRow[]): AttributedRow[] {
+    if (clientFilter === 'all') return rows
+    return rows.filter((r) => {
+      const route = routeRowToClient(
+        {
+          client: r.row.client,
+          address: normalizeAddress(r.row.address),
+        },
+        routingIndex,
+      )
+      if (route.source === 'unrouted') return false
+      return route.client.id === clientFilter
+    })
+  }
+
+  // Trend buckets — fixed at the window length, fallback to 30 for
+  // range='all' so the sparkline keeps a meaningful shape.
   const trendBuckets = windowDays > 0 ? windowDays : 30
   const trendStart = daysAgoUtc(trendBuckets)
-  const rows = visibleAgents.map((agent) => {
-    const myAppts = appointments.filter((a) => a.agentUserId === agent.id)
+
+  const rows = agents.map((agent) => {
+    const allMine = attributedByAgent.get(agent.id) ?? []
+    const myWindow = applyClient(applyWindow(allMine))
     const myEods = eodReports.filter((e) => e.agentUserId === agent.id)
     const myCallbacks = callbacks.filter((c) => c.agentUserId === agent.id)
-    const lastActivityAt = lastActivityByAgent.get(agent.id) ?? null
 
-    // Status buckets — won/lost roll into "showed" the same way the
-    // existing agent detail page does so closing a deal doesn't drop
-    // show-rate.
+    // Last activity across every signal stream (sheet bookings + EOD
+    // reports + callbacks). Drives the active/quiet/stale/dormant
+    // badge AND the activeOnly filter.
+    let lastActivityAt: Date | null = null
+    for (const e of allMine) {
+      if (e.loggedAt && (!lastActivityAt || e.loggedAt > lastActivityAt)) {
+        lastActivityAt = e.loggedAt
+      }
+    }
+    for (const r of myEods) {
+      if (!lastActivityAt || r.reportDate > lastActivityAt) {
+        lastActivityAt = r.reportDate
+      }
+    }
+    for (const c of myCallbacks) {
+      if (!lastActivityAt || c.createdAt > lastActivityAt) {
+        lastActivityAt = c.createdAt
+      }
+    }
+
+    // Booking metrics — computed from sheet status (canonical) with
+    // DB enrichment for deal value when the sheet's column is blank.
     let total = 0
     let booked = 0
     let rescheduled = 0
@@ -282,11 +405,15 @@ export async function GET(req: NextRequest) {
     let cancelled = 0
     let pipelineDollars = 0
     let upcoming = 0
-    const perClientMap = new Map<string, { count: number; showed: number; noShow: number }>()
+    const perClientMap = new Map<
+      string,
+      { count: number; showed: number; noShow: number }
+    >()
     const nowMs = now.getTime()
-    for (const a of myAppts) {
+    for (const entry of myWindow) {
       total++
-      switch (a.status) {
+      const status = normalizeStatus(entry.row.status)
+      switch (status) {
         case 'booked':
           booked++
           break
@@ -305,35 +432,51 @@ export async function GET(req: NextRequest) {
           cancelled++
           break
       }
-      if (a.apptDateTime.getTime() > nowMs && a.status !== 'cancelled') {
+      const apptDate = entry.row.apptDateTime
+        ? new Date(entry.row.apptDateTime)
+        : null
+      if (
+        apptDate &&
+        !isNaN(apptDate.getTime()) &&
+        apptDate.getTime() > nowMs &&
+        status !== 'cancelled'
+      ) {
         upcoming++
       }
-      // Pipeline = open deals only — same definition as the
-      // leaderboard. Cancelled / no-show / lost are excluded.
       if (
-        a.status === 'booked' ||
-        a.status === 'rescheduled' ||
-        a.status === 'showed' ||
-        a.status === 'won'
+        status === 'booked' ||
+        status === 'rescheduled' ||
+        status === 'showed' ||
+        status === 'won'
       ) {
-        pipelineDollars += parseMoney(a.estimatedDealValue)
+        const deal =
+          parseMoney(entry.row.estimatedDealValue) ||
+          parseMoney(entry.dbMatch?.estimatedDealValue ?? null)
+        pipelineDollars += deal
       }
-      if (a.clientId) {
+
+      // Per-client routing — same brain as the master tracker.
+      const route = routeRowToClient(
+        {
+          client: entry.row.client,
+          address: normalizeAddress(entry.row.address),
+        },
+        routingIndex,
+      )
+      if (route.source !== 'unrouted') {
+        const cid = route.client.id
         const slot =
-          perClientMap.get(a.clientId) ??
-          { count: 0, showed: 0, noShow: 0 }
+          perClientMap.get(cid) ?? { count: 0, showed: 0, noShow: 0 }
         slot.count++
-        if (a.status === 'showed' || a.status === 'won' || a.status === 'lost')
+        if (status === 'showed' || status === 'won' || status === 'lost')
           slot.showed++
-        if (a.status === 'no_show') slot.noShow++
-        perClientMap.set(a.clientId, slot)
+        if (status === 'no_show') slot.noShow++
+        perClientMap.set(cid, slot)
       }
     }
     const completed = showed + noShow
     const showRate = rate(showed, completed)
 
-    // Per-client breakdown — sorted desc by count so the biggest
-    // segment is first on the stacked bar.
     const perClient = Array.from(perClientMap.entries())
       .map(([clientId, slot]) => {
         const client = clientById.get(clientId)
@@ -347,12 +490,15 @@ export async function GET(req: NextRequest) {
       })
       .sort((a, b) => b.count - a.count)
 
-    // EOD aggregates.
+    // EOD activity strip — DB-only since EodReport lives in Postgres.
+    const myEodsInWindow = since
+      ? myEods.filter((e) => e.reportDate >= since)
+      : myEods
     let dials = 0
     let contacts = 0
     let apptsReported = 0
     let eodCallbacks = 0
-    for (const r of myEods) {
+    for (const r of myEodsInWindow) {
       dials += r.dialsMade
       contacts += r.contactsReached
       apptsReported += r.appointmentsGenerated
@@ -360,11 +506,7 @@ export async function GET(req: NextRequest) {
     }
     const connectRate = rate(contacts, dials)
     const bookingRate = rate(apptsReported, contacts)
-    const daysReported = myEods.length
-    // "Expected days" — weekdays in the active window after the agent
-    // was approved (you can't expect a report from before they
-    // existed). Approximation, documented in the response. Skipped
-    // for range=all.
+    const daysReported = myEodsInWindow.length
     let expectedDays: number | null = null
     let missingDays: number | null = null
     if (since && agent.approvedAt) {
@@ -374,32 +516,28 @@ export async function GET(req: NextRequest) {
       missingDays = Math.max(0, expectedDays - daysReported)
     }
 
-    // 30-bucket daily trend — fixed at 30 buckets when window=all,
-    // otherwise mirrors the active window length.
+    // Trend — daily bookings created by loggedAt, bucketed across
+    // the window length.
     const buckets: Array<{ date: string; count: number }> = []
     for (let i = 0; i < trendBuckets; i++) {
       const d = new Date(trendStart)
       d.setUTCDate(trendStart.getUTCDate() + i)
       buckets.push({ date: d.toISOString().slice(0, 10), count: 0 })
     }
-    for (const a of myAppts) {
-      const created = new Date(a.createdAt)
-      created.setUTCHours(0, 0, 0, 0)
+    for (const entry of allMine) {
+      if (!entry.loggedAt) continue
+      if (entry.loggedAt < trendStart) continue
+      const day = new Date(entry.loggedAt)
+      day.setUTCHours(0, 0, 0, 0)
       for (const b of buckets) {
         const bDate = new Date(b.date + 'T00:00:00Z')
-        if (isSameUtcDay(created, bDate)) {
+        if (isSameUtcDay(day, bDate)) {
           b.count++
           break
         }
       }
     }
 
-    // Status badge classification — drives the colored chip on each
-    // agent card. Cutoffs picked to surface "should I be worried?"
-    // signals: 0-2d = active, 3-7d = quiet, 8-30d = stale, >30d =
-    // dormant. We don't try to be smarter here (e.g. weekday-aware) —
-    // the page should make a "Mary went quiet Friday and it's
-    // Tuesday now" jump out.
     let activityStatus: 'active' | 'quiet' | 'stale' | 'dormant' | 'never'
     if (!lastActivityAt) activityStatus = 'never'
     else {
@@ -419,6 +557,11 @@ export async function GET(req: NextRequest) {
       agentSheetTab: agent.agentSheetTab,
       lastActivityAt: lastActivityAt ? lastActivityAt.toISOString() : null,
       activityStatus,
+      // Lifetime total surfaced separately so the UI can display
+      // "42 lifetime · 12 in last 7d" once we want it. Today only
+      // the windowed total is rendered, but the lifetime number is
+      // useful for sanity-checking against the master tracker.
+      lifetimeTotal: allMine.length,
       bookings: {
         total,
         booked,
@@ -447,9 +590,37 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  // Apply the active filter last so the summary tiles can still
-  // include the totals across the dimmed rows when the user toggles
-  // it off (they expect the numbers to update accordingly).
+  // Prior-window totals — same attribution but on the shifted date
+  // range. Used only for the header delta tile, so we don't need
+  // the full per-agent breakdown.
+  let bookingsPriorWindow = 0
+  if (priorSince && priorUntil) {
+    for (const list of attributedByAgent.values()) {
+      for (const entry of list) {
+        if (!entry.loggedAt) continue
+        if (entry.loggedAt < priorSince) continue
+        if (entry.loggedAt >= priorUntil) continue
+        // Apply the same client filter so the delta stays apples-
+        // to-apples with the visible totals.
+        if (clientFilter !== 'all') {
+          const route = routeRowToClient(
+            {
+              client: entry.row.client,
+              address: normalizeAddress(entry.row.address),
+            },
+            routingIndex,
+          )
+          if (route.source === 'unrouted') continue
+          if (route.client.id !== clientFilter) continue
+        }
+        bookingsPriorWindow++
+      }
+    }
+  }
+
+  const recencyCutoff = new Date(
+    Date.now() - ACTIVE_RECENCY_DAYS * 24 * 60 * 60 * 1000,
+  )
   const filteredRows = activeOnly
     ? rows.filter(
         (r) =>
@@ -457,14 +628,12 @@ export async function GET(req: NextRequest) {
       )
     : rows
 
-  // Summary tiles — header strip metrics. Computed AFTER the row
-  // pass so we can reuse the same totals (cheap and ensures they
-  // line up exactly with what's drawn below).
+  // Header summary — aggregates from the filtered (visible) rows so
+  // the tiles always match what's drawn below.
   const totalBookingsThisWindow = filteredRows.reduce(
     (s, r) => s + r.bookings.total,
     0,
   )
-  const totalBookingsPriorWindow = priorAppointments.length
   const totalPipeline = filteredRows.reduce(
     (s, r) => s + r.bookings.pipelineDollars,
     0,
@@ -495,15 +664,24 @@ export async function GET(req: NextRequest) {
     until: now.toISOString(),
     clientFilter,
     activeOnly,
-    excludedHidden: agents.length - visibleAgents.length,
+    excludedHidden: agentsRaw.length - agents.length,
+    /** Sheet rows that couldn't be attributed to any roster agent —
+     *  no matching agentEmail, no DB row, OR DB row pointed at a
+     *  hidden test account. Surfaced as a data-quality banner on
+     *  the page so admin can chase down the missing attribution
+     *  (usually a blank agentEmail column on a manual sheet entry). */
+    unattributedSheetRows: unattributed.length,
+    /** Total sheet rows we considered after dropping empty rows.
+     *  Lets the UI show "X attributed · Y unattributed" if useful. */
+    totalSheetRowsConsidered,
     summary: {
       activeAgents: activeThisWindow,
       totalAgents: filteredRows.length,
       bookingsThisWindow: totalBookingsThisWindow,
-      bookingsPriorWindow: totalBookingsPriorWindow,
+      bookingsPriorWindow,
       bookingsDelta:
         priorSince !== null
-          ? totalBookingsThisWindow - totalBookingsPriorWindow
+          ? totalBookingsThisWindow - bookingsPriorWindow
           : null,
       pipelineDollars: totalPipeline,
       avgShowRate,
