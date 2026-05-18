@@ -11,6 +11,12 @@ import { prisma } from '@/lib/prisma'
  *   since   — ISO date; only appointments on/after this appt date
  *   until   — ISO date; only appointments on/before this appt date
  *   q       — free-text search across name / phone / address / email / notes
+ *   sort    — 'apptDateTime' (default, when the appointment is scheduled)
+ *             | 'createdAt' (when the agent logged it in the CRM). Both
+ *             sort descending. The agent detail view uses 'createdAt' so
+ *             freshly-logged bookings surface at the top of Mary's feed;
+ *             the general call-center view leaves it at the default so
+ *             upcoming appointments stay sorted by when they'll happen.
  */
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -58,9 +64,19 @@ export async function GET(req: NextRequest) {
     ]
   }
 
+  // Sort field — defaults to apptDateTime so existing callers (the
+  // general /call-center page) keep their current behavior. The
+  // agent detail view passes ?sort=createdAt to surface freshly-
+  // logged bookings at the top of the agent's feed.
+  const sortParam = sp.get('sort')
+  const orderBy =
+    sortParam === 'createdAt'
+      ? ({ createdAt: 'desc' } as const)
+      : ({ apptDateTime: 'desc' } as const)
+
   const appointments = await prisma.appointment.findMany({
     where,
-    orderBy: { apptDateTime: 'desc' },
+    orderBy,
     take: 500,
     include: {
       agent: {

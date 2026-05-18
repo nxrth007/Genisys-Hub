@@ -95,6 +95,12 @@ export default function AgentDetailPage({
     queryFn: async () => {
       const sp = new URLSearchParams({ agent: id })
       if (status !== 'all') sp.set('status', status)
+      // Sort by createdAt (when the agent typed it into the CRM) instead
+      // of by apptDateTime. Mary's most-recent log work surfaces at the
+      // top here so admin can spot "what did she just book?" at a glance.
+      // Scoped to this view — the general /call-center page keeps the
+      // default apptDateTime sort.
+      sp.set('sort', 'createdAt')
       const res = await fetch(`/api/call-center/appointments?${sp.toString()}`)
       if (!res.ok) throw new Error('Failed to load appointments')
       return res.json()
@@ -399,6 +405,7 @@ export default function AgentDetailPage({
               <table className="w-full text-xs">
                 <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
                   <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                    <th className="px-3 py-2.5">Logged</th>
                     <th className="px-3 py-2.5">Appt</th>
                     <th className="px-3 py-2.5">Customer</th>
                     <th className="px-3 py-2.5">Phone</th>
@@ -413,11 +420,26 @@ export default function AgentDetailPage({
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                   {appointments.map((a) => {
                     const when = new Date(a.apptDateTime)
+                    const logged = new Date(a.createdAt)
                     return (
                       <tr
                         key={a.id}
                         className="align-top hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
                       >
+                        <td
+                          className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300"
+                          title={`Logged ${logged.toLocaleString()}`}
+                        >
+                          <div className="font-medium">
+                            {logged.toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </div>
+                          <div className="text-[10px] text-zinc-400">
+                            {loggedRelative(logged)}
+                          </div>
+                        </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
                           <div className="font-medium">
                             {when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -494,6 +516,28 @@ function startOfToday(): Date {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
   return d
+}
+
+/** Compact "when was this typed into the CRM" label for the Logged
+ *  column. Mirrors the relativeDays helper on the overview page but
+ *  drops to hour resolution for sub-day differences since Mary often
+ *  enters several bookings per shift and "2h ago" reads more useful
+ *  than just "today". Full timestamp lives on the cell's title attr. */
+function loggedRelative(logged: Date): string {
+  const diffMs = Date.now() - logged.getTime()
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  if (days < 30) return `${Math.floor(days / 7)}w ago`
+  return logged.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
 }
 
 function StatCard({
