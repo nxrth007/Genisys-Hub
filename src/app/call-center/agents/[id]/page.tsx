@@ -248,7 +248,7 @@ export default function AgentDetailPage({
     return (
       <div className="mx-auto max-w-2xl space-y-4">
         <Link
-          href="/call-center"
+          href="/call-center/master-tracker"
           className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
