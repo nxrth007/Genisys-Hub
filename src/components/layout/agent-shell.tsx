@@ -32,7 +32,7 @@ const NAV = [
   { href: '/agent/reminders', label: 'Reminders', icon: Bell },
   { href: '/agent/messages', label: 'Messages', icon: MessageSquare },
   { href: '/agent/clients', label: 'Clients', icon: Building2 },
-  { href: '/agent/eod', label: 'EOD Reports', icon: ClipboardList },
+  { href: '/agent/eod', label: 'EOW Reports', icon: ClipboardList },
 ]
 
 export function AgentShell({ children }: { children: React.ReactNode }) {

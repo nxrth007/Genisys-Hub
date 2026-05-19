@@ -27,7 +27,7 @@ const TABS = [
   { href: '/call-center', label: 'Appointments', icon: PhoneCall, exact: true },
   { href: '/call-center/agents', label: 'Agents', icon: Users },
   { href: '/call-center/callbacks', label: 'Callbacks', icon: PhoneForwarded },
-  { href: '/call-center/eod-reports', label: 'EOD Reports', icon: ClipboardList },
+  { href: '/call-center/eod-reports', label: 'EOW Reports', icon: ClipboardList },
   { href: '/call-center/reminders', label: 'Reminders', icon: MessagesSquare },
   { href: '/call-center/leaderboard', label: 'Leaderboard', icon: Trophy },
 ]

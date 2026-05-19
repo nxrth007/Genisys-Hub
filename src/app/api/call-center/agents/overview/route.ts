@@ -87,18 +87,15 @@ function isSameUtcDay(a: Date, b: Date): boolean {
   )
 }
 
-function weekdaysBetween(start: Date, end: Date): number {
-  let count = 0
-  const cursor = new Date(start)
-  cursor.setUTCHours(0, 0, 0, 0)
-  const stop = new Date(end)
-  stop.setUTCHours(0, 0, 0, 0)
-  while (cursor < stop) {
-    const day = cursor.getUTCDay()
-    if (day !== 0 && day !== 6) count++
-    cursor.setUTCDate(cursor.getUTCDate() + 1)
-  }
-  return count
+/** Count weeks in the half-open interval [start, end). Used as the
+ *  "expected EOW reports" denominator — one report per calendar week.
+ *  Any partial week counts as 1 (an agent active for any part of a
+ *  week is expected to file a report for it). The math is ceil of
+ *  ms / week, floored at 1 when start < end. */
+function weeksBetween(start: Date, end: Date): number {
+  const ms = end.getTime() - start.getTime()
+  if (ms <= 0) return 0
+  return Math.max(1, Math.ceil(ms / (7 * 24 * 60 * 60 * 1000)))
 }
 
 function normalizePhoneForKey(raw: string | null | undefined): string | null {
@@ -530,7 +527,7 @@ export async function GET(req: NextRequest) {
     if (since && agent.approvedAt) {
       const effectiveStart =
         agent.approvedAt > since ? agent.approvedAt : since
-      expectedDays = weekdaysBetween(effectiveStart, now)
+      expectedDays = weeksBetween(effectiveStart, now)
       missingDays = Math.max(0, expectedDays - daysReported)
     }
 

@@ -52,7 +52,7 @@ function EodReportsList() {
       if (since) sp.set('since', isoToYmd(since))
       if (until) sp.set('until', isoToYmd(until))
       const res = await fetch(`/api/call-center/eod-reports?${sp.toString()}`)
-      if (!res.ok) throw new Error('Failed to load EOD reports')
+      if (!res.ok) throw new Error('Failed to load EOW reports')
       return res.json()
     },
   })
@@ -84,7 +84,7 @@ function EodReportsList() {
       <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight">
-            EOD reports
+            EOW reports
           </h2>
           <Chip tone="blue">
             {reports.length} report{reports.length === 1 ? '' : 's'}
