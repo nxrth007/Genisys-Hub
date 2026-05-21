@@ -111,11 +111,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           'client_active',
           'client_pending',
           'client_onboarding',
+          // Mary's Team #1 (and future Team #N) — approved members can
+          // session and reach /team/*. Pending/denied are bounced below.
+          'team_member',
         ])
         if (!allowedRoles.has(user.role)) {
           if (user.role === 'agent_pending') throw new Error('pending')
           if (user.role === 'agent_denied') throw new Error('denied')
           if (user.role === 'client_denied') throw new Error('client_denied')
+          if (user.role === 'team_pending') throw new Error('team_pending')
+          if (user.role === 'team_denied') throw new Error('team_denied')
           throw new Error('denied')
         }
 

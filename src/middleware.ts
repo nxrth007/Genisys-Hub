@@ -29,14 +29,20 @@ const PUBLIC_PATHS = [
   // creates a client_pending User. The follow-up onboarding form is
   // signed-in (client_pending), gated normally.
   '/api/client/register',
+  // Team #N self-registration — anonymous POST that creates a
+  // team_pending User (Mary's offshore agents, EOD-only access).
+  '/api/team/register',
   // Forgot/reset password endpoints — both reachable anonymously
   // because the user can't sign in (that's why they're resetting).
-  // Rate-limited per IP inside each handler. Agent + client parallel
-  // tracks — staff use Google OAuth and don't have password resets.
+  // Rate-limited per IP inside each handler. Agent + client + team
+  // parallel tracks — staff use Google OAuth and don't have password
+  // resets.
   '/api/client/forgot-password',
   '/api/client/reset-password',
   '/api/agent/forgot-password',
   '/api/agent/reset-password',
+  '/api/team/forgot-password',
+  '/api/team/reset-password',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces
@@ -44,6 +50,16 @@ const PUBLIC_PATHS = [
 const CLIENT_ALLOWED_PREFIXES = [
   '/client',
   '/api/client',
+  '/api/auth',
+]
+
+// Routes Team #N members are allowed to hit. Everything else bounces
+// back to /team. Intentionally tight — Team #1 agents must never reach
+// the master tracker, the booking surface, the client list, or any
+// data from other teams.
+const TEAM_ALLOWED_PREFIXES = [
+  '/team',
+  '/api/team',
   '/api/auth',
 ]
 
@@ -117,6 +133,26 @@ export default auth((req) => {
   if (role === 'agent_denied') {
     if (pathname === '/signin/agent/denied') return NextResponse.next()
     return NextResponse.redirect(new URL('/signin/agent/denied', req.nextUrl.origin))
+  }
+
+  // Mary's Team #N agents — pending/denied bounce to their own screens.
+  // Approved team members can ONLY reach /team/* and /api/team/* — no
+  // master tracker, no clients, no booking, no other-team data. The
+  // tight prefix list above + the page bounce below enforce this.
+  if (role === 'team_pending') {
+    if (pathname === '/signin/team/pending') return NextResponse.next()
+    return NextResponse.redirect(new URL('/signin/team/pending', req.nextUrl.origin))
+  }
+  if (role === 'team_denied') {
+    if (pathname === '/signin/team/denied') return NextResponse.next()
+    return NextResponse.redirect(new URL('/signin/team/denied', req.nextUrl.origin))
+  }
+  if (role === 'team_member') {
+    if (matchesPrefix(pathname, TEAM_ALLOWED_PREFIXES)) return NextResponse.next()
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL('/team', req.nextUrl.origin))
   }
 
   // Approved agents: /agent/* only (plus NextAuth endpoints).

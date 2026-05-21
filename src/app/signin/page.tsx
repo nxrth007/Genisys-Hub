@@ -2,7 +2,7 @@
 
 import { signIn } from 'next-auth/react'
 import Link from 'next/link'
-import { Target, Headphones } from 'lucide-react'
+import { Target, Headphones, Users } from 'lucide-react'
 
 export default function SignInPage() {
   return (
@@ -37,6 +37,18 @@ export default function SignInPage() {
         >
           <Headphones className="h-4 w-4 text-blue-600" />
           If you are an agent please click here to sign in
+        </Link>
+
+        {/* Team #N signin — for offshore agents on Mary's team. They
+            have a different surface (EOD reports only) and a different
+            registration flow, so they get a dedicated button rather
+            than landing on the agent sign-in by mistake. */}
+        <Link
+          href="/signin/team"
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          <Users className="h-4 w-4 text-blue-600" />
+          Team #1 Signin
         </Link>
       </div>
     </div>
