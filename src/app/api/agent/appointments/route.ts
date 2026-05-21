@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { deliverAppointmentToSlack } from '@/lib/client-delivery'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
+import { deliverAppointmentAsEmail } from '@/lib/client-email-alert'
 import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
@@ -441,6 +442,23 @@ export async function POST(req: NextRequest) {
     }
   }).catch((err) => {
     console.error('[appointments POST] direct sms threw:', err)
+  })
+  // Same 20-min buffered queue for the email channel. Independent
+  // from the SMS path — a client can opt into email without SMS
+  // (and vice versa). Returns 'disabled' / 'not-opted-in' / 'no-email'
+  // as cheap no-ops when the conditions don't fire.
+  void deliverAppointmentAsEmail(appt.id).then((result) => {
+    if (
+      result.status !== 'disabled' &&
+      result.status !== 'not-opted-in' &&
+      result.status !== 'no-email'
+    ) {
+      console.log(
+        `[appointments POST] direct email: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
+      )
+    }
+  }).catch((err) => {
+    console.error('[appointments POST] direct email threw:', err)
   })
 
   // Customer-facing SMS reminders (1-day-out, 2-hr, 30-min, start,

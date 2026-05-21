@@ -24,6 +24,10 @@ import {
   syncClientAlertsFromSheet,
   dispatchPendingClientAlerts,
 } from './client-alert'
+import {
+  syncClientEmailAlertsFromSheet,
+  dispatchPendingClientEmailAlerts,
+} from './client-email-alert'
 import { syncClientMessageAlerts } from './client-message-alert'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 
@@ -48,6 +52,13 @@ let lastClientDeliverySyncAt = 0
 // (the singleton check inside the sync exits before the sheet read).
 const CLIENT_ALERT_SYNC_INTERVAL_MS = 5 * 60 * 1000
 let lastClientAlertSyncAt = 0
+
+// Client Email Alerts sync — third channel parallel to Slack + SMS.
+// Same 5-min cadence; cheap no-op when ClientEmailAlertsConfig.enabled
+// is false OR no client has emailAlertsEnabled=true. Spring Solar is
+// the only seeded opt-in today.
+const CLIENT_EMAIL_ALERT_SYNC_INTERVAL_MS = 5 * 60 * 1000
+let lastClientEmailAlertSyncAt = 0
 
 // Inbound-client-message Slack alerts. Tighter cadence (1 min) than
 // the appointment syncs because the value here is "respond fast";
@@ -183,6 +194,37 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] client-alert dispatch failed:', err)
+    }
+
+    // Client Email Alerts — third channel (Slack + SMS + email). Same
+    // 5-min sheet sync cadence as the other two; the sync exits early
+    // when the master toggle is off OR no client has opted in, so
+    // the heartbeat reads all-zeros when only Spring Solar is on
+    // and no new bookings landed this tick.
+    try {
+      const now = Date.now()
+      if (now - lastClientEmailAlertSyncAt >= CLIENT_EMAIL_ALERT_SYNC_INTERVAL_MS) {
+        lastClientEmailAlertSyncAt = now
+        const result = await syncClientEmailAlertsFromSheet()
+        console.log(
+          `[scheduler] client-email-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`,
+        )
+      }
+    } catch (err) {
+      console.error('[scheduler] client-email-alert sync failed:', err)
+    }
+
+    // Pending email-alert dispatch (every minute) — mirror of the
+    // SMS dispatcher. Fires queued alerts whose 20-min buffer expired.
+    try {
+      const result = await dispatchPendingClientEmailAlerts()
+      if (result.attempted > 0) {
+        console.log(
+          `[scheduler] client-email-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
+        )
+      }
+    } catch (err) {
+      console.error('[scheduler] client-email-alert dispatch failed:', err)
     }
 
     // Client message Slack alerts. Scans the Genisys GHL sub-account

@@ -330,6 +330,12 @@ export async function sendEmail(params: {
   body: string
   inReplyTo?: string
   threadId?: string
+  /** Optional display name on the From: header (e.g. "Genisys Hub
+   *  Alerts"). When set, the From header becomes
+   *  `${fromName} <${accountEmail}>`. Mail clients show the name
+   *  in inbox lists, which makes branded alert traffic easier to
+   *  recognize than a raw email address. */
+  fromName?: string
 }) {
   const { gmail } = await getAuthenticatedClient(params.accountEmail)
 
@@ -338,9 +344,18 @@ export async function sendEmail(params: {
       ? params.body
       : markdownToHtml(params.body)
 
+  // Build the From: header. When a display name is supplied, RFC 5322
+  // formats it as "Name" <email> — we quote the name and escape any
+  // embedded quotes so a stray character in the display name can't
+  // break the header. Falls back to the bare email when fromName is
+  // null/blank.
+  const fromHeader = params.fromName?.trim()
+    ? `"${params.fromName.trim().replace(/"/g, '\\"')}" <${params.accountEmail}>`
+    : params.accountEmail
+
   const headers = [
     `To: ${params.to}`,
-    `From: ${params.accountEmail}`,
+    `From: ${fromHeader}`,
     `Subject: ${encodeSubject(params.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',

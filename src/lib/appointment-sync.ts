@@ -14,6 +14,7 @@ import {
 } from './drive'
 import { rekeySlackDeliveryAfterSheetSync } from './client-delivery'
 import { rekeyClientAlertAfterSheetSync } from './client-alert'
+import { rekeyClientEmailAlertAfterSheetSync } from './client-email-alert'
 
 type AgentLite = {
   id: string
@@ -132,6 +133,7 @@ export async function syncAppointmentCreate(appointmentId: string): Promise<void
     if (result.masterRow) {
       void rekeySlackDeliveryAfterSheetSync(appointmentId, result.masterRow)
       void rekeyClientAlertAfterSheetSync(appointmentId, result.masterRow)
+      void rekeyClientEmailAlertAfterSheetSync(appointmentId, result.masterRow)
     }
   } catch (err) {
     console.error('[appointment-sync create] failed:', err)
