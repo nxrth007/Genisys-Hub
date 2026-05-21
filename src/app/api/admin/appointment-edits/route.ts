@@ -56,5 +56,39 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({ edits })
+  // Collect every clientId referenced anywhere in the response — the
+  // per-row clientId snapshot AND any `clientId` field change (the
+  // common case is Mary moving an appointment between clients, which
+  // generates a from/to pair of cuids that mean nothing to a human
+  // reader). Resolve them in one batch + include a clientId → client
+  // map so the frontend can render names + colors without a second
+  // round-trip. Past clients that have since been deleted just won't
+  // be in the map — the UI falls back to "Unknown client" + the cuid.
+  const clientIdSet = new Set<string>()
+  for (const e of edits) {
+    if (e.clientId) clientIdSet.add(e.clientId)
+    const changes = (e.changes ?? {}) as Record<
+      string,
+      { from?: unknown; to?: unknown }
+    >
+    const clientChange = changes.clientId
+    if (clientChange) {
+      if (typeof clientChange.from === 'string') clientIdSet.add(clientChange.from)
+      if (typeof clientChange.to === 'string') clientIdSet.add(clientChange.to)
+    }
+  }
+  const clientRows =
+    clientIdSet.size > 0
+      ? await prisma.client.findMany({
+          where: { id: { in: Array.from(clientIdSet) } },
+          select: { id: true, name: true, color: true, state: true },
+        })
+      : []
+  const clients: Record<
+    string,
+    { id: string; name: string; color: string; state: string | null }
+  > = {}
+  for (const c of clientRows) clients[c.id] = c
+
+  return NextResponse.json({ edits, clients })
 }

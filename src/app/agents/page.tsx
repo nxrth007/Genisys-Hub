@@ -136,8 +136,13 @@ type AppointmentEdit = {
   createdAt: string
 }
 
+type ClientLookup = Record<
+  string,
+  { id: string; name: string; color: string; state: string | null }
+>
+
 function AppointmentEditsTab() {
-  const editsQuery = useQuery<{ edits: AppointmentEdit[] }>({
+  const editsQuery = useQuery<{ edits: AppointmentEdit[]; clients: ClientLookup }>({
     queryKey: ['appointment-edits'],
     queryFn: async () => {
       const res = await fetch('/api/admin/appointment-edits')
@@ -166,6 +171,7 @@ function AppointmentEditsTab() {
   }
 
   const edits = editsQuery.data?.edits ?? []
+  const clients = editsQuery.data?.clients ?? {}
   if (edits.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
@@ -181,14 +187,55 @@ function AppointmentEditsTab() {
   return (
     <div className="space-y-2">
       {edits.map((e) => (
-        <AppointmentEditRow key={e.id} edit={e} />
+        <AppointmentEditRow key={e.id} edit={e} clients={clients} />
       ))}
     </div>
   )
 }
 
-function AppointmentEditRow({ edit }: { edit: AppointmentEdit }) {
+/** Map raw Appointment field names to human-friendly labels for the
+ *  edit log display. Anything not in this map renders the raw key
+ *  so a new field on Appointment doesn't silently get a worse label
+ *  — admin sees the raw name and we add it here. */
+const FIELD_LABELS: Record<string, string> = {
+  clientId: 'Client',
+  status: 'Status',
+  customerName: 'Customer name',
+  customerPhone: 'Customer phone',
+  apptDateTime: 'Appointment time',
+  address: 'Address',
+  email: 'Email',
+  monthlyBill: 'Monthly bill',
+  utilityProvider: 'Utility provider',
+  roofType: 'Roof type',
+  roofAge: 'Roof age',
+  estimatedDealValue: 'Estimated deal value',
+  notes: 'Notes',
+  callRecordingLink: 'Call recording',
+  bookedByName: 'Booked by',
+  sentToClient: 'Sent to client',
+  agentUserId: 'Agent',
+}
+
+function fieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field
+}
+
+function AppointmentEditRow({
+  edit,
+  clients,
+}: {
+  edit: AppointmentEdit
+  clients: ClientLookup
+}) {
   const changeEntries = Object.entries(edit.changes ?? {})
+  // The clientName snapshot on the edit log row reflects whatever the
+  // appointment's client was at the moment the edit was saved —
+  // which for an edit that CHANGED the client could be either the
+  // pre-edit or the post-edit value depending on the write path.
+  // Surface this ambiguity with a tooltip so admins don't have to
+  // guess (the field-level diff below is the source of truth on
+  // "what was it before vs after").
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -198,7 +245,10 @@ function AppointmentEditRow({ edit }: { edit: AppointmentEdit }) {
               {edit.customerName || '(unknown customer)'}
             </span>
             {edit.clientName && (
-              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              <span
+                className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                title="Client linked to this appointment when the edit was saved. If the edit changed the client, see the Before/After below for the exact swap."
+              >
                 {edit.clientName}
               </span>
             )}
@@ -217,14 +267,22 @@ function AppointmentEditRow({ edit }: { edit: AppointmentEdit }) {
             </span>
           </div>
           <p className="mt-1 text-xs text-zinc-500">
-            {edit.editorName || edit.editorEmail || '(unknown editor)'} ·{' '}
-            {new Date(edit.createdAt).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              {edit.editorName || edit.editorEmail || '(unknown editor)'}
+            </span>
+            {edit.editorName && edit.editorEmail && (
+              <span className="text-zinc-400"> &lt;{edit.editorEmail}&gt;</span>
+            )}
+            {' '}·{' '}
+            <span title={new Date(edit.createdAt).toString()}>
+              {new Date(edit.createdAt).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </span>
             {edit.apptDateTime && (
               <>
                 {' '}· Appt{' '}
@@ -241,31 +299,122 @@ function AppointmentEditRow({ edit }: { edit: AppointmentEdit }) {
         </div>
       </div>
 
-      <div className="mt-3 space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+      <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
         {changeEntries.length === 0 ? (
           <p className="text-xs text-zinc-400">No tracked field changes.</p>
         ) : (
-          changeEntries.map(([field, change]) => (
-            <div
-              key={field}
-              className="flex flex-wrap items-baseline gap-x-2 text-xs"
-            >
-              <span className="font-mono font-medium text-zinc-500">
-                {field}
-              </span>
-              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 line-through decoration-rose-400 dark:bg-rose-950/40 dark:text-rose-300">
-                {formatChangeValue(change.from)}
-              </span>
-              <span className="text-zinc-400">→</span>
-              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                {formatChangeValue(change.to)}
-              </span>
+          <>
+            {/* Header row makes Before/After explicit so admin
+                doesn't have to infer direction from the strikethrough
+                + arrow. */}
+            <div className="mb-1.5 grid grid-cols-[8rem_1fr_1fr] gap-x-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+              <span>Field</span>
+              <span>Before</span>
+              <span>After</span>
             </div>
-          ))
+            <div className="space-y-1.5">
+              {changeEntries.map(([field, change]) => (
+                <div
+                  key={field}
+                  className="grid grid-cols-[8rem_1fr_1fr] items-start gap-x-3 text-xs"
+                >
+                  <span className="truncate font-medium text-zinc-500 dark:text-zinc-400">
+                    {fieldLabel(field)}
+                  </span>
+                  <div className="min-w-0">
+                    <FieldValueChip
+                      field={field}
+                      value={change.from}
+                      tone="before"
+                      clients={clients}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <FieldValueChip
+                      field={field}
+                      value={change.to}
+                      tone="after"
+                      clients={clients}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
   )
+}
+
+/** Renders a single Before/After value. Resolves clientId values
+ *  against the clients lookup → shows the client name + colored
+ *  dot (cuid still available on hover for forensics). Everything
+ *  else falls through to formatChangeValue. */
+function FieldValueChip({
+  field,
+  value,
+  tone,
+  clients,
+}: {
+  field: string
+  value: unknown
+  tone: 'before' | 'after'
+  clients: ClientLookup
+}) {
+  const isEmpty =
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value === '')
+
+  const baseClasses =
+    tone === 'before'
+      ? 'inline-flex items-center gap-1.5 rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+      : 'inline-flex items-center gap-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+
+  if (isEmpty) {
+    return (
+      <span className={cn(baseClasses, 'italic opacity-70')}>(empty)</span>
+    )
+  }
+
+  // Client resolution — when the field is clientId AND we have a
+  // matching client in the lookup, swap the cuid for a colored-dot
+  // name pill. The raw cuid is preserved as the title so admins
+  // can copy it if needed for support / debugging.
+  if (field === 'clientId' && typeof value === 'string') {
+    const client = clients[value]
+    if (client) {
+      return (
+        <span
+          className={cn(baseClasses)}
+          title={`Client id: ${value}`}
+        >
+          <span
+            className="h-2 w-2 flex-shrink-0 rounded-full"
+            style={{ backgroundColor: client.color }}
+            aria-hidden
+          />
+          <span className="truncate font-semibold">{client.name}</span>
+          {client.state && (
+            <span className="text-[10px] font-normal opacity-70">
+              · {client.state}
+            </span>
+          )}
+        </span>
+      )
+    }
+    // Unknown client (deleted? not in lookup?). Show the cuid but
+    // tag it so admin can see something's off.
+    return (
+      <span className={cn(baseClasses)} title={`Unresolved client id: ${value}`}>
+        <span className="font-mono text-[10px]">{value.slice(0, 10)}…</span>
+        <span className="text-[10px] opacity-70">(unknown client)</span>
+      </span>
+    )
+  }
+
+  return <span className={baseClasses}>{formatChangeValue(value)}</span>
 }
 
 /** Render a from/to value for display. Null/empty → "(empty)" so
