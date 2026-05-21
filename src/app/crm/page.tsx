@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   MessageSquare,
@@ -10,6 +10,7 @@ import {
   User,
   AlertCircle,
   Building2,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -42,6 +43,16 @@ type Group = {
   subAccount: SubAccount
   conversations: GhlConversation[]
   error: string | null
+  /** GHL startAfterDate for the next page (the oldest lastMessageDate
+   *  in the current page). Null when there are no more pages. The
+   *  "Load more" button uses this to fetch the next batch. */
+  nextCursor: string | null
+}
+
+type GroupsResponse = {
+  groups: Group[]
+  resolutionErrors?: ResolutionError[]
+  discoveredEntries?: number
 }
 
 type ResolutionError = {
@@ -50,12 +61,13 @@ type ResolutionError = {
 }
 
 export default function CrmPage() {
+  const qc = useQueryClient()
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
-  const { data, isLoading, error } = useQuery<{
-    groups: Group[]
-    resolutionErrors?: ResolutionError[]
-    discoveredEntries?: number
-  }>({
+  /** Tracks which sub-account is currently loading its next page so
+   *  the "Load more" button can show a spinner. Keyed by vaultName. */
+  const [loadingMore, setLoadingMore] = useState<Set<string>>(new Set())
+
+  const { data, isLoading, error } = useQuery<GroupsResponse>({
     queryKey: ['crm-groups'],
     queryFn: async () => {
       const res = await fetch('/api/crm/conversations')
@@ -64,6 +76,56 @@ export default function CrmPage() {
         throw new Error(d.error || 'Failed to load conversations')
       }
       return res.json()
+    },
+  })
+
+  /** Fetch the next page for one sub-account, then merge into the
+   *  existing cached groups so the UI just gets longer. Dedups by
+   *  conversation id (Mary refreshing during a deploy could
+   *  in-theory cause a duplicate; cheap to guard). */
+  const loadMore = useMutation({
+    mutationFn: async (params: { vaultName: string; cursor: string }) => {
+      setLoadingMore((prev) => new Set(prev).add(params.vaultName))
+      try {
+        const qs = new URLSearchParams({
+          subAccount: params.vaultName,
+          cursor: params.cursor,
+        })
+        const res = await fetch(`/api/crm/conversations?${qs.toString()}`)
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}))
+          throw new Error(d.error || 'Failed to load more')
+        }
+        return (await res.json()) as GroupsResponse
+      } finally {
+        setLoadingMore((prev) => {
+          const next = new Set(prev)
+          next.delete(params.vaultName)
+          return next
+        })
+      }
+    },
+    onSuccess: (data, vars) => {
+      const incoming = data.groups[0]
+      if (!incoming) return
+      qc.setQueryData<GroupsResponse>(['crm-groups'], (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          groups: prev.groups.map((g) => {
+            if (g.subAccount.vaultName !== vars.vaultName) return g
+            const existingIds = new Set(g.conversations.map((c) => c.id))
+            const merged = [
+              ...g.conversations,
+              ...incoming.conversations.filter((c) => !existingIds.has(c.id)),
+            ]
+            return { ...g, conversations: merged, nextCursor: incoming.nextCursor }
+          }),
+        }
+      })
+    },
+    onError: (err) => {
+      window.alert(`Couldn't load more: ${(err as Error).message}`)
     },
   })
 
@@ -227,7 +289,20 @@ export default function CrmPage() {
       ) : (
         <div className="space-y-3">
           {groups.map((group) => (
-            <SubAccountGroup key={group.subAccount.vaultName} group={group} />
+            <SubAccountGroup
+              key={group.subAccount.vaultName}
+              group={group}
+              onLoadMore={
+                group.nextCursor
+                  ? () =>
+                      loadMore.mutate({
+                        vaultName: group.subAccount.vaultName,
+                        cursor: group.nextCursor!,
+                      })
+                  : null
+              }
+              isLoadingMore={loadingMore.has(group.subAccount.vaultName)}
+            />
           ))}
         </div>
       )}
@@ -235,9 +310,27 @@ export default function CrmPage() {
   )
 }
 
-function SubAccountGroup({ group }: { group: Group }) {
+function SubAccountGroup({
+  group,
+  onLoadMore,
+  isLoadingMore,
+}: {
+  group: Group
+  /** Set when GHL has more conversations to fetch for this sub-account.
+   *  Null = end-of-history; we hide the "Load more" button. */
+  onLoadMore: (() => void) | null
+  isLoadingMore: boolean
+}) {
   const [expanded, setExpanded] = useState(true)
   const convos = group.conversations
+  // Roll-up unread count across every conversation in this sub-account.
+  // Powers the notification-bubble badge on the header (visible even
+  // when the section is collapsed). Bumped on Alex's 2026-05-20 ask
+  // for an at-a-glance "this sub-account needs attention" signal.
+  const totalUnread = convos.reduce(
+    (sum, c) => sum + (c.unreadCount ?? 0),
+    0,
+  )
 
   return (
     <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
@@ -257,6 +350,14 @@ function SubAccountGroup({ group }: { group: Group }) {
             ({convos.length} {convos.length === 1 ? 'conversation' : 'conversations'})
           </span>
         </div>
+        {totalUnread > 0 && (
+          <span
+            className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white shadow-sm"
+            title={`${totalUnread} unread message${totalUnread === 1 ? '' : 's'} in this sub-account`}
+          >
+            {totalUnread}
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -270,15 +371,39 @@ function SubAccountGroup({ group }: { group: Group }) {
               No conversations yet.
             </div>
           ) : (
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {convos.map((conv) => (
-                <ConversationRow
-                  key={conv.id}
-                  conversation={conv}
-                  subName={group.subAccount.vaultName}
-                />
-              ))}
-            </div>
+            <>
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {convos.map((conv) => (
+                  <ConversationRow
+                    key={conv.id}
+                    conversation={conv}
+                    subName={group.subAccount.vaultName}
+                  />
+                ))}
+              </div>
+              {/* "Load more" — only renders when GHL still has older
+                  conversations available (nextCursor present). Hidden
+                  when we've paged to the end of history. */}
+              {onLoadMore && (
+                <div className="border-t border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={onLoadMore}
+                    disabled={isLoadingMore}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      'Load more'
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -310,7 +435,10 @@ function ConversationRow({
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{name}</span>
           {(conversation.unreadCount ?? 0) > 0 && (
-            <span className="inline-flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            <span
+              className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white shadow-sm"
+              title={`${conversation.unreadCount} unread message${conversation.unreadCount === 1 ? '' : 's'}`}
+            >
               {conversation.unreadCount}
             </span>
           )}
