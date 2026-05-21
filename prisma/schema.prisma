@@ -34,6 +34,9 @@ model User {
   //   client_onboarding  — onboarding form submitted, awaiting admin approval
   //   client_active      — approved client, can access /client only
   //   client_denied      — application denied
+  //   team_pending       — Team #N registrant awaiting approval (no access yet)
+  //   team_member        — approved Team #N agent, EOD-only access at /team
+  //   team_denied        — Team #N registration denied
   role          String    @default("member")
   // For Credentials-auth users (agents + clients). Null for Google SSO users.
   passwordHash  String?
@@ -61,6 +64,22 @@ model User {
   approvedById  String?
   timezone      String    @default("America/New_York")
   phoneNumber   String?   // E.164, used for SMS reminders
+  // Team-member fields — set on team_pending registration, carried
+  // through approval. Null for everyone else (staff, regular agents,
+  // clients).
+  //   servicingState  — US state the team agent is calling for.
+  //                     Editable from /team/profile after approval.
+  //   whatsappNumber  — preferred contact line, free-text (admin reaches
+  //                     out via WhatsApp). Editable from /team/profile.
+  //   teamNumber      — which team this user belongs to. 1 = Mary's
+  //                     team. Reserved for future Team #2+. Lookup of
+  //                     "who manages each team" lives in the
+  //                     TEAM_MANAGER_EMAILS env var (JSON map), not
+  //                     the DB, so it can be updated without a code
+  //                     change when management shifts.
+  servicingState String?
+  whatsappNumber String?
+  teamNumber     Int?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
