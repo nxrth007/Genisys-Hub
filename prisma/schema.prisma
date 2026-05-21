@@ -602,11 +602,21 @@ model Client {
   // a "resend invite" affordance if the client never accepted.
   slackInviteSentAt DateTime?
 
+  // Per-client opt-in for the Email Client Alerts surface (Spring
+  // Solar asked for email parity with the existing SMS + Slack alerts,
+  // 2026-05-20). Defaults to false so first-deploy doesn't blast
+  // every contactEmail on the roster. Email goes to contactEmail
+  // verbatim — leaving that field null silently disables alerts even
+  // when this flag is true. Master enable lives on
+  // ClientEmailAlertsConfig (singleton).
+  emailAlertsEnabled Boolean @default(false)
+
   appointments      Appointment[]
   reminderTemplates ReminderTemplate[]
   appointmentReminders AppointmentReminder[]
   slackDeliveries   SheetSlackDelivery[]
   clientAlerts      ClientAlertDelivery[]
+  emailAlerts       ClientEmailDelivery[]
   messageAlerts     ClientMessageAlert[]
   // Secondary Google Sheets that feed this client's appointments
   // (partner call centers like Yassin's team running their own
@@ -907,6 +917,69 @@ model ClientAlertDelivery {
   @@index([status])
   @@index([status, scheduledFor], map: "ClientAlertDelivery_pending_due_idx")
   @@index([recipientPhone, customerPhone, apptDateTime], map: "ClientAlertDelivery_content_dedup_idx")
+}
+
+/// "Email Client Alerts" feature — admin-managed parity layer over the
+/// existing SMS + Slack alert channels. Each Client opts in via
+/// Client.emailAlertsEnabled; the master toggle here gates the whole
+/// surface in case admin wants to kill the channel in an emergency.
+/// id is hardcoded to "singleton" so it's always upsertable.
+model ClientEmailAlertsConfig {
+  id               String   @id @default("singleton")
+  enabled          Boolean  @default(false)
+  /// Which connected Gmail account to send from. Defaults to the
+  /// agency's primary inbox; staff can pick a different connected
+  /// account via Settings if they want alerts to come from a shared
+  /// "alerts@" mailbox. Looked up against GmailAccount.email at send
+  /// time; null falls back to whatever the env var
+  /// CLIENT_EMAIL_ALERT_FROM resolves to (then to alex@leadgenisys.com).
+  fromGmailAccount String?
+  /// Display name on the From: header (e.g. "Genisys Hub Alerts").
+  /// Falls back to "Genisys Hub" when null.
+  senderName       String?
+  updatedAt        DateTime @updatedAt @default(now())
+}
+
+/// Idempotency ledger for Email Client Alerts — parallel to
+/// ClientAlertDelivery (SMS) + SheetSlackDelivery (Slack). Same
+/// dual-key dedup pattern (sourceKey + content key with recency
+/// window applied in sync code). recipientEmail is stored verbatim
+/// so a later contactEmail change on the Client doesn't hide what
+/// actually went out.
+model ClientEmailDelivery {
+  id              String    @id @default(cuid())
+  sourceKey       String
+  clientId        String?
+  client          Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  recipientEmail  String
+  // status mirror of ClientAlertDelivery:
+  //   pending    — DB-driven queue waiting on the 20-min buffer
+  //   sending    — claim flipped pending → sending before send fires
+  //   delivered  — Gmail returned a messageId
+  //   backfilled — pre-existing sheet row at first-enable; never sent
+  //   failed     — send threw; errorMessage carries detail
+  //   skipped    — appointment cancelled / deleted before send fired
+  status          String    @default("delivered")
+  /// Set when status='pending' to indicate when the buffer window
+  /// expires and the dispatcher should send.
+  scheduledFor    DateTime?
+  /// Gmail-side message id. Populated on successful delivery so we
+  /// can cross-reference with the sender's Gmail Sent folder.
+  messageId       String?
+  errorMessage    String?   @db.Text
+  deliveredAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  /// Content-based dedup pair (parallel to the SMS / Slack ledgers).
+  customerPhone   String?
+  apptDateTime    DateTime?
+
+  @@unique([sourceKey, recipientEmail], map: "ux_client_email_delivery_source_recipient")
+  @@index([clientId])
+  @@index([status])
+  @@index([status, scheduledFor], map: "ClientEmailDelivery_pending_due_idx")
+  @@index([recipientEmail, customerPhone, apptDateTime], map: "ClientEmailDelivery_content_dedup_idx")
 }
 
 // Singleton config for the SMS-reminder system. Master enable + which
