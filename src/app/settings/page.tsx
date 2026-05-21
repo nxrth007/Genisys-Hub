@@ -72,6 +72,8 @@ export default function SettingsPage() {
 
       <ClientAlertsSection />
 
+      <ClientEmailAlertsSection />
+
       <TwilioTestSection />
 
       <SheetMaintenanceSection />
@@ -4608,3 +4610,602 @@ function ReminderTestSendBlock() {
     </div>
   )
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Client Email Alerts                                                       */
+/* -------------------------------------------------------------------------- */
+
+type ClientEmailAlertsConfigShape = {
+  enabled: boolean
+  fromGmailAccount: string | null
+  senderName: string | null
+}
+
+type ClientForEmailRow = {
+  id: string
+  name: string
+  state: string | null
+  color: string
+  contactEmail: string | null
+  emailAlertsEnabled: boolean
+}
+
+type EmailDeliveryRow = {
+  id: string
+  sourceKey: string
+  recipientEmail: string
+  status: string
+  messageId: string | null
+  errorMessage: string | null
+  scheduledFor: string | null
+  deliveredAt: string | null
+  createdAt: string
+  apptDateTime: string | null
+  client: { id: string; name: string; color: string } | null
+}
+
+type GmailAccountOption = {
+  id: string
+  email: string
+}
+
+/**
+ * "Email Client Alerts" settings section — parallel to the SMS section
+ * (ClientAlertsSection) but for the email channel. Per Alex's
+ * 2026-05-20 launch spec: master enable on, only Spring Solar opted
+ * in, everyone else off. Admin can flip the per-client toggle from
+ * here without touching SQL.
+ */
+function ClientEmailAlertsSection() {
+  const qc = useQueryClient()
+
+  const configQuery = useQuery<{ config: ClientEmailAlertsConfigShape }>({
+    queryKey: ['client-email-alerts-config'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-email-alerts/config')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load Email Alerts config')
+      }
+      return res.json()
+    },
+  })
+
+  const clientsQuery = useQuery<{ clients: ClientForEmailRow[] }>({
+    queryKey: ['client-email-alerts-clients'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-email-alerts/clients')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+  })
+
+  const accountsQuery = useQuery<{ accounts: GmailAccountOption[] }>({
+    queryKey: ['gmail-accounts'],
+    queryFn: async () => {
+      const res = await fetch('/api/gmail/accounts')
+      if (!res.ok) throw new Error('Failed to load Gmail accounts')
+      return res.json()
+    },
+  })
+
+  const config = configQuery.data?.config
+  const clients = clientsQuery.data?.clients ?? []
+  const accounts = accountsQuery.data?.accounts ?? []
+  const enabled = !!config?.enabled
+
+  // Local drafts for the From: configuration so the user can edit
+  // without each keystroke firing a PATCH. Synced from the server
+  // once on first load.
+  const [fromDraft, setFromDraft] = useState<string>('')
+  const [senderNameDraft, setSenderNameDraft] = useState<string>('')
+  const syncedRef = useRef(false)
+  useEffect(() => {
+    if (config && !syncedRef.current) {
+      setFromDraft(config.fromGmailAccount ?? '')
+      setSenderNameDraft(config.senderName ?? '')
+      syncedRef.current = true
+    }
+  }, [config])
+  const fromDirty = (config?.fromGmailAccount ?? '') !== (fromDraft || '')
+  const senderNameDirty =
+    (config?.senderName ?? '') !== (senderNameDraft.trim() || '')
+
+  const updateMutation = useMutation({
+    mutationFn: async (
+      payload: Partial<ClientEmailAlertsConfigShape>,
+    ): Promise<{
+      config: ClientEmailAlertsConfigShape
+      backfill: { client: string; recorded: number }[] | null
+    }> => {
+      const res = await fetch('/api/admin/client-email-alerts/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Update failed')
+      return data
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['client-email-alerts-config'] })
+      if (data.backfill && data.backfill.length > 0) {
+        const total = data.backfill.reduce((s, b) => s + b.recorded, 0)
+        window.alert(
+          `Email Alerts enabled. Backfilled ${total} historical row${total === 1 ? '' : 's'} as 'already-handled' so the next cron tick won't blast clients with email for past bookings. New appointments going forward will fire normally.`,
+        )
+      }
+    },
+    onError: (err) => {
+      window.alert(`Couldn't save Email Alerts config: ${(err as Error).message}`)
+    },
+  })
+
+  const toggleClientMutation = useMutation({
+    mutationFn: async (payload: { clientId: string; enabled: boolean }) => {
+      const res = await fetch('/api/admin/client-email-alerts/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Toggle failed')
+      return data as {
+        client: ClientForEmailRow
+        backfill: { recorded: number; alreadyTracked: number } | null
+        warning?: string
+      }
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['client-email-alerts-clients'] })
+      if (data.warning) window.alert(data.warning)
+      if (data.backfill && data.backfill.recorded > 0) {
+        window.alert(
+          `${data.client.name} turned on. Backfilled ${data.backfill.recorded} historical row${data.backfill.recorded === 1 ? '' : 's'} as 'already-handled' so they won't blast on the next cron tick.`,
+        )
+      }
+    },
+    onError: (err) => {
+      window.alert(`Couldn't toggle: ${(err as Error).message}`)
+    },
+  })
+
+  function handleMasterToggle(next: boolean) {
+    if (next) {
+      const optedIn = clients.filter((c) => c.emailAlertsEnabled)
+      if (optedIn.length === 0) {
+        if (
+          !window.confirm(
+            `No client has emailAlertsEnabled=true yet. Enabling the master toggle without any client opted in is a no-op. Enable anyway?`,
+          )
+        ) {
+          return
+        }
+      }
+      const ok = window.confirm(
+        `Enable Email Alerts? On first-enable, every existing sheet row for opted-in clients is marked 'already-handled' so historical bookings don't fire. Proceed?`,
+      )
+      if (!ok) return
+    }
+    updateMutation.mutate({ enabled: next })
+  }
+
+  function handleSaveFrom() {
+    const trimmed = fromDraft.trim().toLowerCase()
+    updateMutation.mutate({ fromGmailAccount: trimmed.length > 0 ? trimmed : null })
+  }
+
+  function handleSaveSenderName() {
+    const trimmed = senderNameDraft.trim()
+    updateMutation.mutate({ senderName: trimmed.length > 0 ? trimmed : null })
+  }
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-rose-50 p-2 dark:bg-rose-950">
+          <Mail className="h-5 w-5 text-rose-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">Client Alerts (Email)</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Third client-alert channel parallel to Slack + SMS. Sends an
+            HTML-formatted appointment summary to each opted-in client&apos;s{' '}
+            <code>contactEmail</code> when a new booking lands. Per-client
+            opt-in below — flip on only the clients who&apos;ve asked for
+            email. Spring Solar is the only seeded opt-in at launch.
+          </p>
+        </div>
+      </div>
+
+      {configQuery.isError && (
+        <div className="mt-4">
+          <Alert variant="error">
+            <div className="font-medium">Couldn&apos;t load config</div>
+            <div className="mt-1 text-xs">
+              {(configQuery.error as Error).message}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      {/* Master toggle */}
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div>
+          <p className="text-sm font-medium">Master enable</p>
+          <p className="text-xs text-zinc-500">
+            {enabled
+              ? 'Cron is sending email to clients with the per-client toggle ON below.'
+              : 'Off — cron logs the heartbeat but sends nothing.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={configQuery.isLoading || updateMutation.isPending}
+          onClick={() => handleMasterToggle(!enabled)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            enabled
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+          )}
+        >
+          {updateMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : enabled ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
+      </div>
+
+      {/* From-account picker */}
+      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <label className="text-sm font-medium">From: Gmail account</label>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          Which connected Gmail account sends the alert. Defaults to{' '}
+          <code>alex@leadgenisys.com</code> when blank.
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <select
+            value={fromDraft}
+            onChange={(e) => setFromDraft(e.target.value)}
+            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value="">— Use default (alex@leadgenisys.com) —</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.email}>
+                {a.email}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!fromDirty || updateMutation.isPending}
+            onClick={handleSaveFrom}
+            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      {/* Sender display name */}
+      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <label className="text-sm font-medium">From: display name</label>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          What appears in the recipient&apos;s inbox (e.g. &quot;Genisys
+          Hub&quot;). Falls back to <code>Genisys Hub</code> when blank.
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="text"
+            value={senderNameDraft}
+            onChange={(e) => setSenderNameDraft(e.target.value)}
+            placeholder="Genisys Hub"
+            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          <button
+            type="button"
+            disabled={!senderNameDirty || updateMutation.isPending}
+            onClick={handleSaveSenderName}
+            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      {/* Per-client toggle list */}
+      <div className="mt-5">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Per-client opt-in
+        </p>
+        {clientsQuery.isLoading ? (
+          <p className="text-xs text-zinc-500">Loading clients…</p>
+        ) : clients.length === 0 ? (
+          <p className="text-xs text-zinc-500">
+            No active clients on the roster yet.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {clients.map((c) => {
+              const hasEmail = !!c.contactEmail?.trim()
+              return (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                      style={{ backgroundColor: c.color }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{c.name}</p>
+                      <p className="truncate text-[11px] text-zinc-500">
+                        {c.contactEmail || (
+                          <span className="text-amber-600">
+                            no contact email set
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={
+                      toggleClientMutation.isPending ||
+                      (!c.emailAlertsEnabled && !hasEmail)
+                    }
+                    title={
+                      !c.emailAlertsEnabled && !hasEmail
+                        ? 'Set a contact email on this client first (under Clients) before enabling email alerts.'
+                        : undefined
+                    }
+                    onClick={() =>
+                      toggleClientMutation.mutate({
+                        clientId: c.id,
+                        enabled: !c.emailAlertsEnabled,
+                      })
+                    }
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition disabled:opacity-50',
+                      c.emailAlertsEnabled
+                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+                    )}
+                  >
+                    {c.emailAlertsEnabled ? (
+                      <>
+                        <CheckCircle2 className="h-3 w-3" />
+                        On
+                      </>
+                    ) : (
+                      'Off'
+                    )}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Test send */}
+      <EmailAlertsTestSendRow />
+
+      {/* Recent activity */}
+      <EmailAlertsRecentActivity />
+    </section>
+  )
+}
+
+function EmailAlertsTestSendRow() {
+  const [recipient, setRecipient] = useState('')
+  const [clientName, setClientName] = useState('Sample Client')
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState<
+    { ok: true; messageId: string | null } | { ok: false; error: string } | null
+  >(null)
+
+  async function send() {
+    if (!recipient.trim() || !recipient.includes('@')) {
+      setResult({ ok: false, error: 'Enter a valid email address.' })
+      return
+    }
+    setSending(true)
+    setResult(null)
+    try {
+      const res = await fetch('/api/admin/client-email-alerts/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientEmail: recipient.trim(),
+          clientName: clientName.trim() || 'Sample Client',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setResult({ ok: false, error: data.error || 'send failed' })
+      } else {
+        setResult({ ok: true, messageId: data.messageId ?? null })
+      }
+    } catch (err) {
+      setResult({
+        ok: false,
+        error: err instanceof Error ? err.message : 'send failed',
+      })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <p className="text-sm font-medium">Send a test email</p>
+      <p className="mt-0.5 text-xs text-zinc-500">
+        Fires a sample alert to any address using a fake appointment. Use it
+        to verify rendering + From: header before flipping a client on.
+      </p>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_auto]">
+        <input
+          type="email"
+          value={recipient}
+          onChange={(e) => setRecipient(e.target.value)}
+          placeholder="you@yourdomain.com"
+          className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <input
+          type="text"
+          value={clientName}
+          onChange={(e) => setClientName(e.target.value)}
+          placeholder="Client name in sample"
+          className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+        />
+        <button
+          type="button"
+          disabled={sending || !recipient.trim()}
+          onClick={send}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          {sending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Send className="h-3 w-3" />
+          )}
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+      </div>
+      {result && (
+        <div
+          className={cn(
+            'mt-2 rounded-md px-3 py-1.5 text-xs',
+            result.ok
+              ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+              : 'bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200',
+          )}
+        >
+          {result.ok ? (
+            <>
+              ✓ Sent. {result.messageId ? `Gmail id: ${result.messageId}` : ''}
+            </>
+          ) : (
+            <>✗ {result.error}</>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EmailAlertsRecentActivity() {
+  const query = useQuery<{ deliveries: EmailDeliveryRow[] }>({
+    queryKey: ['client-email-alerts-recent'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-email-alerts/recent?limit=20')
+      if (!res.ok) throw new Error('Failed to load recent activity')
+      return res.json()
+    },
+    // Short stale so the panel stays fresh as new deliveries land
+    // during testing, without polling too hard.
+    staleTime: 15_000,
+  })
+
+  const deliveries = query.data?.deliveries ?? []
+
+  function statusTone(status: string): string {
+    if (status === 'delivered') {
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+    }
+    if (status === 'failed') {
+      return 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+    }
+    if (status === 'pending' || status === 'sending') {
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+    }
+    if (status === 'backfilled') {
+      return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+    }
+    if (status === 'skipped') {
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+    }
+    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Recent activity (last 20)
+        </p>
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Refresh
+        </button>
+      </div>
+      {query.isLoading ? (
+        <p className="text-xs text-zinc-500">Loading…</p>
+      ) : deliveries.length === 0 ? (
+        <p className="text-xs text-zinc-500">
+          No deliveries yet. Send a test email above or wait for an
+          appointment to fire.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {deliveries.map((d) => (
+            <li
+              key={d.id}
+              className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950"
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                {d.client && (
+                  <span
+                    className="h-2 w-2 flex-shrink-0 rounded-full"
+                    style={{ backgroundColor: d.client.color }}
+                    aria-hidden
+                  />
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {d.client?.name ?? 'Unattached'}
+                    <span className="font-normal text-zinc-500"> · {d.recipientEmail}</span>
+                  </p>
+                  <p className="truncate text-[11px] text-zinc-500">
+                    {d.errorMessage ? (
+                      <span className="text-red-600">{d.errorMessage}</span>
+                    ) : d.scheduledFor && d.status === 'pending' ? (
+                      `Fires ${new Date(d.scheduledFor).toLocaleString()}`
+                    ) : d.deliveredAt ? (
+                      `Delivered ${new Date(d.deliveredAt).toLocaleString()}`
+                    ) : (
+                      `Created ${new Date(d.createdAt).toLocaleString()}`
+                    )}
+                  </p>
+                </div>
+              </div>
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  statusTone(d.status),
+                )}
+              >
+                {d.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
