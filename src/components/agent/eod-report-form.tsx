@@ -30,26 +30,8 @@ export type EodFormValues = {
   tomorrowFocus: string
 }
 
-/** ISO date (YYYY-MM-DD) for the Friday of the current calendar week.
- *  Used as the default reportDate when an agent opens the form fresh —
- *  every submission within a single week then lands on the same
- *  canonical date, which makes the (agentUserId, reportDate) unique
- *  constraint enforce one-report-per-week without a schema change.
- *  Saturday and Sunday roll forward to the next Friday so weekend
- *  submissions still represent "next week's report" sensibly. */
-function fridayOfThisWeekISO(): string {
+function todayISODate(): string {
   const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  // getDay(): 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat. Shift to Monday-week
-  // and target Friday (offset 4 from Monday).
-  const dayFromMonday = (d.getDay() + 6) % 7
-  const fridayOffsetFromMonday = 4
-  d.setDate(d.getDate() + (fridayOffsetFromMonday - dayFromMonday))
-  // If the result is still in the past (Sat/Sun rolling backward
-  // would land on Friday-just-past), push forward one week.
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  if (d < now) d.setDate(d.getDate() + 7)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -81,7 +63,7 @@ export function EodReportForm({
   const router = useRouter()
   const [values, setValues] = useState<EodFormValues>({
     ...EMPTY,
-    reportDate: fridayOfThisWeekISO(),
+    reportDate: todayISODate(),
     ...initial,
   })
   const [saving, setSaving] = useState(false)
@@ -91,7 +73,7 @@ export function EodReportForm({
   // Keep reportDate sensible when create page mounts without initial override.
   useEffect(() => {
     if (mode === 'create' && !initial?.reportDate) {
-      setValues((v) => ({ ...v, reportDate: fridayOfThisWeekISO() }))
+      setValues((v) => ({ ...v, reportDate: todayISODate() }))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -163,7 +145,7 @@ export function EodReportForm({
     if (!reportId) return
     if (
       !confirm(
-        'Delete this EOW report? This only removes your submission — not any appointments.'
+        'Delete this EOD report? This only removes your submission — not any appointments.'
       )
     )
       return
@@ -201,11 +183,11 @@ export function EodReportForm({
           Back to reports
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
-          {mode === 'create' ? 'Submit End-of-Week Report' : 'Edit EOW Report'}
+          {mode === 'create' ? 'Submit End-of-Day Report' : 'Edit EOD Report'}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Quick recap of your week — takes ~2 minutes. Ethan and the
-          management team review these weekly to unblock technical + process
+          Quick recap of your shift — takes ~2 minutes. Ethan and the
+          management team review these daily to unblock technical + process
           issues faster.
         </p>
       </div>
@@ -217,7 +199,7 @@ export function EodReportForm({
         </div>
       )}
 
-      <Section title="Week ending">
+      <Section title="Shift date">
         <div className="max-w-xs">
           <input
             type="date"
@@ -227,8 +209,8 @@ export function EodReportForm({
             className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
           />
           <p className="mt-1 text-xs text-zinc-500">
-            Defaults to the Friday of this week. One report per week —
-            revisiting this page next week will start a fresh one.
+            Defaults to today. Only one report per day — revisiting this page
+            tomorrow will start a fresh one.
           </p>
         </div>
       </Section>
@@ -254,7 +236,7 @@ export function EodReportForm({
             icon={CalendarCheck}
             value={values.appointmentsGenerated}
             onChange={(v) => update('appointmentsGenerated', v)}
-            hint="Confirmed bookings this week"
+            hint="Confirmed bookings today"
           />
           <NumberField
             label="Callbacks booked"
@@ -268,8 +250,8 @@ export function EodReportForm({
 
       <Section title="Technical issues (optional)" icon={TriangleAlert}>
         <p className="mb-3 text-xs text-zinc-500">
-          Tap every category that caused friction this week. Leave blank if
-          the week ran smoothly.
+          Tap every category that caused friction today. Leave blank if the
+          shift ran smoothly.
         </p>
         <div className="flex flex-wrap gap-2">
           {TECHNICAL_ISSUE_TAGS.map((tag) => {
@@ -320,9 +302,9 @@ export function EodReportForm({
         />
       </Section>
 
-      <Section title="Focus for next week (optional)">
+      <Section title="Focus for tomorrow (optional)">
         <textarea
-          placeholder={`e.g. "Follow up on the callbacks from this week", "Retry the lists I couldn't finish".`}
+          placeholder={`e.g. "Follow up on the 3 callbacks from today", "Retry the list I couldn't finish".`}
           value={values.tomorrowFocus}
           onChange={(e) => update('tomorrowFocus', e.target.value)}
           rows={2}

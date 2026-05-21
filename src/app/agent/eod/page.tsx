@@ -29,17 +29,11 @@ type EodReport = {
   createdAt: string
 }
 
-/** Start of the current week (Monday 00:00 local). Used to find the
- *  agent's "this week's report" — any submission whose reportDate
- *  falls between this Monday and next Monday counts as the current
- *  week's report, regardless of which day Mary picked when saving. */
-function startOfWeek(d = new Date()): Date {
-  const out = new Date(d)
-  out.setHours(0, 0, 0, 0)
-  // getDay(): 0=Sun, 1=Mon, ..., 6=Sat. Shift so Monday is day 0.
-  const dayFromMonday = (out.getDay() + 6) % 7
-  out.setDate(out.getDate() - dayFromMonday)
-  return out
+function todayISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`
 }
 
 export default function AgentEodListPage() {
@@ -53,35 +47,25 @@ export default function AgentEodListPage() {
   })
 
   const reports = useMemo(() => query.data?.reports ?? [], [query.data])
-  // "This week's report" — any submission whose reportDate falls in
-  // the Mon-Sun window containing today. Replaces the prior
-  // "today's report" lookup so the action buttons make sense under
-  // the new weekly cadence (Mary submits once per week with whatever
-  // date she picks within the week).
-  const weekStart = startOfWeek()
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 7)
-  const thisWeeksReport = reports.find((r) => {
-    const d = new Date(r.reportDate)
-    return !isNaN(d.getTime()) && d >= weekStart && d < weekEnd
-  })
+  const today = todayISO()
+  const todaysReport = reports.find((r) => r.reportDate.slice(0, 10) === today)
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My EOW Reports</h1>
+          <h1 className="text-2xl font-bold tracking-tight">My EOD Reports</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Submit a short recap at the end of each week. Management reviews
-            these weekly to spot technical issues and unblock the team.
+            Submit a short recap at the end of each shift. Management reviews
+            these daily to spot technical issues and unblock the team.
           </p>
         </div>
-        {thisWeeksReport ? (
+        {todaysReport ? (
           <Link
-            href={`/agent/eod/${thisWeeksReport.id}`}
+            href={`/agent/eod/${todaysReport.id}`}
             className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-950/70"
           >
-            Edit this week&apos;s report
+            Edit today&apos;s report
           </Link>
         ) : (
           <Link
@@ -89,7 +73,7 @@ export default function AgentEodListPage() {
             className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
           >
             <Plus className="h-4 w-4" />
-            Submit this week&apos;s report
+            Submit today&apos;s report
           </Link>
         )}
       </div>
@@ -103,7 +87,7 @@ export default function AgentEodListPage() {
           <ClipboardList className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
           <h3 className="mt-3 text-sm font-semibold">No reports yet</h3>
           <p className="mt-1 text-sm text-zinc-500">
-            Submit your first EOW report at the end of the week.
+            Submit your first EOD report when your shift wraps up.
           </p>
         </div>
       ) : (

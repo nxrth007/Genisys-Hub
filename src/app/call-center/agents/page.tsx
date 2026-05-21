@@ -208,7 +208,7 @@ function CallCenterAgentsPageInner() {
           tone="blue"
         />
         <StatCard
-          label="EOW reporting"
+          label="EOD reporting"
           value={
             data
               ? data.summary.eodConsistency != null
@@ -216,7 +216,7 @@ function CallCenterAgentsPageInner() {
                 : '—'
               : '—'
           }
-          subtitle="reports ÷ weeks"
+          subtitle="reports ÷ weekdays"
           tone="amber"
         />
       </div>
@@ -541,12 +541,12 @@ function AgentCard({
           <SectionLabel icon={Phone} label="Activity · self-reported" />
           {agent.activity.daysReported === 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              No EOW reports filed in this window.
+              No EOD reports filed in this window.
               {agent.activity.expectedDays && agent.activity.expectedDays > 0 && (
                 <>
                   {' '}
                   <span className="text-amber-600">
-                    ({agent.activity.expectedDays} expected week
+                    ({agent.activity.expectedDays} expected weekday
                     {agent.activity.expectedDays === 1 ? '' : 's'})
                   </span>
                 </>
@@ -684,7 +684,7 @@ function StatusBadge({
             : 'No activity'
   const title = lastActivityAt
     ? `Last activity: ${new Date(lastActivityAt).toLocaleString()}`
-    : 'No appointments, EOW reports, or callbacks on record'
+    : 'No appointments, EOD reports, or callbacks on record'
   return (
     <span
       title={title}
