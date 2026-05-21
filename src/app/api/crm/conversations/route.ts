@@ -135,22 +135,36 @@ export async function GET(req: NextRequest) {
           id && reminderConvoIds.has(id) ? 'reminder' : 'other'
         return { ...c, source }
       })
-      // Find the oldest message date for the cursor. If GHL returned
-      // fewer rows than the requested limit, we're at the end and
-      // don't expose a cursor (signals "no more" to the UI). Walk
-      // the raw g.conversations (typed as Record<string, unknown>)
-      // since `conversations` above is the narrowed tagged shape and
-      // doesn't expose arbitrary GHL fields.
+      // Find the oldest message date for the cursor. We always
+      // expose a nextCursor when the page is non-empty + at least
+      // one conversation has a parseable lastMessageDate — the
+      // original implementation gated this on `length >= limit`,
+      // but GHL routinely returns slightly less than requested
+      // even when there's more available, which hid the Load more
+      // button entirely. If the user clicks Load more and the next
+      // page truly is empty, that response will have no convs and
+      // no cursor, which naturally hides the button.
+      //
+      // lastMessageDate from GHL ships as either an ISO string OR
+      // a Unix-ms number depending on the endpoint version; coerce
+      // both to an ISO string here so the cursor can be passed
+      // back to GHL's startAfterDate filter on the next fetch.
       let nextCursor: string | null = null
-      if (conversations.length >= limit) {
-        let oldest: string | null = null
+      if (conversations.length > 0) {
+        let oldestMs: number | null = null
         for (const c of g.conversations) {
-          const d =
-            typeof c.lastMessageDate === 'string' ? c.lastMessageDate : null
-          if (!d) continue
-          if (!oldest || d < oldest) oldest = d
+          const raw = c.lastMessageDate
+          if (raw == null) continue
+          const parsed =
+            typeof raw === 'string' || typeof raw === 'number'
+              ? new Date(raw).getTime()
+              : NaN
+          if (isNaN(parsed)) continue
+          if (oldestMs == null || parsed < oldestMs) oldestMs = parsed
         }
-        nextCursor = oldest
+        if (oldestMs != null) {
+          nextCursor = new Date(oldestMs).toISOString()
+        }
       }
       return { ...g, conversations, nextCursor }
     })
