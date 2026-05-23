@@ -225,7 +225,7 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
       // Don't migrate sourceKey on pending rows — the dispatcher
       // parses `db:appointment:<id>` to know which appointment to
       // re-fetch when sending. Rewriting it to `sheet:Master Table:N`
-      // would break dispatch. Pending rows are short-lived (≤20 min)
+      // would break dispatch. Pending rows are short-lived (≤30 min)
       // anyway; the migration kicks in once they flip to delivered.
       if (
         existing.sourceKey !== sourceKey &&
@@ -383,10 +383,14 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
  * the alert reflects the latest state and Mary has the full buffer
  * to fix typos.
  */
-/** 20-minute window between an agent saving and the SMS firing.
- *  Per Alex's spec — gives Mary room to edit / fix typos before the
- *  client gets pinged. Each subsequent edit re-bases the timer. */
-const CLIENT_ALERT_BUFFER_MS = 20 * 60 * 1000
+/** 30-minute window between an agent saving and the SMS firing.
+ *  Per Alex's 2026-05-22 spec — gives Mary room to edit / fix
+ *  typos / reassign the client before the agency-side gets pinged.
+ *  Each subsequent edit re-bases the timer. Bumped from 20 min on
+ *  2026-05-22 after the Dionito Tanion mis-routing incident showed
+ *  the original window wasn't always enough for Mary to catch a
+ *  client-swap before the SMS fired. */
+const CLIENT_ALERT_BUFFER_MS = 30 * 60 * 1000
 
 export async function deliverAppointmentAsSms(
   appointmentId: string,
@@ -586,7 +590,7 @@ export async function dispatchPendingClientAlerts(): Promise<{
 
     // Primary path: pending row keyed by db:appointment:<id>. Most
     // pending rows arrive here — the Hub form's POST handler queues
-    // them with a 20-min buffer.
+    // them with a 30-min buffer.
     let appointmentId: string | null = null
     const dbMatch = row.sourceKey.match(/^db:appointment:(.+)$/)
     if (dbMatch) {

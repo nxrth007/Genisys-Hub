@@ -443,7 +443,7 @@ export async function POST(req: NextRequest) {
   }).catch((err) => {
     console.error('[appointments POST] direct sms threw:', err)
   })
-  // Same 20-min buffered queue for the email channel. Independent
+  // Same 30-min buffered queue for the email channel. Independent
   // from the SMS path — a client can opt into email without SMS
   // (and vice versa). Returns 'disabled' / 'not-opted-in' / 'no-email'
   // as cheap no-ops when the conditions don't fire.

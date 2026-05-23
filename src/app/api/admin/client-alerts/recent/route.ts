@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma'
  *
  * Returns the last N ClientAlertDelivery rows so the Settings UI
  * can render a "Recent activity" panel showing exactly what
- * fired, what's pending in the 20-min buffer, what failed, and
+ * fired, what's pending in the 30-min buffer, what failed, and
  * what got backfilled. Answers the common Slack-fired-but-no-SMS
  * question without making admin shell into the DB.
  *

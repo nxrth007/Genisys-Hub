@@ -182,7 +182,7 @@ export function initScheduler() {
     }
 
     // Pending-alert dispatch (every minute). Fires DB-driven alerts
-    // whose 20-min buffer expired — gives Mary a window to fix typos
+    // whose 30-min buffer expired — gives Mary a window to fix typos
     // / re-edit before the client gets pinged. Independent from the
     // sheet sync above so neither path can starve the other.
     try {
@@ -215,7 +215,7 @@ export function initScheduler() {
     }
 
     // Pending email-alert dispatch (every minute) — mirror of the
-    // SMS dispatcher. Fires queued alerts whose 20-min buffer expired.
+    // SMS dispatcher. Fires queued alerts whose 30-min buffer expired.
     try {
       const result = await dispatchPendingClientEmailAlerts()
       if (result.attempted > 0) {

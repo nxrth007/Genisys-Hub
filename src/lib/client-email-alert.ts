@@ -353,9 +353,10 @@ export async function syncClientEmailAlertsFromSheet(): Promise<EmailAlertResult
 /*  DB-driven immediate fire (from /api/agent/appointments POST)               */
 /* -------------------------------------------------------------------------- */
 
-/** 20-minute buffer — matches the SMS path so Mary's edit window is
- *  consistent across all three alert channels (SMS, Slack, email). */
-const CLIENT_EMAIL_BUFFER_MS = 20 * 60 * 1000
+/** 30-minute buffer — matches the SMS path so Mary's edit window is
+ *  consistent across the alert channels (SMS + email). Bumped from
+ *  20 min on 2026-05-22 alongside the SMS bump. */
+const CLIENT_EMAIL_BUFFER_MS = 30 * 60 * 1000
 
 export async function deliverAppointmentAsEmail(
   appointmentId: string,

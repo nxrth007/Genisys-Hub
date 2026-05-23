@@ -243,7 +243,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   // Roll the client-alert buffer forward — if a pending alert exists
   // for this appointment, deliverAppointmentAsSms bumps its
-  // scheduledFor by another 20 min so the agency client gets the
+  // scheduledFor by another 30 min so the agency client gets the
   // corrected info, not a typo. No-op when the alert was already
   // delivered (window expired) or when alerts are disabled.
   void deliverAppointmentAsSms(updated.id).then((result) => {

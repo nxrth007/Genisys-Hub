@@ -1560,7 +1560,7 @@ function ClientAlertsRecentActivity() {
         <div>
           <p className="text-sm font-medium">Recent activity</p>
           <p className="text-xs text-zinc-500">
-            Last 20 alert attempts. Pending = waiting out the 20-minute
+            Last 20 alert attempts. Pending = waiting out the 30-minute
             buffer; delivered = SMS was sent; failed = GHL errored;
             backfilled = pre-existing row marked &quot;already-handled&quot;
             when the master toggle was first flipped on.
