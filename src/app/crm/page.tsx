@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Building2,
   Loader2,
+  Search,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -63,6 +65,12 @@ type ResolutionError = {
 export default function CrmPage() {
   const qc = useQueryClient()
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  /** Free-text search across loaded conversations. Matches against
+   *  contactName, contactEmail, contactId, and lastMessageBody so
+   *  admin can find a thread by name, phone, or even something the
+   *  customer said — same convenience GHL's native conversations
+   *  search gives. Case-insensitive. */
+  const [searchQuery, setSearchQuery] = useState<string>('')
   /** Tracks which sub-account is currently loading its next page so
    *  the "Load more" button can show a spinner. Keyed by vaultName. */
   const [loadingMore, setLoadingMore] = useState<Set<string>>(new Set())
@@ -151,17 +159,45 @@ export default function CrmPage() {
   // admins can see at-a-glance which sub-accounts have / don't
   // have traffic in the current bucket — useful when a sub-account
   // is supposed to be quiet under a particular filter.
-  const groups: Group[] = rawGroups.map((g) => ({
-    ...g,
-    conversations:
-      sourceFilter === 'all'
-        ? g.conversations
-        : g.conversations.filter((c) =>
-            sourceFilter === 'reminder'
-              ? c.source === 'reminder'
-              : c.source !== 'reminder',
-          ),
-  }))
+  // Normalize the search term once so each conversation match is a
+  // single .includes call. Trimmed + lowercased.
+  const searchTerm = searchQuery.trim().toLowerCase()
+  const searchActive = searchTerm.length > 0
+
+  /** Match a conversation against the active search query. Checks
+   *  contactName / contactEmail / contactId / lastMessageBody so the
+   *  same input works for "search by name", "search by phone-as-id"
+   *  (GHL stores phone in contactId for SMS-only contacts), and
+   *  "search for that thing the customer mentioned". */
+  function matchesSearch(c: GhlConversation): boolean {
+    if (!searchActive) return true
+    const haystacks = [
+      c.contactName,
+      c.contactEmail,
+      c.contactId,
+      c.lastMessageBody,
+    ]
+    return haystacks.some(
+      (h) => typeof h === 'string' && h.toLowerCase().includes(searchTerm),
+    )
+  }
+
+  const groups: Group[] = rawGroups
+    .map((g) => ({
+      ...g,
+      conversations: g.conversations.filter((c) => {
+        // Source-filter chip first — same condition as before.
+        if (sourceFilter === 'reminder' && c.source !== 'reminder') return false
+        if (sourceFilter === 'other' && c.source === 'reminder') return false
+        // Then the text search (no-op when query is empty).
+        return matchesSearch(c)
+      }),
+    }))
+    // When search is active, hide sub-accounts with zero matches so
+    // the result list is just "the threads that matched" — same UX
+    // as native GHL. Without an active search we keep all groups so
+    // admins can tell which sub-accounts have / don't have traffic.
+    .filter((g) => !searchActive || g.conversations.length > 0)
   const totalConvos = groups.reduce(
     (acc, g) => acc + g.conversations.length,
     0,
@@ -209,6 +245,33 @@ export default function CrmPage() {
         </div>
       </div>
 
+      {/* Search input — matches contactName / email / contactId
+          (phone for SMS-only contacts) / lastMessageBody across
+          every loaded conversation. Filters in-place, no server
+          round-trip; "Load more" still fetches older history when
+          search misses what's currently on screen. Same affordance
+          GHL gives natively at the top of their Conversations view. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by lead name, phone, email, or message…"
+          className="w-full rounded-lg border border-zinc-200 bg-white px-9 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            aria-label="Clear search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Source filter chips — split the noisy "everything mixed
           together" view into two purposes. Sales/business outbound
           (default agency line) vs reminder threads (the dedicated
@@ -235,6 +298,11 @@ export default function CrmPage() {
           count={totalReminder}
           hint="Threads the appointment-reminder system has touched. Customer SMS replies live here."
         />
+        {searchActive && (
+          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            {totalConvos} match{totalConvos === 1 ? '' : 'es'} for &quot;{searchQuery.trim()}&quot;
+          </span>
+        )}
       </div>
 
       {isLoading ? (
@@ -254,6 +322,32 @@ export default function CrmPage() {
               </div>
             </div>
           </div>
+        </div>
+      ) : searchActive && groups.length === 0 ? (
+        // Search-specific empty state — distinct from the
+        // no-sub-accounts state below because the user knows
+        // their GHL is connected, they just couldn't find a
+        // matching thread. Tell them to widen with Load more
+        // (older history isn't loaded yet) or adjust the term.
+        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
+          <Search className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
+          <p className="text-sm font-medium">
+            No conversations match &quot;{searchQuery.trim()}&quot;
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Search runs across the conversations already loaded. If the
+            lead is older, clear the search and use &quot;Load more&quot;
+            on the relevant sub-account to pull in more history, then
+            search again.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <X className="h-3 w-3" />
+            Clear search
+          </button>
         </div>
       ) : groups.length === 0 ? (
         <div className="space-y-3">
