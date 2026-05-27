@@ -43,7 +43,10 @@ function isHiddenSubaccount(...candidates: Array<string | undefined>): boolean {
  * fetch. Null means "no more conversations available."
  *
  * Query:
- *   ?limit=20         per-sub-account fetch size (default 20)
+ *   ?limit=100        per-sub-account fetch size (default 100 — GHL's
+ *                     per-request ceiling. Was 20 originally, bumped
+ *                     2026-05-22 per Alex's spec since 20 was too tight
+ *                     for the on-screen + client-side search use cases).
  *   ?subAccount=X     single sub-account vault name (pagination mode)
  *   ?cursor=ISO_DATE  GHL startAfterDate, used with subAccount
  */
@@ -53,7 +56,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const limit = Number(req.nextUrl.searchParams.get('limit') || '20')
+  // Default per-sub-account batch size. 100 matches GHL's per-request
+  // ceiling — bigger numbers just get capped server-side. Lower-end
+  // callers can still pass ?limit=N to override.
+  const limit = Number(req.nextUrl.searchParams.get('limit') || '100')
   const singleSubAccount = req.nextUrl.searchParams.get('subAccount') || null
   const cursor = req.nextUrl.searchParams.get('cursor') || undefined
 
