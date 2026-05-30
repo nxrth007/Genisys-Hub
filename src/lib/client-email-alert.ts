@@ -46,6 +46,15 @@ import {
 import { buildRoutingIndex, routeRowToClient } from './client-routing'
 import { snapshotSolarFromCache, type SolarSummary } from './solar'
 import { sendEmail } from './gmail'
+import { signRecordingUrl } from './recording-proxy'
+
+/** Hub origin used to construct the signed recording proxy URL.
+ *  AUTH_URL is set by NextAuth's Render config to the public hostname.
+ *  Trimmed of trailing slash so concatenated URLs stay clean. */
+function getHubOrigin(): string {
+  const raw = process.env.AUTH_URL || 'http://localhost:3000'
+  return raw.replace(/\/$/, '')
+}
 
 /** Default Gmail account to send alerts from when
  *  ClientEmailAlertsConfig.fromGmailAccount is null and the env var
@@ -1146,6 +1155,27 @@ export function formatAppointmentForClientEmail(
       <p style="margin:0;color:#374151;font-size:14px;line-height:1.5;white-space:pre-wrap;">${esc(row.notes)}</p>`
     : ''
 
+  // Call recording — surface a prominent "Listen to call" button
+  // routed through the Hub's signed proxy. signRecordingUrl returns
+  // null when the proxy isn't configured yet OR the upstream host
+  // isn't on the allowlist, in which case we silently drop the
+  // button rather than ship a link that wouldn't work.
+  const signedRecordingUrl = row.callRecordingLink?.trim()
+    ? signRecordingUrl(row.callRecordingLink.trim(), getHubOrigin())
+    : null
+  const recordingSection = signedRecordingUrl
+    ? `
+      <div style="margin:24px 0 0 0;">
+        <a href="${esc(signedRecordingUrl)}"
+           style="display:inline-block;background:#1e3a8a;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600;">
+          🎧 Listen to the call
+        </a>
+        <p style="margin:6px 0 0 0;color:#6b7280;font-size:12px;">
+          Streams from your browser — no install or login required.
+        </p>
+      </div>`
+    : ''
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1185,6 +1215,7 @@ export function formatAppointmentForClientEmail(
               ${propertySection}
               ${solarSection}
               ${notesSection}
+              ${recordingSection}
             </td>
           </tr>
 

@@ -92,6 +92,11 @@ type Appointment = {
   estimatedDealValue: string | null
   notes: string | null
   callRecordingLink: string | null
+  /** Hub-signed proxy URL — playable from any IP. Null when the
+   *  proxy isn't configured (RECORDING_PROXY_SECRET unset) or the
+   *  host isn't allowlisted. The Play button prefers this when
+   *  present and falls back to the raw callRecordingLink. */
+  callRecordingProxyUrl?: string | null
   createdAt: string
   /** Honest "Logged At" cell from the sheet — null when blank. The
    *  "Set today / Set this week" filters key off this exclusively so
@@ -1586,9 +1591,21 @@ export default function MasterTrackerPage() {
                         <td className="px-3 py-2.5">
                           {a.callRecordingLink ? (
                             <a
-                              href={a.callRecordingLink}
+                              // Prefer the Hub-signed proxy URL so
+                              // the play works from any IP — falls
+                              // back to the raw vicitel link for
+                              // admins whose IP is already on the
+                              // upstream allowlist (and as a
+                              // safety net when the proxy isn't
+                              // configured yet).
+                              href={a.callRecordingProxyUrl || a.callRecordingLink}
                               target="_blank"
                               rel="noopener noreferrer"
+                              title={
+                                a.callRecordingProxyUrl
+                                  ? 'Streams through the Hub — works from any IP.'
+                                  : 'Direct vicitel link — requires your IP to be on their allowlist.'
+                              }
                               className="inline-flex items-center gap-1 text-blue-600 hover:underline"
                             >
                               <ExternalLink className="h-3 w-3" />

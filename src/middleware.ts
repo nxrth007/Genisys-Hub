@@ -43,6 +43,12 @@ const PUBLIC_PATHS = [
   '/api/agent/reset-password',
   '/api/team/forgot-password',
   '/api/team/reset-password',
+  // Public recording proxy — Slack/email recipients on client
+  // channels click signed URLs to play call recordings, they don't
+  // have Hub accounts. Security is HMAC signature + host allowlist +
+  // per-IP rate limit, all enforced inside the route. Don't gate
+  // here.
+  '/api/recordings/proxy',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces

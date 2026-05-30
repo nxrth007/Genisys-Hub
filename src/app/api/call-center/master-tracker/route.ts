@@ -4,6 +4,14 @@ import { prisma } from '@/lib/prisma'
 import { normalizeAddress } from '@/lib/address'
 import { buildRoutingIndex, routeRowToClient } from '@/lib/client-routing'
 import { readAllSheetRows, rowSourceKey } from '@/lib/secondary-sheets'
+import { signRecordingUrl } from '@/lib/recording-proxy'
+
+/** Hub origin used to construct signed recording proxy URLs in the
+ *  response payload. Falls back to localhost for dev. */
+function getHubOrigin(): string {
+  const raw = process.env.AUTH_URL || 'http://localhost:3000'
+  return raw.replace(/\/$/, '')
+}
 
 /**
  * GET /api/call-center/master-tracker
@@ -343,6 +351,17 @@ export async function GET() {
       estimatedDealValue: r.estimatedDealValue,
       notes: r.notes,
       callRecordingLink: r.callRecordingLink,
+      /** Signed proxy URL — Hub-hosted shim around the raw vicitel
+       *  link so admins (and clients) can play recordings without
+       *  having their home IP on the upstream allowlist. Null when
+       *  the proxy isn't configured (RECORDING_PROXY_SECRET unset
+       *  on Render) or the upstream host isn't allowlisted. The UI
+       *  prefers this when present and falls back to the raw
+       *  callRecordingLink for admins whose IPs ARE on the
+       *  allowlist already. */
+      callRecordingProxyUrl: r.callRecordingLink
+        ? signRecordingUrl(r.callRecordingLink, getHubOrigin())
+        : null,
       lastSyncedAt: null,
       syncError: null,
       // `createdAt` keeps a non-null value so the CSV export "Logged At"

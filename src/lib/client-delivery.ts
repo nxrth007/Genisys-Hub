@@ -30,6 +30,16 @@ import { type MasterTableRow } from './drive'
 import { readAllSheetRows } from './secondary-sheets'
 import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
+import { signRecordingUrl } from './recording-proxy'
+
+/** Hub origin used to construct the signed recording proxy URL.
+ *  Reads from AUTH_URL (set by NextAuth's config on Render) and
+ *  falls back to localhost for dev. Trimmed once at module load
+ *  so format calls don't repeat the work. */
+function getHubOrigin(): string {
+  const raw = process.env.AUTH_URL || 'http://localhost:3000'
+  return raw.replace(/\/$/, '')
+}
 import {
   formatInTimezone,
   resolveCustomerTimezone,
@@ -1288,6 +1298,25 @@ export function formatAppointmentForClientChannel(
     lines.push('')
     lines.push(`*Notes:*`)
     lines.push(`> ${row.notes.trim().replace(/\n/g, '\n> ')}`)
+  }
+
+  // Call recording — surface a "Listen to call" link routed through
+  // the Hub's signed proxy so clients can play it without needing
+  // their IP on Vicitel's allowlist. signRecordingUrl returns null
+  // when the proxy isn't configured yet (no RECORDING_PROXY_SECRET)
+  // or when the upstream host isn't on our allowlist — in either
+  // case we silently skip the line rather than ship a link that
+  // wouldn't work. Same channel post + same UX as before when the
+  // proxy comes online, just with one more line appended.
+  if (row.callRecordingLink?.trim()) {
+    const signed = signRecordingUrl(
+      row.callRecordingLink.trim(),
+      getHubOrigin(),
+    )
+    if (signed) {
+      lines.push('')
+      lines.push(`*🎧 Recording:* <${signed}|Listen to call>`)
+    }
   }
 
   return lines.join('\n')
