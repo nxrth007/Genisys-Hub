@@ -97,6 +97,12 @@ model User {
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
   followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
   appointmentEdits    AppointmentEditLog[] @relation("AppointmentEditor")
+  /// Appointments this admin/member has marked as reviewed on the
+  /// /call-center/status-updates triage page. Lets the page show
+  /// "Reviewed by Ethan" badges and audit who triaged what. SetNull
+  /// on the Appointment side so deleting a user doesn't block the
+  /// row.
+  statusUpdateReviews Appointment[]       @relation("AppointmentReviewer")
 }
 
 model Account {
@@ -669,6 +675,19 @@ model Appointment {
   /// days ago" vs "Client just confirmed no-show 5 minutes ago"
   /// at a glance.
   clientStatusUpdatedAt DateTime?
+
+  /// When an admin/member triaged a client-side status update on
+  /// /call-center/status-updates. Null = unreviewed (drives the
+  /// red-dot badge on the tab + the "Awaiting client review"
+  /// section). Distinct from clientStatusUpdatedAt so subsequent
+  /// client edits re-surface the row as unreviewed even after a
+  /// previous admin review.
+  clientStatusReviewedAt   DateTime?
+  /// Hub user who marked the latest review. SetNull on User
+  /// delete so the column doesn't block deletion. Null when
+  /// clientStatusReviewedAt is null.
+  clientStatusReviewedById String?
+  clientStatusReviewedBy   User? @relation("AppointmentReviewer", fields: [clientStatusReviewedById], references: [id], onDelete: SetNull)
 
   // Free-text "booked by" — the human agent who took the call.
   // Distinct from agentUserId, which is the Hub user that submitted
