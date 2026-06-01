@@ -28,11 +28,13 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   Building2,
   Calendar,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   CreditCard,
   ExternalLink,
@@ -1514,6 +1516,13 @@ function TrackerView() {
    *  inline widget. */
   const [reportingAppointment, setReportingAppointment] =
     useState<Appointment | null>(null)
+  /** Currently-expanded appointment in the desktop table. Same UX as
+   *  the master tracker — click the chevron to slide open a detail
+   *  drawer with full customer / address / property / notes / call
+   *  recording fields. Null = nothing expanded. Single value (not
+   *  Set) so opening one row collapses any other open row, keeping
+   *  the table from sprawling. */
+  const [expandedApptId, setExpandedApptId] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<{
     client: {
@@ -1796,6 +1805,10 @@ function TrackerView() {
             <table className="hidden w-full text-sm md:table">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
                 <tr>
+                  {/* Chevron column — no header label, just space for
+                      the expand toggle. Matches the master-tracker
+                      pattern Alex is used to from /call-center. */}
+                  <th className="w-6 px-2 py-2" />
                   <th className="px-4 py-2 text-left font-semibold">Date</th>
                   <th className="px-4 py-2 text-left font-semibold">Customer</th>
                   <th className="px-4 py-2 text-left font-semibold">Phone</th>
@@ -1808,11 +1821,38 @@ function TrackerView() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((a) => (
+                {filtered.map((a) => {
+                  const isExpanded = expandedApptId === a.id
+                  return (
+                  <Fragment key={a.id}>
                   <tr
-                    key={a.id}
-                    className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-950/50"
+                    className={cn(
+                      'border-b border-zinc-100 transition-colors dark:border-zinc-800',
+                      isExpanded
+                        ? 'bg-blue-50/40 dark:bg-blue-950/20'
+                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-950/50',
+                    )}
                   >
+                    <td className="px-2 py-2 align-middle">
+                      {/* Toggle — collapses any other open row by
+                          setting a single id rather than a Set, so
+                          the table doesn't sprawl into "all rows
+                          open" if the client clicks through many. */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedApptId(isExpanded ? null : a.id)
+                        }
+                        title={isExpanded ? 'Collapse details' : 'Show details'}
+                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </td>
                     <td className="px-4 py-2 tabular-nums">
                       {formatDateTime(a.apptDateTime)}
                     </td>
@@ -1892,7 +1932,23 @@ function TrackerView() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  {/* Expanded detail drawer — same structure as the
+                      master-tracker RowDetail so admins and clients
+                      see the same kind of layout. colSpan covers the
+                      chevron + 9 data columns = 10 total. */}
+                  {isExpanded && (
+                    <tr className="bg-blue-50/20 dark:bg-blue-950/10">
+                      <td
+                        colSpan={10}
+                        className="border-b border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
+                      >
+                        <ClientApptDetail appointment={a} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  )
+                })}
               </tbody>
             </table>
 
@@ -2220,6 +2276,157 @@ function formatRelative(iso: string): string {
   } catch {
     return iso
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Expandable row detail — mirrors master-tracker's drawer for clients       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Detail drawer that slides open when the client clicks the chevron
+ * next to an appointment row. Mirrors the master-tracker's RowDetail
+ * shape (3-column grid: Customer / Address / Property, full-width
+ * notes blocks below) so the experience matches what admin sees.
+ *
+ * Hides any sub-block that has nothing to show — an appointment
+ * with no notes / no recording shouldn't render empty headers.
+ */
+function ClientApptDetail({ appointment }: { appointment: Appointment }) {
+  return (
+    <div className="grid gap-x-8 gap-y-3 text-xs md:grid-cols-3">
+      <DetailItem label="Customer">
+        <div className="font-medium text-zinc-800 dark:text-zinc-100">
+          {appointment.customerName}
+        </div>
+        <div className="font-mono text-zinc-500">
+          {appointment.customerPhone}
+        </div>
+        {appointment.email && (
+          <a
+            href={`mailto:${appointment.email}`}
+            className="text-blue-600 hover:underline"
+          >
+            {appointment.email}
+          </a>
+        )}
+      </DetailItem>
+      <DetailItem label="Address">
+        {appointment.address || (
+          <span className="text-zinc-400">Not provided</span>
+        )}
+      </DetailItem>
+      <DetailItem label="Property">
+        <div>
+          <span className="text-zinc-400">Bill:</span>{' '}
+          {appointment.monthlyBill
+            ? `$${appointment.monthlyBill}${appointment.monthlyBill.includes('/') ? '' : '/mo'}`
+            : '—'}
+        </div>
+        <div>
+          <span className="text-zinc-400">Utility:</span>{' '}
+          {appointment.utilityProvider || '—'}
+        </div>
+        <div>
+          <span className="text-zinc-400">Roof:</span>{' '}
+          {appointment.roofType || '—'}
+          {appointment.roofAge && ` · ${appointment.roofAge}`}
+        </div>
+        <div>
+          <span className="text-zinc-400">Deal value:</span>{' '}
+          {appointment.estimatedDealValue
+            ? `$${appointment.estimatedDealValue}`
+            : '—'}
+        </div>
+        {appointment.bookedByName && (
+          <div>
+            <span className="text-zinc-400">Booked by:</span>{' '}
+            {appointment.bookedByName}
+          </div>
+        )}
+        <div>
+          <span className="text-zinc-400">Logged:</span>{' '}
+          {new Date(appointment.createdAt).toLocaleString('en-US')}
+        </div>
+      </DetailItem>
+      {/* Notes from the call-center side. Surfaced verbatim so the
+          client sees the same context Mary captured at booking
+          time — utility, roof concerns, lead temperature, etc. */}
+      {appointment.notes && (
+        <div className="md:col-span-3">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            Notes from the call
+          </p>
+          <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+            {appointment.notes}
+          </div>
+        </div>
+      )}
+      {/* Notes the client themselves left when they hit Update
+          Status. Emerald accent — same color as the master-tracker
+          treatment so the two surfaces visually agree. Hidden when
+          empty so the drawer doesn't render dead headers. */}
+      {appointment.clientNotes && (
+        <div className="md:col-span-3">
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+              Your notes
+            </p>
+            {appointment.clientStatusUpdatedAt && (
+              <p
+                className="text-[10px] text-zinc-400"
+                title={new Date(appointment.clientStatusUpdatedAt).toLocaleString()}
+              >
+                Updated{' '}
+                {new Date(appointment.clientStatusUpdatedAt).toLocaleString(
+                  'en-US',
+                  { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' },
+                )}
+              </p>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            {appointment.clientNotes}
+          </div>
+        </div>
+      )}
+      {/* Larger recording button at the bottom of the drawer — the
+          inline one in the Recording column is small for table
+          density, this one is the primary CTA when the client has
+          the drawer open. Hidden when there's no recording. */}
+      {appointment.recordingUrl && (
+        <div className="md:col-span-3">
+          <a
+            href={appointment.recordingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+          >
+            <Play className="h-3 w-3" />
+            Play call recording
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailItem({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+        {label}
+      </p>
+      <div className="space-y-0.5 text-zinc-700 dark:text-zinc-300">
+        {children}
+      </div>
+    </div>
+  )
 }
 
 /* -------------------------------------------------------------------------- */
