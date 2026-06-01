@@ -3,6 +3,8 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate } from '@/lib/appointment-sync'
 import { recordAppointmentEdit, diffSnapshots } from '@/lib/appointment-edit-log'
+import { sendStatusUpdateAlert } from '@/lib/status-update-alert'
+import { getPublicOrigin } from '@/lib/gmail'
 
 /**
  * PATCH /api/client/appointments/[id]/outcome
@@ -126,6 +128,7 @@ export async function PATCH(
       apptDateTime: true,
       customerName: true,
       customerPhone: true,
+      address: true,
       client: { select: { name: true } },
     },
   })
@@ -147,9 +150,17 @@ export async function PATCH(
   // caller actually sent a value (or null to clear). Always stamp
   // clientStatusUpdatedAt so the master tracker can show "client
   // updated 5 min ago".
+  //
+  // Reset the review state on every client update — if Ethan already
+  // marked the previous version of this update reviewed, the client
+  // posting a new outcome / new notes should re-surface the row as
+  // unreviewed so it doesn't slip past admin. Mirrors how Gmail
+  // re-bolds a thread when a new message lands.
   const data: Record<string, unknown> = {
     status: targetStatus,
     clientStatusUpdatedAt: new Date(),
+    clientStatusReviewedAt: null,
+    clientStatusReviewedById: null,
   }
   if (nextNotes !== undefined) {
     data.clientNotes = nextNotes
@@ -200,6 +211,30 @@ export async function PATCH(
   syncAppointmentUpdate(updated.id).catch((err) =>
     console.error(
       `[client/appointments/outcome] sheet sync failed for ${updated.id}:`,
+      err,
+    ),
+  )
+
+  // Slack alert to #genisys-alerts so admin sees the update on
+  // their phone instead of having to remember to refresh the
+  // triage page. Strictly fire-and-forget — sendStatusUpdateAlert
+  // catches every error internally, but we still detach with void
+  // + catch so a missed catch can't poison the response.
+  void sendStatusUpdateAlert({
+    appointmentId: updated.id,
+    clientName: before.client?.name ?? 'Unknown client',
+    customerName: before.customerName,
+    customerPhone: before.customerPhone,
+    address: before.address,
+    apptDateTime: before.apptDateTime,
+    previousStatus: before.status,
+    newStatus: updated.status,
+    notes: updated.clientNotes,
+    actorLabel: editorName ?? editorEmail ?? 'a client login',
+    hubOrigin: getPublicOrigin(req),
+  }).catch((err) =>
+    console.error(
+      `[client/appointments/outcome] Slack alert failed for ${updated.id}:`,
       err,
     ),
   )
