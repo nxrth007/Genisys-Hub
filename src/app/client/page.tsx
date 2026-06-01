@@ -40,6 +40,7 @@ import {
   Info,
   Loader2,
   LogOut,
+  Play,
   Search,
   Sparkles,
   Trophy,
@@ -107,6 +108,12 @@ type Appointment = {
    *  never updated this one. */
   clientStatusUpdatedAt: string | null
   createdAt: string
+  /** Signed Hub-proxy URL for the call recording. Null when the
+   *  appointment has no recording on file OR the recording proxy
+   *  isn't configured yet (RECORDING_PROXY_SECRET unset). The raw
+   *  vicitel URL is stripped server-side and never reaches the
+   *  client — we only ever see the signed proxy URL. */
+  recordingUrl: string | null
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1795,6 +1802,7 @@ function TrackerView() {
                   <th className="px-4 py-2 text-left font-semibold">Address</th>
                   <th className="px-4 py-2 text-left font-semibold">Bill</th>
                   <th className="px-4 py-2 text-left font-semibold">Utility</th>
+                  <th className="px-4 py-2 text-left font-semibold">Recording</th>
                   <th className="px-4 py-2 text-left font-semibold">Status</th>
                   <th className="px-4 py-2 text-left font-semibold">Outcome</th>
                 </tr>
@@ -1817,6 +1825,26 @@ function TrackerView() {
                       {a.monthlyBill ?? '—'}
                     </td>
                     <td className="px-4 py-2">{a.utilityProvider ?? '—'}</td>
+                    <td className="px-4 py-2">
+                      {/* Recording link routes through the Hub's signed
+                          proxy (set server-side; raw vicitel URL never
+                          reaches the browser). Em-dash when the
+                          appointment has no recording or the proxy
+                          isn't configured. */}
+                      {a.recordingUrl ? (
+                        <a
+                          href={a.recordingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                        >
+                          <Play className="h-3 w-3" />
+                          Listen
+                        </a>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2">
                       <StatusBadge status={a.status} />
                     </td>
@@ -1908,6 +1936,23 @@ function TrackerView() {
                       </dd>
                     </div>
                   </dl>
+                  {/* Recording link — separate row so the play button
+                      is touch-friendly on mobile. Same signed-proxy
+                      URL as the desktop column; hidden entirely when
+                      there's no recording on file. */}
+                  {a.recordingUrl && (
+                    <div className="mt-2">
+                      <a
+                        href={a.recordingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                      >
+                        <Play className="h-3 w-3" />
+                        Listen to call
+                      </a>
+                    </div>
+                  )}
                   {/* Action row — appears for everything except
                       cancelled (which is terminal for the client).
                       "Update Status" lets them mark showed/no-show

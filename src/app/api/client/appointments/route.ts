@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { signRecordingUrl } from '@/lib/recording-proxy'
+import { getPublicOrigin } from '@/lib/gmail'
 
 /**
  * GET /api/client/appointments
@@ -14,7 +16,7 @@ import { prisma } from '@/lib/prisma'
  * blocks non-client_active roles before this handler runs; the
  * defensive checks here are belt-and-suspenders for future regressions.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -70,9 +72,29 @@ export async function GET() {
         clientNotes: true,
         clientStatusUpdatedAt: true,
         createdAt: true,
+        // Raw vicitel URL — IP-gated, so we never ship it to the
+        // client directly. signRecordingUrl wraps it in a signed Hub
+        // proxy URL that anyone can play; we only return that wrapped
+        // URL in the response below.
+        callRecordingLink: true,
       },
     }),
   ])
 
-  return NextResponse.json({ client, appointments })
+  // Wrap each appointment's raw recording URL in a signed proxy URL
+  // before sending it to the browser. signRecordingUrl returns null
+  // when RECORDING_PROXY_SECRET isn't set OR the upstream host isn't
+  // on the allowlist — in either case we drop the field entirely so
+  // the UI doesn't render a broken Listen link. Strip the raw URL on
+  // the way out either way; the client never sees the vicitel host.
+  const hubOrigin = getPublicOrigin(req)
+  const appointmentsForClient = appointments.map((a: typeof appointments[number]) => {
+    const { callRecordingLink, ...rest } = a
+    const signed = callRecordingLink?.trim()
+      ? signRecordingUrl(callRecordingLink.trim(), hubOrigin)
+      : null
+    return { ...rest, recordingUrl: signed }
+  })
+
+  return NextResponse.json({ client, appointments: appointmentsForClient })
 }
