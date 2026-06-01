@@ -650,10 +650,25 @@ model Appointment {
   utilityProvider String?
   roofType        String?
   roofAge         String?
-  status          String   @default("booked") // booked | rescheduled | showed | no_show | cancelled
+  status          String   @default("booked") // booked | rescheduled | showed | no_show | cancelled | won | lost
   estimatedDealValue String?
   notes           String?  @db.Text
   callRecordingLink String?
+
+  /// Notes the agency CLIENT (not the homeowner) wrote when they
+  /// updated the appointment status from their /client dashboard.
+  /// Distinct from `notes` (Mary's notes) so admin can see both
+  /// perspectives without one overwriting the other. Long-form;
+  /// added 2026-05-29 alongside the client-side "did they show?"
+  /// status update flow.
+  clientNotes     String?  @db.Text
+  /// Last time the client toggled the status field from their
+  /// dashboard. Null when the client has never touched it (Mary
+  /// owns all transitions until the client engages). Surfaced in
+  /// the master tracker so admin can tell "Mary said showed two
+  /// days ago" vs "Client just confirmed no-show 5 minutes ago"
+  /// at a glance.
+  clientStatusUpdatedAt DateTime?
 
   // Free-text "booked by" — the human agent who took the call.
   // Distinct from agentUserId, which is the Hub user that submitted

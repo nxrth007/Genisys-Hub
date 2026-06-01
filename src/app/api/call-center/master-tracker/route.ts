@@ -56,6 +56,12 @@ export async function GET() {
       customerPhone: true,
       apptDateTime: true,
       createdAt: true,
+      // Client-side update fields — pulled here so the master
+      // tracker rows can surface "client reported showed 5 min ago"
+      // hints + the client's own notes alongside Mary's. Added
+      // 2026-05-29 with the client status-update feature.
+      clientNotes: true,
+      clientStatusUpdatedAt: true,
     },
   })
 
@@ -138,13 +144,31 @@ export async function GET() {
   // otherwise.
   const dbCreatedAtByRow = new Map<number, Date>()
   const dbCreatedAtByContent = new Map<string, Date>()
+  /** Companion indices for the client-side fields — same lookup
+   *  pattern as createdAt so we can join sheet rows to their DB
+   *  appointment by rowNumber (fast path) or by phone + apptDate
+   *  (content path that survives row shifts). */
+  type ClientUpdate = {
+    notes: string | null
+    updatedAt: Date | null
+  }
+  const dbClientUpdateByRow = new Map<number, ClientUpdate>()
+  const dbClientUpdateByContent = new Map<string, ClientUpdate>()
   for (const a of dbAppts) {
     if (a.masterSheetRowNumber) {
       dbCreatedAtByRow.set(a.masterSheetRowNumber, a.createdAt)
+      dbClientUpdateByRow.set(a.masterSheetRowNumber, {
+        notes: a.clientNotes,
+        updatedAt: a.clientStatusUpdatedAt,
+      })
     }
     const phoneKey = normalizePhoneForKey(a.customerPhone)
     if (phoneKey && a.apptDateTime) {
       const ck = `${phoneKey}|${a.apptDateTime.toISOString()}`
+      dbClientUpdateByContent.set(ck, {
+        notes: a.clientNotes,
+        updatedAt: a.clientStatusUpdatedAt,
+      })
       dbCreatedAtByContent.set(ck, a.createdAt)
     }
   }
@@ -362,6 +386,34 @@ export async function GET() {
       callRecordingProxyUrl: r.callRecordingLink
         ? signRecordingUrl(r.callRecordingLink, getHubOrigin())
         : null,
+      /** Client-side update fields — surfaced so the master tracker
+       *  can show a small "Client reported" badge + the client's
+       *  own notes alongside Mary's. Looked up from the matching DB
+       *  Appointment row via the same rowNumber + content-key index
+       *  the createdAt lookup uses. Sheet-only rows (no DB record)
+       *  stay null naturally. */
+      clientNotes: (() => {
+        const byRow = dbClientUpdateByRow.get(r.rowNumber)
+        if (byRow && byRow.notes) return byRow.notes
+        const phoneKey = normalizePhoneForKey(r.customerPhone)
+        if (phoneKey && r.apptDateTime) {
+          const ck = `${phoneKey}|${new Date(r.apptDateTime).toISOString()}`
+          const byContent = dbClientUpdateByContent.get(ck)
+          if (byContent && byContent.notes) return byContent.notes
+        }
+        return null
+      })(),
+      clientStatusUpdatedAt: (() => {
+        const byRow = dbClientUpdateByRow.get(r.rowNumber)
+        if (byRow && byRow.updatedAt) return byRow.updatedAt.toISOString()
+        const phoneKey = normalizePhoneForKey(r.customerPhone)
+        if (phoneKey && r.apptDateTime) {
+          const ck = `${phoneKey}|${new Date(r.apptDateTime).toISOString()}`
+          const byContent = dbClientUpdateByContent.get(ck)
+          if (byContent && byContent.updatedAt) return byContent.updatedAt.toISOString()
+        }
+        return null
+      })(),
       lastSyncedAt: null,
       syncError: null,
       // `createdAt` keeps a non-null value so the CSV export "Logged At"

@@ -646,6 +646,10 @@ export async function dispatchPendingClientEmailAlerts(): Promise<{
     const html = formatAppointmentForClientEmail(synthRow, {
       clientName: appt.client?.name ?? 'Client',
       solar,
+      // DB-driven dispatch path — we have the appointment id, so
+      // the "Update Appointment Status" button can deep-link the
+      // client straight to the report modal.
+      appointmentId: appt.id,
     })
 
     try {
@@ -787,6 +791,9 @@ export async function retryFailedClientEmailAlert(
     html = formatAppointmentForClientEmail(synthRow, {
       clientName: appt.client?.name ?? 'Client',
       solar,
+      // Manual retry of a DB-keyed delivery — appointmentId
+      // available; surface the update button.
+      appointmentId: appt.id,
     })
   } else if (sheetMatch) {
     const sheetRowNumber = parseInt(sheetMatch[1]!, 10)
@@ -1042,7 +1049,18 @@ function subjectLineForRow(row: MasterTableRow, clientName: string): string {
  */
 export function formatAppointmentForClientEmail(
   row: MasterTableRow,
-  opts: { clientName: string; solar?: SolarSummary | null },
+  opts: {
+    clientName: string
+    solar?: SolarSummary | null
+    /** DB Appointment.id when one exists for this row (Mary's
+     *  Hub-form bookings have one; Yassin's secondary-sheet rows
+     *  don't). When present, renders an "Update Appointment Status"
+     *  button at the bottom of the email that deep-links to the
+     *  client dashboard with a pre-opened report modal. Skipped
+     *  when null — partner-sheet rows can't be updated through the
+     *  client dashboard since they're not in our DB. */
+    appointmentId?: string | null
+  },
 ): string {
   const cleanedAddress = normalizeAddress(row.address)
   const tz = row.resolvedTimezone || timezoneForAddress(cleanedAddress)
@@ -1176,6 +1194,32 @@ export function formatAppointmentForClientEmail(
       </div>`
     : ''
 
+  // "Update appointment status" deep-link — only rendered when we
+  // have a DB Appointment id (partner-sheet rows don't, so they
+  // silently skip the button, matching Alex's "unless they're from
+  // a Partner" requirement). Click → opens /client?report=<id> in
+  // a new tab; the dashboard's modal auto-opens for that appointment
+  // (logged-in clients land directly; logged-out clients go through
+  // the standard NextAuth callback flow first).
+  const updateStatusUrl = opts.appointmentId
+    ? `${getHubOrigin()}/client?report=${encodeURIComponent(opts.appointmentId)}`
+    : null
+  const updateStatusSection = updateStatusUrl
+    ? `
+      <div style="margin:16px 0 0 0;">
+        <a href="${esc(updateStatusUrl)}"
+           target="_blank"
+           style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:600;">
+          Update Appointment Status
+        </a>
+        <p style="margin:6px 0 0 0;color:#6b7280;font-size:12px;">
+          After the meeting, log into your dashboard and mark the
+          outcome — showed, didn't show, plus any notes. Helps us
+          close the loop without a follow-up call.
+        </p>
+      </div>`
+    : ''
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1216,6 +1260,7 @@ export function formatAppointmentForClientEmail(
               ${solarSection}
               ${notesSection}
               ${recordingSection}
+              ${updateStatusSection}
             </td>
           </tr>
 

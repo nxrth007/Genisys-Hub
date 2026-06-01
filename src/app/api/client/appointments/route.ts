@@ -64,6 +64,11 @@ export async function GET() {
         estimatedDealValue: true,
         notes: true,
         bookedByName: true,
+        // Client-side status update fields. Surfaced so the
+        // dashboard "Update Status" modal can pre-fill the notes
+        // textarea on re-open and show "Last updated X ago" hints.
+        clientNotes: true,
+        clientStatusUpdatedAt: true,
         createdAt: true,
       },
     }),

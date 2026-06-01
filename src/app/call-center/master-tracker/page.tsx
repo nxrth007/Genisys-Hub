@@ -97,6 +97,15 @@ type Appointment = {
    *  host isn't allowlisted. The Play button prefers this when
    *  present and falls back to the raw callRecordingLink. */
   callRecordingProxyUrl?: string | null
+  /** Free-form notes the agency CLIENT (not the homeowner) attached
+   *  via their dashboard "Update Status" flow. Distinct from `notes`
+   *  (Mary's notes) — surfaced separately so the master tracker
+   *  shows both perspectives. */
+  clientNotes?: string | null
+  /** Timestamp of the client's most recent status update from their
+   *  dashboard. Drives the small "Client updated X ago" hint on
+   *  the row so admin can spot fresh activity without clicking in. */
+  clientStatusUpdatedAt?: string | null
   createdAt: string
   /** Honest "Logged At" cell from the sheet — null when blank. The
    *  "Set today / Set this week" filters key off this exclusively so
@@ -2026,10 +2035,37 @@ function RowDetail({
       {appointment.notes && (
         <div className="md:col-span-3">
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-            Notes
+            Notes (Mary)
           </p>
           <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
             {appointment.notes}
+          </div>
+        </div>
+      )}
+      {/* Client-side notes — surfaced when the agency client has
+          updated this appointment from their dashboard. Distinct
+          from Mary's Notes above so neither perspective gets
+          stomped. Yassin's secondary-sheet rows don't have a DB
+          appointment behind them, so clientNotes stays null and
+          this block stays hidden — matches Alex's "unless they're
+          from a Partner" requirement automatically. */}
+      {appointment.clientNotes && (
+        <div className="md:col-span-3">
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+              Notes (Client)
+            </p>
+            {appointment.clientStatusUpdatedAt && (
+              <p
+                className="text-[10px] text-zinc-400"
+                title={new Date(appointment.clientStatusUpdatedAt).toLocaleString()}
+              >
+                Updated {new Date(appointment.clientStatusUpdatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </p>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            {appointment.clientNotes}
           </div>
         </div>
       )}

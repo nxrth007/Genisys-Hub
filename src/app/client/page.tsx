@@ -51,6 +51,7 @@ import Link from 'next/link'
 import { signOut } from 'next-auth/react'
 import { AddressInput } from '@/components/ui/address-input'
 import { formatPhoneInput } from '@/lib/phone'
+import { cn } from '@/lib/utils'
 
 /* -------------------------------------------------------------------------- */
 /*  Shared types                                                              */
@@ -95,6 +96,16 @@ type Appointment = {
   estimatedDealValue: string | null
   notes: string | null
   bookedByName: string | null
+  /** Client-side notes captured when they last hit "Update status"
+   *  on this appointment from the dashboard. Distinct from `notes`
+   *  (which is Mary's notes) so neither perspective overwrites
+   *  the other. */
+  clientNotes: string | null
+  /** Timestamp of the last client-side status update. Drives the
+   *  "Updated X ago" line on the appointment card so the client
+   *  can tell what they've already touched. Null when they've
+   *  never updated this one. */
+  clientStatusUpdatedAt: string | null
   createdAt: string
 }
 
@@ -1488,6 +1499,14 @@ function Field({
 
 function TrackerView() {
   const [search, setSearch] = useState('')
+  /** Appointment being status-reported via the modal. Null = modal
+   *  closed. Set by clicking the per-row "Update Status" button OR
+   *  by the /client?report=<id> URL param (deep-link from the email
+   *  alert button). The modal handles the showed / no-show + notes
+   *  capture; the won/lost flow stays on the existing OutcomeActions
+   *  inline widget. */
+  const [reportingAppointment, setReportingAppointment] =
+    useState<Appointment | null>(null)
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery<{
     client: {
@@ -1535,6 +1554,59 @@ function TrackerView() {
       queryClient.invalidateQueries({ queryKey: ['client-appointments'] })
     },
   })
+
+  /** Showed / no-show + notes capture — wraps the same outcome
+   *  endpoint as setOutcome but sends a different outcome value
+   *  AND the free-form notes string. Closes the modal on success
+   *  so the client sees their updated badge immediately. */
+  const setShowStatus = useMutation({
+    mutationFn: async ({
+      id,
+      outcome,
+      notes,
+    }: {
+      id: string
+      outcome: 'showed' | 'no_show'
+      notes: string
+    }) => {
+      const res = await fetch(`/api/client/appointments/${id}/outcome`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outcome, notes }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Failed to update')
+      return json
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['client-appointments'] })
+      setReportingAppointment(null)
+    },
+  })
+
+  // Deep-link handler — when the dashboard loads with a ?report=<id>
+  // query param (e.g. from the "Update Appointment Status" button
+  // in the email alert), auto-open the modal for that appointment.
+  // window.location.search reading instead of useSearchParams to
+  // avoid the Next.js 16 prerender failure flagged at the top of
+  // this file. Clears the param after open so a refresh doesn't
+  // re-trigger.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const reportId = params.get('report')
+    if (!reportId) return
+    const appts = data?.appointments
+    if (!appts) return
+    const target = appts.find((a) => a.id === reportId)
+    if (target) {
+      setReportingAppointment(target)
+      const newUrl = window.location.pathname
+      window.history.replaceState({}, '', newUrl)
+    }
+    // Only run when appointments load — the URL param check itself
+    // is cheap so re-running on every appointments refetch is fine.
+  }, [data?.appointments])
 
   const filtered = (data?.appointments ?? []).filter((a) => {
     if (!search.trim()) return true
@@ -1805,20 +1877,46 @@ function TrackerView() {
                       </dd>
                     </div>
                   </dl>
-                  {(a.status === 'showed' ||
-                    a.status === 'won' ||
-                    a.status === 'lost') && (
-                    <div className="mt-3 flex justify-end">
-                      <OutcomeActions
-                        status={a.status}
-                        pending={
-                          setOutcome.isPending &&
-                          setOutcome.variables?.id === a.id
-                        }
-                        onMark={(outcome) =>
-                          setOutcome.mutate({ id: a.id, outcome })
-                        }
-                      />
+                  {/* Action row — appears for everything except
+                      cancelled (which is terminal for the client).
+                      "Update Status" lets them mark showed/no-show
+                      + add notes; the existing Won/Lost widget only
+                      renders once the appointment is already a
+                      sit-down. clientStatusUpdatedAt drives a small
+                      "Updated X ago" hint so repeat updates feel
+                      acknowledged. */}
+                  {a.status !== 'cancelled' && (
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                      {a.clientStatusUpdatedAt && (
+                        <span
+                          className="text-[10px] text-zinc-400"
+                          title={new Date(a.clientStatusUpdatedAt).toLocaleString()}
+                        >
+                          Updated{' '}
+                          {formatRelative(a.clientStatusUpdatedAt)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setReportingAppointment(a)}
+                        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        Update status
+                      </button>
+                      {(a.status === 'showed' ||
+                        a.status === 'won' ||
+                        a.status === 'lost') && (
+                        <OutcomeActions
+                          status={a.status}
+                          pending={
+                            setOutcome.isPending &&
+                            setOutcome.variables?.id === a.id
+                          }
+                          onMark={(outcome) =>
+                            setOutcome.mutate({ id: a.id, outcome })
+                          }
+                        />
+                      )}
                     </div>
                   )}
                 </li>
@@ -1827,6 +1925,32 @@ function TrackerView() {
           </>
         )}
       </div>
+
+      {/* Status-report modal — opens from per-row "Update status"
+          clicks AND deep-link via ?report=<id> in the URL (the
+          email-alert button). Captures the showed / no-show
+          decision + free-form notes; saves to clientNotes +
+          status so Mary's master tracker view shows both
+          perspectives without one stomping the other. */}
+      {reportingAppointment && (
+        <StatusReportModal
+          appointment={reportingAppointment}
+          pending={setShowStatus.isPending}
+          errorMessage={
+            setShowStatus.isError
+              ? (setShowStatus.error as Error).message
+              : null
+          }
+          onClose={() => setReportingAppointment(null)}
+          onSubmit={(outcome, notes) =>
+            setShowStatus.mutate({
+              id: reportingAppointment.id,
+              outcome,
+              notes,
+            })
+          }
+        />
+      )}
     </>
   )
 }
@@ -1995,4 +2119,173 @@ function formatDateTime(iso: string): string {
   } catch {
     return iso
   }
+}
+
+/** "5 min ago" / "3h ago" / "yesterday" / "2d ago" — same pattern
+ *  we use elsewhere in the app for last-activity hints. Returns the
+ *  raw iso string if parsing fails so we never render "Invalid Date". */
+function formatRelative(iso: string): string {
+  try {
+    const then = new Date(iso).getTime()
+    const diffMs = Date.now() - then
+    const minutes = Math.floor(diffMs / 60000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes} min ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    if (days === 1) return 'yesterday'
+    if (days < 7) return `${days}d ago`
+    if (days < 30) return `${Math.floor(days / 7)}w ago`
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    })
+  } catch {
+    return iso
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Status report modal — captures showed / no-show + client notes            */
+/* -------------------------------------------------------------------------- */
+
+function StatusReportModal({
+  appointment,
+  pending,
+  errorMessage,
+  onClose,
+  onSubmit,
+}: {
+  appointment: Appointment
+  pending: boolean
+  errorMessage: string | null
+  onClose: () => void
+  onSubmit: (outcome: 'showed' | 'no_show', notes: string) => void
+}) {
+  // Pre-fill: when this appointment already has a recorded status,
+  // start the radio on whatever was last picked. New (booked /
+  // rescheduled) appointments leave the user to make a fresh choice.
+  const initialOutcome: 'showed' | 'no_show' | null =
+    appointment.status === 'no_show'
+      ? 'no_show'
+      : appointment.status === 'showed' ||
+          appointment.status === 'won' ||
+          appointment.status === 'lost'
+        ? 'showed'
+        : null
+  const [outcome, setOutcome] = useState<'showed' | 'no_show' | null>(
+    initialOutcome,
+  )
+  const [notes, setNotes] = useState<string>(appointment.clientNotes ?? '')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!outcome) return
+    onSubmit(outcome, notes)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold">Update appointment status</h2>
+            <p className="mt-0.5 truncate text-xs text-zinc-500">
+              {appointment.customerName} ·{' '}
+              {formatDateTime(appointment.apptDateTime)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <fieldset>
+            <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Did they show up?
+            </legend>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setOutcome('showed')}
+                className={cn(
+                  'rounded-lg border px-3 py-3 text-sm font-medium transition',
+                  outcome === 'showed'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                )}
+              >
+                ✓ Showed up
+              </button>
+              <button
+                type="button"
+                onClick={() => setOutcome('no_show')}
+                className={cn(
+                  'rounded-lg border px-3 py-3 text-sm font-medium transition',
+                  outcome === 'no_show'
+                    ? 'border-rose-500 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                    : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                )}
+              >
+                ✗ Didn&apos;t show
+              </button>
+            </div>
+          </fieldset>
+
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Notes (optional)
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              placeholder="Anything important — energy of the meeting, follow-up needed, why they didn't show, etc."
+              className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            />
+            <p className="mt-1 text-[10px] text-zinc-400">
+              Visible to your Genisys account manager. Doesn&apos;t
+              overwrite their internal notes.
+            </p>
+          </div>
+
+          {errorMessage && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+              {errorMessage}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!outcome || pending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              {pending ? 'Saving…' : 'Save update'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
