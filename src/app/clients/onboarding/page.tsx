@@ -400,6 +400,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
 }
 
 function CredentialsTab() {
+  const qc = useQueryClient()
   const { data, isLoading, error } = useQuery<{
     clients: Client[]
   }>({
@@ -433,11 +434,14 @@ function CredentialsTab() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Generate a /client login for any client below. We email the
-        temporary password to the client&apos;s contact email; on first
-        sign-in they&apos;re forced to pick their own. Click the same
-        button later to reset a forgotten password.
+        Generate a /client login for any client below. We email a
+        professional welcome with the temporary password to the
+        client&apos;s contact email + send a heads-up SMS to their
+        contactPhone (no credentials in the SMS — just &quot;check
+        your email&quot;). Click the same button later to reset a
+        forgotten password.
       </p>
+      <BulkProvisionPanel onProvisioned={() => qc.invalidateQueries()} />
       <div className="overflow-hidden rounded-2xl border border-border bg-card">
         <ul className="divide-y divide-border">
           {clients.map((c) => (
@@ -450,6 +454,201 @@ function CredentialsTab() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+type BulkPreview = {
+  id: string
+  name: string
+  contactEmail: string | null
+  hasContactPhone: boolean
+  provisionable: boolean
+}
+type BulkRunSummary = {
+  generated: number
+  failed: number
+  emailsSent: number
+  smsSent: number
+  smsSkippedNoPhone: number
+  smsFailed: number
+}
+type BulkRunResult = {
+  clientId: string
+  clientName: string
+  ok: boolean
+  emailSent: boolean
+  smsSent: boolean
+  smsSkippedReason: string | null
+  error: string | null
+  isNewLogin: boolean
+}
+
+/**
+ * Bulk-provision panel — sits above the per-client list on the
+ * Credentials tab. Shows a preview of how many active clients still
+ * need a login + a single button that provisions all of them in one
+ * pass. Built for Alex's 2026-05-29 roll-out of the 9 existing
+ * clients who onboarded before the registration flow existed.
+ *
+ * Auto-hides when there are zero unprovisioned clients — keeps the
+ * tab uncluttered once the back-fill is done.
+ */
+function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
+  const qc = useQueryClient()
+  const [summary, setSummary] = useState<{
+    summary: BulkRunSummary
+    results: BulkRunResult[]
+  } | null>(null)
+
+  const previewQuery = useQuery<{ candidates: BulkPreview[] }>({
+    queryKey: ['bulk-credentials-preview'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/clients/bulk-credentials')
+      if (!res.ok) throw new Error('Failed to load candidates')
+      return res.json()
+    },
+  })
+
+  const bulkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/clients/bulk-credentials', {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Bulk provisioning failed')
+      }
+      return (await res.json()) as {
+        summary: BulkRunSummary
+        results: BulkRunResult[]
+      }
+    },
+    onSuccess: (data) => {
+      setSummary(data)
+      qc.invalidateQueries({ queryKey: ['bulk-credentials-preview'] })
+      onProvisioned()
+    },
+  })
+
+  const candidates = previewQuery.data?.candidates ?? []
+  const provisionable = candidates.filter((c) => c.provisionable)
+  const missingEmail = candidates.filter((c) => !c.provisionable)
+
+  // Hide the panel entirely when there's nothing to do — once admin
+  // back-fills the 9 existing clients, all future signups come
+  // through the registration flow and this panel stays out of the
+  // way.
+  if (!previewQuery.isLoading && candidates.length === 0 && !summary) {
+    return null
+  }
+
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+            Roll out logins for existing clients
+          </h3>
+          <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
+            Generates a /client login for every active client that
+            doesn&apos;t already have one. Each gets a professional
+            welcome email with their credentials + a heads-up SMS
+            pointing them at their inbox. Password change is encouraged
+            but not forced — they can keep using the temp one if they
+            prefer.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={
+            bulkMutation.isPending ||
+            previewQuery.isLoading ||
+            provisionable.length === 0
+          }
+          onClick={() => {
+            const ok = window.confirm(
+              `Provision logins + send welcome email/SMS for ${provisionable.length} client${
+                provisionable.length === 1 ? '' : 's'
+              }? This is sequential and may take ~10-20 seconds.`,
+            )
+            if (!ok) return
+            bulkMutation.mutate()
+          }}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+        >
+          {bulkMutation.isPending ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Running…
+            </>
+          ) : (
+            <>
+              <Send className="h-3 w-3" />
+              Generate {provisionable.length} login
+              {provisionable.length === 1 ? '' : 's'}
+            </>
+          )}
+        </button>
+      </div>
+
+      {missingEmail.length > 0 && (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <p className="font-medium">
+            {missingEmail.length} client
+            {missingEmail.length === 1 ? '' : 's'} missing a contact
+            email — these will be skipped:
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {missingEmail.map((c) => (
+              <li key={c.id}>{c.name}</li>
+            ))}
+          </ul>
+          <p className="mt-1.5">
+            Set their contactEmail from /clients first, then re-run.
+          </p>
+        </div>
+      )}
+
+      {summary && (
+        <div className="mt-3 rounded-md border border-blue-200 bg-white p-3 text-xs dark:border-blue-900 dark:bg-zinc-900">
+          <p className="font-semibold text-blue-900 dark:text-blue-200">
+            Done.{' '}
+            <span className="font-normal text-blue-800 dark:text-blue-300">
+              {summary.summary.generated} login
+              {summary.summary.generated === 1 ? '' : 's'} generated ·{' '}
+              {summary.summary.emailsSent} email
+              {summary.summary.emailsSent === 1 ? '' : 's'} sent ·{' '}
+              {summary.summary.smsSent} SMS sent
+              {summary.summary.smsSkippedNoPhone > 0 && (
+                <>
+                  {' '}
+                  ({summary.summary.smsSkippedNoPhone} skipped — no phone
+                  on file)
+                </>
+              )}
+              {summary.summary.smsFailed > 0 && (
+                <>, {summary.summary.smsFailed} SMS failed</>
+              )}
+              {summary.summary.failed > 0 && (
+                <>, {summary.summary.failed} failed</>
+              )}
+            </span>
+          </p>
+          {summary.results.some((r) => !r.ok || r.error) && (
+            <ul className="mt-2 space-y-0.5 text-zinc-700 dark:text-zinc-300">
+              {summary.results
+                .filter((r) => !r.ok || r.error)
+                .map((r) => (
+                  <li key={r.clientId}>
+                    <span className="font-semibold">{r.clientName}:</span>{' '}
+                    {r.error ?? 'unknown'}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

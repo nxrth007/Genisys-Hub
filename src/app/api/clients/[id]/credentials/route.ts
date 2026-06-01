@@ -1,46 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import bcrypt from 'bcryptjs'
-import { randomBytes } from 'node:crypto'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { sendEmail, getPublicOrigin } from '@/lib/gmail'
+import { getPublicOrigin } from '@/lib/gmail'
+import {
+  provisionClientCredentials,
+  sendClientWelcomeMessages,
+} from '@/lib/client-credentials'
 
 /**
- * Phase 1 of client-access: lets admin generate a login for an
- * already-onboarded client. Spec from Alex:
+ * Single-client login provisioning. Admin clicks "Generate login" /
+ * "Reset password" on the Credentials tab → we mint a temp password,
+ * email it to the client with a professional welcome layout, and SMS
+ * the client a heads-up to check their email.
  *
- *   "I was thinking you could create them user-names and passwords
- *   for now instead of having to use their email. I want you to
- *   create these log ins/Accounts for all current Clients and store
- *   that information on a tab on the 'onboarding' page called
- *   Credentials."
+ * Idempotent: re-running on a client that already has a login
+ * rotates the password (same UX as a password reset).
  *
- * We use the client's contactEmail (cleaner than a separate username
- * column — emails are unique already and the client has one we can
- * write to). Admin clicks "Generate login" on the Credentials tab,
- * we provision a User row with role=client_active, mustChangePassword=
- * true, link clientId, generate a 16-char temp password, bcrypt it,
- * and email the password to both the client and to alex@leadgenisys
- * .com (so Alex has a record before the client logs in).
- *
- * Idempotent on regeneration: if a client_active User already exists
- * for this client, we rotate its password rather than creating a
- * duplicate row. Admin can use this same flow to reset a forgotten
- * password.
+ * Provisioning + delivery logic lives in lib/client-credentials.ts —
+ * same code path the bulk endpoint uses, so the two can't drift.
  */
-const FROM_GMAIL_ACCOUNT =
-  process.env.AGENT_APPROVAL_FROM_EMAIL || 'alex@leadgenisys.com'
-
-/** Length of generated temp passwords. 16 random bytes → ~21 chars in
- *  base64url, comfortably above the 10-char minimum on the change-
- *  password screen. */
-const TEMP_PASSWORD_BYTES = 16
-
-function generateTempPassword(): string {
-  // base64url avoids ambiguous characters (no + / =) and is shell-safe
-  // for emails. 16 bytes → 22 chars.
-  return randomBytes(TEMP_PASSWORD_BYTES).toString('base64url')
-}
 
 export async function POST(
   req: NextRequest,
@@ -56,170 +34,60 @@ export async function POST(
   }
 
   const { id } = await params
+
+  // Fetch the client for email + SMS delivery context. provisionClientCredentials
+  // also reads it internally, but we need contactPhone + contactName
+  // for the welcome SMS / email greeting, which the lib's narrowed
+  // result doesn't return.
   const client = await prisma.client.findUnique({
     where: { id },
-    select: { id: true, name: true, contactEmail: true, contactName: true },
+    select: {
+      id: true,
+      name: true,
+      contactEmail: true,
+      contactName: true,
+      contactPhone: true,
+    },
   })
   if (!client) {
     return NextResponse.json({ error: 'client not found' }, { status: 404 })
   }
-  const email = client.contactEmail?.trim().toLowerCase()
-  if (!email) {
-    return NextResponse.json(
-      {
-        error:
-          'This client has no contact email — add one on the client edit form first, then generate credentials.',
-      },
-      { status: 400 },
-    )
+
+  const provision = await provisionClientCredentials(id)
+  if (!provision.ok) {
+    // Map lib error codes to HTTP statuses. 400 for "missing input"
+    // shape (no email), 409 for collisions.
+    const status =
+      provision.code === 'no_contact_email' ? 400 : 409
+    return NextResponse.json({ error: provision.error }, { status })
   }
 
-  // Block accidentally repurposing a staff/agent account as a client
-  // login. If the email collides with a non-client user, admin needs
-  // to use a different one — we don't silently overwrite roles.
-  const existing = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, role: true, clientId: true },
-  })
-  if (
-    existing &&
-    existing.role !== 'client_active' &&
-    existing.role !== 'client_pending' &&
-    existing.role !== 'client_onboarding' &&
-    existing.role !== 'client_denied'
-  ) {
-    return NextResponse.json(
-      {
-        error: `An account with email ${email} already exists for a non-client user (role=${existing.role}). Use a different contact email.`,
-      },
-      { status: 409 },
-    )
-  }
-  if (existing && existing.clientId && existing.clientId !== id) {
-    return NextResponse.json(
-      {
-        error: `An account with email ${email} is already linked to a different client. Resolve the conflict before generating credentials here.`,
-      },
-      { status: 409 },
-    )
-  }
-
-  // Block creating a SECOND login on a client that already has one.
-  // Hits the case where Client.contactEmail was changed after a self-
-  // registered user already linked themselves; without this check
-  // we'd silently spawn a parallel User and the approve/deny flow
-  // would have to flip multiple rows. Reset the existing one (or
-  // change its email) instead.
-  //
-  // Skipped when `existing` is the same User row we'd be updating —
-  // that's a reset, not a new login.
-  if (!existing) {
-    const otherLogin = await prisma.user.findFirst({
-      where: {
-        clientId: id,
-        role: { startsWith: 'client_' },
-      },
-      select: { id: true, email: true, role: true },
-    })
-    if (otherLogin) {
-      return NextResponse.json(
-        {
-          error: `This client already has a login (${otherLogin.email}). Update the contact email to match before generating credentials, or reset that login's password instead of creating a second one.`,
-        },
-        { status: 409 },
-      )
-    }
-  }
-
-  // Generate a fresh temp password every time. Even on regenerate
-  // (admin "reset password"), the old one is invalidated.
-  const tempPassword = generateTempPassword()
-  const passwordHash = await bcrypt.hash(tempPassword, 12)
-
-  const user = existing
-    ? await prisma.user.update({
-        where: { id: existing.id },
-        data: {
-          passwordHash,
-          mustChangePassword: true,
-          role: 'client_active',
-          clientId: id,
-        },
-        select: { id: true, email: true, name: true, createdAt: true },
-      })
-    : await prisma.user.create({
-        data: {
-          email,
-          name: client.contactName ?? client.name,
-          passwordHash,
-          mustChangePassword: true,
-          role: 'client_active',
-          clientId: id,
-        },
-        select: { id: true, email: true, name: true, createdAt: true },
-      })
-
-  // Fire-and-forget both emails so the admin's "Generate login" click
-  // returns immediately. The response always carries `tempPassword`
-  // (returned ONCE), so even if the client-bound email fails to land,
-  // admin can copy from the inline panel and share manually. Errors
-  // surface in server logs via .catch.
-  const origin = getPublicOrigin(req)
-  const signinUrl = `${origin}/signin/client`
-  const recipient = client.contactName
-    ? `${client.contactName} (${client.name})`
-    : client.name
-  sendEmail({
-    accountEmail: FROM_GMAIL_ACCOUNT,
-    to: email,
-    subject: 'Your Genisys Hub client login is ready',
-    body: [
-      `Hi ${client.contactName || 'there'},`,
-      '',
-      'We just provisioned a Genisys Hub login for you. Sign in to see the appointments we are delivering for your business in real time.',
-      '',
-      `**Sign in:** ${signinUrl}`,
-      `**Email:** ${email}`,
-      `**Temporary password:** ${tempPassword}`,
-      '',
-      'You will be asked to set your own password the first time you sign in.',
-      '',
-      '— Genisys',
-    ].join('\n'),
-  }).catch((err) => {
-    console.error('[clients/credentials] email send failed:', err)
-  })
-
-  // Notify Alex too so he has a paper trail of provisioned logins.
-  sendEmail({
-    accountEmail: FROM_GMAIL_ACCOUNT,
-    to: 'alex@leadgenisys.com',
-    subject: `[Genisys Hub] Login provisioned for ${client.name}`,
-    body: [
-      `Login generated for ${recipient}.`,
-      '',
-      `Email: ${email}`,
-      `Sign in: ${signinUrl}`,
-      '',
-      'The temp password was emailed to the client.',
-      '',
-      '— Genisys Hub',
-    ].join('\n'),
-  }).catch((err) => {
-    console.error('[clients/credentials] alex notify failed:', err)
+  // Welcome email + SMS — awaited so the response can report whether
+  // delivery succeeded. The lib captures errors per-channel without
+  // throwing, so failures here are reported in the response, not as
+  // 500s.
+  const delivery = await sendClientWelcomeMessages({
+    client: {
+      id: client.id,
+      name: client.name,
+      contactName: client.contactName,
+      contactEmail: provision.email,
+      contactPhone: client.contactPhone,
+    },
+    email: provision.email,
+    tempPassword: provision.tempPassword,
+    hubOrigin: getPublicOrigin(req),
   })
 
   return NextResponse.json({
-    user,
+    user: { id: provision.userId, email: provision.email },
     client: { id: client.id, name: client.name },
     /** Returned only on the immediate response so admin can copy it
-     *  if the email send failed. Never persisted in plaintext. */
-    tempPassword,
-    /** Always true now — the email send is fire-and-forget so the
-     *  response can return in milliseconds. The Credentials tab UI
-     *  treats it as "we attempted delivery; copy the inline temp
-     *  password if the client doesn't see the email." */
-    emailDispatched: true,
+     *  if the welcome email send failed. Never persisted in plaintext
+     *  anywhere — the only DB record is the bcrypt hash. */
+    tempPassword: provision.tempPassword,
+    isNewLogin: provision.isNewLogin,
+    delivery,
   })
 }
 
