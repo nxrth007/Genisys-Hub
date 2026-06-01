@@ -1821,16 +1821,47 @@ function TrackerView() {
                       <StatusBadge status={a.status} />
                     </td>
                     <td className="px-4 py-2">
-                      <OutcomeActions
-                        status={a.status}
-                        pending={
-                          setOutcome.isPending &&
-                          setOutcome.variables?.id === a.id
-                        }
-                        onMark={(outcome) =>
-                          setOutcome.mutate({ id: a.id, outcome })
-                        }
-                      />
+                      {/* Outcome cell mirrors the card-view action
+                          row: Update-status button is the primary
+                          action for every non-cancelled appointment;
+                          Won/Lost picker only renders once the
+                          appointment is already a sit-down. Mobile
+                          card-view at the same logic, kept in sync
+                          below — change both when changing either. */}
+                      {a.status !== 'cancelled' && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setReportingAppointment(a)}
+                            className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          >
+                            Update status
+                          </button>
+                          {a.clientStatusUpdatedAt && (
+                            <span
+                              className="text-[10px] text-zinc-400"
+                              title={new Date(a.clientStatusUpdatedAt).toLocaleString()}
+                            >
+                              Updated{' '}
+                              {formatRelative(a.clientStatusUpdatedAt)}
+                            </span>
+                          )}
+                          {(a.status === 'showed' ||
+                            a.status === 'won' ||
+                            a.status === 'lost') && (
+                            <OutcomeActions
+                              status={a.status}
+                              pending={
+                                setOutcome.isPending &&
+                                setOutcome.variables?.id === a.id
+                              }
+                              onMark={(outcome) =>
+                                setOutcome.mutate({ id: a.id, outcome })
+                              }
+                            />
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
