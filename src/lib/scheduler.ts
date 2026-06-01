@@ -30,6 +30,7 @@ import {
 } from './client-email-alert'
 import { syncClientMessageAlerts } from './client-message-alert'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
+import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 
 let initialized = false
 
@@ -102,6 +103,19 @@ export function initScheduler() {
 
   // Tick every minute, check if any user's brief is due.
   cron.schedule('* * * * *', async () => {
+    // One-time scheduled bulk-credential provisioning. Reads the
+    // BULK_CREDENTIALS_FIRE_AT env var and an AppSetting record to
+    // decide whether to fire. No-op when the env var is unset
+    // (which is the steady-state after the 2026-06-01 roll-out).
+    // Wrapped in its own try/catch so a failure here can't block
+    // the rest of the tick — briefs, dispatches, syncs all
+    // independent.
+    try {
+      await maybeRunScheduledBulkCredentials()
+    } catch (err) {
+      console.error('[scheduler] scheduled bulk-credentials check failed:', err)
+    }
+
     try {
       await checkAndSendBriefs()
     } catch (err) {
