@@ -337,15 +337,21 @@ export default function CalendarPage() {
       {!isLoading && allEvents.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="Total" value={stats.total} className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900" />
+          {/* Monthly total — same source as Total today (allEvents is
+              already filtered to the selected month server-side). Kept
+              as a distinct card so we can split the meaning later: e.g.
+              Total = all-time / YTD, Monthly Total = the month visible
+              in the calendar. Replaces the old "Showed" card while we
+              fix outcome tracking. */}
+          <StatCard
+            label="Monthly Total"
+            value={stats.total}
+            className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400"
+          />
           <StatCard
             label="Confirmed"
             value={stats.confirmed}
             className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400"
-          />
-          <StatCard
-            label="Showed"
-            value={stats.showed}
-            className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400"
           />
           <StatCard
             label="Cancelled / No Show"
