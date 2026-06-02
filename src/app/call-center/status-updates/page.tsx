@@ -17,7 +17,6 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
 
 /**
  * /call-center/status-updates — admin triage page for every client-
@@ -108,9 +107,10 @@ export default function StatusUpdatesPage() {
 }
 
 function PageSkeleton() {
+  // The call-center layout already renders the tabs above this
+  // page, so the skeleton only fills in the body region.
   return (
-    <div className="space-y-6 p-6">
-      <CallCenterTabs />
+    <div className="space-y-6">
       <div className="flex h-32 items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Loading status updates…
@@ -189,9 +189,10 @@ function StatusUpdatesInner() {
   }, [openApptId, data])
 
   return (
-    <div className="space-y-6 p-6">
-      <CallCenterTabs />
-
+    // Call-center layout wraps this page in its breadcrumb + tabs +
+    // date-range chrome. The page only renders its own header and
+    // body inside that frame — no extra padding wrapper.
+    <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight">Status Updates</h1>
         <p className="text-sm text-muted-foreground">
