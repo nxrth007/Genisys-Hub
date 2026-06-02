@@ -148,6 +148,15 @@ export async function GET(req: NextRequest) {
   // whole page — we degrade gracefully by returning DB-only data
   // and surfacing a `sheetReadError` field the UI can render as a
   // banner.
+  //
+  // TEMPORARY: per Alex 2026-06-01, sheets are read here because
+  // most existing client appointments still live on sheets and
+  // haven't been migrated into the Appointment table. Once
+  // everything onboards through the Hub form (and the legacy
+  // sheet rows are either backfilled or written off), DELETE this
+  // entire block + the sheet-walk merge below, and drop the
+  // hasDbRow / sourceKind / sheetReadError fields from the
+  // response shape. The DB-only fast path is the long-term plan.
   let sheetRows: Awaited<ReturnType<typeof readAllSheetRows>> = []
   let sheetReadError: string | null = null
   try {
