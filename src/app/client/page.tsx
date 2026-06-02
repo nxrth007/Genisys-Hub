@@ -109,6 +109,12 @@ type Appointment = {
    *  can tell what they've already touched. Null when they've
    *  never updated this one. */
   clientStatusUpdatedAt: string | null
+  /** Client's answer to the "Customer Disqualified?" follow-up
+   *  question, asked when outcome === 'showed'. true = sat down
+   *  but prospect didn't qualify; false = qualified; null = no
+   *  answer yet. Used to pre-fill the modal when the client
+   *  re-opens an already-reported appointment. */
+  customerDisqualified: boolean | null
   createdAt: string
   /** Signed Hub-proxy URL for the call recording. Null when the
    *  appointment has no recording on file OR the recording proxy
@@ -1580,15 +1586,28 @@ function TrackerView() {
       id,
       outcome,
       notes,
+      disqualified,
     }: {
       id: string
       outcome: 'showed' | 'no_show'
       notes: string
+      /** Optional follow-up answer to "Customer Disqualified?" —
+       *  only sent when outcome is 'showed'. null = answer
+       *  cleared; undefined = field not touched (caller didn't
+       *  collect it). */
+      disqualified: boolean | null | undefined
     }) => {
       const res = await fetch(`/api/client/appointments/${id}/outcome`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outcome, notes }),
+        body: JSON.stringify({
+          outcome,
+          notes,
+          // Only forward when meaningful — the API treats undefined
+          // as "don't touch", so this preserves prior values when
+          // the client picks no_show.
+          ...(disqualified !== undefined ? { disqualified } : {}),
+        }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || 'Failed to update')
@@ -2074,11 +2093,12 @@ function TrackerView() {
               : null
           }
           onClose={() => setReportingAppointment(null)}
-          onSubmit={(outcome, notes) =>
+          onSubmit={(outcome, notes, disqualified) =>
             setShowStatus.mutate({
               id: reportingAppointment.id,
               outcome,
               notes,
+              disqualified,
             })
           }
         />
@@ -2444,7 +2464,13 @@ function StatusReportModal({
   pending: boolean
   errorMessage: string | null
   onClose: () => void
-  onSubmit: (outcome: 'showed' | 'no_show', notes: string) => void
+  onSubmit: (
+    outcome: 'showed' | 'no_show',
+    notes: string,
+    /** undefined when the question wasn't asked (no_show path); the
+     *  API treats undefined as "don't touch this field". */
+    disqualified: boolean | null | undefined,
+  ) => void
 }) {
   // Pre-fill: when this appointment already has a recorded status,
   // start the radio on whatever was last picked. New (booked /
@@ -2461,11 +2487,24 @@ function StatusReportModal({
     initialOutcome,
   )
   const [notes, setNotes] = useState<string>(appointment.clientNotes ?? '')
+  // Customer Disqualified follow-up — only meaningful when outcome
+  // is 'showed'. Pre-fill from the appointment so reopening shows
+  // the previous answer. null = unanswered (the conditional
+  // fieldset renders neither button as selected).
+  const [disqualified, setDisqualified] = useState<boolean | null>(
+    appointment.customerDisqualified ?? null,
+  )
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!outcome) return
-    onSubmit(outcome, notes)
+    // Only forward the disqualified value when the question
+    // actually applied (showed). For no_show we send undefined so
+    // the API leaves the field alone (the API also force-clears it
+    // server-side as a defensive belt — see route.ts).
+    const dq: boolean | null | undefined =
+      outcome === 'showed' ? disqualified : undefined
+    onSubmit(outcome, notes, dq)
   }
 
   return (
@@ -2527,6 +2566,53 @@ function StatusReportModal({
               </button>
             </div>
           </fieldset>
+
+          {/* Conditional follow-up — only appears once the client
+              has confirmed the prospect showed up. A disqualified
+              answer captures the "sat down but washed" case
+              (renter, can't afford, wrong fit, etc.) so admins can
+              tell qualified showed-pipeline apart from showed-but-
+              wasted-time. Question is skipped on no_show paths —
+              a customer who didn't come can't have been disqualified
+              during the meeting. */}
+          {outcome === 'showed' && (
+            <fieldset>
+              <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Customer disqualified?
+              </legend>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDisqualified(true)}
+                  className={cn(
+                    'rounded-lg border px-3 py-2.5 text-sm font-medium transition',
+                    disqualified === true
+                      ? 'border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-300'
+                      : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                  )}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisqualified(false)}
+                  className={cn(
+                    'rounded-lg border px-3 py-2.5 text-sm font-medium transition',
+                    disqualified === false
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                  )}
+                >
+                  No
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-zinc-400">
+                Pick &quot;Yes&quot; if the prospect washed (renter, can&apos;t
+                afford, wrong fit, etc.) so it doesn&apos;t count as
+                qualified pipeline.
+              </p>
+            </fieldset>
+          )}
 
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">

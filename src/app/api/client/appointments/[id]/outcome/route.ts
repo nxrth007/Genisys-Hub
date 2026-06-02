@@ -38,6 +38,13 @@ import { getPublicOrigin } from '@/lib/gmail'
  * Body: {
  *   outcome: 'showed' | 'no_show' | 'won' | 'lost' | 'clear',
  *   notes?: string,   // optional, replaces clientNotes when present
+ *   disqualified?: boolean | null,
+ *     // Optional. Only meaningful when outcome === 'showed' —
+ *     // captures the answer to the "Customer Disqualified?" follow-
+ *     // up question. true = sat down but prospect washed; false =
+ *     // qualified real pipeline; null = answer cleared / not asked.
+ *     // Silently ignored when outcome is no_show (a no-show
+ *     // can't have been disqualified — they weren't there to qualify).
  * }
  */
 
@@ -77,9 +84,13 @@ export async function PATCH(
   }
 
   const { id } = await ctx.params
-  let body: { outcome?: unknown; notes?: unknown }
+  let body: { outcome?: unknown; notes?: unknown; disqualified?: unknown }
   try {
-    body = (await req.json()) as { outcome?: unknown; notes?: unknown }
+    body = (await req.json()) as {
+      outcome?: unknown
+      notes?: unknown
+      disqualified?: unknown
+    }
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
@@ -116,6 +127,34 @@ export async function PATCH(
     nextNotes = undefined // signal "don't touch"
   }
 
+  // Resolve the disqualified field. Three possible shapes:
+  //   - true / false  → store that boolean
+  //   - null          → clear the field (e.g. client switched back
+  //                     to no_show after first picking showed)
+  //   - undefined / missing → don't touch the field
+  // Anything else is a 400 so a malformed client can't corrupt the
+  // column with strings or numbers.
+  let nextDisqualified: boolean | null | undefined
+  if (body.disqualified === undefined) {
+    nextDisqualified = undefined
+  } else if (body.disqualified === null) {
+    nextDisqualified = null
+  } else if (typeof body.disqualified === 'boolean') {
+    nextDisqualified = body.disqualified
+  } else {
+    return NextResponse.json(
+      { error: '`disqualified` must be true, false, or null' },
+      { status: 400 },
+    )
+  }
+  // A no_show can't have been disqualified — the prospect wasn't
+  // there to qualify in the first place. Force the field to null
+  // for any no_show transition so a stale `true` from a prior
+  // "showed" update gets cleared.
+  if (targetStatus === 'no_show') {
+    nextDisqualified = null
+  }
+
   // Pull the existing row so we can validate the transition AND
   // capture a before-snapshot for the edit log.
   const before = await prisma.appointment.findFirst({
@@ -124,6 +163,7 @@ export async function PATCH(
       id: true,
       status: true,
       clientNotes: true,
+      customerDisqualified: true,
       clientId: true,
       apptDateTime: true,
       customerName: true,
@@ -165,6 +205,9 @@ export async function PATCH(
   if (nextNotes !== undefined) {
     data.clientNotes = nextNotes
   }
+  if (nextDisqualified !== undefined) {
+    data.customerDisqualified = nextDisqualified
+  }
 
   const updated = await prisma.appointment.update({
     where: { id },
@@ -173,6 +216,7 @@ export async function PATCH(
       id: true,
       status: true,
       clientNotes: true,
+      customerDisqualified: true,
       clientStatusUpdatedAt: true,
     },
   })
@@ -184,9 +228,17 @@ export async function PATCH(
   const editorName =
     (session.user as { name?: string | null }).name ?? null
   const changes = diffSnapshots(
-    { status: before.status, clientNotes: before.clientNotes },
-    { status: updated.status, clientNotes: updated.clientNotes },
-    ['status', 'clientNotes'] as const,
+    {
+      status: before.status,
+      clientNotes: before.clientNotes,
+      customerDisqualified: before.customerDisqualified,
+    },
+    {
+      status: updated.status,
+      clientNotes: updated.clientNotes,
+      customerDisqualified: updated.customerDisqualified,
+    },
+    ['status', 'clientNotes', 'customerDisqualified'] as const,
   )
   if (Object.keys(changes).length > 0) {
     void recordAppointmentEdit({

@@ -676,6 +676,15 @@ model Appointment {
   /// at a glance.
   clientStatusUpdatedAt DateTime?
 
+  /// Whether the client marked this prospect as disqualified
+  /// during the update flow. Captured ONLY when they answered
+  /// "showed" — the question doesn't render for no-show. Null = no
+  /// answer yet (the field's been added since this appointment was
+  /// last updated, or the client only ever picked no-show). True =
+  /// they sat down but the prospect washed (bad credit, renter, no
+  /// home ownership, can't afford, etc.). False = qualified, real
+  /// pipeline.
+  customerDisqualified     Boolean?
   /// When an admin/member triaged a client-side status update on
   /// /call-center/status-updates. Null = unreviewed (drives the
   /// red-dot badge on the tab + the "Awaiting client review"

@@ -71,6 +71,10 @@ export async function GET(req: NextRequest) {
         // textarea on re-open and show "Last updated X ago" hints.
         clientNotes: true,
         clientStatusUpdatedAt: true,
+        // Pre-fill source for the "Customer Disqualified?"
+        // follow-up question in the status-report modal. Null when
+        // the client hasn't answered yet.
+        customerDisqualified: true,
         createdAt: true,
         // Raw vicitel URL — IP-gated, so we never ship it to the
         // client directly. signRecordingUrl wraps it in a signed Hub
