@@ -8,17 +8,17 @@
  * email + SMS with the matching QuickBooks payment link.
  *
  * Definition of "qualified appointment" for invoicing (per Alex
- * 2026-06-01):
+ * 2026-06-01 + 2026-06-02 clarification):
  *   - Belongs to this client (Appointment.clientId)
- *   - The CLIENT (not Mary, not Yassin) updated the status from
- *     their /client dashboard. Encoded as
- *     clientStatusUpdatedAt IS NOT NULL.
- *   - That status is one of {showed, won, lost} — all imply the
- *     prospect attended.
- *   - The status update happened AFTER invoicingCutoffAt (so
- *     pre-deploy updates don't get re-invoiced) AND after the
- *     last invoice cycle anchor (lastInvoicedAt or
- *     serviceStartDate).
+ *   - status IN {showed, won, lost} — all imply the customer
+ *     attended (won/lost are sit-down outcomes on top).
+ *   - qualifyingStatusUpdatedAt IS NOT NULL — set only when a
+ *     CLIENT, ADMIN, or MEMBER marked it that way. Mary (agent
+ *     role) cannot bill the client; her "showed" marks via her
+ *     own paths never stamp this field.
+ *   - That timestamp is AFTER invoicingCutoffAt (so pre-deploy
+ *     updates don't get re-invoiced) AND after the cycle anchor
+ *     (lastInvoicedAt or serviceStartDate).
  *   - Not already counted in an existing Invoice.appointmentIds
  *     (idempotency belt).
  *   - customerDisqualified is IGNORED for billing — per Alex, the
@@ -236,7 +236,10 @@ export async function processPpaInvoicingForClient(
   const qualified = await prisma.appointment.findMany({
     where: {
       clientId: client.id,
-      clientStatusUpdatedAt: { gt: lowerBound },
+      // qualifyingStatusUpdatedAt is set only by Alex/Ethan/Client
+      // updates. Mary (agent) status edits can't reach this field,
+      // so they never bill.
+      qualifyingStatusUpdatedAt: { gt: lowerBound },
       status: { in: ['showed', 'won', 'lost'] },
     },
     orderBy: { apptDateTime: 'asc' },
@@ -250,7 +253,7 @@ export async function processPpaInvoicingForClient(
       utilityProvider: true,
       bookedByName: true,
       status: true,
-      clientStatusUpdatedAt: true,
+      qualifyingStatusUpdatedAt: true,
     },
   })
   const newlyQualified = qualified.filter((a) => !alreadyBilled.has(a.id))

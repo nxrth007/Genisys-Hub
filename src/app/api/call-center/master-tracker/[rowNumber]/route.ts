@@ -11,6 +11,7 @@ import {
 } from '@/lib/drive'
 import { syncRemindersFromSheet } from '@/lib/reminders'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
 
 /** Diff helper for sheet-edit audit logging. Read before-snapshot
@@ -20,6 +21,10 @@ import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
 type EditAuditContext = {
   rowNumber: number
   userId: string
+  /** Editor's role — captured so cross-writes to the DB
+   *  (qualifyingStatusUpdatedAt for PPA invoicing) can apply the
+   *  same admin/member/client_active rule everywhere else does. */
+  role: string | null
   beforeRow: Awaited<ReturnType<typeof readMasterTableRows>>[number] | null
 }
 
@@ -235,6 +240,7 @@ export async function PATCH(
   const auditCtx: EditAuditContext = {
     rowNumber,
     userId: session.user.id,
+    role: (session.user as { role?: string | null }).role ?? null,
     beforeRow,
   }
 
@@ -575,6 +581,42 @@ async function writeOne(
           err,
         ),
       )
+
+      // Cross-write to the DB Appointment row when one exists for
+      // this sheet row. Master-tracker inline status edits
+      // historically only wrote to the sheet, which left the DB's
+      // status stale for any Hub-booked appointment. Critically,
+      // this is also the only path that can stamp
+      // qualifyingStatusUpdatedAt — without it, an Alex/Ethan
+      // inline "showed" mark wouldn't trigger the PPA invoice.
+      //
+      // Fire-and-forget so a DB blip doesn't fail the sheet write
+      // (the sheet is the canonical surface admin sees in this
+      // flow).
+      void (async () => {
+        try {
+          const dbAppt = await prisma.appointment.findFirst({
+            where: { masterSheetRowNumber: rowNumber },
+            select: { id: true },
+          })
+          if (!dbAppt) return
+          const newStatus = auditNewValue ?? null
+          if (!newStatus) return
+          const qa = qualifyingTimestampFor(auditCtx?.role ?? null, newStatus)
+          await prisma.appointment.update({
+            where: { id: dbAppt.id },
+            data: {
+              status: newStatus,
+              ...(qa ? { qualifyingStatusUpdatedAt: qa } : {}),
+            },
+          })
+        } catch (err) {
+          console.error(
+            '[master-tracker PATCH] DB cross-write failed:',
+            err,
+          )
+        }
+      })()
     }
 
     // Audit log — only when we have a snapshot context AND the new

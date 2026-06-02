@@ -10,6 +10,7 @@ import {
   diffSnapshots,
   recordAppointmentEdit,
 } from '@/lib/appointment-edit-log'
+import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 
 /**
  * GET    /api/agent/appointments/[id]  → one appointment (must be agent's own)
@@ -136,6 +137,17 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   if (typeof body.status === 'string' && ALLOWED_STATUS.has(body.status)) {
     data.status = body.status
+    // PPA invoicing qualifying timestamp — only stamps when the
+    // editor's role is admin/member/client_active (NOT agent).
+    // Mary (role=agent) editing her own appointment to "showed"
+    // doesn't bill the client; she'd need Alex/Ethan to confirm
+    // via call-center, or the client themselves to confirm via
+    // their dashboard.
+    const role = (session.user as { role?: string }).role
+    const qualifyingAt = qualifyingTimestampFor(role, body.status)
+    if (qualifyingAt) {
+      data.qualifyingStatusUpdatedAt = qualifyingAt
+    }
   }
 
   // Client reassignment. Allow null to clear (edge case), but reject

@@ -5,6 +5,7 @@ import { syncAppointmentUpdate } from '@/lib/appointment-sync'
 import { recordAppointmentEdit, diffSnapshots } from '@/lib/appointment-edit-log'
 import { sendStatusUpdateAlert } from '@/lib/status-update-alert'
 import { getPublicOrigin } from '@/lib/gmail'
+import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 
 /**
  * PATCH /api/client/appointments/[id]/outcome
@@ -207,6 +208,17 @@ export async function PATCH(
   }
   if (nextDisqualified !== undefined) {
     data.customerDisqualified = nextDisqualified
+  }
+  // Stamp the qualifying timestamp when the client moves an
+  // appointment to a billable status (showed/won/lost). Role is
+  // client_active here by gate above, so this is always qualifying
+  // for billable targets.
+  const qualifyingAt = qualifyingTimestampFor(
+    session.user.role,
+    targetStatus,
+  )
+  if (qualifyingAt) {
+    data.qualifyingStatusUpdatedAt = qualifyingAt
   }
 
   const updated = await prisma.appointment.update({

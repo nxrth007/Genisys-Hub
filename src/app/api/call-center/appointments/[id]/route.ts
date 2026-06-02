@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate } from '@/lib/appointment-sync'
 import { normalizeRoofAge } from '@/lib/normalize'
+import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 
 /**
  * PATCH /api/call-center/appointments/[id]
@@ -81,6 +82,15 @@ export async function PATCH(
 
   if (typeof body.status === 'string' && ALLOWED_STATUS.has(body.status)) {
     data.status = body.status
+    // Staff (admin/member only — middleware blocks agent role from
+    // /api/call-center/*) marking a billable status stamps the
+    // qualifying timestamp for PPA invoicing. Mary's marks via her
+    // own paths can't reach here.
+    const role = (session.user as { role?: string }).role
+    const qualifyingAt = qualifyingTimestampFor(role, body.status)
+    if (qualifyingAt) {
+      data.qualifyingStatusUpdatedAt = qualifyingAt
+    }
   }
 
   // Client reassignment — staff can reclassify after the fact if an agent

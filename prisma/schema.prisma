@@ -755,6 +755,17 @@ model Appointment {
   /// at a glance.
   clientStatusUpdatedAt DateTime?
 
+  /// Timestamp of the most recent BILLABLE status update — i.e. an
+  /// update to {showed, won, lost} made by an admin, member, OR
+  /// the client themselves. Mary (role=agent) cannot stamp this
+  /// field; her marks are advisory only and never trigger an
+  /// invoice. Drives the PPA bi-weekly invoicing automation.
+  ///
+  /// Distinct from clientStatusUpdatedAt (which is set only by the
+  /// client's /client dashboard updates and drives the Status
+  /// Updates triage page).
+  qualifyingStatusUpdatedAt DateTime?
+
   /// Whether the client marked this prospect as disqualified
   /// during the update flow. Captured ONLY when they answered
   /// "showed" — the question doesn't render for no-show. Null = no
