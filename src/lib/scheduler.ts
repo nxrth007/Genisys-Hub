@@ -31,6 +31,7 @@ import {
 import { syncClientMessageAlerts } from './client-message-alert'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
+import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 
 let initialized = false
 
@@ -95,6 +96,21 @@ let gmailSyncInFlight = false
 // the client-msg alert was hot enough to spam logs in practice.
 let clientMessageAlertInFlight = false
 
+// PPA bi-weekly invoicing — fires once daily during a fixed window
+// (14:00–14:59 UTC = 10–11 AM EDT). We don't want a Render cold-
+// start during that hour to fire the run a second time, so we
+// track the YYYY-MM-DD of the last successful run in memory + the
+// in-flight flag.
+//
+// AppSetting (bulkCredentialsScheduledRun.ts pattern) would be
+// more robust across deploys, but a redundant fire here is
+// harmless: every per-client step is wrapped in a transaction that
+// advances lastInvoicedAt before sending email/SMS, so the second
+// run sees the advanced timestamp and bails on every client.
+let ppaInvoicingInFlight = false
+let lastPpaInvoicingDayUtc: string | null = null
+const PPA_INVOICING_HOUR_UTC = 14 // 10 AM EDT, 7 AM PDT
+
 export function initScheduler() {
   if (initialized) return
   initialized = true
@@ -114,6 +130,34 @@ export function initScheduler() {
       await maybeRunScheduledBulkCredentials()
     } catch (err) {
       console.error('[scheduler] scheduled bulk-credentials check failed:', err)
+    }
+
+    // PPA bi-weekly invoicing — fire once during the 14:00 UTC hour
+    // each day. Cheap no-op every other minute. Per-day key uses UTC
+    // so the gate is deterministic regardless of which Render
+    // instance handles the tick.
+    try {
+      const now = new Date()
+      const utcHour = now.getUTCHours()
+      const utcDay = now.toISOString().slice(0, 10) // YYYY-MM-DD
+      if (
+        utcHour === PPA_INVOICING_HOUR_UTC &&
+        lastPpaInvoicingDayUtc !== utcDay &&
+        !ppaInvoicingInFlight
+      ) {
+        ppaInvoicingInFlight = true
+        try {
+          const summary = await processPpaInvoicingForAllClients()
+          lastPpaInvoicingDayUtc = utcDay
+          console.log(
+            `[scheduler] PPA invoicing run done: checked=${summary.clientsChecked} invoiced=${summary.clientsInvoiced} overflow=${summary.clientsOverflowed} empty=${summary.clientsEmpty} errors=${summary.errors.length}`,
+          )
+        } finally {
+          ppaInvoicingInFlight = false
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] PPA invoicing tick failed:', err)
     }
 
     try {
