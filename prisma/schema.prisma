@@ -617,6 +617,31 @@ model Client {
   // ClientEmailAlertsConfig (singleton).
   emailAlertsEnabled Boolean @default(false)
 
+  /// Official start date of services for the client. Set when the
+  /// client COMPLETES the onboarding form (lifecycle flip to active)
+  /// after admin approves them in /clients/onboarding. Drives the
+  /// bi-weekly PPA invoice cadence (first invoice fires
+  /// serviceStartDate + 14 days). Null for legacy clients who became
+  /// active before this field existed.
+  serviceStartDate    DateTime?
+
+  /// PPA invoicing cutoff. Status updates with clientStatusUpdatedAt
+  /// at or before this timestamp are excluded from the invoice
+  /// calculation — used to draw a clean line at deploy time so
+  /// already-invoiced cycles don't get re-billed by the new
+  /// automation. Null = no cutoff (count everything since
+  /// serviceStartDate). Backfilled to deploy-time for all existing
+  /// PPA clients.
+  invoicingCutoffAt   DateTime?
+
+  /// Timestamp of the last invoice that fired for this client.
+  /// Drives next-invoice math (next = lastInvoicedAt + 14 days);
+  /// also gates the "is this client due to be invoiced again" check
+  /// in the daily scheduler tick. Null until the first invoice ever
+  /// goes out — that first one is computed from serviceStartDate
+  /// instead.
+  lastInvoicedAt      DateTime?
+
   appointments      Appointment[]
   reminderTemplates ReminderTemplate[]
   appointmentReminders AppointmentReminder[]
@@ -633,6 +658,60 @@ model Client {
   // client's appointments. Created by admin via the Credentials tab,
   // or self-registered through the onboarding flow (Phase 2+).
   users             User[]                @relation("ClientUsers")
+  invoices          Invoice[]
+}
+
+/// PPA invoice records — one row per bi-weekly invoice the
+/// automation generates for a PPA client. Stores enough audit info
+/// (which appointments, which payment link, which delivery results)
+/// to reconstruct exactly what got billed even if the underlying
+/// appointments are later edited or deleted.
+///
+/// Created by lib/ppa-invoicing.ts as part of the daily scheduler
+/// tick. Overflow case (>4 qualified appts in one cycle) creates a
+/// row with deliveryError set to 'overflow' so admin can see in the
+/// audit which cycles required manual delivery.
+model Invoice {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Inclusive start of the bi-weekly cycle this invoice covers.
+  /// Set to whichever's later — the previous lastInvoicedAt or the
+  /// client's serviceStartDate — so the first-ever invoice has a
+  /// clean cycle anchor.
+  cycleStartAt    DateTime
+  /// Inclusive end of the cycle (typically the moment the invoice
+  /// fires). Lets reports group invoices into cycles without
+  /// fence-post bugs.
+  cycleEndAt      DateTime
+
+  appointmentCount Int
+  /// JSON array of appointment ids this invoice covered. Snapshot
+  /// at fire-time so it survives appointment edits/deletes.
+  appointmentIds   Json
+
+  /// Total in cents. 1 appt × $275 = 27500. Stored in cents so
+  /// money math stays integer.
+  amountCents     Int
+  /// QuickBooks payment link the client receives. Sourced from
+  /// lib/ppa-invoicing-config.ts; for the overflow case this is
+  /// empty string (no auto-delivery, admin handles manually).
+  paymentLink     String
+
+  /// Set when the email send actually succeeds. Null when delivery
+  /// failed or wasn't attempted (e.g. overflow case).
+  emailSentAt     DateTime?
+  smsSentAt       DateTime?
+  /// Non-null when something went wrong. 'overflow' = >4 qualified
+  /// appts, requires manual invoice; otherwise the literal Gmail /
+  /// GHL error message. Surfaced in the Slack alert + future admin
+  /// invoices UI.
+  deliveryError   String?
+
+  createdAt       DateTime @default(now())
+
+  @@index([clientId, cycleEndAt])
 }
 
 model Appointment {

@@ -298,6 +298,13 @@ export async function POST(req: NextRequest) {
         onboardingNotes,
         lifecycle: 'active',
         active: true,
+        // Official "start of services" — drives the PPA bi-weekly
+        // invoicing cadence (first invoice = serviceStartDate + 14
+        // days). Stamped here, not at admin-approval time, because
+        // the client only counts as "active" once they've filled
+        // out the onboarding form. Existing clients are backfilled
+        // via the 20260602000000_ppa_invoicing migration.
+        serviceStartDate: new Date(),
       },
       select: { id: true, name: true, package: true },
     })
