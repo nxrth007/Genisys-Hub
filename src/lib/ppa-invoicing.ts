@@ -81,12 +81,31 @@ export type InvoiceRunResult = {
  * run under a minute without risking rate limits.
  */
 export async function processPpaInvoicingForAllClients(): Promise<InvoiceRunResult> {
-  // Kill switch — flip the env var to true in an active incident
-  // (mis-priced links, wrong template, whatever) without a deploy.
+  // Kill switch — two layers.
+  //   1. Env var (PPA_INVOICING_DISABLED=true) for hard incidents
+  //      where we need to stop on the next Render restart without
+  //      touching the UI.
+  //   2. AppSetting (key: 'ppaInvoicing.enabled', value: 'false')
+  //      for the day-to-day on/off Alex flips from /settings. Defaults
+  //      to enabled so a fresh deploy without the row in the DB still
+  //      runs.
   if (
     (process.env.PPA_INVOICING_DISABLED || '').toLowerCase() === 'true'
   ) {
     console.log('[ppa-invoicing] disabled via env, skipping run')
+    return {
+      clientsChecked: 0,
+      clientsInvoiced: 0,
+      clientsOverflowed: 0,
+      clientsEmpty: 0,
+      errors: [],
+    }
+  }
+  const setting = await prisma.appSetting
+    .findUnique({ where: { key: 'ppaInvoicing.enabled' } })
+    .catch(() => null)
+  if (setting?.value === 'false') {
+    console.log('[ppa-invoicing] disabled via Settings, skipping run')
     return {
       clientsChecked: 0,
       clientsInvoiced: 0,
@@ -311,6 +330,46 @@ export async function processPpaInvoicingForClient(
     return { kind: 'overflow', invoiceId: invoice.id, count }
   }
 
+  // Contact-info gate — if the client has neither email nor phone
+  // on file we can't deliver an invoice at all. Skip the auto-send
+  // and Slack-alert admin so they can fix the contact info. The
+  // Invoice row records an 'overflow'-style stub so the cron stops
+  // re-alerting; lastInvoicedAt advances. Admin sends a manual
+  // invoice once contact info is corrected.
+  const hasEmail = !!client.contactEmail?.trim()
+  const hasPhone = !!client.contactPhone?.trim()
+  if (!hasEmail && !hasPhone) {
+    const invoice = await prisma.$transaction(async (tx) => {
+      const created = await tx.invoice.create({
+        data: {
+          clientId: client.id,
+          cycleStartAt: cycleAnchor,
+          cycleEndAt: now,
+          appointmentCount: count,
+          appointmentIds: newlyQualified.map((a) => a.id),
+          amountCents: count * PPA_PRICE_PER_APPOINTMENT_CENTS,
+          paymentLink: '',
+          deliveryError: 'missing_contact_info',
+        },
+        select: { id: true },
+      })
+      await tx.client.update({
+        where: { id: client.id },
+        data: { lastInvoicedAt: now },
+      })
+      return created
+    })
+    await sendMissingContactSlackAlert({
+      clientName: client.name,
+      count,
+      appointments: newlyQualified,
+    })
+    console.log(
+      `[ppa-invoicing] ${client.name} skipped — missing contactEmail AND contactPhone (${count} qualified appts pending manual invoice)`,
+    )
+    return { kind: 'invoiced', invoiceId: invoice.id, count }
+  }
+
   // Standard path — fire the invoice.
   const paymentLink = PPA_PAYMENT_LINKS[count]
   if (!paymentLink) {
@@ -478,6 +537,33 @@ async function sendInvoiceFiredSlackAlert(opts: {
     ...(opts.failureNotes.length > 0
       ? ['', `_Delivery notes:_ ${opts.failureNotes.join(' / ')}`]
       : []),
+  ].join('\n')
+  await postToInvoicingChannel(lines)
+}
+
+async function sendMissingContactSlackAlert(opts: {
+  clientName: string
+  count: number
+  appointments: Array<{
+    apptDateTime: Date
+    customerName: string
+    address: string | null
+  }>
+}): Promise<void> {
+  const lines = [
+    `:warning: *Invoice skipped — missing contact info for ${opts.clientName}*`,
+    `Cycle had *${opts.count} qualified appointment${opts.count === 1 ? '' : 's'}* (${formatUsd(opts.count * PPA_PRICE_PER_APPOINTMENT_CENTS)}), but the client has no contactEmail AND no contactPhone on file. Auto-send isn't possible.`,
+    '',
+    ...opts.appointments.map((a) => {
+      const when = a.apptDateTime.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      })
+      const addr = a.address ? ` · ${a.address}` : ''
+      return `• ${when} · ${a.customerName}${addr}`
+    }),
+    '',
+    `*Action:* update the client's contact details in /clients, then send a manual invoice. The cron has advanced lastInvoicedAt so it won't keep re-alerting; the appointments are recorded in this cycle's Invoice row.`,
   ].join('\n')
   await postToInvoicingChannel(lines)
 }

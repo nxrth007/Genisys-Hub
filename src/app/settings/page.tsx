@@ -27,6 +27,7 @@ import {
   Sun,
   Loader2,
   CheckCircle2,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // Importing from the client-safe constants module — pulling from
@@ -73,6 +74,8 @@ export default function SettingsPage() {
       <ClientAlertsSection />
 
       <ClientEmailAlertsSection />
+
+      <PpaInvoicingSection />
 
       <TwilioTestSection />
 
@@ -5206,6 +5209,137 @@ function EmailAlertsRecentActivity() {
         </ul>
       )}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  PPA invoicing — daily cron toggle                                  */
+/*  Backs by AppSetting 'ppaInvoicing.enabled'. Env var                */
+/*  PPA_INVOICING_DISABLED still wins (hard kill for incidents).       */
+/* ------------------------------------------------------------------ */
+
+function PpaInvoicingSection() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery<{ enabled: boolean; envOverride: boolean }>({
+    queryKey: ['ppa-invoicing-settings'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/ppa-invoicing/settings')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load settings')
+      }
+      return res.json()
+    },
+  })
+
+  const mutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch('/api/admin/ppa-invoicing/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || 'Failed to save')
+      return d
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ppa-invoicing-settings'] })
+    },
+  })
+
+  const enabled = settingsQuery.data?.enabled ?? true
+  const envOverride = settingsQuery.data?.envOverride ?? false
+  const effectivelyEnabled = enabled && !envOverride
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950">
+          <Receipt className="h-5 w-5 text-amber-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">PPA bi-weekly invoicing</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Once every 14 days from each PPA client&apos;s service-start date, the
+            Hub tallies their qualified appointments (showed / won / lost
+            updates from you, Ethan, or the client themselves) and sends an
+            invoice with a QuickBooks payment link. Mary&apos;s status marks
+            never trigger billing. Cycles with 0 qualified appointments
+            advance silently; cycles with 5+ pause for manual handling and
+            ping #genisys-alerts.
+          </p>
+        </div>
+      </div>
+
+      {settingsQuery.isLoading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      ) : settingsQuery.isError ? (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {(settingsQuery.error as Error).message}
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {envOverride && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+              <strong>Force-disabled via env var.</strong>{' '}
+              <code>PPA_INVOICING_DISABLED=true</code> is set on Render — the
+              toggle below is ignored until that env var is removed. Use this
+              path for active incidents.
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+            <div>
+              <p className="text-sm font-medium">
+                Daily automation:{' '}
+                <span
+                  className={cn(
+                    'font-semibold',
+                    effectivelyEnabled
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-zinc-400',
+                  )}
+                >
+                  {effectivelyEnabled ? 'Enabled' : 'Paused'}
+                </span>
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">
+                Runs once per day around 10 AM EDT. Toggling here takes
+                effect on the next cron tick — no deploy needed.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => mutation.mutate(!enabled)}
+              disabled={mutation.isPending || envOverride}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50',
+                enabled
+                  ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+              )}
+            >
+              {mutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : enabled ? (
+                <Pause className="h-3 w-3" />
+              ) : (
+                <Play className="h-3 w-3" />
+              )}
+              {enabled ? 'Pause automation' : 'Resume automation'}
+            </button>
+          </div>
+          {mutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              {(mutation.error as Error).message}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
