@@ -45,6 +45,10 @@ import { CallCenterTabs } from '@/components/call-center/call-center-tabs'
 
 type Appointment = {
   id: string
+  /** True when backed by a DB Appointment. Sheet-only rows
+   *  (typically partner-sheet bookings) are read-only here — no
+   *  Mark Reviewed toggle, no View Update modal. */
+  hasDbRow: boolean
   apptDateTime: string
   customerName: string
   customerPhone: string
@@ -61,6 +65,10 @@ type Appointment = {
   previousStatus: string | null
   createdAt: string
   recordingUrl: string | null
+  /** primary = main Master Table sheet row; secondary = partner
+   *  sheet row (Yassin's Forward Energy etc.); db-only = Hub-form
+   *  booking that hasn't synced to the sheet yet. */
+  sourceKind: 'primary' | 'secondary' | 'db-only'
 }
 
 type Section = {
@@ -77,6 +85,10 @@ type StatusUpdatesResponse = {
     totalUnreviewed: number
     countsByOutcome: Record<string, number>
   }
+  /** Surfaced when the Google Sheets read fails — UI shows a
+   *  warning banner so admin knows the page is showing DB-only
+   *  results until the integration recovers. */
+  sheetReadError: string | null
 }
 
 /* -------------------------------------------------------------------------- */
@@ -207,6 +219,24 @@ function StatusUpdatesInner() {
         <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error instanceof Error ? error.message : 'Failed to load'}
+        </div>
+      )}
+
+      {/* Sheets-degraded banner — appears when the Google Sheets
+          read fails. The page still renders with whatever DB rows
+          we have, but the user needs to know they're not seeing
+          the full sheet-side pipeline. */}
+      {data?.sheetReadError && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Sheet read degraded</p>
+            <p className="mt-0.5">
+              Showing Hub-booked appointments only. Sheet-only rows are
+              temporarily hidden — try refreshing in a minute. Detail:{' '}
+              <span className="font-mono">{data.sheetReadError}</span>
+            </p>
+          </div>
         </div>
       )}
 
@@ -648,7 +678,11 @@ function PendingRow({ appointment }: { appointment: Appointment }) {
     <li className="flex items-center gap-3 px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
       <span
         className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-        title="Client hasn't reported back yet"
+        title={
+          appointment.hasDbRow
+            ? "Client hasn't reported back yet"
+            : 'Sheet-only row — no client login path to update this one'
+        }
       >
         <Clock className="h-2.5 w-2.5" />
         {appointment.status}
@@ -662,6 +696,22 @@ function PendingRow({ appointment }: { appointment: Appointment }) {
           · {formatDateTime(appointment.apptDateTime)}
         </span>
       </div>
+      {appointment.sourceKind === 'secondary' && (
+        <span
+          className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+          title="Imported from a partner secondary sheet (Yassin's pipeline)"
+        >
+          partner
+        </span>
+      )}
+      {!appointment.hasDbRow && appointment.sourceKind !== 'secondary' && (
+        <span
+          className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+          title="Sheet row without a Hub appointment — clients can't update this one from their dashboard"
+        >
+          sheet
+        </span>
+      )}
     </li>
   )
 }
