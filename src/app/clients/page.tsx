@@ -21,6 +21,7 @@ import {
   Trash2,
   AlertTriangle,
   UserPlus,
+  Receipt,
   ChevronDown,
   KeyRound,
   CheckCircle2,
@@ -423,6 +424,15 @@ export default function ClientsPage() {
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
             >
               <UserPlus className="h-4 w-4" /> Onboarding
+            </Link>
+            {/* Invoices history — surfaces the audit trail for the
+                PPA bi-weekly automation. Admin/member can scan past
+                cycles, copy payment links, retry failed deliveries. */}
+            <Link
+              href="/clients/invoices"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              <Receipt className="h-4 w-4" /> Invoices
             </Link>
             <button
               type="button"

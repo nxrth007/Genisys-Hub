@@ -628,7 +628,7 @@ function escHtml(s: string | null | undefined): string {
     .replace(/"/g, '&quot;')
 }
 
-function formatInvoiceEmail(params: {
+export function formatInvoiceEmail(params: {
   clientName: string
   contactName: string | null
   count: number
@@ -800,7 +800,7 @@ function formatInvoiceEmail(params: {
 </html>`
 }
 
-function formatInvoiceSms(params: {
+export function formatInvoiceSms(params: {
   contactName: string | null
   count: number
   amountCents: number
@@ -816,7 +816,7 @@ function formatInvoiceSms(params: {
   ].join(' ')
 }
 
-function splitName(raw: string): {
+export function splitName(raw: string): {
   firstName?: string
   lastName?: string
 } {
