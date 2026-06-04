@@ -1,39 +1,38 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Target, Users, AlertCircle } from 'lucide-react'
+import { Target, Users, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { STATE_CODE_TO_NAME } from '@/lib/address'
 
 /**
- * Team #N self-registration. Per Alex's 2026-05-20 spec the form
- * collects Name, Servicing State, email, WhatsApp number, and a
- * password (since this uses Credentials auth — Google SSO is for
- * staff). All four "spec" fields are required; the password is
- * required because we need something to bcrypt for sign-in. State +
- * WhatsApp are editable later from /team/profile.
+ * Team #N self-registration — 2026-06-03 cutover version.
  *
- * On submit, we POST to /api/team/register which creates a User with
- * role="team_pending" and teamNumber=1 (we're hardcoding Team #1 for
- * now — if a second team ever exists we'll either split the
- * registration page or add a team picker). Admin gets a notification
- * email; the prospect lands on the team-flavored pending screen.
+ * Collects ONLY:
+ *   - Name
+ *   - Servicing state
+ *   - Password + confirm
+ *
+ * No email, no WhatsApp, no phone — per Alex's spec ("I don't need
+ * their phone numbers or anything anymore"). Approval handshake
+ * runs out-of-band: server returns a 6-char lookup code on submit
+ * which the user shows to their supervisor, supervisor approves
+ * via /admin/team-members and assigns a call-center number, then
+ * tells the user that number through Mary / WhatsApp. User signs
+ * in with the number + password they set here.
  */
 export default function TeamRegisterPage() {
-  const router = useRouter()
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
   const [servicingState, setServicingState] = useState('')
-  const [whatsappNumber, setWhatsappNumber] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Once we have the lookup code from the server we replace the
+  // whole form with the "save this code" success screen — sending
+  // a registered user back to the empty form would be confusing.
+  const [lookupCode, setLookupCode] = useState<string | null>(null)
 
-  // Sorted alphabetically by full name for the dropdown. Computed
-  // once at module-eval-time inside useMemo so the sort doesn't
-  // happen on every render.
   const stateOptions = useMemo(
     () =>
       Object.entries(STATE_CODE_TO_NAME).sort(([, a], [, b]) =>
@@ -58,10 +57,6 @@ export default function TeamRegisterPage() {
       setError('Pick the state you are servicing.')
       return
     }
-    if (!whatsappNumber.trim()) {
-      setError('WhatsApp number is required so admin can reach you.')
-      return
-    }
 
     setSubmitting(true)
 
@@ -70,9 +65,7 @@ export default function TeamRegisterPage() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         name: name.trim(),
-        email: email.trim().toLowerCase(),
         servicingState,
-        whatsappNumber: whatsappNumber.trim(),
         password,
       }),
     })
@@ -85,7 +78,61 @@ export default function TeamRegisterPage() {
       return
     }
 
-    router.push('/signin/team/pending?just_registered=1')
+    setLookupCode(typeof data.lookupCode === 'string' ? data.lookupCode : null)
+  }
+
+  if (lookupCode) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center p-4">
+        <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mb-4 flex items-center justify-center">
+            <CheckCircle2 className="h-12 w-12 text-emerald-600" />
+          </div>
+          <h1 className="text-center text-xl font-bold">
+            Registration received
+          </h1>
+          <p className="mt-3 text-center text-sm text-zinc-600 dark:text-zinc-300">
+            Your supervisor will approve you and give you your call-center
+            number. Save this code — they may ask for it to find your
+            account.
+          </p>
+
+          <div className="mt-5 rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 py-5 text-center dark:border-emerald-800 dark:bg-emerald-950/40">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              Your lookup code
+            </p>
+            <p className="mt-1 select-all font-mono text-3xl font-bold tracking-[0.3em] text-emerald-900 dark:text-emerald-200">
+              {lookupCode}
+            </p>
+          </div>
+
+          <div className="mt-6 space-y-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <p>
+              <strong className="text-zinc-700 dark:text-zinc-200">
+                Next steps:
+              </strong>
+            </p>
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>Send your supervisor this code so they can approve you.</li>
+              <li>
+                They will give you your <strong>call-center number</strong>{' '}
+                when you are approved.
+              </li>
+              <li>
+                Use that number + the password you just set to sign in here.
+              </li>
+            </ol>
+          </div>
+
+          <Link
+            href="/signin/team"
+            className="mt-6 block w-full rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          >
+            Go to sign in
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -100,8 +147,8 @@ export default function TeamRegisterPage() {
           Team #1 registration
         </div>
         <p className="mb-6 text-center text-xs text-zinc-500">
-          Your registration will be reviewed by a Genisys admin before you can
-          sign in. State and WhatsApp can be edited later from your profile.
+          After you register, your supervisor will give you a call-center
+          number to sign in with. Use that number — not an email.
         </p>
 
         <form onSubmit={submit} className="space-y-3">
@@ -144,38 +191,6 @@ export default function TeamRegisterPage() {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              WhatsApp number
-            </label>
-            <input
-              type="tel"
-              value={whatsappNumber}
-              onChange={(e) => setWhatsappNumber(e.target.value)}
-              required
-              placeholder="+1 555 123 4567"
-              autoComplete="tel"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
-            />
-            <p className="mt-1 text-[10px] text-zinc-400">
-              Include country code. Admin uses this to reach you.
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Password
             </label>
             <input
@@ -187,7 +202,9 @@ export default function TeamRegisterPage() {
               autoComplete="new-password"
               className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
-            <p className="mt-1 text-[10px] text-zinc-400">At least 8 characters.</p>
+            <p className="mt-1 text-[10px] text-zinc-400">
+              At least 8 characters.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -216,9 +233,7 @@ export default function TeamRegisterPage() {
             disabled={
               submitting ||
               !name ||
-              !email ||
               !servicingState ||
-              !whatsappNumber ||
               !password ||
               !confirmPassword
             }
@@ -229,8 +244,11 @@ export default function TeamRegisterPage() {
         </form>
 
         <p className="mt-4 text-center text-xs text-zinc-500">
-          Already registered?{' '}
-          <Link href="/signin/team" className="font-medium text-blue-600 hover:underline">
+          Already have your call-center number?{' '}
+          <Link
+            href="/signin/team"
+            className="font-medium text-blue-600 hover:underline"
+          >
             Sign in
           </Link>
         </p>

@@ -73,25 +73,57 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email' },
+        // 2026-06-03 addition for the Team #1 cutover. Team users
+        // sign in with a call-center number (digits only) instead
+        // of an email. The credential is optional at the provider
+        // level so the agent/client flows keep working with email.
+        callCenterNumber: {
+          label: 'Call-center number',
+          type: 'text',
+        },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(creds) {
         const email = typeof creds?.email === 'string' ? creds.email.toLowerCase().trim() : ''
+        // Strip non-digits server-side so any client-side
+        // canonicalization that drifts (older clients, raw
+        // curl) still matches the canonical column.
+        const callCenterNumber =
+          typeof creds?.callCenterNumber === 'string'
+            ? creds.callCenterNumber.replace(/\D/g, '')
+            : ''
         const password = typeof creds?.password === 'string' ? creds.password : ''
-        if (!email || !password) return null
+        if (!password) return null
+        // Must provide exactly one of email / callCenterNumber.
+        // Both empty → fail; both filled → use callCenterNumber as
+        // the more specific Team #1 path.
+        if (!email && !callCenterNumber) return null
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            role: true,
-            passwordHash: true,
-            clientId: true,
-            mustChangePassword: true,
-          },
-        })
+        const user = callCenterNumber
+          ? await prisma.user.findUnique({
+              where: { callCenterNumber },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                passwordHash: true,
+                clientId: true,
+                mustChangePassword: true,
+              },
+            })
+          : await prisma.user.findUnique({
+              where: { email },
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                role: true,
+                passwordHash: true,
+                clientId: true,
+                mustChangePassword: true,
+              },
+            })
         if (!user || !user.passwordHash) return null
 
         const ok = await bcrypt.compare(password, user.passwordHash)

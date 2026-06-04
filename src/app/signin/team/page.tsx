@@ -17,7 +17,7 @@ import { Target, Users, AlertCircle } from 'lucide-react'
 function TeamSignInInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [email, setEmail] = useState('')
+  const [callCenterNumber, setCallCenterNumber] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -27,8 +27,12 @@ function TeamSignInInner() {
     setError(null)
     setSubmitting(true)
 
+    // Strip non-digits client-side so "ext. 4082" and "4082" both
+    // resolve to the canonical form the server expects. Same
+    // canonicalization the API uses when admin assigns the number.
+    const canon = callCenterNumber.replace(/\D/g, '')
     const res = await signIn('credentials', {
-      email: email.trim(),
+      callCenterNumber: canon,
       password,
       redirect: false,
     })
@@ -53,7 +57,7 @@ function TeamSignInInner() {
         router.push('/signin/team/denied')
         return
       }
-      setError('Invalid email or password.')
+      setError('Invalid call-center number or password.')
       return
     }
 
@@ -80,17 +84,22 @@ function TeamSignInInner() {
         <form onSubmit={submit} className="space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Email
+              Call-center number
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              inputMode="numeric"
+              value={callCenterNumber}
+              onChange={(e) => setCallCenterNumber(e.target.value)}
               required
               autoFocus
-              autoComplete="email"
+              autoComplete="username"
+              placeholder="e.g. 4082"
               className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
+            <p className="mt-1 text-[10px] text-zinc-400">
+              Your supervisor gave you this when you were approved.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -115,7 +124,7 @@ function TeamSignInInner() {
 
           <button
             type="submit"
-            disabled={submitting || !email || !password}
+            disabled={submitting || !callCenterNumber || !password}
             className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
             {submitting ? 'Signing in…' : 'Sign in'}

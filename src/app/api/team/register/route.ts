@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/gmail'
 import { checkRateLimit, clientIp } from '@/lib/rate-limit'
@@ -8,14 +9,23 @@ import { canonicalizeStateName, isKnownState } from '@/lib/address'
 /**
  * POST /api/team/register
  *
- * Public endpoint (whitelisted in middleware). Creates a User row with
- * role="team_pending", teamNumber=1 (Mary's team — hardcoded today,
- * could be extended later), and a bcrypt passwordHash. Notifies the
- * admin so they can approve / deny from the admin queue.
+ * Public endpoint (whitelisted in middleware). Creates a User row
+ * with role="team_pending" and a generated registrationLookupCode
+ * the user shows to their supervisor for out-of-band approval.
  *
- * Mirror of /api/agent/register with two extra required fields
- * (servicingState, whatsappNumber) and a tagged "Team #1" subject so
- * admin sees the new registration in the right bucket of their inbox.
+ * As of 2026-06-03 (Team #1 cutover):
+ *   - NO email collected from the user. The User.email column is
+ *     still required by NextAuth's PrismaAdapter, so we synthesize
+ *     a placeholder like `team1-<lookupCode>@team1.local`. That
+ *     synthesized email is never shown to anyone and never used
+ *     for sign-in.
+ *   - NO whatsappNumber collected (column kept for historical rows
+ *     but new registrations skip it).
+ *   - NO callCenterNumber at registration — admin assigns it after
+ *     approval through /admin/team-members.
+ *
+ * Returns the lookup code so the register page can display it to
+ * the user.
  */
 
 const ADMIN_NOTIFY_EMAIL =
@@ -30,13 +40,24 @@ const FROM_GMAIL_ACCOUNT =
  *  schema's User.teamNumber comment. */
 const TEAM_NUMBER_FOR_THIS_REGISTRATION = 1
 
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
 /** Same window as /api/agent/register: 5 per IP / 10 min. */
 const RATE_LIMIT_MAX = 5
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
+
+/** Generate a 6-character lookup code from random bytes. Uppercase
+ *  alphanumeric, excluding visually-confusing chars (0, O, 1, I, L)
+ *  so a supervisor can read it off a phone screen without
+ *  misreading. ~1.7B possible codes per 6 chars — collision is
+ *  astronomically unlikely for the foreseeable Team #1 volume. */
+function generateLookupCode(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  const bytes = randomBytes(6)
+  let out = ''
+  for (let i = 0; i < 6; i++) {
+    out += chars[bytes[i] % chars.length]
+  }
+  return out
+}
 
 export async function POST(req: NextRequest) {
   const ip = clientIp(req)
@@ -61,10 +82,8 @@ export async function POST(req: NextRequest) {
 
   let body: {
     name?: string
-    email?: string
     password?: string
     servicingState?: string
-    whatsappNumber?: string
   }
   try {
     body = await req.json()
@@ -73,22 +92,12 @@ export async function POST(req: NextRequest) {
   }
 
   const name = typeof body.name === 'string' ? body.name.trim() : ''
-  const email =
-    typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   const password = typeof body.password === 'string' ? body.password : ''
   const servicingStateRaw =
     typeof body.servicingState === 'string' ? body.servicingState.trim() : ''
-  const whatsappNumber =
-    typeof body.whatsappNumber === 'string' ? body.whatsappNumber.trim() : ''
 
   if (!name) {
     return NextResponse.json({ error: 'Name is required.' }, { status: 400 })
-  }
-  if (!email || !isValidEmail(email)) {
-    return NextResponse.json(
-      { error: 'A valid email is required.' },
-      { status: 400 },
-    )
   }
   if (password.length < 8) {
     return NextResponse.json(
@@ -112,71 +121,87 @@ export async function POST(req: NextRequest) {
     )
   }
   const servicingState = canonicalizeStateName(servicingStateRaw)
-  if (!whatsappNumber) {
-    return NextResponse.json(
-      { error: 'WhatsApp number is required so admin can reach you.' },
-      { status: 400 },
-    )
+
+  // Generate the lookup code + synthesized placeholder email. The
+  // .local TLD is RFC 6762 reserved — never a real address. The
+  // placeholder is what satisfies the User.email @unique constraint
+  // (and NextAuth's PrismaAdapter expectations) without exposing
+  // the user to email anywhere.
+  let lookupCode = ''
+  let placeholderEmail = ''
+  // Retry a handful of times if a generated code happens to collide
+  // with an existing pending row (vanishingly unlikely but cheap to
+  // guard).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    lookupCode = generateLookupCode()
+    placeholderEmail = `team1-${lookupCode.toLowerCase()}@team1.local`
+    const collision = await prisma.user.findUnique({
+      where: { email: placeholderEmail },
+      select: { id: true },
+    })
+    if (!collision) break
+    if (attempt === 4) {
+      console.error(
+        '[team/register] 5 lookup-code collisions — aborting to avoid a hot loop',
+      )
+      return NextResponse.json(
+        {
+          error: 'Something went wrong generating your account. Try again.',
+        },
+        { status: 500 },
+      )
+    }
   }
 
-  // Generic-response pattern — same as /api/agent/register. We always
-  // return 200 whether the email is new or already taken, so this
-  // endpoint can't be used to enumerate existing accounts. Hash the
-  // password before the existence check so timing stays consistent
-  // across both paths.
   const passwordHash = await bcrypt.hash(password, 10)
-  const existing = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
+
+  const user = await prisma.user.create({
+    data: {
+      email: placeholderEmail,
+      name,
+      passwordHash,
+      role: 'team_pending',
+      servicingState,
+      teamNumber: TEAM_NUMBER_FOR_THIS_REGISTRATION,
+      registrationLookupCode: lookupCode,
+      // callCenterNumber stays null — admin assigns it on approval.
+      // whatsappNumber stays null — no longer collected.
+    },
+    select: { id: true, name: true, createdAt: true },
   })
 
-  if (!existing) {
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        passwordHash,
-        role: 'team_pending',
-        servicingState,
-        whatsappNumber,
-        teamNumber: TEAM_NUMBER_FOR_THIS_REGISTRATION,
-      },
-      select: { id: true, email: true, name: true, createdAt: true },
-    })
+  // Best-effort admin notification. Subject is tagged "Team #1" so
+  // Alex's filter keeps catching these. Link points to the new
+  // /admin/team-members page where Alex can approve + assign the
+  // call-center number in one click.
+  const origin = getPublicOrigin(req)
+  const reviewUrl = `${origin}/admin/team-members`
+  sendEmail({
+    accountEmail: FROM_GMAIL_ACCOUNT,
+    to: ADMIN_NOTIFY_EMAIL,
+    subject: `[Team #1] New registration: ${name}`,
+    body: [
+      `**${name}** just registered for **Team #1** on Genisys Hub.`,
+      '',
+      `Lookup code: \`${lookupCode}\``,
+      `Servicing state: ${servicingState ?? servicingStateRaw}`,
+      '',
+      `Approve them + assign a call-center number here:`,
+      '',
+      `[Review Team #1 registrations](${reviewUrl})`,
+      '',
+      `Registered at: ${user.createdAt.toISOString()}`,
+      '',
+      `Once approved, give the user their call-center number through Mary / WhatsApp — they sign in with that number, not email.`,
+    ].join('\n'),
+  }).catch((err) => {
+    console.error('[team/register] Gmail notification failed:', err)
+  })
 
-    // Best-effort admin notification — don't block registration on
-    // Gmail latency. Subject is tagged "Team #1" so admin can filter
-    // these distinct from regular agent applications.
-    const origin = getPublicOrigin(req)
-    const reviewUrl = `${origin}/admin/agents/${user.id}`
-    sendEmail({
-      accountEmail: FROM_GMAIL_ACCOUNT,
-      to: ADMIN_NOTIFY_EMAIL,
-      subject: `[Team #1] New registration: ${name}`,
-      body: [
-        `**${name}** (${email}) just registered for **Team #1** on Genisys Hub.`,
-        '',
-        `Servicing state: ${servicingState ?? servicingStateRaw}`,
-        `WhatsApp: ${whatsappNumber}`,
-        '',
-        `Review and approve or deny here:`,
-        '',
-        `[Review registration](${reviewUrl})`,
-        '',
-        `Registered at: ${user.createdAt.toISOString()}`,
-        '',
-        `If you didn't expect this Team #1 registration, deny it — they won't be able to sign in.`,
-      ].join('\n'),
-    }).catch((err) => {
-      console.error('[team/register] Gmail notification failed:', err)
-    })
-  } else {
-    console.log(
-      `[team/register] Duplicate registration attempt for ${email} — silently ignored`,
-    )
-  }
-
-  return NextResponse.json({ ok: true })
+  // Return the lookup code so the register page can display it.
+  // Safe to surface: it's only useful for admin disambiguation, not
+  // an auth credential.
+  return NextResponse.json({ ok: true, lookupCode })
 }
 
 function getPublicOrigin(req: NextRequest): string {
