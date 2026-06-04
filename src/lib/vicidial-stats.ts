@@ -112,17 +112,26 @@ async function doFetch(): Promise<VicidialStatsResult> {
       }
     }
 
-    // Vicidial's auth model: form POST sets two cookies (VD_login,
-    // VD_pass — plaintext, yes, that's their design). Subsequent
-    // requests pass those cookies. The login flow doesn't always
-    // redirect cleanly, so we go straight to admin.php with cookies
-    // pre-set — works on most Vicidial deployments without the
-    // intermediate POST.
+    // Vicidial deployments commonly stack two auth layers:
+    //   1. HTTP Basic auth at the web-server level (nginx/Apache
+    //      wrapping the entire /vicidial/* path). Returns 401 if
+    //      the Authorization header is missing — that's the symptom
+    //      we hit on the first run.
+    //   2. Vicidial's own form login that sets VD_login + VD_pass
+    //      cookies (plaintext password in the cookie, yes, that's
+    //      their design).
+    //
+    // We send BOTH credentials on the same request so the helper
+    // works regardless of which (or both) layers are configured.
+    // Same username/password are reused across the two — common
+    // BPO setup.
+    const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
     const cookieHeader = `VD_login=${encodeURIComponent(username)}; VD_pass=${encodeURIComponent(password)}`
 
     const res = await fetch(`${VICIDIAL_BASE}/admin.php`, {
       headers: {
         'User-Agent': USER_AGENT,
+        Authorization: `Basic ${basicAuth}`,
         Cookie: cookieHeader,
         // Vicidial returns the login form (not the dashboard) when
         // it doesn't see the right cookies — but we still want the
