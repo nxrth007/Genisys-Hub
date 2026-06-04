@@ -97,6 +97,15 @@ model User {
   /// non-Team #1 users.
   registrationLookupCode String?
 
+  /// Team number this user is the day-to-day manager for. Set on
+  /// Mary's user row (=1) so she can approve Team #1 registrations
+  /// + assign initial call-center numbers without admin acting as
+  /// a bottleneck. Null = not a manager. Admin still owns the
+  /// destructive paths (reset password, change number on an active
+  /// user, delete) — managers only get approve/deny + initial
+  /// assignment. Toggle from /agents.
+  managesTeamNumber      Int?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

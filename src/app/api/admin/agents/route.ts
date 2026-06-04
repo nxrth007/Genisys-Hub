@@ -24,6 +24,7 @@ export async function GET() {
       role: true,
       agentSheetTab: true,
       approvedAt: true,
+      managesTeamNumber: true,
       createdAt: true,
       updatedAt: true,
       _count: { select: { appointments: true } },

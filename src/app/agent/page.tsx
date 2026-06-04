@@ -14,6 +14,7 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
+  Users,
 } from 'lucide-react'
 import { CallbacksDuePanel } from '@/components/agent/callbacks-due-panel'
 import { cn } from '@/lib/utils'
@@ -183,6 +184,12 @@ export default function AgentDashboardPage() {
           New appointment
         </Link>
       </div>
+
+      {/* Team-manager promotion banner. Renders only when admin has
+          flipped User.managesTeamNumber on the current user — Mary
+          sees this; other agents see nothing. Single small fetch
+          on mount; no impact on render speed for non-managers. */}
+      <TeamManagerBanner />
 
       <CallbacksDuePanel />
 
@@ -449,3 +456,53 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
     </Link>
   )
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Team-manager banner (Mary)                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Renders a "Manage Team #N" card when the current agent has been
+ * flagged as a team manager via /agents → "Make Team #N mgr."
+ * Hidden entirely for agents without the flag (most of the time
+ * this returns null). Lightweight single-row fetch on mount.
+ */
+function TeamManagerBanner() {
+  const { data } = useQuery<{ managesTeamNumber: number | null }>({
+    queryKey: ['agent-manager-status'],
+    queryFn: async () => {
+      const res = await fetch('/api/agent/me/manager-status')
+      if (!res.ok) return { managesTeamNumber: null }
+      return res.json()
+    },
+    // Manager flag changes rarely — admin toggle from /agents is
+    // the only path. Stale-while-revalidate on a 5-minute window
+    // keeps the network quiet without leaving stale state for
+    // ages.
+    staleTime: 5 * 60_000,
+  })
+  const teamNumber = data?.managesTeamNumber
+  if (!teamNumber) return null
+  return (
+    <Link
+      href="/team/manage"
+      className="group flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 transition hover:border-blue-300 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:hover:bg-blue-950"
+    >
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-white p-2 dark:bg-blue-950">
+          <Users className="h-5 w-5 text-blue-600" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+            Manage Team #{teamNumber}
+          </p>
+          <p className="text-[11px] text-blue-700 dark:text-blue-300">
+            Approve new registrations and assign call-center numbers
+          </p>
+        </div>
+      </div>
+      <ExternalLink className="h-4 w-4 text-blue-600 transition group-hover:translate-x-0.5" />
+    </Link>
+  )
+}
+

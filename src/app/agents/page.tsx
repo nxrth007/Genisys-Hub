@@ -28,6 +28,11 @@ type Agent = {
   role: 'agent_pending' | 'agent' | 'agent_denied'
   agentSheetTab: string | null
   approvedAt: string | null
+  /** Set when admin has delegated team-manager rights to this
+   *  agent — they can approve Team #N registrations + assign
+   *  initial call-center numbers from /team/manage without admin
+   *  acting as a bottleneck. */
+  managesTeamNumber: number | null
   createdAt: string
   updatedAt: string
   _count: { appointments: number }
@@ -578,14 +583,46 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
             </>
           )}
           {agent.role === 'agent' && (
-            <button
-              onClick={() => mutation.mutate({ action: 'deny' })}
-              disabled={mutation.isPending}
-              className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-red-950/40"
-              title="Revoke access"
-            >
-              <X className="h-3 w-3" /> Revoke
-            </button>
+            <>
+              {/* Team-manager toggle. Designating an agent (Mary) as
+                  the Team #N manager lets her approve registrations
+                  + assign call-center numbers from /team/manage
+                  without admin acting as a bottleneck. Hardcoded to
+                  Team #1 because that's the only team today; future
+                  multi-team would replace this with a picker. */}
+              <button
+                onClick={() =>
+                  mutation.mutate({
+                    managesTeamNumber: agent.managesTeamNumber ? null : 1,
+                  })
+                }
+                disabled={mutation.isPending}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+                  agent.managesTeamNumber
+                    ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                    : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300',
+                )}
+                title={
+                  agent.managesTeamNumber
+                    ? `Revoke Team #${agent.managesTeamNumber} manager rights — they can no longer approve Team #1 registrations`
+                    : 'Grant Team #1 manager rights — they can approve registrations + assign call-center numbers from /team/manage'
+                }
+              >
+                <Users className="h-3 w-3" />
+                {agent.managesTeamNumber
+                  ? `Team #${agent.managesTeamNumber} mgr ✓`
+                  : 'Make Team #1 mgr'}
+              </button>
+              <button
+                onClick={() => mutation.mutate({ action: 'deny' })}
+                disabled={mutation.isPending}
+                className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                title="Revoke access"
+              >
+                <X className="h-3 w-3" /> Revoke
+              </button>
+            </>
           )}
           {agent.role === 'agent_denied' && (
             <button

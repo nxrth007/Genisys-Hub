@@ -36,6 +36,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       agentSheetTab: true,
       approvedAt: true,
       approvedById: true,
+      managesTeamNumber: true,
       createdAt: true,
       updatedAt: true,
       appointments: {
@@ -60,6 +61,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     name?: string
     email?: string
     newPassword?: string
+    /** Toggle this agent's team-manager flag. Number = team they
+     *  manage (typically 1 for Mary). Null = revoke. Independent
+     *  of action — admin can set this without approving/denying
+     *  in the same request. */
+    managesTeamNumber?: number | null
   }
   try {
     body = await req.json()
@@ -76,6 +82,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   if (typeof body.name === 'string' && body.name.trim()) {
     data.name = body.name.trim()
+  }
+  if (body.managesTeamNumber === null) {
+    data.managesTeamNumber = null
+  } else if (
+    typeof body.managesTeamNumber === 'number' &&
+    Number.isInteger(body.managesTeamNumber) &&
+    body.managesTeamNumber > 0
+  ) {
+    data.managesTeamNumber = body.managesTeamNumber
   }
   if (typeof body.email === 'string' && body.email.trim()) {
     const normalized = body.email.trim().toLowerCase()

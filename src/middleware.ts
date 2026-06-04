@@ -92,6 +92,13 @@ const AGENT_ALLOWED_PREFIXES = [
   // respond inline from the agent view. Limited to the reminder
   // namespace; main /api/crm conversations stay staff-only.
   '/api/crm/reminders',
+  // Team manager surface (Mary). Approves Team #1 registrations +
+  // assigns initial call-center numbers without admin acting as
+  // a bottleneck. The endpoints themselves enforce
+  // User.managesTeamNumber === <requested team> — this prefix
+  // allowlist is only the coarse "agents can reach this URL" gate.
+  '/team/manage',
+  '/api/team/manage',
 ]
 
 // Admin-only areas — even "member" staff can't access these.
