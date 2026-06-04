@@ -1,11 +1,12 @@
 'use client'
 
-import { Suspense, useMemo } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, ClipboardList } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Chip } from '@/components/ui/chip'
+import { cn } from '@/lib/utils'
 
 /**
  * Call Center → EOD Reports tab. Stripped to the mockup pattern: a
@@ -44,13 +45,20 @@ function EodReportsList() {
   const params = useSearchParams()
   const since = params.get('since')
   const until = params.get('until')
+  // Tab state — 'agent' = Mary's reports (and any future regular
+  // agents); 'team1' = Team #1 offshore members. Default to agent
+  // since that's the established surface; switch to team1 once
+  // Mary's team starts submitting. Local state is fine — no
+  // shareable-URL requirement for the tab switch.
+  const [team, setTeam] = useState<'agent' | 'team1'>('agent')
 
   const query = useQuery<{ reports: EodReport[] }>({
-    queryKey: ['call-center-eod-reports', since, until],
+    queryKey: ['call-center-eod-reports', since, until, team],
     queryFn: async () => {
       const sp = new URLSearchParams()
       if (since) sp.set('since', isoToYmd(since))
       if (until) sp.set('until', isoToYmd(until))
+      sp.set('team', team)
       const res = await fetch(`/api/call-center/eod-reports?${sp.toString()}`)
       if (!res.ok) throw new Error('Failed to load EOD reports')
       return res.json()
@@ -82,13 +90,41 @@ function EodReportsList() {
   return (
     <div className="mx-auto w-full max-w-[1280px] space-y-6">
       <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-[17px] font-semibold tracking-tight">
             EOD reports
           </h2>
-          <Chip tone="blue">
-            {reports.length} report{reports.length === 1 ? '' : 's'}
-          </Chip>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-full border border-border bg-surface-muted p-0.5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setTeam('agent')}
+                className={cn(
+                  'rounded-full px-3 py-1 transition',
+                  team === 'agent'
+                    ? 'bg-card text-primary shadow-soft'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Agents
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeam('team1')}
+                className={cn(
+                  'rounded-full px-3 py-1 transition',
+                  team === 'team1'
+                    ? 'bg-card text-primary shadow-soft'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Team #1
+              </button>
+            </div>
+            <Chip tone="blue">
+              {reports.length} report{reports.length === 1 ? '' : 's'}
+            </Chip>
+          </div>
         </div>
 
         {query.isLoading ? (

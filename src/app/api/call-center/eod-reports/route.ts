@@ -23,6 +23,16 @@ export async function GET(req: NextRequest) {
   const agent = sp.get('agent')
   if (agent && agent !== 'all') where.agentUserId = agent
 
+  // Team filter — splits Mary's reports from Team #1's. 'agent' =
+  // Mary + future regular agents; 'team1' = team_member role only.
+  // Omitted means "show everyone" (legacy behavior preserved).
+  const team = sp.get('team')
+  if (team === 'agent') {
+    where.agent = { role: 'agent' }
+  } else if (team === 'team1') {
+    where.agent = { role: 'team_member', teamNumber: 1 }
+  }
+
   const since = sp.get('since')
   const until = sp.get('until')
   if (since || until) {

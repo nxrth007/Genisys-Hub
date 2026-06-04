@@ -50,15 +50,20 @@ export default function TeamDashboard() {
             </p>
           </Link>
 
-          <div className="flex flex-col gap-2 rounded-xl border border-dashed border-zinc-200 bg-white p-5 opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          <Link
+            href="/team/eod"
+            className="group flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+          >
             <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-zinc-100 p-2 dark:bg-zinc-800">
-                <ClipboardList className="h-5 w-5 text-zinc-500" />
+              <div className="rounded-lg bg-emerald-50 p-2 dark:bg-emerald-950">
+                <ClipboardList className="h-5 w-5 text-emerald-600" />
               </div>
               <h2 className="text-base font-semibold">EOD reports</h2>
             </div>
-            <p className="text-xs text-zinc-500">Coming soon.</p>
-          </div>
+            <p className="text-xs text-zinc-500">
+              Submit your end-of-shift recap. Same form Mary uses.
+            </p>
+          </Link>
         </div>
       </main>
     </div>

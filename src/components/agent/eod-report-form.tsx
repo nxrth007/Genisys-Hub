@@ -55,10 +55,18 @@ export function EodReportForm({
   mode,
   initial,
   reportId,
+  apiBase = '/api/agent/eod-reports',
+  pageBase = '/agent/eod',
 }: {
   mode: 'create' | 'edit'
   initial?: Partial<EodFormValues>
   reportId?: string
+  /** API endpoint base. Defaults to Mary's agent path; Team #1
+   *  pages pass '/api/team/eod-reports' so the same form posts to
+   *  the role-gated endpoint for them. */
+  apiBase?: string
+  /** Page-level base for back-link and post-save redirects. */
+  pageBase?: string
 }) {
   const router = useRouter()
   const [values, setValues] = useState<EodFormValues>({
@@ -116,9 +124,7 @@ export function EodReportForm({
     setSaving(true)
     try {
       const url =
-        mode === 'create'
-          ? '/api/agent/eod-reports'
-          : `/api/agent/eod-reports/${reportId}`
+        mode === 'create' ? apiBase : `${apiBase}/${reportId}`
       const res = await fetch(url, {
         method: mode === 'create' ? 'POST' : 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -127,12 +133,12 @@ export function EodReportForm({
       const data = await res.json()
       if (!res.ok) {
         if (data.code === 'ALREADY_EXISTS' && data.existingId) {
-          router.push(`/agent/eod/${data.existingId}`)
+          router.push(`${pageBase}/${data.existingId}`)
           return
         }
         throw new Error(data.error || 'Failed to save report')
       }
-      router.push('/agent/eod')
+      router.push(pageBase)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -152,14 +158,14 @@ export function EodReportForm({
     setDeleting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/agent/eod-reports/${reportId}`, {
+      const res = await fetch(`${apiBase}/${reportId}`, {
         method: 'DELETE',
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to delete')
       }
-      router.push('/agent/eod')
+      router.push(pageBase)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -176,7 +182,7 @@ export function EodReportForm({
     <form onSubmit={onSubmit} className="mx-auto max-w-3xl space-y-6">
       <div>
         <Link
-          href="/agent/eod"
+          href={pageBase}
           className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
