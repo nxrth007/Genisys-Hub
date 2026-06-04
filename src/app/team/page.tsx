@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
-import { Target, MessageSquare, ClipboardList } from 'lucide-react'
+import { Target, MessageSquare, ClipboardList, PhoneCall } from 'lucide-react'
 
 /**
  * Team #1 dashboard. Currently a tile-launcher for the few
@@ -62,6 +62,22 @@ export default function TeamDashboard() {
             </div>
             <p className="text-xs text-zinc-500">
               Submit your end-of-shift recap. Same form Mary uses.
+            </p>
+          </Link>
+
+          <Link
+            href="/team/callbacks"
+            className="group flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+          >
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950">
+                <PhoneCall className="h-5 w-5 text-amber-600" />
+              </div>
+              <h2 className="text-base font-semibold">Callbacks</h2>
+            </div>
+            <p className="text-xs text-zinc-500">
+              Log prospects who asked you to call them back. Overdue + due-today
+              surface first.
             </p>
           </Link>
         </div>

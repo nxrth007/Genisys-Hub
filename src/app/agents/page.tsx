@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   PencilLine,
   Users,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -69,13 +70,23 @@ export default function AgentsAdminPage() {
         title="Agents"
         subtitle="Review registrations, manage agent accounts, and reset passwords."
         actions={
-          <Link
-            href="/admin/team-members"
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
-          >
-            <Users className="h-4 w-4" />
-            Team #1 members
-          </Link>
+          <>
+            <Link
+              href="/team/chat"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              title="Open the Team #1 chat — you appear with an animated Admin chip next to your name"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Team #1 chat
+            </Link>
+            <Link
+              href="/admin/team-members"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+            >
+              <Users className="h-4 w-4" />
+              Team #1 members
+            </Link>
+          </>
         }
       />
 

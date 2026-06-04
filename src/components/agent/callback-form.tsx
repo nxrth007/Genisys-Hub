@@ -38,10 +38,18 @@ export function CallbackForm({
   mode,
   initial,
   callbackId,
+  apiBase = '/api/agent/callbacks',
+  pageBase = '/agent/callbacks',
 }: {
   mode: 'create' | 'edit'
   initial?: Partial<CallbackFormValues>
   callbackId?: string
+  /** API endpoint base. Defaults to Mary's agent path; Team #1
+   *  pages pass '/api/team/callbacks' so the same form posts to
+   *  the role-gated endpoint for them. Same pattern as
+   *  EodReportForm. */
+  apiBase?: string
+  pageBase?: string
 }) {
   const router = useRouter()
   const [values, setValues] = useState<CallbackFormValues>({
@@ -74,9 +82,7 @@ export function CallbackForm({
     setSaving(true)
     try {
       const url =
-        mode === 'create'
-          ? '/api/agent/callbacks'
-          : `/api/agent/callbacks/${callbackId}`
+        mode === 'create' ? apiBase : `${apiBase}/${callbackId}`
       const res = await fetch(url, {
         method: mode === 'create' ? 'POST' : 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -84,7 +90,7 @@ export function CallbackForm({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
-      router.push('/agent/callbacks')
+      router.push(pageBase)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -99,14 +105,14 @@ export function CallbackForm({
     setDeleting(true)
     setError(null)
     try {
-      const res = await fetch(`/api/agent/callbacks/${callbackId}`, {
+      const res = await fetch(`${apiBase}/${callbackId}`, {
         method: 'DELETE',
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to delete')
       }
-      router.push('/agent/callbacks')
+      router.push(pageBase)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -118,7 +124,7 @@ export function CallbackForm({
     <form onSubmit={onSubmit} className="mx-auto max-w-2xl space-y-4">
       <div>
         <Link
-          href="/agent/callbacks"
+          href={pageBase}
           className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
         >
           <ArrowLeft className="h-3.5 w-3.5" />

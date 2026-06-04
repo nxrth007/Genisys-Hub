@@ -71,6 +71,13 @@ export async function GET(
       senderImage: true,
       text: true,
       createdAt: true,
+      // Live-query the sender's CURRENT role so the "Admin" chip
+      // next to Alex/Ethan stays correct even if their role
+      // changes. Deleted users return null and render without a
+      // chip (denormalized senderName still drives the display).
+      sender: {
+        select: { role: true },
+      },
       attachments: {
         select: {
           id: true,
@@ -85,7 +92,12 @@ export async function GET(
 
   return NextResponse.json({
     messages: messages.map((m) => ({
-      ...m,
+      id: m.id,
+      senderId: m.senderId,
+      senderName: m.senderName,
+      senderImage: m.senderImage,
+      senderRole: m.sender?.role ?? null,
+      text: m.text,
       createdAt: m.createdAt.toISOString(),
       attachments: m.attachments.map((a) => ({
         ...a,
@@ -221,8 +233,9 @@ export async function POST(
         },
       })
     }
-    // Re-read with attachments included so the response has the
-    // same shape as a GET-list element.
+    // Re-read with attachments + sender role included so the
+    // response has the same shape as a GET-list element (including
+    // the senderRole field that drives the admin chip).
     return tx.chatMessage.findUniqueOrThrow({
       where: { id: message.id },
       select: {
@@ -232,6 +245,7 @@ export async function POST(
         senderImage: true,
         text: true,
         createdAt: true,
+        sender: { select: { role: true } },
         attachments: {
           select: {
             id: true,
@@ -248,7 +262,12 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     message: {
-      ...created,
+      id: created.id,
+      senderId: created.senderId,
+      senderName: created.senderName,
+      senderImage: created.senderImage,
+      senderRole: created.sender?.role ?? null,
+      text: created.text,
       createdAt: created.createdAt.toISOString(),
       attachments: created.attachments.map((a) => ({
         ...a,

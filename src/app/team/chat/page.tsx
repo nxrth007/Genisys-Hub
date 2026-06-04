@@ -49,6 +49,11 @@ type Message = {
   senderId: string | null
   senderName: string
   senderImage: string | null
+  /** Sender's CURRENT role at fetch time. Drives the animated
+   *  "Admin" chip next to Alex/Ethan's names. Null when the sender
+   *  was deleted. Updated live (not snapshotted) so a role change
+   *  reflects on next poll without a DB rewrite. */
+  senderRole: string | null
   text: string
   createdAt: string
   attachments: Attachment[]
@@ -412,14 +417,17 @@ function formatMsgTime(iso: string): string {
 
 function MessageRun({ messages }: { messages: Message[] }) {
   const first = messages[0]
+  const isAdmin =
+    first.senderRole === 'admin' || first.senderRole === 'member'
   return (
     <div className="flex items-start gap-3">
       <div className="flex-shrink-0 pt-1">
         <Avatar name={first.senderName} size="sm" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline flex-wrap gap-2">
           <span className="text-sm font-semibold">{first.senderName}</span>
+          {isAdmin && <AdminChip />}
           <span className="text-[10px] text-zinc-400">
             {formatMsgTime(first.createdAt)}
           </span>
@@ -431,6 +439,75 @@ function MessageRun({ messages }: { messages: Message[] }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * Animated "Admin" chip rendered next to Alex / Ethan's names in
+ * the chat. CSS-only animation — defined inline as a <style> block
+ * so it ships with the component instead of pulling a Tailwind
+ * plugin. Two effects:
+ *   1. Gradient pan (blue → indigo → blue) that scrolls every 3s
+ *   2. Subtle shimmer overlay that pulses every 2.5s
+ *
+ * Result is a chip that "breathes" without being distracting —
+ * authoritative-looking enough to read as a staff marker, calm
+ * enough not to compete with the message text.
+ */
+function AdminChip() {
+  return (
+    <>
+      <style jsx>{`
+        @keyframes adminChipPan {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+        @keyframes adminChipPulse {
+          0%,
+          100% {
+            opacity: 0.4;
+            transform: translateX(-100%);
+          }
+          50% {
+            opacity: 0.9;
+            transform: translateX(100%);
+          }
+        }
+        .admin-chip {
+          background: linear-gradient(
+            90deg,
+            #2563eb 0%,
+            #4f46e5 50%,
+            #2563eb 100%
+          );
+          background-size: 200% 100%;
+          animation: adminChipPan 3s ease-in-out infinite;
+        }
+        .admin-chip-shimmer {
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.4) 50%,
+            transparent 100%
+          );
+          animation: adminChipPulse 2.5s ease-in-out infinite;
+        }
+      `}</style>
+      <span className="admin-chip relative inline-flex items-center overflow-hidden rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
+        <span className="relative z-10">Admin</span>
+        <span
+          aria-hidden
+          className="admin-chip-shimmer pointer-events-none absolute inset-0"
+        />
+      </span>
+    </>
   )
 }
 
