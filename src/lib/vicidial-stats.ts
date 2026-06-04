@@ -80,6 +80,28 @@ type TotalStatsRow = {
 let cached: { value: VicidialStatsResult; at: number } | null = null
 let inFlight: Promise<VicidialStatsResult> | null = null
 
+/** Side-channel raw HTML, captured on every successful fetch. The
+ *  admin debug endpoint (/api/admin/vicidial/debug) reads this so we
+ *  can iterate on regex without re-deploying. Cleared after 5 min so
+ *  stale HTML can't leak through if the scraper stops working. */
+let lastRawHtml: string | null = null
+let lastRawAt = 0
+
+/** Admin-only debug accessor — returns the raw HTML from the last
+ *  successful fetch, or null when none has happened in the last
+ *  5 minutes. Never call from non-admin code paths. */
+export function getLastRawVicidialHtml(): {
+  html: string
+  fetchedAt: string
+} | null {
+  if (!lastRawHtml) return null
+  if (Date.now() - lastRawAt > 5 * 60_000) return null
+  return {
+    html: lastRawHtml,
+    fetchedAt: new Date(lastRawAt).toISOString(),
+  }
+}
+
 export async function fetchVicidialStats(): Promise<VicidialStatsResult> {
   const now = Date.now()
   if (cached && now - cached.at < CACHE_TTL_MS) {
@@ -150,6 +172,11 @@ async function doFetch(): Promise<VicidialStatsResult> {
     }
 
     const html = await res.text()
+    // Cache the raw HTML on a side channel so the admin debug
+    // endpoint can dump it without re-fetching. Pure read; never
+    // exposed to non-admin callers.
+    lastRawHtml = html
+    lastRawAt = Date.now()
 
     // Detect the "login form" response — Vicidial returns 200 with a
     // login HTML body when auth fails. The form has VD_login as an
@@ -184,37 +211,78 @@ async function doFetch(): Promise<VicidialStatsResult> {
 
 /** Pull a single integer that follows a given label. Tolerates any
  *  HTML tags between the label and the number — Vicidial wraps cards
- *  in nested divs/spans/font tags depending on the version. */
+ *  in nested divs/spans/font tags depending on the version.
+ *
+ *  Multi-strategy because Vicidial 2.14 stat cards lay the LABEL on
+ *  top and the NUMBER below (sometimes with the number in a separate
+ *  table cell, sometimes via a <br>+<font size="6">):
+ *    1. Number AFTER label, within 800 chars
+ *    2. Number BEFORE label, within 400 chars (rare card variant)
+ *  Window widened from the initial 400 → 800 because the top
+ *  cards have icon images + nested fonts before the digit.
+ */
 function extractNumberAfter(html: string, label: string): number | null {
   const labelEsc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Look for the label followed by tags, optional whitespace, then
-  // a digit run. Non-greedy match on the in-between HTML so we don't
-  // skip past the actual number into the next card.
-  const re = new RegExp(`${labelEsc}[\\s\\S]{0,400}?>\\s*(\\d+)\\s*<`, 'i')
-  const m = html.match(re)
-  if (!m) return null
-  const n = Number(m[1])
-  return Number.isFinite(n) ? n : null
+  // Strategy 1: forward search.
+  const fwd = new RegExp(`${labelEsc}[\\s\\S]{0,800}?>\\s*(\\d+)\\s*<`, 'i')
+  const m1 = html.match(fwd)
+  if (m1) {
+    const n = Number(m1[1])
+    if (Number.isFinite(n)) return n
+  }
+  // Strategy 2: backward search — for card layouts where the
+  // number comes first. Smaller window so we don't pull a number
+  // from an unrelated section above.
+  const back = new RegExp(`>\\s*(\\d+)\\s*<[\\s\\S]{0,400}?${labelEsc}`, 'i')
+  const m2 = html.match(back)
+  if (m2) {
+    const n = Number(m2[1])
+    if (Number.isFinite(n)) return n
+  }
+  return null
 }
 
 /** Find a table row by label (e.g. "Users:") and pull the three
- *  consecutive integers from it (Active / Inactive / Total). */
+ *  consecutive numeric cells (Active / Inactive / Total).
+ *  Each cell may be:
+ *    - A digit run (the common case)
+ *    - `&nbsp;` or empty whitespace (Vicidial renders 0 as blank
+ *      in some columns, especially Inactive)
+ *  Empty / nbsp cells are interpreted as 0 instead of null so the
+ *  UI doesn't show "—" where Vicidial visually shows "0". */
 function extractSummaryRow(html: string, label: string): SummaryRow {
   const labelEsc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Match the row label, then up to three numbers each wrapped in
-  // their own <td>. ~600 chars of tolerance is plenty for the row
-  // height; longer than that means we've jumped to the next row.
+  // Match the row label, then up to three numeric-or-empty cells.
+  // The cell content group `([\\d\\s&nbsp;]*)` captures either a
+  // digit run, an &nbsp;, plain whitespace, or nothing. After the
+  // match we normalize: any non-digit content → 0.
   const re = new RegExp(
-    `${labelEsc}[\\s\\S]{0,600}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<`,
+    `${labelEsc}[\\s\\S]{0,600}?>([\\s\\S]{0,40}?)<[\\s\\S]{0,200}?>([\\s\\S]{0,40}?)<[\\s\\S]{0,200}?>([\\s\\S]{0,40}?)<`,
     'i',
   )
   const m = html.match(re)
   if (!m) return { active: null, inactive: null, total: null }
   return {
-    active: Number(m[1]) || null,
-    inactive: Number(m[2]) || null,
-    total: Number(m[3]) || null,
+    active: cellToNumber(m[1]),
+    inactive: cellToNumber(m[2]),
+    total: cellToNumber(m[3]),
   }
+}
+
+/** Convert a captured cell's raw inner HTML/text into a number.
+ *  - "<digit run>" → that digit
+ *  - "&nbsp;" / "" / whitespace-only → 0 (Vicidial visually
+ *    displays 0 as blank in some columns)
+ *  - Anything else (unexpected markup) → null so the UI shows "—"
+ *    instead of misreporting. */
+function cellToNumber(raw: string): number | null {
+  const trimmed = raw.replace(/&nbsp;/gi, '').trim()
+  if (trimmed === '') return 0
+  // Strip any nested tags + whitespace to isolate the digit run.
+  const digits = trimmed.replace(/<[^>]+>/g, '').trim()
+  if (digits === '') return 0
+  if (/^\d+$/.test(digits)) return Number(digits)
+  return null
 }
 
 /** Pull "Total Stats for X" — the 4-column row beneath the header.
