@@ -1,43 +1,66 @@
 'use client'
 
+import Link from 'next/link'
 import { signOut } from 'next-auth/react'
-import { Target, Loader2 } from 'lucide-react'
+import { Target, MessageSquare, ClipboardList } from 'lucide-react'
 
 /**
- * Temporary placeholder for the Team #N dashboard.
+ * Team #1 dashboard. Currently a tile-launcher for the few
+ * surfaces Team #1 users have access to:
+ *   - Team chat (new in Phase 4 of the 2026-06-03 cutover)
+ *   - EOD reports (planned in Task #4 — placeholder for now)
  *
- * Task 3 of the Team #1 rollout shipped the signin + registration
- * flow before the locked-down dashboard surface (Task 4) was built.
- * If admin approves a member during this window, they'd land here.
- * Better to show a friendly "coming soon" than a 404. Replace this
- * page entirely when /team/eod/* + TeamShell ship.
+ * Full sidebar shell (Task #4) replaces this when it ships.
  */
-export default function TeamDashboardPlaceholder() {
+export default function TeamDashboard() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <Target className="h-7 w-7 text-blue-600" />
-          <h1 className="text-xl font-bold">Genisys Hub</h1>
+    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
+      <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mx-auto flex max-w-3xl items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Target className="h-6 w-6 text-blue-600" />
+            <h1 className="text-lg font-bold">Genisys Hub · Team #1</h1>
+          </div>
+          <button
+            onClick={() => signOut({ callbackUrl: '/signin/team' })}
+            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Sign out
+          </button>
         </div>
-        <div className="mb-4 flex items-center justify-center">
-          <div className="rounded-full bg-blue-100 p-3 dark:bg-blue-950">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      </header>
+
+      <main className="mx-auto w-full max-w-3xl p-6">
+        <p className="mb-6 text-sm text-zinc-500">
+          Welcome to Team #1. Pick what you&apos;re working on.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link
+            href="/team/chat"
+            className="group flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+          >
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-950">
+                <MessageSquare className="h-5 w-5 text-blue-600" />
+              </div>
+              <h2 className="text-base font-semibold">Team chat</h2>
+            </div>
+            <p className="text-xs text-zinc-500">
+              Talk to your team. Send photos. Replaces Microsoft Teams.
+            </p>
+          </Link>
+
+          <div className="flex flex-col gap-2 rounded-xl border border-dashed border-zinc-200 bg-white p-5 opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-zinc-100 p-2 dark:bg-zinc-800">
+                <ClipboardList className="h-5 w-5 text-zinc-500" />
+              </div>
+              <h2 className="text-base font-semibold">EOD reports</h2>
+            </div>
+            <p className="text-xs text-zinc-500">Coming soon.</p>
           </div>
         </div>
-        <h2 className="mb-2 text-lg font-semibold">Dashboard coming soon</h2>
-        <p className="mb-6 text-sm text-zinc-500">
-          You&apos;ve been approved for Team #1. Your dashboard is being
-          finalized — check back shortly to submit your first end-of-day
-          report.
-        </p>
-        <button
-          onClick={() => signOut({ callbackUrl: '/signin/team' })}
-          className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Sign out
-        </button>
-      </div>
+      </main>
     </div>
   )
 }
