@@ -2,7 +2,13 @@
 
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
-import { Target, MessageSquare, ClipboardList, PhoneCall } from 'lucide-react'
+import {
+  Target,
+  MessageSquare,
+  ClipboardList,
+  PhoneCall,
+  Activity,
+} from 'lucide-react'
 
 /**
  * Team #1 dashboard. Currently a tile-launcher for the few
@@ -78,6 +84,22 @@ export default function TeamDashboard() {
             <p className="text-xs text-zinc-500">
               Log prospects who asked you to call them back. Overdue + due-today
               surface first.
+            </p>
+          </Link>
+
+          <Link
+            href="/team/live-report"
+            className="group flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-700"
+          >
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-rose-50 p-2 dark:bg-rose-950">
+                <Activity className="h-5 w-5 text-rose-600" />
+              </div>
+              <h2 className="text-base font-semibold">Live Report</h2>
+            </div>
+            <p className="text-xs text-zinc-500">
+              Real-time mirror of the dialer dashboard. Display only —
+              refreshes every minute.
             </p>
           </Link>
         </div>

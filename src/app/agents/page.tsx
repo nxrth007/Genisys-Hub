@@ -18,6 +18,7 @@ import {
   PencilLine,
   Users,
   MessageSquare,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -71,6 +72,14 @@ export default function AgentsAdminPage() {
         subtitle="Review registrations, manage agent accounts, and reset passwords."
         actions={
           <>
+            <Link
+              href="/team/live-report"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              title="Live mirror of the Vicidial admin dashboard — read-only stats refreshing every minute"
+            >
+              <Activity className="h-4 w-4" />
+              Live report
+            </Link>
             <Link
               href="/team/chat"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
