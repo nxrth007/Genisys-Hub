@@ -10,6 +10,11 @@ export type CallbackFormValues = {
   customerPhone: string
   callbackAt: string // datetime-local value (YYYY-MM-DDTHH:mm)
   notes: string
+  /** Optional vicidial recording URL pasted in from the dialer.
+   *  Empty string = nothing to attach. Rendered as a "Listen"
+   *  button on the row when present (signed via the shared
+   *  recording proxy). */
+  callRecordingLink: string
 }
 
 const EMPTY: CallbackFormValues = {
@@ -17,6 +22,7 @@ const EMPTY: CallbackFormValues = {
   customerPhone: '',
   callbackAt: '',
   notes: '',
+  callRecordingLink: '',
 }
 
 /**
@@ -77,6 +83,7 @@ export function CallbackForm({
       // gives us UTC to store.
       callbackAt: new Date(values.callbackAt).toISOString(),
       notes: values.notes || null,
+      callRecordingLink: values.callRecordingLink.trim() || null,
     }
 
     setSaving(true)
@@ -199,6 +206,23 @@ export function CallbackForm({
               placeholder="What did they say? Anything to remember for next time?"
               className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
             />
+          </label>
+
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+              Call recording link (optional)
+            </span>
+            <input
+              type="url"
+              value={values.callRecordingLink}
+              onChange={(e) => update('callRecordingLink', e.target.value)}
+              placeholder="Paste the vicidial recording URL if you want admin to listen"
+              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            />
+            <span className="mt-1 block text-[10px] text-zinc-400">
+              Paste from the dialer. Leave blank to skip — most callbacks
+              don&apos;t need this.
+            </span>
           </label>
         </div>
       </div>

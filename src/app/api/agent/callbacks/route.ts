@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { signRecordingUrl } from '@/lib/recording-proxy'
+import { getPublicOrigin } from '@/lib/gmail'
 
 /**
  * GET  /api/agent/callbacks  → own callbacks, soonest first
@@ -12,9 +14,10 @@ type CallbackInput = {
   customerPhone?: string
   callbackAt?: string // ISO datetime
   notes?: string | null
+  callRecordingLink?: string | null
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -24,7 +27,15 @@ export async function GET() {
     // Pending first (ordered by when they're due), then completed (recent first).
     orderBy: [{ completedAt: 'asc' }, { callbackAt: 'asc' }],
   })
-  return NextResponse.json({ callbacks })
+  const hubOrigin = getPublicOrigin(req)
+  return NextResponse.json({
+    callbacks: callbacks.map((c) => ({
+      ...c,
+      recordingUrl: c.callRecordingLink
+        ? signRecordingUrl(c.callRecordingLink, hubOrigin)
+        : null,
+    })),
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -67,6 +78,7 @@ export async function POST(req: NextRequest) {
       customerPhone: body.customerPhone.trim(),
       callbackAt: when,
       notes: body.notes?.trim() || null,
+      callRecordingLink: body.callRecordingLink?.trim() || null,
     },
   })
   return NextResponse.json({ ok: true, callback })

@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Search,
   Undo2,
+  Play,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +24,8 @@ type Callback = {
   customerPhone: string
   callbackAt: string
   notes: string | null
+  callRecordingLink: string | null
+  recordingUrl: string | null
   completedAt: string | null
   outcome: string | null
   createdAt: string
@@ -331,6 +334,19 @@ function CallbackRow({
           <p className="mt-1 line-clamp-2 text-xs text-zinc-500">
             {callback.notes}
           </p>
+        )}
+
+        {callback.recordingUrl && (
+          <a
+            href={callback.recordingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+          >
+            <Play className="h-2.5 w-2.5" />
+            Listen to call
+          </a>
         )}
       </Link>
 

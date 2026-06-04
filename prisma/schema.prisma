@@ -1253,6 +1253,14 @@ model Callback {
   callbackAt    DateTime
   notes         String?   @db.Text
 
+  /// Optional Vicidial call-recording URL. When set, the row
+  /// renders a "Listen to call" button through the same signed
+  /// proxy used for appointment recordings (lib/recording-proxy.ts).
+  /// Optional by design — most callbacks won't have one, and the
+  /// form leaves the field blank by default. Useful for QA when a
+  /// rep flags a callback for admin review.
+  callRecordingLink String?
+
   // Set when the agent marks the callback as handled. Null = still pending.
   completedAt   DateTime?
   // Optional short outcome label when completing: "booked" | "not_interested"

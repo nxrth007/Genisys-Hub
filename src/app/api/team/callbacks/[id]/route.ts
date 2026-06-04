@@ -95,6 +95,9 @@ export async function PATCH(
   const notes = strOrNull(body.notes)
   if (notes !== undefined) data.notes = notes
 
+  const crl = strOrNull(body.callRecordingLink)
+  if (crl !== undefined) data.callRecordingLink = crl
+
   if (body.completed === true) {
     data.completedAt = new Date()
   } else if (body.completed === false) {

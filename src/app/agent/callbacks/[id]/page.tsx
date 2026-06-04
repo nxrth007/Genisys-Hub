@@ -11,6 +11,7 @@ type Callback = {
   customerPhone: string
   callbackAt: string
   notes: string | null
+  callRecordingLink: string | null
 }
 
 /** Convert an ISO UTC string to the local "datetime-local" input format. */
@@ -57,6 +58,7 @@ export default function EditCallbackPage(props: {
     customerPhone: c.customerPhone,
     callbackAt: toLocalInput(c.callbackAt),
     notes: c.notes || '',
+    callRecordingLink: c.callRecordingLink || '',
   }
 
   return <CallbackForm mode="edit" callbackId={id} initial={initial} />

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { signRecordingUrl } from '@/lib/recording-proxy'
+import { getPublicOrigin } from '@/lib/gmail'
 
 /**
  * GET  /api/team/callbacks  → own callbacks, soonest first
@@ -19,9 +21,10 @@ type CallbackInput = {
   customerPhone?: string
   callbackAt?: string
   notes?: string | null
+  callRecordingLink?: string | null
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -34,7 +37,20 @@ export async function GET() {
     where: { agentUserId: session.user.id },
     orderBy: [{ completedAt: 'asc' }, { callbackAt: 'asc' }],
   })
-  return NextResponse.json({ callbacks })
+  // Sign every recording URL so the browser can render a Listen
+  // button without ever seeing the raw vicidial URL (which is
+  // IP-gated anyway). signRecordingUrl returns null when the
+  // RECORDING_PROXY_SECRET isn't configured — UI hides the button
+  // in that case.
+  const hubOrigin = getPublicOrigin(req)
+  return NextResponse.json({
+    callbacks: callbacks.map((c) => ({
+      ...c,
+      recordingUrl: c.callRecordingLink
+        ? signRecordingUrl(c.callRecordingLink, hubOrigin)
+        : null,
+    })),
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -84,6 +100,7 @@ export async function POST(req: NextRequest) {
       customerPhone: body.customerPhone.trim(),
       callbackAt: when,
       notes: body.notes?.trim() || null,
+      callRecordingLink: body.callRecordingLink?.trim() || null,
     },
   })
   return NextResponse.json({ ok: true, callback })

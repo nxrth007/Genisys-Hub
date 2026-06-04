@@ -14,6 +14,7 @@ type Callback = {
   customerPhone: string
   callbackAt: string
   notes: string | null
+  callRecordingLink: string | null
 }
 
 function toLocalInput(iso: string): string {
@@ -59,6 +60,7 @@ export default function EditTeamCallbackPage(props: {
     customerPhone: c.customerPhone,
     callbackAt: toLocalInput(c.callbackAt),
     notes: c.notes || '',
+    callRecordingLink: c.callRecordingLink || '',
   }
 
   return (

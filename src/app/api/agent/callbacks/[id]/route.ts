@@ -77,6 +77,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const notes = strOrNull(body.notes)
   if (notes !== undefined) data.notes = notes
 
+  const crl = strOrNull(body.callRecordingLink)
+  if (crl !== undefined) data.callRecordingLink = crl
+
   // Toggle done state. `completed: true` stamps completedAt now (if not already
   // set); `completed: false` clears it. Alternative clients can pass an
   // explicit completedAt ISO string too.
