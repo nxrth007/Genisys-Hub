@@ -80,6 +80,23 @@ model User {
   servicingState String?
   whatsappNumber String?
   teamNumber     Int?
+
+  /// Call-center extension assigned by admin after approval. Becomes
+  /// the username for Team #1 sign-in (email is no longer used as
+  /// the login key for that flow). Unique when set; null for users
+  /// who don't sign in via the call-center-number path (regular
+  /// agents, admin/member, client users). Partial unique index keeps
+  /// the constraint cheap.
+  callCenterNumber String? @unique
+  /// 6-character lookup code shown to a Team #1 user on the
+  /// "registration received" screen so they can identify their
+  /// pending account to their supervisor out-of-band ("here's my
+  /// code, please approve me"). Generated at registration time;
+  /// cleared by the approval flow once the call-center number is
+  /// assigned so the row doesn't need to retain it. Null for
+  /// non-Team #1 users.
+  registrationLookupCode String?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

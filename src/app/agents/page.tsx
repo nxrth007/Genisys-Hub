@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Headphones,
@@ -15,6 +16,7 @@ import {
   History,
   FileSpreadsheet,
   PencilLine,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -61,6 +63,15 @@ export default function AgentsAdminPage() {
         icon={Headphones}
         title="Agents"
         subtitle="Review registrations, manage agent accounts, and reset passwords."
+        actions={
+          <Link
+            href="/admin/team-members"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+          >
+            <Users className="h-4 w-4" />
+            Team #1 members
+          </Link>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-1">
