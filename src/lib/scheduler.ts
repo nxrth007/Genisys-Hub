@@ -32,6 +32,7 @@ import { syncClientMessageAlerts } from './client-message-alert'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
+import { expireOldChatAttachments } from './chat-attachment-expiry'
 
 let initialized = false
 
@@ -111,6 +112,13 @@ let ppaInvoicingInFlight = false
 let lastPpaInvoicingDayUtc: string | null = null
 const PPA_INVOICING_HOUR_UTC = 14 // 10 AM EDT, 7 AM PDT
 
+// Chat attachment expiry — same once-per-UTC-day gate as PPA but
+// at a different hour so they don't pile up on a single tick. The
+// query is cheap (single bounded deleteMany), no in-flight guard
+// needed.
+let lastChatExpiryDayUtc: string | null = null
+const CHAT_EXPIRY_HOUR_UTC = 7 // 3 AM EDT — off-peak
+
 export function initScheduler() {
   if (initialized) return
   initialized = true
@@ -158,6 +166,29 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] PPA invoicing tick failed:', err)
+    }
+
+    // Chat attachment expiry — fires once per UTC day at the
+    // CHAT_EXPIRY_HOUR_UTC hour. Cheap query gated by the same
+    // day-key pattern.
+    try {
+      const now = new Date()
+      const utcHour = now.getUTCHours()
+      const utcDay = now.toISOString().slice(0, 10)
+      if (
+        utcHour === CHAT_EXPIRY_HOUR_UTC &&
+        lastChatExpiryDayUtc !== utcDay
+      ) {
+        const { deleted } = await expireOldChatAttachments()
+        lastChatExpiryDayUtc = utcDay
+        if (deleted > 0) {
+          console.log(
+            `[scheduler] chat attachment expiry done: deleted=${deleted}`,
+          )
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] chat attachment expiry tick failed:', err)
     }
 
     try {

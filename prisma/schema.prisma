@@ -120,6 +120,12 @@ model User {
   /// on the Appointment side so deleting a user doesn't block the
   /// row.
   statusUpdateReviews Appointment[]       @relation("AppointmentReviewer")
+
+  /// Chat messages this user has sent in the internal Team #1
+  /// group chat. SetNull on user delete — the message row keeps
+  /// its denormalized senderName/senderImage snapshot so chat
+  /// history stays readable after a user leaves.
+  chatMessages        ChatMessage[]       @relation("ChatMessageSender")
 }
 
 model Account {
@@ -1426,5 +1432,75 @@ model AppointmentEditLog {
   @@index([editorUserId])
   @@index([createdAt])
   @@index([clientId])
+}
+
+/// Internal team chat — replaces Microsoft Teams for Mary's
+/// offshore agents. One channel per row; v1 ships with a single
+/// "team-1-general" channel seeded on first deploy. Schema is
+/// designed so future channels (per-team, admins-only, DMs)
+/// require zero migration, only API + UI work.
+model ChatChannel {
+  id          String   @id @default(cuid())
+  /// Stable slug used in URLs and seed-or-find logic. v1 uses
+  /// "team-1-general"; future channels pick their own slug.
+  slug        String   @unique
+  /// Display label shown in the chat UI header.
+  name        String
+  /// Which Team #N this channel belongs to. teamNumber=1 + the
+  /// seeded slug "team-1-general" is the one we ship with. Admin
+  /// (role=admin/member) sees every channel regardless.
+  teamNumber  Int
+  createdAt   DateTime @default(now())
+
+  messages    ChatMessage[]
+}
+
+/// One message in a ChatChannel. Sender snapshot (senderName +
+/// senderImage) is denormalized at write time so chat history
+/// reads cleanly even after the sender's User row is deleted —
+/// same pattern SlackMessage uses for the Slack mirror cache.
+model ChatMessage {
+  id          String   @id @default(cuid())
+  channelId   String
+  channel     ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  /// Set when the sender's User row still exists. SetNull-on-delete
+  /// keeps the message readable after a user is removed.
+  senderId    String?
+  sender      User?    @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  /// Snapshot of sender name at write time (e.g. "Maria Cruz").
+  /// Survives senderId being nulled out. Required so the UI always
+  /// has something to render.
+  senderName  String
+  /// Optional avatar URL snapshot. Null = UI falls back to the
+  /// initials-based Avatar component.
+  senderImage String?
+  text        String   @db.Text
+  createdAt   DateTime @default(now())
+
+  attachments ChatAttachment[]
+
+  @@index([channelId, createdAt])
+}
+
+/// Inline attachment (photo only for v1) attached to a ChatMessage.
+/// Bytes are stored directly in Postgres bytea, mirroring the
+/// Document model's approach. JPEG/PNG only, 5 MB cap enforced at
+/// the upload route. Photos auto-expire after 30 days via a daily
+/// scheduler tick (text history is retained indefinitely).
+model ChatAttachment {
+  id          String   @id @default(cuid())
+  messageId   String
+  message     ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  content     Bytes
+  createdAt   DateTime @default(now())
+
+  @@index([messageId])
+  /// Drives the daily expiration cron — partial index would be
+  /// even cheaper, but this column appears in the cron's date
+  /// filter every time, so a standalone index is the right tool.
+  @@index([createdAt])
 }
 
