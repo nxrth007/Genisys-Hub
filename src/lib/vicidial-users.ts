@@ -117,27 +117,35 @@ async function doFetch(): Promise<VicidialUsersResult> {
     // dashboard scraper).
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
 
-    // Inner API auth via form-encoded user/pass on the URL. The
-    // `source` parameter is required by non_agent_api.php — any
-    // identifier string works; we use "hub" so the call logs an
+    // Inner API auth via form-encoded params. We POST instead of
+    // GET because this BPO's web-server config strips the
+    // `function` query param (first attempt got back
+    // "ERROR: NO FUNCTION SPECIFIED" despite the URL containing it
+    // — typical when the install has been hardened to require POST
+    // for write-capable endpoints). non_agent_api.php's
+    // $_REQUEST['function'] reads both POST and GET so this is
+    // compatible with installs that don't filter.
+    //
+    // The `source` parameter is required by non_agent_api.php; any
+    // identifier string works. We use "hub" so calls log
     // attribution.
-    const params = new URLSearchParams({
+    const requestBody = new URLSearchParams({
       source: 'hub',
       user: username,
       pass: password,
       function: 'users_list',
     })
 
-    const res = await fetch(
-      `${VICIDIAL_BASE}/non_agent_api.php?${params.toString()}`,
-      {
-        headers: {
-          'User-Agent': USER_AGENT,
-          Authorization: `Basic ${basicAuth}`,
-          Accept: 'text/plain',
-        },
+    const res = await fetch(`${VICIDIAL_BASE}/non_agent_api.php`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Authorization: `Basic ${basicAuth}`,
+        Accept: 'text/plain',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-    )
+      body: requestBody.toString(),
+    })
 
     if (!res.ok) {
       return {
