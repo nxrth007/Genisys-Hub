@@ -81,6 +81,14 @@ export default function AgentsAdminPage() {
               Live report
             </Link>
             <Link
+              href="/agents/vicidial-users"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              title="Mirror of the Vicidial Users list — cross-referenced with Hub Team #1 assignments to surface unlinked numbers"
+            >
+              <Users className="h-4 w-4" />
+              Vicidial users
+            </Link>
+            <Link
               href="/team/chat"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
               title="Open the Team #1 chat — you appear with an animated Admin chip next to your name"
