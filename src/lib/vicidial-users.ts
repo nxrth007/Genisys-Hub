@@ -85,13 +85,19 @@ export function getLastRawVicidialUsersHtml(): {
 
 export async function fetchVicidialUsers(): Promise<VicidialUsersResult> {
   const now = Date.now()
-  if (cached && now - cached.at < CACHE_TTL_MS) {
+  // Only serve successful results from cache. Errors get retried
+  // every request — otherwise a single failure leaves the page
+  // broken for 5 minutes after the underlying cause is fixed.
+  if (cached && cached.value.ok && now - cached.at < CACHE_TTL_MS) {
     return cached.value
   }
   if (inFlight) return inFlight
   inFlight = doFetch()
     .then((value) => {
-      cached = { value, at: Date.now() }
+      // Only cache successful results.
+      if (value.ok) {
+        cached = { value, at: Date.now() }
+      }
       return value
     })
     .finally(() => {
@@ -165,17 +171,17 @@ async function doFetch(): Promise<VicidialUsersResult> {
     if (trimmed.startsWith('ERROR')) {
       return {
         ok: false,
-        error: `Vicidial API error: ${trimmed.slice(0, 200)}`,
+        // v3 prefix is a deploy-verification marker — when this
+        // shows in the UI we know the latest code shipped, not a
+        // cached pre-deploy error. Bump on each iteration.
+        error: `[v3 POST] Vicidial API error: ${trimmed.slice(0, 300)}`,
         fetchedAt,
       }
     }
     if (!trimmed.includes('|')) {
-      // Either an unexpected response or the login form HTML
-      // bleeding through. Surface the first 200 chars so the debug
-      // endpoint shows what came back.
       return {
         ok: false,
-        error: `Unexpected API response: ${trimmed.slice(0, 200)}`,
+        error: `[v3 POST] Unexpected API response: ${trimmed.slice(0, 300)}`,
         fetchedAt,
       }
     }
