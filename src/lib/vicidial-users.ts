@@ -103,17 +103,22 @@ async function doFetch(): Promise<VicidialUsersResult> {
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
     const cookieHeader = `VD_login=${encodeURIComponent(username)}; VD_pass=${encodeURIComponent(password)}`
 
-    // ADD=2 returns BOTH the New User form AND the existing-users
-    // listing on one page. 117KB body, confirmed by debug.
-    const res = await fetch(`${VICIDIAL_BASE}/admin.php?ADD=2`, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Authorization: `Basic ${basicAuth}`,
-        Cookie: cookieHeader,
-        Accept: 'text/html',
+    // ADD=0A&status=display_all is the "show all users" full
+    // listing — confirmed by inspecting the Vicidial DOM via
+    // Chrome DevTools. ADD=2 only returns a truncated listing
+    // under the New User form.
+    const res = await fetch(
+      `${VICIDIAL_BASE}/admin.php?ADD=0A&status=display_all`,
+      {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Authorization: `Basic ${basicAuth}`,
+          Cookie: cookieHeader,
+          Accept: 'text/html',
+        },
+        redirect: 'follow',
       },
-      redirect: 'follow',
-    })
+    )
 
     if (!res.ok) {
       return {
@@ -162,33 +167,57 @@ async function doFetch(): Promise<VicidialUsersResult> {
 /**
  * Parse every user row from the listing.
  *
- * Per Vicidial 2.14 source the per-user anchor uses ADD=21 (modify
- * user). After the anchor we expect 4 subsequent <td>...</td>
- * cells in column order: full name, user_level, user_group,
- * active flag. We tolerate any HTML between the anchor and the
- * closing </tr> via a non-greedy match.
+ * Per the DevTools inspection (2026-06-05), Vicidial 2.14 wraps
+ * each user row as:
+ *
+ *   <tr class="records_list_x">
+ *     <td onclick="...ADD=3&user=850005">
+ *       <a href="/vicidial/admin.php?ADD=3&user=850005">850005</a>
+ *     </td>
+ *     <td onclick="..."><font size="1">ALLIYAH</font></td>
+ *     <td onclick="..."><font size="1">1</font></td>
+ *     <td onclick="..."><font size="1">Agents</font></td>
+ *     <td onclick="..."><font size="1">Y</font></td>
+ *     ...
+ *   </tr>
+ *
+ * Anchor on the row class (cleanest — stable across versions),
+ * pull the user_id from the ADD=3&user=N onclick handler, then
+ * extract the next 4 `<font size="1">VALUE</font>` cells in
+ * order: full_name, user_level, user_group, active.
  */
 function parseUsersHtml(rawHtml: string): VicidialUser[] {
   const html = rawHtml.replace(/&nbsp;/gi, ' ')
+
+  // Capture each row by class. records_list_x and records_list_y
+  // are the two alternating row classes in Vicidial's striped
+  // table — we match both.
   const rowRe =
-    /<a[^>]*href=['"][^'"]*ADD=21[^'"]*['"][^>]*>\s*([A-Za-z0-9_-]+)\s*<\/a>([\s\S]{0,1500}?)<\/tr>/gi
+    /<tr[^>]*class=['"]records_list_[xy]['"][^>]*>([\s\S]*?)<\/tr>/gi
 
   const users: VicidialUser[] = []
   let m
   while ((m = rowRe.exec(html))) {
-    const userId = m[1].trim()
-    const rowTail = m[2]
+    const rowHtml = m[1]
 
-    // Pull the next 4 <td>...</td> cells from the row tail.
-    const cells: string[] = []
-    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi
-    let cm
-    while ((cm = cellRe.exec(rowTail)) && cells.length < 4) {
-      cells.push(cellText(cm[1]))
+    // Pull the user_id from the first ADD=3&user=N reference in
+    // the row (it appears in both the onclick handler and the <a>
+    // href). Tolerate single or double quotes.
+    const userIdMatch = rowHtml.match(/ADD=3&user=([A-Za-z0-9_-]+)/i)
+    if (!userIdMatch) continue
+    const userId = userIdMatch[1].trim()
+
+    // Extract every <font size="1">VALUE</font> in row order.
+    // Vicidial 2.14 wraps every data cell value this way.
+    const fontRe = /<font[^>]*size=['"]?1['"]?[^>]*>([\s\S]*?)<\/font>/gi
+    const values: string[] = []
+    let fm
+    while ((fm = fontRe.exec(rowHtml)) && values.length < 4) {
+      values.push(cellText(fm[1]))
     }
-    if (cells.length < 4) continue
+    if (values.length < 4) continue
 
-    const [fullName, levelStr, group, activeFlag] = cells
+    const [fullName, levelStr, group, activeFlag] = values
     const level = Number(levelStr)
     users.push({
       userId,
