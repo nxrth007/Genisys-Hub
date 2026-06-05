@@ -209,37 +209,36 @@ async function doFetch(): Promise<VicidialStatsResult> {
 /*  HTML parsing                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Pull a single integer that follows a given label. Tolerates any
- *  HTML tags between the label and the number — Vicidial wraps cards
- *  in nested divs/spans/font tags depending on the version.
+/** Parse the 4 top stat-card numbers in one pass.
  *
- *  Multi-strategy because Vicidial 2.14 stat cards lay the LABEL on
- *  top and the NUMBER below (sometimes with the number in a separate
- *  table cell, sometimes via a <br>+<font size="6">):
- *    1. Number AFTER label, within 800 chars
- *    2. Number BEFORE label, within 400 chars (rare card variant)
- *  Window widened from the initial 400 → 800 because the top
- *  cards have icon images + nested fonts before the digit.
+ *  Per the debug-endpoint HTML inspection (2026-06-05), Vicidial
+ *  2.14 lays out the cards as a 2-row table:
+ *    Row 1: 4 `<font size:11>LABEL</font>` cells (the titles)
+ *    Row 2: 4 `<font size:18>NUMBER</font>` cells (the values)
+ *  Numbers correspond to labels by POSITION (1st label → 1st
+ *  number etc.) — NOT proximity. The per-label regex approach was
+ *  wrong; we need to grab all four numbers in order and assign by
+ *  index. The `font-size:18` selector is unique to the big stat
+ *  numbers (labels use size:11), so it's a precise anchor.
  */
-function extractNumberAfter(html: string, label: string): number | null {
-  const labelEsc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Strategy 1: forward search.
-  const fwd = new RegExp(`${labelEsc}[\\s\\S]{0,800}?>\\s*(\\d+)\\s*<`, 'i')
-  const m1 = html.match(fwd)
-  if (m1) {
-    const n = Number(m1[1])
-    if (Number.isFinite(n)) return n
+function extractTopCardNumbers(html: string): {
+  agentsLoggedIn: number | null
+  agentsInCalls: number | null
+  activeCalls: number | null
+  callsRinging: number | null
+} {
+  const pattern = /<font[^>]*font-size:\s*18[^>]*>\s*(\d+)\s*<\/font>/gi
+  const nums: number[] = []
+  let m
+  while ((m = pattern.exec(html)) && nums.length < 4) {
+    nums.push(Number(m[1]))
   }
-  // Strategy 2: backward search — for card layouts where the
-  // number comes first. Smaller window so we don't pull a number
-  // from an unrelated section above.
-  const back = new RegExp(`>\\s*(\\d+)\\s*<[\\s\\S]{0,400}?${labelEsc}`, 'i')
-  const m2 = html.match(back)
-  if (m2) {
-    const n = Number(m2[1])
-    if (Number.isFinite(n)) return n
+  return {
+    agentsLoggedIn: nums[0] ?? null,
+    agentsInCalls: nums[1] ?? null,
+    activeCalls: nums[2] ?? null,
+    callsRinging: nums[3] ?? null,
   }
-  return null
 }
 
 /** Find a table row by label (e.g. "Users:") and pull the three
@@ -284,26 +283,32 @@ function cellToNumber(raw: string): number | null {
   return null
 }
 
-/** Pull "Total Stats for X" — the 4-column row beneath the header.
- *  Reverted to generic `>...<` matching (worked before the <td>
- *  switch). The total-stats row in Vicidial 2.14 is NOT wrapped in
- *  <td> cells — likely styled <font> blocks instead. The summary
- *  table IS <td>-based, so the two parsers diverge intentionally.
+/** Pull "Total Stats for X" — the 4-column data row beneath the
+ *  header.
  *
- *  Yesterday's first cell sometimes renders as "X / Y" (counted /
- *  billable). We strip non-digit chars and take the first integer
- *  from that cell. */
+ *  Per the debug-endpoint HTML inspection (2026-06-05), Vicidial
+ *  2.14's totals table structure is:
+ *    <tr>HEADER LABEL "Total Stats for Today:"  + view-max link</tr>
+ *    <tr bgcolor=black>4 column-header <td>s with TEXT (Total Calls
+ *                       / Inbound / Outbound / Maximum Agents)</tr>
+ *    <tr bgcolor='#B9CBFD'>4 data <td>s with the actual numbers</tr>
+ *
+ *  Strategy: after the header label, collect every <td> in the
+ *  section, then filter to cells whose stripped content is digit-
+ *  only (or "X / Y" for yesterday). The text-header cells get
+ *  filtered out automatically — they contain words like "Total
+ *  Calls". First 4 digit cells = our 4 stats by position.
+ *
+ *  Section boundary: next "Total Stats for" header OR </table>,
+ *  whichever comes first — bounds the search so Yesterday's
+ *  parsing doesn't pull from a totally unrelated section if the
+ *  page layout changes. */
 function extractTotalStats(
   html: string,
   headerLabel: string,
 ): TotalStatsRow {
-  const headerEsc = headerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(
-    `${headerEsc}[\\s\\S]{0,1500}?>\\s*([\\d/\\s]+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<`,
-    'i',
-  )
-  const m = html.match(re)
-  if (!m) {
+  const headerIdx = html.indexOf(headerLabel)
+  if (headerIdx === -1) {
     return {
       totalCalls: null,
       inboundCalls: null,
@@ -311,14 +316,65 @@ function extractTotalStats(
       maxAgents: null,
     }
   }
-  // First cell may be "53191 / 52918" — take the first integer.
-  const firstNum = m[1].trim().split(/[^\d]/).filter(Boolean)[0]
-  return {
-    totalCalls: firstNum ? Number(firstNum) : null,
-    inboundCalls: Number(m[2]) || null,
-    outboundCalls: Number(m[3]) || null,
-    maxAgents: Number(m[4]) || null,
+  // Find the end of this section: next "Total Stats for" (the
+  // Yesterday header for the Today parser, or end-of-table for
+  // Yesterday). Cap at 5000 chars as a safety stop.
+  const afterHeader = html.slice(
+    headerIdx + headerLabel.length,
+    headerIdx + 5000,
+  )
+  const nextHeaderIdx = afterHeader.indexOf('Total Stats for')
+  const tableEndIdx = afterHeader.search(/<\/table>/i)
+  const boundaries = [nextHeaderIdx, tableEndIdx].filter((i) => i !== -1)
+  const sectionEnd = boundaries.length > 0 ? Math.min(...boundaries) : 5000
+  const section = afterHeader.slice(0, sectionEnd)
+
+  // Collect every <td>...</td> in the section.
+  const cellPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi
+  const digitCells: string[] = []
+  let m
+  while ((m = cellPattern.exec(section))) {
+    const stripped = m[1]
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, '')
+      .trim()
+    // Accept digit-only ("29") OR digit/slash ("53191 / 52918").
+    // Empty/text cells are skipped — that's how we filter out the
+    // text column-header row.
+    if (stripped && /^[\d\s/]+$/.test(stripped)) {
+      digitCells.push(stripped)
+    }
+    if (digitCells.length >= 4) break
   }
+
+  if (digitCells.length < 4) {
+    return {
+      totalCalls: digitCells[0] ? parseFirstNum(digitCells[0]) : null,
+      inboundCalls: digitCells[1] ? parseFirstNum(digitCells[1]) : null,
+      outboundCalls: digitCells[2] ? parseFirstNum(digitCells[2]) : null,
+      maxAgents: digitCells[3] ? parseFirstNum(digitCells[3]) : null,
+    }
+  }
+
+  return {
+    totalCalls: parseFirstNum(digitCells[0]),
+    inboundCalls: parseFirstNum(digitCells[1]),
+    outboundCalls: parseFirstNum(digitCells[2]),
+    maxAgents: parseFirstNum(digitCells[3]),
+  }
+}
+
+/** Extract the first integer from a string. Handles plain "29",
+ *  whitespace-padded " 29 ", and "X / Y" (yesterday's split
+ *  count). Returns 0 for empty input so a legitimately-zero cell
+ *  doesn't show up as null. */
+function parseFirstNum(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (trimmed === '') return 0
+  const first = trimmed.split(/[^\d]/).filter(Boolean)[0]
+  if (!first) return null
+  const n = Number(first)
+  return Number.isFinite(n) ? n : null
 }
 
 function parseAdminHtml(rawHtml: string): VicidialStats {
@@ -333,11 +389,12 @@ function parseAdminHtml(rawHtml: string): VicidialStats {
     .replace(/&nbsp;/gi, ' ')
     .replace(/[ \t]+/g, ' ')
 
+  const topCards = extractTopCardNumbers(html)
   return {
-    agentsLoggedIn: extractNumberAfter(html, 'Agents Logged In'),
-    agentsInCalls: extractNumberAfter(html, 'Agents In Calls'),
-    activeCalls: extractNumberAfter(html, 'Active Calls'),
-    callsRinging: extractNumberAfter(html, 'Calls Ringing'),
+    agentsLoggedIn: topCards.agentsLoggedIn,
+    agentsInCalls: topCards.agentsInCalls,
+    activeCalls: topCards.activeCalls,
+    callsRinging: topCards.callsRinging,
     systemSummary: {
       users: extractSummaryRow(html, 'Users:'),
       campaigns: extractSummaryRow(html, 'Campaigns:'),
