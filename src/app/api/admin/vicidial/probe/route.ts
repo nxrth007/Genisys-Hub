@@ -43,77 +43,37 @@ export async function GET() {
   const password = (await getSecretByName('Vicidial Admin Password')).trim()
   const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
 
-  // Six probes. Each tries the `version` function — it returns
-  // "VERSION: 2.14-X" on success, doesn't require user_level, and
-  // is the canonical smoke test in Vicidial docs.
-  const probes: Probe[] = [
-    {
-      label: 'A — GET non_agent_api function=version',
-      url: `${VICIDIAL_BASE}/non_agent_api.php`,
-      method: 'GET',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        function: 'version',
-      },
-    },
-    {
-      label: 'B — POST non_agent_api function=version',
-      url: `${VICIDIAL_BASE}/non_agent_api.php`,
-      method: 'POST',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        function: 'version',
-      },
-    },
-    {
-      label: 'C — GET non_agent_api action=version (alt param)',
-      url: `${VICIDIAL_BASE}/non_agent_api.php`,
-      method: 'GET',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        action: 'version',
-      },
-    },
-    {
-      label: 'D — GET agc/api.php function=version',
-      url: `${ALT_BASE}/api.php`,
-      method: 'GET',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        function: 'version',
-      },
-    },
-    {
-      label: 'E — GET admin_api.php function=version',
-      url: `${VICIDIAL_BASE}/admin_api.php`,
-      method: 'GET',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        function: 'version',
-      },
-    },
-    {
-      label: 'F — GET non_agent_api function=version (no basic auth)',
-      url: `${VICIDIAL_BASE}/non_agent_api.php`,
-      method: 'GET',
-      params: {
-        source: 'hub',
-        user: username,
-        pass: password,
-        function: 'version',
-      },
-    },
+  // Round 2: enumerate which functions the BPO has whitelisted.
+  // `version` worked (round 1), so the endpoint + auth + param
+  // name are confirmed correct. Now we test each candidate
+  // function against the SAME proven request shape (GET +
+  // non_agent_api.php) and see which ones return useful data vs
+  // which return "NO FUNCTION SPECIFIED" (the hardening response).
+  const candidateFunctions = [
+    'users_list',
+    'agents_list',
+    'agent_status',
+    'system_status',
+    'agents_status',
+    'user_status',
+    'agent_calls',
+    'add_lead',
+    'update_lead',
+    'recording_lookup',
+    'callback_list',
   ]
+
+  const probes: Probe[] = candidateFunctions.map((fn) => ({
+    label: `${fn}`,
+    url: `${VICIDIAL_BASE}/non_agent_api.php`,
+    method: 'GET',
+    params: {
+      source: 'hub',
+      user: username,
+      pass: password,
+      function: fn,
+    },
+  }))
 
   const results = await Promise.all(
     probes.map(async (p) => {
@@ -121,12 +81,7 @@ export async function GET() {
         const headers: Record<string, string> = {
           'User-Agent': USER_AGENT,
           Accept: 'text/plain',
-        }
-        // Probe F: no Authorization header — to see if the outer
-        // web-server Basic auth is what's mangling the body. All
-        // other probes include it.
-        if (p.label !== 'F — GET non_agent_api function=version (no basic auth)') {
-          headers.Authorization = `Basic ${basicAuth}`
+          Authorization: `Basic ${basicAuth}`,
         }
 
         let res: Response
