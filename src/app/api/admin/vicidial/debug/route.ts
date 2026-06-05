@@ -72,22 +72,28 @@ export async function GET() {
   // Users page diagnostic slices.
   const usersSlices: Record<string, string | null> = {}
   if (usersRaw) {
-    // First 2000 chars so we can verify which Vicidial page the
-    // scrape actually landed on (header, title, top of table).
-    usersSlices['__preview_first_2000'] = usersRaw.html.slice(0, 2000)
-    // <title> tag value if present
     const titleMatch = usersRaw.html.match(/<title>([\s\S]*?)<\/title>/i)
     usersSlices['__title'] = titleMatch ? titleMatch[1].trim() : null
-    // Try multiple header anchors — Vicidial 2.14 uses any of these
-    // depending on page variant.
-    for (const anchor of ['USER ID', 'USER LISTING', 'USER LISTINGS', 'user_id']) {
-      const idx = usersRaw.html.indexOf(anchor)
-      usersSlices[`__anchor_${anchor.replace(/\s+/g, '_')}`] =
+    // Look for the "show all users" / "show full user" link — once
+    // we find its href we know the canonical URL for the full
+    // listing.
+    for (const anchor of [
+      'show all users',
+      'show all',
+      'USER LISTING',
+      'USER LISTINGS',
+      'USER ID',
+      'user_id',
+      'user_list',
+      'show_users',
+    ]) {
+      const idx = usersRaw.html.toLowerCase().indexOf(anchor.toLowerCase())
+      usersSlices[`__find_${anchor.replace(/\s+/g, '_')}`] =
         idx === -1
           ? null
           : usersRaw.html.slice(
-              Math.max(0, idx - 100),
-              idx + 1500,
+              Math.max(0, idx - 200),
+              idx + 800,
             )
     }
     // Sample user rows (the 850xxx convention at this BPO)
@@ -99,14 +105,11 @@ export async function GET() {
             Math.max(0, sampleIdx - 300),
             sampleIdx + 1200,
           )
-    const sample2Idx = usersRaw.html.indexOf('850005')
-    usersSlices['__sample_850005'] =
-      sample2Idx === -1
-        ? null
-        : usersRaw.html.slice(
-            Math.max(0, sample2Idx - 200),
-            sample2Idx + 1000,
-          )
+    // Capture a slice from the END of the document — if there's a
+    // user list below the form, we'd expect rows near the tail.
+    usersSlices['__tail_last_3000'] = usersRaw.html.slice(
+      Math.max(0, usersRaw.html.length - 3000),
+    )
   }
 
   return NextResponse.json({
