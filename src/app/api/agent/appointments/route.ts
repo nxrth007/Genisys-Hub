@@ -8,6 +8,7 @@ import { deliverAppointmentAsEmail } from '@/lib/client-email-alert'
 import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
+import { findMostRecentRecording } from '@/lib/vicidial-recording-lookup'
 import { snapshotSolarFromCache } from '@/lib/solar'
 import { readMasterTableRows } from '@/lib/drive'
 
@@ -333,6 +334,24 @@ export async function POST(req: NextRequest) {
   // someone just booked conflict B" case by returning 409 with the new set.
   const acknowledgedSet = new Set(body.acknowledgedConflictIds || [])
 
+  // Auto-attach a recording from Vicidial when the agent didn't
+  // paste a link in manually. Done BEFORE the transaction so a
+  // slow Vicidial API call can't hold a DB write open. Lookup
+  // failures fall through to leaving the field empty — never
+  // blocks the appointment save.
+  let recordingLink = body.callRecordingLink?.trim() || null
+  if (!recordingLink && body.customerPhone) {
+    const lookup = await findMostRecentRecording({
+      phone: body.customerPhone.trim(),
+    })
+    if (lookup.ok) {
+      recordingLink = lookup.recordingLink
+      console.log(
+        `[agent appointments] auto-attached vicidial recording ${lookup.filename} for ${body.customerPhone}`,
+      )
+    }
+  }
+
   let appt
   try {
     appt = await prisma.$transaction(async (tx) => {
@@ -373,7 +392,7 @@ export async function POST(req: NextRequest) {
           status,
           estimatedDealValue: body.estimatedDealValue?.trim() || null,
           notes: body.notes?.trim() || null,
-          callRecordingLink: body.callRecordingLink?.trim() || null,
+          callRecordingLink: recordingLink,
           bookedByName: body.bookedByName?.trim() || null,
         },
       })

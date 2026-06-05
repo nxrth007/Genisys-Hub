@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { signRecordingUrl } from '@/lib/recording-proxy'
 import { getPublicOrigin } from '@/lib/gmail'
+import { findMostRecentRecording } from '@/lib/vicidial-recording-lookup'
 
 /**
  * GET  /api/agent/callbacks  → own callbacks, soonest first
@@ -71,6 +72,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid date/time.' }, { status: 400 })
   }
 
+  // Auto-attach a recording from Vicidial when the agent didn't
+  // paste one in manually. We look up the most recent recording
+  // matching this customer's phone via the BPO's whitelisted
+  // recording_lookup API. Failures fall through to leaving the
+  // field empty — never blocks the user's save.
+  let recordingLink = body.callRecordingLink?.trim() || null
+  if (!recordingLink) {
+    const lookup = await findMostRecentRecording({
+      phone: body.customerPhone.trim(),
+    })
+    if (lookup.ok) {
+      recordingLink = lookup.recordingLink
+      console.log(
+        `[callbacks] auto-attached vicidial recording ${lookup.filename} to new callback for ${body.customerPhone}`,
+      )
+    }
+  }
+
   const callback = await prisma.callback.create({
     data: {
       agentUserId: session.user.id,
@@ -78,7 +97,7 @@ export async function POST(req: NextRequest) {
       customerPhone: body.customerPhone.trim(),
       callbackAt: when,
       notes: body.notes?.trim() || null,
-      callRecordingLink: body.callRecordingLink?.trim() || null,
+      callRecordingLink: recordingLink,
     },
   })
   return NextResponse.json({ ok: true, callback })
