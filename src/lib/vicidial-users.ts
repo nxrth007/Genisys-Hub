@@ -107,9 +107,14 @@ async function doFetch(): Promise<VicidialUsersResult> {
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
     const cookieHeader = `VD_login=${encodeURIComponent(username)}; VD_pass=${encodeURIComponent(password)}`
 
-    // ADD=8 is the Show Users page in admin.php — same UI Alex
-    // navigates to via the sidebar.
-    const res = await fetch(`${VICIDIAL_BASE}/admin.php?ADD=8`, {
+    // ADD=2 is the "Show Users" listing in Vicidial 2.14's admin.php
+    // — same UI Alex navigates to via the sidebar (Users → Show Users).
+    // ADD=8 was wrong on the previous attempt; that's the "Add A New
+    // User" form, which redirected to the home page when accessed
+    // without form data, which is why our first scrape returned a
+    // 56KB body containing the dashboard markup instead of the users
+    // listing.
+    const res = await fetch(`${VICIDIAL_BASE}/admin.php?ADD=2`, {
       headers: {
         'User-Agent': USER_AGENT,
         Authorization: `Basic ${basicAuth}`,

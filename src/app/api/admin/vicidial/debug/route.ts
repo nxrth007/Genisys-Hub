@@ -69,33 +69,38 @@ export async function GET() {
     }
   }
 
-  // Users page — give back a few representative slices so we can
-  // see what the actual row structure looks like. Anchor on the
-  // 850-prefix that Genisys's BPO uses for agent user IDs, plus
-  // generic anchors like "USER ID" header + "Agents" group label.
+  // Users page diagnostic slices.
   const usersSlices: Record<string, string | null> = {}
   if (usersRaw) {
-    // Find the table header
-    const headerIdx = usersRaw.html.indexOf('USER ID')
-    usersSlices['__header'] =
-      headerIdx === -1
-        ? null
-        : usersRaw.html.slice(
-            Math.max(0, headerIdx - 100),
-            headerIdx + 1500,
-          )
-    // Find a sample user row by 850-prefix (Genisys's BPO convention)
+    // First 2000 chars so we can verify which Vicidial page the
+    // scrape actually landed on (header, title, top of table).
+    usersSlices['__preview_first_2000'] = usersRaw.html.slice(0, 2000)
+    // <title> tag value if present
+    const titleMatch = usersRaw.html.match(/<title>([\s\S]*?)<\/title>/i)
+    usersSlices['__title'] = titleMatch ? titleMatch[1].trim() : null
+    // Try multiple header anchors — Vicidial 2.14 uses any of these
+    // depending on page variant.
+    for (const anchor of ['USER ID', 'USER LISTING', 'USER LISTINGS', 'user_id']) {
+      const idx = usersRaw.html.indexOf(anchor)
+      usersSlices[`__anchor_${anchor.replace(/\s+/g, '_')}`] =
+        idx === -1
+          ? null
+          : usersRaw.html.slice(
+              Math.max(0, idx - 100),
+              idx + 1500,
+            )
+    }
+    // Sample user rows (the 850xxx convention at this BPO)
     const sampleIdx = usersRaw.html.indexOf('850001')
-    usersSlices['__sample_user_row'] =
+    usersSlices['__sample_850001'] =
       sampleIdx === -1
         ? null
         : usersRaw.html.slice(
             Math.max(0, sampleIdx - 300),
             sampleIdx + 1200,
           )
-    // A second sample to see if the pattern is consistent
     const sample2Idx = usersRaw.html.indexOf('850005')
-    usersSlices['__second_sample'] =
+    usersSlices['__sample_850005'] =
       sample2Idx === -1
         ? null
         : usersRaw.html.slice(
