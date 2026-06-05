@@ -243,21 +243,18 @@ function extractNumberAfter(html: string, label: string): number | null {
 }
 
 /** Find a table row by label (e.g. "Users:") and pull the three
- *  consecutive numeric cells (Active / Inactive / Total).
- *  Each cell may be:
- *    - A digit run (the common case)
- *    - `&nbsp;` or empty whitespace (Vicidial renders 0 as blank
- *      in some columns, especially Inactive)
- *  Empty / nbsp cells are interpreted as 0 instead of null so the
- *  UI doesn't show "—" where Vicidial visually shows "0". */
+ *  consecutive `<td>` cells after it (Active / Inactive / Total).
+ *
+ *  Targets `<td>...</td>` cells explicitly rather than a generic
+ *  `>...<` match. The earlier generic-tag approach captured the
+ *  EMPTY whitespace between `</td><td>` boundaries (non-greedy
+ *  matched zero chars first), which made every row look like 0.
+ *  Now we anchor on actual cell boundaries and let cellToNumber
+ *  handle digits / &nbsp; / nested font tags. */
 function extractSummaryRow(html: string, label: string): SummaryRow {
   const labelEsc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Match the row label, then up to three numeric-or-empty cells.
-  // The cell content group `([\\d\\s&nbsp;]*)` captures either a
-  // digit run, an &nbsp;, plain whitespace, or nothing. After the
-  // match we normalize: any non-digit content → 0.
   const re = new RegExp(
-    `${labelEsc}[\\s\\S]{0,600}?>([\\s\\S]{0,40}?)<[\\s\\S]{0,200}?>([\\s\\S]{0,40}?)<[\\s\\S]{0,200}?>([\\s\\S]{0,40}?)<`,
+    `${labelEsc}[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>`,
     'i',
   )
   const m = html.match(re)
@@ -271,17 +268,19 @@ function extractSummaryRow(html: string, label: string): SummaryRow {
 
 /** Convert a captured cell's raw inner HTML/text into a number.
  *  - "<digit run>" → that digit
- *  - "&nbsp;" / "" / whitespace-only → 0 (Vicidial visually
- *    displays 0 as blank in some columns)
+ *  - "&nbsp;" / whitespace-only → 0 (Vicidial visually renders 0
+ *    as blank in some columns, especially Inactive)
+ *  - Mixed content with a digit run after tag-strip → that digit
  *  - Anything else (unexpected markup) → null so the UI shows "—"
  *    instead of misreporting. */
 function cellToNumber(raw: string): number | null {
-  const trimmed = raw.replace(/&nbsp;/gi, '').trim()
-  if (trimmed === '') return 0
-  // Strip any nested tags + whitespace to isolate the digit run.
-  const digits = trimmed.replace(/<[^>]+>/g, '').trim()
-  if (digits === '') return 0
-  if (/^\d+$/.test(digits)) return Number(digits)
+  // Strip nested tags first, then normalize whitespace + &nbsp;.
+  const stripped = raw
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, '')
+    .trim()
+  if (stripped === '') return 0
+  if (/^\d+$/.test(stripped)) return Number(stripped)
   return null
 }
 
