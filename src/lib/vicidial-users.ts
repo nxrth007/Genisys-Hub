@@ -1,30 +1,39 @@
 /**
- * Vicidial Users list scraper.
+ * Vicidial Users list — via non_agent_api.php (NOT HTML scraping).
  *
- * Mirrors what Alex sees on /vicidial/admin.php?ADD=8 — the user
- * listing showing every account in the call-center system. Each
- * row carries user_id (the 850xxx codes), full name, user_level,
- * user_group, and active flag.
+ * Switched away from admin.php?ADD=* scraping after the first
+ * round revealed that ADD=2 returns the "New User Addition" form
+ * (not the listing) and the actual listing is behind a "show all
+ * users" link gated by paging parameters that are version-specific.
+ *
+ * non_agent_api.php is documented + version-stable + designed for
+ * machine consumption. The `users_list` function returns a pipe-
+ * delimited body. Standard format per VICIDIAL docs:
+ *
+ *   SUCCESS: users_list - 30 records returned
+ *   user_id|full_name|user_level|user_group|active
+ *   850001|MARIA|1|Agents|Y
+ *   850002|ALLIYAH|1|Agents|Y
+ *   ...
+ *
+ * Our AdminRoot account is user_level=9, which exceeds the
+ * function's documented level 7+ requirement.
  *
  * Why this matters for the Hub: today the Team #1 admin surface
- * lets Alex assign a free-form "call center number" string to
- * each team_member. There's no link between that string and an
- * actual Vicidial user_id, so a typo or stale assignment is
- * silently invisible. Surfacing the Vicidial Users list in
- * /agents gives Alex/Ethan a way to cross-check at a glance.
+ * lets Alex assign a free-form "call center number" string to each
+ * team_member with no link to a real Vicidial user_id. Surfacing
+ * the Users list in /agents lets Alex/Ethan cross-check at a
+ * glance.
  *
- * Auth: same VD_login/VD_pass cookies + HTTP Basic Auth that
- * vicidial-stats uses. Credentials read from vault.
+ * Auth: same vault credentials used by vicidial-stats. We pass
+ * them as form-encoded user= / pass= parameters per the API
+ * convention; HTTP Basic auth header still sent for the outer
+ * web-server auth layer.
  *
- * Cache: 5 minutes. Users don't change often (admin manually
- * adds/disables), so a longer cache than the live-report dashboard
- * is fine and keeps load off Vicidial.
+ * Cache: 5 minutes. Users rarely change.
  *
  * Knowledge-base reference: docs/vicidial-knowledge-base.md
- * (sections 2.2 and 3 — Users admin section, vicidial_users
- * table). The non_agent_api `users_list` action would be a
- * cleaner alternative when we're ready to swap — for now we
- * reuse the proven admin.php scraping pattern.
+ * sections 3 (vicidial_users table) and 4 (non_agent_api.php).
  */
 
 import { getSecretByName } from './vault-service'
@@ -104,52 +113,66 @@ async function doFetch(): Promise<VicidialUsersResult> {
       }
     }
 
+    // Outer web-server Basic auth still required (same as the
+    // dashboard scraper).
     const basicAuth = Buffer.from(`${username}:${password}`).toString('base64')
-    const cookieHeader = `VD_login=${encodeURIComponent(username)}; VD_pass=${encodeURIComponent(password)}`
 
-    // ADD=2 is the "Show Users" listing in Vicidial 2.14's admin.php
-    // — same UI Alex navigates to via the sidebar (Users → Show Users).
-    // ADD=8 was wrong on the previous attempt; that's the "Add A New
-    // User" form, which redirected to the home page when accessed
-    // without form data, which is why our first scrape returned a
-    // 56KB body containing the dashboard markup instead of the users
-    // listing.
-    const res = await fetch(`${VICIDIAL_BASE}/admin.php?ADD=2`, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Authorization: `Basic ${basicAuth}`,
-        Cookie: cookieHeader,
-        Accept: 'text/html',
-      },
-      redirect: 'follow',
+    // Inner API auth via form-encoded user/pass on the URL. The
+    // `source` parameter is required by non_agent_api.php — any
+    // identifier string works; we use "hub" so the call logs an
+    // attribution.
+    const params = new URLSearchParams({
+      source: 'hub',
+      user: username,
+      pass: password,
+      function: 'users_list',
     })
+
+    const res = await fetch(
+      `${VICIDIAL_BASE}/non_agent_api.php?${params.toString()}`,
+      {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Authorization: `Basic ${basicAuth}`,
+          Accept: 'text/plain',
+        },
+      },
+    )
 
     if (!res.ok) {
       return {
         ok: false,
-        error: `Vicidial returned HTTP ${res.status}`,
+        error: `Vicidial API returned HTTP ${res.status}`,
         fetchedAt,
       }
     }
 
-    const html = await res.text()
-    lastRawHtml = html
+    const body = await res.text()
+    lastRawHtml = body
     lastRawAt = Date.now()
 
-    if (
-      html.includes('name="VD_login"') &&
-      html.includes('name="VD_pass"') &&
-      !html.includes('USER LISTING')
-    ) {
+    // The API returns plain text. Success body starts with "SUCCESS"
+    // and has one user per line. Error responses start with "ERROR".
+    const trimmed = body.trim()
+    if (trimmed.startsWith('ERROR')) {
       return {
         ok: false,
-        error:
-          'Vicidial returned the login form — credentials may be incorrect or Render IP not whitelisted',
+        error: `Vicidial API error: ${trimmed.slice(0, 200)}`,
+        fetchedAt,
+      }
+    }
+    if (!trimmed.includes('|')) {
+      // Either an unexpected response or the login form HTML
+      // bleeding through. Surface the first 200 chars so the debug
+      // endpoint shows what came back.
+      return {
+        ok: false,
+        error: `Unexpected API response: ${trimmed.slice(0, 200)}`,
         fetchedAt,
       }
     }
 
-    const users = parseUsersHtml(html)
+    const users = parseUsersResponse(body)
     return { ok: true, users, fetchedAt }
   } catch (err) {
     return {
@@ -165,37 +188,42 @@ async function doFetch(): Promise<VicidialUsersResult> {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Parse every user row from the Users listing table.
+ * Parse the non_agent_api.php `users_list` response body.
  *
- * Vicidial's listing wraps each user in a `<tr>` whose first cell
- * is `<a href="admin.php?ADD=9&...">USER_ID</a>`. We anchor on
- * that pattern and pull the surrounding cells.
+ * Format per VICIDIAL docs:
+ *   SUCCESS: users_list - 30 records returned
+ *   user_id|full_name|user_level|user_group|active
+ *   850001|MARIA|1|Agents|Y
+ *   ...
  *
- * Robustness notes:
- *  - The listing's column order is stable in 2.14 (USER ID, FULL
- *    NAME, LEVEL, GROUP, ACTIVE, MODIFY, STATS, STATUS, TIME).
- *  - Empty / hidden FULL NAME cells render as "XXXXXX" — we pass
- *    through as-is so admin can spot the redacted rows.
- *  - The header row has bold cells (`<b>USER ID</b>`) which the
- *    user-row pattern won't match, so we naturally skip it.
+ * Some Vicidial builds skip the column-header line and go straight
+ * from the SUCCESS banner to data. We tolerate either by detecting
+ * any line whose first field looks like a user_id (alphanumeric +
+ * underscores / hyphens) AND has 5 pipe-delimited fields.
+ *
+ * Newer Vicidial builds may include additional trailing columns
+ * (status, phone_login, etc.) — we accept any line with AT LEAST
+ * 5 fields and just take the first 5.
  */
-function parseUsersHtml(rawHtml: string): VicidialUser[] {
-  const html = rawHtml.replace(/&nbsp;/gi, ' ')
-  // Each user row starts with an anchor pointing at the per-user
-  // edit URL: <a href="admin.php?ADD=9&...">user_id</a>
-  // Captured groups:
-  //   1: user_id (e.g. "850001")
-  //   2: full name (or "XXXXXX")
-  //   3: user_level (1-9)
-  //   4: user_group (e.g. "Agents", "ADMIN")
-  //   5: active flag (single letter, usually "Y")
-  const rowRe =
-    /<a[^>]*href=['"][^'"]*ADD=9[^'"]*['"][^>]*>([A-Za-z0-9_-]+)<\/a>[\s\S]{0,300}?<td[^>]*>\s*([^<]+?)\s*<\/td>[\s\S]{0,300}?<td[^>]*>\s*(\d+)\s*<\/td>[\s\S]{0,300}?<td[^>]*>\s*([A-Za-z0-9_ -]+?)\s*<\/td>[\s\S]{0,300}?<td[^>]*>\s*([YN])\s*<\/td>/gi
-
+function parseUsersResponse(body: string): VicidialUser[] {
+  const lines = body.split(/\r?\n/)
   const users: VicidialUser[] = []
-  let m
-  while ((m = rowRe.exec(html))) {
-    const [, userId, fullName, levelStr, group, activeFlag] = m
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+    // Skip the SUCCESS banner + any "column header" line that
+    // doesn't have an actual numeric+digit user_id.
+    if (line.startsWith('SUCCESS')) continue
+    if (line.startsWith('ERROR')) continue
+    if (line.toLowerCase().startsWith('user_id')) continue
+
+    const parts = line.split('|')
+    if (parts.length < 5) continue
+    const [userId, fullName, levelStr, group, activeFlag] = parts
+    // Sanity check — a user_id is non-empty and starts with letter
+    // or digit. Skip anything that's clearly not a row.
+    if (!userId || !/^[A-Za-z0-9_-]+$/.test(userId)) continue
+
     const level = Number(levelStr)
     users.push({
       userId: userId.trim(),
