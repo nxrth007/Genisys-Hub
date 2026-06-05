@@ -285,19 +285,21 @@ function cellToNumber(raw: string): number | null {
 }
 
 /** Pull "Total Stats for X" — the 4-column row beneath the header.
- *  Anchored on `<td>` cells (same fix the summary rows needed —
- *  generic `>...<` was capturing empty inter-tag whitespace).
+ *  Reverted to generic `>...<` matching (worked before the <td>
+ *  switch). The total-stats row in Vicidial 2.14 is NOT wrapped in
+ *  <td> cells — likely styled <font> blocks instead. The summary
+ *  table IS <td>-based, so the two parsers diverge intentionally.
  *
  *  Yesterday's first cell sometimes renders as "X / Y" (counted /
- *  billable). cellToNumberAcceptingSlash extracts the first integer
- *  for that case while leaving normal digit-only cells untouched. */
+ *  billable). We strip non-digit chars and take the first integer
+ *  from that cell. */
 function extractTotalStats(
   html: string,
   headerLabel: string,
 ): TotalStatsRow {
   const headerEsc = headerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const re = new RegExp(
-    `${headerEsc}[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>`,
+    `${headerEsc}[\\s\\S]{0,1500}?>\\s*([\\d/\\s]+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<`,
     'i',
   )
   const m = html.match(re)
@@ -309,27 +311,14 @@ function extractTotalStats(
       maxAgents: null,
     }
   }
+  // First cell may be "53191 / 52918" — take the first integer.
+  const firstNum = m[1].trim().split(/[^\d]/).filter(Boolean)[0]
   return {
-    totalCalls: cellToNumberAcceptingSlash(m[1]),
-    inboundCalls: cellToNumber(m[2]),
-    outboundCalls: cellToNumber(m[3]),
-    maxAgents: cellToNumber(m[4]),
+    totalCalls: firstNum ? Number(firstNum) : null,
+    inboundCalls: Number(m[2]) || null,
+    outboundCalls: Number(m[3]) || null,
+    maxAgents: Number(m[4]) || null,
   }
-}
-
-/** Like cellToNumber, but tolerates "X / Y" (yesterday's total
- *  calls cell sometimes shows counted/billable). Returns the
- *  FIRST integer. */
-function cellToNumberAcceptingSlash(raw: string): number | null {
-  const stripped = raw
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, '')
-    .trim()
-  if (stripped === '') return 0
-  const first = stripped.split(/[^\d]/).filter(Boolean)[0]
-  if (!first) return null
-  if (/^\d+$/.test(first)) return Number(first)
-  return null
 }
 
 function parseAdminHtml(rawHtml: string): VicidialStats {
