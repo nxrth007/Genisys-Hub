@@ -71,11 +71,33 @@ export default function LiveReportPage() {
       return res.json()
     },
     refetchInterval: 60_000,
+    // Keep polling even when the tab is backgrounded — otherwise
+    // Alex opens the tab in the morning and sees stat-data from
+    // whenever he last had it focused. Default React Query
+    // behavior suspends interval polls on hidden tabs.
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     // Show stale data while the next poll is in flight so the page
     // doesn't flash a loading state every minute.
     placeholderData: (prev) => prev,
   })
+
+  // Surface a "stale" warning when the displayed fetchedAt is more
+  // than 2 minutes old — gives the user visible feedback that
+  // polling stopped (network blip, server hiccup, etc.) instead of
+  // silently displaying ancient numbers.
+  const fetchedAtIso =
+    query.data?.fetchedAt && typeof query.data.fetchedAt === 'string'
+      ? query.data.fetchedAt
+      : null
+  const [, setNow] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setNow((n) => n + 1), 5_000)
+    return () => clearInterval(t)
+  }, [])
+  const isStale =
+    fetchedAtIso !== null &&
+    Date.now() - Date.parse(fetchedAtIso) > 120_000
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -99,6 +121,13 @@ export default function LiveReportPage() {
           loading={query.isFetching}
         />
       </header>
+
+      {isStale && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          ⚠ Data is more than 2 minutes old — the auto-refresh may have
+          stalled. Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R).
+        </div>
+      )}
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16 text-zinc-500">

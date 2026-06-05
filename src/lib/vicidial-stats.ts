@@ -285,19 +285,19 @@ function cellToNumber(raw: string): number | null {
 }
 
 /** Pull "Total Stats for X" — the 4-column row beneath the header.
- *  Yesterday's row sometimes shows totalCalls as "X / Y" (counted /
- *  billable). We strip out anything after the first number for that
- *  cell. */
+ *  Anchored on `<td>` cells (same fix the summary rows needed —
+ *  generic `>...<` was capturing empty inter-tag whitespace).
+ *
+ *  Yesterday's first cell sometimes renders as "X / Y" (counted /
+ *  billable). cellToNumberAcceptingSlash extracts the first integer
+ *  for that case while leaving normal digit-only cells untouched. */
 function extractTotalStats(
   html: string,
   headerLabel: string,
 ): TotalStatsRow {
   const headerEsc = headerLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // From the header, search forward up to 1500 chars (the row sits
-  // right under the header; anything farther than that means we've
-  // gone past it). Pull four consecutive numeric cells.
   const re = new RegExp(
-    `${headerEsc}[\\s\\S]{0,1500}?>\\s*([\\d/\\s]+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<[\\s\\S]{0,200}?>\\s*(\\d+)\\s*<`,
+    `${headerEsc}[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>[\\s\\S]*?<td[^>]*>([\\s\\S]{0,200}?)</td>`,
     'i',
   )
   const m = html.match(re)
@@ -309,17 +309,41 @@ function extractTotalStats(
       maxAgents: null,
     }
   }
-  // First cell may be "53191 / 52918" — take the first integer.
-  const firstNum = m[1].trim().split(/[^\d]/).filter(Boolean)[0]
   return {
-    totalCalls: firstNum ? Number(firstNum) : null,
-    inboundCalls: Number(m[2]) || null,
-    outboundCalls: Number(m[3]) || null,
-    maxAgents: Number(m[4]) || null,
+    totalCalls: cellToNumberAcceptingSlash(m[1]),
+    inboundCalls: cellToNumber(m[2]),
+    outboundCalls: cellToNumber(m[3]),
+    maxAgents: cellToNumber(m[4]),
   }
 }
 
-function parseAdminHtml(html: string): VicidialStats {
+/** Like cellToNumber, but tolerates "X / Y" (yesterday's total
+ *  calls cell sometimes shows counted/billable). Returns the
+ *  FIRST integer. */
+function cellToNumberAcceptingSlash(raw: string): number | null {
+  const stripped = raw
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, '')
+    .trim()
+  if (stripped === '') return 0
+  const first = stripped.split(/[^\d]/).filter(Boolean)[0]
+  if (!first) return null
+  if (/^\d+$/.test(first)) return Number(first)
+  return null
+}
+
+function parseAdminHtml(rawHtml: string): VicidialStats {
+  // Normalize the HTML before any regex work:
+  //   - Replace &nbsp; with a regular space. Vicidial uses &nbsp;
+  //     between words in card titles to prevent line breaks
+  //     ("Agents&nbsp;Logged&nbsp;In"), which made our literal-
+  //     space label matches fail on the first two top cards.
+  //   - Collapse runs of whitespace so labels match regardless of
+  //     extra HTML formatting.
+  const html = rawHtml
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/[ \t]+/g, ' ')
+
   return {
     agentsLoggedIn: extractNumberAfter(html, 'Agents Logged In'),
     agentsInCalls: extractNumberAfter(html, 'Agents In Calls'),
