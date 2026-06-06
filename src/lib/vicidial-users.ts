@@ -227,17 +227,28 @@ function parseUsersHtml(rawHtml: string): VicidialUser[] {
     if (!userIdMatch) continue
     const userId = userIdMatch[1].trim()
 
-    // Extract every <font size="1">VALUE</font> in row order.
-    // Vicidial 2.14 wraps every data cell value this way.
-    const fontRe = /<font[^>]*size=['"]?1['"]?[^>]*>([\s\S]*?)<\/font>/gi
+    // Extract every <font size=1>VALUE in row order.
+    //
+    // Critical: Vicidial 2.14 emits UNCLOSED <font> tags — the
+    // value runs until the next < (either </a> for the first
+    // cell or </td> for the rest). The diagnostic row dump
+    // showed `<font size=1>Admin</td>` with no </font>. So we
+    // capture [^<]* (stop at the next tag) instead of requiring
+    // a closing </font>.
+    //
+    // Also: the FIRST <font size=1> wraps the user_id itself
+    // (`<font size=1 color=black>6666</a>`). We already pulled
+    // the user_id from the ADD=3 anchor above, so we take 5
+    // font values then drop the first one.
+    const fontRe = /<font[^>]*size=['"]?1['"]?[^>]*>([^<]*)/gi
     const values: string[] = []
     let fm
-    while ((fm = fontRe.exec(rowHtml)) && values.length < 4) {
+    while ((fm = fontRe.exec(rowHtml)) && values.length < 5) {
       values.push(cellText(fm[1]))
     }
-    if (values.length < 4) continue
+    if (values.length < 5) continue
 
-    const [fullName, levelStr, group, activeFlag] = values
+    const [, fullName, levelStr, group, activeFlag] = values
     const level = Number(levelStr)
     users.push({
       userId,
