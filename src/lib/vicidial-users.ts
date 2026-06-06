@@ -153,9 +153,20 @@ async function doFetch(): Promise<VicidialUsersResult> {
       const title = titleMatch ? titleMatch[1].trim() : '(no title)'
       const recordsListCount = (html.match(/records_list_[xy]/gi) || []).length
       const add3UserCount = (html.match(/ADD=3&(?:amp;)?user=/gi) || []).length
+      const fontSize1Count = (
+        html.match(/<font[^>]*size=['"]?1['"]?[^>]*>/gi) || []
+      ).length
+      // Bonus: capture the first row's raw HTML so I can see the
+      // actual markup if regex still fails.
+      const firstRowMatch = html.match(
+        /<tr[^>]*class=['"][^'"]*records_list_[xy][^'"]*['"][^>]*>([\s\S]*?)<\/tr>/i,
+      )
+      const firstRowSnippet = firstRowMatch
+        ? firstRowMatch[0].slice(0, 400).replace(/\s+/g, ' ')
+        : '(no row matched)'
       return {
         ok: false,
-        error: `Parsed 0 users. Page title: "${title}". Body length: ${html.length}. records_list_ matches: ${recordsListCount}. ADD=3&user= matches: ${add3UserCount}.`,
+        error: `Parsed 0 users. Title: "${title}". Body: ${html.length}b. records_list_:${recordsListCount}. ADD=3&user=:${add3UserCount}. <font size=1>:${fontSize1Count}. First row: ${firstRowSnippet}`,
         fetchedAt,
       }
     }
@@ -196,9 +207,10 @@ function parseUsersHtml(rawHtml: string): VicidialUser[] {
 
   // Capture each row by class. records_list_x and records_list_y
   // are the two alternating row classes in Vicidial's striped
-  // table — we match both.
+  // table — we match both. Allow other classes alongside (Vicidial
+  // sometimes emits e.g. class="records_list_x other_modifier").
   const rowRe =
-    /<tr[^>]*class=['"]records_list_[xy]['"][^>]*>([\s\S]*?)<\/tr>/gi
+    /<tr[^>]*class=['"][^'"]*records_list_[xy][^'"]*['"][^>]*>([\s\S]*?)<\/tr>/gi
 
   const users: VicidialUser[] = []
   let m
@@ -207,8 +219,11 @@ function parseUsersHtml(rawHtml: string): VicidialUser[] {
 
     // Pull the user_id from the first ADD=3&user=N reference in
     // the row (it appears in both the onclick handler and the <a>
-    // href). Tolerate single or double quotes.
-    const userIdMatch = rowHtml.match(/ADD=3&user=([A-Za-z0-9_-]+)/i)
+    // href). Tolerate the HTML-escaped `&amp;` form — DevTools
+    // shows `&` but the wire response uses `&amp;`.
+    const userIdMatch = rowHtml.match(
+      /ADD=3&(?:amp;)?user=([A-Za-z0-9_-]+)/i,
+    )
     if (!userIdMatch) continue
     const userId = userIdMatch[1].trim()
 
