@@ -147,10 +147,15 @@ async function doFetch(): Promise<VicidialUsersResult> {
 
     const users = parseUsersHtml(html)
     if (users.length === 0) {
+      // Surface diagnostic info directly in the error so Alex can
+      // see what's wrong without another debug-endpoint round-trip.
+      const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i)
+      const title = titleMatch ? titleMatch[1].trim() : '(no title)'
+      const recordsListCount = (html.match(/records_list_[xy]/gi) || []).length
+      const add3UserCount = (html.match(/ADD=3&(?:amp;)?user=/gi) || []).length
       return {
         ok: false,
-        error:
-          'Parsed 0 users from Vicidial response. Page format may have changed — check /api/admin/vicidial/debug for diagnostic slices.',
+        error: `Parsed 0 users. Page title: "${title}". Body length: ${html.length}. records_list_ matches: ${recordsListCount}. ADD=3&user= matches: ${add3UserCount}.`,
         fetchedAt,
       }
     }
