@@ -222,8 +222,12 @@ export function initScheduler() {
     try {
       const result = await dispatchDueReminders()
       if (result.attempted > 0) {
+        // quietHoursHeld + staleSkipped surface in every tick log so
+        // I can spot "lots of rows holding overnight, then a spike of
+        // stale skips at 08:00" patterns without needing a separate
+        // admin panel. Hiding the zeroes would help nothing.
         console.log(
-          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed (of ${result.attempted} attempted)`
+          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed, ${result.quietHoursHeld} held (quiet hours), ${result.staleSkipped} skipped (stale) (of ${result.attempted} attempted)`,
         )
       }
     } catch (err) {

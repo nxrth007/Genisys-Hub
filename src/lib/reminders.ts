@@ -58,8 +58,54 @@ const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> 
  *  CLIENT_ALERT_BUFFER_MS in client-alert.ts). The customer-side
  *  confirmation now fires on the next dispatch tick (worst case
  *  ~60s) so the homeowner gets immediate validation that their
- *  appointment is real. */
+ *  appointment is real.
+ *
+ *  As of 2026-06-08, confirmations are ALSO exempt from the quiet-
+ *  hours gate (see dispatchDueReminders). Treating a booking ack as
+ *  TCPA-protected marketing made evening bookings look broken —
+ *  customer booked at 8 PM ET → confirmation held for 12h → "Thanks
+ *  for booking!" arrived at 8 AM, after the customer had moved on.
+ *  Transactional acks to an action the customer just took with the
+ *  client are not regulated as marketing under TCPA. */
 const CONFIRMATION_DELAY_MS = 0
+
+/**
+ * Per-type cutoff for "this reminder is too stale to be useful." If
+ * a row's scheduledFor is older than this threshold by the time the
+ * dispatcher picks it up, we mark it 'skipped' with a clear reason
+ * instead of sending. Two reasons we need this:
+ *
+ *   1. Safety belt for the confirmation-quiet-hours exemption — if
+ *      a pending confirmation has been sitting in the queue for >24h
+ *      for ANY reason (e.g. a long master-toggle outage), the deploy
+ *      that exempts confirmations from quiet hours can't accidentally
+ *      blast a customer who booked days ago.
+ *
+ *   2. Fixes the long-standing bug where 2hr + 30min reminders for an
+ *      early-morning appointment all queue up overnight in quiet
+ *      hours, then fire SIMULTANEOUSLY at 08:00 when the window opens
+ *      — moments before or at the appointment start. With these
+ *      thresholds, those uselessly-late reminders cleanly skip
+ *      instead of texting the customer "your appointment is in 2
+ *      hours" 5 minutes after the appointment already started.
+ *
+ * Thresholds reflect when the wording stops matching reality:
+ *   - confirmation: 24h (customer remembers booking ~within a day)
+ *   - 1day:        12h (after 12h late, appt is <12h out — "tomorrow"
+ *                       is wrong)
+ *   - 2hr:          1h (after 1h late, appt is <1h out — call it a
+ *                       30-min reminder, not 2hr)
+ *   - 30min:       25min (after 25min late, customer gets it within 5
+ *                         min of start — useless)
+ *   - start:        5min (must be on time or skipped)
+ */
+const STALENESS_THRESHOLD_MS: Record<ReminderType, number> = {
+  confirmation: 24 * 60 * 60 * 1000,
+  '1day': 12 * 60 * 60 * 1000,
+  '2hr': 1 * 60 * 60 * 1000,
+  '30min': 25 * 60 * 1000,
+  start: 5 * 60 * 1000,
+}
 
 // DEFAULT_TEMPLATES + ReminderType are re-exported above; the values
 // live in reminders-constants.ts so client code can import them
@@ -540,6 +586,21 @@ type DispatchResult = {
   attempted: number
   sent: number
   failed: number
+  /** Pending rows that were eligible to fire but held because the
+   *  customer is currently inside the configured quiet-hours window.
+   *  Confirmations are exempt and never increment this (they fire
+   *  immediately regardless of quiet hours — see CONFIRMATION_DELAY_MS
+   *  doc-comment). Non-confirmation rows stay 'pending' and retry on
+   *  subsequent ticks until either quiet hours end OR the row exceeds
+   *  its STALENESS_THRESHOLD_MS and gets skipped. */
+  quietHoursHeld: number
+  /** Rows the dispatcher decided are too late to be useful (per
+   *  STALENESS_THRESHOLD_MS by type). Marked status='skipped' so they
+   *  never retry. Most common cause: a non-confirmation reminder that
+   *  sat through enough of a quiet-hours window that the wording no
+   *  longer matches reality (e.g. a "2hr" reminder firing 90 min late
+   *  when the appointment is now only 30 min out). */
+  staleSkipped: number
 }
 
 /**
@@ -554,7 +615,14 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
   const config = await prisma.remindersConfig.findUnique({
     where: { id: 'singleton' },
   })
-  if (!config?.enabled) return { attempted: 0, sent: 0, failed: 0 }
+  if (!config?.enabled)
+    return {
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      quietHoursHeld: 0,
+      staleSkipped: 0,
+    }
 
   const now = new Date()
   const fireWindowEnd = new Date(now.getTime() + 60 * 1000)
@@ -572,14 +640,68 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
 
   let sent = 0
   let failed = 0
+  let quietHoursHeld = 0
+  let staleSkipped = 0
 
   for (const reminder of due) {
+    // Staleness guard FIRST — runs ahead of the quiet-hours gate so a
+    // row that's already past its useful window can't keep retrying
+    // every tick (which would silently spam the dispatch logs). Also
+    // acts as a safety belt against any "backlog suddenly becomes
+    // eligible" scenario — e.g. an admin who toggled `enabled` off
+    // for half a day and back on; or the 2026-06-08 confirmation-
+    // quiet-hours exemption, which made rows that had been silently
+    // looping for days theoretically eligible to fire.
+    //
+    // Per-type thresholds (see STALENESS_THRESHOLD_MS) reflect when
+    // the wording stops matching reality. Anything past its threshold
+    // gets a terminal 'skipped' status with a clear reason so admin
+    // diagnostics show exactly why the customer never got the text.
+    //
+    // Atomic claim via updateMany so if two ticks race only one wins.
+    const ageMs = now.getTime() - reminder.scheduledFor.getTime()
+    const staleThreshold =
+      STALENESS_THRESHOLD_MS[reminder.reminderType as ReminderType]
+    if (staleThreshold !== undefined && ageMs > staleThreshold) {
+      const claim = await prisma.appointmentReminder.updateMany({
+        where: { id: reminder.id, status: 'pending' },
+        data: {
+          status: 'skipped',
+          errorMessage: `Skipped — became stale (${Math.round(
+            ageMs / 60_000,
+          )} min past scheduledFor; threshold for "${reminder.reminderType}" is ${Math.round(
+            staleThreshold / 60_000,
+          )} min). Most common cause: row sat in quiet hours past its useful window.`,
+        },
+      })
+      if (claim.count > 0) staleSkipped++
+      continue
+    }
+
     // Quiet hours guard — don't send SMS outside the configured
     // window in the *customer's* local timezone. Compliance-driven
     // (TCPA generally caps to 8 AM–9 PM). Reminders that would land
     // outside stay pending and get retried on subsequent ticks; the
     // next pass that lands inside the window picks them up.
-    if (isInQuietHours(reminder.customerTimezone, config)) continue
+    //
+    // EXCEPTION: confirmations bypass this gate entirely. They're
+    // transactional acknowledgments for an action the customer just
+    // took with the client over the phone (the booking itself), not
+    // marketing reach-out, and so they're outside TCPA's quiet-hours
+    // protection. Pre-2026-06-08 the dispatcher held them through
+    // the window like every other type, which made an 8 PM booking's
+    // confirmation arrive at 8 AM the next morning — long after the
+    // customer had moved on and started wondering whether the
+    // booking even went through. The staleness guard above provides
+    // the upper-bound safety net: confirmations older than 24h still
+    // skip, so deploy-time backlog can't accidentally blast anyone.
+    if (
+      reminder.reminderType !== 'confirmation' &&
+      isInQuietHours(reminder.customerTimezone, config)
+    ) {
+      quietHoursHeld++
+      continue
+    }
 
     // Atomic claim — if another tick beat us to this row the count
     // comes back 0 and we skip.
@@ -748,7 +870,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
     }
   }
 
-  return { attempted: due.length, sent, failed }
+  return { attempted: due.length, sent, failed, quietHoursHeld, staleSkipped }
 }
 
 /* -------------------------------------------------------------------------- */
