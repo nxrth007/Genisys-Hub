@@ -50,6 +50,114 @@ type LeadsResponse =
     }
   | { ok: false; error: string; fetchedAt: string }
 
+type SnapshotRow = {
+  snapshotDay: string
+  total: number | null
+  newCount: number | null
+}
+
+/**
+ * Burn-down history — daily NEW + total counts for this list. The
+ * scheduler snapshots every list once per UTC day (plus a lazy
+ * snapshot on first view), so the table grows a row per day from
+ * today forward. NEW shrinking is the dialer consuming the list;
+ * the Δ column makes the daily burn rate readable at a glance.
+ */
+function BurnDownCard({ listId }: { listId: string }) {
+  const query = useQuery<{
+    ok: boolean
+    snapshots: SnapshotRow[]
+  }>({
+    queryKey: ['vicidial-list-snapshots', listId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/vicidial/lists/${listId}/snapshots?days=30`)
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load history')
+      }
+      return res.json()
+    },
+  })
+
+  const rows = query.data?.snapshots ?? []
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Burn-down history</h2>
+        <span className="text-[11px] text-muted-foreground">
+          Snapshots daily at 6 AM ET · NEW = uncalled leads remaining
+        </span>
+      </div>
+      {query.isLoading && (
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        </div>
+      )}
+      {query.isError && (
+        <p className="mt-3 text-xs text-red-700 dark:text-red-300">
+          {(query.error as Error).message}
+        </p>
+      )}
+      {!query.isLoading && rows.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <th className="py-1.5 pr-4 font-medium">Day</th>
+                <th className="py-1.5 pr-4 font-medium">Total</th>
+                <th className="py-1.5 pr-4 font-medium">NEW remaining</th>
+                <th className="py-1.5 font-medium">Δ NEW vs prior day</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {[...rows].reverse().slice(0, 14).map((r, i, arr) => {
+                const prior = arr[i + 1]
+                const delta =
+                  r.newCount !== null && prior?.newCount != null
+                    ? r.newCount - prior.newCount
+                    : null
+                return (
+                  <tr key={r.snapshotDay}>
+                    <td className="py-1.5 pr-4 font-mono">{r.snapshotDay}</td>
+                    <td className="py-1.5 pr-4 tabular-nums">
+                      {r.total?.toLocaleString() ?? '—'}
+                    </td>
+                    <td className="py-1.5 pr-4 tabular-nums">
+                      {r.newCount?.toLocaleString() ?? '—'}
+                    </td>
+                    <td
+                      className={`py-1.5 tabular-nums ${
+                        delta !== null && delta < 0
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {delta === null
+                        ? '—'
+                        : delta === 0
+                          ? '0'
+                          : delta > 0
+                            ? `+${delta.toLocaleString()}`
+                            : delta.toLocaleString()}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {rows.length === 1 && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              First snapshot recorded just now — the burn rate appears
+              once there&apos;s a second day of history.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LeadListDetailPage({
   params,
 }: {
@@ -173,6 +281,9 @@ export default function LeadListDetailPage({
           </div>
         )}
       </div>
+
+      {/* Burn-down history */}
+      <BurnDownCard listId={id} />
 
       {/* Lead browser */}
       <div className="overflow-hidden rounded-2xl border border-border bg-card">

@@ -30,6 +30,7 @@ import {
 } from './client-email-alert'
 import { syncClientMessageAlerts } from './client-message-alert'
 import { syncReminderReplyAlerts } from './reminder-reply-alert'
+import { snapshotAllVicidialLists } from './vicidial-snapshots'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
@@ -126,6 +127,13 @@ const PPA_INVOICING_HOUR_UTC = 14 // 10 AM EDT, 7 AM PDT
 let lastChatExpiryDayUtc: string | null = null
 const CHAT_EXPIRY_HOUR_UTC = 7 // 3 AM EDT — off-peak
 
+// Vicidial list burn-down snapshots — once daily, off-peak for the
+// dialer (the BPO's shifts run US daytime; 10:00 UTC = 6 AM EDT is
+// before the floor fills up). One stats-page fetch per list.
+let lastVicidialSnapshotDayUtc: string | null = null
+let vicidialSnapshotInFlight = false
+const VICIDIAL_SNAPSHOT_HOUR_UTC = 10
+
 export function initScheduler() {
   if (initialized) return
   initialized = true
@@ -196,6 +204,34 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] chat attachment expiry tick failed:', err)
+    }
+
+    // Vicidial list burn-down snapshots — once per UTC day. Walks
+    // every dialer list and records its status counts so /leads can
+    // chart depletion. In-flight guarded: N lists = N stats-page
+    // fetches, which can outlive a tick on a slow dialer day.
+    try {
+      const now = new Date()
+      const utcHour = now.getUTCHours()
+      const utcDay = now.toISOString().slice(0, 10)
+      if (
+        utcHour === VICIDIAL_SNAPSHOT_HOUR_UTC &&
+        lastVicidialSnapshotDayUtc !== utcDay &&
+        !vicidialSnapshotInFlight
+      ) {
+        lastVicidialSnapshotDayUtc = utcDay
+        vicidialSnapshotInFlight = true
+        try {
+          const result = await snapshotAllVicidialLists()
+          console.log(
+            `[scheduler] vicidial snapshots: ${result.snapshotted} written, ${result.failed} failed`,
+          )
+        } finally {
+          vicidialSnapshotInFlight = false
+        }
+      }
+    } catch (err) {
+      console.error('[scheduler] vicidial snapshot tick failed:', err)
     }
 
     try {

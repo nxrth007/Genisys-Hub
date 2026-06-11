@@ -681,6 +681,7 @@ model Client {
   clientAlerts      ClientAlertDelivery[]
   emailAlerts       ClientEmailDelivery[]
   messageAlerts     ClientMessageAlert[]
+  vicidialListLinks VicidialListLink[]
   // Secondary Google Sheets that feed this client's appointments
   // (partner call centers like Yassin's team running their own
   // sheets — see model SecondarySheet at the bottom of the file).
@@ -1377,6 +1378,49 @@ model ReminderReplyAlert {
 
   @@index([conversationId])
   @@unique([conversationId, messageId], map: "ux_reminder_reply_conv_msg")
+}
+
+/// Maps a Vicidial dialer list (vicidial_lists.list_id) to a Hub
+/// Client. The dialer's lists are "normally but not always" per-
+/// client (Alex) — this link makes the relationship explicit so
+/// /leads can group lists by client and roll up counts. listId is
+/// the Vicidial id as a string (their UI allows numeric ids only,
+/// but string keeps us agnostic). clientId nullable so a link row
+/// can exist in "explicitly unassigned" state and survives client
+/// deletion via SetNull.
+model VicidialListLink {
+  id        String   @id @default(cuid())
+  listId    String   @unique
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+}
+
+/// Daily snapshot of a Vicidial list's status counts — the burn-down
+/// ledger. One row per (list, UTC day), written by the scheduler's
+/// daily tick (and lazily on first view of a list's detail page).
+/// Lists are a depleting resource: NEW shrinks as the dialer chews
+/// through data, and this history is what tells Alex "CA-SCRUBED
+/// burns ~800 NEW/day, dry in 3 weeks — buy more data."
+model VicidialListSnapshot {
+  id          String   @id @default(cuid())
+  listId      String
+  /// YYYY-MM-DD in UTC. Unique with listId so re-runs upsert.
+  snapshotDay String
+  /// Grand total leads in the list (TOTAL row).
+  total       Int?
+  /// Subtotal of status NEW — the headline burn-down number.
+  newCount    Int?
+  /// Full per-status breakdown [{status, statusName, subtotal}] for
+  /// future charting without schema churn.
+  statusJson  Json
+  createdAt   DateTime @default(now())
+
+  @@unique([listId, snapshotDay], map: "ux_vicidial_snapshot_list_day")
+  @@index([listId])
 }
 
 /// Additional Google Sheets that feed the Master Tracker beyond the

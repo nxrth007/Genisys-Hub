@@ -11,7 +11,7 @@
  */
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   RefreshCcw,
@@ -29,7 +29,12 @@ type VicidialList = {
   active: boolean
   lastCallDate: string | null
   campaign: string
+  linkedClientId: string | null
+  linkedClientName: string | null
+  linkedClientColor: string | null
 }
+
+type ClientOption = { id: string; name: string; color: string }
 
 type ListsResponse =
   | { ok: true; lists: VicidialList[]; fetchedAt: string }
@@ -53,6 +58,17 @@ export default function LeadsPage() {
     },
     refetchInterval: 5 * 60_000,
   })
+
+  // Hub clients for the inline list→client assignment dropdown.
+  const clientsQuery = useQuery<{ clients: ClientOption[] }>({
+    queryKey: ['clients-with-counts'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients/with-counts')
+      if (!res.ok) throw new Error('Failed to load clients')
+      return res.json()
+    },
+  })
+  const clientOptions = clientsQuery.data?.clients ?? []
 
   const lists = useMemo(() => {
     if (!query.data?.ok) return []
@@ -159,6 +175,7 @@ export default function LeadsPage() {
                   label="Campaign"
                   onClick={() => toggleSort('campaign')}
                 />
+                <th className="px-4 py-2.5 font-medium">Client</th>
                 <th className="px-4 py-2.5 font-medium">Active</th>
                 <SortableTh
                   label="Last call"
@@ -190,6 +207,9 @@ export default function LeadsPage() {
                     {l.leadsCount !== null ? l.leadsCount.toLocaleString() : '—'}
                   </td>
                   <td className="px-4 py-2.5">{l.campaign || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <ClientAssignSelect list={l} clients={clientOptions} />
+                  </td>
                   <td className="px-4 py-2.5">
                     {l.active ? (
                       <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
@@ -233,6 +253,62 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-border bg-card p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+/**
+ * Inline list→client assignment. The dialer's lists are "normally
+ * but not always" per-client; this makes the mapping explicit in
+ * the Hub (VicidialListLink) so rollups can group by client. The
+ * select itself saves on change — no separate save button.
+ */
+function ClientAssignSelect({
+  list,
+  clients,
+}: {
+  list: VicidialList
+  clients: ClientOption[]
+}) {
+  const qc = useQueryClient()
+  const assign = useMutation({
+    mutationFn: async (clientId: string | null) => {
+      const res = await fetch(`/api/admin/vicidial/lists/${list.listId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || 'Failed to assign client')
+      return d
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['vicidial-lists'] }),
+    onError: (err) => window.alert((err as Error).message),
+  })
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {list.linkedClientColor && (
+        <span
+          className="h-2 w-2 flex-shrink-0 rounded-full"
+          style={{ backgroundColor: list.linkedClientColor }}
+          aria-hidden
+        />
+      )}
+      <select
+        value={list.linkedClientId ?? ''}
+        disabled={assign.isPending}
+        onChange={(e) => assign.mutate(e.target.value || null)}
+        className="max-w-[160px] rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary disabled:opacity-50"
+      >
+        <option value="">— unassigned —</option>
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      {assign.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
     </div>
   )
 }
