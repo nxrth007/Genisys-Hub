@@ -38,6 +38,7 @@ import { REMINDER_TYPES, DEFAULT_TEMPLATES, type ReminderType } from './reminder
  */
 const REMINDER_OFFSET_MS: Record<Exclude<ReminderType, 'confirmation'>, number> = {
   '1day': 24 * 60 * 60 * 1000,
+  '4hr': 4 * 60 * 60 * 1000,
   '2hr': 2 * 60 * 60 * 1000,
   '30min': 30 * 60 * 1000,
   start: 0,
@@ -93,6 +94,8 @@ const CONFIRMATION_DELAY_MS = 0
  *   - confirmation: 24h (customer remembers booking ~within a day)
  *   - 1day:        12h (after 12h late, appt is <12h out — "tomorrow"
  *                       is wrong)
+ *   - 4hr:          2h (after 2h late, appt is <2h out — the 2hr
+ *                       reminder takes over from there)
  *   - 2hr:          1h (after 1h late, appt is <1h out — call it a
  *                       30-min reminder, not 2hr)
  *   - 30min:       25min (after 25min late, customer gets it within 5
@@ -102,6 +105,7 @@ const CONFIRMATION_DELAY_MS = 0
 const STALENESS_THRESHOLD_MS: Record<ReminderType, number> = {
   confirmation: 24 * 60 * 60 * 1000,
   '1day': 12 * 60 * 60 * 1000,
+  '4hr': 2 * 60 * 60 * 1000,
   '2hr': 1 * 60 * 60 * 1000,
   '30min': 25 * 60 * 1000,
   start: 5 * 60 * 1000,

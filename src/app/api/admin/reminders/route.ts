@@ -80,6 +80,7 @@ export async function GET(req: NextRequest) {
       const expectedOffsetMinutes: Record<string, string> = {
         confirmation: 'immediate (no offset)',
         '1day': '1440 (24 hours before)',
+        '4hr': '240 (4 hours before)',
         '2hr': '120 (2 hours before)',
         '30min': '30 (30 minutes before)',
         start: '0 (at appointment time)',
