@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { fetchVicidialListLeads } from '@/lib/vicidial-lists'
+import { prisma } from '@/lib/prisma'
+import { fetchVicidialListLeads, normalizePhone10 } from '@/lib/vicidial-lists'
 
 /**
  * GET /api/admin/vicidial/lists/[id]/leads?offset=0&limit=50&q=&status=
@@ -74,15 +75,37 @@ export async function GET(
     return 0
   })
 
+  // Appointment cross-reference — which of these dialer leads
+  // became Hub appointments (matched by normalized phone). The
+  // Appointment table is small (hundreds), so one full phone pull
+  // per request is cheap; the lead side is the cached parse. Two
+  // outputs: a `booked` flag on each returned row, and a whole-list
+  // bookedCount → the list's real conversion number.
+  const appts = await prisma.appointment.findMany({
+    select: { customerPhone: true },
+  })
+  const apptPhones = new Set(
+    appts.map((a) => normalizePhone10(a.customerPhone)).filter(Boolean),
+  )
+  let bookedCount = 0
+  for (const l of result.leads) {
+    const p = normalizePhone10(l.phone)
+    if (p && apptPhones.has(p)) bookedCount++
+  }
+
   return NextResponse.json(
     {
       ok: true,
       listId: result.listId,
       totalParsed: result.totalParsed,
       totalFiltered: filtered.length,
+      bookedCount,
       offset,
       limit,
-      leads: filtered.slice(offset, offset + limit),
+      leads: filtered.slice(offset, offset + limit).map((l) => ({
+        ...l,
+        booked: apptPhones.has(normalizePhone10(l.phone)),
+      })),
       fetchedAt: result.fetchedAt,
     },
     { headers: { 'Cache-Control': 'no-store' } },

@@ -18,6 +18,7 @@ import {
   ListChecks,
   ArrowUpDown,
   ExternalLink,
+  Search,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 
@@ -119,6 +120,9 @@ export default function LeadsPage() {
           </button>
         }
       />
+
+      {/* Cross-list lead search */}
+      <CrossListSearch />
 
       {/* Summary strip */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -253,6 +257,150 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-border bg-card p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  )
+}
+
+type SearchMatch = {
+  leadId: string
+  status: string
+  phone: string
+  name: string
+  city: string
+  lastCall: string
+  listName: string
+  listIdActual: string
+}
+
+/**
+ * Cross-list lead search — answers "is this phone/person anywhere
+ * in our dialer data, and in which list?" without opening lists
+ * one by one. First search after a deploy warms every list's cache
+ * (~15-60s); repeats inside the 10-min window are instant.
+ */
+function CrossListSearch() {
+  const [q, setQ] = useState('')
+  const [submitted, setSubmitted] = useState('')
+
+  const query = useQuery<{
+    ok: boolean
+    matches: SearchMatch[]
+    truncated: boolean
+    failedLists: { listId: string; name: string; error: string }[]
+  }>({
+    queryKey: ['vicidial-cross-search', submitted],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/vicidial/search?q=${encodeURIComponent(submitted)}`,
+      )
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Search failed')
+      return d
+    },
+    enabled: submitted.length >= 3,
+    staleTime: 60_000,
+  })
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          setSubmitted(q.trim())
+        }}
+      >
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search every list at once — phone, name, city, or lead ID (3+ characters)"
+            className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={q.trim().length < 3 || query.isFetching}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+        >
+          {query.isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}
+          Search
+        </button>
+      </form>
+
+      {query.isFetching && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Searching all lists — the first search after a restart loads each
+          list from Vicidial and can take up to a minute.
+        </p>
+      )}
+      {query.isError && (
+        <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+          {(query.error as Error).message}
+        </p>
+      )}
+      {query.data && (
+        <div className="mt-3">
+          <p className="text-xs text-muted-foreground">
+            {query.data.matches.length} match
+            {query.data.matches.length === 1 ? '' : 'es'} for &ldquo;
+            {submitted}&rdquo;
+            {query.data.truncated && ' (showing first 200)'}
+          </p>
+          {query.data.matches.length > 0 && (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-1.5 pr-4 font-medium">List</th>
+                    <th className="py-1.5 pr-4 font-medium">Name</th>
+                    <th className="py-1.5 pr-4 font-medium">Phone</th>
+                    <th className="py-1.5 pr-4 font-medium">City</th>
+                    <th className="py-1.5 pr-4 font-medium">Status</th>
+                    <th className="py-1.5 font-medium">Last call</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {query.data.matches.map((m) => (
+                    <tr key={`${m.listIdActual}-${m.leadId}`}>
+                      <td className="py-1.5 pr-4">
+                        <Link
+                          href={`/leads/${m.listIdActual}`}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {m.listName}
+                        </Link>
+                      </td>
+                      <td className="py-1.5 pr-4 font-medium">{m.name || '—'}</td>
+                      <td className="py-1.5 pr-4 tabular-nums">{m.phone}</td>
+                      <td className="py-1.5 pr-4">{m.city || '—'}</td>
+                      <td className="py-1.5 pr-4">
+                        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold">
+                          {m.status || '—'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 text-muted-foreground">
+                        {m.lastCall || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {query.data.failedLists.length > 0 && (
+            <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+              Couldn&apos;t search:{' '}
+              {query.data.failedLists.map((f) => f.name).join(', ')}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

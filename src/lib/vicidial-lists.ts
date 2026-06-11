@@ -161,6 +161,18 @@ function diagnostics(html: string): string {
   return `Title: "${title}". Body: ${html.length}b. records_list_:${rowCount}. First row: ${snippet}`
 }
 
+/** Normalize any phone formatting to bare 10 digits for equality
+ *  joins (lead phone ↔ Hub appointment customerPhone). Returns ''
+ *  when fewer than 10 digits are present. */
+export function normalizePhone10(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const d = String(raw).replace(/\D/g, '')
+  if (d.length === 10) return d
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1)
+  if (d.length > 10) return d.slice(-10)
+  return ''
+}
+
 function toIntOrNull(s: string | undefined): number | null {
   if (!s) return null
   const n = Number(s.replace(/[^0-9.-]/g, ''))

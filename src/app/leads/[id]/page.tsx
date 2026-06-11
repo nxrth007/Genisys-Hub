@@ -35,6 +35,8 @@ type Lead = {
   name: string
   city: string
   lastCall: string
+  /** True when this lead's phone matches a Hub appointment. */
+  booked?: boolean
 }
 
 type LeadsResponse =
@@ -43,6 +45,9 @@ type LeadsResponse =
       listId: string
       totalParsed: number
       totalFiltered: number
+      /** Whole-list count of leads whose phone matches a Hub
+       *  appointment — the list's real conversion numerator. */
+      bookedCount: number
       offset: number
       limit: number
       leads: Lead[]
@@ -323,6 +328,27 @@ export default function LeadListDetailPage({
               {leads.totalParsed >= 10000 && ' (Vicidial caps results at 10,000)'}
             </span>
           )}
+          {leads && leads.bookedCount > 0 && (
+            <span
+              className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"
+              title="Leads in this list whose phone number matches a Hub appointment"
+            >
+              {leads.bookedCount.toLocaleString()} became appointments (
+              {((leads.bookedCount / Math.max(1, leads.totalParsed)) * 100).toFixed(1)}
+              %)
+            </span>
+          )}
+          <a
+            href={`/api/admin/vicidial/lists/${id}/leads/export?${new URLSearchParams(
+              {
+                ...(submittedSearch ? { q: submittedSearch } : {}),
+                ...(statusFilter ? { status: statusFilter } : {}),
+              },
+            )}`}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+          >
+            Export CSV
+          </a>
         </div>
 
         {leadsQuery.isLoading && (
@@ -364,7 +390,17 @@ export default function LeadListDetailPage({
                         {l.status || '—'}
                       </span>
                     </td>
-                    <td className="px-4 py-2 font-medium">{l.name || '—'}</td>
+                    <td className="px-4 py-2 font-medium">
+                      {l.name || '—'}
+                      {l.booked && (
+                        <span
+                          className="ml-2 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"
+                          title="This lead's phone matches a Hub appointment"
+                        >
+                          Booked ✓
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 tabular-nums">{l.phone || '—'}</td>
                     <td className="px-4 py-2 text-muted-foreground">
                       {l.city || '—'}
