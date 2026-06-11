@@ -48,7 +48,7 @@ export const DEFAULT_TEMPLATES: Record<ReminderType, string> = {
   '1day':
     'Hi {customerName}, this is a reminder that you have an appointment with {clientName} tomorrow at {apptTime}. Reply STOP to opt out.',
   '4hr':
-    'Hi {customerName}, your appointment with {clientName} is today at {apptTime} — about 4 hours from now. Reply STOP to opt out.',
+    'Hi {customerName}, your appointment with {clientName} is today at {apptTime} — about 4 hours from now. Please reply Y/N if you still plan on meeting with one of our representatives. Reply STOP to opt out.',
   '2hr':
     'Hi {customerName}, just a heads up — your {clientName} appointment is in 2 hours at {apptTime}. Talk soon!',
   '30min':
