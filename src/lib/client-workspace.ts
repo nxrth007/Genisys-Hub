@@ -227,7 +227,7 @@ export async function provisionClientWorkspace(
   lines.push('')
   lines.push(
     client.contactEmail
-      ? `Sending ${client.contactEmail} a Slack Connect invite — they'll join here once accepted.`
+      ? `Sending ${client.contactEmail} a Slack Connect invite — they'll join here once accepted. If they don't have a *paid* Slack workspace the Connect invite dead-ends at an upgrade paywall; use the guest-invite steps posted in #${ALERT_CHANNEL} instead.`
       : `_No contact email on record — invite the client manually when ready._`,
   )
 
@@ -261,5 +261,41 @@ export async function provisionClientWorkspace(
     await notifyAlertChannel(
       `Channel for *${client.name}* created (#${channelName}) but Slack Connect invite to ${client.contactEmail} failed: ${msg}. Invite manually from the channel.`,
     )
+  }
+
+  // 5. Guest-invite runbook card → #genisys-alerts, posted for EVERY
+  //    provisioned client (success or failure of the Connect invite
+  //    above). Why this exists: the Connect invite only lands for
+  //    clients whose own org is on a *paid* Slack plan — a free
+  //    workspace hits an upgrade paywall when accepting a Connect
+  //    channel invite, so for most small contractors the invite is a
+  //    dead end. The proper fix is a free single-channel guest seat
+  //    in OUR workspace, but Slack gates the guest-invite API
+  //    (admin.users.invite) to Enterprise Grid, so the Hub cannot
+  //    send it programmatically — a human admin has to click through
+  //    the invite modal. This card pre-fills every field of that
+  //    modal so the manual step is ~30 seconds. Fires once per
+  //    client (the slackChannelId idempotency guard above prevents
+  //    re-provisioning).
+  const guestCard = [
+    `:ticket: *Guest invite needed — ${client.name}*`,
+    '',
+    `A Slack Connect invite just went to ${client.contactEmail}, but it only works if they already pay for Slack. If they don't join within a day or two, add them as a free single-channel guest:`,
+    '',
+    `1. Open <https://my.slack.com/admin/invites|Invite people> (or workspace name → Invite people)`,
+    `2. Email: \`${client.contactEmail}\``,
+    `3. Invite as: *Guest* → add ONLY <#${channelId}>`,
+    `4. Expiration: *No limit* → Send`,
+  ].join('\n')
+  try {
+    const alertChannelId = await resolveChannelIdByName(ALERT_CHANNEL)
+    if (alertChannelId) {
+      await postChannelMessage(alertChannelId, guestCard)
+    }
+  } catch (err) {
+    // Best-effort — the channel + Connect invite already happened,
+    // so a failed runbook post just means admin falls back to
+    // noticing the client never joined.
+    console.error('[client-workspace] guest-invite card post failed', err)
   }
 }
