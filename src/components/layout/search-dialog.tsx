@@ -50,6 +50,7 @@ const PAGES: Result[] = [
   { type: 'Page', label: 'Slack', href: '/slack' },
   { type: 'Page', label: 'Vault', href: '/vault' },
   { type: 'Page', label: 'Agents', href: '/agents' },
+  { type: 'Page', label: 'Leads', href: '/leads' },
   { type: 'Page', label: 'Settings', href: '/settings' },
 ]
 
