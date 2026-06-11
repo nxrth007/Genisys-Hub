@@ -102,6 +102,7 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
       customerName: true,
       customerPhone: true,
       customerTimezone: true,
+      clientId: true,
       clientName: true,
       apptDateTime: true,
     },
@@ -114,6 +115,29 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
   }
   result.watched = watch.size
   if (watch.size === 0) return result
+
+  // Per-client Slack channels — when a reply's reminder belongs to
+  // a linked client with a provisioned channel (Client.slackChannelId
+  // from client-workspace provisioning), the alert ALSO posts there
+  // with client-appropriate framing (Alex, 2026-06-11). Batch-load
+  // once per tick.
+  const clientIds = [
+    ...new Set(
+      [...watch.values()]
+        .map((c) => c.clientId)
+        .filter((id): id is string => !!id),
+    ),
+  ]
+  const clientChannels = new Map<string, string>()
+  if (clientIds.length > 0) {
+    const clients = await prisma.client.findMany({
+      where: { id: { in: clientIds }, slackChannelId: { not: null } },
+      select: { id: true, slackChannelId: true },
+    })
+    for (const c of clients) {
+      if (c.slackChannelId) clientChannels.set(c.id, c.slackChannelId)
+    }
+  }
 
   // First-run backfill guard — see module doc-comment.
   const ledgerCount = await prisma.reminderReplyAlert.count()
@@ -250,6 +274,29 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
       result.failed++
       // Claim row stays — drop one alert rather than retry-spam.
     }
+
+    // Mirror to the client's own Slack channel. Best-effort and
+    // AFTER the internal post — the client channel is shared WITH
+    // the client, so the copy differs: no "call them back" internal
+    // framing, and 'other' replies (unclassifiable free text) stay
+    // internal-only so random customer messages never land in front
+    // of a client.
+    const clientChannelId = ctx.clientId
+      ? (clientChannels.get(ctx.clientId) ?? null)
+      : null
+    if (clientChannelId) {
+      const clientText = buildClientChannelText(classification, body, ctx)
+      if (clientText) {
+        try {
+          await postChannelMessage(clientChannelId, clientText)
+        } catch (err) {
+          console.error(
+            `[reminder-reply-alert] client-channel post failed for ${ctx.clientName ?? ctx.clientId}:`,
+            err,
+          )
+        }
+      }
+    }
   }
 
   return result
@@ -332,6 +379,42 @@ function buildAlertText(
     `:speech_balloon: *${ctx.customerName}* replied to a reminder: "${quoted}" — review + reply from CRM → Messages.`,
     contextLine,
   ].join('\n')
+}
+
+/**
+ * Client-channel variant of the alert copy. The client reads this
+ * in their own shared channel, so it's framed as a service update
+ * ("our team is reaching out") rather than an internal dispatch
+ * order, and omits the customer's phone — they already have it on
+ * the appointment card delivered to the same channel. Returns null
+ * for 'other' replies: free-text customer messages stay internal.
+ */
+function buildClientChannelText(
+  classification: ReplyClassification,
+  body: string,
+  ctx: {
+    customerName: string
+    customerTimezone: string
+    apptDateTime: Date
+  },
+): string | null {
+  if (classification === 'other') return null
+  const apptStr = formatInTimezone(ctx.apptDateTime, ctx.customerTimezone, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  if (classification === 'negative') {
+    const quoted = body.length > 200 ? `${body.slice(0, 200)}…` : body
+    return [
+      `:rotating_light: *${ctx.customerName}* replied to their appointment reminder: "${quoted}"`,
+      `Appt: ${apptStr} — our team is reaching out to reschedule.`,
+    ].join('\n')
+  }
+  return `:white_check_mark: *${ctx.customerName}* confirmed their appointment for ${apptStr}.`
 }
 
 /** Same shape-tolerant latest-message picker client-message-alert
