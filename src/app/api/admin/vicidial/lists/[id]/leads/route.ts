@@ -54,6 +54,26 @@ export async function GET(
     )
   }
 
+  // Sort AFTER filtering, BEFORE slicing — pagination has to walk a
+  // stable order. Default: name A→Z (Alex, 2026-06-11). Vicidial's
+  // own page returns insertion order, which is useless for finding
+  // a person. Nameless leads sink to the bottom rather than
+  // clumping under "" at the top.
+  const sort = (sp.get('sort') || 'name').toLowerCase()
+  const dir = sp.get('dir') === 'desc' ? -1 : 1
+  filtered = [...filtered].sort((a, b) => {
+    if (sort === 'name') {
+      if (!a.name && !b.name) return 0
+      if (!a.name) return 1
+      if (!b.name) return -1
+      return dir * a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+    }
+    if (sort === 'lastcall') return dir * a.lastCall.localeCompare(b.lastCall)
+    if (sort === 'status') return dir * a.status.localeCompare(b.status)
+    if (sort === 'leadid') return dir * (Number(a.leadId) - Number(b.leadId))
+    return 0
+  })
+
   return NextResponse.json(
     {
       ok: true,
