@@ -1342,6 +1342,43 @@ model ClientMessageAlert {
   @@unique([conversationId, lastMessageId], map: "ux_client_msg_alert_conv_msg")
 }
 
+/// Dedup ledger + audit trail for customer replies to reminder SMS
+/// threads (the inverse of ClientMessageAlert, which deliberately
+/// EXCLUDES reminder conversations). One row per (conversation,
+/// inbound message) we've alerted on. The day-before reminder asks
+/// "Reply Y to confirm or N to reschedule" — this is what catches
+/// the N and pings Slack so the call center can rebook the slot
+/// instead of discovering a no-show the hard way.
+model ReminderReplyAlert {
+  id             String    @id @default(cuid())
+  /// GHL conversation id the reply arrived on.
+  conversationId String
+  /// GHL message id of the inbound reply — dedup token alongside
+  /// conversationId (same pair = already alerted, skip).
+  messageId      String?
+  /// Snapshot of the reply text (truncated) so the ledger is
+  /// readable without a GHL round-trip.
+  messageBody    String?   @db.Text
+  messageDate    DateTime?
+  /// 'negative' | 'positive' | 'other' — advisory classification
+  /// driving the alert's urgency framing. Every inbound reply
+  /// alerts regardless; this only picks the emoji + call-to-action.
+  classification String    @default("other")
+  /// Context snapshotted from the most recent reminder on this
+  /// conversation at alert time.
+  customerName   String?
+  customerPhone  String?
+  clientName     String?
+  apptDateTime   DateTime?
+  slackChannelId String?
+  slackMessageTs String?
+  permalink      String?
+  alertedAt      DateTime  @default(now())
+
+  @@index([conversationId])
+  @@unique([conversationId, messageId], map: "ux_reminder_reply_conv_msg")
+}
+
 /// Additional Google Sheets that feed the Master Tracker beyond the
 /// primary "Master Table." Added so partner call centers (Yassin's
 /// team for Forward Energy Solutions + Brighton Capital Solar, as of

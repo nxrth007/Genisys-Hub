@@ -29,6 +29,7 @@ import {
   dispatchPendingClientEmailAlerts,
 } from './client-email-alert'
 import { syncClientMessageAlerts } from './client-message-alert'
+import { syncReminderReplyAlerts } from './reminder-reply-alert'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
@@ -96,6 +97,12 @@ let gmailSyncInFlight = false
 // noisy. Same pattern would help the other long-running jobs but only
 // the client-msg alert was hot enough to spam logs in practice.
 let clientMessageAlertInFlight = false
+
+// Reminder-reply alerts — same GHL recent-100 scan shape as the
+// client-msg alert, so it gets the same in-flight protection.
+const REMINDER_REPLY_ALERT_INTERVAL_MS = 60 * 1000
+let lastReminderReplyAlertAt = 0
+let reminderReplyAlertInFlight = false
 
 // PPA bi-weekly invoicing — fires once daily during a fixed window
 // (14:00–14:59 UTC = 10–11 AM EDT). We don't want a Render cold-
@@ -353,6 +360,31 @@ export function initScheduler() {
           console.error('[scheduler] client-msg alert failed:', err)
         } finally {
           clientMessageAlertInFlight = false
+        }
+      }
+    }
+
+    // Reminder-reply alerts — customer replies (especially the
+    // day-before "Reply Y/N" ask) on reminder SMS threads. Mirror
+    // image of the client-msg alert stream: that one excludes
+    // reminder conversations, this one alerts only on them. Kept as
+    // separate jobs so each stream's failures + logs stay isolated.
+    if (!reminderReplyAlertInFlight) {
+      const now = Date.now()
+      if (now - lastReminderReplyAlertAt >= REMINDER_REPLY_ALERT_INTERVAL_MS) {
+        lastReminderReplyAlertAt = now
+        reminderReplyAlertInFlight = true
+        try {
+          const result = await syncReminderReplyAlerts()
+          if (result.alerted > 0 || result.failed > 0) {
+            console.log(
+              `[scheduler] reminder-reply alert: ${result.alerted} new (${result.negative} negative), ${result.skipped} already-alerted, ${result.outbound} our-sends, ${result.failed} failed (of ${result.watched} watched)`,
+            )
+          }
+        } catch (err) {
+          console.error('[scheduler] reminder-reply alert failed:', err)
+        } finally {
+          reminderReplyAlertInFlight = false
         }
       }
     }
