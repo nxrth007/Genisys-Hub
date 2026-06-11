@@ -42,19 +42,28 @@ export const REMINDER_LABELS: Record<ReminderType, string> = {
  * Settings UI shows them as the "default" cell content so admins see
  * what would actually go out.
  */
+// Copy strategy (Alex-approved 2026-06-11): ONE hard Y/N ask at
+// day-before (early enough that an "N" lets the call center rebook
+// the slot), one soft check at 4hr, everything else pure logistics.
+// Repeating the ask on every message trains customers to ignore it
+// and drives STOP replies. "Reply STOP" lives on the confirmation
+// (first touch) only, keeping the later messages at 1 SMS segment.
+// The same bodies are seeded into the Global ReminderTemplate rows
+// by the 20260611120000_reminder_copy_refresh migration — edit
+// further in Settings → Reminders, not here.
 export const DEFAULT_TEMPLATES: Record<ReminderType, string> = {
   confirmation:
-    'Hi {customerName}, thanks for booking your appointment with {clientName}! We have you down for {apptDateTime}. We\'ll send a reminder leading up to the appointment. Reply STOP to opt out.',
+    'Hi {customerName}, thanks for speaking with our representative — your appointment with {clientName} is set for {apptDateTime}. We\'ll text you reminders as it gets close. Reply STOP to opt out.',
   '1day':
-    'Hi {customerName}, this is a reminder that you have an appointment with {clientName} tomorrow at {apptTime}. Reply STOP to opt out.',
+    'Hi {customerName}, reminder: your {clientName} appointment is tomorrow at {apptTime}. Will you be able to make it? Reply Y to confirm or N to reschedule.',
   '4hr':
-    'Hi {customerName}, your appointment with {clientName} is today at {apptTime} — about 4 hours from now. Please reply Y/N if you still plan on meeting with one of our representatives. Reply STOP to opt out.',
+    'Hi {customerName}, we\'re all set for today at {apptTime} with {clientName}. If anything has changed, just reply here and we\'ll help you reschedule.',
   '2hr':
-    'Hi {customerName}, just a heads up — your {clientName} appointment is in 2 hours at {apptTime}. Talk soon!',
+    'Hi {customerName}, quick heads up — your {clientName} appointment is in 2 hours at {apptTime}.',
   '30min':
-    'Hi {customerName}, your {clientName} appointment is starting in 30 minutes. Make sure you’re ready. Reply STOP to opt out.',
+    'Hi {customerName}, your {clientName} appointment starts in 30 minutes. Please be available — talk soon!',
   start:
-    'Hi {customerName}, your {clientName} appointment is starting now. A representative will reach out shortly.',
+    'Hi {customerName}, it\'s time! A {clientName} representative will reach out now.',
 }
 
 /**
