@@ -206,21 +206,23 @@ async function doFetchLists(): Promise<VicidialListsResult> {
 
   // The listing hides per-list lead counts behind a "show list
   // leads counts" link (counts are expensive server-side, so
-  // Vicidial makes them opt-in). Self-discover that link's href
-  // from the page rather than guessing the param — wire HTML
-  // escapes & as &amp;, so unescape before reuse.
+  // Vicidial makes them opt-in). Verified live 2026-06-11: the
+  // link is admin.php?ADD=100&rank=999 and its anchor text is
+  // wrapped in a <font> tag — the discovery regex must allow one
+  // intervening tag between the href and the text. Self-discover
+  // first (resilient to upgrades), fall back to the known param.
   let html = first.html
   const countsLink = first.html.match(
-    /href=['"]?([^'">\s]+)['"]?[^>]*>\s*show list leads counts/i,
+    /href=['"]?([^'">\s]+)['"]?[^>]*>(?:\s*<font[^>]*>)?\s*show list leads counts/i,
   )
-  if (countsLink) {
-    const href = countsLink[1].replace(/&amp;/gi, '&')
-    // Hrefs may be absolute-path ("/vicidial/admin.php?...") or
-    // relative ("admin.php?..."). Normalize to base-relative.
-    const rel = href.replace(/^https?:\/\/[^/]+/i, '').replace(/^\/vicidial\//i, '')
-    const withCounts = await vicidialAdminFetch(rel)
-    if (withCounts.ok) html = withCounts.html
-  }
+  const countsHref = countsLink
+    ? countsLink[1]
+        .replace(/&amp;/gi, '&')
+        .replace(/^https?:\/\/[^/]+/i, '')
+        .replace(/^\/vicidial\//i, '')
+    : 'admin.php?ADD=100&rank=999'
+  const withCounts = await vicidialAdminFetch(countsHref)
+  if (withCounts.ok) html = withCounts.html
 
   const lists: VicidialList[] = []
   for (const row of dataRows(html)) {
@@ -301,12 +303,14 @@ async function doFetchListStats(
   const fetchedAt = new Date().toISOString()
   const id = encodeURIComponent(listId)
 
-  // The called-counts tables live on the list detail page. 2.14
-  // exposes them via a "list stats" toggle — try the stats variant
-  // first, fall back to the plain modify page. Marker-checked, so
-  // a wrong guess degrades to the next attempt instead of a wrong
-  // parse.
+  // The called-counts tables live on the Modify List page —
+  // verified live 2026-06-11: the listing's row links go to
+  // admin.php?ADD=311&list_id=N (NOT ADD=1111 as other builds
+  // use), and the plain page already includes "CALLED COUNTS
+  // WITHIN THIS LIST" with no stats toggle needed. Alternate
+  // shapes kept as marker-checked fallbacks for upgrades.
   const candidates = [
+    `admin.php?ADD=311&list_id=${id}`,
     `admin.php?ADD=1111&list_id=${id}&list_stats=1`,
     `admin.php?ADD=1111&list_id=${id}`,
   ]
@@ -429,53 +433,46 @@ async function doFetchListLeads(listId: string): Promise<VicidialLeadsResult> {
   const fetchedAt = new Date().toISOString()
   const id = encodeURIComponent(listId)
 
-  // admin_search_lead.php is a search form; the blue TOTAL links on
-  // the stats page submit it with a list filter. GET-with-params
-  // works on 2.14 builds but the accepted param set varies, so try
-  // the common shapes and fall back to a POST submit. Marker check:
-  // a results page contains "RESULTS:".
-  const attempts: Array<{ path: string; init?: { method: 'POST'; body: string } }> = [
-    { path: `admin_search_lead.php?search=YES&list_id=${id}` },
-    {
-      path: `admin_search_lead.php?lead_id=&vendor_lead_code=&phone_number=&first_name=&last_name=&list_id=${id}&submit=SEARCH`,
-    },
-    {
-      path: 'admin_search_lead.php',
-      init: {
-        method: 'POST',
-        body: `lead_id=&vendor_lead_code=&phone_number=&first_name=&last_name=&city=&state=&list_id=${id}&submit=SEARCH`,
-      },
-    },
-  ]
+  // Verified live 2026-06-11: a plain GET with just list_id returns
+  // the full results page (the blue TOTAL links on the stats page
+  // use the same shape, adding called_count= / status= filters).
+  // The page is BIG — list 104 returned 10.4MB for its 10k-row cap.
+  const res = await vicidialAdminFetch(`admin_search_lead.php?list_id=${id}`)
+  if (!res.ok) {
+    return { ok: false, error: `Lead search fetch failed: ${res.error}`, fetchedAt }
+  }
+  const html = res.html
 
-  let html: string | null = null
-  let lastError = 'no fetch attempted'
-  for (const attempt of attempts) {
-    const res = await vicidialAdminFetch(attempt.path, attempt.init)
-    if (!res.ok) {
-      lastError = res.error
-      continue
+  // CRITICAL (live-verified): unlike every other Vicidial admin
+  // listing, lead-search rows have NO records_list_x/y class —
+  // they're bgcolor-striped <TR>s inside the table that follows the
+  // "RESULTS: N" marker. The page also contains bgcolor'd <tr>s in
+  // its embedded color-picker JavaScript, so we anchor the parse
+  // strictly after RESULTS: and require a lead_id link per row.
+  //
+  // Confirmed row shape (cells in CLOSED <FONT> here, unlike the
+  // unclosed ones elsewhere — rowCells strips tags either way):
+  //   # | LEAD ID(link to admin_modify_lead.php?lead_id=N) | STATUS
+  //   | VENDOR ID | LAST AGENT | LIST ID | PHONE | NAME | CITY
+  //   | SECURITY | LAST CALL
+  const resultsIdx = html.search(/RESULTS:\s*[\d,]+/i)
+  if (resultsIdx === -1) {
+    return {
+      ok: false,
+      error: `Lead search page has no "RESULTS:" marker for list ${listId}. ${diagnostics(html)}`,
+      fetchedAt,
     }
-    // A real results page has data rows referencing lead_id links.
-    if (/lead_id=\d+/i.test(res.html) && dataRows(res.html).length > 0) {
-      html = res.html
-      break
-    }
-    lastError = `page fetched but no lead rows (${attempt.path}${attempt.init ? ' [POST]' : ''})`
-    if (html === null) html = res.html
   }
-  if (html === null) {
-    return { ok: false, error: `Lead search fetch failed: ${lastError}`, fetchedAt }
-  }
+  const resultsSection = html.slice(resultsIdx)
 
   const leads: VicidialLead[] = []
-  for (const row of dataRows(html)) {
+  const trRe = /<tr[^>]+bgcolor[^>]*>([\s\S]*?)<\/tr>/gi
+  let m
+  while ((m = trRe.exec(resultsSection))) {
+    const row = m[1]
     const idMatch = row.match(/lead_id=(\d+)/i)
     if (!idMatch) continue
     const cells = rowCells(row)
-    // Layout per the live screenshot: # | LEAD ID | STATUS |
-    // VENDOR ID | LAST AGENT | LIST ID | PHONE | NAME | CITY |
-    // SECURITY | LAST CALL.
     if (cells.length < 9) continue
     leads.push({
       leadId: idMatch[1],
