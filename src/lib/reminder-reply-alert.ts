@@ -255,7 +255,31 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
       continue
     }
 
-    const text = buildAlertText(classification, body, ctx)
+    // SUPPRESSION (Alex, 2026-06-11, after Alan Gordon's "N" was
+    // followed by two more reminders + a "it's time!"): a negative
+    // reply cancels every still-pending reminder for this customer
+    // immediately. Nothing erodes trust like being texted "see you
+    // in 30 minutes!" after you already said you can't make it.
+    // Matched by phone digits so multi-phone snapshot fields and
+    // formatting differences all collapse to the same customer.
+    let autoCancelled = 0
+    if (classification === 'negative') {
+      try {
+        autoCancelled = await cancelPendingRemindersForCustomer(
+          ctx.customerPhone,
+          body,
+        )
+        if (autoCancelled > 0) {
+          console.log(
+            `[reminder-reply-alert] auto-cancelled ${autoCancelled} pending reminders for ${ctx.customerName} after negative reply`,
+          )
+        }
+      } catch (err) {
+        console.error('[reminder-reply-alert] auto-cancel failed:', err)
+      }
+    }
+
+    const text = buildAlertText(classification, body, ctx, autoCancelled)
     try {
       const post = await postChannelMessage(channelId, text)
       if (!post.ok) {
@@ -335,6 +359,45 @@ export function classifyReply(raw: string): ReplyClassification {
   return 'other'
 }
 
+/**
+ * Cancel every still-pending reminder belonging to the customer who
+ * just replied negatively. Phone-digit matching: the snapshot
+ * customerPhone field is free-text (often two numbers), so we match
+ * any pending row whose digit-stripped phone field contains the
+ * replying customer's 10-digit number. Bounded to pending rows only
+ * — sent/skipped/cancelled history is untouched.
+ */
+async function cancelPendingRemindersForCustomer(
+  rawPhone: string,
+  replyBody: string,
+): Promise<number> {
+  const digits = rawPhone.replace(/\D/g, '')
+  const target =
+    digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits.slice(0, 10)
+  if (target.length < 10) return 0
+
+  const pending = await prisma.appointmentReminder.findMany({
+    where: { status: 'pending' },
+    select: { id: true, customerPhone: true },
+  })
+  const ids = pending
+    .filter((r) => r.customerPhone.replace(/\D/g, '').includes(target))
+    .map((r) => r.id)
+  if (ids.length === 0) return 0
+
+  const quote = replyBody.length > 120 ? `${replyBody.slice(0, 120)}…` : replyBody
+  const updated = await prisma.appointmentReminder.updateMany({
+    where: { id: { in: ids }, status: 'pending' },
+    data: {
+      status: 'cancelled',
+      errorMessage: `Auto-cancelled — customer replied "${quote}" to a reminder. Re-save the appointment (or wait for a rescheduled sheet row) to queue fresh reminders.`,
+    },
+  })
+  return updated.count
+}
+
 function buildAlertText(
   classification: ReplyClassification,
   body: string,
@@ -345,6 +408,7 @@ function buildAlertText(
     clientName: string | null
     apptDateTime: Date
   },
+  autoCancelled = 0,
 ): string {
   const apptStr = formatInTimezone(ctx.apptDateTime, ctx.customerTimezone, {
     weekday: 'long',
@@ -367,7 +431,12 @@ function buildAlertText(
     return [
       `:rotating_light: *${ctx.customerName}* replied *"${quoted}"* to their appointment reminder — *call them back to save the slot.*`,
       contextLine,
-    ].join('\n')
+      autoCancelled > 0
+        ? `:no_bell: ${autoCancelled} remaining reminder${autoCancelled === 1 ? '' : 's'} for this customer auto-stopped — they won't get "see you soon!" texts for an appointment they just declined. Re-saving the appointment (or a rescheduled sheet row) queues fresh ones.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n')
   }
   if (classification === 'positive') {
     return [
