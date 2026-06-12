@@ -33,6 +33,12 @@ type VicidialList = {
   linkedClientId: string | null
   linkedClientName: string | null
   linkedClientColor: string | null
+  /** Full state name parsed from the list's name/description
+   *  ("CO-SCRUBED" → "Colorado"), null when nothing matched. */
+  stateDetected: string | null
+  /** Every active Hub client whose profile state matches
+   *  stateDetected — both names show when two clients share it. */
+  stateClients: { id: string; name: string; color: string }[]
 }
 
 type ClientOption = { id: string; name: string; color: string }
@@ -179,7 +185,8 @@ export default function LeadsPage() {
                   label="Campaign"
                   onClick={() => toggleSort('campaign')}
                 />
-                <th className="px-4 py-2.5 font-medium">Client</th>
+                <th className="px-4 py-2.5 font-medium">Client (by state)</th>
+                <th className="px-4 py-2.5 font-medium">Assigned client</th>
                 <th className="px-4 py-2.5 font-medium">Active</th>
                 <SortableTh
                   label="Last call"
@@ -211,6 +218,39 @@ export default function LeadsPage() {
                     {l.leadsCount !== null ? l.leadsCount.toLocaleString() : '—'}
                   </td>
                   <td className="px-4 py-2.5">{l.campaign || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    {l.stateDetected ? (
+                      l.stateClients.length > 0 ? (
+                        <div
+                          className="flex flex-col gap-0.5"
+                          title={`Detected state: ${l.stateDetected} (from list name)`}
+                        >
+                          {l.stateClients.map((c) => (
+                            <span
+                              key={c.id}
+                              className="inline-flex items-center gap-1.5 text-xs"
+                            >
+                              <span
+                                className="h-2 w-2 flex-shrink-0 rounded-full"
+                                style={{ backgroundColor: c.color }}
+                                aria-hidden
+                              />
+                              {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span
+                          className="text-xs text-muted-foreground"
+                          title={`Detected state: ${l.stateDetected} — no active client has this state on their profile`}
+                        >
+                          {l.stateDetected} · no client
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-xs text-muted-foreground/60">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     <ClientAssignSelect list={l} clients={clientOptions} />
                   </td>
