@@ -81,6 +81,40 @@ export async function GET() {
     clientsByState.set(key, arr)
   }
 
+  // Auto-assign (Alex, 2026-06-11): when a list's detected state
+  // matches EXACTLY one active client and the list has never been
+  // assigned, adopt the match automatically. Fires only when no
+  // VicidialListLink row exists at all — explicitly clearing the
+  // dropdown leaves a clientId=null row behind, which reads as
+  // "deliberately unassigned" and is never overridden. Ambiguous
+  // states (two clients) stay manual; only Alex knows which client
+  // bought that data.
+  for (const l of result.lists) {
+    if (linkByListId.has(l.listId)) continue
+    const state = detectStateFromList(l.name, l.description)
+    if (!state) continue
+    const matches = clientsByState.get(state.toLowerCase()) ?? []
+    if (matches.length !== 1) continue
+    try {
+      const created = await prisma.vicidialListLink.upsert({
+        where: { listId: l.listId },
+        create: { listId: l.listId, clientId: matches[0].id },
+        // Race-safe no-op when a concurrent request created it first.
+        update: {},
+        include: { client: { select: { id: true, name: true, color: true } } },
+      })
+      linkByListId.set(l.listId, created)
+      console.log(
+        `[vicidial-lists] auto-assigned list ${l.listId} ("${l.name}") → ${matches[0].name} via detected state ${state}`,
+      )
+    } catch (err) {
+      console.error(
+        `[vicidial-lists] auto-assign failed for list ${l.listId}:`,
+        err,
+      )
+    }
+  }
+
   return NextResponse.json(
     {
       ...result,
