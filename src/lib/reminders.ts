@@ -187,7 +187,20 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   // Build a content-key set (phone + apptDateTime to the minute)
   // for the covered DB appointments. Sheet rows matching one of
   // these keys are already handled by the DB path.
+  //
+  // ALSO build a phone → [appt epoch ms] map for a FUZZY fallback.
+  // The exact content key requires the sheet's parsed time to match
+  // the DB time to the minute — but a Hub-booked appointment and
+  // its mirrored sheet row can land hours apart when a timezone-
+  // naive datetime string round-trips through the sheet (the Fayaz
+  // Shaik incident, 2026-06-11: DB stored 6 PM Mountain / 00:00Z,
+  // the sheet copy parsed back as 22:00Z — 2 h off — so the exact
+  // key missed and the customer got TWO reminder tracks, one at
+  // 6 PM and one at "8 PM"). Matching phone + within ±12 h collapses
+  // that fork while still allowing a genuinely separate appointment
+  // for the same customer on another day to keep its own reminders.
   const coveredContentKeys = new Set<string>()
+  const coveredPhoneTimes = new Map<string, number[]>()
   if (dbReminderApptIds.size > 0) {
     const dbAppts = await prisma.appointment.findMany({
       where: { id: { in: Array.from(dbReminderApptIds) } },
@@ -196,8 +209,15 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     for (const a of dbAppts) {
       const key = sheetContentKey(a.customerPhone, a.apptDateTime)
       if (key) coveredContentKeys.add(key)
+      const phone = digitsOnlyPhone(a.customerPhone)
+      if (phone) {
+        const arr = coveredPhoneTimes.get(phone) ?? []
+        arr.push(a.apptDateTime.getTime())
+        coveredPhoneTimes.set(phone, arr)
+      }
     }
   }
+  const FUZZY_DEDUP_WINDOW_MS = 12 * 60 * 60 * 1000
 
   // Confirmation reminders are gated on a master flag — leaving it
   // off means the type still appears in the template editor (so
@@ -264,6 +284,23 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     // and the customer would get every text twice.
     const contentKey = sheetContentKey(r.customerPhone, r.apptDateTime)
     if (contentKey && coveredContentKeys.has(contentKey)) continue
+    // Fuzzy fallback: same phone + a DB appointment within ±12 h.
+    // Catches the timezone-drift case where the exact key misses
+    // (see coveredPhoneTimes above). A DB-booked appointment is
+    // authoritative; its sheet mirror should never spawn a second
+    // track even if the parsed time drifted a couple hours.
+    const rowPhone = digitsOnlyPhone(r.customerPhone)
+    if (rowPhone) {
+      const dbTimes = coveredPhoneTimes.get(rowPhone)
+      if (
+        dbTimes &&
+        dbTimes.some(
+          (t) => Math.abs(t - apptDate.getTime()) <= FUZZY_DEDUP_WINDOW_MS,
+        )
+      ) {
+        continue
+      }
+    }
 
     // Phone-only dedup — one customer = one reminder set per sync
     // run. See the seenSheetPhones declaration above for the why.
