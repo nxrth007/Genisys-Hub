@@ -479,21 +479,34 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     //   1. (sourceKey, channelId): catches the common case where the
     //      same row is re-scanned across cron ticks. Permanent — the
     //      sheet row's position is the most stable identifier we have.
-    //   2. (channelId, normalizedPhone, apptDateTime) within last 48h:
-    //      catches the sneaky case where Mary inserts/deletes a row
-    //      above this one, shifting its rowNumber. Old sourceKey was
-    //      for the old position; new sourceKey looks fresh, but the
-    //      content key is stable so we still skip. The 48h window
+    //   2. (channelId, normalizedPhone, apptDateTime ±12h) within last
+    //      48h: catches the sneaky case where Mary inserts/deletes a
+    //      row above this one, shifting its rowNumber. Old sourceKey
+    //      was for the old position; new sourceKey looks fresh, but
+    //      the content key is stable so we still skip. The 48h window
     //      keeps this useful for legitimate rearrangement (which
     //      happens in real time, not weeks later) while letting
     //      Alex retest with the same phone number after a couple
     //      days without the dedup ledger silently swallowing the
     //      new test row. Without the window, every test using
     //      6034185315 was being pinned to an ancient delivery record.
+    //
+    //      The apptDateTime match is a ±12h WINDOW, not exact. A
+    //      Hub-booked appointment (DB-path delivery) and its mirrored
+    //      sheet row can store the same appointment hours apart when a
+    //      timezone-naive datetime round-trips through the sheet — the
+    //      Fayaz Shaik incident (2026-06-11): the DB delivery posted
+    //      6 PM Mountain (00:00Z) and the sheet copy parsed back as
+    //      22:00Z, so an EXACT match missed and the CLIENT'S channel
+    //      got two posts with two different times (the one we had to
+    //      explain away as a reschedule). ±12h collapses that fork
+    //      while still letting a genuinely separate same-day-different-
+    //      time appointment for the same customer post once.
     const normalizedPhone = normalizePhoneForKey(row.customerPhone)
     const apptDate = row.apptDateTime ? new Date(row.apptDateTime) : null
     const apptDateValid = apptDate && !isNaN(apptDate.getTime())
     const contentMatchSince = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    const FUZZY_WINDOW_MS = 12 * 60 * 60 * 1000
 
     const existing = await prisma.sheetSlackDelivery.findFirst({
       where: {
@@ -504,7 +517,10 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
             ? [
                 {
                   customerPhone: normalizedPhone,
-                  apptDateTime: apptDate,
+                  apptDateTime: {
+                    gte: new Date(apptDate.getTime() - FUZZY_WINDOW_MS),
+                    lte: new Date(apptDate.getTime() + FUZZY_WINDOW_MS),
+                  },
                   createdAt: { gte: contentMatchSince },
                 },
               ]
