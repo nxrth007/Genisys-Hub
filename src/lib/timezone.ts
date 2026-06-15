@@ -74,27 +74,53 @@ const DEFAULT_TIMEZONE = 'America/New_York'
 
 /**
  * Pull a 2-letter state code out of a free-form address string.
- * Looks for either a spelled-out state name or a US Postal Service
- * code. Returns null when nothing recognizable is found.
+ * Returns null when nothing recognizable is found.
+ *
+ * Resolution order, most reliable first:
+ *   1. The 2-letter code immediately before a 5-digit ZIP — the
+ *      canonical "City ST 12345" tail of a US address.
+ *   2. Any standalone 2-letter token that's a real state code; take
+ *      the LAST one (the state sits near the end, after the street).
+ *   3. A spelled-out state name (word-bounded), only as a last
+ *      resort — least reliable since "Virginia Ave" / "Indiana St"
+ *      can false-match a street name.
+ *
+ * History: this used to run spelled-out-names first, then a single
+ * NON-global regex for a 2-letter token. That regex returned only
+ * the FIRST candidate, so an address like "3399 Flat Top DR
+ * Broomfiled CO 80023" handed back "DR" (from "Drive"), which isn't
+ * a state — detection gave up and the customer silently defaulted
+ * to America/New_York. Result: a 6 PM Mountain appointment rendered
+ * as 8 PM Eastern in reminders. Scanning ALL tokens + preferring the
+ * code before the ZIP fixes the whole class of "<2-letter street
+ * abbreviation> before the real state" addresses.
  */
 export function stateCodeFromAddress(address: string | null | undefined): string | null {
   if (!address) return null
-  const lc = address.toLowerCase()
 
-  // Spelled-out state names — try the longer ones first so e.g.
-  // "south carolina" doesn't get partially matched as "carolina".
+  // 1. Code immediately before a ZIP. \b guards against matching the
+  //    tail of a word ("WACO 80023" won't yield "CO").
+  const beforeZip = address.match(/\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/)
+  if (beforeZip && beforeZip[1] in STATE_CODE_TO_TIMEZONE) return beforeZip[1]
+
+  // 2. Every standalone 2-letter uppercase token, filtered to real
+  //    state codes; last one wins. Catches ZIP-less addresses like
+  //    "Reno NV" while ignoring "DR" / "ST" / "PO" street noise.
+  const tokens = [...address.matchAll(/(?:^|[,\s])([A-Z]{2})(?=[\s,]|$)/g)]
+    .map((m) => m[1])
+    .filter((t) => t in STATE_CODE_TO_TIMEZONE)
+  if (tokens.length > 0) return tokens[tokens.length - 1]
+
+  // 3. Spelled-out name, word-bounded, longest first ("south
+  //    carolina" before "carolina"). Last resort only.
+  const lc = address.toLowerCase()
   const sortedNames = Object.keys(STATE_NAME_TO_CODE).sort(
     (a, b) => b.length - a.length
   )
   for (const name of sortedNames) {
-    if (lc.includes(name)) return STATE_NAME_TO_CODE[name]
+    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`)
+    if (re.test(lc)) return STATE_NAME_TO_CODE[name]
   }
-
-  // Postal code as a word boundary so "SCALA" doesn't match "CA".
-  // The address typically ends with ", ST 12345" or " ST" — anchor
-  // matches around whitespace / punctuation / end-of-string.
-  const match = address.match(/(?:^|[,\s])([A-Z]{2})(?=[\s,]|$|\s+\d{5})/)
-  if (match && match[1] in STATE_CODE_TO_TIMEZONE) return match[1]
 
   return null
 }
