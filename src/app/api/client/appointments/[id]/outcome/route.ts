@@ -6,6 +6,7 @@ import { recordAppointmentEdit, diffSnapshots } from '@/lib/appointment-edit-log
 import { sendStatusUpdateAlert } from '@/lib/status-update-alert'
 import { getPublicOrigin } from '@/lib/gmail'
 import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
+import { createAgentAlert, resolveBookingAgentUserId } from '@/lib/agent-alerts'
 
 /**
  * PATCH /api/client/appointments/[id]/outcome
@@ -302,6 +303,38 @@ export async function PATCH(
       err,
     ),
   )
+
+  // Agent-alert feed — when a CLIENT marks one of Mary's
+  // appointments no-show, route it back to the booking agent so it
+  // surfaces in their /agent portal and they can rebook. Only
+  // no_show qualifies here (this route's allowed targets are
+  // showed/no_show/won/lost; cancellations come through other
+  // paths). Fire-and-forget, idempotent on (appointment, type).
+  if (targetStatus === 'no_show') {
+    void resolveBookingAgentUserId({ appointmentId: updated.id })
+      .then((agentUserId) => {
+        if (!agentUserId) return
+        return createAgentAlert({
+          agentUserId,
+          type: 'no_show',
+          dedupKey: `appt:${updated.id}:no_show`,
+          appointmentId: updated.id,
+          customerName: before.customerName,
+          customerPhone: before.customerPhone,
+          clientName: before.client?.name ?? null,
+          apptDateTime: before.apptDateTime,
+          detail: `Marked no-show by ${
+            before.client?.name ?? 'the client'
+          }${updated.clientNotes ? ` — "${updated.clientNotes}"` : ''}`,
+        })
+      })
+      .catch((err) =>
+        console.error(
+          `[client/appointments/outcome] agent-alert failed for ${updated.id}:`,
+          err,
+        ),
+      )
+  }
 
   return NextResponse.json({ ok: true, appointment: updated })
 }

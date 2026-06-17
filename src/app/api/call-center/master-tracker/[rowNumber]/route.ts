@@ -13,6 +13,7 @@ import { syncRemindersFromSheet } from '@/lib/reminders'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
+import { createAgentAlert } from '@/lib/agent-alerts'
 
 /** Diff helper for sheet-edit audit logging. Read before-snapshot
  *  values + body intent here, write an AppointmentEditLog row after
@@ -597,7 +598,14 @@ async function writeOne(
         try {
           const dbAppt = await prisma.appointment.findFirst({
             where: { masterSheetRowNumber: rowNumber },
-            select: { id: true },
+            select: {
+              id: true,
+              agentUserId: true,
+              customerName: true,
+              customerPhone: true,
+              apptDateTime: true,
+              client: { select: { name: true } },
+            },
           })
           if (!dbAppt) return
           const newStatus = auditNewValue ?? null
@@ -610,6 +618,30 @@ async function writeOne(
               ...(qa ? { qualifyingStatusUpdatedAt: qa } : {}),
             },
           })
+          // Agent-alert feed: a call-center cancel / no-show mark on a
+          // Hub-booked appointment routes back to the booking agent.
+          // The actor here is admin (requireAdmin), never the agent
+          // themselves, so this is always "someone else changed
+          // Mary's appointment" — exactly what she needs to see.
+          if (
+            (newStatus === 'cancelled' || newStatus === 'no_show') &&
+            dbAppt.agentUserId
+          ) {
+            await createAgentAlert({
+              agentUserId: dbAppt.agentUserId,
+              type: newStatus,
+              dedupKey: `appt:${dbAppt.id}:${newStatus}`,
+              appointmentId: dbAppt.id,
+              customerName: dbAppt.customerName,
+              customerPhone: dbAppt.customerPhone,
+              clientName: dbAppt.client?.name ?? null,
+              apptDateTime: dbAppt.apptDateTime,
+              detail:
+                newStatus === 'cancelled'
+                  ? 'Appointment cancelled (call center / master tracker)'
+                  : 'Marked no-show (call center / master tracker)',
+            })
+          }
         } catch (err) {
           console.error(
             '[master-tracker PATCH] DB cross-write failed:',

@@ -34,6 +34,7 @@
 import { prisma } from './prisma'
 import { getConversations, getConversationMessages } from './ghl'
 import { formatInTimezone } from './timezone'
+import { createAgentAlert, resolveBookingAgentUserId } from './agent-alerts'
 import {
   postChannelMessage,
   resolveChannelIdByName,
@@ -105,6 +106,11 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
       clientId: true,
       clientName: true,
       apptDateTime: true,
+      // Routing for the agent-alert feed: the booking agent comes
+      // from the DB appointment's agentUserId (preferred) or the
+      // sheet's agent name (sheet-only rows).
+      appointmentId: true,
+      agentName: true,
     },
   })
   type Ctx = (typeof recentReminders)[number]
@@ -319,6 +325,34 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
             err,
           )
         }
+      }
+    }
+
+    // Agent-alert feed — route a negative reply back to the agent who
+    // booked the appointment so it shows in their /agent portal. We
+    // split the 'negative' bucket into reschedule vs decline: a
+    // reschedule is a softer, "still wants it, different time" signal
+    // the agent acts on differently than a flat "won't make it".
+    if (classification === 'negative') {
+      const agentUserId = await resolveBookingAgentUserId({
+        appointmentId: ctx.appointmentId,
+        agentName: ctx.agentName,
+      })
+      if (agentUserId) {
+        const isReschedule = /\b(resched|reschedule|another time|different (?:time|day)|move it|push it)\b/i.test(
+          body,
+        )
+        await createAgentAlert({
+          agentUserId,
+          type: isReschedule ? 'reschedule' : 'negative_reply',
+          dedupKey: `reply:${id}:${messageId ?? body.slice(0, 40)}`,
+          appointmentId: ctx.appointmentId,
+          customerName: ctx.customerName,
+          customerPhone: ctx.customerPhone,
+          clientName: ctx.clientName,
+          apptDateTime: ctx.apptDateTime,
+          detail: body.slice(0, 500),
+        })
       }
     }
   }

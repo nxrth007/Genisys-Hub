@@ -13,6 +13,7 @@ import {
   Building2,
   Table,
   Bell,
+  BellRing,
   MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,6 +28,7 @@ import { ThemeToggle } from './theme-toggle'
  */
 const NAV = [
   { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
+  { href: '/agent/alerts', label: 'Alerts', icon: BellRing },
   { href: '/agent/master-tracker', label: 'Master Tracker', icon: Table },
   { href: '/agent/callbacks', label: 'Callbacks', icon: PhoneCall },
   { href: '/agent/reminders', label: 'Reminders', icon: Bell },
@@ -48,6 +50,21 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
     },
   })
   const agentName = session?.user?.name || session?.user?.email || ''
+
+  // Unread agent-alert count → red badge on the Alerts nav item so
+  // Mary notices a customer decline / no-show without opening the
+  // tab. Polls every 60s; cheap count query.
+  const { data: alertData } = useQuery<{ unreadCount: number }>({
+    queryKey: ['agent-alerts-unread'],
+    queryFn: async () => {
+      const res = await fetch('/api/agent/alerts?status=unread')
+      if (!res.ok) return { unreadCount: 0 }
+      const d = await res.json()
+      return { unreadCount: d.unreadCount ?? 0 }
+    },
+    refetchInterval: 60_000,
+  })
+  const unreadAlerts = alertData?.unreadCount ?? 0
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -75,6 +92,11 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
                 >
                   <item.icon className="h-3.5 w-3.5" />
                   {item.label}
+                  {item.href === '/agent/alerts' && unreadAlerts > 0 && (
+                    <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                      {unreadAlerts}
+                    </span>
+                  )}
                 </Link>
               )
             })}

@@ -119,6 +119,7 @@ model User {
   appointments        Appointment[]       @relation("AgentAppointments")
   eodReports          EodReport[]         @relation("AgentEodReports")
   callbacks           Callback[]          @relation("AgentCallbacks")
+  agentAlerts         AgentAlert[]        @relation("AgentAlerts")
   documentsUploaded   Document[]          @relation("DocumentUploader")
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
   followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
@@ -1274,6 +1275,52 @@ model Callback {
 
   @@index([agentUserId, callbackAt])
   @@index([agentUserId, completedAt])
+}
+
+/// Feedback loop to the booking agent. When something happens to an
+/// appointment that the agent who booked it should know about — the
+/// customer replied "N" to a reminder, asked to reschedule, or a
+/// client marked it no-show / cancelled — we drop an AgentAlert
+/// routed to that agent so it surfaces in their /agent portal
+/// ("Alerts" tab). Lets Mary re-engage a wavering prospect or
+/// rebook a no-show without anyone having to relay it manually.
+model AgentAlert {
+  id            String   @id @default(cuid())
+  /// The booking agent this alert is for. Resolved from the
+  /// appointment's agentUserId, or matched from the sheet's agent
+  /// name when the source is a sheet-only row.
+  agentUserId   String
+  agent         User     @relation("AgentAlerts", fields: [agentUserId], references: [id], onDelete: Cascade)
+
+  /// 'negative_reply' | 'reschedule' | 'no_show' | 'cancelled'
+  type          String
+
+  /// Idempotency token — one alert per (source event, type). Shape:
+  /// "reply:{ghlConversationId}:{messageId}" for reply-driven, or
+  /// "appt:{appointmentId}:{type}" for status-driven. Unique so the
+  /// reply catcher + status hooks can fire repeatedly without dupes.
+  dedupKey      String   @unique
+
+  /// Snapshots so the feed renders without joins even if the source
+  /// row changes later.
+  appointmentId String?
+  customerName  String?
+  customerPhone String?
+  clientName    String?
+  apptDateTime  DateTime?
+  /// Free text: the reply body, or "Marked no-show by {client}".
+  detail        String?  @db.Text
+
+  /// unread | read | actioned. 'actioned' = agent logged a callback
+  /// or otherwise handled it; surfaced distinctly so the feed can
+  /// separate "new" from "dealt with".
+  status        String   @default("unread")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([agentUserId, status, createdAt])
+  @@index([appointmentId])
 }
 
 // -----------------------------------------------------------------------------
