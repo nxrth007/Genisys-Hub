@@ -1275,10 +1275,24 @@ export async function upsertRemindersForAppointment(
             address: appt.address ?? null,
             agentName: null,
             appointmentId: appt.id,
+            // Re-arm on reschedule: when the appointment TIME moved,
+            // re-queue this window for the NEW time regardless of the
+            // row's prior status. A rescheduled appointment whose old
+            // reminders already sent / were skipped / were cancelled
+            // (e.g. after a no-show, or the "N"-reply suppression that
+            // cancels the pending set) MUST get a fresh reminder set
+            // for the new date — otherwise the customer Hannah just
+            // rebooked hears nothing and no-shows again. Confirmation
+            // is excluded: we don't re-send "thanks for booking" on a
+            // reschedule (the reschedule-confirmation SMS is sent
+            // separately). sentAt/errorMessage cleared so a re-armed
+            // row reads as a clean pending, not a stale send.
             ...(apptShifted &&
-              existing.status === 'pending' && {
+              type !== 'confirmation' && {
                 scheduledFor: fireAt,
                 status,
+                sentAt: null,
+                errorMessage: phoneInvalid ? undefined : null,
               }),
           },
         })
