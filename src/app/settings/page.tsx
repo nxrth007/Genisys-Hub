@@ -27,6 +27,7 @@ import {
   Sun,
   Loader2,
   CheckCircle2,
+  Headphones,
   Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -74,6 +75,8 @@ export default function SettingsPage() {
       <ClientAlertsSection />
 
       <ClientEmailAlertsSection />
+
+      <ClientRecordingLinksSection />
 
       <PpaInvoicingSection />
 
@@ -1208,6 +1211,127 @@ function ClientWorkspaceProvisioningSection() {
             {enabled
               ? 'Approving a client will auto-create their Slack channel and invite the team + the client.'
               : 'Off — channels are not created automatically. Admin can still pick a channel manually below.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={configQuery.isLoading || updateMutation.isPending}
+          onClick={() => handleToggle(!enabled)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            enabled
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+          )}
+        >
+          {updateMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : enabled ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Client recording links (call playback for clients)                 */
+/* ------------------------------------------------------------------ */
+
+function ClientRecordingLinksSection() {
+  const qc = useQueryClient()
+
+  const configQuery = useQuery<{ enabled: boolean }>({
+    queryKey: ['client-recording-links-config'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/client-recording-links/config')
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Failed to load recording-links config')
+      }
+      return res.json()
+    },
+  })
+
+  const enabled = !!configQuery.data?.enabled
+
+  const updateMutation = useMutation({
+    mutationFn: async (next: boolean) => {
+      const res = await fetch('/api/admin/client-recording-links/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Update failed')
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['client-recording-links-config'] })
+    },
+    onError: (err) => {
+      window.alert(
+        `Couldn't update recording-links toggle: ${(err as Error).message}`,
+      )
+    },
+  })
+
+  function handleToggle(next: boolean) {
+    if (next) {
+      const ok = window.confirm(
+        'Turn call-recording links back ON for clients?\n\nClients will once again get a "Listen to call" link in:\n  • their Slack channel appointment posts\n  • their appointment emails\n  • their /client dashboard\n\nInternal/admin/agent playback is unaffected either way.',
+      )
+      if (!ok) return
+    }
+    updateMutation.mutate(next)
+  }
+
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-950">
+          <Headphones className="h-5 w-5 text-blue-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold">
+            Call recordings for clients
+          </h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Controls whether clients get a &ldquo;Listen to call&rdquo;
+            link in their Slack channel posts, their appointment
+            emails, and on their <code>/client</code> dashboard. Your
+            own internal playback (callbacks, master tracker, agent
+            views) is never affected by this toggle. Currently off per
+            request &mdash; flip it back on here whenever you&apos;re
+            ready.
+          </p>
+        </div>
+      </div>
+
+      {configQuery.isError && (
+        <div className="mt-4">
+          <Alert variant="error">
+            <div className="font-medium">Couldn&apos;t load config</div>
+            <div className="mt-1 text-xs">
+              {(configQuery.error as Error).message}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div>
+          <p className="text-sm font-medium">Show recording links to clients</p>
+          <p className="text-xs text-zinc-500">
+            {enabled
+              ? 'On — clients can listen to call recordings from Slack, email, and their dashboard.'
+              : 'Off — clients see no recording links anywhere. Internal playback still works.'}
           </p>
         </div>
         <button
