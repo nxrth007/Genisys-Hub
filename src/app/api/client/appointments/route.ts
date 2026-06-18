@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { signRecordingUrl } from '@/lib/recording-proxy'
+import { clientRecordingLinksEnabled } from '@/lib/client-recording-flag'
 import { getPublicOrigin } from '@/lib/gmail'
 
 /**
@@ -91,12 +92,18 @@ export async function GET(req: NextRequest) {
   // on the allowlist — in either case we drop the field entirely so
   // the UI doesn't render a broken Listen link. Strip the raw URL on
   // the way out either way; the client never sees the vicitel host.
+  // Client-facing recording playback is gated by a flag (Alex,
+  // 2026-06-17 — temporarily off). When disabled, we drop the raw
+  // URL AND return no signed URL so the dashboard hides the Listen
+  // button entirely. Internal/admin/agent playback is unaffected.
+  const recordingsOn = await clientRecordingLinksEnabled()
   const hubOrigin = getPublicOrigin(req)
   const appointmentsForClient = appointments.map((a: typeof appointments[number]) => {
     const { callRecordingLink, ...rest } = a
-    const signed = callRecordingLink?.trim()
-      ? signRecordingUrl(callRecordingLink.trim(), hubOrigin)
-      : null
+    const signed =
+      recordingsOn && callRecordingLink?.trim()
+        ? signRecordingUrl(callRecordingLink.trim(), hubOrigin)
+        : null
     return { ...rest, recordingUrl: signed }
   })
 

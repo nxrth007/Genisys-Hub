@@ -31,6 +31,7 @@ import { readAllSheetRows } from './secondary-sheets'
 import { getSecretByName } from './vault-service'
 import { normalizeAddress } from './address'
 import { signRecordingUrl } from './recording-proxy'
+import { clientRecordingLinksEnabled } from './client-recording-flag'
 
 /** Hub origin used to construct the signed recording proxy URL.
  *  Reads from AUTH_URL (set by NextAuth's config on Render) and
@@ -594,7 +595,10 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     const solar = row.address
       ? await snapshotSolarFromCache(row.address).catch(() => null)
       : null
-    const body = formatAppointmentForClientChannel(row, { solar })
+    const body = formatAppointmentForClientChannel(row, {
+      solar,
+      includeRecording: await clientRecordingLinksEnabled(),
+    })
 
     try {
       const slack = await getSlackClient()
@@ -1033,7 +1037,10 @@ export async function deliverAppointmentToSlack(
     ? await snapshotSolarFromCache(appt.address).catch(() => null)
     : null
 
-  const body = formatAppointmentForClientChannel(synthRow, { solar })
+  const body = formatAppointmentForClientChannel(synthRow, {
+    solar,
+    includeRecording: await clientRecordingLinksEnabled(),
+  })
   const token = await getSecretByName('Slack Bot Token')
   const slack = new WebClient(token)
 
@@ -1196,7 +1203,15 @@ export async function sendTestClientDelivery(params: {
  */
 export function formatAppointmentForClientChannel(
   row: MasterTableRow,
-  opts: { isTest?: boolean; solar?: SolarSummary | null } = {}
+  opts: {
+    isTest?: boolean
+    solar?: SolarSummary | null
+    /** Whether to append the "Listen to call" recording link. Gated
+     *  by the clientRecordingLinks flag at the delivery call site —
+     *  defaults OFF (fail-closed) so a caller that forgets to pass it
+     *  never leaks a recording to a client. */
+    includeRecording?: boolean
+  } = {}
 ): string {
   const lines: string[] = []
   const cleanedAddress = normalizeAddress(row.address)
@@ -1324,7 +1339,7 @@ export function formatAppointmentForClientChannel(
   // case we silently skip the line rather than ship a link that
   // wouldn't work. Same channel post + same UX as before when the
   // proxy comes online, just with one more line appended.
-  if (row.callRecordingLink?.trim()) {
+  if (opts.includeRecording === true && row.callRecordingLink?.trim()) {
     const signed = signRecordingUrl(
       row.callRecordingLink.trim(),
       getHubOrigin(),

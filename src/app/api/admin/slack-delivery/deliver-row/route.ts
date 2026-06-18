@@ -13,6 +13,7 @@ import {
   verifyDeliveryPermalink,
 } from '@/lib/client-delivery'
 import { snapshotSolarFromCache } from '@/lib/solar'
+import { clientRecordingLinksEnabled } from '@/lib/client-recording-flag'
 import { normalizeAddress } from '@/lib/address'
 import { getSecretByName } from '@/lib/vault-service'
 
@@ -157,7 +158,10 @@ export async function POST(req: Request) {
   const solar = row.address
     ? await snapshotSolarFromCache(row.address).catch(() => null)
     : null
-  const body_ = formatAppointmentForClientChannel(row, { solar })
+  const body_ = formatAppointmentForClientChannel(row, {
+    solar,
+    includeRecording: await clientRecordingLinksEnabled(),
+  })
 
   // Send.
   const token = await getSecretByName('Slack Bot Token')

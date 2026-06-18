@@ -47,6 +47,7 @@ import { buildRoutingIndex, routeRowToClient } from './client-routing'
 import { snapshotSolarFromCache, type SolarSummary } from './solar'
 import { sendEmail } from './gmail'
 import { signRecordingUrl } from './recording-proxy'
+import { clientRecordingLinksEnabled } from './client-recording-flag'
 
 /** Hub origin used to construct the signed recording proxy URL.
  *  AUTH_URL is set by NextAuth's Render config to the public hostname.
@@ -302,6 +303,7 @@ export async function syncClientEmailAlertsFromSheet(): Promise<EmailAlertResult
     const html = formatAppointmentForClientEmail(row, {
       clientName: candidate.name,
       solar,
+      includeRecording: await clientRecordingLinksEnabled(),
     })
 
     try {
@@ -646,6 +648,7 @@ export async function dispatchPendingClientEmailAlerts(): Promise<{
     const html = formatAppointmentForClientEmail(synthRow, {
       clientName: appt.client?.name ?? 'Client',
       solar,
+      includeRecording: await clientRecordingLinksEnabled(),
       // DB-driven dispatch path — we have the appointment id, so
       // the "Update Appointment Status" button can deep-link the
       // client straight to the report modal.
@@ -791,6 +794,7 @@ export async function retryFailedClientEmailAlert(
     html = formatAppointmentForClientEmail(synthRow, {
       clientName: appt.client?.name ?? 'Client',
       solar,
+      includeRecording: await clientRecordingLinksEnabled(),
       // Manual retry of a DB-keyed delivery — appointmentId
       // available; surface the update button.
       appointmentId: appt.id,
@@ -821,6 +825,7 @@ export async function retryFailedClientEmailAlert(
     html = formatAppointmentForClientEmail(sheetRow, {
       clientName: client?.name ?? 'Client',
       solar,
+      includeRecording: await clientRecordingLinksEnabled(),
     })
   } else {
     return { ok: false, error: `unrecognized sourceKey shape: ${row.sourceKey}` }
@@ -1060,6 +1065,11 @@ export function formatAppointmentForClientEmail(
      *  when null — partner-sheet rows can't be updated through the
      *  client dashboard since they're not in our DB. */
     appointmentId?: string | null
+    /** Whether to render the "Listen to the call" recording button.
+     *  Gated by the clientRecordingLinks flag at the delivery call
+     *  site — defaults OFF (fail-closed) so a caller that forgets to
+     *  pass it never emails a recording link to a client. */
+    includeRecording?: boolean
   },
 ): string {
   const cleanedAddress = normalizeAddress(row.address)
@@ -1178,9 +1188,10 @@ export function formatAppointmentForClientEmail(
   // null when the proxy isn't configured yet OR the upstream host
   // isn't on the allowlist, in which case we silently drop the
   // button rather than ship a link that wouldn't work.
-  const signedRecordingUrl = row.callRecordingLink?.trim()
-    ? signRecordingUrl(row.callRecordingLink.trim(), getHubOrigin())
-    : null
+  const signedRecordingUrl =
+    opts.includeRecording === true && row.callRecordingLink?.trim()
+      ? signRecordingUrl(row.callRecordingLink.trim(), getHubOrigin())
+      : null
   const recordingSection = signedRecordingUrl
     ? `
       <div style="margin:24px 0 0 0;">
