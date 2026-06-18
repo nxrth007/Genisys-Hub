@@ -9,7 +9,11 @@ import {
   updateMasterTableCells,
   type CanonicalKey,
 } from '@/lib/drive'
-import { syncRemindersFromSheet } from '@/lib/reminders'
+import {
+  syncRemindersFromSheet,
+  upsertRemindersForAppointment,
+  sendRescheduleConfirmation,
+} from '@/lib/reminders'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
@@ -499,6 +503,78 @@ async function writeFullEdit(
         err,
       ),
     )
+
+    // Keep the DB Appointment in lockstep with this sheet edit, then
+    // run the reschedule flow. Without the cross-write, a time change
+    // lands on the sheet but the DB row (and its db:appointment
+    // reminders) keep the OLD time — the same DB/sheet drift that
+    // forked Fayaz's reminders. With it: we update the DB appt's
+    // apptDateTime + status from the freshly-parsed sheet value, then
+    // upsertRemindersForAppointment re-arms the full reminder set for
+    // the new time (its re-arm-on-shift logic), and when the row was
+    // marked "rescheduled" we text the customer their new time.
+    // Fire-and-forget — the sheet write already succeeded.
+    void (async () => {
+      try {
+        const dbAppt = await prisma.appointment.findFirst({
+          where: { masterSheetRowNumber: rowNumber },
+          select: {
+            id: true,
+            apptDateTime: true,
+            customerName: true,
+            customerPhone: true,
+            address: true,
+            client: { select: { name: true } },
+          },
+        })
+        if (!dbAppt) return
+        const newIso = verify?.apptDateIso ?? null
+        const newDate = newIso ? new Date(newIso) : null
+        const newStatus =
+          typeof body.status === 'string' && STATUS_LABEL[body.status]
+            ? body.status
+            : null
+        const timeChanged =
+          !!newDate &&
+          !isNaN(newDate.getTime()) &&
+          (!dbAppt.apptDateTime ||
+            newDate.getTime() !== dbAppt.apptDateTime.getTime())
+
+        if (timeChanged || newStatus) {
+          await prisma.appointment.update({
+            where: { id: dbAppt.id },
+            data: {
+              ...(timeChanged && newDate ? { apptDateTime: newDate } : {}),
+              ...(newStatus ? { status: newStatus } : {}),
+            },
+          })
+        }
+
+        // Re-arm reminders for the new time (covers no-shows /
+        // "N"-decliners whose old reminders are spent/cancelled).
+        if (timeChanged) {
+          await upsertRemindersForAppointment(dbAppt.id)
+        }
+
+        // Customer reschedule-confirmation text — only on an explicit
+        // reschedule, only when the time actually moved, so a stray
+        // status re-save doesn't spam them.
+        if (newStatus === 'rescheduled' && timeChanged && newDate) {
+          await sendRescheduleConfirmation({
+            customerName: dbAppt.customerName,
+            customerPhone: dbAppt.customerPhone,
+            clientName: dbAppt.client?.name ?? null,
+            apptDateTime: newDate,
+            address: dbAppt.address,
+          })
+        }
+      } catch (err) {
+        console.error(
+          '[master-tracker PATCH:full] reschedule flow failed:',
+          err,
+        )
+      }
+    })()
 
     // Past-appointment safeguard: if admin just assigned a client
     // to a row whose appointment is already in the past, pre-mark

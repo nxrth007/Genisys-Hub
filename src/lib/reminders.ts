@@ -1330,3 +1330,63 @@ export async function upsertRemindersForAppointment(
 
   return { upserted, skippedPast, skippedDisabled: false }
 }
+
+/**
+ * One-off "your appointment has been rescheduled" SMS to the
+ * customer, sent when an appointment's time is changed + marked
+ * rescheduled (e.g. Hannah's rebooking calls). Separate from the
+ * reminder pipeline — this is the immediate heads-up; the re-armed
+ * reminders (upsertRemindersForAppointment) handle the lead-up.
+ *
+ * Sends to every phone on the record (household), via the same GHL
+ * sender + quiet-hours-exempt path semantics as a confirmation
+ * (a reschedule ack is transactional, not marketing). No-op when the
+ * reminder system's master toggle is off or the phone is unusable.
+ */
+export async function sendRescheduleConfirmation(params: {
+  customerName: string
+  customerPhone: string
+  clientName: string | null
+  apptDateTime: Date
+  address?: string | null
+}): Promise<{ sent: number }> {
+  const config = await prisma.remindersConfig.findUnique({
+    where: { id: 'singleton' },
+  })
+  if (!config?.enabled) return { sent: 0 }
+  const phones = extractedPhonesFor(params.customerPhone)
+  if (phones.length === 0) return { sent: 0 }
+
+  const tz = timezoneForAddress(params.address)
+  const when = formatInTimezone(params.apptDateTime, tz, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+  const body = `Hi ${customerFirstNameForSms(params.customerName)}, your appointment with ${
+    params.clientName ?? 'us'
+  } has been rescheduled to ${when}. We'll send reminders leading up to it. Reply STOP to opt out.`
+
+  let sent = 0
+  for (const phone of phones) {
+    try {
+      await sendSmsToPhone(config.vaultEntryName, {
+        phone,
+        message: body,
+        firstName: firstNameOf(params.customerName),
+        lastName: lastNameOf(params.customerName),
+        fromNumber: config.senderPhone || undefined,
+      })
+      sent++
+    } catch (err) {
+      console.error(
+        `[reminders] reschedule confirmation send failed for ${phone}:`,
+        err,
+      )
+    }
+  }
+  return { sent }
+}
