@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentUpdate, syncAppointmentDelete } from '@/lib/appointment-sync'
-import { upsertRemindersForAppointment } from '@/lib/reminders'
+import {
+  upsertRemindersForAppointment,
+  sendRescheduleConfirmation,
+} from '@/lib/reminders'
+import { postRescheduleToClientChannel } from '@/lib/client-delivery'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
@@ -267,6 +271,36 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }).catch((err) =>
     console.error('[appointments PATCH] client-alert refresh threw:', err),
   )
+
+  // Reschedule flow parity with the master-tracker path: when the
+  // appointment TIME actually moved, notify the client's Slack
+  // channel of the new time, and on an explicit "rescheduled" mark
+  // text the customer their new time. The reminder re-arm already
+  // ran via upsertRemindersForAppointment above. All fire-and-forget.
+  const timeChanged =
+    before.apptDateTime.getTime() !== updated.apptDateTime.getTime()
+  if (timeChanged) {
+    void postRescheduleToClientChannel(updated.id).catch((err) =>
+      console.error(
+        '[appointments PATCH] reschedule channel post threw:',
+        err,
+      ),
+    )
+    if (updated.status === 'rescheduled') {
+      void sendRescheduleConfirmation({
+        customerName: updated.customerName,
+        customerPhone: updated.customerPhone,
+        clientName: before.client?.name ?? null,
+        apptDateTime: updated.apptDateTime,
+        address: updated.address,
+      }).catch((err) =>
+        console.error(
+          '[appointments PATCH] reschedule confirmation threw:',
+          err,
+        ),
+      )
+    }
+  }
 
   return NextResponse.json({ ok: true, appointment: updated })
 }
