@@ -1189,6 +1189,64 @@ export async function sendTestClientDelivery(params: {
   return { ok: post.ok ?? false, ts: post.ts ?? null }
 }
 
+/**
+ * Post a one-line "appointment rescheduled" notice to the client's
+ * own Slack channel. The normal appointment delivery is idempotent
+ * (one post per appointment, deduped), so a reschedule never updates
+ * the channel on its own — this fills that gap so the client sees
+ * the new time. Called from the master-tracker reschedule flow.
+ *
+ * Best-effort: no-op when the appointment's client has no channel,
+ * and never throws (a Slack hiccup must not fail the reschedule).
+ */
+export async function postRescheduleToClientChannel(
+  appointmentId: string,
+): Promise<{ posted: boolean }> {
+  try {
+    const appt = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { client: { select: { name: true, slackChannelId: true } } },
+    })
+    if (!appt?.client?.slackChannelId) return { posted: false }
+
+    const tz = timezoneForAddress(appt.address)
+    const when = formatInTimezone(appt.apptDateTime, tz, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZoneName: 'short',
+    })
+    const lines = [
+      `:arrows_counterclockwise: *Appointment rescheduled*`,
+      '',
+      `*Customer:*  ${appt.customerName}`,
+      `*New date / time:*  ${when}`,
+    ]
+    if (appt.customerPhone) lines.push(`*Phone:*  ${appt.customerPhone}`)
+
+    const token = await getSecretByName('Slack Bot Token')
+    const slack = new WebClient(token)
+    const post = await slack.chat.postMessage({
+      channel: appt.client.slackChannelId,
+      text: lines.join('\n'),
+      mrkdwn: true,
+      unfurl_links: false,
+      unfurl_media: false,
+    })
+    return { posted: !!post.ok }
+  } catch (err) {
+    console.error(
+      `[client-delivery] reschedule channel post failed for ${appointmentId}:`,
+      err,
+    )
+    return { posted: false }
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Formatting                                                                 */
 /* -------------------------------------------------------------------------- */

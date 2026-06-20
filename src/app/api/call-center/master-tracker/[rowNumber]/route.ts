@@ -18,6 +18,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
 import { createAgentAlert } from '@/lib/agent-alerts'
+import { postRescheduleToClientChannel } from '@/lib/client-delivery'
 
 /** Diff helper for sheet-edit audit logging. Read before-snapshot
  *  values + body intent here, write an AppointmentEditLog row after
@@ -554,6 +555,10 @@ async function writeFullEdit(
         // "N"-decliners whose old reminders are spent/cancelled).
         if (timeChanged) {
           await upsertRemindersForAppointment(dbAppt.id)
+          // Notify the client's Slack channel of the new time — the
+          // original appointment post is one-time/deduped, so without
+          // this the client never sees the reschedule.
+          await postRescheduleToClientChannel(dbAppt.id)
         }
 
         // Customer reschedule-confirmation text — only on an explicit
