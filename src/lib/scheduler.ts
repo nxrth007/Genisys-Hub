@@ -31,6 +31,7 @@ import {
 import { syncClientMessageAlerts } from './client-message-alert'
 import { syncReminderReplyAlerts } from './reminder-reply-alert'
 import { snapshotAllVicidialLists } from './vicidial-snapshots'
+import { syncSheetAppointmentsToDb } from './sheet-appointment-import'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
@@ -43,6 +44,14 @@ let initialized = false
 // picks up new appointments well within the 30-min reminder window.
 const REMINDER_SYNC_INTERVAL_MS = 5 * 60 * 1000
 let lastReminderSyncAt = 0
+
+// Sheet→DB appointment import — same 5-min cadence. Brings sheet-only
+// appointments (e.g. Brighton Capital's) into the DB so the client
+// dashboard + status updates work on them. Never queues reminders, so
+// the reminder engine stays unaware of imported rows (no double-fire).
+const SHEET_IMPORT_INTERVAL_MS = 5 * 60 * 1000
+let lastSheetImportAt = 0
+let sheetImportInFlight = false
 
 // Client-channel delivery sync runs on the same cadence as the
 // reminder sync — both read the same sheet, so co-locating them
@@ -260,6 +269,29 @@ export function initScheduler() {
       }
     } catch (err) {
       console.error('[scheduler] reminders sync failed:', err)
+    }
+
+    // Sheet→DB appointment import (every 5 min). In-flight guarded —
+    // a full sheet read + per-row client resolution can outlast a
+    // tick on a big sheet. Never touches reminders.
+    if (!sheetImportInFlight) {
+      const now = Date.now()
+      if (now - lastSheetImportAt >= SHEET_IMPORT_INTERVAL_MS) {
+        lastSheetImportAt = now
+        sheetImportInFlight = true
+        try {
+          const result = await syncSheetAppointmentsToDb()
+          if (result.imported > 0) {
+            console.log(
+              `[scheduler] sheet-import: ${result.imported} new appointments imported (${result.skippedExisting} already, ${result.skippedNoClient} no-client, ${result.skippedHubBooked} hub-booked) of ${result.scanned} scanned`,
+            )
+          }
+        } catch (err) {
+          console.error('[scheduler] sheet-import failed:', err)
+        } finally {
+          sheetImportInFlight = false
+        }
+      }
     }
 
     try {

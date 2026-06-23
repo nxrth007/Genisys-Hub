@@ -844,6 +844,20 @@ model Appointment {
   lastSyncedAt         DateTime?
   syncError            String?  @db.Text
 
+  /// True when this row was IMPORTED from a Google sheet rather than
+  /// booked through the Hub form (e.g. Brighton Capital's
+  /// appointments that only ever lived in a sheet). Imported rows are
+  /// first-class for the client dashboard + status updates, but
+  /// CRITICAL: the import never queues reminders for them, so the
+  /// reminder engine (which only dedups against appointments that
+  /// have reminders) stays completely unaware of them — the sheet
+  /// keeps owning their reminders, no double-fire possible.
+  importedFromSheet    Boolean  @default(false)
+  /// Stable per-sheet-row key the importer upserts on, so re-running
+  /// the import never duplicates a row. Shape mirrors the reminder
+  /// sourceKey: "sheet:Master Table:42" / "sheet:<spreadsheetId>:5".
+  importSourceKey      String?  @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
