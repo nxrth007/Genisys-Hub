@@ -74,6 +74,12 @@ type ImportResult = {
   skippedExisting: number
   skippedNoClient: number
   skippedHubBooked: number
+  /** Diagnostics — distinct client identifiers per bucket so we can
+   *  see WHICH clients matched vs didn't (e.g. is Brighton in
+   *  noClientSamples because of a name mismatch?). */
+  importedClients: string[]
+  existingClients: string[]
+  noClientSamples: string[]
 }
 
 export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
@@ -83,7 +89,13 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     skippedExisting: 0,
     skippedNoClient: 0,
     skippedHubBooked: 0,
+    importedClients: [],
+    existingClients: [],
+    noClientSamples: [],
   }
+  const importedClients = new Set<string>()
+  const existingClients = new Set<string>()
+  const noClientSamples = new Set<string>()
 
   let rows: Awaited<ReturnType<typeof readAllSheetRows>>
   try {
@@ -101,6 +113,7 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
   const clientByLowerName = new Map(
     clients.map((c) => [c.name.toLowerCase(), c.id]),
   )
+  const clientNameById = new Map(clients.map((c) => [c.id, c.name]))
   const activeClientIds = new Set(clients.map((c) => c.id))
 
   // Already-imported keys (skip — Hub owns them now) + content keys of
@@ -146,12 +159,18 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     }
     if (!clientId) {
       result.skippedNoClient++
+      noClientSamples.add(
+        r.source.kind === 'secondary'
+          ? `secondary[${r.source.spreadsheetId.slice(0, 8)} clientId=${r.source.clientId ?? 'null'}]`
+          : `client="${r.client ?? '(blank)'}"`,
+      )
       continue
     }
 
     const importSourceKey = rowSourceKey(r)
     if (seenKeys.has(importSourceKey)) {
       result.skippedExisting++
+      existingClients.add(clientNameById.get(clientId) ?? clientId)
       continue
     }
 
@@ -191,6 +210,7 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
         },
       })
       seenKeys.add(importSourceKey)
+      importedClients.add(clientNameById.get(clientId) ?? clientId)
       result.imported++
     } catch (err) {
       const code =
@@ -209,5 +229,8 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     }
   }
 
+  result.importedClients = [...importedClients]
+  result.existingClients = [...existingClients]
+  result.noClientSamples = [...noClientSamples].slice(0, 25)
   return result
 }
