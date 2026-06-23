@@ -128,16 +128,25 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     }),
     prisma.appointment.findMany({
       where: { importedFromSheet: false },
-      select: { customerPhone: true, apptDateTime: true },
+      select: { customerPhone: true, apptDateTime: true, clientId: true },
     }),
   ])
   const seenKeys = new Set(
     importedKeys.map((a) => a.importSourceKey).filter(Boolean) as string[],
   )
+  // Hub-booked dedup is keyed PER CLIENT: only skip a sheet row when
+  // the SAME client already has a Hub-booked appointment for that
+  // phone+hour. Keying globally (across all clients) wrongly skipped
+  // rows whose customer happened to have a booking under a different
+  // / null client — which dropped 5 of Brighton's 9 appointments.
   const hubContentKeys = new Set<string>()
   for (const a of hubBooked) {
     const p = phoneDigits(a.customerPhone)
-    if (p) hubContentKeys.add(`${p}|${a.apptDateTime.toISOString().slice(0, 13)}`)
+    if (p) {
+      hubContentKeys.add(
+        `${a.clientId ?? 'none'}|${p}|${a.apptDateTime.toISOString().slice(0, 13)}`,
+      )
+    }
   }
 
   const importAgentId = await getImportAgentUserId()
@@ -176,10 +185,16 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
       continue
     }
 
-    // Don't duplicate a Hub-booked appointment that's also on the
-    // sheet (same customer + same hour).
+    // Don't duplicate a Hub-booked appointment for the SAME client +
+    // same customer + same hour. Per-client so a booking under a
+    // different/null client doesn't suppress this client's row.
     const p = phoneDigits(r.customerPhone)
-    if (p && hubContentKeys.has(`${p}|${apptDate.toISOString().slice(0, 13)}`)) {
+    if (
+      p &&
+      hubContentKeys.has(
+        `${clientId}|${p}|${apptDate.toISOString().slice(0, 13)}`,
+      )
+    ) {
       result.skippedHubBooked++
       continue
     }
