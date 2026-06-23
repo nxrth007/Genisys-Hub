@@ -105,9 +105,11 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     return result
   }
 
-  // Active clients for primary-row (Client column) attribution.
+  // All clients for primary-row (Client column) attribution. NOT
+  // filtered to active=true — a client whose `active` flag is off
+  // (or churned) still owns its historical appointments, and we'd
+  // rather import + show them than silently drop them as "no client".
   const clients = await prisma.client.findMany({
-    where: { active: true },
     select: { id: true, name: true },
   })
   const clientByLowerName = new Map(
