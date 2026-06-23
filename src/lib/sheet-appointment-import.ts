@@ -25,6 +25,7 @@
  */
 import { prisma } from './prisma'
 import { readAllSheetRows, rowSourceKey } from './secondary-sheets'
+import { buildRoutingIndex, routeRowToClient } from './client-routing'
 
 /** Email of the system account that owns imported appointments.
  *  Appointment.agentUserId is required + relational; sheet rows have
@@ -105,18 +106,16 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     return result
   }
 
-  // All clients for primary-row (Client column) attribution. NOT
-  // filtered to active=true — a client whose `active` flag is off
-  // (or churned) still owns its historical appointments, and we'd
-  // rather import + show them than silently drop them as "no client".
+  // All clients (incl. inactive — they still own historical rows).
+  // Routing index gives us the SAME attribution the master tracker
+  // uses: explicit Client-column name match, then address-state
+  // inference for blank/unmatched Client cells (e.g. an Arizona row
+  // with a blank Client lands on the single AZ client, Brighton).
   const clients = await prisma.client.findMany({
-    select: { id: true, name: true },
+    select: { id: true, name: true, state: true },
   })
-  const clientByLowerName = new Map(
-    clients.map((c) => [c.name.toLowerCase(), c.id]),
-  )
   const clientNameById = new Map(clients.map((c) => [c.id, c.name]))
-  const activeClientIds = new Set(clients.map((c) => c.id))
+  const routingIndex = buildRoutingIndex(clients)
 
   // Already-imported keys (skip — Hub owns them now) + content keys of
   // existing NON-imported (Hub-booked) appointments so we never import
@@ -159,14 +158,20 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     if (isNaN(apptDate.getTime())) continue
     result.scanned++
 
-    // Attribute to a client: secondary rows carry source.clientId;
-    // primary rows resolve via the Client column. Skip if neither
-    // maps to an active client.
+    // Attribute to a client. Secondary sheets are explicitly linked
+    // (source.clientId). Master-sheet rows go through the shared
+    // router: explicit name match, else state inference — identical
+    // to how the master tracker badges them, so blank-Client rows
+    // that the tracker shows under a client (the "white ring" /
+    // inferred state) import under that same client.
     let clientId: string | null = null
     if (r.source.kind === 'secondary' && r.source.clientId) {
-      if (activeClientIds.has(r.source.clientId)) clientId = r.source.clientId
-    } else if (r.client) {
-      clientId = clientByLowerName.get(r.client.toLowerCase()) ?? null
+      clientId = r.source.clientId
+    } else {
+      const route = routeRowToClient(r, routingIndex)
+      if (route.source === 'explicit' || route.source === 'inferred-state') {
+        clientId = route.client.id
+      }
     }
     if (!clientId) {
       result.skippedNoClient++
