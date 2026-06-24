@@ -611,6 +611,33 @@ export async function dispatchPendingClientEmailAlerts(): Promise<{
       continue
     }
 
+    // RECIPIENT RE-VALIDATION — same guard as the SMS dispatcher. If
+    // the agent reassigned this appointment to a DIFFERENT client
+    // during the buffer window, this row's recipientEmail no longer
+    // owns the appointment. Sending would email the ORIGINAL client a
+    // description of the NEW client's appointment (a cross-client
+    // leak). The appointment's current linked client is authoritative
+    // — skip when its email no longer matches this row; the
+    // correctly-reassigned client has its own row that fires normally.
+    const currentRecipientEmail = normalizeEmailForKey(
+      appt.client?.contactEmail,
+    )
+    if (
+      !currentRecipientEmail ||
+      currentRecipientEmail !== row.recipientEmail
+    ) {
+      await prisma.clientEmailDelivery.update({
+        where: { id: row.id },
+        data: {
+          status: 'skipped',
+          errorMessage:
+            'client reassigned during buffer — this recipient no longer owns the appointment',
+        },
+      })
+      result.skipped++
+      continue
+    }
+
     const customerTz = resolveCustomerTimezone({
       address: appt.address,
       clientState: appt.client?.state ?? null,

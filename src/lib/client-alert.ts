@@ -585,6 +585,18 @@ export async function dispatchPendingClientAlerts(): Promise<{
     },
   })
 
+  // Client routing index for the per-row recipient re-validation in
+  // the loop. Built once per tick. Lets us detect a delivery row
+  // whose stored recipient no longer matches the appointment's
+  // CURRENT client — i.e. the agent reassigned the appointment to a
+  // different client during the 30-min buffer (a mistake-fix Alex
+  // explicitly wants agents to make via edit rather than re-upload).
+  const routingClients = await prisma.client.findMany({
+    where: { active: true },
+    select: { id: true, name: true, state: true, contactPhone: true },
+  })
+  const dispatchRoutingIndex = buildRoutingIndex(routingClients)
+
   for (const row of due) {
     result.attempted++
 
@@ -670,6 +682,39 @@ export async function dispatchPendingClientAlerts(): Promise<{
         data: {
           status: 'skipped',
           errorMessage: 'appointment cancelled before buffer expired',
+        },
+      })
+      result.skipped++
+      continue
+    }
+
+    // RECIPIENT RE-VALIDATION — the agent may have reassigned this
+    // appointment to a DIFFERENT client during the buffer window. If
+    // so, the appointment now routes to another client's phone, and
+    // THIS row's stored recipient no longer owns it. Sending anyway
+    // would leak one client's appointment details to a different
+    // client (the original client gets an SMS describing the new
+    // client's appointment). Re-route the current appointment and
+    // skip this row when its recipient no longer matches — the
+    // correctly-rerouted client has its own row that fires normally.
+    const currentRoute = routeRowToClient(
+      {
+        client: appt.client?.name ?? null,
+        address: normalizeAddress(appt.address),
+      },
+      dispatchRoutingIndex,
+    )
+    const currentRecipient =
+      currentRoute.source !== 'unrouted'
+        ? normalizePhoneForKey(currentRoute.client.contactPhone)
+        : null
+    if (!currentRecipient || currentRecipient !== row.recipientPhone) {
+      await prisma.clientAlertDelivery.update({
+        where: { id: row.id },
+        data: {
+          status: 'skipped',
+          errorMessage:
+            'client reassigned during buffer — this recipient no longer owns the appointment',
         },
       })
       result.skipped++
