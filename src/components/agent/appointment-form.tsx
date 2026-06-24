@@ -37,6 +37,7 @@ type Client = {
   name: string
   state: string | null
   color: string
+  contactName: string | null
 }
 
 export type AppointmentFormValues = {
@@ -431,8 +432,8 @@ export function AppointmentForm({
                     )}
                     style={active ? { backgroundColor: c.color } : undefined}
                   >
-                    <Building2 className="h-4 w-4" />
-                    <span className="flex flex-col items-start">
+                    <Building2 className="h-4 w-4 flex-shrink-0" />
+                    <span className="flex flex-col items-start leading-tight">
                       <span>{c.name}</span>
                       {c.state && (
                         <span
@@ -442,6 +443,16 @@ export function AppointmentForm({
                           )}
                         >
                           {c.state}
+                        </span>
+                      )}
+                      {c.contactName && (
+                        <span
+                          className={cn(
+                            'text-[10px] font-normal',
+                            active ? 'text-white/70' : 'text-zinc-400'
+                          )}
+                        >
+                          {c.contactName}
                         </span>
                       )}
                     </span>
