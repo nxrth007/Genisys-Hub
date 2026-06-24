@@ -300,7 +300,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
             {client.servicingZipcodes && (
               <span className="inline-flex items-center gap-1.5 sm:col-span-2">
                 <Building2 className="h-3 w-3" />
-                Servicing: {client.servicingZipcodes}
+                Counties: {client.servicingZipcodes}
               </span>
             )}
           </div>

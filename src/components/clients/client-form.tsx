@@ -460,10 +460,10 @@ export function ClientFormDialog({
           </Row>
           <Row>
             <Field
-              label="Servicing zipcodes"
+              label="Counties serviced"
               icon={MapPin}
               full
-              hint="Comma- or whitespace-separated. We use this to route appointments their way."
+              hint="Comma-separated — every county the client covers. We use this to route appointments their way."
             >
               <input
                 type="text"
@@ -471,7 +471,7 @@ export function ClientFormDialog({
                 onChange={(e) =>
                   set('servicingZipcodes', e.target.value)
                 }
-                placeholder="85001, 85002, 85003"
+                placeholder="Maricopa, Pima, Pinal"
                 className={inputCls}
               />
             </Field>

@@ -1508,7 +1508,7 @@ function AdditionalInfo({ client }: { client: ClientWithCounts }) {
         <div className="space-y-2.5 border-t border-border-soft px-3 py-3">
           <DetailRow
             icon={MapPin}
-            label="Servicing zipcodes"
+            label="Counties serviced"
             value={client.servicingZipcodes}
             empty="Not provided"
           />

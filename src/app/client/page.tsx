@@ -1323,14 +1323,14 @@ function ClientOnboardingForm({
       </Field>
 
       <Field
-        label="Servicing zipcodes"
-        hint="Comma-separated. We use this to route appointments your way."
+        label="Counties you service"
+        hint="Comma-separated — list every county you cover. We use this to route appointments your way."
       >
         <input
           type="text"
           value={servicingZipcodes}
           onChange={(e) => setServicingZipcodes(e.target.value)}
-          placeholder="85001, 85002, 85003"
+          placeholder="Maricopa, Pima, Pinal"
           className="input"
         />
       </Field>
