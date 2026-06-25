@@ -232,6 +232,32 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   })
   const confirmationEnabled = config?.confirmationEnabled ?? false
 
+  // Dispatch gate data — the four timed reminders (4hr/2hr/30min/start)
+  // only arm once the row's appointment has Dispatch Status "confirmed".
+  // That's a DB-only field, so map it by appointment content key (phone
+  // + appt time) and sheet rowNumber. Confirmation is exempt (it's the
+  // booking-time FYI). A sheet row whose appointment isn't confirmed (or
+  // has no DB appointment yet) gets only the confirmation, no timed set.
+  const dispatchByContent = new Map<string, string>()
+  const dispatchByRow = new Map<number, string>()
+  {
+    const dispatchAppts = await prisma.appointment.findMany({
+      select: {
+        masterSheetRowNumber: true,
+        customerPhone: true,
+        apptDateTime: true,
+        dispatchStatus: true,
+      },
+    })
+    for (const a of dispatchAppts) {
+      const key = sheetContentKey(a.customerPhone, a.apptDateTime)
+      if (key) dispatchByContent.set(key, a.dispatchStatus)
+      if (a.masterSheetRowNumber != null) {
+        dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
+      }
+    }
+  }
+
   // Track every sourceKey we touched in this run — used at the end
   // to cancel any stranded reminders whose source no longer matches
   // an active sheet row.
@@ -346,6 +372,19 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
       // entirely when the master flag is off so the cron stays a
       // no-op for that type until admin opts in.
       if (type === 'confirmation' && !confirmationEnabled) continue
+
+      // Dispatch gate — the four timed reminders only arm once the
+      // appointment's Dispatch Status is "confirmed". Match by content
+      // key first (phone + time, appointment-specific), then rowNumber;
+      // default to not_dispatched when there's no DB appointment yet.
+      // Confirmation is exempt (booking-time FYI).
+      if (type !== 'confirmation') {
+        const rowDispatch =
+          (contentKey ? dispatchByContent.get(contentKey) : undefined) ??
+          dispatchByRow.get(r.rowNumber) ??
+          'not_dispatched'
+        if (rowDispatch !== 'confirmed') continue
+      }
 
       let fireAt: Date
       let isPast: boolean
@@ -684,6 +723,29 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
   let quietHoursHeld = 0
   let staleSkipped = 0
 
+  // Sender-side dispatch gate data — never send a timed reminder for an
+  // appointment that isn't Confirmed. This is the backstop that catches
+  // any timed reminders queued BEFORE the queue-time gates existed (e.g.
+  // by the sheet sync). Built only when the due batch actually contains
+  // a non-confirmation reminder, so quiet ticks stay cheap.
+  const dispatchById = new Map<string, string>()
+  const dispatchByContent = new Map<string, string>()
+  if (due.some((d) => d.reminderType !== 'confirmation')) {
+    const gateAppts = await prisma.appointment.findMany({
+      select: {
+        id: true,
+        customerPhone: true,
+        apptDateTime: true,
+        dispatchStatus: true,
+      },
+    })
+    for (const a of gateAppts) {
+      dispatchById.set(a.id, a.dispatchStatus)
+      const key = sheetContentKey(a.customerPhone, a.apptDateTime)
+      if (key) dispatchByContent.set(key, a.dispatchStatus)
+    }
+  }
+
   for (const reminder of due) {
     // Staleness guard FIRST — runs ahead of the quiet-hours gate so a
     // row that's already past its useful window can't keep retrying
@@ -717,6 +779,22 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       })
       if (claim.count > 0) staleSkipped++
       continue
+    }
+
+    // Dispatch gate — hold any non-confirmation reminder whose
+    // appointment isn't Confirmed. Stays 'pending' (so it can still fire
+    // if it gets confirmed later) until the staleness guard above
+    // eventually retires it. Confirmation is exempt (booking-time FYI).
+    if (reminder.reminderType !== 'confirmation') {
+      const ds =
+        (reminder.appointmentId
+          ? dispatchById.get(reminder.appointmentId)
+          : undefined) ??
+        dispatchByContent.get(
+          sheetContentKey(reminder.customerPhone, reminder.apptDateTime) ?? '',
+        ) ??
+        'not_dispatched'
+      if (ds !== 'confirmed') continue
     }
 
     // Quiet hours guard — don't send SMS outside the configured
