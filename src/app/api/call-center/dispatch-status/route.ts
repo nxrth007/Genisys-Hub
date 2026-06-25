@@ -29,10 +29,16 @@ const VALID_STATUSES = new Set([
   'needs_review',
 ])
 
-// Dispatch states that should HOLD the customer reminders: moving into
-// one cancels the appointment's pending timed reminders (confirmation
-// already went out at booking and is left alone).
-const HOLD_STATES = new Set(['not_dispatched', 'reschedule_requested'])
+// "Confirmed" is the go state: only it fires automations + arms the
+// timed reminders. Moving into any of these non-go states cancels the
+// appointment's pending timed reminders (confirmation already went out
+// at booking and is left alone). needs_review is a passive flag and is
+// intentionally NOT here, so it doesn't stop reminders on its own.
+const HOLD_STATES = new Set([
+  'not_dispatched',
+  'dispatched',
+  'reschedule_requested',
+])
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -81,17 +87,19 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const wasDispatched = appt.dispatchStatus === 'dispatched'
-  const becameDispatched = dispatchStatus === 'dispatched' && !wasDispatched
+  // "Confirmed" is the automation gate (NOT "dispatched" — that's just a
+  // lifecycle marker). Fire once, on the transition INTO confirmed.
+  const becameConfirmed =
+    dispatchStatus === 'confirmed' && appt.dispatchStatus !== 'confirmed'
 
   await prisma.appointment.update({
     where: { id: appt.id },
     data: { dispatchStatus },
   })
 
-  if (becameDispatched) {
+  if (becameConfirmed) {
     // Fire client details + arm the four same-day reminders. Once, on
-    // the transition into dispatched.
+    // the transition into confirmed.
     triggerDispatchAutomations(appt.id)
   } else if (HOLD_STATES.has(dispatchStatus)) {
     // Hold state — stop any pending timed reminders so the customer

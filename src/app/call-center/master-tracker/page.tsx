@@ -205,9 +205,10 @@ const STATUS_TONE: Record<string, string> = {
 }
 
 // Hub-only Dispatch Status — its own dropdown, separate from the
-// sheet-backed Status above. "Dispatched" is the automation gate: the
+// sheet-backed Status above. "Confirmed" is the automation gate: the
 // moment a row is set to it, the client details + the four same-day
-// customer reminders fire. The others are lifecycle markers.
+// customer reminders fire. "Dispatched" is just an in-progress marker;
+// the rest are lifecycle markers.
 const DISPATCH_STATUSES = [
   { value: 'not_dispatched', label: 'Not Dispatched' },
   { value: 'dispatched', label: 'Dispatched' },
@@ -217,12 +218,12 @@ const DISPATCH_STATUSES = [
 ]
 
 const DISPATCH_TONE: Record<string, string> = {
-  // Neutral grey = nothing has fired yet (the default holding state).
+  // Neutral grey = default; nothing has fired (appointment just put in).
   not_dispatched: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
-  // Green = live, automations fired.
-  dispatched: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
-  // Blue = all set / confirmed with the homeowner.
-  confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  // Blue = dispatched marker — in progress, but NOT yet the trigger.
+  dispatched: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  // Green = confirmed: all set, automations fired (this is the gate).
+  confirmed: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
   // Amber = customer asked to move it — needs action.
   reschedule_requested:
     'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
@@ -1396,7 +1397,7 @@ export default function MasterTrackerPage() {
                   <th className="px-2 py-2.5">Status</th>
                   <th
                     className="px-2 py-2.5"
-                    title="Hub dispatch lifecycle. Set to Dispatched to fire the client details + customer reminders."
+                    title="Hub dispatch lifecycle. Set to Confirmed to fire the client details + customer reminders."
                   >
                     Dispatch
                   </th>

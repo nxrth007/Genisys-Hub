@@ -1209,6 +1209,30 @@ export async function postRescheduleToClientChannel(
     })
     if (!appt?.client?.slackChannelId) return { posted: false }
 
+    // Gate: only post the reschedule notice if the client ACTUALLY
+    // received the original appointment details — i.e. a delivered Slack
+    // post for this appointment exists in their channel. Without this, a
+    // not-yet-confirmed row whose time gets edited would send a
+    // first-contact "rescheduled" message for an appointment the client
+    // never saw. Matches deliverAppointmentToSlack's sourceKeys (the
+    // db:* key + the sheet:* key the appointment-sync re-keys to).
+    const priorDelivery = await prisma.sheetSlackDelivery.findFirst({
+      where: {
+        channelId: appt.client.slackChannelId,
+        status: 'delivered',
+        sourceKey: {
+          in: [
+            `db:appointment:${appt.id}`,
+            ...(appt.masterSheetRowNumber
+              ? [`sheet:Master Table:${appt.masterSheetRowNumber}`]
+              : []),
+          ],
+        },
+      },
+      select: { id: true },
+    })
+    if (!priorDelivery) return { posted: false }
+
     const tz = timezoneForAddress(appt.address)
     const when = formatInTimezone(appt.apptDateTime, tz, {
       weekday: 'long',

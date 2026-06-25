@@ -261,12 +261,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   )
 
   // Roll the client-alert buffer forward ONLY when the appt has already
-  // been dispatched (a pending client alert can only exist then) — so a
+  // been confirmed (a pending client alert can only exist then) — so a
   // corrected typo reaches the client, never a premature send.
-  if (
-    updated.dispatchStatus === 'dispatched' ||
-    updated.dispatchStatus === 'confirmed'
-  ) {
+  if (updated.dispatchStatus === 'confirmed') {
     void deliverAppointmentAsSms(updated.id).then((result) => {
       if (result.status !== 'disabled' && result.status !== 'skipped') {
         console.log(

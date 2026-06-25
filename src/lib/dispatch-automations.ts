@@ -5,12 +5,12 @@ import { upsertRemindersForAppointment } from './reminders'
 
 /**
  * Fire every client-facing automation for an appointment the moment an
- * agent marks it "dispatched" — i.e. the sit is actually locked with
- * the homeowner. Until dispatch, booking only sends the customer a
- * short confirmation; nothing reaches the client and no timed reminder
- * is armed.
+ * agent marks it "confirmed" — i.e. everything is locked with the
+ * homeowner. Until confirm, booking only sends the customer a short
+ * confirmation FYI; nothing reaches the client and no timed reminder is
+ * armed.
  *
- * On dispatch this:
+ * On confirm this:
  *   - posts the appointment details to the client's Slack channel,
  *   - queues the buffered client SMS + email (per-client opt-in),
  *   - arms the customer's timed reminders (4hr / 2hr / 30min / start —

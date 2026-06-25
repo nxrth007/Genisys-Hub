@@ -1235,17 +1235,15 @@ export async function upsertRemindersForAppointment(
     if (type === 'confirmation' && !config.confirmationEnabled) continue
 
     // Dispatch gate: the four same-day reminders (4hr/2hr/30min/start)
-    // only arm once the appointment's DISPATCH status is a "go" state
-    // (dispatched / confirmed). Confirmation is exempt (it's the
-    // booking-time FYI). Re-run on the dispatch transition, which is
-    // what creates these rows; until then they don't exist, so nothing
-    // can fire. not_dispatched / reschedule_requested / needs_review
-    // never arm. (A reschedule re-arms via the regular status flow with
-    // the appt still in a dispatched/confirmed dispatch state.)
-    const dispatchArmed =
-      appt.dispatchStatus === 'dispatched' ||
-      appt.dispatchStatus === 'confirmed'
-    if (type !== 'confirmation' && !dispatchArmed) continue
+    // only arm once the appointment's DISPATCH status is "confirmed" —
+    // that's the go state. Confirmation is exempt (it's the booking-time
+    // FYI). Re-run on the confirm transition, which is what creates
+    // these rows; until then they don't exist, so nothing can fire.
+    // not_dispatched / dispatched / reschedule_requested / needs_review
+    // never arm. (A reschedule re-arms via the regular status flow while
+    // the appt is still confirmed.)
+    if (type !== 'confirmation' && appt.dispatchStatus !== 'confirmed')
+      continue
 
     let fireAt: Date
     let isPast: boolean
