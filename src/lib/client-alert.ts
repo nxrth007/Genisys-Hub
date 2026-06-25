@@ -464,6 +464,12 @@ export async function deliverAppointmentAsSms(
     },
   })
   if (!appt) return { status: 'failed', reason: 'appointment not found' }
+  // Defensive dispatch gate — never queue a client SMS unless the appt
+  // is Confirmed, no matter who calls this. Legit callers only invoke
+  // on a confirmed transition; this makes a future stray call a no-op.
+  if (appt.dispatchStatus !== 'confirmed') {
+    return { status: 'skipped', reason: 'dispatch status not confirmed' }
+  }
 
   const allClients = await prisma.client.findMany({
     where: { active: true },

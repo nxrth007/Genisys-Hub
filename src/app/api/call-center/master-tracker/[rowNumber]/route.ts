@@ -526,6 +526,7 @@ async function writeFullEdit(
             customerPhone: true,
             address: true,
             status: true,
+            dispatchStatus: true,
             client: { select: { name: true } },
           },
         })
@@ -563,9 +564,16 @@ async function writeFullEdit(
         }
 
         // Customer reschedule-confirmation text — only on an explicit
-        // reschedule, only when the time actually moved, so a stray
-        // status re-save doesn't spam them.
-        if (newStatus === 'rescheduled' && timeChanged && newDate) {
+        // reschedule, only when the time actually moved, and only when
+        // the appt is Confirmed (same gate as every customer-facing
+        // message), so a stray status re-save / unconfirmed row doesn't
+        // spam them.
+        if (
+          newStatus === 'rescheduled' &&
+          timeChanged &&
+          newDate &&
+          dbAppt.dispatchStatus === 'confirmed'
+        ) {
           await sendRescheduleConfirmation({
             customerName: dbAppt.customerName,
             customerPhone: dbAppt.customerPhone,

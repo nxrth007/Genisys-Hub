@@ -449,6 +449,11 @@ export async function deliverAppointmentAsEmail(
     },
   })
   if (!appt) return { status: 'failed', reason: 'appointment not found' }
+  // Defensive dispatch gate — never queue a client email unless the
+  // appt is Confirmed, no matter who calls this.
+  if (appt.dispatchStatus !== 'confirmed') {
+    return { status: 'skipped', reason: 'dispatch status not confirmed' }
+  }
 
   const allClients = await prisma.client.findMany({
     where: { active: true },

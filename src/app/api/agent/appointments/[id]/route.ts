@@ -296,7 +296,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         err,
       ),
     )
-    if (updated.status === 'rescheduled') {
+    // Gate the customer reschedule text on Confirmed — same rule as
+    // every other customer-facing message. An unconfirmed appointment
+    // marked "rescheduled" doesn't text the customer.
+    if (
+      updated.status === 'rescheduled' &&
+      updated.dispatchStatus === 'confirmed'
+    ) {
       void sendRescheduleConfirmation({
         customerName: updated.customerName,
         customerPhone: updated.customerPhone,
