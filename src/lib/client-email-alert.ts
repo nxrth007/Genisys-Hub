@@ -164,10 +164,55 @@ export async function syncClientEmailAlertsFromSheet(): Promise<EmailAlertResult
   const STALE_HOURS = 24
   const staleThreshold = new Date(Date.now() - STALE_HOURS * 60 * 60 * 1000)
 
+  // Dispatch gate data — client email only fires once the Hub Dispatch
+  // Status is "confirmed". DB-only field, so map by sheet rowNumber (+
+  // phone/time content key); same gate the Slack + SMS syncs apply.
+  const dbDispatch = await prisma.appointment.findMany({
+    select: {
+      masterSheetRowNumber: true,
+      customerPhone: true,
+      apptDateTime: true,
+      dispatchStatus: true,
+    },
+  })
+  const dispatchByRow = new Map<number, string>()
+  const dispatchByContent = new Map<string, string>()
+  for (const a of dbDispatch) {
+    if (a.masterSheetRowNumber != null) {
+      dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
+    }
+    const pk = normalizePhoneForKey(a.customerPhone)
+    if (pk && a.apptDateTime) {
+      dispatchByContent.set(
+        `${pk}|${a.apptDateTime.toISOString()}`,
+        a.dispatchStatus,
+      )
+    }
+  }
+
   for (const row of rows) {
     if (!row.customerName?.trim() || !row.customerPhone?.trim()) continue
     if (!row.apptDateTime) continue
     if ((row.status || '').toLowerCase().includes('cancel')) continue
+
+    // Dispatch gate — hold until the Hub Dispatch Status is "confirmed".
+    const rowDispatchStatus =
+      dispatchByRow.get(row.rowNumber) ??
+      (() => {
+        const pk = normalizePhoneForKey(row.customerPhone)
+        if (pk && row.apptDateTime) {
+          const t = new Date(row.apptDateTime)
+          if (!isNaN(t.getTime())) {
+            return dispatchByContent.get(`${pk}|${t.toISOString()}`)
+          }
+        }
+        return undefined
+      })() ??
+      'not_dispatched'
+    if (rowDispatchStatus !== 'confirmed') {
+      result.skipped++
+      continue
+    }
 
     const rowApptDate = new Date(row.apptDateTime)
     const apptIsStale =
@@ -582,6 +627,18 @@ export async function dispatchPendingClientEmailAlerts(): Promise<{
       await prisma.clientEmailDelivery.update({
         where: { id: row.id },
         data: { status: 'skipped', errorMessage: 'appointment deleted' },
+      })
+      result.skipped++
+      continue
+    }
+    // Dispatch gate — only send once the appointment is Confirmed. If
+    // not (a row queued by a sheet sync before the gate, or one
+    // un-confirmed inside the buffer), release the claim back to pending
+    // so it holds until/unless it's confirmed.
+    if (appt.dispatchStatus !== 'confirmed') {
+      await prisma.clientEmailDelivery.update({
+        where: { id: row.id },
+        data: { status: 'pending' },
       })
       result.skipped++
       continue

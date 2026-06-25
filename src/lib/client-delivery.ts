@@ -423,12 +423,65 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
   const STALE_HOURS = 24
   const staleThreshold = new Date(Date.now() - STALE_HOURS * 60 * 60 * 1000)
 
+  // Dispatch gate data: client Slack delivery only fires once the Hub
+  // Dispatch Status is "confirmed". That status is a DB-only field, so
+  // map every appointment's dispatchStatus by sheet rowNumber (+ a
+  // phone/time content key as a fallback for rows whose number shifted)
+  // and skip any sheet row that isn't confirmed. A row with no DB
+  // appointment yet can't have been confirmed, so it's held too.
+  const dbDispatch = await prisma.appointment.findMany({
+    select: {
+      masterSheetRowNumber: true,
+      customerPhone: true,
+      apptDateTime: true,
+      dispatchStatus: true,
+    },
+  })
+  const dispatchByRow = new Map<number, string>()
+  const dispatchByContent = new Map<string, string>()
+  for (const a of dbDispatch) {
+    if (a.masterSheetRowNumber != null) {
+      dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
+    }
+    const pk = normalizePhoneForKey(a.customerPhone)
+    if (pk && a.apptDateTime) {
+      dispatchByContent.set(
+        `${pk}|${a.apptDateTime.toISOString()}`,
+        a.dispatchStatus,
+      )
+    }
+  }
+
   for (const row of rows) {
     if (!row.customerName?.trim() || !row.customerPhone?.trim()) continue
     if (!row.apptDateTime) continue
     // Cancelled rows shouldn't get announced. The cron already cancels
     // pending reminders for these; same logic applies to delivery.
     if ((row.status || '').toLowerCase().includes('cancel')) continue
+
+    // Dispatch gate — hold delivery until the Hub Dispatch Status is
+    // "confirmed". Look the row's appointment up by sheet rowNumber,
+    // then by phone+time content key; default to not_dispatched when no
+    // DB appointment exists yet. Anything not confirmed is held (the
+    // immediate confirm-time post + this cron both dedupe on the
+    // delivery ledger, so a confirmed row still only posts once).
+    const rowDispatchStatus =
+      dispatchByRow.get(row.rowNumber) ??
+      (() => {
+        const pk = normalizePhoneForKey(row.customerPhone)
+        if (pk && row.apptDateTime) {
+          const t = new Date(row.apptDateTime)
+          if (!isNaN(t.getTime())) {
+            return dispatchByContent.get(`${pk}|${t.toISOString()}`)
+          }
+        }
+        return undefined
+      })() ??
+      'not_dispatched'
+    if (rowDispatchStatus !== 'confirmed') {
+      result.skipped++
+      continue
+    }
 
     const rowApptDate = new Date(row.apptDateTime)
     const apptIsStale =
