@@ -17,7 +17,6 @@ import {
   CalendarRange,
   CheckCircle2,
   TrendingUp,
-  DollarSign,
   Send,
   Hash,
   Pencil,
@@ -266,12 +265,6 @@ function customerTzFromAddress(address: string | null): string {
   return 'America/New_York'
 }
 
-function parseMoney(raw: string | null): number {
-  if (!raw) return 0
-  const n = Number(raw.replace(/[^0-9.-]/g, ''))
-  return Number.isFinite(n) ? n : 0
-}
-
 /** Bare 10-digit US phone, used to match a row against the paused-
  *  leads set (same normalization the pause endpoint applies). */
 function normalizePhone10(raw: string | null | undefined): string {
@@ -407,7 +400,6 @@ const EXPORT_HEADERS = [
   'Monthly Bill',
   'Roof Type',
   'Roof Age',
-  'Estimated Deal Value',
   'Status',
   'Notes',
   'Call Recording Link',
@@ -429,7 +421,6 @@ function appointmentToRow(a: Appointment): (string | number)[] {
     a.monthlyBill || '',
     a.roofType || '',
     a.roofAge || '',
-    a.estimatedDealValue || '',
     a.status,
     a.notes || '',
     a.callRecordingLink || '',
@@ -914,7 +905,6 @@ export default function MasterTrackerPage() {
   const stats = useMemo(() => {
     let showed = 0
     let no_show = 0
-    let pipeline = 0
     let thisWeek = 0
     let thisMonth = 0
     const weekStart = startOfThisWeek()
@@ -933,18 +923,6 @@ export default function MasterTrackerPage() {
         showed++
       }
       if (a.status === 'no_show') no_show++
-      // Pipeline = deals still in motion. Excludes resolved/closed
-      // states (cancelled, no_show, won, lost) because those values
-      // are already realized: won = revenue captured, lost = revenue
-      // gone. Only booked/rescheduled/showed-but-no-outcome-yet
-      // contribute to the open pipeline.
-      if (
-        a.status === 'booked' ||
-        a.status === 'rescheduled' ||
-        a.status === 'showed'
-      ) {
-        pipeline += parseMoney(a.estimatedDealValue)
-      }
       const ad = new Date(a.apptDateTime)
       if (ad >= weekStart) thisWeek++
       if (ad >= monthStart) thisMonth++
@@ -955,7 +933,6 @@ export default function MasterTrackerPage() {
       total: filtered.length,
       showed,
       showRate,
-      pipeline,
       thisWeek,
       thisMonth,
     }
@@ -1078,13 +1055,6 @@ export default function MasterTrackerPage() {
           value={stats.thisWeek}
           subtitle={`${stats.thisMonth} this month`}
           tone="indigo"
-        />
-        <StatCard
-          icon={DollarSign}
-          label="Pipeline"
-          value={`$${stats.pipeline.toLocaleString()}`}
-          subtitle="excludes cancelled / no-show"
-          tone="amber"
         />
       </div>
 
@@ -2983,11 +2953,6 @@ function AdminEditModal({
             label="Monthly bill"
             value={values.monthlyBill}
             onChange={(v) => set('monthlyBill', v)}
-          />
-          <EditField
-            label="Estimated deal value"
-            value={values.estimatedDealValue}
-            onChange={(v) => set('estimatedDealValue', v)}
           />
           <EditField
             label="Roof type"
