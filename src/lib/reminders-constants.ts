@@ -16,11 +16,16 @@ export type ReminderType =
 // Order matters here — Settings' template editor renders cells in
 // this order, and the dispatcher logs in this order too. Put
 // confirmation first since it's the earliest one in the lifecycle.
-// '4hr' added 2026-06-11 per Alex; slots between day-before and
-// 2hr to keep lifecycle order.
+//
+// '1day' (day-before) was DROPPED 2026-06-24 with the "dispatched"
+// gating change: the customer sequence is now a short confirmation at
+// booking + four same-day reminders (4hr/2hr/30min/start) that only
+// arm once an agent marks the appointment "dispatched". '1day' stays
+// in the ReminderType union + DEFAULT_TEMPLATES so any in-flight rows
+// already queued under the old flow still render, but it's no longer
+// queued for new appointments.
 export const REMINDER_TYPES: ReminderType[] = [
   'confirmation',
-  '1day',
   '4hr',
   '2hr',
   '30min',
@@ -42,28 +47,29 @@ export const REMINDER_LABELS: Record<ReminderType, string> = {
  * Settings UI shows them as the "default" cell content so admins see
  * what would actually go out.
  */
-// Copy strategy (Alex-approved 2026-06-11): ONE hard Y/N ask at
-// day-before (early enough that an "N" lets the call center rebook
-// the slot), one soft check at 4hr, everything else pure logistics.
-// Repeating the ask on every message trains customers to ignore it
-// and drives STOP replies. "Reply STOP" lives on the confirmation
-// (first touch) only, keeping the later messages at 1 SMS segment.
-// The same bodies are seeded into the Global ReminderTemplate rows
-// by the 20260611120000_reminder_copy_refresh migration — edit
-// further in Settings → Reminders, not here.
+// Copy strategy (Alex-approved 2026-06-24, "dispatched" flow): a short
+// confirmation FYI fires at booking (no time/Y/N — the appointment
+// isn't locked yet, "dispatched" is the lock step). The four same-day
+// reminders are warm logistics, all referencing the energy expert who
+// will reach out. These bodies are mirrored into the Global
+// ReminderTemplate rows by the 20260624120000_dispatched_reminder_copy
+// migration (the dispatcher reads the DB row, this is the fallback) —
+// edit further in Settings → Reminders, not here.
 export const DEFAULT_TEMPLATES: Record<ReminderType, string> = {
   confirmation:
-    'Hi {customerName}, thanks for speaking with our representative — your appointment with {clientName} is set for {apptDateTime}. We\'ll text you reminders as it gets close. Reply STOP to opt out.',
+    'Hi {customerName}, thanks for speaking with our representative. We\'ll keep you updated about your appointment with an energy expert in your area.',
+  // Day-before — retired from the active sequence (see REMINDER_TYPES).
+  // Kept only so in-flight rows queued under the old flow still render.
   '1day':
-    'Hi {customerName}, reminder: your {clientName} appointment is tomorrow at {apptTime}. Will you be able to make it? Reply Y to confirm or N to reschedule.',
+    'Hi {customerName}, reminder: your {clientName} appointment is tomorrow at {apptTime}.',
   '4hr':
-    'Hi {customerName}, we\'re all set for today at {apptTime} with {clientName}. If anything has changed, just reply here and we\'ll help you reschedule.',
+    'Hi {customerName}, just a heads up — your appointment with {clientName} is scheduled for today at {apptTime}. An energy expert will be reaching out then to go over your solar options and potential savings. Talk soon.',
   '2hr':
-    'Hi {customerName}, quick heads up — your {clientName} appointment is in 2 hours at {apptTime}.',
+    'Hi {customerName}, reminder that your appointment with {clientName} is coming up at {apptTime}. Your energy expert will be reaching out in a couple of hours to go over your solar options and answer any questions.',
   '30min':
-    'Hi {customerName}, your {clientName} appointment starts in 30 minutes. Please be available — talk soon!',
+    'Hi {customerName}, your appointment with {clientName} starts in about 30 minutes. Please keep your phone nearby — your energy expert will be reaching out shortly.',
   start:
-    'Hi {customerName}, it\'s time! A {clientName} representative will reach out now.',
+    'Hi {customerName}, your appointment with {clientName} is starting now. Your energy expert will be reaching out shortly.',
 }
 
 /**

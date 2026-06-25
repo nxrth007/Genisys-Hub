@@ -173,6 +173,7 @@ type QuickFilter =
 const STATUSES = [
   { value: 'all', label: 'All statuses' },
   { value: 'booked', label: 'Booked' },
+  { value: 'dispatched', label: 'Dispatched' },
   { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'showed', label: 'Showed' },
   { value: 'won', label: 'Won' },
@@ -183,6 +184,10 @@ const STATUSES = [
 
 const STATUS_TONE: Record<string, string> = {
   booked: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  // Dispatched = sit locked with the homeowner, automations live. Green
+  // (distinct from booked's blue) so an agent can see at a glance which
+  // rows have actually fired their client + customer automations.
+  dispatched: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
   rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   showed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
   // won/lost are outcomes ON TOP of showing up. won = bolder green

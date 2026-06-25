@@ -1264,6 +1264,14 @@ export async function upsertRemindersForAppointment(
   for (const type of REMINDER_TYPES) {
     if (type === 'confirmation' && !config.confirmationEnabled) continue
 
+    // Dispatched gate: the four same-day reminders (4hr/2hr/30min/start)
+    // only arm once an agent marks the appointment "dispatched" — the
+    // sit is actually locked with the homeowner. Confirmation is exempt
+    // (it's the booking-time FYI that fires immediately). This function
+    // is re-run on the dispatch transition, which is what creates these
+    // rows. Until then they simply don't exist, so nothing can fire.
+    if (type !== 'confirmation' && appt.status !== 'dispatched') continue
+
     let fireAt: Date
     let isPast: boolean
     if (type === 'confirmation') {

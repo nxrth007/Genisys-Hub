@@ -19,6 +19,7 @@ import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 import { recordAppointmentEdit } from '@/lib/appointment-edit-log'
 import { createAgentAlert } from '@/lib/agent-alerts'
 import { postRescheduleToClientChannel } from '@/lib/client-delivery'
+import { triggerDispatchAutomations } from '@/lib/dispatch-automations'
 
 /** Diff helper for sheet-edit audit logging. Read before-snapshot
  *  values + body intent here, write an AppointmentEditLog row after
@@ -95,6 +96,9 @@ async function logSheetEdit(
 
 const STATUS_LABEL: Record<string, string> = {
   booked: 'Booked',
+  // Dispatched = the sit is locked with the homeowner. THIS is the gate
+  // that fires client details + the four same-day customer reminders.
+  dispatched: 'Dispatched',
   rescheduled: 'Rescheduled',
   showed: 'Showed',
   // Won/Lost are deal-outcome statuses captured after the appt.
@@ -525,6 +529,7 @@ async function writeFullEdit(
             customerName: true,
             customerPhone: true,
             address: true,
+            status: true,
             client: { select: { name: true } },
           },
         })
@@ -540,6 +545,8 @@ async function writeFullEdit(
           !isNaN(newDate.getTime()) &&
           (!dbAppt.apptDateTime ||
             newDate.getTime() !== dbAppt.apptDateTime.getTime())
+        const becameDispatched =
+          newStatus === 'dispatched' && dbAppt.status !== 'dispatched'
 
         if (timeChanged || newStatus) {
           await prisma.appointment.update({
@@ -549,6 +556,13 @@ async function writeFullEdit(
               ...(newStatus ? { status: newStatus } : {}),
             },
           })
+        }
+
+        // Dispatch trigger — same as the inline status path: fire client
+        // details + arm the four same-day reminders on the transition
+        // into dispatched (via the admin edit modal here).
+        if (becameDispatched) {
+          triggerDispatchAutomations(dbAppt.id)
         }
 
         // Re-arm reminders for the new time (covers no-shows /
@@ -685,12 +699,18 @@ async function writeOne(
               customerName: true,
               customerPhone: true,
               apptDateTime: true,
+              status: true,
               client: { select: { name: true } },
             },
           })
           if (!dbAppt) return
           const newStatus = auditNewValue ?? null
           if (!newStatus) return
+          // Did this write FLIP the appointment into "dispatched"? Only
+          // the transition fires the client + customer automations, so
+          // a re-save of an already-dispatched row doesn't re-post.
+          const becameDispatched =
+            newStatus === 'dispatched' && dbAppt.status !== 'dispatched'
           const qa = qualifyingTimestampFor(auditCtx?.role ?? null, newStatus)
           await prisma.appointment.update({
             where: { id: dbAppt.id },
@@ -699,6 +719,13 @@ async function writeOne(
               ...(qa ? { qualifyingStatusUpdatedAt: qa } : {}),
             },
           })
+          // Dispatch trigger: post details to the client's Slack channel,
+          // queue the client SMS/email, and arm the four same-day
+          // customer reminders. Fires once, on the transition into
+          // dispatched.
+          if (becameDispatched) {
+            triggerDispatchAutomations(dbAppt.id)
+          }
           // Agent-alert feed: a call-center cancel / no-show mark on a
           // Hub-booked appointment routes back to the booking agent.
           // The actor here is admin (requireAdmin), never the agent

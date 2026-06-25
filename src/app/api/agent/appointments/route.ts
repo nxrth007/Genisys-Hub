@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
-import { deliverAppointmentToSlack } from '@/lib/client-delivery'
-import { deliverAppointmentAsSms } from '@/lib/client-alert'
-import { deliverAppointmentAsEmail } from '@/lib/client-email-alert'
 import { upsertRemindersForAppointment } from '@/lib/reminders'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
@@ -446,54 +443,20 @@ export async function POST(req: NextRequest) {
   // the sheet form so the cron's permanent sourceKey lookup also
   // matches (covers the >48h-out future-appointment case where the
   // content-key window has expired).
-  void deliverAppointmentToSlack(appt.id).then((result) => {
-    console.log(
-      `[appointments POST] direct slack: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
-    )
-  }).catch((err) => {
-    console.error('[appointments POST] direct slack threw:', err)
-  })
-  void deliverAppointmentAsSms(appt.id).then((result) => {
-    if (result.status !== 'disabled') {
-      console.log(
-        `[appointments POST] direct sms: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
-      )
-    }
-  }).catch((err) => {
-    console.error('[appointments POST] direct sms threw:', err)
-  })
-  // Same 30-min buffered queue for the email channel. Independent
-  // from the SMS path — a client can opt into email without SMS
-  // (and vice versa). Returns 'disabled' / 'not-opted-in' / 'no-email'
-  // as cheap no-ops when the conditions don't fire.
-  void deliverAppointmentAsEmail(appt.id).then((result) => {
-    if (
-      result.status !== 'disabled' &&
-      result.status !== 'not-opted-in' &&
-      result.status !== 'no-email'
-    ) {
-      console.log(
-        `[appointments POST] direct email: ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${appt.id}`,
-      )
-    }
-  }).catch((err) => {
-    console.error('[appointments POST] direct email threw:', err)
-  })
+  // Client-facing automations (Slack channel post + client SMS/email)
+  // do NOT fire at booking anymore. As of the 2026-06-24 "dispatched"
+  // flow they're gated behind an agent marking the appointment
+  // "dispatched" (sit locked with the homeowner) — see
+  // triggerDispatchAutomations, wired into the status-update routes.
+  // Booking only sends the customer a short confirmation (below).
 
-  // Customer-facing SMS reminders (1-day-out, 2-hr, 30-min, start,
-  // confirmation). Same DB-driven story — queue rows in
-  // AppointmentReminder against the DB id immediately so the
-  // dispatcher can pick them up on its next minute-tick. No sheet
-  // round-trip required. Honors RemindersConfig.enabled +
-  // confirmationEnabled internally; if either is off, the rows
-  // simply aren't created and the sheet-driven sync remains the
-  // backstop for sheet-typed entries.
-  //
-  // Confirmation reminders fire 15 min after queueing (set in
-  // lib/reminders) so Mary has time to fix typos via /agent/
-  // appointments/[id] edit before the customer's phone buzzes.
-  // The edit flow re-runs upsertRemindersForAppointment and
-  // updates the snapshot in place.
+  // Customer-facing reminders. Queue rows in AppointmentReminder
+  // against the DB id so the dispatcher picks them up on its next
+  // minute-tick. Honors RemindersConfig.enabled + confirmationEnabled
+  // internally. At booking (status 'booked') this queues ONLY the
+  // confirmation FYI — the four same-day reminders (4hr/2hr/30min/
+  // start) are gated on 'dispatched' and get armed when the appt is
+  // dispatched (upsert is re-run then via triggerDispatchAutomations).
   void upsertRemindersForAppointment(appt.id).then((result) => {
     if (result.skippedDisabled) {
       // Quiet log — master toggle is off, this is expected.
