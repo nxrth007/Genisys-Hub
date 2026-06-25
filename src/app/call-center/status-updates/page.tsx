@@ -188,6 +188,39 @@ function StatusUpdatesInner() {
     return null
   }, [openApptId, data])
 
+  // Recency-first feed: flatten every client's "updated" rows into one
+  // list sorted newest-first by when the CLIENT touched it, so the most
+  // recent thing a client reported sits at the very top — no expanding
+  // per-client sections to hunt for fresh activity. Each item carries
+  // its client so the flat row can still show who it's for.
+  const updatedFeed = useMemo(() => {
+    if (!data) return []
+    const items = data.sections.flatMap((s) =>
+      s.updated.map((appointment) => ({ client: s.client, appointment })),
+    )
+    items.sort(
+      (a, b) =>
+        updatedAtMs(b.appointment.clientStatusUpdatedAt) -
+        updatedAtMs(a.appointment.clientStatusUpdatedAt),
+    )
+    return items
+  }, [data])
+
+  // Appointments still awaiting the client's input — de-emphasized,
+  // shown collapsed below the feed. Most recent appointment first.
+  const pendingFeed = useMemo(() => {
+    if (!data) return []
+    const items = data.sections.flatMap((s) =>
+      s.pending.map((appointment) => ({ client: s.client, appointment })),
+    )
+    items.sort(
+      (a, b) =>
+        new Date(b.appointment.apptDateTime).getTime() -
+        new Date(a.appointment.apptDateTime).getTime(),
+    )
+    return items
+  }, [data])
+
   return (
     // Call-center layout wraps this page in its breadcrumb + tabs +
     // date-range chrome. The page only renders its own header and
@@ -246,21 +279,15 @@ function StatusUpdatesInner() {
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Loading…
         </div>
-      ) : data && data.sections.length === 0 ? (
+      ) : updatedFeed.length === 0 && pendingFeed.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
           <Inbox className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
           No appointments match these filters.
         </div>
       ) : (
-        <div className="space-y-4">
-          {data?.sections.map((section) => (
-            <ClientSection
-              key={section.client.id}
-              section={section}
-              onView={setOpenApptId}
-              focusedId={openApptId}
-            />
-          ))}
+        <div className="space-y-6">
+          <RecentUpdatesFeed items={updatedFeed} onView={setOpenApptId} />
+          {pendingFeed.length > 0 && <AwaitingSection items={pendingFeed} />}
         </div>
       )}
 
@@ -481,30 +508,68 @@ function FilterSelect({
 /*  Per-client section                                                        */
 /* -------------------------------------------------------------------------- */
 
-function ClientSection({
-  section,
+type FeedItem = { client: Section['client']; appointment: Appointment }
+
+/**
+ * The hero of the page: one flat, newest-first feed of every client
+ * update, sliced into day buckets (Today / Yesterday / Earlier this
+ * week / Older) by when the client reported it. The most recent thing
+ * a client said is always the first card under "Today" — no expanding
+ * per-client sections to find fresh activity.
+ */
+function RecentUpdatesFeed({
+  items,
   onView,
-  focusedId,
 }: {
-  section: Section
+  items: FeedItem[]
   onView: (id: string) => void
-  focusedId: string | null
 }) {
-  const [open, setOpen] = useState(true)
-  // Auto-expand the section that contains the focused appointment
-  // when ?focus= is set. Otherwise we'd open the modal but the
-  // backing card in the page would be hidden under a collapsed
-  // section, which is jarring.
-  useEffect(() => {
-    if (!focusedId) return
-    if (section.updated.some((a) => a.id === focusedId)) {
-      setOpen(true)
-    }
-  }, [focusedId, section.updated])
+  const buckets = useMemo(() => groupByRecency(items), [items])
 
-  const hasUpdates = section.updated.length > 0
-  const hasPending = section.pending.length > 0
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+        No client updates yet — you&apos;re all caught up.
+      </div>
+    )
+  }
 
+  return (
+    <div className="space-y-5">
+      {buckets.map((bucket) => (
+        <div key={bucket.label}>
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              {bucket.label}
+            </h2>
+            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {bucket.items.length}
+            </span>
+            <span className="h-px flex-1 bg-zinc-100 dark:bg-zinc-800" />
+          </div>
+          <ul className="overflow-hidden rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800">
+            {bucket.items.map(({ client, appointment }) => (
+              <UpdatedRow
+                key={appointment.id}
+                client={client}
+                appointment={appointment}
+                onView={() => onView(appointment.id)}
+              />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Appointments the client hasn't reported on yet. Secondary to the
+ * feed, so it lives in a collapsed drawer at the bottom — visible
+ * count, expand to triage.
+ */
+function AwaitingSection({ items }: { items: FeedItem[] }) {
+  const [open, setOpen] = useState(false)
   return (
     <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <button
@@ -512,96 +577,49 @@ function ClientSection({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-950/40"
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           {open ? (
             <ChevronDown className="h-4 w-4 flex-shrink-0 text-zinc-400" />
           ) : (
             <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-400" />
           )}
-          <span
-            className="h-3 w-3 flex-shrink-0 rounded-full"
-            style={{ backgroundColor: section.client.color }}
-            aria-hidden
-          />
-          <h2 className="truncate text-sm font-semibold">{section.client.name}</h2>
-          {section.client.state && (
-            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-              {section.client.state}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-zinc-500">
-          <span>
-            <span className="font-semibold text-zinc-700 dark:text-zinc-200">
-              {section.counts.updated}
-            </span>{' '}
-            updated
-          </span>
-          <span>·</span>
-          <span>
-            <span className="font-semibold text-zinc-700 dark:text-zinc-200">
-              {section.counts.pending}
-            </span>{' '}
-            awaiting
+          <Clock className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
+          <h2 className="text-sm font-semibold">Awaiting client input</h2>
+          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            {items.length}
           </span>
         </div>
+        <span className="hidden text-[11px] text-zinc-400 sm:inline">
+          Appointments clients haven&apos;t reported on yet
+        </span>
       </button>
-
       {open && (
-        <div className="border-t border-zinc-100 dark:border-zinc-800">
-          {hasUpdates && (
-            <div>
-              <SubHeader label="Updated" tone="emerald" />
-              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {section.updated.map((a) => (
-                  <UpdatedRow
-                    key={a.id}
-                    appointment={a}
-                    onView={() => onView(a.id)}
-                  />
-                ))}
-              </ul>
-            </div>
-          )}
-          {hasPending && (
-            <div>
-              <SubHeader label="Awaiting client review" tone="zinc" />
-              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {section.pending.map((a) => (
-                  <PendingRow key={a.id} appointment={a} />
-                ))}
-              </ul>
-            </div>
-          )}
-          {!hasUpdates && !hasPending && (
-            <p className="px-4 py-6 text-center text-xs text-zinc-500">
-              No matching appointments for this client.
-            </p>
-          )}
-        </div>
+        <ul className="border-t border-zinc-100 divide-y divide-zinc-100 dark:border-zinc-800 dark:divide-zinc-800">
+          {items.map(({ client, appointment }) => (
+            <PendingRow
+              key={appointment.id}
+              client={client}
+              appointment={appointment}
+            />
+          ))}
+        </ul>
       )}
     </section>
   )
 }
 
-function SubHeader({
-  label,
-  tone,
-}: {
-  label: string
-  tone: 'emerald' | 'zinc'
-}) {
+/** Small client tag (color dot + name) shown inline on each flat row
+ *  now that rows aren't grouped under a per-client header. */
+function ClientTag({ client }: { client: Section['client'] }) {
   return (
-    <div
-      className={cn(
-        'border-b px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider',
-        tone === 'emerald'
-          ? 'border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
-          : 'border-zinc-100 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-400',
-      )}
-    >
-      {label}
-    </div>
+    <span className="inline-flex max-w-[10rem] items-center gap-1 truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+      <span
+        className="h-2 w-2 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: client.color }}
+        aria-hidden
+      />
+      <span className="truncate">{client.name}</span>
+    </span>
   )
 }
 
@@ -610,9 +628,11 @@ function SubHeader({
 /* -------------------------------------------------------------------------- */
 
 function UpdatedRow({
+  client,
   appointment,
   onView,
 }: {
+  client: Section['client']
   appointment: Appointment
   onView: () => void
 }) {
@@ -628,6 +648,13 @@ function UpdatedRow({
           : 'bg-amber-50/40 dark:bg-amber-950/15',
       )}
     >
+      {/* Unreviewed accent rail so new updates pop at a glance. */}
+      {!reviewed && (
+        <span
+          className="-my-3 -ml-4 mr-0 w-1 self-stretch bg-amber-400 dark:bg-amber-500"
+          aria-hidden
+        />
+      )}
       <div
         className={cn(
           'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
@@ -638,9 +665,12 @@ function UpdatedRow({
         {tone.label}
       </div>
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="truncate text-sm font-semibold">
-          {appointment.customerName}
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <p className="truncate text-sm font-semibold">
+            {appointment.customerName}
+          </p>
+          <ClientTag client={client} />
+        </div>
         <p className="truncate text-[11px] text-zinc-500">
           {formatDateTime(appointment.apptDateTime)}
           {appointment.address && ` · ${appointment.address}`}
@@ -674,7 +704,13 @@ function UpdatedRow({
   )
 }
 
-function PendingRow({ appointment }: { appointment: Appointment }) {
+function PendingRow({
+  client,
+  appointment,
+}: {
+  client: Section['client']
+  appointment: Appointment
+}) {
   return (
     <li className="flex items-center gap-3 px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
       <span
@@ -697,6 +733,7 @@ function PendingRow({ appointment }: { appointment: Appointment }) {
           · {formatDateTime(appointment.apptDateTime)}
         </span>
       </div>
+      <ClientTag client={client} />
       {appointment.sourceKind === 'secondary' && (
         <span
           className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
@@ -1016,4 +1053,44 @@ function formatRelative(iso: string | null): string {
   }
   const d = Math.round(diff / (24 * 60 * 60_000))
   return `${d}d ago`
+}
+
+/** ms timestamp of a client-update time, 0 when missing/invalid — used
+ *  to sort the feed newest-first without throwing on bad data. */
+function updatedAtMs(iso: string | null): number {
+  if (!iso) return 0
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+/** Slice the (already newest-first) feed into day buckets by when the
+ *  client reported. Empty buckets are dropped so the page only shows
+ *  the headers that have content. */
+function groupByRecency(
+  items: FeedItem[],
+): Array<{ label: string; items: FeedItem[] }> {
+  const now = new Date()
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime()
+  const DAY = 24 * 60 * 60 * 1000
+  const order = ['Today', 'Yesterday', 'Earlier this week', 'Older'] as const
+  const buckets: Record<(typeof order)[number], FeedItem[]> = {
+    Today: [],
+    Yesterday: [],
+    'Earlier this week': [],
+    Older: [],
+  }
+  for (const item of items) {
+    const t = updatedAtMs(item.appointment.clientStatusUpdatedAt)
+    if (t >= startOfToday) buckets.Today.push(item)
+    else if (t >= startOfToday - DAY) buckets.Yesterday.push(item)
+    else if (t >= startOfToday - 7 * DAY) buckets['Earlier this week'].push(item)
+    else buckets.Older.push(item)
+  }
+  return order
+    .map((label) => ({ label, items: buckets[label] }))
+    .filter((b) => b.items.length > 0)
 }
