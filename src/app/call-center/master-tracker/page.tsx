@@ -1331,8 +1331,12 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Phone</th>
                   <th className="px-3 py-2.5">Address</th>
-                  <th className="px-2 py-2.5">Utility</th>
-                  <th className="px-2 py-2.5">Bill</th>
+                  <th className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                    Utility
+                  </th>
+                  <th className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                    Bill
+                  </th>
                   <th className="px-3 py-2.5">Status</th>
                   <th
                     className="px-3 py-2.5"
@@ -1506,10 +1510,10 @@ export default function MasterTrackerPage() {
                             '—'
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-zinc-500">
+                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
                           {a.utilityProvider || '—'}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-zinc-500">
+                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
                           {formatMoney(a.monthlyBill)}
                         </td>
                         <td className="px-3 py-2.5">
