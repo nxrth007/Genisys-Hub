@@ -773,9 +773,17 @@ export default function MasterTrackerPage() {
   // returns everything. With current scale (10s of rows) this is fine.
   // Revisit if the sheet ever has thousands of rows.
   const apptsQuery = useQuery<{ appointments: Appointment[] }>({
-    queryKey: ['master-tracker-sheet'],
+    // Key by view so the agent + staff caches stay separate. The agent
+    // view asks the API to drop partner (secondary-sheet) rows — those
+    // are admin-only and shouldn't show even for admin-access agents
+    // (Mary / Hannah) while they're working out of the /agent portal.
+    queryKey: ['master-tracker-sheet', isStaffView],
     queryFn: async () => {
-      const res = await fetch('/api/call-center/master-tracker')
+      const res = await fetch(
+        isStaffView
+          ? '/api/call-center/master-tracker'
+          : '/api/call-center/master-tracker?view=agent',
+      )
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to load Master Table')

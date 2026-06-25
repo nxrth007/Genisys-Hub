@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { normalizeAddress } from '@/lib/address'
@@ -26,7 +26,7 @@ function getHubOrigin(): string {
  *
  * Staff-only — middleware already blocks role=agent.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -73,14 +73,23 @@ export async function GET() {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  // Visibility filter: Mary (role=agent) only sees the primary
+  // Visibility filter: the agent view only sees the primary
   // "Master Table" sheet. Secondary partner-call-center sheets
   // (Yassin's Forward Energy + Brighton Capital, as of 2026-05-13)
-  // are admin/member-only per Ethan's spec — Mary doesn't book for
-  // those clients and shouldn't see those rows mixed in with her own
-  // pipeline. Admin/member sees everything regardless.
+  // carry the purple "partner" chip and are admin-only per Ethan's
+  // spec — they shouldn't be mixed into an agent's working pipeline.
+  //
+  // Two triggers, because Mary + Hannah are now ADMINS (promoted for
+  // master-tracker edit access) yet still work out of the /agent
+  // portal. Role alone no longer identifies them, so the agent view
+  // sends ?view=agent and we drop partner rows on either signal:
+  //   - role=agent           → any genuine agent account
+  //   - ?view=agent          → the /agent portal, whatever the role
+  // The Call Center (/call-center) staff view sends neither and sees
+  // everything.
   const role = (session.user as { role?: string }).role
-  if (role === 'agent') {
+  const agentView = req.nextUrl.searchParams.get('view') === 'agent'
+  if (role === 'agent' || agentView) {
     rows = rows.filter((r) => r.source.kind === 'primary')
   }
 
