@@ -114,7 +114,13 @@ type Appointment = {
    *  is empty. */
   loggedAt: string | null
   agent: { id: string; name: string | null; email: string }
-  client: { id: string; name: string; state: string | null; color: string } | null
+  client: {
+    id: string
+    name: string
+    state: string | null
+    color: string
+    contactName: string | null
+  } | null
   /** True when the client was inferred from the address state (because
    *  the Client column in the sheet was blank). Surfaced in the UI as a
    *  small hint so Ethan can spot which rows still need the Client
@@ -268,6 +274,14 @@ function customerTzFromAddress(address: string | null): string {
   const m = address.match(/(?:^|[,\s])([A-Z]{2})(?=[\s,]|$|\s+\d{5})/)
   if (m && STATE_TO_TZ[m[1]]) return STATE_TO_TZ[m[1]]
   return 'America/New_York'
+}
+
+/** First name only from a client's contact ("Randall Smith" →
+ *  "Randall"), shown in small text under the company name in the
+ *  master-tracker Client column. */
+function clientContactFirst(contactName: string | null): string | null {
+  const first = contactName?.trim().split(/\s+/)[0]
+  return first || null
 }
 
 /** Bare 10-digit US phone, used to match a row against the paused-
@@ -1435,13 +1449,14 @@ export default function MasterTrackerPage() {
                             // Color dot + name as plain table text reads
                             // calmer than a wide pill, and the long client
                             // names ("Home Energy Upgrade") don't get
-                            // squeezed into an oval. Inferred-from-address
-                            // rows show a tiny dashed dot variant + the
-                            // tooltip still explains the source so Ethan
-                            // can spot rows that need their Client column
-                            // explicitly filled in upstream.
+                            // squeezed into an oval. The contact's first
+                            // name sits directly under the company in small
+                            // muted text. Inferred-from-address rows show a
+                            // tiny ringed dot variant + the tooltip still
+                            // explains the source so Ethan can spot rows
+                            // that need their Client column filled upstream.
                             <span
-                              className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
+                              className="inline-flex items-start gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
                               title={
                                 a.clientInferred
                                   ? `Inferred from address (${a.client.state || ''}) — Client column was blank in the sheet`
@@ -1450,34 +1465,41 @@ export default function MasterTrackerPage() {
                             >
                               <span
                                 className={cn(
-                                  'h-2 w-2 flex-shrink-0 rounded-full',
+                                  'mt-1 h-2 w-2 flex-shrink-0 rounded-full',
                                   a.clientInferred &&
                                     'ring-1 ring-offset-1 ring-zinc-400 ring-offset-white dark:ring-offset-zinc-900',
                                 )}
                                 style={{ backgroundColor: a.client.color }}
                                 aria-hidden
                               />
-                              {a.client.name}
-                              {/* Source badge for rows that came from a
-                                  partner-call-center secondary sheet
-                                  (Yassin's Forward Energy / Brighton
-                                  Capital). Mary never sees this — the
-                                  API filters secondaries out for her —
-                                  so the badge is purely an admin "this
-                                  came from elsewhere" indicator. The
-                                  title attribute shows the sheet label
-                                  on hover for full context. */}
-                              {a.source?.kind === 'secondary' && (
-                                <span
-                                  className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-                                  title={
-                                    a.source.label ??
-                                    `Imported from ${a.source.tabTitle}`
-                                  }
-                                >
-                                  partner
+                              <span className="flex flex-col leading-tight">
+                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                  {a.client.name}
+                                  {/* Source badge for rows that came from a
+                                      partner-call-center secondary sheet
+                                      (Yassin's Forward Energy / Brighton
+                                      Capital). Mary never sees this — the
+                                      API filters secondaries out for her —
+                                      so the badge is purely an admin "this
+                                      came from elsewhere" indicator. */}
+                                  {a.source?.kind === 'secondary' && (
+                                    <span
+                                      className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                                      title={
+                                        a.source.label ??
+                                        `Imported from ${a.source.tabTitle}`
+                                      }
+                                    >
+                                      partner
+                                    </span>
+                                  )}
                                 </span>
-                              )}
+                                {clientContactFirst(a.client.contactName) && (
+                                  <span className="mt-0.5 text-[10px] font-normal text-zinc-400 dark:text-zinc-500">
+                                    ({clientContactFirst(a.client.contactName)})
+                                  </span>
+                                )}
+                              </span>
                             </span>
                           ) : (
                             <span className="text-[10px] text-zinc-400">—</span>

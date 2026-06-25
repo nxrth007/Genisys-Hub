@@ -37,7 +37,13 @@ export async function GET(req: NextRequest) {
   // state inference, and refuse to guess when a state has multiple
   // clients claiming it.
   const clients = await prisma.client.findMany({
-    select: { id: true, name: true, state: true, color: true },
+    select: {
+      id: true,
+      name: true,
+      state: true,
+      color: true,
+      contactName: true,
+    },
   })
   const routingIndex = buildRoutingIndex(clients)
 
@@ -483,6 +489,7 @@ export async function GET(req: NextRequest) {
             name: clientLookup.name,
             state: clientLookup.state,
             color: clientLookup.color,
+            contactName: clientLookup.contactName,
           }
         : r.client
           ? {
@@ -493,6 +500,7 @@ export async function GET(req: NextRequest) {
               name: r.client,
               state: null,
               color: '#6b7280',
+              contactName: null,
             }
           : null,
       clientInferred,
