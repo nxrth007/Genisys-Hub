@@ -16,6 +16,7 @@ import {
   BellRing,
   MessageSquare,
   Inbox,
+  Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './theme-toggle'
@@ -40,6 +41,8 @@ const NAV: NavItem[] = [
   { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
   { href: '/agent/alerts', label: 'Alerts', icon: BellRing },
   { href: '/agent/master-tracker', label: 'Master Tracker', icon: Table },
+  // Dispatch worklist — every appointment currently set to "Dispatched".
+  { href: '/agent/dispatch', label: 'Dispatch', icon: Send },
   // Client-reported status updates — only for admin-access agents.
   {
     href: '/agent/status-updates',
