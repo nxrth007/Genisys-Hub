@@ -22,8 +22,6 @@ import {
   Pencil,
   Trash2,
   X,
-  BellOff,
-  Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
@@ -59,6 +57,10 @@ type Appointment = {
   roofType: string | null
   roofAge: string | null
   status: string
+  /** Hub-only dispatch lifecycle (the Dispatch Status dropdown).
+   *  not_dispatched | dispatched | confirmed | reschedule_requested |
+   *  rescheduled | needs_review */
+  dispatchStatus: string
   /** Manual hand-off flag — yes / no / unassigned. Goes away once
    *  the Slack auto-deliver workflow ships. */
   sentToClient: 'yes' | 'no' | 'unassigned'
@@ -180,7 +182,6 @@ type QuickFilter =
 const STATUSES = [
   { value: 'all', label: 'All statuses' },
   { value: 'booked', label: 'Booked' },
-  { value: 'dispatched', label: 'Dispatched' },
   { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'showed', label: 'Showed' },
   { value: 'won', label: 'Won' },
@@ -191,10 +192,6 @@ const STATUSES = [
 
 const STATUS_TONE: Record<string, string> = {
   booked: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  // Dispatched = sit locked with the homeowner, automations live. Green
-  // (distinct from booked's blue) so an agent can see at a glance which
-  // rows have actually fired their client + customer automations.
-  dispatched: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
   rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   showed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
   // won/lost are outcomes ON TOP of showing up. won = bolder green
@@ -205,6 +202,35 @@ const STATUS_TONE: Record<string, string> = {
   lost: 'bg-stone-200 text-stone-800 dark:bg-stone-800 dark:text-stone-300',
   no_show: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
   cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+}
+
+// Hub-only Dispatch Status — its own dropdown, separate from the
+// sheet-backed Status above. "Dispatched" is the automation gate: the
+// moment a row is set to it, the client details + the four same-day
+// customer reminders fire. The others are lifecycle markers.
+const DISPATCH_STATUSES = [
+  { value: 'not_dispatched', label: 'Not Dispatched' },
+  { value: 'dispatched', label: 'Dispatched' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'reschedule_requested', label: 'Reschedule Requested' },
+  { value: 'rescheduled', label: 'Rescheduled' },
+  { value: 'needs_review', label: 'Needs Review' },
+]
+
+const DISPATCH_TONE: Record<string, string> = {
+  // Neutral grey = nothing has fired yet (the default holding state).
+  not_dispatched: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+  // Green = live, automations fired.
+  dispatched: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  // Blue = all set / confirmed with the homeowner.
+  confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  // Amber = customer asked to move it — needs action.
+  reschedule_requested:
+    'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  // Violet = rebooked to a new time.
+  rescheduled: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
+  // Rose = flagged for a human to look at.
+  needs_review: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
 }
 
 /**
@@ -283,17 +309,6 @@ function customerTzFromAddress(address: string | null): string {
 function clientContactFirst(contactName: string | null): string | null {
   const first = contactName?.trim().split(/\s+/)[0]
   return first || null
-}
-
-/** Bare 10-digit US phone, used to match a row against the paused-
- *  leads set (same normalization the pause endpoint applies). */
-function normalizePhone10(raw: string | null | undefined): string {
-  if (!raw) return ''
-  const d = String(raw).replace(/\D/g, '')
-  if (d.length === 10) return d
-  if (d.length === 11 && d.startsWith('1')) return d.slice(1)
-  if (d.length > 10) return d.slice(-10)
-  return ''
 }
 
 function startOfDay(d: Date): Date {
@@ -666,37 +681,50 @@ export default function MasterTrackerPage() {
   // agent path even for admins.
   const isAdmin = userRole === 'admin'
 
-  // Paused leads — Pause Lead stops customer reminder alerts for a
-  // lead's phone. Fetch the set of paused phones; a row is paused when
-  // its normalized phone is in the set. Open to agents + admin (the
-  // endpoint enforces the same).
-  const pausedQuery = useQuery<{ pausedPhones: string[] }>({
-    queryKey: ['reminder-paused-phones'],
-    queryFn: async () => {
-      const res = await fetch('/api/call-center/reminders/pause')
-      if (!res.ok) return { pausedPhones: [] }
-      return res.json()
-    },
-    refetchInterval: 60_000,
-  })
-  const pausedSet = useMemo(
-    () => new Set(pausedQuery.data?.pausedPhones ?? []),
-    [pausedQuery.data],
-  )
-  const pauseMutation = useMutation({
-    mutationFn: async (vars: { phone: string; paused: boolean }) => {
-      const res = await fetch('/api/call-center/reminders/pause', {
+  // Dispatch Status dropdown — Hub-only lifecycle field, DB-backed (not
+  // the sheet). Setting it to "Dispatched" is the automation gate that
+  // fires the client details + the four same-day customer reminders.
+  // Optimistic update mirrors statusMutation.
+  const dispatchStatusMutation = useMutation({
+    mutationFn: async (vars: { rowNumber: number; dispatchStatus: string }) => {
+      const res = await fetch('/api/call-center/dispatch-status', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(vars),
       })
       const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.error || 'Failed to update pause')
+      if (!res.ok)
+        throw new Error(d.error || 'Failed to update dispatch status')
       return d
     },
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ['master-tracker-sheet'] })
+      const previous = queryClient.getQueryData<{
+        appointments: Appointment[]
+      }>(['master-tracker-sheet'])
+      if (previous) {
+        queryClient.setQueryData<{ appointments: Appointment[] }>(
+          ['master-tracker-sheet'],
+          {
+            ...previous,
+            appointments: previous.appointments.map((a) =>
+              a.id === `sheet:${vars.rowNumber}`
+                ? { ...a, dispatchStatus: vars.dispatchStatus }
+                : a,
+            ),
+          },
+        )
+      }
+      return { previous }
+    },
+    onError: (err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['master-tracker-sheet'], context.previous)
+      }
+      window.alert(`Couldn't update dispatch status: ${(err as Error).message}`)
+    },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['reminder-paused-phones'] }),
-    onError: (err) => window.alert((err as Error).message),
+      queryClient.invalidateQueries({ queryKey: ['master-tracker-sheet'] }),
   })
 
   // Edit-modal state. We track the currently-being-edited row by id
@@ -1355,28 +1383,34 @@ export default function MasterTrackerPage() {
               <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
                 <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                   <th className="w-6 px-2 py-2.5"></th>
-                  <th className="px-3 py-2.5">Appt</th>
-                  <th className="px-3 py-2.5">Client</th>
-                  <th className="px-3 py-2.5">Agent</th>
-                  <th className="px-3 py-2.5">Customer</th>
-                  <th className="px-3 py-2.5">Phone</th>
-                  <th className="px-3 py-2.5">Address</th>
-                  <th className="w-px whitespace-nowrap px-3 py-2.5">County</th>
+                  <th className="px-2 py-2.5">Appt</th>
+                  <th className="px-2 py-2.5">Client</th>
+                  <th className="px-2 py-2.5">Agent</th>
+                  <th className="px-2 py-2.5">Customer</th>
+                  <th className="px-2 py-2.5">Phone</th>
+                  <th className="px-2 py-2.5">Address</th>
+                  <th className="w-px whitespace-nowrap px-2 py-2.5">County</th>
                   <th className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                     Utility
                   </th>
                   <th className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                     Bill
                   </th>
-                  <th className="px-3 py-2.5">Status</th>
+                  <th className="px-2 py-2.5">Status</th>
                   <th
-                    className="px-3 py-2.5"
+                    className="px-2 py-2.5"
+                    title="Hub dispatch lifecycle. Set to Dispatched to fire the client details + customer reminders."
+                  >
+                    Dispatch
+                  </th>
+                  <th
+                    className="px-2 py-2.5"
                     title="Has the client met with the customer? Set manually by admin to mark whether the appointment is qualified / fulfilled."
                   >
                     Sitdown
                   </th>
-                  <th className="px-3 py-2.5">Slack</th>
-                  <th className="px-3 py-2.5">Rec</th>
+                  <th className="px-2 py-2.5">Slack</th>
+                  <th className="px-2 py-2.5">Rec</th>
                   {/* Actions pinned to the right edge so Pause / Edit /
                       Delete are always reachable without scrolling the
                       wide table sideways. */}
@@ -1448,7 +1482,7 @@ export default function MasterTrackerPage() {
                             }).format(when)}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           {a.client ? (
                             // Color dot + name as plain table text reads
                             // calmer than a wide pill, and the long client
@@ -1509,7 +1543,7 @@ export default function MasterTrackerPage() {
                             <span className="text-[10px] text-zinc-400">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <Link
                             href={`/call-center/agents/${a.agent.id}`}
                             className="font-medium text-zinc-700 hover:text-blue-600 hover:underline dark:text-zinc-200"
@@ -1520,7 +1554,7 @@ export default function MasterTrackerPage() {
                             {a.agent.email}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-medium">
+                        <td className="px-2 py-2.5 font-medium">
                           <div className="flex items-center gap-1.5">
                             <span>{a.customerName}</span>
                             {a.possibleDuplicateRowIds &&
@@ -1535,13 +1569,13 @@ export default function MasterTrackerPage() {
                               )}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-mono text-[11px]">
+                        <td className="px-2 py-2.5 font-mono text-[11px]">
                           <PhoneCell value={a.customerPhone} />
                         </td>
                         <td
-                          className="px-3 py-2.5 text-zinc-500"
+                          className="px-2 py-2.5 text-zinc-500"
                           title={a.address || ''}
-                          style={{ minWidth: '260px', maxWidth: '360px' }}
+                          style={{ minWidth: '170px', maxWidth: '240px' }}
                         >
                           {a.address ? (
                             <span className="break-words">{a.address}</span>
@@ -1558,7 +1592,7 @@ export default function MasterTrackerPage() {
                         <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
                           {formatMoney(a.monthlyBill)}
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <StatusCell
                             status={a.status}
                             onChange={(newStatus) => {
@@ -1581,7 +1615,25 @@ export default function MasterTrackerPage() {
                             }
                           />
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
+                          <DispatchStatusCell
+                            value={a.dispatchStatus}
+                            onChange={(next) => {
+                              const match = a.id.match(/^sheet:(\d+)$/)
+                              if (!match) return
+                              dispatchStatusMutation.mutate({
+                                rowNumber: Number(match[1]),
+                                dispatchStatus: next,
+                              })
+                            }}
+                            pending={
+                              dispatchStatusMutation.isPending &&
+                              dispatchStatusMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                          />
+                        </td>
+                        <td className="px-2 py-2.5">
                           <SentToClientCell
                             value={a.sentToClient}
                             onChange={(next) => {
@@ -1604,7 +1656,7 @@ export default function MasterTrackerPage() {
                             }
                           />
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <SlackDeliveryCell
                             appointment={a}
                             staffMode={isStaffView}
@@ -1660,7 +1712,7 @@ export default function MasterTrackerPage() {
                             }}
                           />
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           {a.callRecordingLink ? (
                             <a
                               // Prefer the Hub-signed proxy URL so
@@ -1690,31 +1742,11 @@ export default function MasterTrackerPage() {
                         <td className="sticky right-0 z-10 bg-white px-3 py-2.5 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] dark:bg-zinc-900">
                           <RowActions
                             isAdmin={isAdmin}
-                            isPaused={pausedSet.has(
-                              normalizePhone10(a.customerPhone),
-                            )}
-                            pausePending={
-                              pauseMutation.isPending &&
-                              pauseMutation.variables?.phone === a.customerPhone
-                            }
                             adminPending={
                               adminMutation.isPending &&
                               adminMutation.variables?.rowNumber ===
                                 Number(a.id.replace(/^sheet:/, ''))
                             }
-                            onTogglePause={() => {
-                              const phone = normalizePhone10(a.customerPhone)
-                              if (!phone) {
-                                window.alert(
-                                  'No usable phone number on this row to pause.',
-                                )
-                                return
-                              }
-                              pauseMutation.mutate({
-                                phone: a.customerPhone,
-                                paused: !pausedSet.has(phone),
-                              })
-                            }}
                             onEdit={
                               isAdmin ? () => setEditingApptId(a.id) : undefined
                             }
@@ -1744,7 +1776,7 @@ export default function MasterTrackerPage() {
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={15}
+                            colSpan={16}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail
@@ -2286,6 +2318,44 @@ function StatusCell({
 }
 
 /**
+ * Dispatch Status dropdown — the Hub-only lifecycle column. Same
+ * chip-select shape as StatusCell, but DB-backed (not the sheet) with
+ * its own option set. Setting it to "Dispatched" fires the client +
+ * customer automations server-side.
+ */
+function DispatchStatusCell({
+  value,
+  onChange,
+  pending,
+}: {
+  value: string
+  onChange: (next: string) => void
+  pending?: boolean
+}) {
+  return (
+    <div className="relative inline-block">
+      <select
+        value={value}
+        disabled={pending}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          DISPATCH_TONE[value] || 'bg-zinc-100 text-zinc-700',
+          pending && 'opacity-60',
+        )}
+      >
+        {DISPATCH_STATUSES.map((s) => (
+          <option key={s.value} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-1 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" />
+    </div>
+  )
+}
+
+/**
  * Inline Yes / No / Unassigned editor for the "Sitdown" column —
  * tracks whether the client actually met with the customer (i.e.
  * the appointment is qualified / fulfilled, not just booked).
@@ -2555,57 +2625,24 @@ function SlackDeliveryCell({
  * row + cleans up downstream ledger records.
  */
 /**
- * Pinned per-row actions. Pause/Resume is available to everyone
- * (agents + admin) and stops customer reminder alerts for the lead;
- * Edit + Delete render only for admin. Lives in the sticky right-edge
- * column so all actions are reachable without scrolling the wide
- * table sideways.
+ * Pinned per-row actions — Edit + Delete, admin only. Lives in the
+ * sticky right-edge column so they're reachable without scrolling the
+ * wide table sideways. (Customer-alert control moved to the Dispatch
+ * Status dropdown column.)
  */
 function RowActions({
   isAdmin,
-  isPaused,
-  pausePending,
   adminPending,
-  onTogglePause,
   onEdit,
   onDelete,
 }: {
   isAdmin: boolean
-  isPaused: boolean
-  pausePending: boolean
   adminPending: boolean
-  onTogglePause: () => void
   onEdit?: () => void
   onDelete?: () => void
 }) {
   return (
     <div className="inline-flex items-center gap-1.5">
-      <button
-        type="button"
-        onClick={onTogglePause}
-        disabled={pausePending}
-        className={cn(
-          'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50',
-          isPaused
-            ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
-            : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
-        )}
-        title={
-          isPaused
-            ? 'Resume customer alerts for this lead'
-            : 'Pause customer alerts (reminders) for this lead'
-        }
-      >
-        {pausePending ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : isPaused ? (
-          <Bell className="h-3 w-3" />
-        ) : (
-          <BellOff className="h-3 w-3" />
-        )}
-        {isPaused ? 'Resume' : 'Pause'}
-      </button>
-
       {isAdmin && onEdit && (
         <button
           type="button"

@@ -8,7 +8,6 @@ import {
 } from '@/lib/reminders'
 import { postRescheduleToClientChannel } from '@/lib/client-delivery'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
-import { triggerDispatchAutomations } from '@/lib/dispatch-automations'
 import { fillCountyForAppointment } from '@/lib/county-lookup'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
@@ -29,7 +28,6 @@ import { qualifyingTimestampFor } from '@/lib/appointment-qualification'
 
 const ALLOWED_STATUS = new Set([
   'booked',
-  'dispatched',
   'rescheduled',
   'showed',
   'no_show',
@@ -252,41 +250,32 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     console.error('[appointments PATCH] sync scheduling failed:', err)
   )
 
-  // Did this edit FLIP the appointment into "dispatched"?
-  const becameDispatched =
-    before.status !== 'dispatched' && updated.status === 'dispatched'
+  // Refresh customer-SMS reminder snapshots so a fixed name / phone /
+  // appt time is picked up before the next dispatch tick. The gated
+  // upsert only re-arms the timed reminders when the appt is in a "go"
+  // dispatch state (dispatched / confirmed / rescheduled); otherwise it
+  // just touches the confirmation snapshot. Dispatch itself happens via
+  // the master-tracker Dispatch Status dropdown, not this edit form.
+  void upsertRemindersForAppointment(updated.id).catch((err) =>
+    console.error('[appointments PATCH] reminders refresh threw:', err),
+  )
 
-  if (becameDispatched) {
-    // Agent dispatched their own appointment from the edit form — fire
-    // the full client-facing set (Slack channel post, client SMS/email)
-    // and arm the four same-day customer reminders. Confirmation
-    // already went out at booking.
-    triggerDispatchAutomations(updated.id)
-  } else {
-    // Plain edit — refresh customer-SMS reminder snapshots so a fixed
-    // name / phone / appt time is picked up before the next dispatch
-    // tick. The gated upsert only re-arms the timed reminders if the
-    // appt is already dispatched; otherwise it just touches the
-    // confirmation snapshot.
-    void upsertRemindersForAppointment(updated.id).catch((err) =>
-      console.error('[appointments PATCH] reminders refresh threw:', err),
+  // Roll the client-alert buffer forward ONLY when the appt has already
+  // been dispatched (a pending client alert can only exist then) — so a
+  // corrected typo reaches the client, never a premature send.
+  if (
+    updated.dispatchStatus === 'dispatched' ||
+    updated.dispatchStatus === 'confirmed'
+  ) {
+    void deliverAppointmentAsSms(updated.id).then((result) => {
+      if (result.status !== 'disabled' && result.status !== 'skipped') {
+        console.log(
+          `[appointments PATCH] client-alert ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${updated.id}`,
+        )
+      }
+    }).catch((err) =>
+      console.error('[appointments PATCH] client-alert refresh threw:', err),
     )
-
-    // Roll the client-alert buffer forward ONLY when the appt is
-    // already dispatched (a pending client alert can only exist after
-    // dispatch now) — so a corrected typo reaches the client, not a
-    // premature send for a not-yet-dispatched appointment.
-    if (updated.status === 'dispatched') {
-      void deliverAppointmentAsSms(updated.id).then((result) => {
-        if (result.status !== 'disabled' && result.status !== 'skipped') {
-          console.log(
-            `[appointments PATCH] client-alert ${result.status}${result.reason ? ` (${result.reason})` : ''} for ${updated.id}`,
-          )
-        }
-      }).catch((err) =>
-        console.error('[appointments PATCH] client-alert refresh threw:', err),
-      )
-    }
   }
 
   // Reschedule flow parity with the master-tracker path: when the

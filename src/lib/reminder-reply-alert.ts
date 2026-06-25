@@ -334,14 +334,32 @@ export async function syncReminderReplyAlerts(): Promise<SyncResult> {
     // reschedule is a softer, "still wants it, different time" signal
     // the agent acts on differently than a flat "won't make it".
     if (classification === 'negative') {
+      const isReschedule = /\b(resched|reschedule|another time|different (?:time|day)|move it|push it)\b/i.test(
+        body,
+      )
+      // Auto-flip the appointment's Dispatch Status to "Reschedule
+      // Requested" when the customer asks to move the appointment, so
+      // the master tracker surfaces it without anyone reading the
+      // thread. The pending reminders were already cancelled above on
+      // the negative reply.
+      if (isReschedule && ctx.appointmentId) {
+        try {
+          await prisma.appointment.update({
+            where: { id: ctx.appointmentId },
+            data: { dispatchStatus: 'reschedule_requested' },
+          })
+        } catch (err) {
+          console.error(
+            '[reminder-reply-alert] dispatch-status flip failed:',
+            err,
+          )
+        }
+      }
       const agentUserId = await resolveBookingAgentUserId({
         appointmentId: ctx.appointmentId,
         agentName: ctx.agentName,
       })
       if (agentUserId) {
-        const isReschedule = /\b(resched|reschedule|another time|different (?:time|day)|move it|push it)\b/i.test(
-          body,
-        )
         await createAgentAlert({
           agentUserId,
           type: isReschedule ? 'reschedule' : 'negative_reply',

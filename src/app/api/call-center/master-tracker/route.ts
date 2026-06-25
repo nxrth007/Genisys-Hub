@@ -71,6 +71,9 @@ export async function GET(req: NextRequest) {
       // County (geocoded from address at booking) — surfaced in the
       // master-tracker County column right after Address.
       county: true,
+      // Hub-only dispatch lifecycle — drives the Dispatch Status column
+      // + the automation gate.
+      dispatchStatus: true,
     },
   })
 
@@ -175,6 +178,9 @@ export async function GET(req: NextRequest) {
   // rowNumber → geocoded county (null when not yet resolved).
   const dbCountyByRow = new Map<number, string | null>()
   const dbCountyByContent = new Map<string, string | null>()
+  // rowNumber → Hub dispatch status (defaults to not_dispatched).
+  const dbDispatchByRow = new Map<number, string>()
+  const dbDispatchByContent = new Map<string, string>()
   for (const a of dbAppts) {
     if (a.masterSheetRowNumber) {
       dbCreatedAtByRow.set(a.masterSheetRowNumber, a.createdAt)
@@ -183,6 +189,7 @@ export async function GET(req: NextRequest) {
         updatedAt: a.clientStatusUpdatedAt,
       })
       dbCountyByRow.set(a.masterSheetRowNumber, a.county)
+      dbDispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
     }
     const phoneKey = normalizePhoneForKey(a.customerPhone)
     if (phoneKey && a.apptDateTime) {
@@ -192,6 +199,7 @@ export async function GET(req: NextRequest) {
         updatedAt: a.clientStatusUpdatedAt,
       })
       dbCountyByContent.set(ck, a.county)
+      dbDispatchByContent.set(ck, a.dispatchStatus)
       dbCreatedAtByContent.set(ck, a.createdAt)
     }
   }
@@ -403,6 +411,19 @@ export async function GET(req: NextRequest) {
           if (byContent) return byContent
         }
         return null
+      })(),
+      /** Hub-only dispatch lifecycle. Defaults to not_dispatched for
+       *  sheet-only rows that don't have a DB appointment yet. */
+      dispatchStatus: (() => {
+        const byRow = dbDispatchByRow.get(r.rowNumber)
+        if (byRow) return byRow
+        const phoneKey = normalizePhoneForKey(r.customerPhone)
+        if (phoneKey && r.apptDateTime) {
+          const ck = `${phoneKey}|${new Date(r.apptDateTime).toISOString()}`
+          const byContent = dbDispatchByContent.get(ck)
+          if (byContent) return byContent
+        }
+        return 'not_dispatched'
       })(),
       email: r.email,
       monthlyBill: r.monthlyBill,
