@@ -1361,9 +1361,8 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Phone</th>
                   <th className="px-3 py-2.5">Address</th>
-                  <th className="px-3 py-2.5">Utility</th>
-                  <th className="px-3 py-2.5">Bill</th>
-                  <th className="px-3 py-2.5">Deal $</th>
+                  <th className="px-2 py-2.5">Utility</th>
+                  <th className="px-2 py-2.5">Bill</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th
                     className="px-3 py-2.5"
@@ -1537,14 +1536,11 @@ export default function MasterTrackerPage() {
                             '—'
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-zinc-500">
                           {a.utilityProvider || '—'}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-zinc-500">
                           {formatMoney(a.monthlyBill)}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
-                          {formatMoney(a.estimatedDealValue)}
                         </td>
                         <td className="px-3 py-2.5">
                           <StatusCell
@@ -1732,7 +1728,7 @@ export default function MasterTrackerPage() {
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={15}
+                            colSpan={14}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail
@@ -2094,10 +2090,6 @@ function RowDetail({
           <span className="text-zinc-400">Roof:</span>{' '}
           {appointment.roofType || '—'}
           {appointment.roofAge && ` · ${appointment.roofAge}`}
-        </div>
-        <div>
-          <span className="text-zinc-400">Deal value:</span>{' '}
-          {formatMoney(appointment.estimatedDealValue)}
         </div>
         <div>
           <span className="text-zinc-400">Logged at:</span>{' '}
