@@ -642,6 +642,10 @@ type DispatchResult = {
    *  longer matches reality (e.g. a "2hr" reminder firing 90 min late
    *  when the appointment is now only 30 min out). */
   staleSkipped: number
+  /** Reminders held because the customer's lead is paused (Pause Lead
+   *  on the master tracker). Left 'pending' — not sent, not cancelled
+   *  — so Resume re-enables them. */
+  pausedHeld: number
 }
 
 /**
@@ -663,6 +667,7 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
       failed: 0,
       quietHoursHeld: 0,
       staleSkipped: 0,
+      pausedHeld: 0,
     }
 
   const now = new Date()
@@ -683,8 +688,32 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
   let failed = 0
   let quietHoursHeld = 0
   let staleSkipped = 0
+  let pausedHeld = 0
+
+  // Paused leads — agents "Pause Lead" from the master tracker to
+  // stop customer alerts. We HOLD (don't send, don't cancel) any
+  // reminder whose customer phone is paused, so Resume lets them
+  // fire again. Loaded once per tick, matched by normalized phone.
+  const pausedPhones = new Set(
+    (await prisma.reminderPause.findMany({ select: { customerPhone: true } }))
+      .map((p) => p.customerPhone)
+      .filter(Boolean),
+  )
 
   for (const reminder of due) {
+    // Pause gate FIRST — a paused lead's reminders stay 'pending' and
+    // are simply not dispatched. Resuming clears the pause; they fire
+    // on a later tick (or stale-skip if the window has since passed).
+    if (pausedPhones.size > 0) {
+      const phones = extractedPhonesFor(reminder.customerPhone)
+        .map((p) => digitsOnlyPhone(p))
+        .filter(Boolean)
+      if (phones.some((p) => pausedPhones.has(p))) {
+        pausedHeld++
+        continue
+      }
+    }
+
     // Staleness guard FIRST — runs ahead of the quiet-hours gate so a
     // row that's already past its useful window can't keep retrying
     // every tick (which would silently spam the dispatch logs). Also
@@ -911,7 +940,14 @@ export async function dispatchDueReminders(): Promise<DispatchResult> {
     }
   }
 
-  return { attempted: due.length, sent, failed, quietHoursHeld, staleSkipped }
+  return {
+    attempted: due.length,
+    sent,
+    failed,
+    quietHoursHeld,
+    staleSkipped,
+    pausedHeld,
+  }
 }
 
 /* -------------------------------------------------------------------------- */

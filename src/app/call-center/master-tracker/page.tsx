@@ -23,6 +23,8 @@ import {
   Pencil,
   Trash2,
   X,
+  BellOff,
+  Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // PageHeader + CallCenterTabs are provided by /call-center/layout.tsx.
@@ -268,6 +270,17 @@ function parseMoney(raw: string | null): number {
   if (!raw) return 0
   const n = Number(raw.replace(/[^0-9.-]/g, ''))
   return Number.isFinite(n) ? n : 0
+}
+
+/** Bare 10-digit US phone, used to match a row against the paused-
+ *  leads set (same normalization the pause endpoint applies). */
+function normalizePhone10(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const d = String(raw).replace(/\D/g, '')
+  if (d.length === 10) return d
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1)
+  if (d.length > 10) return d.slice(-10)
+  return ''
 }
 
 function startOfDay(d: Date): Date {
@@ -639,6 +652,39 @@ export default function MasterTrackerPage() {
   // this was `isStaffView && admin`, which blanked admin tools on the
   // agent path even for admins.
   const isAdmin = userRole === 'admin'
+
+  // Paused leads — Pause Lead stops customer reminder alerts for a
+  // lead's phone. Fetch the set of paused phones; a row is paused when
+  // its normalized phone is in the set. Open to agents + admin (the
+  // endpoint enforces the same).
+  const pausedQuery = useQuery<{ pausedPhones: string[] }>({
+    queryKey: ['reminder-paused-phones'],
+    queryFn: async () => {
+      const res = await fetch('/api/call-center/reminders/pause')
+      if (!res.ok) return { pausedPhones: [] }
+      return res.json()
+    },
+    refetchInterval: 60_000,
+  })
+  const pausedSet = useMemo(
+    () => new Set(pausedQuery.data?.pausedPhones ?? []),
+    [pausedQuery.data],
+  )
+  const pauseMutation = useMutation({
+    mutationFn: async (vars: { phone: string; paused: boolean }) => {
+      const res = await fetch('/api/call-center/reminders/pause', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(vars),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || 'Failed to update pause')
+      return d
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['reminder-paused-phones'] }),
+    onError: (err) => window.alert((err as Error).message),
+  })
 
   // Edit-modal state. We track the currently-being-edited row by id
   // so the modal can pre-fill from the loaded appointments and the
@@ -1327,7 +1373,12 @@ export default function MasterTrackerPage() {
                   </th>
                   <th className="px-3 py-2.5">Slack</th>
                   <th className="px-3 py-2.5">Rec</th>
-                  {isAdmin && <th className="px-3 py-2.5"></th>}
+                  {/* Actions pinned to the right edge so Pause / Edit /
+                      Delete are always reachable without scrolling the
+                      wide table sideways. */}
+                  <th className="sticky right-0 z-20 bg-zinc-50 px-3 py-2.5 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] dark:bg-zinc-950/95">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1624,37 +1675,64 @@ export default function MasterTrackerPage() {
                             <span className="text-zinc-300">—</span>
                           )}
                         </td>
-                        {isAdmin && (
-                          <td className="px-3 py-2.5">
-                            <AdminActionsCell
-                              appointment={a}
-                              pending={
-                                adminMutation.isPending &&
-                                adminMutation.variables?.rowNumber ===
-                                  Number(a.id.replace(/^sheet:/, ''))
+                        <td className="sticky right-0 z-10 bg-white px-3 py-2.5 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] dark:bg-zinc-900">
+                          <RowActions
+                            isAdmin={isAdmin}
+                            isPaused={pausedSet.has(
+                              normalizePhone10(a.customerPhone),
+                            )}
+                            pausePending={
+                              pauseMutation.isPending &&
+                              pauseMutation.variables?.phone === a.customerPhone
+                            }
+                            adminPending={
+                              adminMutation.isPending &&
+                              adminMutation.variables?.rowNumber ===
+                                Number(a.id.replace(/^sheet:/, ''))
+                            }
+                            onTogglePause={() => {
+                              const phone = normalizePhone10(a.customerPhone)
+                              if (!phone) {
+                                window.alert(
+                                  'No usable phone number on this row to pause.',
+                                )
+                                return
                               }
-                              onEdit={() => setEditingApptId(a.id)}
-                              onDelete={() => {
-                                const match = a.id.match(/^sheet:(\d+)$/)
-                                if (!match) return
-                                const rowNumber = Number(match[1])
-                                if (
-                                  !window.confirm(
-                                    `Delete ${a.customerName}'s appointment from the master sheet? This removes the row entirely + cancels its pending reminders. Cannot be undone.`,
-                                  )
-                                ) {
-                                  return
-                                }
-                                adminMutation.mutate({ kind: 'delete', rowNumber })
-                              }}
-                            />
-                          </td>
-                        )}
+                              pauseMutation.mutate({
+                                phone: a.customerPhone,
+                                paused: !pausedSet.has(phone),
+                              })
+                            }}
+                            onEdit={
+                              isAdmin ? () => setEditingApptId(a.id) : undefined
+                            }
+                            onDelete={
+                              isAdmin
+                                ? () => {
+                                    const match = a.id.match(/^sheet:(\d+)$/)
+                                    if (!match) return
+                                    const rowNumber = Number(match[1])
+                                    if (
+                                      !window.confirm(
+                                        `Delete ${a.customerName}'s appointment from the master sheet? This removes the row entirely + cancels its pending reminders. Cannot be undone.`,
+                                      )
+                                    ) {
+                                      return
+                                    }
+                                    adminMutation.mutate({
+                                      kind: 'delete',
+                                      rowNumber,
+                                    })
+                                  }
+                                : undefined
+                            }
+                          />
+                        </td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={isAdmin ? 15 : 14}
+                            colSpan={15}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail
@@ -2468,43 +2546,86 @@ function SlackDeliveryCell({
  * modal; Delete shows a confirm() dialog and then DELETEs the sheet
  * row + cleans up downstream ledger records.
  */
-function AdminActionsCell({
-  appointment: _appointment,
-  pending,
+/**
+ * Pinned per-row actions. Pause/Resume is available to everyone
+ * (agents + admin) and stops customer reminder alerts for the lead;
+ * Edit + Delete render only for admin. Lives in the sticky right-edge
+ * column so all actions are reachable without scrolling the wide
+ * table sideways.
+ */
+function RowActions({
+  isAdmin,
+  isPaused,
+  pausePending,
+  adminPending,
+  onTogglePause,
   onEdit,
   onDelete,
 }: {
-  appointment: Appointment
-  pending: boolean
-  onEdit: () => void
-  onDelete: () => void
+  isAdmin: boolean
+  isPaused: boolean
+  pausePending: boolean
+  adminPending: boolean
+  onTogglePause: () => void
+  onEdit?: () => void
+  onDelete?: () => void
 }) {
   return (
-    <div className="inline-flex items-center gap-1">
+    <div className="inline-flex items-center gap-1.5">
       <button
         type="button"
-        onClick={onEdit}
-        disabled={pending}
-        className="grid h-6 w-6 place-items-center rounded-md border border-zinc-200 text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-        title="Edit this row"
-        aria-label="Edit row"
-      >
-        <Pencil className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={pending}
-        className="grid h-6 w-6 place-items-center rounded-md border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/40"
-        title="Delete this row from the master sheet"
-        aria-label="Delete row"
-      >
-        {pending ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <Trash2 className="h-3 w-3" />
+        onClick={onTogglePause}
+        disabled={pausePending}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50',
+          isPaused
+            ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+            : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
         )}
+        title={
+          isPaused
+            ? 'Resume customer alerts for this lead'
+            : 'Pause customer alerts (reminders) for this lead'
+        }
+      >
+        {pausePending ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : isPaused ? (
+          <Bell className="h-3 w-3" />
+        ) : (
+          <BellOff className="h-3 w-3" />
+        )}
+        {isPaused ? 'Resume' : 'Pause'}
       </button>
+
+      {isAdmin && onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={adminPending}
+          className="grid h-6 w-6 place-items-center rounded-md border border-zinc-200 text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          title="Edit this row"
+          aria-label="Edit row"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
+      {isAdmin && onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={adminPending}
+          className="grid h-6 w-6 place-items-center rounded-md border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+          title="Delete this row from the master sheet"
+          aria-label="Delete row"
+        >
+          {adminPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Trash2 className="h-3 w-3" />
+          )}
+        </button>
+      )}
     </div>
   )
 }

@@ -302,7 +302,7 @@ export function initScheduler() {
         // stale skips at 08:00" patterns without needing a separate
         // admin panel. Hiding the zeroes would help nothing.
         console.log(
-          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed, ${result.quietHoursHeld} held (quiet hours), ${result.staleSkipped} skipped (stale) (of ${result.attempted} attempted)`,
+          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed, ${result.quietHoursHeld} held (quiet hours), ${result.pausedHeld} held (paused lead), ${result.staleSkipped} skipped (stale) (of ${result.attempted} attempted)`,
         )
       }
     } catch (err) {

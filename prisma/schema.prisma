@@ -1441,6 +1441,22 @@ model ReminderReplyAlert {
   @@unique([conversationId, messageId], map: "ux_reminder_reply_conv_msg")
 }
 
+/// "Paused" leads — when an agent hits Pause Lead on the master
+/// tracker, we record the customer's normalized phone here. The
+/// customer-SMS reminder dispatcher skips any reminder whose phone
+/// is paused (the reminder rows stay 'pending' — they're held, not
+/// cancelled — so Resume lets them fire again if still in window).
+/// Keyed by phone so it covers a lead regardless of whether their
+/// appointment is a DB row or sheet-only.
+model ReminderPause {
+  id             String   @id @default(cuid())
+  /// Normalized 10-digit US phone.
+  customerPhone  String   @unique
+  pausedByUserId String?
+  pausedByName   String?
+  pausedAt       DateTime @default(now())
+}
+
 /// Maps a Vicidial dialer list (vicidial_lists.list_id) to a Hub
 /// Client. The dialer's lists are "normally but not always" per-
 /// client (Alex) — this link makes the relationship explicit so
