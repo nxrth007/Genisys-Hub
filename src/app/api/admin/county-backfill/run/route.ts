@@ -1,18 +1,19 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { prisma } from '@/lib/prisma'
-import { lookupCountyForAddress } from '@/lib/county-lookup'
+import { backfillMissingCounties } from '@/lib/county-lookup'
 
 /**
  * GET|POST /api/admin/county-backfill/run
  *
- * Populate Appointment.county for existing appointments that have an
- * address but no county yet (geocoding only fills new bookings + edits
- * going forward). Admin-only. Processes a bounded batch per call so a
- * run can't blow the request timeout or the geocoder quota — re-run
- * until `remaining` hits 0.
+ * Manually drain the County backfill backlog (the scheduler also does
+ * this automatically every tick). Admin-only. Processes a bounded
+ * batch so it can't blow the request timeout or the geocoder quota —
+ * re-run until `remaining` hits 0.
  *
  *   ?limit=40   how many to geocode this run (default 40, max 100)
+ *
+ * Only writes Appointment.county — never touches reminders, client
+ * alerts, or dispatch.
  */
 const DEFAULT_LIMIT = 40
 const MAX_LIMIT = 100
@@ -30,49 +31,15 @@ async function run(req: Request) {
     Math.max(1, Number(url.searchParams.get('limit')) || DEFAULT_LIMIT),
   )
 
-  // Count what's left so the caller knows whether to run again.
-  const remainingBefore = await prisma.appointment.count({
-    where: { county: null, address: { not: null } },
-  })
-
-  const batch = await prisma.appointment.findMany({
-    where: { county: null, address: { not: null } },
-    select: { id: true, address: true },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-  })
-
-  let filled = 0
-  let unresolved = 0
-  const samples: string[] = []
-  for (const appt of batch) {
-    try {
-      const county = await lookupCountyForAddress(appt.address)
-      if (county) {
-        await prisma.appointment.update({
-          where: { id: appt.id },
-          data: { county },
-        })
-        filled++
-        if (samples.length < 8) samples.push(county)
-      } else {
-        unresolved++
-      }
-    } catch {
-      unresolved++
-    }
-  }
+  const result = await backfillMissingCounties(limit)
 
   return NextResponse.json({
     ok: true,
-    scanned: batch.length,
-    filled,
-    unresolved,
-    remaining: Math.max(0, remainingBefore - filled),
-    sampleCounties: samples,
-    note:
-      remainingBefore - filled > 0
-        ? 'More remain — run this again to continue.'
+    ...result,
+    note: result.likelyConfigError
+      ? 'Every address in this batch failed to geocode — check the "Google Maps Key" vault entry + that the Geocoding API is enabled.'
+      : result.remaining > 0
+        ? 'More remain — run again to continue (the scheduler also drains this automatically).'
         : 'All addresses processed.',
   })
 }

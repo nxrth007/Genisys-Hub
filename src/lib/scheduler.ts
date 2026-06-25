@@ -32,6 +32,7 @@ import { syncClientMessageAlerts } from './client-message-alert'
 import { syncReminderReplyAlerts } from './reminder-reply-alert'
 import { snapshotAllVicidialLists } from './vicidial-snapshots'
 import { syncSheetAppointmentsToDb } from './sheet-appointment-import'
+import { backfillMissingCounties } from './county-lookup'
 import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
@@ -142,6 +143,15 @@ const CHAT_EXPIRY_HOUR_UTC = 7 // 3 AM EDT — off-peak
 let lastVicidialSnapshotDayUtc: string | null = null
 let vicidialSnapshotInFlight = false
 const VICIDIAL_SNAPSHOT_HOUR_UTC = 10
+
+// County backfill — geocode appointments that have an address but no
+// county yet, a small batch per tick, until the backlog drains. Runs
+// fire-and-forget (concurrent with the rest of the tick) so it never
+// delays reminder dispatch, and in-flight guarded so two ticks can't
+// overlap. ONLY writes Appointment.county — never touches reminders,
+// client alerts, or dispatch.
+let countyBackfillInFlight = false
+const COUNTY_BACKFILL_BATCH = 20
 
 export function initScheduler() {
   if (initialized) return
@@ -292,6 +302,33 @@ export function initScheduler() {
           sheetImportInFlight = false
         }
       }
+    }
+
+    // County backfill (fire-and-forget) — drains existing appointments
+    // missing a county a batch at a time. Concurrent with the rest of
+    // the tick so it never delays reminder dispatch; no-op once the
+    // backlog is empty. Writes only the county field.
+    if (!countyBackfillInFlight) {
+      countyBackfillInFlight = true
+      void backfillMissingCounties(COUNTY_BACKFILL_BATCH)
+        .then((r) => {
+          if (r.filled > 0 || r.unresolved > 0) {
+            console.log(
+              `[scheduler] county backfill: ${r.filled} filled, ${r.unresolved} no-county, ${r.remaining} remaining`,
+            )
+          }
+          if (r.likelyConfigError) {
+            console.error(
+              '[scheduler] county backfill: whole batch failed to geocode — check "Google Maps Key" vault entry + Geocoding API enablement',
+            )
+          }
+        })
+        .catch((err) =>
+          console.error('[scheduler] county backfill failed:', err),
+        )
+        .finally(() => {
+          countyBackfillInFlight = false
+        })
     }
 
     try {
