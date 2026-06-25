@@ -68,6 +68,9 @@ export async function GET(req: NextRequest) {
       // 2026-05-29 with the client status-update feature.
       clientNotes: true,
       clientStatusUpdatedAt: true,
+      // County (geocoded from address at booking) — surfaced in the
+      // master-tracker County column right after Address.
+      county: true,
     },
   })
 
@@ -169,6 +172,9 @@ export async function GET(req: NextRequest) {
   }
   const dbClientUpdateByRow = new Map<number, ClientUpdate>()
   const dbClientUpdateByContent = new Map<string, ClientUpdate>()
+  // rowNumber → geocoded county (null when not yet resolved).
+  const dbCountyByRow = new Map<number, string | null>()
+  const dbCountyByContent = new Map<string, string | null>()
   for (const a of dbAppts) {
     if (a.masterSheetRowNumber) {
       dbCreatedAtByRow.set(a.masterSheetRowNumber, a.createdAt)
@@ -176,6 +182,7 @@ export async function GET(req: NextRequest) {
         notes: a.clientNotes,
         updatedAt: a.clientStatusUpdatedAt,
       })
+      dbCountyByRow.set(a.masterSheetRowNumber, a.county)
     }
     const phoneKey = normalizePhoneForKey(a.customerPhone)
     if (phoneKey && a.apptDateTime) {
@@ -184,6 +191,7 @@ export async function GET(req: NextRequest) {
         notes: a.clientNotes,
         updatedAt: a.clientStatusUpdatedAt,
       })
+      dbCountyByContent.set(ck, a.county)
       dbCreatedAtByContent.set(ck, a.createdAt)
     }
   }
@@ -381,6 +389,21 @@ export async function GET(req: NextRequest) {
       customerName: r.customerName,
       customerPhone: r.customerPhone,
       address: cleanedAddress,
+      /** County — geocoded from the address at booking, looked up from
+       *  the matching DB Appointment via rowNumber + content-key (same
+       *  index clientNotes uses). Sheet-only rows with no DB record (or
+       *  not-yet-geocoded ones) stay null. */
+      county: (() => {
+        const byRow = dbCountyByRow.get(r.rowNumber)
+        if (byRow) return byRow
+        const phoneKey = normalizePhoneForKey(r.customerPhone)
+        if (phoneKey && r.apptDateTime) {
+          const ck = `${phoneKey}|${new Date(r.apptDateTime).toISOString()}`
+          const byContent = dbCountyByContent.get(ck)
+          if (byContent) return byContent
+        }
+        return null
+      })(),
       email: r.email,
       monthlyBill: r.monthlyBill,
       utilityProvider: r.utilityProvider,

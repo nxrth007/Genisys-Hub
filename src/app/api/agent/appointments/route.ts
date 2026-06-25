@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { syncAppointmentCreate } from '@/lib/appointment-sync'
 import { upsertRemindersForAppointment } from '@/lib/reminders'
+import { fillCountyForAppointment } from '@/lib/county-lookup'
 import { findConflicts } from '@/lib/appointment-conflicts'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { findMostRecentRecording } from '@/lib/vicidial-recording-lookup'
@@ -430,6 +431,14 @@ export async function POST(req: NextRequest) {
       console.error('[appointments POST] solar snapshot failed:', err)
     }
   }
+
+  // Auto-fill the County column from the address (Google geocoding,
+  // same key as Solar). Fire-and-forget — the value lands on the row a
+  // second or two later and shows on the next master-tracker refresh;
+  // booking never blocks on the geocoder.
+  void fillCountyForAppointment(appt.id).catch((err) =>
+    console.error('[appointments POST] county fill threw:', err),
+  )
 
   // Fire Slack + SMS notifications IMMEDIATELY off the DB row —
   // fully decoupled from the sheet sync below. Mary's booking pings

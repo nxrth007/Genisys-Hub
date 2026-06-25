@@ -9,6 +9,7 @@ import {
 import { postRescheduleToClientChannel } from '@/lib/client-delivery'
 import { deliverAppointmentAsSms } from '@/lib/client-alert'
 import { triggerDispatchAutomations } from '@/lib/dispatch-automations'
+import { fillCountyForAppointment } from '@/lib/county-lookup'
 import { normalizeRoofAge } from '@/lib/normalize'
 import { snapshotSolarFromCache } from '@/lib/solar'
 import {
@@ -293,6 +294,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // channel of the new time, and on an explicit "rescheduled" mark
   // text the customer their new time. The reminder re-arm already
   // ran via upsertRemindersForAppointment above. All fire-and-forget.
+  // Address edited → re-derive the County column from the new address.
+  if ((before.address ?? '') !== (updated.address ?? '')) {
+    void fillCountyForAppointment(updated.id).catch((err) =>
+      console.error('[appointments PATCH] county refill threw:', err),
+    )
+  }
+
   const timeChanged =
     before.apptDateTime.getTime() !== updated.apptDateTime.getTime()
   if (timeChanged) {

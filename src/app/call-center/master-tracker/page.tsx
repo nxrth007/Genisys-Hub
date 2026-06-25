@@ -52,6 +52,7 @@ type Appointment = {
   customerName: string
   customerPhone: string
   address: string | null
+  county: string | null
   email: string | null
   monthlyBill: string | null
   utilityProvider: string | null
@@ -415,6 +416,7 @@ const EXPORT_HEADERS = [
   'Phone',
   'Email',
   'Address',
+  'County',
   'Utility Provider',
   'Monthly Bill',
   'Roof Type',
@@ -436,6 +438,7 @@ function appointmentToRow(a: Appointment): (string | number)[] {
     a.customerPhone,
     a.email || '',
     a.address || '',
+    a.county || '',
     a.utilityProvider || '',
     a.monthlyBill || '',
     a.roofType || '',
@@ -1358,6 +1361,7 @@ export default function MasterTrackerPage() {
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Phone</th>
                   <th className="px-3 py-2.5">Address</th>
+                  <th className="w-px whitespace-nowrap px-3 py-2.5">County</th>
                   <th className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                     Utility
                   </th>
@@ -1544,6 +1548,9 @@ export default function MasterTrackerPage() {
                           ) : (
                             '—'
                           )}
+                        </td>
+                        <td className="w-px whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                          {a.county || '—'}
                         </td>
                         <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
                           {a.utilityProvider || '—'}
@@ -1737,7 +1744,7 @@ export default function MasterTrackerPage() {
                       {isExpanded && (
                         <tr className="bg-blue-50/20 dark:bg-blue-950/10">
                           <td
-                            colSpan={14}
+                            colSpan={15}
                             className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
                           >
                             <RowDetail

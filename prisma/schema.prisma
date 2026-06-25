@@ -764,6 +764,10 @@ model Appointment {
   customerName    String
   customerPhone   String
   address         String?
+  /// County the customer lives in, auto-derived from `address` via
+  /// Google geocoding at booking (and on address edits). Bare name,
+  /// no "County" suffix (e.g. "Maricopa"). Null until geocoded.
+  county          String?
   email           String?
   monthlyBill     String?
   utilityProvider String?
