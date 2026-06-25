@@ -15,6 +15,7 @@ import {
   Bell,
   BellRing,
   MessageSquare,
+  Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './theme-toggle'
@@ -26,10 +27,26 @@ import { ThemeToggle } from './theme-toggle'
  * Session read via /api/auth/session (avoids needing a SessionProvider
  * at the root — no other part of the app uses useSession either).
  */
-const NAV = [
+type NavItem = {
+  href: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  exact?: boolean
+  /** Only shown to admin-role agents (Mary / Hannah). */
+  adminOnly?: boolean
+}
+
+const NAV: NavItem[] = [
   { href: '/agent', label: 'Appointments', icon: CalendarCheck, exact: true },
   { href: '/agent/alerts', label: 'Alerts', icon: BellRing },
   { href: '/agent/master-tracker', label: 'Master Tracker', icon: Table },
+  // Client-reported status updates — only for admin-access agents.
+  {
+    href: '/agent/status-updates',
+    label: 'Status Updates',
+    icon: Inbox,
+    adminOnly: true,
+  },
   { href: '/agent/callbacks', label: 'Callbacks', icon: PhoneCall },
   { href: '/agent/reminders', label: 'Reminders', icon: Bell },
   { href: '/agent/messages', label: 'Messages', icon: MessageSquare },
@@ -40,7 +57,7 @@ const NAV = [
 export function AgentShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { data: session } = useQuery<{
-    user?: { name?: string | null; email?: string | null }
+    user?: { name?: string | null; email?: string | null; role?: string }
   }>({
     queryKey: ['session'],
     queryFn: async () => {
@@ -50,6 +67,9 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
     },
   })
   const agentName = session?.user?.name || session?.user?.email || ''
+  const isAdminAgent = session?.user?.role === 'admin'
+  // Hide admin-only nav items (Status Updates) from non-admin agents.
+  const navItems = NAV.filter((item) => !item.adminOnly || isAdminAgent)
 
   // Unread agent-alert count → red badge on the Alerts nav item so
   // Mary notices a customer decline / no-show without opening the
@@ -75,7 +95,7 @@ export function AgentShell({ children }: { children: React.ReactNode }) {
             <span className="font-semibold tracking-tight">Genisys Agent</span>
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active = item.exact
                 ? pathname === item.href
                 : pathname.startsWith(item.href)
