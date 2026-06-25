@@ -778,7 +778,7 @@ model Appointment {
   /// `status`. Drives customer/client automations: the timed reminders
   /// + client details fire only once this becomes "dispatched".
   /// not_dispatched | dispatched | confirmed | reschedule_requested |
-  /// rescheduled | needs_review
+  /// needs_review
   dispatchStatus  String   @default("not_dispatched")
   estimatedDealValue String?
   notes           String?  @db.Text

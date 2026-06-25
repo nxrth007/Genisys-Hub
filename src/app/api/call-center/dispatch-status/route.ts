@@ -26,7 +26,6 @@ const VALID_STATUSES = new Set([
   'dispatched',
   'confirmed',
   'reschedule_requested',
-  'rescheduled',
   'needs_review',
 ])
 

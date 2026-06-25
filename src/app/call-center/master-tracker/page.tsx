@@ -213,7 +213,6 @@ const DISPATCH_STATUSES = [
   { value: 'dispatched', label: 'Dispatched' },
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'reschedule_requested', label: 'Reschedule Requested' },
-  { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'needs_review', label: 'Needs Review' },
 ]
 
@@ -227,8 +226,6 @@ const DISPATCH_TONE: Record<string, string> = {
   // Amber = customer asked to move it — needs action.
   reschedule_requested:
     'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  // Violet = rebooked to a new time.
-  rescheduled: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
   // Rose = flagged for a human to look at.
   needs_review: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
 }
