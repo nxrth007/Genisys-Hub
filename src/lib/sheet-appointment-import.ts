@@ -120,7 +120,7 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
   // Already-imported keys (skip — Hub owns them now) + content keys of
   // existing NON-imported (Hub-booked) appointments so we never import
   // a sheet row that's really Mary's booking and duplicate it.
-  const [importedKeys, hubBooked] = await Promise.all([
+  const [importedKeys, hubBooked, claimedRows] = await Promise.all([
     prisma.appointment.findMany({
       where: { importSourceKey: { not: null } },
       select: { importSourceKey: true },
@@ -129,9 +129,24 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
       where: { importedFromSheet: false },
       select: { customerPhone: true, apptDateTime: true, clientId: true },
     }),
+    // Every DB appointment that already claims a master-sheet row —
+    // Hub-booked OR previously imported. Used below to hard-skip a
+    // primary sheet row that's already represented, so the per-client
+    // content key can't miss when the sheet routes a Hub booking to a
+    // DIFFERENT client than it was booked under (the exact cause of the
+    // sheet-import re-creating Mary/Hannah's appointments).
+    prisma.appointment.findMany({
+      where: { masterSheetRowNumber: { not: null } },
+      select: { masterSheetRowNumber: true },
+    }),
   ])
   const seenKeys = new Set(
     importedKeys.map((a) => a.importSourceKey).filter(Boolean) as string[],
+  )
+  const claimedRowNumbers = new Set(
+    claimedRows
+      .map((a) => a.masterSheetRowNumber)
+      .filter((n): n is number => n != null),
   )
   // Hub-booked dedup is keyed PER CLIENT: only skip a sheet row when
   // the SAME client already has a Hub-booked appointment for that
@@ -157,6 +172,18 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     const apptDate = new Date(r.apptDateTime)
     if (isNaN(apptDate.getTime())) continue
     result.scanned++
+
+    // HARD skip: a DB appointment already owns this primary sheet row
+    // (by masterSheetRowNumber). This is the robust, client-agnostic
+    // guard — it catches Hub-booked appointments whose sheet routing
+    // resolves to a different client than they were booked under, which
+    // the per-client content key below would miss and re-import as a
+    // duplicate. Secondary rows have their own rowNumber space, so the
+    // check is primary-only.
+    if (r.source.kind === 'primary' && claimedRowNumbers.has(r.rowNumber)) {
+      result.skippedExisting++
+      continue
+    }
 
     // Attribute to a client. Secondary sheets are explicitly linked
     // (source.clientId). Master-sheet rows go through the shared

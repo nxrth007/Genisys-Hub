@@ -362,7 +362,10 @@ export async function POST(req: NextRequest) {
       // appointments don't block a genuine re-book.
       const phone10 = (body.customerPhone || '').replace(/\D/g, '').slice(-10)
       if (phone10.length === 10) {
-        const DUP_WINDOW_MS = 2 * 60 * 60 * 1000
+        // ±6h so a same-day re-book at a corrected time (e.g. 4 PM vs
+        // 7 PM) is still caught as a duplicate, while a genuine next-day
+        // appointment (~24h away) is allowed through.
+        const DUP_WINDOW_MS = 6 * 60 * 60 * 1000
         const near = await tx.appointment.findMany({
           where: {
             clientId: client.id,
