@@ -120,41 +120,34 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
   // Already-imported keys (skip — Hub owns them now) + content keys of
   // existing NON-imported (Hub-booked) appointments so we never import
   // a sheet row that's really Mary's booking and duplicate it.
-  const [importedKeys, hubBooked] = await Promise.all([
+  const [importedKeys, existingActive] = await Promise.all([
     prisma.appointment.findMany({
       where: { importSourceKey: { not: null } },
       select: { importSourceKey: true },
     }),
     prisma.appointment.findMany({
-      where: { importedFromSheet: false },
-      select: { customerPhone: true, apptDateTime: true, clientId: true },
+      where: { status: { not: 'cancelled' } },
+      select: { customerPhone: true, apptDateTime: true },
     }),
   ])
   const seenKeys = new Set(
     importedKeys.map((a) => a.importSourceKey).filter(Boolean) as string[],
   )
-  // IDENTITY guard against duplicating a REAL Hub booking: phone + exact
-  // appointment time of every non-imported appointment, CLIENT-AGNOSTIC.
-  // This is what stops the import re-creating Mary/Hannah's bookings even
-  // when the sheet routes the row to a different client than it was
-  // booked under. Keyed on a real booking existing (not on rowNumber,
-  // which is corrupted, and not per-client, which missed) — so pure
-  // sheet-only imports like Brighton's are never over-suppressed.
-  const realBookingKeys = new Set<string>()
-  for (const a of hubBooked) {
+  // IDENTITY guard: phone + EXACT appointment time of every existing
+  // (non-cancelled) appointment — imported OR real, client-agnostic. The
+  // import skips a sheet row whose customer + time is already in the DB,
+  // so it never creates a second copy of a booking (an agent's OR a
+  // prior import's). This is what actually stops the duplication AND
+  // makes a cleanup stick — once a duplicate is removed, the ONE kept
+  // copy still covers that identity, so the row isn't re-imported.
+  //   - NOT rowNumber-based: that field is corrupted (shared row numbers)
+  //   - EXACT time: two genuinely-different appointments at different
+  //     times keep their own keys, so nothing legit is over-suppressed
+  //   - grown in-run below: two identical rows in ONE scan collapse too
+  const identityKeys = new Set<string>()
+  for (const a of existingActive) {
     const p = phoneDigits(a.customerPhone)
-    if (p) realBookingKeys.add(`${p}|${a.apptDateTime.toISOString()}`)
-  }
-  // Per-client content key (hour granularity) — kept as a secondary
-  // guard for near-time drift within the same client.
-  const hubContentKeys = new Set<string>()
-  for (const a of hubBooked) {
-    const p = phoneDigits(a.customerPhone)
-    if (p) {
-      hubContentKeys.add(
-        `${a.clientId ?? 'none'}|${p}|${a.apptDateTime.toISOString().slice(0, 13)}`,
-      )
-    }
+    if (p) identityKeys.add(`${p}|${a.apptDateTime.toISOString()}`)
   }
 
   const importAgentId = await getImportAgentUserId()
@@ -167,14 +160,13 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
     if (isNaN(apptDate.getTime())) continue
     result.scanned++
 
-    // IDENTITY skip: a REAL Hub booking already exists for this exact
-    // customer (phone) + exact appointment time, under ANY client. This
-    // is the robust, client-agnostic, rowNumber-independent guard that
-    // stops the import from re-creating an agent's booking as a second
-    // copy. Only fires when a real (non-imported) booking exists, so
-    // sheet-only imports are never suppressed.
+    // IDENTITY skip: an appointment for this exact customer (phone) +
+    // exact time already exists (real or a prior import), under ANY
+    // client. Client-agnostic and rowNumber-independent — the robust
+    // guard that stops the import re-creating a booking as a second copy.
     const rp = phoneDigits(r.customerPhone)
-    if (rp && realBookingKeys.has(`${rp}|${apptDate.toISOString()}`)) {
+    const idKey = rp ? `${rp}|${apptDate.toISOString()}` : null
+    if (idKey && identityKeys.has(idKey)) {
       result.skippedHubBooked++
       continue
     }
@@ -211,20 +203,6 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
       continue
     }
 
-    // Don't duplicate a Hub-booked appointment for the SAME client +
-    // same customer + same hour. Per-client so a booking under a
-    // different/null client doesn't suppress this client's row.
-    const p = phoneDigits(r.customerPhone)
-    if (
-      p &&
-      hubContentKeys.has(
-        `${clientId}|${p}|${apptDate.toISOString().slice(0, 13)}`,
-      )
-    ) {
-      result.skippedHubBooked++
-      continue
-    }
-
     try {
       await prisma.appointment.create({
         data: {
@@ -253,6 +231,7 @@ export async function syncSheetAppointmentsToDb(): Promise<ImportResult> {
         },
       })
       seenKeys.add(importSourceKey)
+      if (idKey) identityKeys.add(idKey)
       importedClients.add(clientNameById.get(clientId) ?? clientId)
       result.imported++
     } catch (err) {
