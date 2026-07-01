@@ -3,24 +3,26 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 
 /**
- * GET  /api/admin/duplicate-cleanup            → dry-run report (read-only)
- * POST /api/admin/duplicate-cleanup?confirm=1  → delete the sheet-import copies
+ * GET  /api/admin/duplicate-cleanup                            → report (read-only)
+ * GET  /api/admin/duplicate-cleanup?confirm=yes-remove-import-copies → delete
  *
- * Cleans up the duplicate appointments the 5-min sheet-import created
- * before the dedup fix (commit 51c0f02). SAFE target only: an appointment
- * with importedFromSheet=true whose masterSheetRowNumber is ALSO claimed
- * by a REAL Hub booking (importedFromSheet=false) — i.e. the import made
- * a second copy of a row an agent already booked. We delete the import
- * copy and keep the real booking. AppointmentReminder + edit logs cascade
- * on delete, so no orphans.
+ * Removes the duplicate appointments the sheet-import created before the
+ * dedup fix. Matching is by CUSTOMER IDENTITY — normalized phone + exact
+ * appointment time — NOT masterSheetRowNumber (that field is corrupted:
+ * different customers share the same row number, so it can't be trusted).
  *
- * `otherSuspected` surfaces content-based look-alikes (same phone + same
- * appt hour) that are NOT the safe import-copy pattern — e.g. an agent
- * re-booking at a different time. These are REPORTED only, never
- * auto-deleted, because either copy could be the real one.
+ * Rules, per identity group (same phone + same apptDateTime, >1 row):
+ *   - If a REAL booking (importedFromSheet=false) exists → delete every
+ *     import copy in the group, keep all real bookings.
+ *   - If the group is ALL import copies → keep one, delete the rest.
+ * A real agent booking is NEVER deleted. Groups with more than one REAL
+ * booking (e.g. same customer entered under two clients) are flagged for
+ * manual review, but their import copies are still safe to remove.
  *
- * Admin-only. The dry-run GET touches nothing.
+ * Admin-only. The default GET is read-only.
  */
+
+const DELETE_TOKEN = 'yes-remove-import-copies'
 
 function digits10(raw: string | null | undefined): string {
   return (raw ?? '').replace(/\D/g, '').slice(-10)
@@ -28,187 +30,128 @@ function digits10(raw: string | null | undefined): string {
 
 async function requireAdmin() {
   const session = await auth()
-  const role = (session?.user as { role?: string } | undefined)?.role
-  return role === 'admin'
+  return (session?.user as { role?: string } | undefined)?.role === 'admin'
+}
+
+type Row = {
+  id: string
+  customerName: string
+  customerPhone: string
+  apptDateTime: Date
+  importedFromSheet: boolean
+  client: { name: string } | null
+  agent: { email: string } | null
 }
 
 async function buildReport() {
-  // Real Hub bookings that own a master-sheet row.
-  const realRows = await prisma.appointment.findMany({
-    where: { importedFromSheet: false, masterSheetRowNumber: { not: null } },
-    select: { masterSheetRowNumber: true },
-  })
-  const realRowSet = new Set(
-    realRows.map((r) => r.masterSheetRowNumber).filter((n): n is number => n != null),
-  )
-
-  // Import copies sitting on one of those same rows → safe to remove.
-  const importCopies = realRowSet.size
-    ? await prisma.appointment.findMany({
-        where: {
-          importedFromSheet: true,
-          masterSheetRowNumber: { in: [...realRowSet] },
-        },
-        select: {
-          id: true,
-          customerName: true,
-          customerPhone: true,
-          apptDateTime: true,
-          masterSheetRowNumber: true,
-          client: { select: { name: true } },
-          agent: { select: { email: true } },
-        },
-        orderBy: { masterSheetRowNumber: 'asc' },
-      })
-    : []
-
-  // For each import copy, show the real booking on the same row it maps to.
-  const keepersByRow = new Map<
-    number,
-    { id: string; customerName: string; client: string | null; agent: string }
-  >()
-  if (importCopies.length) {
-    const keepers = await prisma.appointment.findMany({
-      where: {
-        importedFromSheet: false,
-        masterSheetRowNumber: {
-          in: importCopies
-            .map((c) => c.masterSheetRowNumber)
-            .filter((n): n is number => n != null),
-        },
-      },
-      select: {
-        id: true,
-        customerName: true,
-        masterSheetRowNumber: true,
-        client: { select: { name: true } },
-        agent: { select: { email: true } },
-      },
-    })
-    for (const k of keepers) {
-      if (k.masterSheetRowNumber != null && !keepersByRow.has(k.masterSheetRowNumber)) {
-        keepersByRow.set(k.masterSheetRowNumber, {
-          id: k.id,
-          customerName: k.customerName,
-          client: k.client?.name ?? null,
-          agent: k.agent?.email ?? '',
-        })
-      }
-    }
-  }
-
-  const toRemove = importCopies.map((c) => ({
-    row: c.masterSheetRowNumber,
-    remove: {
-      id: c.id,
-      customer: c.customerName,
-      phone: c.customerPhone,
-      when: c.apptDateTime,
-      client: c.client?.name ?? null,
-      agent: c.agent?.email ?? '',
-    },
-    keep: c.masterSheetRowNumber != null ? keepersByRow.get(c.masterSheetRowNumber) : null,
-  }))
-
-  // Content-based look-alikes NOT covered above (e.g. agent re-books at a
-  // different time). Report only.
-  const removeIds = new Set(importCopies.map((c) => c.id))
-  const all = await prisma.appointment.findMany({
+  const all: Row[] = await prisma.appointment.findMany({
     where: { status: { not: 'cancelled' } },
     select: {
       id: true,
       customerName: true,
       customerPhone: true,
       apptDateTime: true,
-      clientId: true,
       importedFromSheet: true,
       client: { select: { name: true } },
       agent: { select: { email: true } },
     },
   })
-  const byContent = new Map<string, typeof all>()
+
+  // Group by identity: normalized phone + exact appointment time.
+  const groups = new Map<string, Row[]>()
   for (const a of all) {
     const p = digits10(a.customerPhone)
     if (!p) continue
-    const key = `${p}|${a.apptDateTime.toISOString().slice(0, 13)}` // phone + hour
-    const arr = byContent.get(key) ?? []
-    arr.push(a)
-    byContent.set(key, arr)
+    const key = `${p}|${a.apptDateTime.toISOString()}`
+    const arr = groups.get(key)
+    if (arr) arr.push(a)
+    else groups.set(key, [a])
   }
-  const otherSuspected: Array<{
+
+  const safeDeleteIds: string[] = []
+  const duplicateGroups: Array<{
+    customer: string
     phone: string
-    copies: Array<{
-      id: string
-      customer: string
-      when: Date
-      client: string | null
-      agent: string
-      imported: boolean
-    }>
+    when: string
+    keep: Array<{ id: string; client: string | null; agent: string; imported: boolean }>
+    delete: Array<{ id: string; client: string | null; agent: string }>
+    multipleRealBookings: boolean
   }> = []
-  for (const [, arr] of byContent) {
+
+  for (const [, arr] of groups) {
     if (arr.length < 2) continue
-    // Skip groups already fully handled by the safe import-copy pass.
-    const remaining = arr.filter((a) => !removeIds.has(a.id))
-    if (remaining.length < 2) continue
-    otherSuspected.push({
-      phone: digits10(remaining[0].customerPhone),
-      copies: remaining.map((a) => ({
+    const reals = arr.filter((a) => !a.importedFromSheet)
+    const imports = arr.filter((a) => a.importedFromSheet)
+
+    let del: Row[]
+    let keep: Row[]
+    if (reals.length > 0) {
+      del = imports // drop every import copy, keep the real booking(s)
+      keep = reals
+    } else {
+      // All import copies — keep the lexicographically-first id, drop rest.
+      const sorted = [...imports].sort((a, b) => a.id.localeCompare(b.id))
+      keep = [sorted[0]]
+      del = sorted.slice(1)
+    }
+    if (del.length === 0) continue
+
+    safeDeleteIds.push(...del.map((a) => a.id))
+    duplicateGroups.push({
+      customer: arr[0].customerName,
+      phone: digits10(arr[0].customerPhone),
+      when: arr[0].apptDateTime.toISOString(),
+      keep: keep.map((a) => ({
         id: a.id,
-        customer: a.customerName,
-        when: a.apptDateTime,
         client: a.client?.name ?? null,
         agent: a.agent?.email ?? '',
         imported: a.importedFromSheet,
       })),
+      delete: del.map((a) => ({
+        id: a.id,
+        client: a.client?.name ?? null,
+        agent: a.agent?.email ?? '',
+      })),
+      multipleRealBookings: reals.length > 1,
     })
   }
 
-  return { toRemove, otherSuspected, safeRemoveIds: [...removeIds] }
+  return { duplicateGroups, safeDeleteIds }
 }
-
-// Explicit token required to actually delete — an admin has to type it
-// into the URL, so no prefetch/bookmark can trigger a deletion.
-const DELETE_TOKEN = 'yes-remove-import-copies'
 
 async function handle(req: Request) {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
-  const url = new URL(req.url)
-  const confirm = url.searchParams.get('confirm')
+  const confirm = new URL(req.url).searchParams.get('confirm')
+  const { duplicateGroups, safeDeleteIds } = await buildReport()
 
-  const { toRemove, otherSuspected, safeRemoveIds } = await buildReport()
-
-  // DELETE path — plain GET/POST with ?confirm=<token>.
   if (confirm === DELETE_TOKEN) {
-    if (safeRemoveIds.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        deleted: 0,
-        note: 'No import-copy duplicates found — nothing to delete.',
-      })
+    if (safeDeleteIds.length === 0) {
+      return NextResponse.json({ ok: true, deleted: 0, note: 'Nothing to delete.' })
     }
+    // Belt-and-suspenders: the delete filter ITSELF requires
+    // importedFromSheet=true, so a real booking can never be removed even
+    // if the id list were somehow wrong.
     const res = await prisma.appointment.deleteMany({
-      where: { id: { in: safeRemoveIds }, importedFromSheet: true },
+      where: { id: { in: safeDeleteIds }, importedFromSheet: true },
     })
     return NextResponse.json({
       ok: true,
       deleted: res.count,
-      note: `Deleted ${res.count} sheet-import duplicate copies; every real Hub booking was kept.`,
-      otherSuspectedRemaining: otherSuspected.length,
+      note: `Deleted ${res.count} duplicate import copies. Every real agent booking was kept.`,
     })
   }
 
-  // Default — read-only report.
+  const flagged = duplicateGroups.filter((g) => g.multipleRealBookings)
   return NextResponse.json({
     ok: true,
     dryRun: true,
-    importCopiesToRemove: toRemove,
-    importCopyCount: toRemove.length,
-    otherSuspectedGroups: otherSuspected,
-    otherSuspectedCount: otherSuspected.length,
-    howToDelete: `Re-open this URL with ?confirm=${DELETE_TOKEN} to delete the ${toRemove.length} import copies (keeps every real booking). The "otherSuspected" groups are look-alikes (e.g. agent re-books) that are NOT auto-deleted — review by hand.`,
+    duplicateGroups,
+    groupCount: duplicateGroups.length,
+    importCopiesToDelete: safeDeleteIds.length,
+    reviewFlaggedGroups: flagged.length,
+    howToDelete: `Re-open this URL with ?confirm=${DELETE_TOKEN} to delete the ${safeDeleteIds.length} import copies. Every "keep" is the same customer as its "delete" (matched by phone + exact time), and the delete filter only ever removes importedFromSheet=true rows. Groups where multipleRealBookings=true have the SAME customer under two real client bookings — the import copies are still removed, but you should pick the correct client for those by hand.`,
   })
 }
 
