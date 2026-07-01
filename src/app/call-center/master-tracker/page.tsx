@@ -897,13 +897,23 @@ export default function MasterTrackerPage() {
     else if (client !== 'all') list = list.filter((a) => a.client?.id === client)
     if (status !== 'all') list = list.filter((a) => a.status === status)
     if (agent !== 'all') list = list.filter((a) => a.agent.id === agent)
+    // The From/To calendar filters by when a row was ADDED to the tracker
+    // (its Logged At), NOT the appointment date — that's what Alex wants
+    // ("which days appointments are added"). Falls back to the DB
+    // createdAt for rows whose sheet Logged At cell is blank.
     if (since) {
       const sinceDate = new Date(since)
-      list = list.filter((a) => new Date(a.apptDateTime) >= sinceDate)
+      list = list.filter((a) => {
+        const added = a.loggedAt ?? a.createdAt
+        return !!added && new Date(added) >= sinceDate
+      })
     }
     if (until) {
       const untilDate = new Date(until + 'T23:59:59')
-      list = list.filter((a) => new Date(a.apptDateTime) <= untilDate)
+      list = list.filter((a) => {
+        const added = a.loggedAt ?? a.createdAt
+        return !!added && new Date(added) <= untilDate
+      })
     }
     if (submittedSearch) {
       const q = submittedSearch.toLowerCase()
@@ -1251,7 +1261,12 @@ export default function MasterTrackerPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">From</label>
+            <label
+              className="mb-1 block text-xs font-medium text-zinc-500"
+              title="Filters by the day each appointment was ADDED to the tracker (Logged At), not the appointment date."
+            >
+              Added from
+            </label>
             <input
               type="date"
               value={since}
@@ -1260,7 +1275,12 @@ export default function MasterTrackerPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">To</label>
+            <label
+              className="mb-1 block text-xs font-medium text-zinc-500"
+              title="Filters by the day each appointment was ADDED to the tracker (Logged At), not the appointment date."
+            >
+              Added to
+            </label>
             <input
               type="date"
               value={until}
