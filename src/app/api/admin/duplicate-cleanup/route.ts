@@ -1,31 +1,36 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { prisma } from '@/lib/prisma'
+import { readAllSheetRows } from '@/lib/secondary-sheets'
+import { deleteMasterTableRow } from '@/lib/drive'
 
 /**
- * GET  /api/admin/duplicate-cleanup                            → report (read-only)
- * GET  /api/admin/duplicate-cleanup?confirm=yes-remove-import-copies → delete
+ * GET  /api/admin/duplicate-cleanup                            → dry-run report
+ * GET  /api/admin/duplicate-cleanup?confirm=yes-remove-duplicate-rows → delete
  *
- * Removes the duplicate appointments the sheet-import created before the
- * dedup fix. Matching is by CUSTOMER IDENTITY — normalized phone + exact
- * appointment time — NOT masterSheetRowNumber (that field is corrupted:
- * different customers share the same row number, so it can't be trusted).
+ * Removes duplicate rows from the master Google Sheet (which is what the
+ * master tracker displays). Groups master-table rows by customer
+ * identity — normalized phone + exact appointment time — and per group
+ * KEEPS the newest (by the sheet's "Logged At" timestamp, tie-break the
+ * lowest row number = the original) and deletes the rest.
  *
- * Rules, per identity group (same phone + same apptDateTime, >1 row):
- *   - If a REAL booking (importedFromSheet=false) exists → delete every
- *     import copy in the group, keep all real bookings.
- *   - If the group is ALL import copies → keep one, delete the rest.
- * A real agent booking is NEVER deleted. Groups with more than one REAL
- * booking (e.g. same customer entered under two clients) are flagged for
- * manual review, but their import copies are still safe to remove.
+ * Deletes are done bottom-up (highest row number first) so removing one
+ * row can't shift the position of a not-yet-deleted row. Only touches
+ * MASTER-table (primary) rows; secondary partner sheets are untouched.
  *
- * Admin-only. The default GET is read-only.
+ * Admin-only. Default GET is read-only. Capped per run as a backstop.
  */
 
-const DELETE_TOKEN = 'yes-remove-import-copies'
+const DELETE_TOKEN = 'yes-remove-duplicate-rows'
+const MAX_DELETIONS_PER_RUN = 60
 
 function digits10(raw: string | null | undefined): string {
   return (raw ?? '').replace(/\D/g, '').slice(-10)
+}
+
+function loggedAtMs(raw: string | null): number {
+  if (!raw) return 0
+  const t = new Date(raw).getTime()
+  return Number.isFinite(t) ? t : 0
 }
 
 async function requireAdmin() {
@@ -33,91 +38,65 @@ async function requireAdmin() {
   return (session?.user as { role?: string } | undefined)?.role === 'admin'
 }
 
-type Row = {
-  id: string
-  customerName: string
-  customerPhone: string
-  apptDateTime: Date
-  importedFromSheet: boolean
-  createdAt: Date
-  masterSheetRowNumber: number | null
-  client: { name: string } | null
-  agent: { email: string } | null
-}
+async function buildPlan() {
+  const rows = await readAllSheetRows()
 
-async function buildReport() {
-  const all: Row[] = await prisma.appointment.findMany({
-    where: { status: { not: 'cancelled' } },
-    select: {
-      id: true,
-      customerName: true,
-      customerPhone: true,
-      apptDateTime: true,
-      importedFromSheet: true,
-      createdAt: true,
-      masterSheetRowNumber: true,
-      client: { select: { name: true } },
-      agent: { select: { email: true } },
-    },
-  })
+  // Master-table rows only (deleteMasterTableRow operates on that sheet),
+  // with a usable phone + appointment time.
+  const primary = rows.filter(
+    (r) =>
+      r.source.kind === 'primary' &&
+      !!digits10(r.customerPhone) &&
+      !!r.apptDateTime,
+  )
 
-  // Group by identity: normalized phone + exact appointment time.
-  const groups = new Map<string, Row[]>()
-  for (const a of all) {
-    const p = digits10(a.customerPhone)
-    if (!p) continue
-    const key = `${p}|${a.apptDateTime.toISOString()}`
+  const groups = new Map<string, typeof primary>()
+  for (const r of primary) {
+    const key = `${digits10(r.customerPhone)}|${r.apptDateTime}`
     const arr = groups.get(key)
-    if (arr) arr.push(a)
-    else groups.set(key, [a])
+    if (arr) arr.push(r)
+    else groups.set(key, [r])
   }
 
-  const safeDeleteIds: string[] = []
-  const duplicateGroups: Array<{
+  const plan: Array<{
     customer: string
     phone: string
-    when: string
-    copies: Array<{
-      action: string
-      client: string | null
-      agent: string
-      imported: boolean
-      loggedAt: string
-      masterSheetRow: number | null
-    }>
+    when: string | null
+    keep: { row: number; agent: string | null; loggedAt: string | null }
+    delete: Array<{ row: number; agent: string | null; loggedAt: string | null }>
   }> = []
+  const deleteRowNumbers: number[] = []
 
   for (const [, arr] of groups) {
     if (arr.length < 2) continue
-
-    // Newest first — KEEP the newest, everything below it is a hand-delete
-    // target (per Alex: keep the newest copy of each).
-    const sorted = [...arr].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-    )
-
-    duplicateGroups.push({
-      customer: arr[0].customerName,
-      phone: digits10(arr[0].customerPhone),
-      when: arr[0].apptDateTime.toISOString(),
-      copies: sorted.map((a, i) => ({
-        action: i === 0 ? 'KEEP (newest)' : 'DELETE',
-        client: a.client?.name ?? null,
-        agent: a.agent?.email ?? '',
-        imported: a.importedFromSheet,
-        loggedAt: a.createdAt.toISOString(),
-        masterSheetRow: a.masterSheetRowNumber,
+    // Newest first by Logged At; tie → lowest row number (the original).
+    const sorted = [...arr].sort((a, b) => {
+      const d = loggedAtMs(b.loggedAt) - loggedAtMs(a.loggedAt)
+      return d !== 0 ? d : a.rowNumber - b.rowNumber
+    })
+    const keeper = sorted[0]
+    const dels = sorted.slice(1)
+    plan.push({
+      customer: keeper.customerName,
+      phone: digits10(keeper.customerPhone),
+      when: keeper.apptDateTime,
+      keep: {
+        row: keeper.rowNumber,
+        agent: keeper.agentName,
+        loggedAt: keeper.loggedAt,
+      },
+      delete: dels.map((d) => ({
+        row: d.rowNumber,
+        agent: d.agentName,
+        loggedAt: d.loggedAt,
       })),
     })
-
-    // For the optional auto-delete path, only ever queue IMPORT copies
-    // (never a real agent booking), keeping the newest of the whole group.
-    safeDeleteIds.push(
-      ...sorted.slice(1).filter((a) => a.importedFromSheet).map((a) => a.id),
-    )
+    deleteRowNumbers.push(...dels.map((d) => d.rowNumber))
   }
 
-  return { duplicateGroups, safeDeleteIds }
+  // Delete bottom-up so earlier deletions don't shift later row numbers.
+  deleteRowNumbers.sort((a, b) => b - a)
+  return { plan, deleteRowNumbers }
 }
 
 async function handle(req: Request) {
@@ -125,31 +104,43 @@ async function handle(req: Request) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
   const confirm = new URL(req.url).searchParams.get('confirm')
-  const { duplicateGroups, safeDeleteIds } = await buildReport()
+  const { plan, deleteRowNumbers } = await buildPlan()
 
   if (confirm === DELETE_TOKEN) {
-    if (safeDeleteIds.length === 0) {
-      return NextResponse.json({ ok: true, deleted: 0, note: 'Nothing to delete.' })
+    if (deleteRowNumbers.length > MAX_DELETIONS_PER_RUN) {
+      return NextResponse.json(
+        {
+          error: `Safety cap: ${deleteRowNumbers.length} rows flagged (max ${MAX_DELETIONS_PER_RUN}/run). That's more than expected — look at the dry-run before proceeding, then tell Claude.`,
+        },
+        { status: 400 },
+      )
     }
-    // Belt-and-suspenders: the delete filter ITSELF requires
-    // importedFromSheet=true, so a real booking can never be removed even
-    // if the id list were somehow wrong.
-    const res = await prisma.appointment.deleteMany({
-      where: { id: { in: safeDeleteIds }, importedFromSheet: true },
-    })
+    let deleted = 0
+    const failed: number[] = []
+    // Descending order — see buildPlan().
+    for (const rowNumber of deleteRowNumbers) {
+      try {
+        await deleteMasterTableRow(rowNumber)
+        deleted++
+      } catch {
+        failed.push(rowNumber)
+      }
+    }
     return NextResponse.json({
       ok: true,
-      deleted: res.count,
-      note: `Deleted ${res.count} duplicate import copies. Every real agent booking was kept.`,
+      deleted,
+      failedRows: failed,
+      note: `Deleted ${deleted} duplicate sheet rows (kept the newest of each). Refresh the master tracker — the DUP chips should be gone. Re-run the dry-run to confirm 0 groups remain.`,
     })
   }
 
   return NextResponse.json({
     ok: true,
     dryRun: true,
-    duplicateGroups,
-    duplicateCustomers: duplicateGroups.length,
-    note: `Each group is one customer's duplicate rows, newest first. On the master tracker, KEEP the "KEEP (newest)" copy and delete the ones marked DELETE (match them by customer + agent + logged-at). NOTE: deleting on the master tracker removes the SHEET row, which is what you want here — the DB-only ?confirm delete does NOT change the tracker.`,
+    duplicateCustomers: plan.length,
+    rowsToDelete: deleteRowNumbers.length,
+    plan,
+    howToDelete: `Read-only. Each group KEEPs the newest row (by Logged At) and lists the rows it will DELETE. To actually remove them from the sheet, re-open with ?confirm=${DELETE_TOKEN}. This deletes real Google-Sheet rows, so glance over the plan first.`,
   })
 }
 
