@@ -39,6 +39,8 @@ type Row = {
   customerPhone: string
   apptDateTime: Date
   importedFromSheet: boolean
+  createdAt: Date
+  masterSheetRowNumber: number | null
   client: { name: string } | null
   agent: { email: string } | null
 }
@@ -52,6 +54,8 @@ async function buildReport() {
       customerPhone: true,
       apptDateTime: true,
       importedFromSheet: true,
+      createdAt: true,
+      masterSheetRowNumber: true,
       client: { select: { name: true } },
       agent: { select: { email: true } },
     },
@@ -73,47 +77,44 @@ async function buildReport() {
     customer: string
     phone: string
     when: string
-    keep: Array<{ id: string; client: string | null; agent: string; imported: boolean }>
-    delete: Array<{ id: string; client: string | null; agent: string }>
-    multipleRealBookings: boolean
+    copies: Array<{
+      action: string
+      client: string | null
+      agent: string
+      imported: boolean
+      loggedAt: string
+      masterSheetRow: number | null
+    }>
   }> = []
 
   for (const [, arr] of groups) {
     if (arr.length < 2) continue
-    const reals = arr.filter((a) => !a.importedFromSheet)
-    const imports = arr.filter((a) => a.importedFromSheet)
 
-    let del: Row[]
-    let keep: Row[]
-    if (reals.length > 0) {
-      del = imports // drop every import copy, keep the real booking(s)
-      keep = reals
-    } else {
-      // All import copies — keep the lexicographically-first id, drop rest.
-      const sorted = [...imports].sort((a, b) => a.id.localeCompare(b.id))
-      keep = [sorted[0]]
-      del = sorted.slice(1)
-    }
-    if (del.length === 0) continue
+    // Newest first — KEEP the newest, everything below it is a hand-delete
+    // target (per Alex: keep the newest copy of each).
+    const sorted = [...arr].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    )
 
-    safeDeleteIds.push(...del.map((a) => a.id))
     duplicateGroups.push({
       customer: arr[0].customerName,
       phone: digits10(arr[0].customerPhone),
       when: arr[0].apptDateTime.toISOString(),
-      keep: keep.map((a) => ({
-        id: a.id,
+      copies: sorted.map((a, i) => ({
+        action: i === 0 ? 'KEEP (newest)' : 'DELETE',
         client: a.client?.name ?? null,
         agent: a.agent?.email ?? '',
         imported: a.importedFromSheet,
+        loggedAt: a.createdAt.toISOString(),
+        masterSheetRow: a.masterSheetRowNumber,
       })),
-      delete: del.map((a) => ({
-        id: a.id,
-        client: a.client?.name ?? null,
-        agent: a.agent?.email ?? '',
-      })),
-      multipleRealBookings: reals.length > 1,
     })
+
+    // For the optional auto-delete path, only ever queue IMPORT copies
+    // (never a real agent booking), keeping the newest of the whole group.
+    safeDeleteIds.push(
+      ...sorted.slice(1).filter((a) => a.importedFromSheet).map((a) => a.id),
+    )
   }
 
   return { duplicateGroups, safeDeleteIds }
@@ -143,15 +144,12 @@ async function handle(req: Request) {
     })
   }
 
-  const flagged = duplicateGroups.filter((g) => g.multipleRealBookings)
   return NextResponse.json({
     ok: true,
     dryRun: true,
     duplicateGroups,
-    groupCount: duplicateGroups.length,
-    importCopiesToDelete: safeDeleteIds.length,
-    reviewFlaggedGroups: flagged.length,
-    howToDelete: `Re-open this URL with ?confirm=${DELETE_TOKEN} to delete the ${safeDeleteIds.length} import copies. Every "keep" is the same customer as its "delete" (matched by phone + exact time), and the delete filter only ever removes importedFromSheet=true rows. Groups where multipleRealBookings=true have the SAME customer under two real client bookings — the import copies are still removed, but you should pick the correct client for those by hand.`,
+    duplicateCustomers: duplicateGroups.length,
+    note: `Each group is one customer's duplicate rows, newest first. On the master tracker, KEEP the "KEEP (newest)" copy and delete the ones marked DELETE (match them by customer + agent + logged-at). NOTE: deleting on the master tracker removes the SHEET row, which is what you want here — the DB-only ?confirm delete does NOT change the tracker.`,
   })
 }
 
