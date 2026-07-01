@@ -353,6 +353,47 @@ export async function POST(req: NextRequest) {
   let appt
   try {
     appt = await prisma.$transaction(async (tx) => {
+      // Identity dedup — HARD block on re-entering an appointment that
+      // already exists: same customer phone + same client + within ~2h
+      // of the same time. This is the guard that actually stops the
+      // master-tracker duplicates — agents should EDIT an existing
+      // appointment, not re-book it. Runs inside the transaction so a
+      // double-submit race can't slip two rows through. Cancelled
+      // appointments don't block a genuine re-book.
+      const phone10 = (body.customerPhone || '').replace(/\D/g, '').slice(-10)
+      if (phone10.length === 10) {
+        const DUP_WINDOW_MS = 2 * 60 * 60 * 1000
+        const near = await tx.appointment.findMany({
+          where: {
+            clientId: client.id,
+            apptDateTime: {
+              gte: new Date(parsedDate.getTime() - DUP_WINDOW_MS),
+              lte: new Date(parsedDate.getTime() + DUP_WINDOW_MS),
+            },
+            status: { notIn: ['cancelled'] },
+          },
+          select: {
+            id: true,
+            customerName: true,
+            customerPhone: true,
+            apptDateTime: true,
+            masterSheetRowNumber: true,
+          },
+        })
+        const dup = near.find(
+          (a) => a.customerPhone.replace(/\D/g, '').slice(-10) === phone10,
+        )
+        if (dup) {
+          const e = new Error('duplicate') as Error & {
+            __duplicate?: true
+            existing?: typeof dup
+          }
+          e.__duplicate = true
+          e.existing = dup
+          throw e
+        }
+      }
+
       const currentConflicts = await findConflicts({
         apptDateTime: parsedDate,
         clientId: client.id,
@@ -396,6 +437,39 @@ export async function POST(req: NextRequest) {
       })
     })
   } catch (err) {
+    if ((err as { __duplicate?: boolean }).__duplicate) {
+      const ex = (
+        err as {
+          existing?: {
+            customerName: string
+            apptDateTime: Date
+            masterSheetRowNumber: number | null
+          }
+        }
+      ).existing
+      const when = ex
+        ? new Date(ex.apptDateTime).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          })
+        : ''
+      return NextResponse.json(
+        {
+          error: `This looks like a duplicate — ${
+            ex?.customerName || 'this customer'
+          } already has an appointment with this client around ${when}${
+            ex?.masterSheetRowNumber
+              ? ` (master-tracker row ${ex.masterSheetRowNumber})`
+              : ''
+          }. Edit that appointment instead of re-entering it.`,
+          code: 'DUPLICATE_APPOINTMENT',
+        },
+        { status: 409 },
+      )
+    }
     if ((err as { __conflict?: boolean }).__conflict) {
       return NextResponse.json(
         {
