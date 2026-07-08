@@ -148,18 +148,16 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
   // confirmed. Same gate the Slack channel sync applies.
   const dbDispatch = await prisma.appointment.findMany({
     select: {
-      masterSheetRowNumber: true,
       customerPhone: true,
       apptDateTime: true,
       dispatchStatus: true,
     },
   })
-  const dispatchByRow = new Map<number, string>()
+  // Keyed by CONTENT identity (phone + exact time), NOT sheet rowNumber
+  // — masterSheetRowNumber is corrupted and once leaked an unconfirmed
+  // lead by matching a different confirmed appointment's stale number.
   const dispatchByContent = new Map<string, string>()
   for (const a of dbDispatch) {
-    if (a.masterSheetRowNumber != null) {
-      dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
-    }
     const pk = normalizePhoneForKey(a.customerPhone)
     if (pk && a.apptDateTime) {
       dispatchByContent.set(
@@ -174,20 +172,18 @@ export async function syncClientAlertsFromSheet(): Promise<AlertResult> {
     if (!row.apptDateTime) continue
     if ((row.status || '').toLowerCase().includes('cancel')) continue
 
-    // Dispatch gate — hold until the Hub Dispatch Status is "confirmed".
-    const rowDispatchStatus =
-      dispatchByRow.get(row.rowNumber) ??
-      (() => {
-        const pk = normalizePhoneForKey(row.customerPhone)
-        if (pk && row.apptDateTime) {
-          const t = new Date(row.apptDateTime)
-          if (!isNaN(t.getTime())) {
-            return dispatchByContent.get(`${pk}|${t.toISOString()}`)
-          }
+    // Dispatch gate — hold until the Hub Dispatch Status is "confirmed",
+    // matched by phone + exact time (identity).
+    const rowDispatchStatus = (() => {
+      const pk = normalizePhoneForKey(row.customerPhone)
+      if (pk && row.apptDateTime) {
+        const t = new Date(row.apptDateTime)
+        if (!isNaN(t.getTime())) {
+          return dispatchByContent.get(`${pk}|${t.toISOString()}`)
         }
-        return undefined
-      })() ??
-      'not_dispatched'
+      }
+      return undefined
+    })() ?? 'not_dispatched'
     if (rowDispatchStatus !== 'confirmed') {
       result.skipped++
       continue

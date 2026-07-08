@@ -425,24 +425,21 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
 
   // Dispatch gate data: client Slack delivery only fires once the Hub
   // Dispatch Status is "confirmed". That status is a DB-only field, so
-  // map every appointment's dispatchStatus by sheet rowNumber (+ a
-  // phone/time content key as a fallback for rows whose number shifted)
-  // and skip any sheet row that isn't confirmed. A row with no DB
-  // appointment yet can't have been confirmed, so it's held too.
+  // map every appointment's dispatchStatus by CONTENT identity (phone +
+  // exact appointment time) and skip any sheet row that isn't confirmed.
+  // NOT by sheet rowNumber — masterSheetRowNumber is corrupted (rows
+  // shift, so it points at the wrong appointment), which once leaked an
+  // unconfirmed lead to a channel by matching a different confirmed
+  // appointment's stale row number. Content identity is position-proof.
   const dbDispatch = await prisma.appointment.findMany({
     select: {
-      masterSheetRowNumber: true,
       customerPhone: true,
       apptDateTime: true,
       dispatchStatus: true,
     },
   })
-  const dispatchByRow = new Map<number, string>()
   const dispatchByContent = new Map<string, string>()
   for (const a of dbDispatch) {
-    if (a.masterSheetRowNumber != null) {
-      dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
-    }
     const pk = normalizePhoneForKey(a.customerPhone)
     if (pk && a.apptDateTime) {
       dispatchByContent.set(
@@ -460,24 +457,18 @@ export async function syncClientDeliveriesFromSheet(): Promise<DeliveryResult> {
     if ((row.status || '').toLowerCase().includes('cancel')) continue
 
     // Dispatch gate — hold delivery until the Hub Dispatch Status is
-    // "confirmed". Look the row's appointment up by sheet rowNumber,
-    // then by phone+time content key; default to not_dispatched when no
-    // DB appointment exists yet. Anything not confirmed is held (the
-    // immediate confirm-time post + this cron both dedupe on the
-    // delivery ledger, so a confirmed row still only posts once).
-    const rowDispatchStatus =
-      dispatchByRow.get(row.rowNumber) ??
-      (() => {
-        const pk = normalizePhoneForKey(row.customerPhone)
-        if (pk && row.apptDateTime) {
-          const t = new Date(row.apptDateTime)
-          if (!isNaN(t.getTime())) {
-            return dispatchByContent.get(`${pk}|${t.toISOString()}`)
-          }
+    // "confirmed", matched by phone + exact time (identity). A row with
+    // no matching confirmed DB appointment is held.
+    const rowDispatchStatus = (() => {
+      const pk = normalizePhoneForKey(row.customerPhone)
+      if (pk && row.apptDateTime) {
+        const t = new Date(row.apptDateTime)
+        if (!isNaN(t.getTime())) {
+          return dispatchByContent.get(`${pk}|${t.toISOString()}`)
         }
-        return undefined
-      })() ??
-      'not_dispatched'
+      }
+      return undefined
+    })() ?? 'not_dispatched'
     if (rowDispatchStatus !== 'confirmed') {
       result.skipped++
       continue

@@ -238,12 +238,14 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
   // + appt time) and sheet rowNumber. Confirmation is exempt (it's the
   // booking-time FYI). A sheet row whose appointment isn't confirmed (or
   // has no DB appointment yet) gets only the confirmation, no timed set.
+  // Keyed by CONTENT identity (phone + appt time) ONLY, not sheet
+  // rowNumber — masterSheetRowNumber is corrupted (rows shift, so it
+  // points at the wrong appointment), which could arm reminders off a
+  // different confirmed appointment's stale row number.
   const dispatchByContent = new Map<string, string>()
-  const dispatchByRow = new Map<number, string>()
   {
     const dispatchAppts = await prisma.appointment.findMany({
       select: {
-        masterSheetRowNumber: true,
         customerPhone: true,
         apptDateTime: true,
         dispatchStatus: true,
@@ -252,9 +254,6 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
     for (const a of dispatchAppts) {
       const key = sheetContentKey(a.customerPhone, a.apptDateTime)
       if (key) dispatchByContent.set(key, a.dispatchStatus)
-      if (a.masterSheetRowNumber != null) {
-        dispatchByRow.set(a.masterSheetRowNumber, a.dispatchStatus)
-      }
     }
   }
 
@@ -375,13 +374,12 @@ export async function syncRemindersFromSheet(): Promise<SyncResult> {
 
       // Dispatch gate — the four timed reminders only arm once the
       // appointment's Dispatch Status is "confirmed". Match by content
-      // key first (phone + time, appointment-specific), then rowNumber;
-      // default to not_dispatched when there's no DB appointment yet.
-      // Confirmation is exempt (booking-time FYI).
+      // identity (phone + time) only; default to not_dispatched when
+      // there's no matching confirmed DB appointment. Confirmation is
+      // exempt (booking-time FYI).
       if (type !== 'confirmation') {
         const rowDispatch =
           (contentKey ? dispatchByContent.get(contentKey) : undefined) ??
-          dispatchByRow.get(r.rowNumber) ??
           'not_dispatched'
         if (rowDispatch !== 'confirmed') continue
       }
