@@ -23,6 +23,7 @@ import {
   UserPlus,
   Receipt,
   ChevronDown,
+  ChevronRight,
   KeyRound,
   CheckCircle2,
   Hourglass,
@@ -278,6 +279,8 @@ export default function ClientsPage() {
   const [editing, setEditing] = useState<ClientWithCounts | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<ClientWithCounts | null>(null)
+  // Paused section starts collapsed — tucked out of the way.
+  const [pausedOpen, setPausedOpen] = useState(false)
 
   // Session — used purely to decide whether to render the Delete
   // button. Server still independently enforces the email gate, so
@@ -378,10 +381,20 @@ export default function ClientsPage() {
   // Existing 'onboarding' clients that admin pre-filled manually
   // (contactName non-null) stay in the active list — those have
   // all the data needed to take real bookings.
-  const { activeClients, pendingClients } = useMemo(() => {
+  // Paused clients (lifecycle === 'paused') get pulled out of the live
+  // roster into their own tucked, collapsible section below — per Alex,
+  // active clients stay at the top. Pending/onboarding still split into
+  // their own bucket after that.
+  const { activeClients, pausedClients, pendingClients } = useMemo(() => {
     const pending = filtered.filter(awaitsSetup)
-    const rest = filtered.filter((c) => !awaitsSetup(c))
-    return { activeClients: rest, pendingClients: pending }
+    const setUp = filtered.filter((c) => !awaitsSetup(c))
+    const paused = setUp.filter((c) => c.lifecycle === 'paused')
+    const active = setUp.filter((c) => c.lifecycle !== 'paused')
+    return {
+      activeClients: active,
+      pausedClients: paused,
+      pendingClients: pending,
+    }
   }, [filtered])
 
   // Stats — all run over the unfiltered set so the cards show real
@@ -591,6 +604,36 @@ export default function ClientsPage() {
               <ClientRow key={c.id} client={c} onOpen={setActive} />
             ))}
           </ul>
+
+          {/* Paused section — tucked below the active roster, collapsed
+              by default. Paused clients take no bookings, so they're out
+              of the way but one click from view. */}
+          {pausedClients.length > 0 && (
+            <div className="mt-8">
+              <button
+                type="button"
+                onClick={() => setPausedOpen((v) => !v)}
+                className="mb-3 flex w-full items-center gap-2 text-left"
+              >
+                {pausedOpen ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-400/70" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Paused · {pausedClients.length}
+                </h3>
+              </button>
+              {pausedOpen && (
+                <ul className="opacity-80">
+                  {pausedClients.map((c) => (
+                    <ClientRow key={c.id} client={c} onOpen={setActive} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Pending section. Two sub-states share this bucket:
               self-registered clients who haven't been approved yet,
