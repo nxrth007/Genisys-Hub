@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
-import { Wallet } from 'lucide-react'
 import { auth } from '@/auth'
 import { canAccessPayments } from '@/lib/payments-access'
 import { PageHeader } from '@/components/ui/page-header'
+import { PaymentsTabs } from './payments-tabs'
 
 /**
  * /payments — admin-only section, gated to a tight email allowlist
@@ -10,7 +10,8 @@ import { PageHeader } from '@/components/ui/page-header'
  * though they're admins. Server-side redirect enforces it regardless of
  * the nav link being hidden for them.
  *
- * Placeholder for now — scaffolded per Alex; content to follow.
+ * Tabs: Stripe + Mercury dashboards (data proxied server-side via the
+ * Vault keys) and a blank Automation Log.
  */
 export default async function PaymentsPage() {
   const session = await auth()
@@ -24,20 +25,7 @@ export default async function PaymentsPage() {
         title="Payments"
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Payments' }]}
       />
-      <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
-        <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-primary-soft text-primary">
-          <Wallet className="h-6 w-6" />
-        </div>
-        <p className="text-sm font-semibold text-foreground">
-          Payments is set up
-        </p>
-        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          This section is ready and locked to admins only (not Mary or
-          Hannah). Tell Claude what you want it to do — track client
-          payments, agent payouts, a billing overview — and it&apos;ll build
-          it out here.
-        </p>
-      </div>
+      <PaymentsTabs />
     </div>
   )
 }
