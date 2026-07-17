@@ -22,6 +22,7 @@ import {
   Key,
   Headphones,
   ListChecks,
+  Wallet,
   CheckCircle2,
   Search,
   ChevronRight,
@@ -32,6 +33,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { canAccessPayments } from '@/lib/payments-access'
 import { Avatar } from '../ui/avatar'
 import { SearchDialog } from './search-dialog'
 
@@ -165,7 +167,13 @@ export function Sidebar() {
   const email = (session?.user?.email || '').toLowerCase()
   const role = session?.user?.role
   const fullView = FULL_VIEW_EMAILS.has(email)
-  const nav = fullView ? FULL_NAV : SIMPLIFIED_NAV
+  const baseNav = fullView ? FULL_NAV : SIMPLIFIED_NAV
+  // Payments — tight email allowlist (owner + Ethan), NOT role=admin, so
+  // Mary/Hannah (admins) don't get it. Appended to whichever base nav the
+  // viewer sees.
+  const nav = canAccessPayments(email)
+    ? [...baseNav, { href: '/payments', label: 'Payments', icon: Wallet }]
+    : baseNav
 
   // ⌘K (or Ctrl+K) toggles the global search anywhere in the Hub.
   useEffect(() => {
