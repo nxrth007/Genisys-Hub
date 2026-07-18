@@ -20,9 +20,31 @@ import { cn } from '@/lib/utils'
 
 type StripeOverview = {
   ok: true
-  account: { name: string }
+  account: { name: string; currency: string }
   available: Array<{ amount: number; currency: string }>
   pending: Array<{ amount: number; currency: string }>
+  inTransit: number
+  volume30d: {
+    gross: number
+    net: number
+    fees: number
+    count: number
+    truncated: boolean
+    currency: string
+  }
+  daily: Array<{ date: string; gross: number }>
+  subscriptions: { activeCount: number; mrr: number }
+  disputes: {
+    count: number
+    items: Array<{
+      id: string
+      amount: number
+      currency: string
+      status: string
+      reason: string
+      created: number
+    }>
+  }
   charges: Array<{
     id: string
     amount: number
@@ -173,6 +195,51 @@ function ErrorBlock({ message }: { message: string }) {
   )
 }
 
+/** Simple 30-day daily-volume bars (amounts in cents). */
+function VolumeChart({
+  daily,
+  currency,
+}: {
+  daily: Array<{ date: string; gross: number }>
+  currency: string
+}) {
+  const max = Math.max(1, ...daily.map((d) => d.gross))
+  const total = daily.reduce((s, d) => s + d.gross, 0)
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h3 className="text-sm font-semibold text-foreground">
+          Volume · last 30 days
+        </h3>
+        <span className="text-sm font-bold tabular-nums text-foreground">
+          {cents(total, currency)}
+        </span>
+      </div>
+      <div className="flex h-24 items-end gap-[3px]">
+        {daily.map((d) => {
+          const h = Math.max(2, Math.round((d.gross / max) * 96))
+          return (
+            <div
+              key={d.date}
+              className="group relative flex-1"
+              title={`${d.date}: ${cents(d.gross, currency)}`}
+            >
+              <div
+                className="w-full rounded-t bg-primary/70 transition group-hover:bg-primary"
+                style={{ height: `${h}px` }}
+              />
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+        <span>{daily[0]?.date.slice(5)}</span>
+        <span>{daily[daily.length - 1]?.date.slice(5)}</span>
+      </div>
+    </div>
+  )
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Stripe                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -197,24 +264,69 @@ function StripeTab() {
       />
     )
 
-  const usdAvail = data.available.find((b) => b.currency === 'usd')
-  const usdPend = data.pending.find((b) => b.currency === 'usd')
+  const cur = data.account.currency || 'usd'
+  const usdAvail = data.available.find((b) => b.currency === cur) ??
+    data.available[0]
+  const usdPend = data.pending.find((b) => b.currency === cur) ??
+    data.pending[0]
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <p className="text-sm text-muted-foreground">
+        {data.account.name}
+      </p>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard
+          label="Volume · 30d"
+          value={cents(data.volume30d.gross, cur)}
+          sub={`${data.volume30d.count} payment${data.volume30d.count === 1 ? '' : 's'}${data.volume30d.truncated ? ' (100+ sample)' : ''}`}
+        />
+        <StatCard
+          label="Net · 30d"
+          value={cents(data.volume30d.net, cur)}
+          sub={`${cents(data.volume30d.fees, cur)} fees`}
+        />
+        <StatCard
+          label="MRR"
+          value={cents(data.subscriptions.mrr, cur)}
+          sub={`${data.subscriptions.activeCount} active sub${data.subscriptions.activeCount === 1 ? '' : 's'}`}
+        />
         <StatCard
           label="Available"
-          value={usdAvail ? cents(usdAvail.amount, 'usd') : '$0.00'}
-          sub={data.account.name}
+          value={usdAvail ? cents(usdAvail.amount, usdAvail.currency) : money(0, cur)}
         />
         <StatCard
           label="Pending"
-          value={usdPend ? cents(usdPend.amount, 'usd') : '$0.00'}
+          value={usdPend ? cents(usdPend.amount, usdPend.currency) : money(0, cur)}
         />
-        <StatCard label="Recent payments" value={String(data.charges.length)} />
-        <StatCard label="Recent payouts" value={String(data.payouts.length)} />
+        <StatCard label="In transit to bank" value={cents(data.inTransit, cur)} />
       </div>
+
+      {/* 30-day volume chart */}
+      <VolumeChart daily={data.daily} currency={cur} />
+
+      {/* Open disputes — surfaced loud since they need action */}
+      {data.disputes.count > 0 && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950/40">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-700 dark:text-rose-300">
+            <AlertCircle className="h-4 w-4" />
+            {data.disputes.count} open dispute
+            {data.disputes.count === 1 ? '' : 's'}
+          </p>
+          <ul className="space-y-1 text-xs text-rose-700/90 dark:text-rose-300/90">
+            {data.disputes.items.map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-3">
+                <span>
+                  {cents(d.amount, d.currency)} · {d.reason?.replace(/_/g, ' ')}
+                </span>
+                <span className="font-mono">{d.status}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div>
         <h3 className="mb-2 text-sm font-semibold text-foreground">
