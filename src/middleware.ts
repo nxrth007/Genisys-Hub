@@ -49,6 +49,12 @@ const PUBLIC_PATHS = [
   // per-IP rate limit, all enforced inside the route. Don't gate
   // here.
   '/api/recordings/proxy',
+  // NCT Media lead webhook — a third-party server POSTs leads here and
+  // has no Hub session, so the middleware would 401 it before the
+  // handler ever runs. Security is enforced inside the route: a shared
+  // token compared in constant time, plus idempotency on NCT's own lead
+  // ID so a replay can't double-charge. Don't gate here.
+  '/api/webhooks/nct-leads',
 ]
 
 // Routes approved clients are allowed to hit. Anything else bounces
