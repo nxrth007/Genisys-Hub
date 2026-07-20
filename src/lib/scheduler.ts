@@ -37,6 +37,7 @@ import { syncInbox, syncSent, listConnectedAccounts } from './gmail'
 import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-run'
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
+import { runSweep } from './nct-billing'
 
 let initialized = false
 
@@ -152,6 +153,16 @@ const VICIDIAL_SNAPSHOT_HOUR_UTC = 10
 // client alerts, or dispatch.
 let countyBackfillInFlight = false
 const COUNTY_BACKFILL_BATCH = 20
+
+// NCT lead billing — sweep settled Stripe cash to Mercury so the buffer
+// is topped up before NCT charges the virtual card the next day. The
+// per-lead CHARGE happens inline in the webhook (must be immediate);
+// only the payout runs on a schedule, because a fresh charge sits in
+// Stripe's pending balance for ~2 business days and can't be paid out
+// yet. runSweep() no-ops unless it's enabled in the NCT Leads tab.
+const NCT_SWEEP_INTERVAL_MS = 15 * 60 * 1000
+let lastNctSweepAt = 0
+let nctSweepInFlight = false
 
 export function initScheduler() {
   if (initialized) return
@@ -302,6 +313,33 @@ export function initScheduler() {
           sheetImportInFlight = false
         }
       }
+    }
+
+    // NCT Stripe -> Mercury sweep. Disabled by default; runSweep() checks
+    // the toggle itself and returns "skipped" when off or when the
+    // available balance is under the floor + minimum.
+    try {
+      const now = Date.now()
+      if (now - lastNctSweepAt >= NCT_SWEEP_INTERVAL_MS && !nctSweepInFlight) {
+        lastNctSweepAt = now
+        nctSweepInFlight = true
+        void runSweep(false)
+          .then((r) => {
+            if (r.status === 'ok') {
+              console.log(
+                `[scheduler] nct sweep: $${(r.amountCents / 100).toFixed(2)} paid out to Mercury (${r.payoutId})`,
+              )
+            } else if (r.status === 'failed') {
+              console.error(`[scheduler] nct sweep failed: ${r.detail}`)
+            }
+          })
+          .catch((err) => console.error('[scheduler] nct sweep failed:', err))
+          .finally(() => {
+            nctSweepInFlight = false
+          })
+      }
+    } catch (err) {
+      console.error('[scheduler] nct sweep failed:', err)
     }
 
     // County backfill (fire-and-forget) — drains existing appointments

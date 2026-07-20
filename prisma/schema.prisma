@@ -1689,3 +1689,130 @@ model ChatAttachment {
   @@index([createdAt])
 }
 
+
+// -----------------------------------------------------------------------------
+// NCT Media roofing-lead billing (Payments → NCT Leads)
+//
+// The money loop, in order:
+//   1. NCT POSTs a lead to /api/webhooks/nct-leads
+//   2. We charge the client's saved card off-session (Stripe)
+//   3. A sweep moves Stripe's AVAILABLE balance to Mercury
+//   4. NCT charges the Mercury virtual card the next day
+//
+// Step 3 is deliberately NOT chained to step 2: a fresh charge sits in
+// Stripe's pending balance for ~2 business days, so the per-lead payout
+// the old Zapier SOP described would be paying out money that isn't
+// there yet. The Mercury buffer covers the gap; the sweep refills it.
+// -----------------------------------------------------------------------------
+
+/// One row per client we resell NCT leads to. `sourceKey` is what NCT
+/// puts in the webhook payload to say which client a lead belongs to,
+/// so several clients can share one webhook URL.
+model NctBillingConfig {
+  id                String   @id @default(cuid())
+  clientName        String
+  /// cus_XXXX — must already have a card saved for off-session use.
+  stripeCustomerId  String
+  /// What we charge the client per lead (default $150.00).
+  pricePerLeadCents Int      @default(15000)
+  /// What NCT bills us per lead (default $110.00). Reconciliation only —
+  /// we never charge this, it's here to compute margin and to sanity-check
+  /// NCT's debits on the Mercury card.
+  costPerLeadCents  Int      @default(11000)
+  /// Weekly spend ceiling for this client. 0 = uncapped. Leads arriving
+  /// over the cap are recorded with chargeStatus="capped" and never
+  /// charged — the SOP's "soft budget cap" gap, enforced for real.
+  weeklyCapCents    Int      @default(0)
+  active            Boolean  @default(true)
+  sourceKey         String   @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  leads NctLead[]
+
+  @@index([active])
+}
+
+/// One row per lead NCT delivers. `leadId` is NCT's own ID and is the
+/// idempotency key for the whole pipeline — a replayed or duplicated
+/// webhook can never produce a second charge.
+model NctLead {
+  id       String @id @default(cuid())
+  leadId   String @unique
+  name     String?
+  phone    String?
+  email    String?
+  address  String?
+  service  String?
+  /// Exactly what NCT sent, kept verbatim so a parsing change later can
+  /// be replayed against real historical payloads.
+  rawPayload Json?
+
+  configId   String?
+  config     NctBillingConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+  /// Denormalized so the ledger still reads correctly if a config is deleted.
+  clientName String?
+
+  amountCents  Int    @default(0)
+  /// charged | failed | capped | no_config | filtered
+  chargeStatus String @default("failed")
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+  failureReason         String?
+
+  receivedAt DateTime  @default(now())
+  chargedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([receivedAt])
+  @@index([configId, chargedAt])
+  @@index([chargeStatus])
+}
+
+/// Singleton. Webhook credential + sweep policy for the NCT pipeline.
+model NctBillingSettings {
+  id String @id @default("singleton")
+  /// Shared secret NCT sends as the `x-nct-token` header (or ?token=).
+  /// Generated in the Hub; rotate from the NCT Leads tab.
+  webhookToken String
+  /// Master switch for charging. Off = leads are still recorded, never billed.
+  chargingEnabled Boolean @default(false)
+
+  sweepEnabled Boolean @default(false)
+  /// instant (to the Mercury debit card, ~1.5% fee, same-day) or
+  /// standard (free ACH to Mercury checking, 1-2 business days).
+  sweepMethod  String  @default("standard")
+  /// Stripe external account id the payout targets (card_XXX for instant,
+  /// ba_XXX for standard). Null = let Stripe use the default destination.
+  sweepDestinationId String?
+  /// Leave this much in Stripe's available balance untouched.
+  sweepFloorCents Int @default(0)
+  /// Don't bother sweeping less than this (instant payouts have a fee floor).
+  sweepMinCents   Int @default(5000)
+
+  /// Slack channel (name or ID) that gets failed-charge and failed-sweep alerts.
+  alertChannel String?
+
+  lastSweepAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+/// Audit trail of every Stripe → Mercury payout the sweep attempted.
+/// Feeds the Automation Log tab.
+model NctSweep {
+  id             String   @id @default(cuid())
+  amountCents    Int
+  currency       String   @default("usd")
+  method         String
+  stripePayoutId String?
+  /// ok | failed | skipped
+  status         String
+  detail         String?
+  /// True when a human hit "Sweep now" instead of the cron firing it.
+  manual         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
