@@ -19,10 +19,12 @@ import {
   Users,
   FileText,
   Receipt,
+  HardHat,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NctLeadsTab } from './nct-leads-tab'
+import { RoofingClientsTab } from './roofing-clients-tab'
 import {
   cents,
   ErrorBlock,
@@ -895,6 +897,7 @@ function MercuryTab() {
 const TABS = [
   { key: 'stripe', label: 'Stripe', icon: CreditCard },
   { key: 'mercury', label: 'Mercury', icon: Landmark },
+  { key: 'roofing', label: 'Roofing Clients', icon: HardHat },
   { key: 'nct', label: 'NCT Leads', icon: Receipt },
   { key: 'log', label: 'Automation Log', icon: ScrollText },
 ] as const
@@ -929,6 +932,7 @@ export function PaymentsTabs() {
 
       {tab === 'stripe' && <StripeTab />}
       {tab === 'mercury' && <MercuryTab />}
+      {tab === 'roofing' && <RoofingClientsTab />}
       {tab === 'nct' && <NctLeadsTab />}
       {tab === 'log' && (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">

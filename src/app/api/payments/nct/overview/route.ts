@@ -23,7 +23,7 @@ export async function GET() {
 
   const weekStart = currentWeekStart()
 
-  const [settings, configs, leads, sweeps, weekAgg, destinations] =
+  const [settings, configs, leads, sweeps, weekAgg, lifeAgg, lastLeads, destinations] =
     await Promise.all([
       getNctSettings(),
       prisma.nctBillingConfig.findMany({ orderBy: { createdAt: 'asc' } }),
@@ -38,6 +38,18 @@ export async function GET() {
         _sum: { amountCents: true },
         _count: { _all: true },
       }),
+      // Lifetime billed totals, for the Roofing Clients tab.
+      prisma.nctLead.groupBy({
+        by: ['configId'],
+        where: { chargeStatus: 'charged' },
+        _sum: { amountCents: true },
+        _count: { _all: true },
+      }),
+      // Most recent lead per client (charged or not) — "are they still live?"
+      prisma.nctLead.groupBy({
+        by: ['configId'],
+        _max: { receivedAt: true },
+      }),
       listPayoutDestinations(),
     ])
 
@@ -46,6 +58,15 @@ export async function GET() {
       r.configId ?? '',
       { cents: r._sum.amountCents ?? 0, count: r._count._all },
     ]),
+  )
+  const lifetimeByConfig = new Map(
+    lifeAgg.map((r) => [
+      r.configId ?? '',
+      { cents: r._sum.amountCents ?? 0, count: r._count._all },
+    ]),
+  )
+  const lastLeadByConfig = new Map(
+    lastLeads.map((r) => [r.configId ?? '', r._max.receivedAt]),
   )
 
   const weekCharged = weekAgg.reduce((s, r) => s + (r._sum.amountCents ?? 0), 0)
@@ -82,8 +103,18 @@ export async function GET() {
       weeklyCapCents: c.weeklyCapCents,
       sourceKey: c.sourceKey,
       active: c.active,
+      contactName: c.contactName,
+      contactEmail: c.contactEmail,
+      contactPhone: c.contactPhone,
+      notes: c.notes,
+      createdAt: c.createdAt,
       weekSpentCents: spentByConfig.get(c.id)?.cents ?? 0,
       weekLeadCount: spentByConfig.get(c.id)?.count ?? 0,
+      lifetimeRevenueCents: lifetimeByConfig.get(c.id)?.cents ?? 0,
+      lifetimeLeadCount: lifetimeByConfig.get(c.id)?.count ?? 0,
+      lifetimeCostCents:
+        (lifetimeByConfig.get(c.id)?.count ?? 0) * c.costPerLeadCents,
+      lastLeadAt: lastLeadByConfig.get(c.id) ?? null,
     })),
     week: {
       startsAt: weekStart,

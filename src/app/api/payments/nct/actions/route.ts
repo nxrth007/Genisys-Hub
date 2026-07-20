@@ -90,6 +90,10 @@ export async function POST(req: NextRequest) {
         costPerLeadCents: Math.round(Number(body.costPerLeadCents ?? 11000)),
         weeklyCapCents: Math.max(0, Math.round(Number(body.weeklyCapCents ?? 0))),
         active: body.active !== false,
+        contactName: String(body.contactName ?? '').trim() || null,
+        contactEmail: String(body.contactEmail ?? '').trim() || null,
+        contactPhone: String(body.contactPhone ?? '').trim() || null,
+        notes: String(body.notes ?? '').trim() || null,
       }
 
       const id = String(body.id ?? '')

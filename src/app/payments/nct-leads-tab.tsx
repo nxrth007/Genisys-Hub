@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useSyncExternalStore } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Check,
@@ -9,10 +8,8 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  Plus,
   RefreshCw,
   RotateCcw,
-  Trash2,
   X,
   Zap,
 } from 'lucide-react'
@@ -26,6 +23,12 @@ import {
   StatCard,
   StatusPill,
 } from './ui'
+import {
+  useNctAction,
+  useNctOverview,
+  type NctOverview,
+  type Notice,
+} from './nct-shared'
 
 /**
  * Payments → NCT Leads.
@@ -34,69 +37,6 @@ import {
  * off-session → a scheduled sweep moves settled Stripe cash to Mercury
  * so the buffer covers NCT's next-day debit on the virtual card.
  */
-
-type Config = {
-  id: string
-  clientName: string
-  stripeCustomerId: string
-  pricePerLeadCents: number
-  costPerLeadCents: number
-  weeklyCapCents: number
-  sourceKey: string
-  active: boolean
-  weekSpentCents: number
-  weekLeadCount: number
-}
-
-type Overview = {
-  ok: true
-  settings: {
-    webhookToken: string
-    chargingEnabled: boolean
-    sweepEnabled: boolean
-    sweepMethod: string
-    sweepDestinationId: string | null
-    sweepFloorCents: number
-    sweepMinCents: number
-    alertChannel: string | null
-    lastSweepAt: string | null
-  }
-  destinations: Array<{ id: string; kind: string; label: string }>
-  configs: Config[]
-  week: {
-    startsAt: string
-    chargedCents: number
-    leadCount: number
-    costCents: number
-    marginCents: number
-  }
-  alerts: { failedCount: number; cappedCount: number }
-  leads: Array<{
-    id: string
-    leadId: string
-    name: string | null
-    phone: string | null
-    email: string | null
-    address: string | null
-    service: string | null
-    clientName: string | null
-    amountCents: number
-    chargeStatus: string
-    failureReason: string | null
-    receivedAt: string
-    chargedAt: string | null
-  }>
-  sweeps: Array<{
-    id: string
-    amountCents: number
-    method: string
-    status: string
-    detail: string | null
-    manual: boolean
-    stripePayoutId: string | null
-    createdAt: string
-  }>
-}
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)
@@ -117,12 +57,8 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 }
 
 export function NctLeadsTab() {
-  const queryClient = useQueryClient()
-  const [notice, setNotice] = useState<{ tone: 'ok' | 'err'; text: string } | null>(
-    null,
-  )
+  const [notice, setNotice] = useState<Notice>(null)
   const [showToken, setShowToken] = useState(false)
-  const [editing, setEditing] = useState<Partial<Config> | null>(null)
 
   // Browser-only value — read through useSyncExternalStore so the server
   // render and the hydrated render agree instead of thrashing state.
@@ -132,38 +68,8 @@ export function NctLeadsTab() {
     () => '',
   )
 
-  const { data, isLoading, isError, error } = useQuery<Overview>({
-    queryKey: ['payments-nct'],
-    queryFn: async () => {
-      const res = await fetch('/api/payments/nct/overview')
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.message || d.error || 'Failed to load')
-      return d
-    },
-    refetchInterval: 30_000,
-  })
-
-  const action = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => {
-      const res = await fetch('/api/payments/nct/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.error || 'Action failed.')
-      return d as { message?: string }
-    },
-    onSuccess: (d) => {
-      setNotice({ tone: 'ok', text: d.message || 'Done.' })
-      queryClient.invalidateQueries({ queryKey: ['payments-nct'] })
-    },
-    onError: (e) =>
-      setNotice({
-        tone: 'err',
-        text: e instanceof Error ? e.message : 'Action failed.',
-      }),
-  })
+  const { data, isLoading, isError, error } = useNctOverview()
+  const action = useNctAction(setNotice)
 
   if (isLoading) return <LoadingBlock />
   if (isError || !data)
@@ -304,141 +210,12 @@ export function NctLeadsTab() {
         </details>
       </div>
 
-      {/* ---- Clients */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-foreground">
-            Clients billed for NCT leads
-          </h3>
-          <button
-            type="button"
-            onClick={() =>
-              setEditing({
-                pricePerLeadCents: 15000,
-                costPerLeadCents: 11000,
-                weeklyCapCents: 0,
-                active: true,
-              })
-            }
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" />
-            Add client
-          </button>
+      {data.configs.length === 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          No roofing clients configured yet — leads will be recorded but never
+          charged. Add one on the <strong>Roofing Clients</strong> tab.
         </div>
-
-        {editing && (
-          <ConfigForm
-            initial={editing}
-            busy={action.isPending}
-            onCancel={() => setEditing(null)}
-            onSave={(payload) => {
-              action.mutate({ action: 'saveConfig', ...payload })
-              setEditing(null)
-            }}
-          />
-        )}
-
-        {data.configs.length === 0 && !editing ? (
-          <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            No clients configured yet. Leads will still be recorded, but nothing
-            will be charged until a client is added.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {data.configs.map((c) => {
-              const pct =
-                c.weeklyCapCents > 0
-                  ? Math.min(100, (c.weekSpentCents / c.weeklyCapCents) * 100)
-                  : 0
-              return (
-                <div
-                  key={c.id}
-                  className="rounded-2xl border border-border bg-card p-4"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-foreground">
-                        {c.clientName}
-                        {!c.active && (
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            (inactive)
-                          </span>
-                        )}
-                      </p>
-                      <p className="font-mono text-xs text-muted-foreground">
-                        {c.sourceKey} · {c.stripeCustomerId}
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(c)}
-                        className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              `Remove ${c.clientName}? Leads already billed stay in the ledger.`,
-                            )
-                          )
-                            return
-                          action.mutate({ action: 'deleteConfig', id: c.id })
-                        }}
-                        className="rounded-md border border-rose-200 px-2 py-1 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="mt-2 text-sm text-foreground">
-                    {cents(c.pricePerLeadCents)} per lead
-                    <span className="text-muted-foreground">
-                      {' '}
-                      · costs us {cents(c.costPerLeadCents)}
-                    </span>
-                  </p>
-
-                  <div className="mt-3">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">
-                        This week · {c.weekLeadCount} lead
-                        {c.weekLeadCount === 1 ? '' : 's'}
-                      </span>
-                      <span className="font-medium tabular-nums text-foreground">
-                        {cents(c.weekSpentCents)}
-                        {c.weeklyCapCents > 0
-                          ? ` / ${cents(c.weeklyCapCents)}`
-                          : ' (uncapped)'}
-                      </span>
-                    </div>
-                    {c.weeklyCapCents > 0 && (
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={cn(
-                            'h-full rounded-full transition-all',
-                            pct >= 100
-                              ? 'bg-rose-500'
-                              : pct >= 80
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500',
-                          )}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ---- Automation controls */}
       <SettingsPanel
@@ -598,161 +375,6 @@ export function NctLeadsTab() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Client config form                                                        */
-/* -------------------------------------------------------------------------- */
-
-function ConfigForm({
-  initial,
-  busy,
-  onCancel,
-  onSave,
-}: {
-  initial: Partial<Config>
-  busy: boolean
-  onCancel: () => void
-  onSave: (payload: Record<string, unknown>) => void
-}) {
-  const [clientName, setClientName] = useState(initial.clientName ?? '')
-  const [stripeCustomerId, setStripeCustomerId] = useState(
-    initial.stripeCustomerId ?? '',
-  )
-  const [sourceKey, setSourceKey] = useState(initial.sourceKey ?? '')
-  const [price, setPrice] = useState(
-    ((initial.pricePerLeadCents ?? 15000) / 100).toString(),
-  )
-  const [cost, setCost] = useState(
-    ((initial.costPerLeadCents ?? 11000) / 100).toString(),
-  )
-  const [cap, setCap] = useState(
-    ((initial.weeklyCapCents ?? 0) / 100).toString(),
-  )
-  const [active, setActive] = useState(initial.active !== false)
-
-  const valid =
-    clientName.trim() && stripeCustomerId.trim() && sourceKey.trim()
-
-  return (
-    <div className="mb-3 rounded-2xl border border-border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-foreground">
-          {initial.id ? `Edit ${initial.clientName}` : 'New client'}
-        </h4>
-        <button type="button" onClick={onCancel}>
-          <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Client name *
-          </label>
-          <input
-            className={fieldClass}
-            value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
-            placeholder="Forever Lit Solar LLC"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Stripe customer ID *
-          </label>
-          <input
-            className={fieldClass}
-            value={stripeCustomerId}
-            onChange={(e) => setStripeCustomerId(e.target.value)}
-            placeholder="cus_XXXXXXXXXXXX"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Source key *
-          </label>
-          <input
-            className={fieldClass}
-            value={sourceKey}
-            onChange={(e) => setSourceKey(e.target.value)}
-            placeholder="forever-lit"
-          />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            What NCT sends to identify this client
-          </p>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            We charge (per lead)
-          </label>
-          <input
-            className={fieldClass}
-            type="number"
-            step="0.01"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            NCT charges us
-          </label>
-          <input
-            className={fieldClass}
-            type="number"
-            step="0.01"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Weekly cap (0 = none)
-          </label>
-          <input
-            className={fieldClass}
-            type="number"
-            step="0.01"
-            value={cap}
-            onChange={(e) => setCap(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
-        <input
-          type="checkbox"
-          checked={active}
-          onChange={(e) => setActive(e.target.checked)}
-          className="h-4 w-4 rounded border-border"
-        />
-        Active — leads for this source key get charged
-      </label>
-
-      <div className="mt-4">
-        <button
-          type="button"
-          disabled={!valid || busy}
-          onClick={() =>
-            onSave({
-              id: initial.id,
-              clientName: clientName.trim(),
-              stripeCustomerId: stripeCustomerId.trim(),
-              sourceKey: sourceKey.trim(),
-              pricePerLeadCents: Math.round(parseFloat(price || '0') * 100),
-              costPerLeadCents: Math.round(parseFloat(cost || '0') * 100),
-              weeklyCapCents: Math.round(parseFloat(cap || '0') * 100),
-              active,
-            })
-          }
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
-        >
-          Save client
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Automation settings                                                       */
 /* -------------------------------------------------------------------------- */
 
@@ -763,8 +385,8 @@ function SettingsPanel({
   onSave,
   onSweep,
 }: {
-  settings: Overview['settings']
-  destinations: Overview['destinations']
+  settings: NctOverview['settings']
+  destinations: NctOverview['destinations']
   busy: boolean
   onSave: (payload: Record<string, unknown>) => void
   onSweep: () => void

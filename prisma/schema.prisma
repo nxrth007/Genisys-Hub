@@ -1725,6 +1725,15 @@ model NctBillingConfig {
   weeklyCapCents    Int      @default(0)
   active            Boolean  @default(true)
   sourceKey         String   @unique
+
+  /// Who we actually talk to. Purely informational — this section is
+  /// deliberately NOT wired to the solar Client records; a roofing client
+  /// here is a separate relationship with a separate billing model.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  notes        String?
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
