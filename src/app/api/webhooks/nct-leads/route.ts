@@ -41,7 +41,13 @@ export async function POST(req: NextRequest) {
     ''
 
   if (!provided || !tokenMatches(provided, settings.webhookToken)) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    // Deliberately distinct from the global middleware's generic
+    // {"error":"unauthorized"} — this way NCT (and we) can tell "your
+    // token is wrong" apart from "you never reached the handler at all".
+    return NextResponse.json(
+      { error: 'invalid_token', message: 'Missing or incorrect x-nct-token.' },
+      { status: 401 },
+    )
   }
 
   // Accept JSON or a raw text body; parseLeadPayload handles both shapes.
@@ -92,7 +98,10 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get('token') ??
     ''
   if (!provided || !tokenMatches(provided, settings.webhookToken)) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    return NextResponse.json(
+      { error: 'invalid_token', message: 'Missing or incorrect x-nct-token.' },
+      { status: 401 },
+    )
   }
   return NextResponse.json({ ok: true, message: 'NCT lead webhook is live.' })
 }
