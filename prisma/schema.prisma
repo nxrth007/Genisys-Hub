@@ -1800,8 +1800,12 @@ model NctBillingSettings {
   /// Don't bother sweeping less than this (instant payouts have a fee floor).
   sweepMinCents   Int @default(5000)
 
-  /// Slack channel (name or ID) that gets failed-charge and failed-sweep alerts.
+  /// Slack channel (name or ID) that gets lead + failure notifications.
   alertChannel String?
+  /// Post EVERY lead to Slack as it lands, not just the problems. On by
+  /// default — the whole point of the channel is watching the pipeline
+  /// work in real time. Failures and capped leads always post regardless.
+  notifyEveryLead Boolean @default(true)
 
   lastSweepAt DateTime?
   createdAt   DateTime  @default(now())

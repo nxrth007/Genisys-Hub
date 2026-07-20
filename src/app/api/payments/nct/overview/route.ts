@@ -91,6 +91,7 @@ export async function GET() {
       sweepFloorCents: settings.sweepFloorCents,
       sweepMinCents: settings.sweepMinCents,
       alertChannel: settings.alertChannel,
+      notifyEveryLead: settings.notifyEveryLead,
       lastSweepAt: settings.lastSweepAt,
     },
     destinations,

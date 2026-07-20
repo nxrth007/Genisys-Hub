@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
           sweepFloorCents: Math.max(0, Math.round(Number(body.sweepFloorCents ?? 0))),
           sweepMinCents: Math.max(0, Math.round(Number(body.sweepMinCents ?? 0))),
           alertChannel: String(body.alertChannel ?? '').trim() || null,
+          notifyEveryLead: body.notifyEveryLead !== false,
         },
       })
       return NextResponse.json({ ok: true, message: 'Settings saved.' })

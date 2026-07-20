@@ -67,7 +67,12 @@ export async function getNctSettings() {
   })
   if (existing) return existing
   return prisma.nctBillingSettings.create({
-    data: { id: 'singleton', webhookToken: randomBytes(24).toString('hex') },
+    data: {
+      id: 'singleton',
+      webhookToken: randomBytes(24).toString('hex'),
+      // Sensible default — the team already watches this channel.
+      alertChannel: 'genisys-alerts',
+    },
   })
 }
 
@@ -194,6 +199,80 @@ async function alert(text: string) {
     await postChannelMessage(channelId, text)
   } catch (err) {
     console.error('[nct-billing] alert failed:', err)
+  }
+}
+
+const usd = (c: number) => `$${(c / 100).toFixed(2)}`
+
+/**
+ * One Slack post per lead, whatever the outcome — the alerts channel is
+ * how the team watches this pipeline work in real time, so a silent
+ * success is nearly as bad as a silent failure.
+ *
+ * Problems (failed / capped / unbillable) always post. Clean charges post
+ * unless someone turns notifyEveryLead off.
+ *
+ * Never throws: a Slack outage must not roll back a charge that already
+ * went through.
+ */
+async function notifyLead(
+  lead: ParsedLead,
+  status: string,
+  opts: {
+    config?: { clientName: string; weeklyCapCents: number; id: string }
+    amountCents?: number
+    reason?: string
+  } = {},
+) {
+  try {
+    const settings = await getNctSettings()
+    const isProblem = status !== 'charged'
+    if (!isProblem && !settings.notifyEveryLead) return
+
+    const header =
+      status === 'charged'
+        ? '🧰 *New roofing lead — charged*'
+        : status === 'failed'
+          ? '⚠️ *New roofing lead — CHARGE FAILED*'
+          : status === 'capped'
+            ? '🛑 *New roofing lead — held at weekly cap*'
+            : status === 'filtered'
+              ? '📥 *Lead ignored — not a roofing lead*'
+              : '📥 *New roofing lead — recorded, not charged*'
+
+    const lines = [header]
+
+    const who = [lead.name, lead.leadId].filter(Boolean).join(' · ')
+    if (who) lines.push(who)
+
+    const contact = [lead.phone, lead.email].filter(Boolean).join(' · ')
+    if (contact) lines.push(contact)
+    if (lead.address) lines.push(lead.address)
+
+    if (opts.config) {
+      lines.push(
+        status === 'charged'
+          ? `${opts.config.clientName} — ${usd(opts.amountCents ?? 0)} charged`
+          : opts.config.clientName,
+      )
+    }
+
+    // Cap progress, so nobody has to open the Hub to know how close we are.
+    if (opts.config && opts.config.weeklyCapCents > 0) {
+      const spent = await weeklyChargedCents(opts.config.id)
+      const left = opts.config.weeklyCapCents - spent
+      lines.push(
+        `Week: ${usd(spent)} / ${usd(opts.config.weeklyCapCents)} cap` +
+          (left > 0 ? ` · ${usd(left)} left` : ' · cap reached'),
+      )
+    }
+
+    if (opts.reason) lines.push(`_${opts.reason}_`)
+    if (status === 'failed') lines.push('Manual follow-up needed.')
+
+    await alert(lines.join('\n'))
+  } catch (err) {
+    console.error('[nct-billing] lead notification failed:', err)
   }
 }
 
@@ -344,6 +423,11 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
     rawPayload: (body ?? {}) as object,
   }
 
+  /**
+   * Single exit point: persist the lead, then tell Slack. Every outcome
+   * goes through here so the channel can't miss one and can't get two
+   * posts for the same lead.
+   */
   const record = async (
     status: string,
     extra: Record<string, unknown> = {},
@@ -357,6 +441,11 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
         ...extra,
       },
     })
+    await notifyLead(parsed, status, {
+      config,
+      amountCents: (extra.amountCents as number) ?? undefined,
+      reason: (extra.failureReason as string) ?? undefined,
+    })
     return {
       ok: true,
       leadId: parsed.leadId,
@@ -369,7 +458,6 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
     const reason = parsed.sourceKey
       ? `No active client config matches sourceKey "${parsed.sourceKey}".`
       : 'No active client config to bill (add one, or have NCT send sourceKey).'
-    await alert(`⚠️ NCT lead ${parsed.leadId} received but not billed — ${reason}`)
     return record('no_config', { failureReason: reason })
   }
 
@@ -390,8 +478,7 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
   if (config.weeklyCapCents > 0) {
     const spent = await weeklyChargedCents(config.id)
     if (spent + config.pricePerLeadCents > config.weeklyCapCents) {
-      const reason = `Weekly cap reached for ${config.clientName} ($${(config.weeklyCapCents / 100).toFixed(2)}). Lead held, not charged.`
-      await alert(`🛑 NCT lead ${parsed.leadId} held — ${reason}`)
+      const reason = `Weekly cap reached for ${config.clientName} (${usd(config.weeklyCapCents)}). Lead held, not charged.`
       return record('capped', { failureReason: reason })
     }
   }
@@ -404,9 +491,6 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
   )
 
   if (outcome.status === 'failed') {
-    await alert(
-      `⚠️ Charge failed for NCT lead ${parsed.leadId} (${config.clientName}) — ${outcome.reason}. Manual follow-up needed.`,
-    )
     return record('failed', {
       amountCents: config.pricePerLeadCents,
       failureReason: outcome.reason,
@@ -506,8 +590,8 @@ export async function runSweep(manual = false): Promise<SweepResult> {
 
   const available =
     (balance.data.available as Array<{ amount: number; currency: string }>) ?? []
-  const usd = available.find((b) => b.currency === 'usd') ?? available[0]
-  const availableCents = usd?.amount ?? 0
+  const usdBalance = available.find((b) => b.currency === 'usd') ?? available[0]
+  const availableCents = usdBalance?.amount ?? 0
   const amount = availableCents - settings.sweepFloorCents
 
   if (amount < settings.sweepMinCents || amount <= 0) {
@@ -522,7 +606,7 @@ export async function runSweep(manual = false): Promise<SweepResult> {
 
   const payout = await stripeCall('/payouts', 'POST', {
     amount,
-    currency: usd?.currency ?? 'usd',
+    currency: usdBalance?.currency ?? 'usd',
     method: settings.sweepMethod,
     destination: settings.sweepDestinationId || undefined,
     description: 'Genisys → Mercury buffer top-up',
@@ -533,9 +617,8 @@ export async function runSweep(manual = false): Promise<SweepResult> {
     await prisma.nctSweep.create({
       data: { amountCents: amount, method: settings.sweepMethod, status: 'failed', detail, manual },
     })
-    await alert(
-      `⚠️ Stripe → Mercury sweep failed for $${(amount / 100).toFixed(2)} — ${detail}`,
-    )
+    await alert(`⚠️ *Stripe → Mercury sweep failed* — ${usd(amount)}
+_${detail}_`)
     return { status: 'failed', amountCents: amount, detail }
   }
 

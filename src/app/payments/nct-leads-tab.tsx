@@ -402,6 +402,9 @@ function SettingsPanel({
   const [floor, setFloor] = useState((settings.sweepFloorCents / 100).toString())
   const [min, setMin] = useState((settings.sweepMinCents / 100).toString())
   const [alertChannel, setAlertChannel] = useState(settings.alertChannel ?? '')
+  const [notifyEveryLead, setNotifyEveryLead] = useState(
+    settings.notifyEveryLead,
+  )
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
@@ -512,7 +515,7 @@ function SettingsPanel({
 
       <div className="mt-3">
         <label className="mb-1 block text-xs font-medium text-muted-foreground">
-          Slack channel for failures
+          Slack channel for lead notifications
         </label>
         <input
           className={cn(fieldClass, 'max-w-sm')}
@@ -521,10 +524,30 @@ function SettingsPanel({
           placeholder="genisys-alerts"
         />
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Gets a message on a failed charge, a lead held at the cap, or a failed
-          sweep. The bot must already be in the channel.
+          The bot must already be a member of the channel. Leave blank to turn
+          Slack notifications off entirely.
         </p>
       </div>
+
+      <label className="mt-2 flex items-start gap-2 rounded-xl border border-border p-3">
+        <input
+          type="checkbox"
+          checked={notifyEveryLead}
+          onChange={(e) => setNotifyEveryLead(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-border"
+        />
+        <span className="text-sm">
+          <span className="font-medium text-foreground">
+            Post every lead, not just problems
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            On: every lead lands in the channel as it arrives, with the amount
+            charged and where the client sits against their weekly cap. Off:
+            only failed charges, capped leads and failed sweeps post — those
+            always do.
+          </span>
+        </span>
+      </label>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
@@ -539,6 +562,7 @@ function SettingsPanel({
               sweepFloorCents: Math.round(parseFloat(floor || '0') * 100),
               sweepMinCents: Math.round(parseFloat(min || '0') * 100),
               alertChannel,
+              notifyEveryLead,
             })
           }
           className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-40"

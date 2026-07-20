@@ -44,6 +44,7 @@ export type NctOverview = {
     sweepFloorCents: number
     sweepMinCents: number
     alertChannel: string | null
+    notifyEveryLead: boolean
     lastSweepAt: string | null
   }
   destinations: Array<{ id: string; kind: string; label: string }>
