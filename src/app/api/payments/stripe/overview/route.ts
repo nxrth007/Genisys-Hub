@@ -68,16 +68,27 @@ export async function GET() {
   const since = now - 30 * 24 * 3600
   const gte = encodeURIComponent('created[gte]')
 
-  const [balance, charges, payouts, account, txns, subs, disputes] =
-    await Promise.all([
-      stripeGet('/balance', key),
-      stripeGet('/charges?limit=10', key),
-      stripeGet('/payouts?limit=10', key),
-      stripeGet('/account', key),
-      stripeGet(`/balance_transactions?limit=100&${gte}=${since}`, key),
-      stripeGet('/subscriptions?status=active&limit=100', key),
-      stripeGet('/disputes?limit=5', key),
-    ])
+  const [
+    balance,
+    charges,
+    payouts,
+    account,
+    txns,
+    subs,
+    disputes,
+    customers,
+    invoices,
+  ] = await Promise.all([
+    stripeGet('/balance', key),
+    stripeGet('/charges?limit=10', key),
+    stripeGet('/payouts?limit=10', key),
+    stripeGet('/account', key),
+    stripeGet(`/balance_transactions?limit=100&${gte}=${since}`, key),
+    stripeGet('/subscriptions?status=active&limit=100', key),
+    stripeGet('/disputes?limit=5', key),
+    stripeGet('/customers?limit=8', key),
+    stripeGet('/invoices?limit=10', key),
+  ])
 
   if (!balance.ok) {
     const d = balance.data as { error?: { message?: string } }
@@ -116,6 +127,14 @@ export async function GET() {
     >) ?? []
   const disputeData =
     ((disputes.data as { data?: unknown[] })?.data as Array<
+      Record<string, unknown>
+    >) ?? []
+  const customerData =
+    ((customers.data as { data?: unknown[] })?.data as Array<
+      Record<string, unknown>
+    >) ?? []
+  const invoiceData =
+    ((invoices.data as { data?: unknown[] })?.data as Array<
       Record<string, unknown>
     >) ?? []
   const acct = account.data as {
@@ -238,6 +257,26 @@ export async function GET() {
       status: p.status,
       arrivalDate: p.arrival_date,
       created: p.created,
+    })),
+    customers: customerData.map((c) => ({
+      id: c.id,
+      name: (c.name as string) ?? null,
+      email: (c.email as string) ?? null,
+      created: c.created,
+    })),
+    invoices: invoiceData.map((i) => ({
+      id: i.id,
+      number: (i.number as string) ?? null,
+      customerName:
+        (i.customer_name as string) ?? (i.customer_email as string) ?? null,
+      customerEmail: (i.customer_email as string) ?? null,
+      amountDue: i.amount_due,
+      amountPaid: i.amount_paid,
+      currency: i.currency,
+      status: i.status, // draft | open | paid | void | uncollectible
+      created: i.created,
+      hostedUrl: (i.hosted_invoice_url as string) ?? null,
+      pdfUrl: (i.invoice_pdf as string) ?? null,
     })),
   })
 }
