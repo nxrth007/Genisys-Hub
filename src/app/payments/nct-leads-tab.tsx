@@ -201,9 +201,12 @@ export function NctLeadsTab() {
 }`}
           </pre>
           <p className="mt-2 text-xs text-muted-foreground">
-            <span className="font-medium">sourceKey</span> tells us which client
-            to bill — it must match a client below. If there&apos;s only one
-            active client, it can be left out. The plain{' '}
+            Every field is optional except some way to identify the lead — if{' '}
+            <span className="font-mono">leadId</span> is missing we build one
+            from the phone/email + date, so duplicates still can&apos;t
+            double-charge. <span className="font-medium">sourceKey</span> tells
+            us which client to bill; with only one active client it can be
+            left out. The plain{' '}
             <span className="font-mono">Name: …</span> text block NCT posts in
             Slack is also accepted as-is.
           </p>

@@ -379,13 +379,25 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
   const parsed = parseLeadPayload(body)
   const settings = await getNctSettings()
 
+  // No lead ID? Derive a deterministic one from the contact info + date
+  // instead of bouncing the lead — NCT shouldn't need to know our rules
+  // for a lead to land safely. Same phone (or email) on the same day maps
+  // to the same ID, so a retry or duplicate send still can't
+  // double-charge. Only a lead with NO identifying contact at all is
+  // rejected, because there'd be nothing to bill, dedupe, or follow up on.
   if (!parsed.leadId) {
-    return {
-      ok: false,
-      leadId: null,
-      status: 'rejected',
-      reason: 'Payload has no lead ID — refusing to record an unbillable lead.',
+    const phoneDigits = (parsed.phone ?? '').replace(/\D/g, '')
+    const contact = phoneDigits || (parsed.email ?? '').trim().toLowerCase()
+    if (!contact) {
+      return {
+        ok: false,
+        leadId: null,
+        status: 'rejected',
+        reason:
+          'Lead has no ID, phone, or email — nothing to identify it by. Include at least a phone number.',
+      }
     }
+    parsed.leadId = `auto-${contact}-${new Date().toISOString().slice(0, 10)}`
   }
 
   // Idempotency: NCT's own ID is the key. A replay is a no-op.

@@ -12,6 +12,8 @@ import { getNctSettings, ingestLead } from '@/lib/nct-billing'
  * before anything else touches the body.
  *
  * Idempotent on NCT's own lead ID: replays return 200 without re-charging.
+ * If they don't send one, we derive it from phone/email + date, so leads
+ * without an ID still land and still can't double-charge.
  *
  * Expected body (JSON):
  *   { "leadId": "...", "name": "...", "phone": "...", "email": "...",
