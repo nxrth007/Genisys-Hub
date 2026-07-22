@@ -1829,3 +1829,23 @@ model NctSweep {
 
   @@index([createdAt])
 }
+
+/// Verbatim record of every authenticated hit on the NCT lead webhook —
+/// the exact bytes NCT sent, captured BEFORE any parsing or
+/// normalization. Feeds Payments → Payload Log, so we can see precisely
+/// how NCT formats their sends (and prove what arrived when something
+/// doesn't line up). Token-failed requests are NOT logged — random
+/// internet noise doesn't get to fill our database.
+model NctWebhookEvent {
+  id          String   @id @default(cuid())
+  rawBody     String
+  contentType String?
+  userAgent   String?
+  /// charged | failed | capped | no_config | filtered | duplicate | rejected | error
+  outcome     String
+  leadId      String?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}

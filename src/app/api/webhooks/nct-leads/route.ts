@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
+import { prisma } from '@/lib/prisma'
 import { getNctSettings, ingestLead } from '@/lib/nct-billing'
 
 /**
@@ -52,26 +53,52 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Accept JSON or a raw text body; parseLeadPayload handles both shapes.
-  let body: unknown
-  const contentType = req.headers.get('content-type') ?? ''
+  // Read the body VERBATIM first — the Payload Log stores exactly the
+  // bytes NCT sent, before any parsing or normalization touches them.
+  let rawText = ''
   try {
-    if (contentType.includes('application/json')) {
-      body = await req.json()
-    } else {
-      const text = await req.text()
-      try {
-        body = JSON.parse(text)
-      } catch {
-        body = { text }
-      }
-    }
+    rawText = await req.text()
   } catch {
     return NextResponse.json({ error: 'invalid body' }, { status: 400 })
+  }
+  let body: unknown
+  try {
+    body = JSON.parse(rawText)
+  } catch {
+    // Not JSON — treat the whole body as a text blob for the parser.
+    body = { text: rawText }
+  }
+
+  /** Every authenticated hit gets logged, whatever happens after. */
+  const logEvent = async (
+    outcome: string,
+    leadId: string | null,
+    note?: string,
+  ) => {
+    try {
+      await prisma.nctWebhookEvent.create({
+        data: {
+          rawBody: rawText.slice(0, 20_000),
+          contentType: req.headers.get('content-type'),
+          userAgent: req.headers.get('user-agent'),
+          outcome,
+          leadId,
+          note: note ?? null,
+        },
+      })
+    } catch (err) {
+      // The log must never break the money path.
+      console.error('[nct-webhook] payload log failed:', err)
+    }
   }
 
   try {
     const result = await ingestLead(body)
+    await logEvent(
+      result.duplicate ? 'duplicate' : result.status,
+      result.leadId,
+      result.reason,
+    )
     if (!result.ok) {
       return NextResponse.json(
         { ok: false, error: result.reason ?? 'Lead rejected.' },
@@ -87,6 +114,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (err) {
     console.error('[nct-webhook] ingest failed:', err)
+    await logEvent('error', null, err instanceof Error ? err.message : undefined)
     // 500 so NCT's sender retries — the lead ID keeps the retry idempotent.
     return NextResponse.json({ error: 'internal error' }, { status: 500 })
   }

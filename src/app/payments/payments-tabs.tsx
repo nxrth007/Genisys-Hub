@@ -20,11 +20,13 @@ import {
   FileText,
   Receipt,
   HardHat,
+  FileJson,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NctLeadsTab } from './nct-leads-tab'
 import { RoofingClientsTab } from './roofing-clients-tab'
+import { PayloadLogTab } from './payload-log-tab'
 import {
   cents,
   CopyButton,
@@ -908,6 +910,7 @@ const TABS = [
   { key: 'mercury', label: 'Mercury', icon: Landmark },
   { key: 'roofing', label: 'Roofing Clients', icon: HardHat },
   { key: 'nct', label: 'NCT Leads', icon: Receipt },
+  { key: 'payloads', label: 'Payload Log', icon: FileJson },
   { key: 'log', label: 'Automation Log', icon: ScrollText },
 ] as const
 
@@ -943,6 +946,7 @@ export function PaymentsTabs() {
       {tab === 'mercury' && <MercuryTab />}
       {tab === 'roofing' && <RoofingClientsTab />}
       {tab === 'nct' && <NctLeadsTab />}
+      {tab === 'payloads' && <PayloadLogTab />}
       {tab === 'log' && (
         <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
           <Inbox className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
