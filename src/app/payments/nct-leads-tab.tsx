@@ -3,8 +3,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import {
   AlertCircle,
-  Check,
-  Copy,
   Eye,
   EyeOff,
   Loader2,
@@ -16,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import {
   cents,
+  CopyButton,
   fieldClass,
   fromIso,
   ErrorBlock,
@@ -37,24 +36,6 @@ import {
  * off-session → a scheduled sweep moves settled Stripe cash to Mercury
  * so the buffer covers NCT's next-day debit on the virtual card.
  */
-
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(value)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-    >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      {copied ? 'Copied' : label}
-    </button>
-  )
-}
 
 export function NctLeadsTab() {
   const [notice, setNotice] = useState<Notice>(null)

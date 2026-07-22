@@ -27,6 +27,7 @@ import { NctLeadsTab } from './nct-leads-tab'
 import { RoofingClientsTab } from './roofing-clients-tab'
 import {
   cents,
+  CopyButton,
   ErrorBlock,
   fieldClass,
   fromIso,
@@ -505,6 +506,14 @@ function StripeTab() {
                     {c.email}
                   </p>
                 )}
+                {/* The cus_ id is what the Roofing Clients form wants —
+                    surface it here so nobody has to dig in Stripe for it. */}
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <code className="truncate font-mono text-[11px] text-muted-foreground">
+                    {c.id}
+                  </code>
+                  <CopyButton value={c.id} label="Copy" />
+                </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Added {fromUnix(c.created)}
                 </p>

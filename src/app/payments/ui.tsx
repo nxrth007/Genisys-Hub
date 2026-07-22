@@ -1,6 +1,7 @@
 'use client'
 
-import { Loader2, AlertCircle } from 'lucide-react'
+import { useState } from 'react'
+import { Loader2, AlertCircle, Check, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -121,6 +122,25 @@ export function ErrorBlock({ message }: { message: string }) {
       <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
       <span>{message}</span>
     </div>
+  )
+}
+
+/** Tiny copy-to-clipboard button with a "Copied" flash. */
+export function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(value)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? 'Copied' : label}
+    </button>
   )
 }
 
