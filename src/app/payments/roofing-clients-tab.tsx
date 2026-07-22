@@ -250,8 +250,15 @@ function ClientCard({
           )}
 
           <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-            {c.sourceKey} · {c.stripeCustomerId}
+            {c.sourceKey}
+            {c.stripeCustomerId ? ` · ${c.stripeCustomerId}` : ''}
           </p>
+          {!c.stripeCustomerId && (
+            <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              <AlertCircle className="h-3 w-3" />
+              No Stripe customer ID yet — leads will be held, not charged
+            </p>
+          )}
         </div>
 
         <div className="flex flex-shrink-0 gap-1">
@@ -449,8 +456,9 @@ function ClientForm({
   const set = (k: keyof typeof f, v: string | boolean) =>
     setF((prev) => ({ ...prev, [k]: v }))
 
-  const valid =
-    f.clientName.trim() && f.stripeCustomerId.trim() && f.sourceKey.trim()
+  // Stripe ID is optional at save time so a client can be entered before
+  // their card-verification link is done — leads hold instead of charging.
+  const valid = f.clientName.trim() && f.sourceKey.trim()
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
@@ -474,11 +482,11 @@ function ClientForm({
           placeholder="Forever Lit Solar LLC"
         />
         <Field
-          label="Stripe customer ID *"
+          label="Stripe customer ID"
           value={f.stripeCustomerId}
           onChange={(v) => set('stripeCustomerId', v)}
           placeholder="cus_XXXXXXXXXXXX"
-          hint="Must already have a card saved for off-session charges"
+          hint="Can be added later — until it's set, this client's leads are held instead of charged"
         />
         <Field
           label="Source key *"

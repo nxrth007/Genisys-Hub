@@ -483,6 +483,17 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
     }
   }
 
+  // Client saved without a Stripe ID yet (onboarding in progress): hold the
+  // lead as failed-with-reason so it sits in "needs attention" and the
+  // Charge button can bill it the moment the real cus_ ID is filled in.
+  if (!config.stripeCustomerId) {
+    return record('failed', {
+      amountCents: config.pricePerLeadCents,
+      failureReason:
+        'No Stripe customer ID on file for this client yet — add it in Roofing Clients, then press Charge.',
+    })
+  }
+
   const outcome = await chargeCard(
     config.stripeCustomerId,
     config.pricePerLeadCents,
@@ -522,6 +533,14 @@ export async function retryLeadCharge(id: string): Promise<IngestResult> {
       leadId: lead.leadId,
       status: lead.chargeStatus,
       reason: 'This lead has no client config attached.',
+    }
+  }
+  if (!lead.config.stripeCustomerId) {
+    return {
+      ok: false,
+      leadId: lead.leadId,
+      status: lead.chargeStatus,
+      reason: `Add ${lead.config.clientName}'s Stripe customer ID first, then retry.`,
     }
   }
 

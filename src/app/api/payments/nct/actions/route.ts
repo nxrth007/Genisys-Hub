@@ -70,15 +70,20 @@ export async function POST(req: NextRequest) {
       const sourceKey = String(body.sourceKey ?? '')
         .trim()
         .toLowerCase()
-      if (!clientName || !stripeCustomerId || !sourceKey) {
+      if (!clientName || !sourceKey) {
         return NextResponse.json(
-          { error: 'Client name, Stripe customer ID and source key are required.' },
+          { error: 'Client name and source key are required.' },
           { status: 400 },
         )
       }
-      if (!stripeCustomerId.startsWith('cus_')) {
+      // Optional while onboarding (card not saved yet) — but if provided it
+      // must look real, so a placeholder can't silently eat charges later.
+      if (stripeCustomerId && !stripeCustomerId.startsWith('cus_')) {
         return NextResponse.json(
-          { error: 'Stripe customer ID should look like cus_XXXXXXXX.' },
+          {
+            error:
+              'Stripe customer ID should look like cus_XXXXXXXX — leave it blank until you have the real one.',
+          },
           { status: 400 },
         )
       }
