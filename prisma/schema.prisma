@@ -38,6 +38,7 @@ model User {
   //   team_member        — approved Team #N agent, EOD-only access at /team
   //   team_denied        — Team #N registration denied
   role          String    @default("member")
+  apiTokens     ApiToken[]
   // For Credentials-auth users (agents + clients). Null for Google SSO users.
   passwordHash  String?
   // Forces a password change on next sign-in. Set true when admin
@@ -1848,4 +1849,37 @@ model NctWebhookEvent {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+}
+
+/// API token for external frontends (the Lovable-hosted Vite SPA).
+///
+/// The Hub's own UI is same-origin and uses the Auth.js session cookie;
+/// a separately-hosted SPA can't, so it authenticates with a bearer
+/// token instead. Tokens are stored ONLY as a SHA-256 hash — the
+/// plaintext is shown once at creation and is unrecoverable after, so a
+/// database leak can't be replayed against the API.
+///
+/// Scope is deliberately coarse and read-only for now: these tokens
+/// reach a curated /api/external/v1/* surface, never the internal API
+/// that can charge cards, send SMS, or delete rows.
+model ApiToken {
+  id        String  @id @default(cuid())
+  /// Human label, e.g. "Lovable frontend — Ethan".
+  name      String
+  /// SHA-256 of the plaintext token. Never store the token itself.
+  tokenHash String  @unique
+  /// First few chars of the plaintext, for "which token is this?" in the UI.
+  prefix    String
+  /// read | read_write — only "read" is honored today.
+  scope     String  @default("read")
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([revokedAt])
 }
