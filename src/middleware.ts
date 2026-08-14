@@ -121,9 +121,6 @@ const ADMIN_ONLY_PREFIXES = [
   // /agents is the admin agent-management section in the main Hub sidebar.
   // /agent (singular) is the agent-facing portal and is gated separately above.
   '/agents',
-  // /leads mirrors the Vicidial dialer's lead lists — staff-side
-  // operational data, not for clients or Team #1 members.
-  '/leads',
 ]
 
 function isPublic(pathname: string): boolean {
