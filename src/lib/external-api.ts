@@ -54,7 +54,7 @@ export type ExternalAuth = {
   tokenId: string
   name: string
   scope: string
-  user: { id: string; name: string | null; email: string } | null
+  user: { id: string; name: string | null; email: string; role: string } | null
 }
 
 /** Constant-time string compare that can't leak length via early exit. */
@@ -150,7 +150,14 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
     tokenId: record.id,
     name: record.name,
     scope: record.scope,
-    user: owner ? { id: owner.id, name: owner.name, email: owner.email } : null,
+    user: owner
+      ? {
+          id: owner.id,
+          name: owner.name,
+          email: owner.email,
+          role: owner.role,
+        }
+      : null,
   }
 }
 
