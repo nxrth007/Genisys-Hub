@@ -59,10 +59,11 @@ export const GET = withExternalApi(async (req, auth) => {
       contactId: str(contact.id) ?? str(o.contactId),
       contactName:
         str(contact.name) ??
-        [str(contact.firstName), str(contact.lastName)]
-          .filter(Boolean)
-          .join(' ') ||
-        null,
+        (
+          [str(contact.firstName), str(contact.lastName)]
+            .filter(Boolean)
+            .join(' ') || null
+        ),
       contactEmail: str(contact.email),
       contactPhone: str(contact.phone),
     }
