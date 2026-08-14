@@ -993,3 +993,45 @@ export async function updateOpportunityStage(
     }),
   })
 }
+
+// -------------------------------------------------------------------------
+// Contact notes + tags (opportunity card actions)
+// -------------------------------------------------------------------------
+
+export async function getContactNotes(
+  contactId: string,
+  vaultEntryName: string
+) {
+  return ghlFetch(`/contacts/${contactId}/notes`, vaultEntryName)
+}
+
+export async function createContactNote(
+  contactId: string,
+  vaultEntryName: string,
+  body: string
+) {
+  return ghlFetch(`/contacts/${contactId}/notes`, vaultEntryName, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+}
+
+/**
+ * Add or replace a contact's tags.
+ *
+ * GHL's tag endpoint replaces the whole set rather than appending, so
+ * callers must send the full list — sending one tag silently drops the
+ * rest, which is a quiet way to lose segmentation.
+ */
+export async function setContactTags(
+  contactId: string,
+  vaultEntryName: string,
+  tags: string[]
+) {
+  return ghlFetch(`/contacts/${contactId}`, vaultEntryName, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  })
+}
