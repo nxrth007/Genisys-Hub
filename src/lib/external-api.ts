@@ -132,7 +132,12 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   // user was denied or revoked after signing in, the token dies with them.
   const owner = record.createdBy
   if (record.scope === 'session') {
-    if (!owner || owner.role !== 'crm_user') return null
+    const stillAllowed =
+      !!owner &&
+      (owner.role === 'crm_user' ||
+        owner.role === 'admin' ||
+        owner.role === 'member')
+    if (!stillAllowed) return null
   }
 
   return {

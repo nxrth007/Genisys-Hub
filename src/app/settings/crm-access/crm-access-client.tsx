@@ -7,6 +7,7 @@ import {
   Check,
   Loader2,
   LogOut,
+  KeyRound,
   ShieldCheck,
   UserX,
   X,
@@ -22,6 +23,8 @@ type CrmUser = {
   createdAt: string
   activeSessions: number
   lastSeenAt: string | null
+  hasPassword: boolean
+  isStaff: boolean
 }
 
 type ActionFn = (payload: Record<string, unknown>) => void
@@ -163,6 +166,110 @@ function Section({
   )
 }
 
+
+/**
+ * Hub staff row.
+ *
+ * Staff sign in to the CRM as themselves — their Hub role is untouched,
+ * because `role` is a single column and overwriting it would revoke
+ * their Hub access. All they need is a password, since staff normally
+ * authenticate to the Hub with Google SSO and have none.
+ */
+function StaffRow({
+  u,
+  busy,
+  onAction,
+}: {
+  u: CrmUser
+  busy: boolean
+  onAction: ActionFn
+}) {
+  const [open, setOpen] = useState(false)
+  const [pw, setPw] = useState('')
+  const tooShort = pw.length > 0 && pw.length < 10
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">
+            {u.name ?? '—'}
+            <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              {u.role}
+            </span>
+            {u.activeSessions > 0 && (
+              <span className="ml-2 text-[11px] font-normal text-emerald-600 dark:text-emerald-400">
+                {u.activeSessions} active session
+                {u.activeSessions === 1 ? '' : 's'}
+              </span>
+            )}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {u.email} ·{' '}
+            {u.hasPassword
+              ? 'CRM password set'
+              : 'no CRM password yet — cannot sign in'}
+          </p>
+        </div>
+
+        <div className="flex flex-shrink-0 flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            {u.hasPassword ? 'Change password' : 'Set password'}
+          </button>
+          {u.activeSessions > 0 && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onAction({ action: 'signOut', id: u.id })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
+          )}
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-border-soft pt-3">
+          <div className="min-w-[220px] flex-1">
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder="At least 10 characters"
+              className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            />
+            {tooShort && (
+              <p className="mt-1 text-[11px] text-destructive">
+                Must be at least 10 characters.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={busy || pw.length < 10}
+            onClick={() => {
+              onAction({ action: 'setPassword', id: u.id, password: pw })
+              setPw('')
+              setOpen(false)
+            }}
+            className="rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+          >
+            Save password
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CrmAccessClient() {
   const queryClient = useQueryClient()
   const [notice, setNotice] = useState<{
@@ -215,6 +322,7 @@ export function CrmAccessClient() {
   const pending = users.filter((u) => u.role === 'crm_pending')
   const active = users.filter((u) => u.role === 'crm_user')
   const denied = users.filter((u) => u.role === 'crm_denied')
+  const staff = users.filter((u) => u.isStaff)
 
   return (
     <div className="flex flex-col gap-6">
@@ -241,6 +349,33 @@ export function CrmAccessClient() {
           approval. Nobody can sign in until you approve them.
         </div>
       )}
+
+      <div>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Hub staff · {staff.length}
+        </p>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Staff already have Hub accounts and can sign in to the CRM as
+          themselves — they just need a password, since Hub sign-in uses
+          Google. Their Hub role is never changed here.
+        </p>
+        {staff.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No staff accounts found.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {staff.map((u) => (
+              <StaffRow
+                key={u.id}
+                u={u}
+                busy={act.isPending}
+                onAction={act.mutate}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <Section
         title="Awaiting approval"

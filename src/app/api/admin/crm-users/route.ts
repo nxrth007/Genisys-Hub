@@ -7,6 +7,7 @@ import {
   CRM_DENIED,
   CRM_PENDING,
   CRM_USER,
+  STAFF_ROLES,
   passwordProblem,
 } from '@/lib/external-auth'
 
@@ -24,7 +25,7 @@ export async function GET() {
   if (denial) return denial
 
   const users = await prisma.user.findMany({
-    where: { role: { in: CRM_ROLES } },
+    where: { role: { in: [...CRM_ROLES, ...STAFF_ROLES] } },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
@@ -33,6 +34,7 @@ export async function GET() {
       role: true,
       approvedAt: true,
       createdAt: true,
+      passwordHash: true,
     },
   })
 
@@ -52,8 +54,11 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    users: users.map((u) => ({
+    users: users.map(({ passwordHash, ...u }) => ({
       ...u,
+      // Never leak the hash — just whether a password exists at all.
+      hasPassword: !!passwordHash,
+      isStaff: STAFF_ROLES.includes(u.role),
       activeSessions: byUser.get(u.id)?.count ?? 0,
       lastSeenAt: byUser.get(u.id)?.lastUsedAt ?? null,
     })),
@@ -76,10 +81,21 @@ export async function POST(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
   const target = await prisma.user.findUnique({ where: { id } })
-  if (!target || !CRM_ROLES.includes(target.role)) {
+  if (!target || ![...CRM_ROLES, ...STAFF_ROLES].includes(target.role)) {
+    return NextResponse.json({ error: 'Unknown account.' }, { status: 404 })
+  }
+
+  // Role changes are for CRM accounts only. Applying approve/deny to a
+  // staff member would overwrite admin/member and lock them out of the
+  // Hub — `role` is a single column, so there is no "add a role".
+  const roleChanging = ['approve', 'deny', 'revoke'].includes(action)
+  if (roleChanging && STAFF_ROLES.includes(target.role)) {
     return NextResponse.json(
-      { error: 'Not a CRM account.' },
-      { status: 404 },
+      {
+        error:
+          'This is a Hub staff account. Changing its role here would revoke their Hub access — manage staff roles in the Hub instead.',
+      },
+      { status: 400 },
     )
   }
 
