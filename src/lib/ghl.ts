@@ -911,3 +911,38 @@ export async function getMessageStatus(
   )) as { status?: string; messageStatus?: string; [k: string]: unknown }
   return { status: res.status || res.messageStatus, raw: res }
 }
+
+// -------------------------------------------------------------------------
+// Opportunities / pipelines
+// -------------------------------------------------------------------------
+
+/**
+ * Pipelines and their stages for a sub-account.
+ *
+ * Stages come back with a `position`, but not reliably in order — sort by
+ * it rather than trusting array order, or the board renders scrambled.
+ */
+export async function getPipelines(vaultEntryName: string) {
+  const { locationId } = await resolveToken(vaultEntryName)
+  return ghlFetch(`/opportunities/pipelines?locationId=${locationId}`, vaultEntryName)
+}
+
+/**
+ * Opportunities in a pipeline.
+ *
+ * Note the parameter casing: this endpoint takes `location_id` and
+ * `pipeline_id` in snake_case, unlike the rest of the v2 API which uses
+ * camelCase. Passing locationId here silently returns nothing.
+ */
+export async function getOpportunities(
+  vaultEntryName: string,
+  params: { pipelineId?: string; limit?: number } = {}
+) {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const search = new URLSearchParams({
+    location_id: locationId,
+    limit: String(Math.min(100, Math.max(1, params.limit ?? 100))),
+  })
+  if (params.pipelineId) search.set('pipeline_id', params.pipelineId)
+  return ghlFetch(`/opportunities/search?${search.toString()}`, vaultEntryName)
+}
