@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { prisma } from './prisma'
+import { corsHeaders, corsPreflight } from './external-cors'
 
 /**
  * Bridge for externally-hosted frontends (the Lovable Vite SPA).
@@ -30,7 +31,11 @@ function hashToken(plain: string): string {
  * Mint a token. Returns the plaintext ONCE — it is never stored and
  * cannot be recovered, so the caller must show it to the user now.
  */
-export async function createApiToken(name: string, createdById?: string) {
+export async function createApiToken(
+  name: string,
+  createdById?: string,
+  expiresAt?: Date,
+) {
   const plain = `${TOKEN_PREFIX}${randomBytes(24).toString('hex')}`
   const token = await prisma.apiToken.create({
     data: {
@@ -38,12 +43,19 @@ export async function createApiToken(name: string, createdById?: string) {
       tokenHash: hashToken(plain),
       prefix: plain.slice(0, TOKEN_PREFIX.length + 6),
       createdById: createdById ?? null,
+      expiresAt: expiresAt ?? null,
+      scope: expiresAt ? 'session' : 'read',
     },
   })
   return { token, plaintext: plain }
 }
 
-export type ExternalAuth = { tokenId: string; name: string; scope: string }
+export type ExternalAuth = {
+  tokenId: string
+  name: string
+  scope: string
+  user: { id: string; name: string | null; email: string } | null
+}
 
 /** Constant-time string compare that can't leak length via early exit. */
 function safeEqual(a: string, b: string): boolean {
@@ -87,7 +99,7 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   // Env token first — it has no prefix requirement.
   const configured = envToken()
   if (configured && safeEqual(provided, configured)) {
-    return { tokenId: 'env', name: 'Environment token', scope: 'read' }
+    return { tokenId: 'env', name: 'Environment token', scope: 'read', user: null }
   }
 
   // Everything else must look like a minted token before we hit the DB.
@@ -96,7 +108,12 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   // Hash lookup is O(1) and constant-time-safe: we compare hashes, and
   // the DB lookup is on the hash itself rather than a scan.
   const hash = hashToken(provided)
-  const record = await prisma.apiToken.findUnique({ where: { tokenHash: hash } })
+  const record = await prisma.apiToken.findUnique({
+    where: { tokenHash: hash },
+    include: {
+      createdBy: { select: { id: true, name: true, email: true, role: true } },
+    },
+  })
   if (!record) return null
 
   // Belt-and-braces constant-time compare of stored vs computed hash.
@@ -111,54 +128,18 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })
     .catch(() => {})
 
-  return { tokenId: record.id, name: record.name, scope: record.scope }
-}
+  // A session token is only as valid as the account behind it: if the
+  // user was denied or revoked after signing in, the token dies with them.
+  const owner = record.createdBy
+  if (record.scope === 'session') {
+    if (!owner || owner.role !== 'crm_user') return null
+  }
 
-/* -------------------------------------------------------------------------- */
-/*  CORS                                                                      */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Origins allowed to call the external API from a browser.
- *
- * Lovable gives each project a generated subdomain and previews from a
- * few different hosts, so this matches by pattern rather than exact
- * string. Extra origins can be added via EXTERNAL_API_ORIGINS
- * (comma-separated) without a deploy.
- *
- * Worth being clear: CORS is not the security boundary here — the
- * bearer token is. This just stops casual cross-site calls from
- * unrelated pages.
- */
-const ORIGIN_PATTERNS = [
-  /^https?:\/\/localhost(:\d+)?$/,
-  /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^https:\/\/([a-z0-9-]+\.)*lovable\.app$/,
-  /^https:\/\/([a-z0-9-]+\.)*lovableproject\.com$/,
-  /^https:\/\/([a-z0-9-]+\.)*lovable\.dev$/,
-  /^https:\/\/([a-z0-9-]+\.)*sandbox\.lovable\.dev$/,
-]
-
-function isAllowedOrigin(origin: string | null): boolean {
-  if (!origin) return false
-  if (ORIGIN_PATTERNS.some((re) => re.test(origin))) return true
-  const extra = (process.env.EXTERNAL_API_ORIGINS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  return extra.includes(origin)
-}
-
-function corsHeaders(origin: string | null): Record<string, string> {
-  const allowed = isAllowedOrigin(origin)
   return {
-    // Echo the specific origin rather than "*" so the header stays
-    // accurate if we ever add credentialed requests.
-    'Access-Control-Allow-Origin': allowed && origin ? origin : 'null',
-    'Access-Control-Allow-Methods': 'GET,OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-    'Access-Control-Max-Age': '86400',
-    Vary: 'Origin',
+    tokenId: record.id,
+    name: record.name,
+    scope: record.scope,
+    user: owner ? { id: owner.id, name: owner.name, email: owner.email } : null,
   }
 }
 
@@ -211,9 +192,4 @@ export function withExternalApi(handler: Handler) {
 }
 
 /** Shared OPTIONS export for preflight on every external route. */
-export function externalOptions(req: NextRequest): NextResponse {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders(req.headers.get('origin')),
-  })
-}
+export const externalOptions = corsPreflight
