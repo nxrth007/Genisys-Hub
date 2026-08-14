@@ -91,6 +91,12 @@ function envToken(): string | null {
  * non-revoked, non-expired database record. Returns null on any failure
  * — callers must not distinguish reasons beyond a generic 401.
  */
+export async function verifyExternalRequest(
+  req: NextRequest,
+): Promise<ExternalAuth | null> {
+  return verifyToken(req)
+}
+
 async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   const header = req.headers.get('authorization') ?? ''
   const provided = header.replace(/^Bearer\s+/i, '').trim()
