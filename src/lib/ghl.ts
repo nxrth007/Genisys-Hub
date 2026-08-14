@@ -1035,3 +1035,28 @@ export async function setContactTags(
     body: JSON.stringify({ tags }),
   })
 }
+
+/**
+ * Send the first message to a contact who has no conversation yet.
+ *
+ * GHL creates the conversation implicitly when /conversations/messages is
+ * posted with a contactId and no conversationId — the same path
+ * sendSmsToPhone relies on. Returns the new conversation id so the caller
+ * can open the thread instead of guessing where the message went.
+ */
+export async function startConversation(
+  vaultEntryName: string,
+  params: { contactId: string; message: string; type?: 'Email' | 'SMS' }
+): Promise<{ conversationId: string | null; raw: unknown }> {
+  const res = await ghlFetch('/conversations/messages', vaultEntryName, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: params.type ?? 'SMS',
+      contactId: params.contactId,
+      message: params.message,
+    }),
+  })
+  const id = res.conversationId ?? res.conversationID ?? null
+  return { conversationId: typeof id === 'string' ? id : null, raw: res }
+}
