@@ -45,15 +45,53 @@ export async function createApiToken(name: string, createdById?: string) {
 
 export type ExternalAuth = { tokenId: string; name: string; scope: string }
 
+/** Constant-time string compare that can't leak length via early exit. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  if (bufA.length !== bufB.length) return false
+  return timingSafeEqual(bufA, bufB)
+}
+
 /**
- * Resolve a bearer token to a live, non-revoked, non-expired record.
- * Returns null on any failure — callers must not distinguish reasons to
- * the client beyond a generic 401.
+ * Optional static token from the environment.
+ *
+ * Convenience path so a token can be set in Render without minting one
+ * in the UI — any value works, no `ghub_` prefix required. Tradeoffs
+ * versus a database token, worth knowing:
+ *   - it is NOT hashed at rest (Render env vars are readable in the
+ *     dashboard by anyone with access to the service)
+ *   - it cannot be revoked from the Hub UI; changing it needs a redeploy
+ *   - its use isn't tracked in `lastUsedAt`
+ * Database tokens remain the better option for anything long-lived.
+ */
+function envToken(): string | null {
+  const t = (
+    process.env.LOVABLE_TKN ??
+    process.env.EXTERNAL_API_TOKEN ??
+    ''
+  ).trim()
+  return t.length > 0 ? t : null
+}
+
+/**
+ * Resolve a bearer token to either the configured env token or a live,
+ * non-revoked, non-expired database record. Returns null on any failure
+ * — callers must not distinguish reasons beyond a generic 401.
  */
 async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   const header = req.headers.get('authorization') ?? ''
   const provided = header.replace(/^Bearer\s+/i, '').trim()
-  if (!provided || !provided.startsWith(TOKEN_PREFIX)) return null
+  if (!provided) return null
+
+  // Env token first — it has no prefix requirement.
+  const configured = envToken()
+  if (configured && safeEqual(provided, configured)) {
+    return { tokenId: 'env', name: 'Environment token', scope: 'read' }
+  }
+
+  // Everything else must look like a minted token before we hit the DB.
+  if (!provided.startsWith(TOKEN_PREFIX)) return null
 
   // Hash lookup is O(1) and constant-time-safe: we compare hashes, and
   // the DB lookup is on the hash itself rather than a scan.
@@ -61,10 +99,8 @@ async function verifyToken(req: NextRequest): Promise<ExternalAuth | null> {
   const record = await prisma.apiToken.findUnique({ where: { tokenHash: hash } })
   if (!record) return null
 
-  // Belt-and-braces constant-time compare of the stored vs computed hash.
-  const a = Buffer.from(record.tokenHash)
-  const b = Buffer.from(hash)
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  // Belt-and-braces constant-time compare of stored vs computed hash.
+  if (!safeEqual(record.tokenHash, hash)) return null
 
   if (record.revokedAt) return null
   if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
@@ -155,7 +191,7 @@ export function withExternalApi(handler: Handler) {
         {
           error: 'unauthorized',
           message:
-            'Missing or invalid API token. Send it as: Authorization: Bearer ghub_…',
+            'Missing or invalid API token. Send it as: Authorization: Bearer <token>',
         },
         { status: 401, headers },
       )
