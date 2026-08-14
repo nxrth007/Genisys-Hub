@@ -128,4 +128,60 @@ export const PATCH = externalWrite(async ({ auth, body }) => {
   throw new WriteError(`Unknown action "${action}".`)
 })
 
+
+/**
+ * DELETE /api/external/v1/agents/manage?id=...
+ *
+ * Permanently removes an account. Only offered for people already in the
+ * "No access" state, and refused outright if they have booking history.
+ *
+ * The refusal is the important part: Appointment.agent is onDelete
+ * Cascade, so deleting a user silently deletes every appointment they
+ * booked — along with their EOD reports, callbacks and alerts. A setter
+ * with 184 bookings would take all 184 with them, and nothing in the UI
+ * would suggest that had happened. Denied accounts that never booked
+ * anything (a rejected signup, a test account) delete cleanly, which is
+ * the case this button is actually for.
+ */
+export const DELETE = externalWrite(async ({ auth }, req) => {
+  if (auth.user.role !== 'admin') {
+    throw new WriteError('Only an admin can delete accounts.', 403)
+  }
+
+  const id = req.nextUrl.searchParams.get('id') ?? ''
+  if (!id) throw new WriteError('id is required.')
+
+  const target = await prisma.user.findUnique({ where: { id } })
+  if (!target) throw new WriteError('Account not found.', 404)
+
+  if (target.id === auth.user.id) {
+    throw new WriteError('You cannot delete your own account.')
+  }
+  if (!target.role.endsWith('_denied')) {
+    throw new WriteError(
+      'Only accounts with access already removed can be deleted. Revoke them first.',
+    )
+  }
+
+  const [appointments, eodReports, callbacks] = await Promise.all([
+    prisma.appointment.count({ where: { agentUserId: id } }),
+    prisma.eodReport.count({ where: { agentUserId: id } }),
+    prisma.callback.count({ where: { agentUserId: id } }),
+  ])
+
+  if (appointments > 0 || eodReports > 0 || callbacks > 0) {
+    const parts = [
+      appointments ? `${appointments} appointment${appointments === 1 ? '' : 's'}` : null,
+      eodReports ? `${eodReports} EOD report${eodReports === 1 ? '' : 's'}` : null,
+      callbacks ? `${callbacks} callback${callbacks === 1 ? '' : 's'}` : null,
+    ].filter(Boolean)
+    throw new WriteError(
+      `${target.email} has ${parts.join(', ')} attached. Deleting the account would delete that history too, so this is blocked — leave them in "No access" instead.`,
+    )
+  }
+
+  await prisma.user.delete({ where: { id } })
+  return { id, deleted: true }
+})
+
 export const OPTIONS = (req: NextRequest) => externalOptions(req)
