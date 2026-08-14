@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 // Note: useSearchParams avoided here — causes Next.js 16 prerender OOM/failure.
@@ -29,6 +31,7 @@ import {
   CheckCircle2,
   Headphones,
   Receipt,
+  ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 // Importing from the client-safe constants module — pulling from
@@ -42,6 +45,52 @@ import {
   SAMPLE_FILLS,
   type ReminderType,
 } from '@/lib/reminders-constants'
+
+
+/**
+ * Links to the admin sub-pages under /settings.
+ *
+ * These pages existed with no route into them — you had to know the URL,
+ * which is the same as not shipping them.
+ */
+function AccessLinksSection() {
+  const links = [
+    {
+      href: '/settings/crm-access',
+      title: 'CRM Access',
+      body: 'Approve who can sign in to the CRM frontend, and set owner passwords.',
+    },
+    {
+      href: '/settings/api-tokens',
+      title: 'API Tokens',
+      body: 'Bearer tokens for externally-hosted frontends and scripts.',
+    },
+  ]
+  return (
+    <div>
+      <h3 className="text-lg font-semibold tracking-tight">Access</h3>
+      <p className="mt-1 text-sm text-zinc-500">
+        Admin only. Controls who can reach Hub data from outside the Hub.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {links.map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className="group rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-blue-300 hover:bg-blue-50/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
+          >
+            <p className="flex items-center justify-between text-sm font-semibold">
+              {l.title}
+              <ArrowRight className="h-4 w-4 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" />
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">{l.body}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 
 export default function SettingsPage() {
   return (
@@ -57,6 +106,8 @@ export default function SettingsPage() {
           Configure integrations, connect accounts, and verify things are working.
         </p>
       </div>
+
+      <AccessLinksSection />
 
       <GmailConnectSection />
 
