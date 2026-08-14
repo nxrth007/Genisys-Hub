@@ -10,6 +10,7 @@ import {
   HelpCircle,
   CheckSquare,
   Phone,
+  PhoneCall,
   Building2,
   LayoutGrid,
   Inbox,
@@ -86,6 +87,10 @@ const SIMPLIFIED_NAV: NavItem[] = [
     label: 'Call Center',
     icon: Phone,
   },
+  // Call Center 2 — empty scaffold for the contractor model. Sits
+  // directly under the original so the two are visibly a pair while
+  // the old one is being retired.
+  { href: '/call-center-2', label: 'Call Center 2', icon: PhoneCall },
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
   // Documents — Ethan needs the pinned financials + Mary client
@@ -116,6 +121,10 @@ const FULL_NAV: NavItem[] = [
     label: 'Call Center',
     icon: Phone,
   },
+  // Call Center 2 — empty scaffold for the contractor model. Sits
+  // directly under the original so the two are visibly a pair while
+  // the old one is being retired.
+  { href: '/call-center-2', label: 'Call Center 2', icon: PhoneCall },
   { href: '/clients', label: 'Clients', icon: Building2 },
   { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },

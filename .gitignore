@@ -37,3 +37,7 @@ next-env.d.ts
 
 # render build artifacts
 .render-build/
+
+# Local Claude Code state — worktrees are full duplicate checkouts of
+# this repo and must never be committed into it.
+.claude/

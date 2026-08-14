@@ -39,6 +39,7 @@ model User {
   //   team_denied        — Team #N registration denied
   role          String    @default("member")
   apiTokens     ApiToken[]
+  timeEntries   TimeEntry[] @relation("UserTimeEntries")
   // For Credentials-auth users (agents + clients). Null for Google SSO users.
   passwordHash  String?
   // Forces a password change on next sign-in. Set true when admin
@@ -1882,4 +1883,39 @@ model ApiToken {
   createdAt  DateTime  @default(now())
 
   @@index([revokedAt])
+}
+
+/// Agent shift clock (CRM → Clock tab).
+///
+/// One row per shift. `clockOutAt` null means the shift is still open —
+/// that is the whole state machine, so "who is on right now" is a single
+/// indexed query rather than a scan.
+///
+/// Deliberately not derived from login/session activity: people leave
+/// tabs open overnight and sign in from two devices, so session time is a
+/// bad proxy for paid time. An explicit clock is auditable and matches
+/// what a person would tell you they worked.
+model TimeEntry {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("UserTimeEntries", fields: [userId], references: [id], onDelete: Cascade)
+
+  clockInAt  DateTime
+  clockOutAt DateTime?
+
+  /// Optional note the agent adds when clocking out ("covered Mary's shift").
+  note String?
+
+  /// Set when an admin closed a shift the agent left open.
+  closedByAdminId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// "Their week" — the main read.
+  @@index([userId, clockInAt])
+  /// "Everyone this week" — the admin calendar read.
+  @@index([clockInAt])
+  /// Finding open shifts cheaply.
+  @@index([clockOutAt])
 }
