@@ -237,22 +237,37 @@ export async function listSubAccounts(): Promise<{
     return a.name.localeCompare(b.name)
   })
 
+  // Resolved in parallel. This used to be a sequential loop, which was
+  // tolerable with one or two sub-accounts but scales badly: a cold token
+  // cache costs an HTTP round-trip each (sometimes two, when locationId
+  // has to be recovered via /locations/search), and every CRM request
+  // pays this before it can fan out. With a full agency's worth of
+  // sub-accounts that was seconds of dead time on the critical path.
+  //
+  // Order is preserved by resolving positionally rather than pushing as
+  // results arrive, so the agency-first / clients-last sort above still
+  // holds.
+  const settled = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        const { locationId, locationName } = await resolveToken(entry.name)
+        return {
+          ok: true as const,
+          value: { vaultName: entry.name, locationId, locationName },
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[ghl] Failed to resolve "${entry.name}": ${msg}`)
+        return { ok: false as const, vaultName: entry.name, error: msg }
+      }
+    }),
+  )
+
   const subaccounts: SubAccount[] = []
   const errors: Array<{ vaultName: string; error: string }> = []
-
-  for (const entry of entries) {
-    try {
-      const { locationId, locationName } = await resolveToken(entry.name)
-      subaccounts.push({
-        vaultName: entry.name,
-        locationId,
-        locationName,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.warn(`[ghl] Failed to resolve "${entry.name}": ${msg}`)
-      errors.push({ vaultName: entry.name, error: msg })
-    }
+  for (const r of settled) {
+    if (r.ok) subaccounts.push(r.value)
+    else errors.push({ vaultName: r.vaultName, error: r.error })
   }
 
   return { subaccounts, errors, discoveredEntries: entries.length }
