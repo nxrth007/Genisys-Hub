@@ -46,12 +46,20 @@ export function externalWrite(
       )
     }
 
+    // Parse only when a body was actually sent. DELETE carries its id in
+    // the query string and sends nothing, and req.json() throws on an
+    // empty payload — which surfaced as "Invalid JSON body" on every
+    // delete, before the handler ran. An absent body is valid; a
+    // malformed one is not, and only that should fail.
     let body: Record<string, unknown> = {}
     if (req.method !== 'GET') {
-      try {
-        body = await req.json()
-      } catch {
-        return fail('Invalid JSON body', 400)
+      const raw = await req.text().catch(() => '')
+      if (raw.trim()) {
+        try {
+          body = JSON.parse(raw) as Record<string, unknown>
+        } catch {
+          return fail('Invalid JSON body', 400)
+        }
       }
     }
 
