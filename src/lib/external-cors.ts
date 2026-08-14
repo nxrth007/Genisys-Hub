@@ -36,7 +36,11 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   const allowed = isAllowedOrigin(origin)
   return {
     'Access-Control-Allow-Origin': allowed && origin ? origin : 'null',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    // Must list every method the API actually serves. A missing one fails
+    // the browser's preflight before the request is sent, which surfaces
+    // as a bare "Failed to fetch" with no status and no server log —
+    // PATCH and DELETE were missing, so every write 404'd invisibly.
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization,Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
