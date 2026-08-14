@@ -936,13 +936,38 @@ export async function getPipelines(vaultEntryName: string) {
  */
 export async function getOpportunities(
   vaultEntryName: string,
-  params: { pipelineId?: string; limit?: number } = {}
+  params: { pipelineId?: string; max?: number } = {}
 ) {
   const { locationId } = await resolveToken(vaultEntryName)
-  const search = new URLSearchParams({
-    location_id: locationId,
-    limit: String(Math.min(100, Math.max(1, params.limit ?? 100))),
-  })
-  if (params.pipelineId) search.set('pipeline_id', params.pipelineId)
-  return ghlFetch(`/opportunities/search?${search.toString()}`, vaultEntryName)
+  const PAGE = 100 // GHL's hard ceiling; higher is rejected
+  const max = Math.min(2000, Math.max(1, params.max ?? 1000))
+
+  const all: Array<Record<string, unknown>> = []
+  let page = 1
+
+  // GHL caps a page at 100, so a pipeline with 252 opportunities silently
+  // looked like 100 until we walked the pages. Stop on a short page, on
+  // reaching the cap, or at page 20 so a pagination bug can't spin.
+  while (all.length < max && page <= 20) {
+    const search = new URLSearchParams({
+      location_id: locationId,
+      limit: String(PAGE),
+      page: String(page),
+    })
+    if (params.pipelineId) search.set('pipeline_id', params.pipelineId)
+
+    const payload = await ghlFetch(
+      `/opportunities/search?${search.toString()}`,
+      vaultEntryName
+    )
+    const batch = ((payload.opportunities ?? []) as Array<
+      Record<string, unknown>
+    >)
+    all.push(...batch)
+
+    if (batch.length < PAGE) break
+    page++
+  }
+
+  return { opportunities: all.slice(0, max), fetched: all.length }
 }
