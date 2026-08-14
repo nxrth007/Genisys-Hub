@@ -971,3 +971,25 @@ export async function getOpportunities(
 
   return { opportunities: all.slice(0, max), fetched: all.length }
 }
+
+/**
+ * Move an opportunity to a different pipeline stage.
+ *
+ * GHL's update endpoint is a PUT that treats omitted fields as unchanged,
+ * so this sends only the stage. pipelineId goes along with it because the
+ * API rejects a stage that it cannot place in a pipeline.
+ */
+export async function updateOpportunityStage(
+  vaultEntryName: string,
+  opportunityId: string,
+  params: { pipelineId: string; pipelineStageId: string }
+) {
+  return ghlFetch(`/opportunities/${opportunityId}`, vaultEntryName, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pipelineId: params.pipelineId,
+      pipelineStageId: params.pipelineStageId,
+    }),
+  })
+}
