@@ -24,7 +24,7 @@ type CrmUser = {
   activeSessions: number
   lastSeenAt: string | null
   hasPassword: boolean
-  isStaff: boolean
+  isOwner: boolean
 }
 
 type ActionFn = (payload: Record<string, unknown>) => void
@@ -168,14 +168,17 @@ function Section({
 
 
 /**
- * Hub staff row.
+ * Owner account row.
  *
- * Staff sign in to the CRM as themselves — their Hub role is untouched,
+ * Owners sign in to the CRM as themselves — their Hub role is untouched,
  * because `role` is a single column and overwriting it would revoke
- * their Hub access. All they need is a password, since staff normally
- * authenticate to the Hub with Google SSO and have none.
+ * their Hub access. All they need is a password, since Hub sign-in uses
+ * Google SSO and leaves passwordHash empty.
+ *
+ * "Staff" is intentionally not this. That term is reserved for a future
+ * scoped role with limited access, which doesn't exist yet.
  */
-function StaffRow({
+function OwnerRow({
   u,
   busy,
   onAction,
@@ -207,8 +210,8 @@ function StaffRow({
           <p className="truncate text-xs text-muted-foreground">
             {u.email} ·{' '}
             {u.hasPassword
-              ? 'CRM password set'
-              : 'no CRM password yet — cannot sign in'}
+              ? 'owner password set'
+              : 'no owner password yet — cannot sign in'}
           </p>
         </div>
 
@@ -219,7 +222,7 @@ function StaffRow({
             className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted"
           >
             <KeyRound className="h-3.5 w-3.5" />
-            {u.hasPassword ? 'Change password' : 'Set password'}
+            {u.hasPassword ? 'Change owner password' : 'Set owner password'}
           </button>
           {u.activeSessions > 0 && (
             <button
@@ -322,7 +325,7 @@ export function CrmAccessClient() {
   const pending = users.filter((u) => u.role === 'crm_pending')
   const active = users.filter((u) => u.role === 'crm_user')
   const denied = users.filter((u) => u.role === 'crm_denied')
-  const staff = users.filter((u) => u.isStaff)
+  const owners = users.filter((u) => u.isOwner)
 
   return (
     <div className="flex flex-col gap-6">
@@ -352,21 +355,22 @@ export function CrmAccessClient() {
 
       <div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Hub staff · {staff.length}
+          Owner accounts · {owners.length}
         </p>
         <p className="mb-2 text-xs text-muted-foreground">
-          Staff already have Hub accounts and can sign in to the CRM as
-          themselves — they just need a password, since Hub sign-in uses
-          Google. Their Hub role is never changed here.
+          Hub admin and member accounts. They sign in to the CRM as
+          themselves and keep their Hub role — they just need an owner
+          password, since Hub sign-in uses Google. Scoped Staff roles with
+          limited access will be a separate thing later.
         </p>
-        {staff.length === 0 ? (
+        {owners.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            No staff accounts found.
+            No owner accounts found.
           </p>
         ) : (
           <div className="flex flex-col gap-2">
-            {staff.map((u) => (
-              <StaffRow
+            {owners.map((u) => (
+              <OwnerRow
                 key={u.id}
                 u={u}
                 busy={act.isPending}

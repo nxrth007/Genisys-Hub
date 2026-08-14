@@ -23,13 +23,18 @@ export const CRM_DENIED = 'crm_denied'
 /**
  * Roles allowed to sign in to the CRM frontend.
  *
- * Existing Hub staff are included on purpose. `role` is a single column,
- * so "promoting" Alex to CRM_USER would strip his admin role and lock
- * him out of the Hub's admin areas. Staff therefore sign in as
- * themselves and keep whatever they already are.
+ * Owner accounts (the Hub's own admin/member users) are included on
+ * purpose. `role` is a single column, so "promoting" an owner to
+ * CRM_USER would strip their admin role and lock them out of the Hub's
+ * admin areas. Owners therefore sign in as themselves and keep whatever
+ * they already are.
+ *
+ * NOTE: "staff" is deliberately NOT used here. That word is reserved for
+ * a future scoped role with limited, configurable access — nothing in
+ * this file should claim it.
  */
-export const STAFF_ROLES = ['admin', 'member']
-const LOGIN_ALLOWED = new Set([CRM_USER, ...STAFF_ROLES])
+export const OWNER_ROLES = ['admin', 'member']
+const LOGIN_ALLOWED = new Set([CRM_USER, ...OWNER_ROLES])
 
 /** Sessions last 30 days, then the user signs in again. */
 const SESSION_DAYS = 30
