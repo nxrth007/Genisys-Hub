@@ -530,6 +530,18 @@ export async function getTodayEvents(
   return { events: allEvents, calendars }
 }
 
+/**
+ * Users assigned to a sub-account ("My Staff" in the GHL settings UI).
+ *
+ * Added for the attribution diagnostic: the Lead Genisys Sales sub-accounts
+ * appear to carry exactly one rep each, which would make the sub-account
+ * itself the unit of attribution. This is what proves or disproves that.
+ */
+export async function getLocationUsers(vaultEntryName: string) {
+  const { locationId } = await resolveToken(vaultEntryName)
+  return ghlFetch(`/users/?locationId=${locationId}`, vaultEntryName)
+}
+
 // -------------------------------------------------------------------------
 // Contacts
 // -------------------------------------------------------------------------
