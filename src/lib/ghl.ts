@@ -948,7 +948,7 @@ export async function getPipelines(vaultEntryName: string) {
  */
 export async function getOpportunities(
   vaultEntryName: string,
-  params: { pipelineId?: string; max?: number } = {}
+  params: { pipelineId?: string; stageId?: string; max?: number } = {}
 ) {
   const { locationId } = await resolveToken(vaultEntryName)
   const PAGE = 100 // GHL's hard ceiling; higher is rejected
@@ -967,6 +967,11 @@ export async function getOpportunities(
       page: String(page),
     })
     if (params.pipelineId) search.set('pipeline_id', params.pipelineId)
+    // Narrowing to a stage server-side turns "page through 252 records
+    // to find 3" into a single short page. If GHL ever ignores this
+    // param the result is still correct — callers filter by stage
+    // anyway — it just stops being fast.
+    if (params.stageId) search.set('pipeline_stage_id', params.stageId)
 
     const payload = await ghlFetch(
       `/opportunities/search?${search.toString()}`,

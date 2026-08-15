@@ -35,6 +35,19 @@ const PIPELINE_RE = /contractor/i
 
 const MAX_DAYS = 120
 
+/**
+ * Short in-process cache.
+ *
+ * This walks every sub-account in GHL, so it is expensive no matter how
+ * well it is parallelised, and the underlying data changes on the order
+ * of minutes rather than seconds. Render runs a single Node process, so
+ * a module-level map is a real cache rather than a per-request one.
+ *
+ * `?fresh=1` bypasses it, which is what the refresh button sends.
+ */
+const CACHE_MS = 60_000
+const cache = new Map<string, { at: number; data: unknown }>()
+
 function nameOf(o: RawObj, contact: RawObj): string | null {
   const direct =
     str(o.name) ?? str(o.opportunityName) ?? str(o.title) ?? str(o.opportunity_name)
@@ -59,6 +72,7 @@ export const GET = withExternalApi(async (req, auth) => {
   const since = new Date(Date.now() - days * 86400_000)
   const stageOverride = (params.get('stage') ?? '').trim().toLowerCase()
   const find = (params.get('find') ?? '').trim().toLowerCase()
+  const fresh = params.get('fresh') === '1'
 
   const { subaccounts, errors } = await listSubAccounts()
 
@@ -143,11 +157,19 @@ export const GET = withExternalApi(async (req, auth) => {
     }
   }
 
-  // Sequential across sub-accounts. GHL throttles hard, and a partial
-  // result here reads as "this rep booked nothing" — the one wrong
-  // answer a bookings table must never produce.
-  const reps = []
-  for (const sub of subaccounts) {
+  const cacheKey = `${days}|${stageOverride}`
+  if (!fresh) {
+    const hit = cache.get(cacheKey)
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.data
+  }
+
+  // Sub-accounts run concurrently — they are separate GHL locations with
+  // separate rate budgets, so one slow account no longer blocks the rest.
+  // Work WITHIN an account stays sequential, which keeps the burst per
+  // location small; a throttled partial result would read as "this rep
+  // booked nothing", the one wrong answer this must never produce.
+  const reps = await Promise.all(
+    subaccounts.map(async (sub) => {
     const rep: Record<string, unknown> = {
       vaultName: sub.vaultName,
       locationName: sub.locationName,
@@ -171,8 +193,7 @@ export const GET = withExternalApi(async (req, auth) => {
       if (!pipeline) {
         rep.error = 'No pipeline found in this sub-account.'
         rep.bookings = []
-        reps.push(rep)
-        continue
+        return rep
       }
 
       const stages = scanned.flatMap((p) => p.stages ?? [])
@@ -211,17 +232,33 @@ export const GET = withExternalApi(async (req, auth) => {
       if (bookedStageIds.size === 0) {
         rep.error = `No stage matching ${stageOverride || 'a booked stage'}. Stages here: ${stages.map((s) => s.name).join(', ') || 'none'}`
         rep.bookings = []
-        reps.push(rep)
-        continue
+        return rep
       }
 
+      // Ask GHL only for the booked stages instead of paging through
+      // every opportunity in the pipeline and discarding most of them.
+      // Genisys alone carries 252 on one board; this turns three pages
+      // of fetch-then-throw-away into one short page.
       const raw: RawObj[] = []
+      const seen = new Set<string>()
       for (const p of scanned) {
-        const payload = await getOpportunities(sub.vaultName, {
-          pipelineId: p.id,
-          max: 1000,
-        })
-        raw.push(...(payload.opportunities as RawObj[]))
+        for (const st of (p.stages ?? []).filter((x) =>
+          bookedStageIds.has(x.id),
+        )) {
+          const payload = await getOpportunities(sub.vaultName, {
+            pipelineId: p.id,
+            stageId: st.id,
+            max: 500,
+          })
+          for (const opp of payload.opportunities as RawObj[]) {
+            // If GHL ignores the stage filter we'd get the whole pipeline
+            // back once per stage, so dedupe by id.
+            const id = String(opp.id ?? '')
+            if (id && seen.has(id)) continue
+            if (id) seen.add(id)
+            raw.push(opp)
+          }
+        }
       }
 
       const bookings = raw
@@ -285,8 +322,9 @@ export const GET = withExternalApi(async (req, auth) => {
       rep.bookings = []
     }
 
-    reps.push(rep)
-  }
+    return rep
+    }),
+  )
 
   const allBookings = reps.flatMap((r) =>
     ((r.bookings ?? []) as RawObj[]).map((b) => ({
@@ -296,7 +334,7 @@ export const GET = withExternalApi(async (req, auth) => {
     })),
   )
 
-  return {
+  const result = {
     window: { since: since.toISOString(), days },
     stageFilter: stageOverride || 'auto (name contains "book")',
     totals: {
@@ -312,6 +350,9 @@ export const GET = withExternalApi(async (req, auth) => {
     reps,
     bookings: allBookings,
   }
+
+  cache.set(cacheKey, { at: Date.now(), data: result })
+  return result
 })
 
 export function OPTIONS(req: NextRequest) {
