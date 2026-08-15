@@ -1,5 +1,10 @@
 import { NextRequest } from 'next/server'
-import { getOpportunities, getPipelines, listSubAccounts } from '@/lib/ghl'
+import {
+  getCalendarEventsInRange,
+  getOpportunities,
+  getPipelines,
+  listSubAccounts,
+} from '@/lib/ghl'
 import { withExternalApi, externalOptions } from '@/lib/external-api'
 
 /**
@@ -47,6 +52,29 @@ const MAX_DAYS = 120
  */
 const CACHE_MS = 60_000
 const cache = new Map<string, { at: number; data: unknown }>()
+
+/**
+ * Attendance for a booking.
+ *
+ * GHL keeps show/no-show on the calendar APPOINTMENT, not on the
+ * opportunity, so this has to be joined in by contact. It is also a
+ * field a human sets after the call — nothing infers it — so until
+ * someone starts marking appointments it reports "unmarked" rather
+ * than guessing. An invented "showed" is worse than an honest blank,
+ * because it would quietly corrupt any show-rate built on top of it.
+ */
+type Attendance = 'showed' | 'noshow' | 'cancelled' | 'upcoming' | 'unmarked'
+
+function attendanceOf(status: string | null, startsAt: number | null): Attendance {
+  const v = (status ?? '').toLowerCase().replace(/[\s_-]/g, '')
+  if (v === 'showed' || v === 'attended') return 'showed'
+  if (v === 'noshow') return 'noshow'
+  if (v === 'cancelled' || v === 'canceled' || v === 'invalid') return 'cancelled'
+  // Confirmed/new only tells us it is booked. Before it happens that is
+  // simply "upcoming"; after it has happened, nobody marked it.
+  if (startsAt !== null && startsAt > Date.now()) return 'upcoming'
+  return 'unmarked'
+}
 
 function nameOf(o: RawObj, contact: RawObj): string | null {
   const direct =
@@ -261,6 +289,36 @@ export const GET = withExternalApi(async (req, auth) => {
         }
       }
 
+      // Appointments for this sub-account, indexed by contact. The window
+      // reaches forward as well as back: a booking made today is usually
+      // for a call that hasn't happened yet.
+      const byContact = new Map<
+        string,
+        Array<{ start: number | null; status: string | null }>
+      >()
+      try {
+        const { events } = await getCalendarEventsInRange(sub.vaultName, {
+          start: new Date(since.getTime() - 7 * 86400_000).toISOString(),
+          end: new Date(Date.now() + 90 * 86400_000).toISOString(),
+        })
+        for (const ev of events as RawObj[]) {
+          const cid = str(ev.contactId)
+          if (!cid) continue
+          const startRaw = str(ev.startTime) ?? str(ev.startDate)
+          const start = startRaw ? new Date(startRaw).getTime() : null
+          const list = byContact.get(cid) ?? []
+          list.push({
+            start: Number.isNaN(start as number) ? null : start,
+            status: str(ev.appointmentStatus) ?? str(ev.status),
+          })
+          byContact.set(cid, list)
+        }
+      } catch {
+        // No calendar access just means attendance stays unknown; the
+        // bookings themselves are still correct.
+      }
+      rep.attendanceAvailable = byContact.size > 0
+
       const bookings = raw
         .filter((o) => {
           const sid = str(o.pipelineStageId) ?? str(o.stageId)
@@ -273,10 +331,27 @@ export const GET = withExternalApi(async (req, auth) => {
           // the automation moves it on booking. createdAt is when the
           // lead first appeared, which can be much earlier.
           const bookedAt = str(o.updatedAt) ?? str(o.createdAt) ?? str(o.dateAdded)
+          const cid = str(contact.id) ?? str(o.contactId)
+          // Of a contact's appointments, the one that decides attendance
+          // is the most recent that has already started; if none has,
+          // the next upcoming one.
+          const evs = (cid ? (byContact.get(cid) ?? []) : []).slice().sort(
+            (x, y) => (x.start ?? 0) - (y.start ?? 0),
+          )
+          const now = Date.now()
+          const past = evs.filter((e) => e.start !== null && e.start <= now)
+          const chosen = past.length > 0 ? past[past.length - 1] : evs[0]
+
           return {
             id: String(o.id ?? ''),
             name: nameOf(o, contact) ?? 'Untitled',
             stage: stageName.get(sid) ?? 'Booked',
+            attendance: chosen
+              ? attendanceOf(chosen.status, chosen.start)
+              : ('unmarked' as const),
+            appointmentAt: chosen?.start
+              ? new Date(chosen.start).toISOString()
+              : null,
             status: str(o.status) ?? 'open',
             bookedAt,
             createdAt: str(o.createdAt) ?? str(o.dateAdded),
