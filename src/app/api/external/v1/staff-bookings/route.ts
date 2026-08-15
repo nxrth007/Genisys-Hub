@@ -161,8 +161,12 @@ export const GET = withExternalApi(async (req, auth) => {
         name: string
         stages?: Array<{ id: string; name: string }>
       }>
-      const pipeline =
-        pipelines.find((p) => PIPELINE_RE.test(p.name)) ?? pipelines[0]
+      // Every matching pipeline, not just the first. Sub-accounts split
+      // across "Contractors (Cold Callers)" and "Contractors (SMS)", so
+      // picking one arbitrarily pointed half the team at the wrong board.
+      const matching = pipelines.filter((p) => PIPELINE_RE.test(p.name))
+      const scanned = matching.length > 0 ? matching : pipelines.slice(0, 1)
+      const pipeline = scanned[0]
 
       if (!pipeline) {
         rep.error = 'No pipeline found in this sub-account.'
@@ -171,7 +175,7 @@ export const GET = withExternalApi(async (req, auth) => {
         continue
       }
 
-      const stages = pipeline.stages ?? []
+      const stages = scanned.flatMap((p) => p.stages ?? [])
       const bookedStageIds = new Set(
         stages
           .filter((st) =>
@@ -183,15 +187,16 @@ export const GET = withExternalApi(async (req, auth) => {
       )
       const stageName = new Map(stages.map((st) => [st.id, st.name]))
 
-      rep.pipelineName = pipeline.name
+      rep.pipelineName = scanned.map((p) => p.name).join(' + ')
       rep.bookedStages = stages
         .filter((st) => bookedStageIds.has(st.id))
         .map((st) => st.name)
       // Only one pipeline per sub-account is scanned. If a booking lands
       // in another one it is invisible here and looks like it never
       // happened, so name the others rather than hiding the assumption.
+      const scannedIds = new Set(scanned.map((p) => p.id))
       rep.otherPipelines = pipelines
-        .filter((p) => p.id !== pipeline.id)
+        .filter((p) => !scannedIds.has(p.id))
         .map((p) => p.name)
       rep.allStages = stages.map((st) => st.name)
 
@@ -205,12 +210,16 @@ export const GET = withExternalApi(async (req, auth) => {
         continue
       }
 
-      const payload = await getOpportunities(sub.vaultName, {
-        pipelineId: pipeline.id,
-        max: 1000,
-      })
+      const raw: RawObj[] = []
+      for (const p of scanned) {
+        const payload = await getOpportunities(sub.vaultName, {
+          pipelineId: p.id,
+          max: 1000,
+        })
+        raw.push(...(payload.opportunities as RawObj[]))
+      }
 
-      const bookings = (payload.opportunities as RawObj[])
+      const bookings = raw
         .filter((o) => {
           const sid = str(o.pipelineStageId) ?? str(o.stageId)
           return sid !== null && bookedStageIds.has(sid)
@@ -240,18 +249,32 @@ export const GET = withExternalApi(async (req, auth) => {
             contactEmail: str(contact.email),
           }
         })
-        .filter((b) => {
-          if (!b.bookedAt) return true // undated: show rather than drop
-          return new Date(b.bookedAt).getTime() >= since.getTime()
-        })
         .sort((a, b) => {
           const ta = a.bookedAt ? new Date(a.bookedAt).getTime() : 0
           const tb = b.bookedAt ? new Date(b.bookedAt).getTime() : 0
           return tb - ta
         })
 
-      rep.bookings = bookings
-      rep.total = bookings.length
+      // Two counts on purpose.
+      //
+      // The date filter is the least trustworthy part of this: GHL's
+      // updatedAt is what tells us when the automation moved a lead into
+      // the booked stage, and when it's absent we fall back to createdAt
+      // — which is when the LEAD was created, often months earlier. A
+      // booking made yesterday on an old lead would then be silently
+      // filtered out, and "0" would look like the rep did nothing.
+      //
+      // Reporting both makes that visible instead: 0 in-window against a
+      // non-zero all-time count says the dates are wrong, not the rep.
+      const inWindow = bookings.filter((b) => {
+        if (!b.bookedAt) return true // undated: count rather than drop
+        return new Date(b.bookedAt).getTime() >= since.getTime()
+      })
+
+      rep.bookings = inWindow
+      rep.total = inWindow.length
+      rep.totalAllTime = bookings.length
+      rep.undated = bookings.filter((b) => !b.bookedAt).length
     } catch (err) {
       rep.error = err instanceof Error ? err.message : 'Lookup failed'
       rep.bookings = []
@@ -273,6 +296,10 @@ export const GET = withExternalApi(async (req, auth) => {
     stageFilter: stageOverride || 'auto (name contains "book")',
     totals: {
       bookings: allBookings.length,
+      bookingsAllTime: reps.reduce(
+        (n, r) => n + ((r.totalAllTime as number) ?? 0),
+        0,
+      ),
       reps: reps.length,
       repsWithErrors: reps.filter((r) => r.error).length,
     },
