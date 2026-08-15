@@ -188,9 +188,14 @@ export const GET = withExternalApi(async (req, auth) => {
       const stageName = new Map(stages.map((st) => [st.id, st.name]))
 
       rep.pipelineName = scanned.map((p) => p.name).join(' + ')
-      rep.bookedStages = stages
-        .filter((st) => bookedStageIds.has(st.id))
-        .map((st) => st.name)
+      // Deduped: both scanned pipelines have their own "Booked Meeting"
+      // stage, and listing it twice reads as a configuration error rather
+      // than as the same stage existing on two boards.
+      rep.bookedStages = [
+        ...new Set(
+          stages.filter((st) => bookedStageIds.has(st.id)).map((st) => st.name),
+        ),
+      ]
       // Only one pipeline per sub-account is scanned. If a booking lands
       // in another one it is invisible here and looks like it never
       // happened, so name the others rather than hiding the assumption.
