@@ -209,5 +209,58 @@ export function withExternalApi(handler: Handler) {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Owner-only endpoints                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** Roles that count as "us" rather than "staff". */
+const OWNER_ROLE_SET = new Set(['admin', 'member'])
+
+/**
+ * True only for a signed-in owner account.
+ *
+ * The shared environment token deliberately fails this. It has no person
+ * behind it, can't be revoked without a redeploy, and leaves any access
+ * unattributable — acceptable for reading a dashboard, not for the
+ * margin ledger or the company inbox.
+ */
+export function isOwner(auth: ExternalAuth): boolean {
+  return (
+    auth.user !== null && OWNER_ROLE_SET.has(auth.user.role.trim().toLowerCase())
+  )
+}
+
+/**
+ * Like withExternalApi, but refuses anyone who isn't an owner.
+ *
+ * Exists because hiding a nav tab hides the link and nothing else. Every
+ * endpoint behind an admin-only screen has to enforce that itself, or an
+ * approved staff account can simply call it — which was true of Payments,
+ * Clients, the Inbox and the Staff roster until this was added.
+ *
+ * Returns 403 with a real message rather than letting the generic
+ * error handler collapse it into an opaque 500.
+ */
+export function withOwnerApi(handler: Handler) {
+  const inner = withExternalApi(handler)
+  return async function route(req: NextRequest): Promise<NextResponse> {
+    if (req.method === 'OPTIONS') return inner(req)
+
+    const auth = await verifyToken(req)
+    // Fall through on a missing token so withExternalApi owns the 401 and
+    // the two wrappers can't disagree about what unauthenticated means.
+    if (auth && !isOwner(auth)) {
+      return NextResponse.json(
+        {
+          error: 'forbidden',
+          message: 'This section is restricted to admins.',
+        },
+        { status: 403, headers: corsHeaders(req.headers.get('origin')) },
+      )
+    }
+    return inner(req)
+  }
+}
+
 /** Shared OPTIONS export for preflight on every external route. */
 export const externalOptions = corsPreflight

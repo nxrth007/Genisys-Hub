@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 
 /**
  * GET /api/external/v1/inbox/:id — one email, with its body.
@@ -8,7 +8,7 @@ import { withExternalApi, externalOptions } from '@/lib/external-api'
  * The list endpoint deliberately omits bodies (they are large and mostly
  * unread); this returns the full message for the one you opened.
  */
-export const GET = withExternalApi(async (req, auth) => {
+export const GET = withOwnerApi(async (req, auth) => {
   if (!auth.user) {
     throw new Error('Reading email bodies requires a signed-in account.')
   }

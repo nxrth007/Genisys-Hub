@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 
 /**
  * GET /api/external/v1/inbox — email headers and snippet only.
  * bodyText / bodyHtml are deliberately never selected.
  */
-export const GET = withExternalApi(async () => {
+export const GET = withOwnerApi(async () => {
   const emails = await prisma.email.findMany({
     orderBy: { date: 'desc' },
     take: 40,

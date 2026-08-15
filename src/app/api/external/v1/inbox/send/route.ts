@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { sendEmail, listConnectedAccounts } from '@/lib/gmail'
-import { externalWrite, WriteError } from '@/lib/external-write'
+import { externalWrite, WriteError, requireOwner } from '@/lib/external-write'
 import { externalOptions } from '@/lib/external-api'
 
 /**
@@ -16,6 +16,8 @@ import { externalOptions } from '@/lib/external-api'
  * with something unhelpful.
  */
 export const POST = externalWrite(async ({ auth, body }) => {
+  requireOwner(auth)
+
   const to = String(body.to ?? '').trim()
   const subject = String(body.subject ?? '').trim()
   const text = String(body.body ?? '').trim()

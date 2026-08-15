@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 
 /**
  * GET /api/external/v1/agents — everyone who can reach Genisys.
@@ -21,7 +21,7 @@ const VISIBLE_ROLES = [
   'crm_denied',
 ]
 
-export const GET = withExternalApi(async (_req, auth) => {
+export const GET = withOwnerApi(async (_req, auth) => {
   const [users, byAgent, sessions] = await Promise.all([
     prisma.user.findMany({
       where: { role: { in: VISIBLE_ROLES } },

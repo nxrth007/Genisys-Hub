@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 import { currentWeekStart } from '@/lib/nct-billing'
 import { maskPhone } from '../_mask'
 
@@ -11,7 +11,7 @@ import { maskPhone } from '../_mask'
  * Mercury: those sit behind Vault keys and the Payments email
  * allowlist, and a browser app has no business reaching them.
  */
-export const GET = withExternalApi(async () => {
+export const GET = withOwnerApi(async () => {
   const weekStart = currentWeekStart()
 
   const [configs, leads, sweeps, weekAgg] = await Promise.all([

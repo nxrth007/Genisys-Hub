@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { externalWrite, WriteError } from '@/lib/external-write'
+import { externalWrite, WriteError, requireOwner } from '@/lib/external-write'
 import { externalOptions } from '@/lib/external-api'
 
 /**
@@ -11,7 +11,9 @@ import { externalOptions } from '@/lib/external-api'
  * invoices and deliveries all reference Client, and removing the row
  * would orphan history the business still needs.
  */
-export const POST = externalWrite(async ({ body }) => {
+export const POST = externalWrite(async ({ auth, body }) => {
+  requireOwner(auth)
+
   const name = String(body.name ?? '').trim()
   if (!name) throw new WriteError('Client name is required.')
 
@@ -33,7 +35,9 @@ export const POST = externalWrite(async ({ body }) => {
   return client
 })
 
-export const PATCH = externalWrite(async ({ body }) => {
+export const PATCH = externalWrite(async ({ auth, body }) => {
+  requireOwner(auth)
+
   const id = String(body.id ?? '')
   if (!id) throw new WriteError('id is required.')
 

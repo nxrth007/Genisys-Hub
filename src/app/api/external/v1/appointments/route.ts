@@ -1,13 +1,13 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 import { maskPhone, maskEmail } from '../_mask'
 
 /**
  * GET /api/external/v1/appointments?limit=50
  * Recent appointments, newest first. End-customer PII is masked.
  */
-export const GET = withExternalApi(async (req) => {
+export const GET = withOwnerApi(async (req) => {
   const limit = Math.min(
     100,
     Math.max(1, Number(req.nextUrl.searchParams.get('limit') ?? 50)),

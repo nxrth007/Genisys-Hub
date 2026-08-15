@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyExternalRequest, type ExternalAuth } from './external-api'
+import { verifyExternalRequest, isOwner, type ExternalAuth } from './external-api'
 import { withCors } from './external-cors'
 
 /**
@@ -26,6 +26,18 @@ export class WriteError extends Error {
   constructor(message: string, status = 400) {
     super(message)
     this.status = status
+  }
+}
+
+/**
+ * Guard for writes behind an admin-only screen.
+ *
+ * Call at the top of a handler. Nav-level hiding does nothing here — a
+ * staff account can post to any endpoint it knows the URL of.
+ */
+export function requireOwner(auth: WriteContext['auth']): void {
+  if (!isOwner(auth)) {
+    throw new WriteError('This section is restricted to admins.', 403)
   }
 }
 

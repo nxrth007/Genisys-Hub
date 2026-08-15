@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { withOwnerApi, externalOptions } from '@/lib/external-api'
 
 /**
  * GET /api/external/v1/clients
  * The client roster, shaped for display. Active first, then by sortOrder.
  */
-export const GET = withExternalApi(async () => {
+export const GET = withOwnerApi(async () => {
   const clients = await prisma.client.findMany({
     orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     select: {
