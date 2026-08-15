@@ -58,8 +58,90 @@ export const GET = withExternalApi(async (req, auth) => {
       : 14
   const since = new Date(Date.now() - days * 86400_000)
   const stageOverride = (params.get('stage') ?? '').trim().toLowerCase()
+  const find = (params.get('find') ?? '').trim().toLowerCase()
 
   const { subaccounts, errors } = await listSubAccounts()
+
+  /**
+   * `?find=` — locate a record regardless of every filter above.
+   *
+   * Exists because "a booking I know happened isn't in the table" has
+   * four plausible causes (wrong pipeline, unmatched stage name, outside
+   * the window, wrong sub-account) and they are indistinguishable from
+   * the outside. This searches every sub-account, every pipeline, every
+   * stage, with no date cutoff, and reports exactly where the record
+   * lives — so the cause is read off evidence instead of guessed at.
+   */
+  if (find) {
+    const hits = []
+    for (const sub of subaccounts) {
+      try {
+        const pipeData = await getPipelines(sub.vaultName)
+        const pipelines = (pipeData.pipelines ?? []) as Array<{
+          id: string
+          name: string
+          stages?: Array<{ id: string; name: string }>
+        }>
+        for (const p of pipelines) {
+          const stageName = new Map(
+            (p.stages ?? []).map((st) => [st.id, st.name]),
+          )
+          const payload = await getOpportunities(sub.vaultName, {
+            pipelineId: p.id,
+            max: 1000,
+          })
+          for (const o of payload.opportunities as RawObj[]) {
+            const contact = (o.contact ?? {}) as RawObj
+            const title = nameOf(o, contact) ?? ''
+            const hay = [
+              title,
+              str(contact.name) ?? '',
+              str(contact.firstName) ?? '',
+              str(contact.lastName) ?? '',
+              str(contact.email) ?? '',
+              str(contact.phone) ?? '',
+            ]
+              .join(' ')
+              .toLowerCase()
+            if (!hay.includes(find)) continue
+            const sid = str(o.pipelineStageId) ?? str(o.stageId)
+            hits.push({
+              name: title || 'Untitled',
+              subAccount: sub.locationName,
+              vaultName: sub.vaultName,
+              pipeline: p.name,
+              stage: (sid && stageName.get(sid)) || sid || 'unknown',
+              stageMatchesBookedFilter: Boolean(
+                sid &&
+                  (stageOverride
+                    ? (stageName.get(sid) ?? '')
+                        .toLowerCase()
+                        .includes(stageOverride)
+                    : BOOKED_RE.test(stageName.get(sid) ?? '')),
+              ),
+              pipelineIsScanned: PIPELINE_RE.test(p.name),
+              createdAt: str(o.createdAt) ?? str(o.dateAdded),
+              updatedAt: str(o.updatedAt),
+              withinWindow:
+                new Date(
+                  str(o.updatedAt) ?? str(o.createdAt) ?? 0,
+                ).getTime() >= since.getTime(),
+            })
+          }
+        }
+      } catch {
+        // A sub-account we can't read simply contributes no hits.
+      }
+    }
+    return {
+      find,
+      hits,
+      hint:
+        hits.length === 0
+          ? 'No opportunity matched anywhere. The automation may not have created one, or the contact name differs.'
+          : 'Check pipelineIsScanned, stageMatchesBookedFilter and withinWindow — whichever is false is why it is missing from the table.',
+    }
+  }
 
   // Sequential across sub-accounts. GHL throttles hard, and a partial
   // result here reads as "this rep booked nothing" — the one wrong
@@ -105,6 +187,13 @@ export const GET = withExternalApi(async (req, auth) => {
       rep.bookedStages = stages
         .filter((st) => bookedStageIds.has(st.id))
         .map((st) => st.name)
+      // Only one pipeline per sub-account is scanned. If a booking lands
+      // in another one it is invisible here and looks like it never
+      // happened, so name the others rather than hiding the assumption.
+      rep.otherPipelines = pipelines
+        .filter((p) => p.id !== pipeline.id)
+        .map((p) => p.name)
+      rep.allStages = stages.map((st) => st.name)
 
       // A sub-account whose stages don't match is reported rather than
       // silently returning zero — "no booked stage" and "no bookings"
