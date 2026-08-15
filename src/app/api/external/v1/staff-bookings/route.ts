@@ -7,6 +7,7 @@ import {
 } from '@/lib/ghl'
 import { withExternalApi, externalOptions } from '@/lib/external-api'
 import { readCache, writeCache } from '@/lib/staff-bookings-cache'
+import { prisma } from '@/lib/prisma'
 
 /**
  * GET /api/external/v1/staff-bookings?days=14&stage=
@@ -330,6 +331,26 @@ export const GET = withExternalApi(async (req, auth) => {
       vaultName: r.vaultName,
     })),
   )
+
+  // A mark made in the CRM wins over whatever GHL's appointment says.
+  // GHL is only consulted for bookings nobody has marked here, so the
+  // two can't fight: the newer, deliberate answer is the one shown.
+  const ids = allBookings
+    .map((b) => String((b as RawObj).id ?? ''))
+    .filter(Boolean)
+  if (ids.length > 0) {
+    const marks = await prisma.bookingAttendance.findMany({
+      where: { opportunityId: { in: ids } },
+      select: { opportunityId: true, status: true, updatedAt: true },
+    })
+    const byId = new Map(marks.map((m) => [m.opportunityId, m]))
+    for (const b of allBookings as RawObj[]) {
+      const mark = byId.get(String(b.id ?? ''))
+      if (!mark) continue
+      b.attendance = mark.status
+      b.markedInCrmAt = mark.updatedAt.toISOString()
+    }
+  }
 
   const result = {
     window: { since: since.toISOString(), days },

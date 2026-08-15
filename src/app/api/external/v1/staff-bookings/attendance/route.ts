@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { prisma } from '@/lib/prisma'
 import { externalOptions } from '@/lib/external-api'
 import { externalWrite, WriteError } from '@/lib/external-write'
 import { updateAppointmentStatus } from '@/lib/ghl'
@@ -6,62 +7,74 @@ import { clearStaffBookingsCache } from '@/lib/staff-bookings-cache'
 
 /**
  * PATCH /api/external/v1/staff-bookings/attendance
- * { subAccount, appointmentId, status: 'showed' | 'noshow' | 'unmarked' }
+ * { opportunityId, subAccount, status, appointmentId? }
  *
- * Marks a booking showed or not from the CRM, writing straight to the
- * GHL appointment. There is no separate record here — the CRM and GHL
- * read and write the same field, so marking it in either place is the
- * same act and they can't disagree.
+ * Records whether a booking showed.
  *
- * Not owner-gated: Staff Bookings is a staff surface, and the people who
- * ran the call are exactly the ones who know whether it happened.
+ * Keyed by OPPORTUNITY, not by appointment. An earlier version wrote
+ * only to the GHL calendar appointment, which meant any booking whose
+ * contact couldn't be matched to a calendar event had nothing to write
+ * to and simply wasn't editable — which was most of them.
+ *
+ * Where an appointment IS linked, the same value is mirrored into GHL so
+ * anyone working there sees it too. That mirror is best-effort: if GHL
+ * refuses, the mark is still saved here and the caller is told the
+ * mirror failed, rather than losing the edit over a secondary write.
+ *
+ * Not owner-gated: the people who ran the call know whether it happened.
  */
 
-/**
- * GHL has no null outcome, so "not marked" is expressed as `confirmed`
- * — booked, no outcome recorded — which is what undoing a mistaken mark
- * should leave behind rather than inventing a third state.
- */
-const STATUS_MAP = {
+const ALLOWED = new Set(['showed', 'noshow', 'unmarked'])
+
+/** GHL has no null outcome; `confirmed` means booked, no outcome recorded. */
+const GHL_STATUS = {
   showed: 'showed',
   noshow: 'noshow',
   unmarked: 'confirmed',
 } as const
 
-type Incoming = keyof typeof STATUS_MAP
-
-export const PATCH = externalWrite(async ({ body }) => {
+export const PATCH = externalWrite(async ({ auth, body }) => {
+  const opportunityId = String(body.opportunityId ?? '').trim()
   const subAccount = String(body.subAccount ?? '').trim()
+  const status = String(body.status ?? '').trim()
   const appointmentId = String(body.appointmentId ?? '').trim()
-  const status = String(body.status ?? '').trim() as Incoming
 
+  if (!opportunityId) throw new WriteError('opportunityId is required')
   if (!subAccount) throw new WriteError('subAccount is required')
-  if (!appointmentId) {
-    throw new WriteError(
-      'This booking has no calendar appointment linked, so there is nothing to mark.',
-      409,
-    )
-  }
-  if (!(status in STATUS_MAP)) {
+  if (!ALLOWED.has(status)) {
     throw new WriteError("status must be 'showed', 'noshow' or 'unmarked'")
   }
 
-  try {
-    await updateAppointmentStatus(
+  await prisma.bookingAttendance.upsert({
+    where: { opportunityId },
+    create: {
+      opportunityId,
       subAccount,
-      appointmentId,
-      STATUS_MAP[status],
-    )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'GoHighLevel rejected it.'
-    throw new WriteError(`Could not update the appointment: ${msg}`, 502)
+      status,
+      markedById: auth.user.id,
+    },
+    update: { status, markedById: auth.user.id, subAccount },
+  })
+
+  // Mirror into GHL when there's an appointment to carry it. Deliberately
+  // after the local write and deliberately non-fatal.
+  let mirrored: boolean | null = null
+  if (appointmentId) {
+    try {
+      await updateAppointmentStatus(
+        subAccount,
+        appointmentId,
+        GHL_STATUS[status as keyof typeof GHL_STATUS],
+      )
+      mirrored = true
+    } catch {
+      mirrored = false
+    }
   }
 
-  // The read caches for a minute. Without this the row would snap back to
-  // its old value on the next refetch and look like the write failed.
   clearStaffBookingsCache()
 
-  return { appointmentId, status }
+  return { opportunityId, status, mirroredToGhl: mirrored }
 })
 
 export function OPTIONS(req: NextRequest) {

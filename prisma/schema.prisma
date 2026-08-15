@@ -40,6 +40,7 @@ model User {
   role          String    @default("member")
   apiTokens     ApiToken[]
   timeEntries   TimeEntry[] @relation("UserTimeEntries")
+  attendanceMarks BookingAttendance[] @relation("UserAttendanceMarks")
   // For Credentials-auth users (agents + clients). Null for Google SSO users.
   passwordHash  String?
   // Forces a password change on next sign-in. Set true when admin
@@ -1918,4 +1919,34 @@ model TimeEntry {
   @@index([clockInAt])
   /// Finding open shifts cheaply.
   @@index([clockOutAt])
+}
+
+/// Attendance for a booking, recorded in the CRM.
+///
+/// GHL keeps show/no-show on the calendar appointment, which is only
+/// reachable if an event can be matched to the opportunity's contact —
+/// and often it can't. Tying the control to that made most rows
+/// uneditable, so the CRM keeps its own record keyed by opportunity and
+/// that always works.
+///
+/// Where an appointment IS linked, the write is mirrored into GHL on a
+/// best-effort basis so anyone looking there sees the same thing. This
+/// row stays authoritative for the CRM either way.
+model BookingAttendance {
+  id            String @id @default(cuid())
+  /// GHL opportunity id — the one thing every booking here has.
+  opportunityId String @unique
+  /// Vault name of the sub-account, for filtering and for the GHL mirror.
+  subAccount    String
+
+  /// "showed" | "noshow" | "unmarked"
+  status String
+
+  markedById String?
+  markedBy   User?   @relation("UserAttendanceMarks", fields: [markedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subAccount])
 }
