@@ -355,6 +355,7 @@ export const GET = withExternalApi(async (req, auth) => {
             status: str(o.status) ?? 'open',
             bookedAt,
             createdAt: str(o.createdAt) ?? str(o.dateAdded),
+            updatedAt: str(o.updatedAt),
             contactId: str(contact.id) ?? str(o.contactId),
             contactName:
               str(contact.name) ??
@@ -383,15 +384,21 @@ export const GET = withExternalApi(async (req, auth) => {
       //
       // Reporting both makes that visible instead: 0 in-window against a
       // non-zero all-time count says the dates are wrong, not the rep.
-      const inWindow = bookings.filter((b) => {
-        if (!b.bookedAt) return true // undated: count rather than drop
-        return new Date(b.bookedAt).getTime() >= since.getTime()
-      })
+      const tagged = bookings.map((b) => ({
+        ...b,
+        inWindow: b.bookedAt
+          ? new Date(b.bookedAt).getTime() >= since.getTime()
+          : true, // undated: count rather than drop
+      }))
 
-      rep.bookings = inWindow
-      rep.total = inWindow.length
-      rep.totalAllTime = bookings.length
-      rep.undated = bookings.filter((b) => !b.bookedAt).length
+      // Every booking is returned, tagged, rather than the list being
+      // filtered to the window. A summary that counts a record and then
+      // refuses to show it is worse than not counting it: Garett's test
+      // read as "0 / 1 all time" with no way to reach the 1.
+      rep.bookings = tagged
+      rep.total = tagged.filter((b) => b.inWindow).length
+      rep.totalAllTime = tagged.length
+      rep.undated = tagged.filter((b) => !b.bookedAt).length
     } catch (err) {
       rep.error = err instanceof Error ? err.message : 'Lookup failed'
       rep.bookings = []
@@ -401,6 +408,8 @@ export const GET = withExternalApi(async (req, auth) => {
     }),
   )
 
+  // Includes out-of-window rows; the UI marks them. `totals.bookings`
+  // stays the in-window figure so the headline number keeps its meaning.
   const allBookings = reps.flatMap((r) =>
     ((r.bookings ?? []) as RawObj[]).map((b) => ({
       ...b,
@@ -413,7 +422,9 @@ export const GET = withExternalApi(async (req, auth) => {
     window: { since: since.toISOString(), days },
     stageFilter: stageOverride || 'auto (name contains "book")',
     totals: {
-      bookings: allBookings.length,
+      // Spreading a RawObj erases the tag's type, hence the cast.
+      bookings: allBookings.filter((b) => (b as RawObj).inWindow === true)
+        .length,
       bookingsAllTime: reps.reduce(
         (n, r) => n + ((r.totalAllTime as number) ?? 0),
         0,
