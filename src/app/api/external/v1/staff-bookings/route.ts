@@ -6,6 +6,7 @@ import {
   listSubAccounts,
 } from '@/lib/ghl'
 import { withExternalApi, externalOptions } from '@/lib/external-api'
+import { readCache, writeCache } from '@/lib/staff-bookings-cache'
 
 /**
  * GET /api/external/v1/staff-bookings?days=14&stage=
@@ -40,18 +41,7 @@ const PIPELINE_RE = /contractor/i
 
 const MAX_DAYS = 120
 
-/**
- * Short in-process cache.
- *
- * This walks every sub-account in GHL, so it is expensive no matter how
- * well it is parallelised, and the underlying data changes on the order
- * of minutes rather than seconds. Render runs a single Node process, so
- * a module-level map is a real cache rather than a per-request one.
- *
- * `?fresh=1` bypasses it, which is what the refresh button sends.
- */
-const CACHE_MS = 60_000
-const cache = new Map<string, { at: number; data: unknown }>()
+/** `?fresh=1` bypasses the shared cache; the refresh button sends it. */
 
 /**
  * Attendance for a booking.
@@ -105,8 +95,8 @@ export const GET = withExternalApi(async (req, auth) => {
 
   const cacheKey = `${days}|${stageOverride}`
   if (!fresh) {
-    const hit = cache.get(cacheKey)
-    if (hit && Date.now() - hit.at < CACHE_MS) return hit.data
+    const hit = readCache(cacheKey)
+    if (hit) return hit
   }
 
   // Sub-accounts run concurrently — they are separate GHL locations with
@@ -212,7 +202,7 @@ export const GET = withExternalApi(async (req, auth) => {
       // for a call that hasn't happened yet.
       const byContact = new Map<
         string,
-        Array<{ start: number | null; status: string | null }>
+        Array<{ id: string | null; start: number | null; status: string | null }>
       >()
       try {
         const { events } = await getCalendarEventsInRange(sub.vaultName, {
@@ -226,6 +216,7 @@ export const GET = withExternalApi(async (req, auth) => {
           const start = startRaw ? new Date(startRaw).getTime() : null
           const list = byContact.get(cid) ?? []
           list.push({
+            id: str(ev.id),
             start: Number.isNaN(start as number) ? null : start,
             status: str(ev.appointmentStatus) ?? str(ev.status),
           })
@@ -270,6 +261,10 @@ export const GET = withExternalApi(async (req, auth) => {
             appointmentAt: chosen?.start
               ? new Date(chosen.start).toISOString()
               : null,
+            // Needed to write the outcome back. Null means no calendar
+            // event matched this contact, so attendance is read-only.
+            appointmentId: chosen?.id ?? null,
+            subAccount: sub.vaultName,
             status: str(o.status) ?? 'open',
             bookedAt,
             createdAt: str(o.createdAt) ?? str(o.dateAdded),
@@ -355,7 +350,7 @@ export const GET = withExternalApi(async (req, auth) => {
     bookings: allBookings,
   }
 
-  cache.set(cacheKey, { at: Date.now(), data: result })
+  writeCache(cacheKey, result)
   return result
 })
 

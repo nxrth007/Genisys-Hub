@@ -537,6 +537,31 @@ export async function getTodayEvents(
  * appear to carry exactly one rep each, which would make the sub-account
  * itself the unit of attribution. This is what proves or disproves that.
  */
+/**
+ * Set an appointment's outcome.
+ *
+ * GHL's own UI writes the same field, so a value set here and a value set
+ * in GHL are the same thing — there is no second record to keep in sync.
+ *
+ * `confirmed` is how "not marked" is expressed: GHL has no null outcome,
+ * and confirmed means booked-but-no-outcome-recorded, which is exactly
+ * what clearing a mistaken mark should leave behind.
+ */
+export async function updateAppointmentStatus(
+  vaultEntryName: string,
+  eventId: string,
+  status: 'showed' | 'noshow' | 'confirmed' | 'cancelled',
+) {
+  return ghlFetch(
+    `/calendars/events/appointments/${encodeURIComponent(eventId)}`,
+    vaultEntryName,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ appointmentStatus: status }),
+    },
+  )
+}
+
 export async function getLocationUsers(vaultEntryName: string) {
   const { locationId } = await resolveToken(vaultEntryName)
   return ghlFetch(`/users/?locationId=${locationId}`, vaultEntryName)
