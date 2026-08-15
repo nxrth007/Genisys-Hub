@@ -175,7 +175,10 @@ type Handler = (
  * bearer token, attaches CORS headers to every response, and turns a
  * thrown error into a 500 without leaking internals.
  */
-export function withExternalApi(handler: Handler) {
+export function withExternalApi(
+  handler: Handler,
+  opts: { ownerOnly?: boolean } = {},
+) {
   return async function route(req: NextRequest): Promise<NextResponse> {
     const origin = req.headers.get('origin')
     const headers = corsHeaders(origin)
@@ -193,6 +196,13 @@ export function withExternalApi(handler: Handler) {
             'Missing or invalid API token. Send it as: Authorization: Bearer <token>',
         },
         { status: 401, headers },
+      )
+    }
+
+    if (opts.ownerOnly && !isOwner(auth)) {
+      return NextResponse.json(
+        { error: 'forbidden', message: 'This section is restricted to admins.' },
+        { status: 403, headers },
       )
     }
 
@@ -242,24 +252,11 @@ export function isOwner(auth: ExternalAuth): boolean {
  * error handler collapse it into an opaque 500.
  */
 export function withOwnerApi(handler: Handler) {
-  const inner = withExternalApi(handler)
-  return async function route(req: NextRequest): Promise<NextResponse> {
-    if (req.method === 'OPTIONS') return inner(req)
-
-    const auth = await verifyToken(req)
-    // Fall through on a missing token so withExternalApi owns the 401 and
-    // the two wrappers can't disagree about what unauthenticated means.
-    if (auth && !isOwner(auth)) {
-      return NextResponse.json(
-        {
-          error: 'forbidden',
-          message: 'This section is restricted to admins.',
-        },
-        { status: 403, headers: corsHeaders(req.headers.get('origin')) },
-      )
-    }
-    return inner(req)
-  }
+  // Delegates rather than wrapping. An earlier version verified the token
+  // itself and then called withExternalApi, which verified it again —
+  // doubling the token lookup and firing a second lastUsedAt write on
+  // every request to a gated endpoint.
+  return withExternalApi(handler, { ownerOnly: true })
 }
 
 /** Shared OPTIONS export for preflight on every external route. */
