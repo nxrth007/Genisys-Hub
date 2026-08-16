@@ -8,6 +8,7 @@ import { clearStaffBookingsCache } from '@/lib/staff-bookings-cache'
 /**
  * PATCH /api/external/v1/staff-bookings/attendance
  * { opportunityId, subAccount, status, appointmentId? }
+ *   status: 'showed' | 'noshow' | 'unmarked' | 'stale'
  *
  * Records whether a booking showed.
  *
@@ -24,14 +25,22 @@ import { clearStaffBookingsCache } from '@/lib/staff-bookings-cache'
  * Not owner-gated: the people who ran the call know whether it happened.
  */
 
-const ALLOWED = new Set(['showed', 'noshow', 'unmarked'])
+const ALLOWED = new Set(['showed', 'noshow', 'unmarked', 'stale'])
 
-/** GHL has no null outcome; `confirmed` means booked, no outcome recorded. */
-const GHL_STATUS = {
+/**
+ * GHL has no null outcome; `confirmed` means booked, no outcome recorded.
+ *
+ * "stale" has no entry on purpose. It is a Genisys judgement — this
+ * booking is junk, a test, or too old to count — not a statement about
+ * what happened at the appointment. Writing it into GHL would mean
+ * picking `cancelled` or `invalid`, either of which could trip
+ * automations there and would assert something we don't actually know.
+ */
+const GHL_STATUS: Record<string, 'showed' | 'noshow' | 'confirmed'> = {
   showed: 'showed',
   noshow: 'noshow',
   unmarked: 'confirmed',
-} as const
+}
 
 export const PATCH = externalWrite(async ({ auth, body }) => {
   const opportunityId = String(body.opportunityId ?? '').trim()
@@ -59,13 +68,10 @@ export const PATCH = externalWrite(async ({ auth, body }) => {
   // Mirror into GHL when there's an appointment to carry it. Deliberately
   // after the local write and deliberately non-fatal.
   let mirrored: boolean | null = null
-  if (appointmentId) {
+  const ghlStatus = GHL_STATUS[status]
+  if (appointmentId && ghlStatus) {
     try {
-      await updateAppointmentStatus(
-        subAccount,
-        appointmentId,
-        GHL_STATUS[status as keyof typeof GHL_STATUS],
-      )
+      await updateAppointmentStatus(subAccount, appointmentId, ghlStatus)
       mirrored = true
     } catch {
       mirrored = false

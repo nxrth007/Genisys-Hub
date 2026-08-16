@@ -54,7 +54,14 @@ const MAX_DAYS = 120
  * than guessing. An invented "showed" is worse than an honest blank,
  * because it would quietly corrupt any show-rate built on top of it.
  */
-type Attendance = 'showed' | 'noshow' | 'cancelled' | 'upcoming' | 'unmarked'
+type Attendance =
+  | 'showed'
+  | 'noshow'
+  | 'cancelled'
+  | 'upcoming'
+  | 'unmarked'
+  /** Set in the CRM only — excluded from the Scoreboard. */
+  | 'stale'
 
 function attendanceOf(status: string | null, startsAt: number | null): Attendance {
   const v = (status ?? '').toLowerCase().replace(/[\s_-]/g, '')
