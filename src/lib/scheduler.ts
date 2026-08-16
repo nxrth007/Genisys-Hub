@@ -174,12 +174,18 @@ let nctSweepInFlight = false
  * output buries anything real in the Render logs. Set
  * LEGACY_SOLAR_JOBS=off to stop them.
  *
+ * Set it to off / false / 0 / no / disabled — case and surrounding
+ * whitespace don't matter. An exact-match check would have meant typing
+ * "Off" left everything running with no indication why.
+ *
  * Defaults to ON so deploying this changes nothing until the variable is
  * set. Deliberately NOT covering the NCT Stripe→Mercury sweep: that has
  * its own sweepEnabled toggle, and a second gate would mean two switches
  * to remember when the roofing line comes back.
  */
-const LEGACY_SOLAR_JOBS = process.env.LEGACY_SOLAR_JOBS !== 'off'
+const LEGACY_SOLAR_JOBS = !['off', 'false', '0', 'no', 'disabled'].includes(
+  (process.env.LEGACY_SOLAR_JOBS ?? '').trim().toLowerCase(),
+)
 
 export function initScheduler() {
   if (initialized) return
