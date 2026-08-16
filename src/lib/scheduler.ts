@@ -164,6 +164,23 @@ const NCT_SWEEP_INTERVAL_MS = 15 * 60 * 1000
 let lastNctSweepAt = 0
 let nctSweepInFlight = false
 
+/**
+ * Solar-era jobs: master-sheet reminders, the sheet→DB appointment
+ * import, every client-alert channel, the Slack message alerts, and the
+ * Vicidial snapshots.
+ *
+ * Genisys stopped selling solar appointment-setting, so these now scan
+ * sheets and hit Slack every minute to deliver nothing — and their
+ * output buries anything real in the Render logs. Set
+ * LEGACY_SOLAR_JOBS=off to stop them.
+ *
+ * Defaults to ON so deploying this changes nothing until the variable is
+ * set. Deliberately NOT covering the NCT Stripe→Mercury sweep: that has
+ * its own sweepEnabled toggle, and a second gate would mean two switches
+ * to remember when the roofing line comes back.
+ */
+const LEGACY_SOLAR_JOBS = process.env.LEGACY_SOLAR_JOBS !== 'off'
+
 export function initScheduler() {
   if (initialized) return
   initialized = true
@@ -236,32 +253,34 @@ export function initScheduler() {
       console.error('[scheduler] chat attachment expiry tick failed:', err)
     }
 
-    // Vicidial list burn-down snapshots — once per UTC day. Walks
-    // every dialer list and records its status counts so /leads can
-    // chart depletion. In-flight guarded: N lists = N stats-page
-    // fetches, which can outlive a tick on a slow dialer day.
-    try {
-      const now = new Date()
-      const utcHour = now.getUTCHours()
-      const utcDay = now.toISOString().slice(0, 10)
-      if (
-        utcHour === VICIDIAL_SNAPSHOT_HOUR_UTC &&
-        lastVicidialSnapshotDayUtc !== utcDay &&
-        !vicidialSnapshotInFlight
-      ) {
-        lastVicidialSnapshotDayUtc = utcDay
-        vicidialSnapshotInFlight = true
-        try {
-          const result = await snapshotAllVicidialLists()
-          console.log(
-            `[scheduler] vicidial snapshots: ${result.snapshotted} written, ${result.failed} failed`,
-          )
-        } finally {
-          vicidialSnapshotInFlight = false
+    if (LEGACY_SOLAR_JOBS) {
+      // Vicidial list burn-down snapshots — once per UTC day. Walks
+      // every dialer list and records its status counts so /leads can
+      // chart depletion. In-flight guarded: N lists = N stats-page
+      // fetches, which can outlive a tick on a slow dialer day.
+      try {
+        const now = new Date()
+        const utcHour = now.getUTCHours()
+        const utcDay = now.toISOString().slice(0, 10)
+        if (
+          utcHour === VICIDIAL_SNAPSHOT_HOUR_UTC &&
+          lastVicidialSnapshotDayUtc !== utcDay &&
+          !vicidialSnapshotInFlight
+        ) {
+          lastVicidialSnapshotDayUtc = utcDay
+          vicidialSnapshotInFlight = true
+          try {
+            const result = await snapshotAllVicidialLists()
+            console.log(
+              `[scheduler] vicidial snapshots: ${result.snapshotted} written, ${result.failed} failed`,
+            )
+          } finally {
+            vicidialSnapshotInFlight = false
+          }
         }
+      } catch (err) {
+        console.error('[scheduler] vicidial snapshot tick failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] vicidial snapshot tick failed:', err)
     }
 
     try {
@@ -270,47 +289,49 @@ export function initScheduler() {
       console.error('[scheduler] Brief check failed:', err)
     }
 
-    // Reminder sync (every 5 min) + dispatch (every minute). Wrapped
-    // in their own try/catch so a sheet read failure doesn't kill
-    // the brief tick or the dispatch tick.
-    try {
-      const now = Date.now()
-      if (now - lastReminderSyncAt >= REMINDER_SYNC_INTERVAL_MS) {
-        lastReminderSyncAt = now
-        const result = await syncRemindersFromSheet()
-        if (
-          result.upserted > 0 ||
-          result.cancelled > 0 ||
-          result.skippedDuplicatePhone > 0
-        ) {
-          console.log(
-            `[scheduler] reminders sync: ${result.upserted} new, ${result.skippedPast} past, ${result.skippedDuplicatePhone} dupe-phone skipped, ${result.cancelled} cancelled (of ${result.scanned} scanned)`
-          )
-        }
-      }
-    } catch (err) {
-      console.error('[scheduler] reminders sync failed:', err)
-    }
-
-    // Sheet→DB appointment import (every 5 min). In-flight guarded —
-    // a full sheet read + per-row client resolution can outlast a
-    // tick on a big sheet. Never touches reminders.
-    if (!sheetImportInFlight) {
-      const now = Date.now()
-      if (now - lastSheetImportAt >= SHEET_IMPORT_INTERVAL_MS) {
-        lastSheetImportAt = now
-        sheetImportInFlight = true
-        try {
-          const result = await syncSheetAppointmentsToDb()
-          if (result.imported > 0) {
+    if (LEGACY_SOLAR_JOBS) {
+      // Reminder sync (every 5 min) + dispatch (every minute). Wrapped
+      // in their own try/catch so a sheet read failure doesn't kill
+      // the brief tick or the dispatch tick.
+      try {
+        const now = Date.now()
+        if (now - lastReminderSyncAt >= REMINDER_SYNC_INTERVAL_MS) {
+          lastReminderSyncAt = now
+          const result = await syncRemindersFromSheet()
+          if (
+            result.upserted > 0 ||
+            result.cancelled > 0 ||
+            result.skippedDuplicatePhone > 0
+          ) {
             console.log(
-              `[scheduler] sheet-import: ${result.imported} new appointments imported (${result.skippedExisting} already, ${result.skippedNoClient} no-client, ${result.skippedHubBooked} hub-booked) of ${result.scanned} scanned`,
+              `[scheduler] reminders sync: ${result.upserted} new, ${result.skippedPast} past, ${result.skippedDuplicatePhone} dupe-phone skipped, ${result.cancelled} cancelled (of ${result.scanned} scanned)`
             )
           }
-        } catch (err) {
-          console.error('[scheduler] sheet-import failed:', err)
-        } finally {
-          sheetImportInFlight = false
+        }
+      } catch (err) {
+        console.error('[scheduler] reminders sync failed:', err)
+      }
+
+      // Sheet→DB appointment import (every 5 min). In-flight guarded —
+      // a full sheet read + per-row client resolution can outlast a
+      // tick on a big sheet. Never touches reminders.
+      if (!sheetImportInFlight) {
+        const now = Date.now()
+        if (now - lastSheetImportAt >= SHEET_IMPORT_INTERVAL_MS) {
+          lastSheetImportAt = now
+          sheetImportInFlight = true
+          try {
+            const result = await syncSheetAppointmentsToDb()
+            if (result.imported > 0) {
+              console.log(
+                `[scheduler] sheet-import: ${result.imported} new appointments imported (${result.skippedExisting} already, ${result.skippedNoClient} no-client, ${result.skippedHubBooked} hub-booked) of ${result.scanned} scanned`,
+              )
+            }
+          } catch (err) {
+            console.error('[scheduler] sheet-import failed:', err)
+          } finally {
+            sheetImportInFlight = false
+          }
         }
       }
     }
@@ -369,165 +390,167 @@ export function initScheduler() {
         })
     }
 
-    try {
-      const result = await dispatchDueReminders()
-      if (result.attempted > 0) {
-        // quietHoursHeld + staleSkipped surface in every tick log so
-        // I can spot "lots of rows holding overnight, then a spike of
-        // stale skips at 08:00" patterns without needing a separate
-        // admin panel. Hiding the zeroes would help nothing.
-        console.log(
-          `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed, ${result.quietHoursHeld} held (quiet hours), ${result.staleSkipped} skipped (stale) (of ${result.attempted} attempted)`,
-        )
+    if (LEGACY_SOLAR_JOBS) {
+      try {
+        const result = await dispatchDueReminders()
+        if (result.attempted > 0) {
+          // quietHoursHeld + staleSkipped surface in every tick log so
+          // I can spot "lots of rows holding overnight, then a spike of
+          // stale skips at 08:00" patterns without needing a separate
+          // admin panel. Hiding the zeroes would help nothing.
+          console.log(
+            `[scheduler] reminders dispatch: ${result.sent} sent, ${result.failed} failed, ${result.quietHoursHeld} held (quiet hours), ${result.staleSkipped} skipped (stale) (of ${result.attempted} attempted)`,
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] reminders dispatch failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] reminders dispatch failed:', err)
-    }
 
-    // Client-channel delivery sync — posts new sheet rows to the
-    // configured Slack channel for each client. Cheap no-op when
-    // no client has slackChannelId set.
-    try {
-      const now = Date.now()
-      if (now - lastClientDeliverySyncAt >= CLIENT_DELIVERY_SYNC_INTERVAL_MS) {
-        lastClientDeliverySyncAt = now
-        const result = await syncClientDeliveriesFromSheet()
-        // Heartbeat-log every 5-min tick (not just on activity) so a
-        // test "I made a new appointment, will it auto-deliver?" has
-        // a clear log line to grep for in Render. Without it, a
-        // silently-skipped row was indistinguishable from a cron
-        // that never ran.
-        console.log(
-          `[scheduler] client-delivery sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
-        )
+      // Client-channel delivery sync — posts new sheet rows to the
+      // configured Slack channel for each client. Cheap no-op when
+      // no client has slackChannelId set.
+      try {
+        const now = Date.now()
+        if (now - lastClientDeliverySyncAt >= CLIENT_DELIVERY_SYNC_INTERVAL_MS) {
+          lastClientDeliverySyncAt = now
+          const result = await syncClientDeliveriesFromSheet()
+          // Heartbeat-log every 5-min tick (not just on activity) so a
+          // test "I made a new appointment, will it auto-deliver?" has
+          // a clear log line to grep for in Render. Without it, a
+          // silently-skipped row was indistinguishable from a cron
+          // that never ran.
+          console.log(
+            `[scheduler] client-delivery sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] client-delivery sync failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] client-delivery sync failed:', err)
-    }
 
-    // Client Alerts SMS sync — sends an SMS to each client's
-    // contactPhone when new appointments land. Independent from the
-    // Slack tick above so a Slack outage doesn't suppress SMS, and
-    // an SMS / GHL outage doesn't suppress Slack. The sync itself
-    // exits early when ClientAlertsConfig.enabled is false, so the
-    // heartbeat will read all-zeros until admin flips it on.
-    try {
-      const now = Date.now()
-      if (now - lastClientAlertSyncAt >= CLIENT_ALERT_SYNC_INTERVAL_MS) {
-        lastClientAlertSyncAt = now
-        const result = await syncClientAlertsFromSheet()
-        console.log(
-          `[scheduler] client-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
-        )
+      // Client Alerts SMS sync — sends an SMS to each client's
+      // contactPhone when new appointments land. Independent from the
+      // Slack tick above so a Slack outage doesn't suppress SMS, and
+      // an SMS / GHL outage doesn't suppress Slack. The sync itself
+      // exits early when ClientAlertsConfig.enabled is false, so the
+      // heartbeat will read all-zeros until admin flips it on.
+      try {
+        const now = Date.now()
+        if (now - lastClientAlertSyncAt >= CLIENT_ALERT_SYNC_INTERVAL_MS) {
+          lastClientAlertSyncAt = now
+          const result = await syncClientAlertsFromSheet()
+          console.log(
+            `[scheduler] client-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] client-alert sync failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] client-alert sync failed:', err)
-    }
 
-    // Pending-alert dispatch (every minute). Fires DB-driven alerts
-    // whose 30-min buffer expired — gives Mary a window to fix typos
-    // / re-edit before the client gets pinged. Independent from the
-    // sheet sync above so neither path can starve the other.
-    try {
-      const result = await dispatchPendingClientAlerts()
-      if (result.attempted > 0) {
-        console.log(
-          `[scheduler] client-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
-        )
+      // Pending-alert dispatch (every minute). Fires DB-driven alerts
+      // whose 30-min buffer expired — gives Mary a window to fix typos
+      // / re-edit before the client gets pinged. Independent from the
+      // sheet sync above so neither path can starve the other.
+      try {
+        const result = await dispatchPendingClientAlerts()
+        if (result.attempted > 0) {
+          console.log(
+            `[scheduler] client-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] client-alert dispatch failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] client-alert dispatch failed:', err)
-    }
 
-    // Client Email Alerts — third channel (Slack + SMS + email). Same
-    // 5-min sheet sync cadence as the other two; the sync exits early
-    // when the master toggle is off OR no client has opted in, so
-    // the heartbeat reads all-zeros when only Spring Solar is on
-    // and no new bookings landed this tick.
-    try {
-      const now = Date.now()
-      if (now - lastClientEmailAlertSyncAt >= CLIENT_EMAIL_ALERT_SYNC_INTERVAL_MS) {
-        lastClientEmailAlertSyncAt = now
-        const result = await syncClientEmailAlertsFromSheet()
-        console.log(
-          `[scheduler] client-email-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`,
-        )
+      // Client Email Alerts — third channel (Slack + SMS + email). Same
+      // 5-min sheet sync cadence as the other two; the sync exits early
+      // when the master toggle is off OR no client has opted in, so
+      // the heartbeat reads all-zeros when only Spring Solar is on
+      // and no new bookings landed this tick.
+      try {
+        const now = Date.now()
+        if (now - lastClientEmailAlertSyncAt >= CLIENT_EMAIL_ALERT_SYNC_INTERVAL_MS) {
+          lastClientEmailAlertSyncAt = now
+          const result = await syncClientEmailAlertsFromSheet()
+          console.log(
+            `[scheduler] client-email-alert sync: ${result.delivered} delivered (${result.inferred} via state inference), ${result.failed} failed, ${result.skipped} skipped, ${result.unrouted} unrouted, ${result.ambiguous} ambiguous (of ${result.scanned} scanned)`,
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] client-email-alert sync failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] client-email-alert sync failed:', err)
-    }
 
-    // Pending email-alert dispatch (every minute) — mirror of the
-    // SMS dispatcher. Fires queued alerts whose 30-min buffer expired.
-    try {
-      const result = await dispatchPendingClientEmailAlerts()
-      if (result.attempted > 0) {
-        console.log(
-          `[scheduler] client-email-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
-        )
+      // Pending email-alert dispatch (every minute) — mirror of the
+      // SMS dispatcher. Fires queued alerts whose 30-min buffer expired.
+      try {
+        const result = await dispatchPendingClientEmailAlerts()
+        if (result.attempted > 0) {
+          console.log(
+            `[scheduler] client-email-alert dispatch: ${result.delivered} delivered, ${result.failed} failed, ${result.skipped} skipped (of ${result.attempted} due)`,
+          )
+        }
+      } catch (err) {
+        console.error('[scheduler] client-email-alert dispatch failed:', err)
       }
-    } catch (err) {
-      console.error('[scheduler] client-email-alert dispatch failed:', err)
-    }
 
-    // Client message Slack alerts. Scans the Genisys GHL sub-account
-    // every minute for new inbound messages from registered clients
-    // and posts a one-line ping to #genisys-alerts so the team can
-    // respond fast. Reminder-system threads are excluded server-side.
-    //
-    // Wrapped in clientMessageAlertInFlight guard so a slow GHL fetch
-    // (which can push one tick past the 60s mark) doesn't cause the
-    // next tick to start a second concurrent scan — that race was the
-    // source of the "Unique constraint failed" prisma:error stacks we
-    // were chasing in the logs.
-    if (clientMessageAlertInFlight) {
-      // Previous tick still running. Skip silently — no log line so we
-      // don't spam under sustained slowness; the next free tick will
-      // pick things up.
-    } else {
-      const now = Date.now()
-      if (
-        now - lastClientMessageAlertAt >=
-        CLIENT_MESSAGE_ALERT_INTERVAL_MS
-      ) {
-        lastClientMessageAlertAt = now
-        clientMessageAlertInFlight = true
-        try {
-          const result = await syncClientMessageAlerts()
-          if (result.alerted > 0 || result.failed > 0) {
-            console.log(
-              `[scheduler] client-msg alert: ${result.alerted} new, ${result.skipped} already-alerted, ${result.outbound} our-replies, ${result.unmatched} non-client, ${result.failed} failed (of ${result.scanned} scanned)`,
-            )
+      // Client message Slack alerts. Scans the Genisys GHL sub-account
+      // every minute for new inbound messages from registered clients
+      // and posts a one-line ping to #genisys-alerts so the team can
+      // respond fast. Reminder-system threads are excluded server-side.
+      //
+      // Wrapped in clientMessageAlertInFlight guard so a slow GHL fetch
+      // (which can push one tick past the 60s mark) doesn't cause the
+      // next tick to start a second concurrent scan — that race was the
+      // source of the "Unique constraint failed" prisma:error stacks we
+      // were chasing in the logs.
+      if (clientMessageAlertInFlight) {
+        // Previous tick still running. Skip silently — no log line so we
+        // don't spam under sustained slowness; the next free tick will
+        // pick things up.
+      } else {
+        const now = Date.now()
+        if (
+          now - lastClientMessageAlertAt >=
+          CLIENT_MESSAGE_ALERT_INTERVAL_MS
+        ) {
+          lastClientMessageAlertAt = now
+          clientMessageAlertInFlight = true
+          try {
+            const result = await syncClientMessageAlerts()
+            if (result.alerted > 0 || result.failed > 0) {
+              console.log(
+                `[scheduler] client-msg alert: ${result.alerted} new, ${result.skipped} already-alerted, ${result.outbound} our-replies, ${result.unmatched} non-client, ${result.failed} failed (of ${result.scanned} scanned)`,
+              )
+            }
+          } catch (err) {
+            console.error('[scheduler] client-msg alert failed:', err)
+          } finally {
+            clientMessageAlertInFlight = false
           }
-        } catch (err) {
-          console.error('[scheduler] client-msg alert failed:', err)
-        } finally {
-          clientMessageAlertInFlight = false
         }
       }
-    }
 
-    // Reminder-reply alerts — customer replies (especially the
-    // day-before "Reply Y/N" ask) on reminder SMS threads. Mirror
-    // image of the client-msg alert stream: that one excludes
-    // reminder conversations, this one alerts only on them. Kept as
-    // separate jobs so each stream's failures + logs stay isolated.
-    if (!reminderReplyAlertInFlight) {
-      const now = Date.now()
-      if (now - lastReminderReplyAlertAt >= REMINDER_REPLY_ALERT_INTERVAL_MS) {
-        lastReminderReplyAlertAt = now
-        reminderReplyAlertInFlight = true
-        try {
-          const result = await syncReminderReplyAlerts()
-          if (result.alerted > 0 || result.failed > 0) {
-            console.log(
-              `[scheduler] reminder-reply alert: ${result.alerted} new (${result.negative} negative), ${result.skipped} already-alerted, ${result.outbound} our-sends, ${result.failed} failed (of ${result.watched} watched)`,
-            )
+      // Reminder-reply alerts — customer replies (especially the
+      // day-before "Reply Y/N" ask) on reminder SMS threads. Mirror
+      // image of the client-msg alert stream: that one excludes
+      // reminder conversations, this one alerts only on them. Kept as
+      // separate jobs so each stream's failures + logs stay isolated.
+      if (!reminderReplyAlertInFlight) {
+        const now = Date.now()
+        if (now - lastReminderReplyAlertAt >= REMINDER_REPLY_ALERT_INTERVAL_MS) {
+          lastReminderReplyAlertAt = now
+          reminderReplyAlertInFlight = true
+          try {
+            const result = await syncReminderReplyAlerts()
+            if (result.alerted > 0 || result.failed > 0) {
+              console.log(
+                `[scheduler] reminder-reply alert: ${result.alerted} new (${result.negative} negative), ${result.skipped} already-alerted, ${result.outbound} our-sends, ${result.failed} failed (of ${result.watched} watched)`,
+              )
+            }
+          } catch (err) {
+            console.error('[scheduler] reminder-reply alert failed:', err)
+          } finally {
+            reminderReplyAlertInFlight = false
           }
-        } catch (err) {
-          console.error('[scheduler] reminder-reply alert failed:', err)
-        } finally {
-          reminderReplyAlertInFlight = false
         }
       }
     }
