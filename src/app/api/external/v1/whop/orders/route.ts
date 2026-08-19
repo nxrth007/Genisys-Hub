@@ -42,11 +42,20 @@ export const GET = withOwnerApi(async (req) => {
   const max = Number.isFinite(rawMax) && rawMax > 0 ? Math.min(1000, rawMax) : 200
 
   try {
-    const { orders, truncated } = await listWhopOrders({
+    const { orders: fetched, truncated } = await listWhopOrders({
       max,
       statuses,
       createdAfter,
     })
+
+    // Enforce the status filter here as well as asking Whop for it.
+    // The array-parameter encoding is a guess against their docs, and a
+    // filter Whop silently ignores would return every status while the
+    // UI said "Paid" — wrong in the quiet way that gets believed.
+    const orders =
+      statuses.length > 0
+        ? fetched.filter((o) => statuses.includes(o.status))
+        : fetched
 
     const paid = orders.filter((o) => o.status === 'paid')
     const sum = (pick: (o: (typeof orders)[number]) => number | null) =>
