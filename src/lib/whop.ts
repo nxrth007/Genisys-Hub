@@ -119,6 +119,78 @@ function shape(p: Raw): WhopOrder {
 }
 
 /**
+ * Try several request shapes and report which Whop accepts.
+ *
+ * Whop answers a rejected /payments call with a 400 whose message —
+ * "You are not authorized - ensure that you have access to this
+ * resource" — reads the same whether the key lacks scopes, the company
+ * can't be inferred, or a parameter is malformed. Those need different
+ * fixes, so this isolates the variable instead of guessing at it.
+ *
+ * Never returns the key. Whop's own response body is passed through
+ * because its wording is the useful part.
+ */
+export async function probeWhop(): Promise<{
+  companyIdConfigured: boolean
+  attempts: Array<{
+    label: string
+    url: string
+    status: number
+    ok: boolean
+    body: string
+  }>
+}> {
+  const key = await readKey()
+  const companyId = await readCompanyId()
+
+  const variants: Array<{ label: string; qs: URLSearchParams }> = [
+    { label: 'bare (no filters)', qs: new URLSearchParams({ first: '1' }) },
+    {
+      label: 'statuses[]=paid',
+      qs: new URLSearchParams({ first: '1', 'statuses[]': 'paid' }),
+    },
+    {
+      label: 'statuses=paid',
+      qs: new URLSearchParams({ first: '1', statuses: 'paid' }),
+    },
+  ]
+  if (companyId) {
+    variants.push({
+      label: 'company_id only',
+      qs: new URLSearchParams({ first: '1', company_id: companyId }),
+    })
+  }
+
+  const attempts = []
+  for (const v of variants) {
+    const url = `${BASE}/payments?${v.qs.toString()}`
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      })
+      const body = await res.text().catch(() => '')
+      attempts.push({
+        label: v.label,
+        url,
+        status: res.status,
+        ok: res.ok,
+        body: body.slice(0, 400),
+      })
+    } catch (err) {
+      attempts.push({
+        label: v.label,
+        url,
+        status: 0,
+        ok: false,
+        body: err instanceof Error ? err.message : 'request failed',
+      })
+    }
+  }
+
+  return { companyIdConfigured: companyId !== null, attempts }
+}
+
+/**
  * Payments, newest first, following cursors until `max` or the last page.
  *
  * `statuses` defaults to paid — "confirmed orders" in Whop's vocabulary.

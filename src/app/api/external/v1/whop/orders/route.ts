@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withOwnerApi, externalOptions } from '@/lib/external-api'
-import { listWhopOrders, whopConfigured } from '@/lib/whop'
+import { listWhopOrders, probeWhop, whopConfigured } from '@/lib/whop'
 
 /**
  * GET /api/external/v1/whop/orders?days=&status=&max=
@@ -27,6 +27,15 @@ export const GET = withOwnerApi(async (req) => {
   }
 
   const params = req.nextUrl.searchParams
+
+  // ?probe=1 — try several request shapes and report which Whop accepts.
+  // Its rejection message is identical for missing scopes, an
+  // undeterminable company, and a malformed parameter; this separates
+  // them. Owner-gated like everything else here, and never echoes the key.
+  if (params.get('probe') === '1') {
+    return { configured: true, probe: await probeWhop() }
+  }
+
   const rawDays = Number(params.get('days'))
   const days =
     Number.isFinite(rawDays) && rawDays > 0 && rawDays <= MAX_DAYS
