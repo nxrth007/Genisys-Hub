@@ -61,6 +61,62 @@ async function readCompanyId(): Promise<string | null> {
   }
 }
 
+/**
+ * The account behind the key: `GET /accounts/me`.
+ *
+ * Doubles as a validity check. If this succeeds the key is real and
+ * reachable, which separates "bad key" from "key can't see payments" —
+ * two problems Whop reports with identical wording.
+ */
+export async function getWhopAccount(): Promise<{
+  id: string | null
+  businessName: string | null
+  email: string | null
+}> {
+  const key = await readKey()
+  const res = await fetch(`${BASE}/accounts/me`, {
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(
+      `Whop returned ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`,
+    )
+  }
+  const d = (await res.json()) as Raw
+  // Some Whop endpoints wrap the object in `data`.
+  const acct = (d.data ?? d) as Raw
+  return {
+    id: str(acct.id),
+    businessName: str(acct.business_name),
+    email: str(acct.email),
+  }
+}
+
+/**
+ * Company id, from the Vault if set, otherwise discovered once and kept
+ * for the life of the process.
+ *
+ * Whop rejects /payments when it can't tell which company is being
+ * asked about, and making Alex go and find a biz_ id by hand is a step
+ * we can simply do for him.
+ */
+let discoveredCompanyId: string | null = null
+
+async function resolveCompanyId(): Promise<string | null> {
+  const configured = await readCompanyId()
+  if (configured) return configured
+  if (discoveredCompanyId) return discoveredCompanyId
+  try {
+    const acct = await getWhopAccount()
+    discoveredCompanyId = acct.id
+    return discoveredCompanyId
+  } catch {
+    // Discovery is best-effort — the caller still tries without it.
+    return null
+  }
+}
+
 /** Is Whop set up at all? Lets the UI show setup steps instead of an error. */
 export async function whopConfigured(): Promise<boolean> {
   try {
@@ -143,6 +199,38 @@ export async function probeWhop(): Promise<{
   const key = await readKey()
   const companyId = await readCompanyId()
 
+  const attempts: Array<{
+    label: string
+    url: string
+    status: number
+    ok: boolean
+    body: string
+  }> = []
+
+  // Does the key work for anything at all?
+  const meUrl = `${BASE}/accounts/me`
+  try {
+    const res = await fetch(meUrl, {
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+    })
+    const body = await res.text().catch(() => '')
+    attempts.push({
+      label: 'identify key (/accounts/me)',
+      url: meUrl,
+      status: res.status,
+      ok: res.ok,
+      body: body.slice(0, 400),
+    })
+  } catch (err) {
+    attempts.push({
+      label: 'identify key (/accounts/me)',
+      url: meUrl,
+      status: 0,
+      ok: false,
+      body: err instanceof Error ? err.message : 'request failed',
+    })
+  }
+
   const variants: Array<{ label: string; qs: URLSearchParams }> = [
     { label: 'bare (no filters)', qs: new URLSearchParams({ first: '1' }) },
     {
@@ -161,7 +249,6 @@ export async function probeWhop(): Promise<{
     })
   }
 
-  const attempts = []
   for (const v of variants) {
     const url = `${BASE}/payments?${v.qs.toString()}`
     try {
@@ -203,7 +290,7 @@ export async function listWhopOrders(opts: {
   createdAfter?: Date
 } = {}): Promise<{ orders: WhopOrder[]; fetched: number; truncated: boolean }> {
   const key = await readKey()
-  const companyId = await readCompanyId()
+  const companyId = await resolveCompanyId()
 
   const max = Math.min(1000, Math.max(1, opts.max ?? 200))
   const statuses = opts.statuses ?? ['paid']
