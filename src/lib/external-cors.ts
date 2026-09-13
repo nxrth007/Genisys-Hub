@@ -16,6 +16,11 @@ import { NextRequest, NextResponse } from 'next/server'
 const ORIGIN_PATTERNS = [
   /^https?:\/\/localhost(:\d+)?$/,
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  // Genisys' own domain — crm.leadgenisys.com is the CRM's permanent
+  // home, and any future subdomain (app., hub.) should work without a
+  // deploy. Baked in rather than left to EXTERNAL_API_ORIGINS so it
+  // survives someone tidying up environment variables.
+  /^https:\/\/([a-z0-9-]+\.)*leadgenisys\.com$/,
   /^https:\/\/([a-z0-9-]+\.)*lovable\.app$/,
   /^https:\/\/([a-z0-9-]+\.)*lovableproject\.com$/,
   /^https:\/\/([a-z0-9-]+\.)*lovable\.dev$/,
