@@ -68,6 +68,46 @@ export function formatSlackError(err: unknown): string {
 }
 
 /**
+ * Who is this token, and does it still work?
+ *
+ * auth.test needs no scope, so it separates "the token is dead" from
+ * "the token is fine but missing a scope" — two failures that otherwise
+ * look identical from a failed channel list. Worth having permanently:
+ * `account_inactive` is exactly what a revoked or reinstalled app
+ * returns, and that is what took the Slack integration down.
+ */
+export async function getSlackIdentity(): Promise<{
+  ok: boolean
+  team: string | null
+  teamId: string | null
+  botName: string | null
+  url: string | null
+  error: string | null
+}> {
+  try {
+    const client = await getClient()
+    const r = await client.auth.test()
+    return {
+      ok: true,
+      team: (r.team as string) ?? null,
+      teamId: (r.team_id as string) ?? null,
+      botName: (r.user as string) ?? null,
+      url: (r.url as string) ?? null,
+      error: null,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      team: null,
+      teamId: null,
+      botName: null,
+      url: null,
+      error: formatSlackError(err),
+    }
+  }
+}
+
+/**
  * Look up a Slack user by their email address. Returns the Slack user ID
  * (e.g. "U12345ABC") or null if the email isn't found in the workspace.
  */
