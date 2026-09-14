@@ -456,6 +456,120 @@ function sanitizeChannelName(raw: string): string {
  * workspace, typo'd in env var) we log + continue rather than
  * losing the channel. The other invites still succeed.
  */
+/**
+ * Create a channel, public or private.
+ *
+ * Generalised from createPrivateChannel, which client provisioning still
+ * calls — that now delegates here so there is one implementation of the
+ * create/invite/set-topic sequence rather than two that drift.
+ *
+ * Invites and topic are best-effort: a channel that exists without its
+ * topic is recoverable, a half-failed create is not, so neither is
+ * allowed to throw away a successful creation.
+ */
+export async function createChannel(params: {
+  name: string
+  topic?: string
+  isPrivate: boolean
+  inviteUserIds?: string[]
+}): Promise<{ channelId: string; channelName: string }> {
+  const client = await getClient()
+  const safeName = sanitizeChannelName(params.name)
+  if (!safeName) {
+    throw new Error('That name has no usable characters for a Slack channel.')
+  }
+
+  const created = await client.conversations.create({
+    name: safeName,
+    is_private: params.isPrivate,
+  })
+  const channelId = created.channel?.id
+  const channelName = created.channel?.name ?? safeName
+  if (!channelId) throw new Error('Slack create returned no channel id')
+
+  const invites = params.inviteUserIds ?? []
+  if (invites.length > 0) {
+    try {
+      await client.conversations.invite({
+        channel: channelId,
+        users: invites.join(','),
+      })
+    } catch (err: unknown) {
+      // already_in_channel / cant_invite_self / user_not_found all leave
+      // the channel and the remaining invites intact.
+      console.warn('[slack] createChannel: some invites failed', formatSlackError(err))
+    }
+  }
+
+  if (params.topic) {
+    try {
+      await client.conversations.setTopic({
+        channel: channelId,
+        topic: params.topic.slice(0, 250),
+      })
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  return { channelId, channelName }
+}
+
+/**
+ * Replies in a thread.
+ *
+ * Slack returns the parent message as the first element; it is dropped
+ * here so the caller gets replies only and cannot render the parent
+ * twice.
+ */
+export async function getThreadReplies(
+  channelId: string,
+  threadTs: string,
+): Promise<SlackMsg[]> {
+  const client = await getClient()
+  const r = await client.conversations.replies({
+    channel: channelId,
+    ts: threadTs,
+    limit: 100,
+  })
+
+  const raw = (r.messages ?? []).slice(1)
+  const names = new Map<string, string>()
+
+  const resolve = async (userId: string): Promise<string> => {
+    if (!userId) return 'Unknown'
+    const hit = names.get(userId)
+    if (hit) return hit
+    try {
+      const u = await client.users.info({ user: userId })
+      const name =
+        u.user?.profile?.display_name ||
+        u.user?.profile?.real_name ||
+        u.user?.name ||
+        userId
+      names.set(userId, name)
+      return name
+    } catch {
+      names.set(userId, userId)
+      return userId
+    }
+  }
+
+  const out: SlackMsg[] = []
+  for (const m of raw) {
+    const userId = (m.user as string) ?? ''
+    out.push({
+      ts: (m.ts as string) ?? '',
+      userId,
+      userName: await resolve(userId),
+      text: (m.text as string) ?? '',
+      threadTs,
+      timestamp: new Date(Number((m.ts as string) ?? '0') * 1000).toISOString(),
+    })
+  }
+  return out
+}
+
 export async function createPrivateChannel(params: {
   name: string
   topic?: string
