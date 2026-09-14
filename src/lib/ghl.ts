@@ -1102,3 +1102,113 @@ export async function startConversation(
   const id = res.conversationId ?? res.conversationID ?? null
   return { conversationId: typeof id === 'string' ? id : null, raw: res }
 }
+
+// -------------------------------------------------------------------------
+// Custom values — the writable content layer for funnel/website pages
+// -------------------------------------------------------------------------
+
+/**
+ * GHL's funnel API is read-only: the spec exposes no endpoint that writes
+ * page content, sections or HTML (its only funnel writes are URL
+ * redirects). Custom values are the documented way around that.
+ *
+ * A custom value is a named string on the sub-account that the page
+ * builder can reference as {{ custom_values.field_key }}. Drop those
+ * tokens into a template once by hand, and every bit of copy they stand
+ * in for becomes editable through this API from then on.
+ */
+
+export type CustomValue = {
+  id: string
+  name: string
+  /** Template token to paste into the builder, e.g. "{{ custom_values.hero_headline }}". */
+  fieldKey: string
+  value: string
+}
+
+function toCustomValue(raw: Record<string, unknown>): CustomValue {
+  return {
+    id: String(raw.id ?? ''),
+    name: String(raw.name ?? ''),
+    fieldKey: String(raw.fieldKey ?? ''),
+    value: typeof raw.value === 'string' ? raw.value : '',
+  }
+}
+
+export async function getCustomValues(
+  vaultEntryName = 'GHL Genisys Token'
+): Promise<CustomValue[]> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const res = await ghlFetch(`/locations/${locationId}/customValues`, vaultEntryName)
+  const list = Array.isArray(res.customValues) ? res.customValues : []
+  return list.map((v) => toCustomValue(v as Record<string, unknown>))
+}
+
+export async function createCustomValue(
+  vaultEntryName: string,
+  name: string,
+  value: string
+): Promise<CustomValue> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const res = await ghlFetch(`/locations/${locationId}/customValues`, vaultEntryName, {
+    method: 'POST',
+    body: JSON.stringify({ name, value }),
+  })
+  const created = (res.customValue ?? res) as Record<string, unknown>
+  return toCustomValue(created)
+}
+
+export async function updateCustomValue(
+  vaultEntryName: string,
+  id: string,
+  name: string,
+  value: string
+): Promise<CustomValue> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const res = await ghlFetch(
+    `/locations/${locationId}/customValues/${id}`,
+    vaultEntryName,
+    { method: 'PUT', body: JSON.stringify({ name, value }) }
+  )
+  const updated = (res.customValue ?? res) as Record<string, unknown>
+  return toCustomValue(updated)
+}
+
+export async function deleteCustomValue(
+  vaultEntryName: string,
+  id: string
+): Promise<void> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  await ghlFetch(`/locations/${locationId}/customValues/${id}`, vaultEntryName, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * Set a custom value by name, creating it only if it is missing.
+ *
+ * Editing site copy is a repeated act, and GHL has no upsert — a plain
+ * create on every edit would leave a trail of duplicate values, all of
+ * them matching the same builder token with no way to tell which one
+ * wins. Matching on name first keeps one row per piece of copy.
+ */
+export async function upsertCustomValue(
+  vaultEntryName: string,
+  name: string,
+  value: string
+): Promise<{ customValue: CustomValue; created: boolean }> {
+  const existing = await getCustomValues(vaultEntryName)
+  const wanted = name.trim().toLowerCase()
+  const match = existing.find((v) => v.name.trim().toLowerCase() === wanted)
+
+  if (match) {
+    return {
+      customValue: await updateCustomValue(vaultEntryName, match.id, name, value),
+      created: false,
+    }
+  }
+  return {
+    customValue: await createCustomValue(vaultEntryName, name, value),
+    created: true,
+  }
+}
