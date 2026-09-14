@@ -696,6 +696,7 @@ model Client {
   // or self-registered through the onboarding flow (Phase 2+).
   users             User[]                @relation("ClientUsers")
   invoices          Invoice[]
+  intakes           ClientIntake[]        @relation("ClientIntakes")
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
@@ -1949,4 +1950,55 @@ model BookingAttendance {
   updatedAt DateTime @updatedAt
 
   @@index([subAccount])
+}
+
+/// A client onboarding form submission, posted by the intake site.
+///
+/// Stores the parsed fields AND the verbatim payload. The raw copy is
+/// the important half: the form will grow fields faster than this schema
+/// does, and an unmapped answer that was never stored is gone for good,
+/// whereas one sitting in `raw` can be surfaced later.
+///
+/// Nothing here is required except the arrival time. A half-filled form
+/// is still worth keeping — losing a real submission because someone
+/// skipped a box is the worst outcome available.
+model ClientIntake {
+  id         String   @id @default(cuid())
+  receivedAt DateTime @default(now())
+
+  ein             String?
+  fullName        String?
+  businessName    String?
+  businessContact String?
+  businessAddress String?
+  customerPhone   String?
+  areaCode        String?
+  timeZone        String?
+  leadEmail       String?
+  cities          String?
+  website         String?
+  aboutBusiness   String? @db.Text
+  mainServices    String? @db.Text
+  promotions      String? @db.Text
+  socialLinks     String? @db.Text
+  whyChooseYou    String? @db.Text
+  brandColors     String?
+  faqs            String? @db.Text
+
+  /// Exactly what the webhook sent, before any mapping.
+  raw Json
+
+  /// "new" | "reviewed" | "archived" — review state, not form data.
+  status String @default("new")
+
+  /// Set once this intake is matched to a Client record.
+  clientId String?
+  client   Client? @relation("ClientIntakes", fields: [clientId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([receivedAt])
+  @@index([status])
+  @@index([leadEmail])
 }

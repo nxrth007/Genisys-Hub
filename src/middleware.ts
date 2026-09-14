@@ -55,6 +55,8 @@ const PUBLIC_PATHS = [
   // token compared in constant time, plus idempotency on NCT's own lead
   // ID so a replay can't double-charge. Don't gate here.
   '/api/webhooks/nct-leads',
+  // Client onboarding intake form posts here with a shared secret.
+  '/api/webhooks/client-onboarding',
   // External API for separately-hosted frontends (the Lovable Vite SPA).
   // Those callers are on another domain and have no session cookie, so
   // middleware would 401 them before the handler runs. Every route under
