@@ -634,6 +634,91 @@ export async function createPrivateChannel(params: {
  * which is available on Pro plan and up. Throws on failure so
  * the caller can decide whether to surface to admin or retry.
  */
+export type WorkspaceUser = {
+  id: string
+  name: string
+  realName: string | null
+  email: string | null
+  isBot: boolean
+}
+
+/**
+ * Everyone in the workspace, minus bots, deactivated accounts and
+ * Slackbot.
+ *
+ * Paginated: users.list caps a page well below the size of a real
+ * workspace, and a truncated list quietly hides the person you were
+ * looking for. Email needs users:read.email — absent that scope Slack
+ * simply omits it, so it is optional rather than an error.
+ */
+export async function listWorkspaceUsers(): Promise<WorkspaceUser[]> {
+  const client = await getClient()
+  const out: WorkspaceUser[] = []
+  let cursor: string | undefined
+
+  for (let page = 0; page < 10; page++) {
+    const r = await client.users.list({ limit: 200, cursor })
+    for (const m of r.members ?? []) {
+      if (m.deleted || m.is_bot || m.id === 'USLACKBOT') continue
+      out.push({
+        id: m.id ?? '',
+        name: m.profile?.display_name || m.name || m.id || '',
+        realName: m.profile?.real_name ?? m.real_name ?? null,
+        email: m.profile?.email ?? null,
+        isBot: false,
+      })
+    }
+    cursor = r.response_metadata?.next_cursor || undefined
+    if (!cursor) break
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** User IDs currently in a channel. */
+export async function getChannelMembers(channelId: string): Promise<string[]> {
+  const client = await getClient()
+  const ids: string[] = []
+  let cursor: string | undefined
+
+  for (let page = 0; page < 10; page++) {
+    const r = await client.conversations.members({
+      channel: channelId,
+      limit: 200,
+      cursor,
+    })
+    ids.push(...((r.members ?? []) as string[]))
+    cursor = r.response_metadata?.next_cursor || undefined
+    if (!cursor) break
+  }
+  return ids
+}
+
+/**
+ * Invite people to a channel.
+ *
+ * Slack rejects the whole batch if any one user is already in the
+ * channel, so already-members are filtered out first rather than
+ * letting one stale checkbox fail the entire invite.
+ */
+export async function inviteToChannel(
+  channelId: string,
+  userIds: string[],
+): Promise<{ invited: string[]; skipped: string[] }> {
+  const client = await getClient()
+  const existing = new Set(await getChannelMembers(channelId))
+  const toInvite = userIds.filter((id) => id && !existing.has(id))
+  const skipped = userIds.filter((id) => existing.has(id))
+
+  if (toInvite.length === 0) return { invited: [], skipped }
+
+  await client.conversations.invite({
+    channel: channelId,
+    users: toInvite.join(','),
+  })
+  return { invited: toInvite, skipped }
+}
+
 export async function inviteExternalToChannel(params: {
   channelId: string
   externalEmail: string
