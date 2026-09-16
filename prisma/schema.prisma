@@ -1985,6 +1985,11 @@ model ClientIntake {
   brandColors     String?
   faqs            String? @db.Text
 
+  /// "Yes" | "No" — whether the client is bringing an existing domain.
+  bringingOwnDomain String?
+  /// Only meaningful when bringingOwnDomain is "Yes".
+  domainName        String?
+
   /// Exactly what the webhook sent, before any mapping.
   raw Json
 

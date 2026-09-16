@@ -41,7 +41,7 @@ const FIELDS = [
   'ein', 'fullName', 'businessName', 'businessContact', 'businessAddress',
   'customerPhone', 'areaCode', 'timeZone', 'leadEmail', 'cities', 'website',
   'aboutBusiness', 'mainServices', 'promotions', 'socialLinks', 'whyChooseYou',
-  'brandColors', 'faqs',
+  'brandColors', 'faqs', 'bringingOwnDomain', 'domainName',
 ] as const
 
 function parseDate(value: unknown): Date | null {
@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
   // sets receivedAt and is left out of the stored raw copy.
   const { submittedAt, ...answers } = body
   const receivedAt = parseDate(submittedAt)
+  const ownDomain = /^y(es)?$/i.test(str(body.bringingOwnDomain) ?? '')
 
   const intake = await prisma.clientIntake.create({
     data: {
@@ -139,6 +140,10 @@ export async function POST(req: NextRequest) {
       whyChooseYou: str(body.whyChooseYou),
       brandColors: str(body.brandColors),
       faqs: str(body.faqs),
+      bringingOwnDomain: str(body.bringingOwnDomain),
+      // The form leaves domainName empty on "No", but a stale value from
+      // a toggled answer shouldn't be stored as if it were theirs.
+      domainName: ownDomain ? str(body.domainName) : null,
       raw: answers as object,
     },
     select: { id: true, businessName: true, receivedAt: true },
