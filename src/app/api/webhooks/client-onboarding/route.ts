@@ -37,6 +37,19 @@ function secretMatches(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b)
 }
 
+const FIELDS = [
+  'ein', 'fullName', 'businessName', 'businessContact', 'businessAddress',
+  'customerPhone', 'areaCode', 'timeZone', 'leadEmail', 'cities', 'website',
+  'aboutBusiness', 'mainServices', 'promotions', 'socialLinks', 'whyChooseYou',
+  'brandColors', 'faqs',
+] as const
+
+function parseDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 const str = (v: unknown): string | null => {
   if (typeof v !== 'string') return null
   const t = v.trim()
@@ -89,8 +102,25 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // A body with none of the form's fields is a misconfigured sender or a
+  // liveness probe, not a submission. Storing it would put a blank row
+  // in front of whoever reads the intakes next.
+  if (!FIELDS.some((key) => str(body[key]) !== null)) {
+    return NextResponse.json(
+      { error: 'empty_payload', message: 'No onboarding fields were present.' },
+      { status: 400 },
+    )
+  }
+
+  // Imports and replays carry the original submission time as
+  // `submittedAt`. It is envelope metadata rather than an answer, so it
+  // sets receivedAt and is left out of the stored raw copy.
+  const { submittedAt, ...answers } = body
+  const receivedAt = parseDate(submittedAt)
+
   const intake = await prisma.clientIntake.create({
     data: {
+      ...(receivedAt ? { receivedAt } : {}),
       ein: str(body.ein),
       fullName: str(body.fullName),
       businessName: str(body.businessName),
@@ -109,7 +139,7 @@ export async function POST(req: NextRequest) {
       whyChooseYou: str(body.whyChooseYou),
       brandColors: str(body.brandColors),
       faqs: str(body.faqs),
-      raw: body as object,
+      raw: answers as object,
     },
     select: { id: true, businessName: true, receivedAt: true },
   })
@@ -127,5 +157,8 @@ export function GET() {
     ok: true,
     message:
       'Client onboarding webhook is live. POST JSON with the x-webhook-secret header.',
+    // Advertised so an importer can tell whether the running build will
+    // honour an original submission time before it sends anything.
+    acceptsSubmittedAt: true,
   })
 }
