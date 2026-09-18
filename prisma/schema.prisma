@@ -1990,6 +1990,10 @@ model ClientIntake {
   /// Only meaningful when bringingOwnDomain is "Yes".
   domainName        String?
 
+  /// Uploaded marketing content and documents (signed URLs), from the
+  /// envelope's files list.
+  files String[] @default([])
+
   /// Exactly what the webhook sent, before any mapping.
   raw Json
 
