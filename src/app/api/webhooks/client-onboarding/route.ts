@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
+import { promoteIntakeToClient } from '@/lib/client-from-intake'
 
 /**
  * POST /api/webhooks/client-onboarding
@@ -171,7 +172,17 @@ export async function POST(req: NextRequest) {
     `[client-onboarding] stored intake ${intake.id} for "${intake.businessName ?? 'unnamed'}"`,
   )
 
-  return NextResponse.json({ ok: true, id: intake.id })
+  // Every submission becomes a Client (or links to the one already
+  // carrying this business name). Best-effort: a failure here must not
+  // turn a stored intake into a 500 for the sender.
+  let clientId: string | null = null
+  try {
+    clientId = (await promoteIntakeToClient(intake.id))?.clientId ?? null
+  } catch (err) {
+    console.error(`[client-onboarding] client promotion failed for ${intake.id}:`, err)
+  }
+
+  return NextResponse.json({ ok: true, id: intake.id, clientId })
 }
 
 /** A GET here is almost always someone checking the URL is live. */

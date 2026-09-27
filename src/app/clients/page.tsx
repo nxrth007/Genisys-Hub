@@ -29,6 +29,8 @@ import {
   Hourglass,
   XCircle,
   Search,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { STATE_NAME_TO_CODE } from '@/lib/address'
@@ -93,6 +95,9 @@ type ClientWithCounts = {
    *  optional; admin can fill in / edit via the client edit dialog. */
   qualificationCriteria: string | null
   onboardingNotes: string | null
+  /** Set when the client is archived. Archived rows fold into their
+   *  own section at the bottom and drop out of every picker. */
+  archivedAt: string | null
   /** When the Client row was created. ISO string. Used in the
    *  Additional info panel to show "Application date" for self-
    *  onboarded clients. */
@@ -175,21 +180,6 @@ function packageTurnaroundDays(pkg: string): number | null {
  *  instead of a fixed-by-state palette — that way the chip color
  *  matches what the admin set on the edit dialog (and the avatar /
  *  status dot) instead of being dictated by which US state. */
-function hexToRgba(hex: string, alpha: number): string {
-  const cleaned = (hex || '#3b82f6').replace('#', '')
-  const expanded =
-    cleaned.length === 3
-      ? cleaned
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : cleaned
-  const r = parseInt(expanded.slice(0, 2), 16) || 0
-  const g = parseInt(expanded.slice(2, 4), 16) || 0
-  const b = parseInt(expanded.slice(4, 6), 16) || 0
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
 // Reuse the canonical state-name → code map from lib/address. The
 // timezone resolver, sheet-routing brain, and now this page's chip
 // renderer all share one source of truth — drift would be a bug.
@@ -218,13 +208,15 @@ function stateCode(state: string | null): string {
 // the self-onboarding states (pending / denied). The latter aren't
 // in LIFECYCLE_OPTIONS — they're not flippable via the inline
 // dropdown — but they still need labels and chip tones for display.
+// Monochrome: every chip is neutral. Emphasis comes from text weight
+// and the live status reading in full white, not from hue.
 const LIFECYCLE_TONE: Record<string, ChipTone> = {
-  active: 'mint',
-  onboarding: 'amber',
-  paused: 'blue',
-  churned: 'pink',
+  active: 'muted',
+  onboarding: 'muted',
+  paused: 'muted',
+  churned: 'muted',
   pending: 'muted',
-  denied: 'pink',
+  denied: 'muted',
 }
 
 const LIFECYCLE_LABEL: Record<string, string> = {
@@ -236,14 +228,11 @@ const LIFECYCLE_LABEL: Record<string, string> = {
   denied: 'Denied',
 }
 
-/** Tone per package tier — lets the badge color hint at the
- *  commitment level at a glance (PPA = neutral, Growth/Pro = warm
- *  brand colors, Custom = muted). */
 const PACKAGE_TONE: Record<ClientPackage, ChipTone> = {
-  ppa: 'blue',
-  growth: 'mint',
-  pro: 'violet',
-  custom: 'amber',
+  ppa: 'muted',
+  growth: 'muted',
+  pro: 'muted',
+  custom: 'muted',
 }
 
 const PACKAGE_LABEL: Record<ClientPackage, string> = {
@@ -281,6 +270,8 @@ export default function ClientsPage() {
   const [deleting, setDeleting] = useState<ClientWithCounts | null>(null)
   // Paused section starts collapsed — tucked out of the way.
   const [pausedOpen, setPausedOpen] = useState(false)
+  // Archived section — folded away at the very bottom, closed by default.
+  const [archivedOpen, setArchivedOpen] = useState(false)
 
   // Session — used purely to decide whether to render the Delete
   // button. Server still independently enforces the email gate, so
@@ -385,28 +376,39 @@ export default function ClientsPage() {
   // roster into their own tucked, collapsible section below — per Alex,
   // active clients stay at the top. Pending/onboarding still split into
   // their own bucket after that.
-  const { activeClients, pausedClients, pendingClients } = useMemo(() => {
-    const pending = filtered.filter(awaitsSetup)
-    const setUp = filtered.filter((c) => !awaitsSetup(c))
-    const paused = setUp.filter((c) => c.lifecycle === 'paused')
-    const active = setUp.filter((c) => c.lifecycle !== 'paused')
-    return {
-      activeClients: active,
-      pausedClients: paused,
-      pendingClients: pending,
-    }
-  }, [filtered])
+  // Archived clients come out first: they belong to none of the live
+  // buckets, only to their own folded section at the bottom.
+  const { activeClients, pausedClients, pendingClients, archivedClients } =
+    useMemo(() => {
+      const archived = filtered.filter((c) => c.archivedAt)
+      const live = filtered.filter((c) => !c.archivedAt)
+      const pending = live.filter(awaitsSetup)
+      const setUp = live.filter((c) => !awaitsSetup(c))
+      const paused = setUp.filter((c) => c.lifecycle === 'paused')
+      const active = setUp.filter((c) => c.lifecycle !== 'paused')
+      return {
+        activeClients: active,
+        pausedClients: paused,
+        pendingClients: pending,
+        archivedClients: archived,
+      }
+    }, [filtered])
 
   // Stats — all run over the unfiltered set so the cards show real
   // totals regardless of what's currently filtered.
-  const totalAppts = clients.reduce((s, c) => s + c.total, 0)
-  const activeCount = clients.filter(
+  // Archived clients are excluded — the cards describe the roster.
+  const liveClients = useMemo(
+    () => clients.filter((c) => !c.archivedAt),
+    [clients],
+  )
+  const totalAppts = liveClients.reduce((s, c) => s + c.total, 0)
+  const activeCount = liveClients.filter(
     (c) =>
       (c.lifecycle === 'active' || c.lifecycle === 'onboarding') &&
       !awaitsSetup(c),
   ).length
-  const completed = clients.reduce((s, c) => s + c.showed + c.noShow, 0)
-  const showed = clients.reduce((s, c) => s + c.showed, 0)
+  const completed = liveClients.reduce((s, c) => s + c.showed + c.noShow, 0)
+  const showed = liveClients.reduce((s, c) => s + c.showed, 0)
   const avgShowRate = completed > 0 ? Math.round((showed / completed) * 100) : null
 
   return (
@@ -425,7 +427,7 @@ export default function ClientsPage() {
                 of Settings coming along. */}
             <Link
               href="/settings/client-alerts"
-              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-orange-600"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition hover:bg-muted"
             >
               <PhoneIcon className="h-4 w-4" /> Client SMS
             </Link>
@@ -434,7 +436,7 @@ export default function ClientsPage() {
                 Placed to the left of "New client" per Alex's spec. */}
             <Link
               href="/clients/onboarding"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition hover:bg-muted"
             >
               <UserPlus className="h-4 w-4" /> Onboarding
             </Link>
@@ -443,14 +445,14 @@ export default function ClientsPage() {
                 cycles, copy payment links, retry failed deliveries. */}
             <Link
               href="/clients/invoices"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3.5 text-[13px] font-medium text-foreground transition hover:bg-muted"
             >
               <Receipt className="h-4 w-4" /> Invoices
             </Link>
             <button
               type="button"
               onClick={() => setCreating(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-[13px] font-medium text-background transition hover:bg-foreground/90"
             >
               <Plus className="h-4 w-4" /> New client
             </button>
@@ -464,9 +466,9 @@ export default function ClientsPage() {
           value={stateFilter}
           options={[
             { id: 'all', label: 'All states' },
-            { id: 'AZ', label: 'Arizona (Brighton)' },
-            { id: 'CA', label: 'California (Energy Upgrade)' },
-            { id: 'UT', label: 'Utah (Spring Solar)' },
+            { id: 'AZ', label: 'Arizona' },
+            { id: 'CA', label: 'California' },
+            { id: 'UT', label: 'Utah' },
             { id: 'other', label: 'Other' },
           ]}
           onChange={setStateFilter}
@@ -501,12 +503,12 @@ export default function ClientsPage() {
         <SummaryCard
           label="Active clients"
           value={String(activeCount)}
-          sub={`${clients.length - activeCount} on hold or churned`}
+          sub={`${liveClients.length - activeCount} on hold or churned`}
         />
         <SummaryCard
           label="Appts booked"
           value={totalAppts.toLocaleString()}
-          sub={`across ${clients.length} client${clients.length === 1 ? '' : 's'}`}
+          sub={`across ${liveClients.length} client${liveClients.length === 1 ? '' : 's'}`}
         />
         <SummaryCard
           label="Avg show rate"
@@ -530,17 +532,17 @@ export default function ClientsPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by client name, contact, email, phone, state…"
           aria-label="Search clients"
-          className="w-full rounded-full border border-border bg-card py-2.5 pl-11 pr-28 text-sm shadow-soft transition focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-10 w-full rounded-lg border border-border bg-card pl-11 pr-28 text-[13px] transition focus:border-foreground/30 focus:outline-none focus:ring-1 focus:ring-foreground/15"
         />
         {search.trim() && (
           <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
               {filtered.length} {filtered.length === 1 ? 'match' : 'matches'}
             </span>
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="grid h-6 w-6 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
               aria-label="Clear search"
             >
               <X className="h-3.5 w-3.5" />
@@ -552,7 +554,7 @@ export default function ClientsPage() {
       {/* Table */}
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : query.isError ? (
         <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
@@ -581,7 +583,7 @@ export default function ClientsPage() {
                   setStatusFilter('all')
                   setPackageFilter('all')
                 }}
-                className="mt-3 text-xs font-medium text-primary hover:underline"
+                className="mt-3 text-xs font-medium text-foreground/80 hover:text-foreground hover:underline"
               >
                 Clear all filters
               </button>
@@ -589,7 +591,7 @@ export default function ClientsPage() {
         </div>
       ) : (
         <div>
-          <div className="grid grid-cols-[2fr_90px_70px_90px_1.4fr_100px_100px_110px] items-center gap-3 px-2 pb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="eyebrow grid grid-cols-[2fr_90px_70px_90px_1.4fr_100px_100px_110px] items-center gap-3 px-2 pb-3 text-muted-foreground">
             <span>Client</span>
             <span>Package</span>
             <span>Agents</span>
@@ -620,8 +622,8 @@ export default function ClientsPage() {
                 ) : (
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 )}
-                <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-400/70" />
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50" />
+                <h3 className="eyebrow text-muted-foreground">
                   Paused · {pausedClients.length}
                 </h3>
               </button>
@@ -646,12 +648,12 @@ export default function ClientsPage() {
             <div className="mt-8">
               <div className="mb-3 flex items-center gap-3">
                 <span className="inline-block h-3 w-3 rounded-full border-2 border-dashed border-muted-foreground/60" />
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <h3 className="eyebrow text-muted-foreground">
                   Pending · {pendingClients.length}
                 </h3>
                 <Link
                   href="/clients/onboarding"
-                  className="text-xs font-medium text-primary hover:underline"
+                  className="text-xs font-medium text-foreground/80 hover:text-foreground hover:underline"
                 >
                   Approval queue →
                 </Link>
@@ -661,6 +663,35 @@ export default function ClientsPage() {
                   <ClientRow key={c.id} client={c} onOpen={setActive} />
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* Archived — folded away below everything else. Nothing is
+              deleted: open a row and Unarchive to bring it back. */}
+          {archivedClients.length > 0 && (
+            <div className="mt-8">
+              <button
+                type="button"
+                onClick={() => setArchivedOpen((v) => !v)}
+                className="mb-3 flex w-full items-center gap-2 text-left"
+              >
+                {archivedOpen ? (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                )}
+                <Archive className="h-3.5 w-3.5 text-muted-foreground/70" />
+                <h3 className="eyebrow text-muted-foreground">
+                  Archived · {archivedClients.length}
+                </h3>
+              </button>
+              {archivedOpen && (
+                <ul className="opacity-60">
+                  {archivedClients.map((c) => (
+                    <ClientRow key={c.id} client={c} onOpen={setActive} />
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
@@ -727,7 +758,7 @@ function ClientRow({
   // Empty / no-cap rows still render a neutral rail so the column
   // doesn't go ghost.
   const showBar = bookedPct != null && bookedPct > 0
-  const barClass = 'bg-gradient-to-r from-emerald-400 to-emerald-600'
+  const barClass = 'bg-foreground/70'
 
   // Due date — manual override on the Client record wins; otherwise
   // fall back to the package-default heuristic. Per Ethan: PPA 14d,
@@ -761,30 +792,17 @@ function ClientRow({
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={cn(
-            'grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-semibold',
+            'grid h-9 w-9 shrink-0 place-items-center rounded-lg border font-mono text-[12px] font-semibold',
             isPending
-              ? 'border-2 border-dashed border-muted-foreground/60 bg-muted text-muted-foreground'
-              : 'text-white',
+              ? 'border-dashed border-muted-foreground/50 bg-muted text-muted-foreground'
+              : 'border-border bg-surface text-foreground',
           )}
-          style={isPending ? undefined : { backgroundColor: client.color }}
         >
           {initials}
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{client.name}</p>
           <div className="mt-0.5 flex items-center gap-1.5">
-            <span
-              className={cn(
-                'h-1.5 w-1.5 rounded-full',
-                isPending && 'border border-dashed border-muted-foreground/60',
-              )}
-              style={
-                isPending
-                  ? { backgroundColor: 'transparent' }
-                  : { backgroundColor: client.color }
-              }
-              aria-hidden
-            />
             <p className="truncate text-xs text-muted-foreground">
               {client.state || 'Multi-state'}
               {client.contactName && ` · ${client.contactName}`}
@@ -832,7 +850,7 @@ function ClientRow({
         {/* Bar — booked appointments toward the contracted cap.
             Single gradient green for every client (Ethan, 2026-05-08);
             muted rail when no cap or no bookings yet. */}
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-1 w-full overflow-hidden rounded-full bg-border">
           {showBar && (
             <div
               className={cn('h-full rounded-full', barClass)}
@@ -955,17 +973,12 @@ function InlineStatusSelect({ client }: { client: ClientWithCounts }) {
     )
   }
 
-  const tone = LIFECYCLE_TONE[client.lifecycle] ?? 'muted'
+  // Monochrome: the live status reads in full white on a hairline
+  // chip; everything else sits back in muted.
   const toneClass =
-    tone === 'mint'
-      ? 'chip-mint'
-      : tone === 'amber'
-        ? 'chip-amber'
-        : tone === 'blue'
-          ? 'chip-blue'
-          : tone === 'pink'
-            ? 'chip-pink'
-            : 'bg-muted text-muted-foreground'
+    client.lifecycle === 'active'
+      ? 'border border-border bg-surface text-foreground'
+      : 'border border-transparent bg-muted text-muted-foreground'
 
   return (
     <select
@@ -973,7 +986,7 @@ function InlineStatusSelect({ client }: { client: ClientWithCounts }) {
       disabled={mutation.isPending}
       onChange={(e) => mutation.mutate(e.target.value as ClientLifecycle)}
       className={cn(
-        'cursor-pointer appearance-none rounded-full px-2.5 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40',
+        'eyebrow cursor-pointer appearance-none rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-foreground/30',
         toneClass,
         mutation.isPending && 'opacity-60'
       )}
@@ -1015,6 +1028,26 @@ function ClientDetailDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [client, onClose])
 
+  const qc = useQueryClient()
+  const archive = useMutation({
+    mutationFn: async ({ id, archived }: { id: string; archived: boolean }) => {
+      const res = await fetch(`/api/clients/${id}/archive`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ archived }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to update client')
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients-with-counts'] })
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      onClose()
+    },
+  })
+
   if (!client) return null
 
   const initials = clientInitials(client.name)
@@ -1033,22 +1066,15 @@ function ClientDetailDialog({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span
-              className="grid h-10 w-10 place-items-center rounded-full text-sm font-semibold text-white"
-              style={{ backgroundColor: client.color }}
-            >
+            <span className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-surface font-mono text-[13px] font-semibold text-foreground">
               {initials}
             </span>
             <div>
               <p className="text-base font-semibold">{client.name}</p>
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: client.color }}
-                  aria-hidden
-                />
                 {client.state || 'Multi-state'} ·{' '}
                 {LIFECYCLE_LABEL[client.lifecycle]}
+                {client.archivedAt ? ' · Archived' : ''}
               </p>
             </div>
           </div>
@@ -1063,23 +1089,43 @@ function ClientDetailDialog({
             <Link
               href={`/agent/appointments/new?clientId=${client.id}`}
               title={`Add a new appointment for ${client.name}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:bg-foreground/90"
             >
               <Plus className="h-3.5 w-3.5" /> Add appointment
             </Link>
             <button
               type="button"
               onClick={() => onEdit(client)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
               title="Edit client"
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
+            </button>
+            <button
+              type="button"
+              disabled={archive.isPending}
+              onClick={() =>
+                archive.mutate({ id: client.id, archived: !client.archivedAt })
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+              title={
+                client.archivedAt
+                  ? 'Bring this client back onto the roster'
+                  : 'Archive — hides from the roster and every picker; nothing is deleted'
+              }
+            >
+              {client.archivedAt ? (
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              ) : (
+                <Archive className="h-3.5 w-3.5" />
+              )}
+              {client.archivedAt ? 'Unarchive' : 'Archive'}
             </button>
             {canDelete && (
               <button
                 type="button"
                 onClick={() => onDelete(client)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-destructive/40 hover:text-destructive"
                 title="Delete this client (admin password required)"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -1109,7 +1155,7 @@ function ClientDetailDialog({
             {client.apptCap ? ` · ${client.apptCap}` : ' · no cap'}
           </Chip>
           <span
-            className="inline-flex items-center gap-1.5 rounded-full border border-border-soft bg-surface-muted px-2.5 py-1 text-xs font-medium"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 font-mono text-[11px] font-medium"
             title={
               client.dueDate
                 ? 'Manually set in the edit form.'
@@ -1143,18 +1189,9 @@ function ClientDetailDialog({
               </span>
             </p>
           </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-border">
             <div
-              className={cn(
-                'h-full rounded-full',
-                client.progressPct == null
-                  ? 'bg-primary'
-                  : pct >= 75
-                    ? 'bg-emerald-500'
-                    : pct >= 50
-                      ? 'bg-amber-400'
-                      : 'bg-rose-500'
-              )}
+              className="h-full rounded-full bg-foreground/70"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -1193,7 +1230,7 @@ function ClientDetailDialog({
               {client.contactEmail && (
                 <a
                   href={`mailto:${client.contactEmail}`}
-                  className="flex items-center gap-2 text-sm text-foreground/80 hover:text-primary"
+                  className="flex items-center gap-2 text-sm text-foreground/80 hover:text-foreground"
                 >
                   <Mail className="h-3.5 w-3.5" /> {client.contactEmail}
                 </a>
@@ -1201,7 +1238,7 @@ function ClientDetailDialog({
               {client.contactPhone && (
                 <a
                   href={`tel:${client.contactPhone.replace(/\D/g, '')}`}
-                  className="flex items-center gap-2 text-sm text-foreground/80 hover:text-primary"
+                  className="flex items-center gap-2 text-sm text-foreground/80 hover:text-foreground"
                 >
                   <PhoneIcon className="h-3.5 w-3.5" /> {client.contactPhone}
                 </a>
@@ -1268,14 +1305,14 @@ function ClientDetailDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground/80 transition hover:bg-muted"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-[13px] font-medium text-foreground/80 transition hover:bg-muted"
           >
             Close
           </button>
           <button
             type="button"
             onClick={() => onEdit(client)}
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+            className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-[13px] font-medium text-background transition hover:bg-foreground/90"
           >
             <Pencil className="h-4 w-4" /> Edit client
           </button>
@@ -1381,11 +1418,11 @@ function DeleteClientDialog({
             password: password.trim(),
           })
         }}
-        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-rose-200 bg-popover p-6 text-popover-foreground shadow-pop dark:border-rose-900/50"
+        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
       >
         <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-rose-50 p-2 dark:bg-rose-950">
-            <AlertTriangle className="h-5 w-5 text-rose-600" />
+          <div className="rounded-lg bg-destructive/10 p-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
           </div>
           <div className="flex-1">
             <h3 className="text-base font-semibold">
@@ -1432,11 +1469,11 @@ function DeleteClientDialog({
               if (error) setError(null)
             }}
             placeholder="From the vault entry &quot;Client Delete Password&quot;"
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm focus:border-destructive/60 focus:outline-none"
             autoComplete="off"
           />
           {error && (
-            <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">
+            <p className="mt-1.5 text-xs text-destructive">
               {error}
             </p>
           )}
@@ -1454,7 +1491,7 @@ function DeleteClientDialog({
           <button
             type="submit"
             disabled={!password.trim() || deleteMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground transition hover:bg-destructive/90 disabled:opacity-50"
           >
             {deleteMutation.isPending ? (
               <>
@@ -1492,21 +1529,15 @@ function ClientStateChip({ client }: { client: ClientWithCounts }) {
 
   if (isPending) {
     return (
-      <span className="inline-flex items-center justify-center rounded-full border border-dashed border-muted-foreground/40 bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+      <span className="inline-flex items-center justify-center rounded-md border border-dashed border-muted-foreground/40 bg-muted px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground">
         {code}
       </span>
     )
   }
 
-  const color = client.color || '#3b82f6'
   return (
     <span
-      className="inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-semibold"
-      style={{
-        backgroundColor: hexToRgba(color, 0.14),
-        borderColor: hexToRgba(color, 0.3),
-        color,
-      }}
+      className="inline-flex items-center justify-center rounded-md border border-border bg-surface px-2 py-0.5 font-mono text-[11px] font-medium text-foreground/85"
       title={client.state ?? undefined}
     >
       {code}
@@ -1593,7 +1624,7 @@ function AdditionalInfo({ client }: { client: ClientWithCounts }) {
                   href={withProtocol(client.website)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary hover:underline"
+                  className="text-foreground/80 hover:text-foreground hover:underline"
                 >
                   {client.website}
                 </a>
@@ -1740,24 +1771,24 @@ function LoginDetailRow({
   const { role, email, mustChangePassword, createdAt, updatedAt } = login
   let statusIcon: React.ComponentType<{ className?: string }> = CheckCircle2
   let statusText = 'Active login'
-  let tone = 'text-emerald-600 dark:text-emerald-400'
+  let tone = 'text-foreground'
 
   if (role === 'client_pending') {
     statusIcon = Hourglass
     statusText = 'Self-registered · awaiting onboarding form'
-    tone = 'text-amber-600 dark:text-amber-400'
+    tone = 'text-muted-foreground'
   } else if (role === 'client_onboarding') {
     statusIcon = Hourglass
     statusText = 'Application submitted · awaiting review'
-    tone = 'text-amber-600 dark:text-amber-400'
+    tone = 'text-muted-foreground'
   } else if (role === 'client_denied') {
     statusIcon = XCircle
     statusText = 'Login denied'
-    tone = 'text-rose-600 dark:text-rose-400'
+    tone = 'text-destructive'
   } else if (role === 'client_active' && mustChangePassword) {
     statusIcon = Hourglass
     statusText = 'Active · awaiting first sign-in (temp password sent)'
-    tone = 'text-amber-600 dark:text-amber-400'
+    tone = 'text-muted-foreground'
   }
 
   const StatusIcon = statusIcon
@@ -1833,7 +1864,7 @@ function ResourceLink({
       className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left text-sm transition hover:bg-surface-muted"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <Icon className="h-4 w-4 flex-shrink-0 text-primary" />
+        <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
         <span className="min-w-0">
           <span className="block font-semibold">{label}</span>
           <span className="block truncate text-xs text-muted-foreground">
@@ -1856,12 +1887,12 @@ function SummaryCard({
   sub: string
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-      <p className="text-[13px] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-[26px] font-semibold tracking-tight tabular-nums">
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="eyebrow text-muted-foreground">{label}</p>
+      <p className="mt-2.5 font-mono text-[26px] font-medium leading-none tracking-tight tabular-nums">
         {value}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{sub}</p>
     </div>
   )
 }
@@ -1869,7 +1900,7 @@ function SummaryCard({
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider">
+      <span className="eyebrow">
         {label}
       </span>
       <span className="text-sm font-semibold tabular-nums text-foreground">

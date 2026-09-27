@@ -30,8 +30,9 @@ export async function GET(req: Request) {
       ? { lifecycle: { in: ['active', 'onboarding', 'paused'] } }
       : { active: true }
 
+  // Archived clients are out of every picker regardless of lifecycle.
   const clients = await prisma.client.findMany({
-    where: lifecycleFilter,
+    where: { ...lifecycleFilter, archivedAt: null },
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     select: {
       id: true,

@@ -64,6 +64,7 @@ export async function GET() {
         ghlSubaccountUrl: true,
         servicingZipcodes: true,
         createdAt: true,
+        archivedAt: true,
       },
     }),
     prisma.appointment.findMany({
@@ -384,6 +385,7 @@ export async function GET() {
       ghlSubaccountUrl: c.ghlSubaccountUrl,
       servicingZipcodes: c.servicingZipcodes,
       createdAt: c.createdAt.toISOString(),
+      archivedAt: c.archivedAt ? c.archivedAt.toISOString() : null,
       // null when admin hasn't provisioned a /client login yet (and
       // the client hasn't self-registered). Surfaced in the detail
       // dialog's Additional info panel so admin can spot whether a

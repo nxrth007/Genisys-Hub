@@ -520,6 +520,9 @@ model Client {
   state        String? // e.g. "Arizona", "Utah" — for agent context only
   color        String   @default("#3b82f6") // hex for badges
   active       Boolean  @default(true)
+  /// Archived clients fold into their own section on /clients and drop
+  /// out of every picker. Null = on the roster.
+  archivedAt   DateTime?
   sortOrder    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

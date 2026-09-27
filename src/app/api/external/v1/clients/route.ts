@@ -8,6 +8,7 @@ import { withOwnerApi, externalOptions } from '@/lib/external-api'
  */
 export const GET = withOwnerApi(async () => {
   const clients = await prisma.client.findMany({
+    where: { archivedAt: null },
     orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     select: {
       id: true,
