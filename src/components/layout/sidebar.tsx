@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { signOut } from 'next-auth/react'
 import {
@@ -12,7 +12,7 @@ import {
   Phone,
   PhoneCall,
   Building2,
-  LayoutGrid,
+  Globe,
   Inbox,
   Send,
   MessageSquare,
@@ -25,7 +25,6 @@ import {
   Wallet,
   CheckCircle2,
   Search,
-  ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
   Moon,
@@ -36,19 +35,19 @@ import { cn } from '@/lib/utils'
 import { canAccessPayments } from '@/lib/payments-access'
 import { Avatar } from '../ui/avatar'
 import { SearchDialog } from './search-dialog'
+import { useGraphite } from './theme-toggle'
 
 /**
- * Sidebar — ported from Ethan's CRM mockup. 260px column with:
- *  - Brand + theme toggle + (decorative) collapse button
- *  - Search command pill (opens ⌘K dialog)
+ * Sidebar — a 216px instrument column (56px collapsed):
+ *  - Brand mark + palette toggle + collapse
+ *  - Search pill (opens ⌘K)
  *  - Main menu (role-based: alex sees the full Hub, everyone else
- *    including Ethan sees Tasks / Call Center / Clients)
- *  - Footer: Settings, Help, profile card
+ *    including Ethan sees the curated set)
+ *  - Footer: Settings, Help, profile
  *
- * Visuals come from the OKLch token system in globals.css — active
- * nav items use `bg-primary-soft text-primary` and the whole column
- * sits on `bg-sidebar`, so dark/light mode flips cleanly via the
- * single `.dark` class on <html>.
+ * Nav labels are mono; the active item gets a 2px accent bar on its
+ * left edge and a faint fill rather than a coloured pill, so the column
+ * reads as a rail of controls instead of a list of buttons.
  */
 
 type NavItem = {
@@ -77,6 +76,7 @@ const FULL_VIEW_EMAILS = new Set(['alex@leadgenisys.com'])
 // see them himself rather than asking Alex every time. The CRM page's
 // own filter chips (Sales / Reminder line) keep the noise managed.
 const SIMPLIFIED_NAV: NavItem[] = [
+  { href: '/home', label: 'Home', icon: Globe },
   { href: '/today', label: 'Tasks', icon: CheckSquare },
   // Call Center → land on Master Tracker (the deliverable view) by
   // default; `match: '/call-center'` keeps the nav item highlighted
@@ -100,15 +100,11 @@ const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/documents', label: 'Documents', icon: FolderOpen },
 ]
 
-// Full nav Alex sees. /today is the canonical landing page (the
-// root `/` redirects there); /notion stays separate as the broader
-// Notion DB browser for power users.
-//
-// The Dashboard entry was removed 2026-05-11 (Alex + Ethan): the
-// old welcome / module-grid page was redundant with this sidebar,
-// so /app/page.tsx is now a redirect to /today and the nav entry
-// pointed at the same place. Removing it deduplicates the nav.
+// Full nav Alex sees. /home is the landing page (the root `/`
+// redirects there); /notion stays separate as the broader Notion DB
+// browser for power users.
 const FULL_NAV: NavItem[] = [
+  { href: '/home', label: 'Home', icon: Globe },
   { href: '/today', label: 'Today', icon: CheckCircle2 },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/outbox', label: 'Outbox', icon: Send },
@@ -134,30 +130,41 @@ const FULL_NAV: NavItem[] = [
   { href: '/agents', label: 'Agents', icon: Headphones },
 ]
 
+// Collapsed mode — narrows the column to icons only. Persisted in
+// localStorage and read as an external store, so the first client
+// render already knows the answer (the server renders expanded) and
+// the mobile drawer's copy of the sidebar stays in step with desktop.
+const COLLAPSED_KEY = 'sidebar-collapsed'
+const COLLAPSED_EVENT = 'sidebar-collapsed-change'
+
+function subscribeCollapsed(onChange: () => void) {
+  window.addEventListener(COLLAPSED_EVENT, onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    window.removeEventListener(COLLAPSED_EVENT, onChange)
+    window.removeEventListener('storage', onChange)
+  }
+}
+function readCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+const serverCollapsed = () => false
+
 export function Sidebar() {
   const pathname = usePathname()
   const [searchOpen, setSearchOpen] = useState(false)
-  // Collapsed mode — narrows the column to icons only. Persisted in
-  // localStorage so the choice sticks across reloads. We hydrate from
-  // storage in an effect (rather than the inline init script in
-  // layout.tsx) to avoid a layout-shift cost; the first paint shows
-  // the expanded view, and if the user has it collapsed it snaps to
-  // narrow on mount.
-  const [collapsed, setCollapsed] = useState(false)
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed')
-    if (saved === 'true') setCollapsed(true)
-  }, [])
+  const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsed, serverCollapsed)
   function toggleCollapsed() {
-    setCollapsed((c) => {
-      const next = !c
-      try {
-        localStorage.setItem('sidebar-collapsed', String(next))
-      } catch {
-        // localStorage may be disabled in strict-privacy modes — non-fatal.
-      }
-      return next
-    })
+    try {
+      localStorage.setItem(COLLAPSED_KEY, String(!readCollapsed()))
+    } catch {
+      // localStorage may be disabled in strict-privacy modes — non-fatal.
+    }
+    window.dispatchEvent(new Event(COLLAPSED_EVENT))
   }
 
   const { data: session } = useQuery<{
@@ -204,45 +211,40 @@ export function Sidebar() {
     <>
       <aside
         className={cn(
-          'hidden shrink-0 flex-col gap-2 border-r border-border-soft bg-sidebar py-5 transition-[width] duration-200 md:flex',
-          collapsed ? 'w-[68px] px-2' : 'w-[260px] px-4'
+          'hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar py-4 transition-[width] duration-200 md:flex',
+          collapsed ? 'w-[56px] px-1.5' : 'w-[216px] px-3',
         )}
       >
-        {/* ---- Brand + theme toggle + collapse ---- */}
+        {/* ---- Brand + palette toggle + collapse ---- */}
         <div
           className={cn(
-            'mb-2 flex items-center px-2',
-            collapsed ? 'flex-col gap-1' : 'justify-between'
+            'mb-3 flex items-center',
+            collapsed ? 'flex-col gap-1.5' : 'justify-between px-1',
           )}
         >
-          <div className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <LayoutGrid className="h-4 w-4" strokeWidth={2.25} />
-            </div>
+          <Link href="/home" className="flex items-center gap-2.5" title="Home">
+            <span className="grid h-7 w-7 place-items-center rounded-md border border-border bg-surface font-mono text-[12px] font-semibold text-foreground">
+              G
+            </span>
             {!collapsed && (
-              <span className="text-[17px] font-semibold tracking-tight text-sidebar-foreground">
+              <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground">
                 Genisys
               </span>
             )}
-          </div>
-          <div
-            className={cn(
-              'flex items-center gap-0.5',
-              collapsed && 'flex-col'
-            )}
-          >
+          </Link>
+          <div className={cn('flex items-center', collapsed && 'flex-col')}>
             <CompactThemeToggle />
             <button
               type="button"
               onClick={toggleCollapsed}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               {collapsed ? (
-                <PanelLeftOpen className="h-4 w-4" />
+                <PanelLeftOpen className="h-3.5 w-3.5" />
               ) : (
-                <PanelLeftClose className="h-4 w-4" />
+                <PanelLeftClose className="h-3.5 w-3.5" />
               )}
             </button>
           </div>
@@ -256,32 +258,29 @@ export function Sidebar() {
             onClick={() => setSearchOpen(true)}
             aria-label="Search"
             title={`Search · ${isMac ? '⌘K' : 'Ctrl+K'}`}
-            className="mt-1 grid h-9 w-full place-items-center rounded-xl border border-border bg-surface-muted text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            className="grid h-8 w-full place-items-center rounded-md border border-border bg-surface text-muted-foreground transition hover:bg-muted hover:text-foreground"
           >
-            <Search className="h-4 w-4" />
+            <Search className="h-3.5 w-3.5" />
           </button>
         ) : (
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="relative mt-1 flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-surface-muted px-3 text-left text-sm text-muted-foreground transition hover:bg-muted"
+            className="flex h-8 w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-left font-mono text-[12px] text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground"
           >
             <Search className="h-3.5 w-3.5" />
-            <span className="flex-1">Search anything</span>
-            <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium">
+            <span className="flex-1">Search</span>
+            <kbd className="rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
               {isMac ? '⌘K' : 'Ctrl K'}
             </kbd>
           </button>
         )}
 
-        {!collapsed && (
-          <p className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Main menu
-          </p>
-        )}
+        {!collapsed && <p className="eyebrow mb-1 mt-5 px-2 text-muted-foreground/70">Menu</p>}
+        {collapsed && <div className="mb-1 mt-4 h-px w-full bg-border-soft" />}
 
         {/* ---- Main nav ---- */}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
+        <nav className="flex flex-1 flex-col gap-px overflow-y-auto">
           {nav.map((item) => (
             <NavLink
               key={item.href}
@@ -293,7 +292,8 @@ export function Sidebar() {
         </nav>
 
         {/* ---- Footer: settings, help, profile ---- */}
-        <div className="mt-auto flex flex-col gap-1">
+        <div className="mt-auto flex flex-col gap-px pt-3">
+          <div className="mb-2 h-px w-full bg-border-soft" />
           <NavLink
             item={{ href: '/settings', label: 'Settings', icon: Settings }}
             pathname={pathname}
@@ -305,41 +305,41 @@ export function Sidebar() {
             rel="noopener noreferrer"
             title="Help & Support"
             className={cn(
-              'flex items-center gap-3 rounded-xl text-sm font-medium text-foreground/75 transition hover:bg-muted hover:text-foreground',
-              collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+              'flex h-8 items-center gap-2.5 rounded-md font-mono text-[12.5px] text-foreground/70 transition hover:bg-muted hover:text-foreground',
+              collapsed ? 'justify-center px-0' : 'px-2.5',
             )}
           >
-            <HelpCircle className="h-4 w-4 flex-shrink-0" />
-            {!collapsed && 'Help & Support'}
+            <HelpCircle className="h-[15px] w-[15px] flex-shrink-0" strokeWidth={1.75} />
+            {!collapsed && 'Help'}
           </a>
 
           {session?.user &&
             (collapsed ? (
               // Collapsed profile — avatar-only with sign-out tooltip.
-              // Single click signs out (the floating menu is heavy in
-              // a 68px column; we'd rather click than juggle popovers).
+              // Single click signs out (a floating menu is heavy in a
+              // 56px column; we'd rather click than juggle popovers).
               <button
                 onClick={() => signOut({ callbackUrl: '/signin' })}
                 title={`${displayName} · Click to sign out`}
-                className="mt-2 grid h-9 w-full place-items-center rounded-xl border border-border bg-surface shadow-soft hover:bg-muted"
+                className="mt-2 grid h-9 w-full place-items-center rounded-md border border-border bg-surface hover:bg-muted"
               >
                 <Avatar name={displayName} email={email} size="sm" />
               </button>
             ) : (
-              <div className="mt-2 flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2 shadow-soft">
+              <div className="mt-2 flex items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2">
                 <Avatar name={displayName} email={email} size="sm" />
                 <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-sm font-semibold">
+                  <p className="truncate text-[13px] font-medium leading-tight">
                     {displayName}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="eyebrow mt-0.5 truncate text-muted-foreground">
                     {roleLabel}
                   </p>
                 </div>
                 <button
                   onClick={() => signOut({ callbackUrl: '/signin' })}
                   title="Sign out"
-                  className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                 </button>
@@ -354,37 +354,22 @@ export function Sidebar() {
 }
 
 /**
- * Compact theme toggle styled to fit the brand row (h-7 w-7 to match
- * the collapse button next to it). Reads/writes localStorage['theme']
- * and mirrors the inline init script in layout.tsx so first paint
- * already has the right theme applied.
+ * Compact palette toggle sized to sit next to the collapse button.
+ * Obsidian shows a sun (go lighter), Graphite shows a moon (go darker).
  */
 function CompactThemeToggle() {
-  const [isDark, setIsDark] = useState<boolean | null>(null)
-  useEffect(() => {
-    setIsDark(document.documentElement.classList.contains('dark'))
-  }, [])
-  if (isDark === null) {
+  const { graphite, toggle } = useGraphite()
+  if (graphite === null) {
     return <div className="h-7 w-7" aria-hidden />
-  }
-  function toggle() {
-    const next = !isDark
-    setIsDark(next)
-    if (next) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
-    }
   }
   return (
     <button
       onClick={toggle}
-      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+      aria-label={graphite ? 'Switch to Obsidian' : 'Switch to Graphite'}
+      title={graphite ? 'Obsidian' : 'Graphite'}
+      className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
     >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {graphite ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
     </button>
   )
 }
@@ -407,42 +392,24 @@ function NavLink({
     matchPrefix === '/' ? pathname === '/' : pathname.startsWith(matchPrefix)
   const Icon = item.icon
 
-  // Collapsed: icon-only, centered in a square, with the label on a
-  // native title tooltip. Active state still uses bg-primary-soft so
-  // the visual continuity holds when the user toggles modes.
-  if (collapsed) {
-    return (
-      <Link
-        href={item.href}
-        title={item.label}
-        aria-label={item.label}
-        className={cn(
-          'grid h-10 w-full place-items-center rounded-xl text-sm font-medium transition',
-          active
-            ? 'bg-primary-soft text-primary'
-            : 'text-foreground/75 hover:bg-muted hover:text-foreground'
-        )}
-      >
-        <Icon className="h-4 w-4" strokeWidth={2} />
-      </Link>
-    )
-  }
-
   return (
     <Link
       href={item.href}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={cn(
-        'group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition',
+        'relative flex h-8 items-center gap-2.5 rounded-md font-mono text-[12.5px] transition',
+        collapsed ? 'justify-center px-0' : 'px-2.5',
         active
-          ? 'bg-primary-soft text-primary'
-          : 'text-foreground/75 hover:bg-muted hover:text-foreground'
+          ? 'bg-white/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
+          : 'text-foreground/70 hover:bg-white/[0.04] hover:text-foreground',
       )}
     >
-      <span className="flex items-center gap-3">
-        <Icon className="h-4 w-4" strokeWidth={2} />
-        {item.label}
-      </span>
-      {active && <ChevronRight className="h-4 w-4 opacity-60" />}
+      <Icon
+        className={cn('h-[15px] w-[15px] flex-shrink-0', active && 'text-primary')}
+        strokeWidth={1.75}
+      />
+      {!collapsed && item.label}
     </Link>
   )
 }

@@ -1,9 +1,9 @@
 import { cn } from '@/lib/utils'
 
 /**
- * Pastel status chip — pulls colors from the chip-* CSS utilities in
- * globals.css so a single Tailwind class controls both background +
- * foreground in light & dark mode. Mirrors the mockup's `<Chip>`.
+ * Status chip — pulls colours from the chip-* CSS utilities in
+ * globals.css so a single class controls both background + foreground
+ * in both palettes. Mono, uppercase, squared-off: a tag, not a pill.
  */
 
 export type ChipTone =
@@ -21,7 +21,7 @@ const TONE_CLASS: Record<ChipTone, string> = {
   blue: 'chip-blue',
   violet: 'chip-violet',
   // "muted" stays neutral — used when we want a chip shape without a
-  // pastel tone. Useful for counts and non-status badges.
+  // tone. Useful for counts and non-status badges.
   muted: 'bg-muted text-muted-foreground',
 }
 
@@ -37,7 +37,7 @@ export function Chip({
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+        'eyebrow inline-flex items-center rounded-md px-2 py-1',
         TONE_CLASS[tone],
         className
       )}

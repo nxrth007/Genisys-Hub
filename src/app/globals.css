@@ -1,23 +1,27 @@
 @import "tailwindcss";
 
 /*
- * Class-based dark mode so the user's toggle in the sidebar can override
- * the OS preference. The inline script in layout.tsx sets `.dark` on <html>
- * before hydration based on localStorage / prefers-color-scheme.
+ * Both palettes are dark. The `.dark` class is always present on <html>
+ * (set by the inline script in layout.tsx) so every `dark:` utility in
+ * the codebase is permanently the active one; `.graphite` on top of it
+ * swaps the token values from near-black to dark grey. That is what
+ * lets 75 pages written against `bg-white dark:bg-zinc-900` render
+ * correctly in both modes without touching them.
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Orbitask-inspired design system, ported from Ethan's CRM mockup.
- * Clean white surfaces, vivid blue primary, soft pastel status pills.
- * Typography: Inter (display + body). Color space: OKLch for perceptual
- * consistency across hue-shifted dark mode.
+ * Obsidian design system.
+ * Two palettes — Obsidian (OLED near-black) and Graphite (dark grey) —
+ * one electric-blue accent, hairline borders instead of shadows, and a
+ * single type family: Geist for reading, Geist Mono for labels, nav,
+ * figures and anything that should feel instrumented.
  */
 
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -66,106 +70,97 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.03);
-  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px rgb(15 23 42 / 0.04);
-  --shadow-pop: 0 10px 30px -12px rgb(15 23 42 / 0.12);
+  /* Hairlines do the work shadows used to; these stay barely there. */
+  --shadow-soft: 0 0 0 1px oklch(1 0 0 / 3%);
+  --shadow-card: 0 0 0 1px oklch(1 0 0 / 3%), 0 1px 0 0 oklch(1 0 0 / 2%) inset;
+  --shadow-pop: 0 24px 64px -24px oklch(0 0 0 / 85%), 0 0 0 1px oklch(1 0 0 / 6%);
 }
 
-:root {
-  --radius: 0.875rem;
-
-  /* Surfaces */
-  --background: oklch(0.995 0.002 250);
-  --foreground: oklch(0.21 0.04 260);
-  --surface: oklch(1 0 0);
-  --surface-muted: oklch(0.975 0.005 250);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.04 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.04 260);
-
-  /* Brand — Orbitask blue */
-  --primary: oklch(0.58 0.21 264);
-  --primary-foreground: oklch(1 0 0);
-  --primary-soft: oklch(0.96 0.03 264);
-
-  --secondary: oklch(0.97 0.01 255);
-  --secondary-foreground: oklch(0.25 0.04 260);
-  --muted: oklch(0.97 0.008 255);
-  --muted-foreground: oklch(0.52 0.03 257);
-  --accent: oklch(0.965 0.015 264);
-  --accent-foreground: oklch(0.45 0.18 264);
-
-  /* Status pill palette */
-  --destructive: oklch(0.66 0.2 22);
-  --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.72 0.16 155);
-  --success-foreground: oklch(0.28 0.08 155);
-  --warning: oklch(0.83 0.13 75);
-  --warning-foreground: oklch(0.42 0.12 60);
-  --info: oklch(0.75 0.11 250);
-  --info-foreground: oklch(0.32 0.13 264);
-
-  /* Pastel chip backgrounds (used by .chip-* utilities below) */
-  --chip-pink: oklch(0.94 0.04 18);
-  --chip-pink-fg: oklch(0.5 0.18 18);
-  --chip-amber: oklch(0.94 0.06 78);
-  --chip-amber-fg: oklch(0.5 0.16 60);
-  --chip-mint: oklch(0.93 0.07 155);
-  --chip-mint-fg: oklch(0.42 0.13 155);
-  --chip-blue: oklch(0.94 0.04 250);
-  --chip-blue-fg: oklch(0.42 0.18 264);
-  --chip-violet: oklch(0.94 0.04 295);
-  --chip-violet-fg: oklch(0.45 0.18 295);
-
-  --border: oklch(0.93 0.01 255);
-  --border-soft: oklch(0.955 0.008 255);
-  --input: oklch(0.95 0.008 255);
-  --ring: oklch(0.58 0.21 264);
-
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.21 0.04 260);
-  --sidebar-primary: oklch(0.58 0.21 264);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.965 0.02 264);
-  --sidebar-accent-foreground: oklch(0.45 0.18 264);
-  --sidebar-border: oklch(0.95 0.008 255);
-  --sidebar-ring: oklch(0.58 0.21 264);
-}
-
+/* ---------- Obsidian (default) ---------- */
+:root,
 .dark {
-  --background: oklch(0.16 0.02 260);
-  --foreground: oklch(0.96 0.005 250);
-  --surface: oklch(0.2 0.025 260);
-  --surface-muted: oklch(0.23 0.025 260);
-  --card: oklch(0.2 0.025 260);
-  --card-foreground: oklch(0.96 0.005 250);
-  --popover: oklch(0.22 0.025 260);
-  --popover-foreground: oklch(0.96 0.005 250);
-  --primary: oklch(0.7 0.18 264);
-  --primary-foreground: oklch(0.16 0.02 260);
-  --primary-soft: oklch(0.3 0.08 264);
-  --secondary: oklch(0.26 0.03 260);
-  --secondary-foreground: oklch(0.96 0.005 250);
-  --muted: oklch(0.26 0.03 260);
-  --muted-foreground: oklch(0.72 0.02 257);
-  --accent: oklch(0.3 0.05 264);
-  --accent-foreground: oklch(0.92 0.04 264);
-  --destructive: oklch(0.7 0.19 22);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 8%);
-  --border-soft: oklch(1 0 0 / 5%);
-  --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.7 0.18 264);
-  --sidebar: oklch(0.2 0.025 260);
-  --sidebar-foreground: oklch(0.96 0.005 250);
-  --sidebar-primary: oklch(0.7 0.18 264);
-  --sidebar-primary-foreground: oklch(0.16 0.02 260);
-  --sidebar-accent: oklch(0.3 0.05 264);
-  --sidebar-accent-foreground: oklch(0.92 0.04 264);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.7 0.18 264);
+  --radius: 0.625rem;
   color-scheme: dark;
+
+  /* Surfaces — near-black canvas, each layer barely lifted */
+  --background: oklch(0.095 0.005 260);
+  --sidebar: oklch(0.07 0.004 260);
+  --surface: oklch(0.13 0.006 260);
+  --surface-muted: oklch(0.165 0.007 260);
+  --card: oklch(0.13 0.006 260);
+  --popover: oklch(0.145 0.006 260);
+
+  --foreground: oklch(0.955 0.003 250);
+  --card-foreground: oklch(0.955 0.003 250);
+  --popover-foreground: oklch(0.955 0.003 250);
+  --sidebar-foreground: oklch(0.955 0.003 250);
+  --muted-foreground: oklch(0.62 0.012 255);
+
+  /* Accent — electric ice blue; the one colour in the system */
+  --primary: oklch(0.8 0.1 235);
+  --primary-foreground: oklch(0.12 0.02 235);
+  --primary-soft: oklch(0.8 0.1 235 / 12%);
+  --sidebar-primary: oklch(0.8 0.1 235);
+  --sidebar-primary-foreground: oklch(0.12 0.02 235);
+
+  --secondary: oklch(0.18 0.008 260);
+  --secondary-foreground: oklch(0.955 0.003 250);
+  --muted: oklch(0.18 0.008 260);
+  --accent: oklch(0.205 0.01 250);
+  --accent-foreground: oklch(0.955 0.003 250);
+  --sidebar-accent: oklch(0.205 0.01 250);
+  --sidebar-accent-foreground: oklch(0.955 0.003 250);
+
+  /* Status */
+  --destructive: oklch(0.68 0.19 22);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.75 0.15 160);
+  --success-foreground: oklch(0.12 0.03 160);
+  --warning: oklch(0.82 0.14 80);
+  --warning-foreground: oklch(0.14 0.03 80);
+  --info: oklch(0.8 0.1 235);
+  --info-foreground: oklch(0.12 0.02 235);
+
+  /* Chips — translucent tints so they sit on any dark surface */
+  --chip-pink: oklch(0.72 0.18 18 / 14%);
+  --chip-pink-fg: oklch(0.86 0.11 18);
+  --chip-amber: oklch(0.8 0.15 80 / 14%);
+  --chip-amber-fg: oklch(0.88 0.12 80);
+  --chip-mint: oklch(0.75 0.15 160 / 14%);
+  --chip-mint-fg: oklch(0.86 0.12 160);
+  --chip-blue: oklch(0.8 0.1 235 / 14%);
+  --chip-blue-fg: oklch(0.86 0.08 235);
+  --chip-violet: oklch(0.72 0.16 295 / 14%);
+  --chip-violet-fg: oklch(0.86 0.1 295);
+
+  --border: oklch(1 0 0 / 9%);
+  --border-soft: oklch(1 0 0 / 6%);
+  --input: oklch(1 0 0 / 7%);
+  --ring: oklch(0.8 0.1 235);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.8 0.1 235);
+}
+
+/* ---------- Graphite ---------- */
+.graphite {
+  --background: oklch(0.235 0.008 260);
+  --sidebar: oklch(0.205 0.008 260);
+  --surface: oklch(0.275 0.008 260);
+  --surface-muted: oklch(0.31 0.009 260);
+  --card: oklch(0.275 0.008 260);
+  --popover: oklch(0.29 0.008 260);
+
+  --muted-foreground: oklch(0.7 0.012 255);
+
+  --secondary: oklch(0.32 0.009 260);
+  --muted: oklch(0.32 0.009 260);
+  --accent: oklch(0.345 0.01 255);
+  --sidebar-accent: oklch(0.345 0.01 255);
+
+  --border: oklch(1 0 0 / 11%);
+  --border-soft: oklch(1 0 0 / 7%);
+  --input: oklch(1 0 0 / 9%);
+  --sidebar-border: oklch(1 0 0 / 9%);
 }
 
 @layer base {
@@ -174,7 +169,7 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: "cv11", "ss01", "ss03";
+    font-feature-settings: "ss01", "cv11";
   }
   body {
     background-color: var(--color-background);
@@ -184,7 +179,32 @@
   h2,
   h3,
   h4 {
-    letter-spacing: -0.015em;
+    letter-spacing: -0.02em;
+  }
+  kbd {
+    font-family: var(--font-mono);
+  }
+  ::selection {
+    background-color: oklch(0.8 0.1 235 / 28%);
+  }
+
+  /* Thin, quiet scrollbars — the fat default ones break the instrument feel. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 14%) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: oklch(1 0 0 / 14%);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
   }
 }
 
@@ -210,18 +230,23 @@
     background-color: var(--chip-violet);
     color: var(--chip-violet-fg);
   }
+
+  /* Small instrument label: mono, uppercase, tracked. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
 }
 
 /*
- * Reskin transition layer — maps the legacy `dark:bg-zinc-*` /
- * `dark:border-zinc-*` patterns used by pages that haven't been
- * individually reskinned yet onto our OKLch token palette. Without
- * this, dark mode reads as pure black instead of the soft blue-gray
- * the mockup specifies, because pages hardcode zinc shades.
- *
- * As each page gets individually reskinned to use `bg-card`,
- * `border-border` etc. directly, these overrides become no-ops for
- * that page. Once nothing needs them they can be removed wholesale.
+ * Legacy mapping layer — pages written against `dark:bg-zinc-*` /
+ * `dark:border-zinc-*` are remapped onto the token palette. Since `.dark`
+ * is now always on <html>, these are what every such page renders with
+ * in both Obsidian and Graphite. As pages move to `bg-card`,
+ * `border-border` etc. directly these become no-ops for that page.
  *
  * Targeted via the same dark variant selector Tailwind generates, so
  * specificity ties and source-order (this file is appended after the

@@ -2,28 +2,26 @@ import { cn } from '@/lib/utils'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 
 /**
- * StatCard — ported from Ethan's CRM mockup.
+ * StatCard — a readout, not a decoration:
  *
- *   LABEL (small, muted)
- *   LARGE VALUE                 +14%   (optional trend badge)
- *   ▰▰▰▰▰▰▰▰▱▱  (optional progress bar in tone color)
+ *   LABEL (mono eyebrow)
+ *   LARGE VALUE                 +14%   (optional trend, mono)
+ *   ▰▰▰▰▰▰▰▰▱▱  (optional 1px progress bar in tone colour)
  *   subtitle (small, muted)
  *
- * Surface uses the new design tokens (bg-surface, border-border,
- * shadow-soft) so light/dark mode stays consistent across the app.
- * Tone controls the bar color; the icon + label stay neutral so the
- * card reads as data-first, not decoration-first.
+ * Hairline border on the card surface; no shadow. The figure is set
+ * in mono with tabular digits so a grid of these lines up.
  */
 
 export type StatTone = 'blue' | 'green' | 'amber' | 'red' | 'indigo' | 'zinc'
 
 const TONE_BAR: Record<StatTone, string> = {
-  blue: 'bg-sky-400',
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-400',
-  red: 'bg-rose-500',
-  indigo: 'bg-violet-500',
-  zinc: 'bg-zinc-400',
+  blue: 'bg-primary',
+  green: 'bg-success',
+  amber: 'bg-warning',
+  red: 'bg-destructive',
+  indigo: 'bg-violet-400',
+  zinc: 'bg-muted-foreground',
 }
 
 export function StatCard({
@@ -52,20 +50,20 @@ export function StatCard({
   return (
     <div
       className={cn(
-        'rounded-2xl border border-border bg-card p-4 shadow-soft',
+        'rounded-xl border border-border bg-card p-4',
         className
       )}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-          <p className="text-[13px] text-muted-foreground">{label}</p>
+          <p className="eyebrow text-muted-foreground">{label}</p>
         </div>
         {trend != null && (
           <span
             className={cn(
-              'inline-flex items-center gap-0.5 text-xs font-medium',
-              trend >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              'inline-flex items-center gap-0.5 font-mono text-[11px] tabular-nums',
+              trend >= 0 ? 'text-success' : 'text-destructive'
             )}
           >
             {trend >= 0 ? (
@@ -79,19 +77,18 @@ export function StatCard({
         )}
       </div>
 
-      {/* Value — bumped to 32px to match the mockup's KPI card */}
-      <p className="mt-2 text-[32px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+      <p className="mt-2.5 font-mono text-[28px] font-medium leading-none tracking-tight tabular-nums text-foreground">
         {value}
       </p>
 
       {subtitle && (
-        <p className="mt-1.5 text-xs text-muted-foreground">{subtitle}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{subtitle}</p>
       )}
 
       {pct != null && (
-        <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="mt-4 h-px w-full overflow-hidden bg-border">
           <div
-            className={cn('h-full rounded-full transition-[width]', TONE_BAR[tone])}
+            className={cn('h-full transition-[width]', TONE_BAR[tone])}
             style={{ width: `${pct}%` }}
           />
         </div>
