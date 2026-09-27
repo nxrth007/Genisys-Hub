@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import { Globe } from '@/components/home/globe'
 import { HomeSearch } from '@/components/home/home-search'
+import { WelcomeType } from '@/components/home/welcome-type'
 
 /**
  * Home — the Hub's landing canvas.
@@ -91,6 +92,11 @@ export default function HomePage() {
             <span className="ml-2 text-muted-foreground/60">UTC</span>
           </span>
         </div>
+      </div>
+
+      {/* Welcome — pinned left of the globe on wide screens, above it otherwise */}
+      <div className="pointer-events-none relative z-10 px-6 pt-8 lg:absolute lg:left-10 lg:top-1/2 lg:-translate-y-1/2 lg:px-0 lg:pt-0 xl:left-16">
+        <WelcomeType />
       </div>
 
       {/* Globe */}
