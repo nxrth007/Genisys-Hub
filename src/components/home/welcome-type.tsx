@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils'
  * through a few random glyphs before it settles, left to right, so the
  * name resolves rather than appears. A block cursor blinks through the
  * whole sequence and stays; a hairline draws in under the name when it
- * is done. With reduced motion the finished text renders at once.
+ * is done. It rests for thirty seconds, then clears and plays again.
+ * With reduced motion the finished text renders once and stays.
  */
 
 const LINE_ONE = 'WELCOME TO'
@@ -22,6 +23,8 @@ const TYPE_MS = 55
 const PAUSE_MS = 260
 const DECODE_FRAMES = 4
 const DECODE_MS = 38
+/** How long the finished text rests before the sequence plays again. */
+const REPLAY_MS = 30_000
 
 type Phase = 'idle' | 'one' | 'two' | 'done'
 
@@ -47,29 +50,41 @@ export function WelcomeType({ className }: { className?: string }) {
     const timers: number[] = []
     const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms))
 
-    let t = START_DELAY
-    at(t, () => setPhase('one'))
-    for (let i = 1; i <= LINE_ONE.length; i++) {
-      t += TYPE_MS
-      const n = i
-      at(t, () => setOne(LINE_ONE.slice(0, n)))
-    }
-
-    t += PAUSE_MS
-    at(t, () => setPhase('two'))
-    for (let i = 0; i < LINE_TWO.length; i++) {
-      const settled = LINE_TWO.slice(0, i)
-      for (let f = 0; f < DECODE_FRAMES; f++) {
-        t += DECODE_MS
-        // The letter being decoded flickers; everything after it is not
-        // there yet, so the word grows as it resolves.
-        at(t, () => setTwo(settled + randomGlyph()))
+    // One full sequence, then a reset and another after REPLAY_MS —
+    // for as long as the page is open.
+    const run = () => {
+      let t = START_DELAY
+      at(t, () => setPhase('one'))
+      for (let i = 1; i <= LINE_ONE.length; i++) {
+        t += TYPE_MS
+        const n = i
+        at(t, () => setOne(LINE_ONE.slice(0, n)))
       }
-      t += DECODE_MS
-      at(t, () => setTwo(LINE_TWO.slice(0, i + 1)))
+
+      t += PAUSE_MS
+      at(t, () => setPhase('two'))
+      for (let i = 0; i < LINE_TWO.length; i++) {
+        const settled = LINE_TWO.slice(0, i)
+        for (let f = 0; f < DECODE_FRAMES; f++) {
+          t += DECODE_MS
+          // The letter being decoded flickers; everything after it is not
+          // there yet, so the word grows as it resolves.
+          at(t, () => setTwo(settled + randomGlyph()))
+        }
+        t += DECODE_MS
+        at(t, () => setTwo(LINE_TWO.slice(0, i + 1)))
+      }
+      t += 200
+      at(t, () => setPhase('done'))
+
+      at(t + REPLAY_MS, () => {
+        setOne('')
+        setTwo('')
+        setPhase('idle')
+        run()
+      })
     }
-    t += 200
-    at(t, () => setPhase('done'))
+    run()
 
     return () => timers.forEach((id) => clearTimeout(id))
   }, [])
