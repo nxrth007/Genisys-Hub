@@ -69,10 +69,24 @@ function hostOf(url: string): string {
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+/** HQ's marker id — a dot on the globe like the clients, but not one of them. */
+const HQ_ID = '__hq'
+
+/**
+ * HQ only counts as part of a hover or click when it is the nearest dot.
+ * Otherwise a client near HQ (NYC is ~13px from Boston) would get HQ's
+ * card instead of its own.
+ */
+function withoutStrayHq(ids: string[] | null): string[] | null {
+  if (!ids || ids[0] === HQ_ID) return ids
+  const rest = ids.filter((id) => id !== HQ_ID)
+  return rest.length > 0 ? rest : null
+}
+
 /** Keep only ids still on the map — clients can be archived between refreshes. */
 function stillPlaced(ids: string[] | null, byId: Map<string, GlobeClientMarker>): string[] | null {
   if (!ids) return null
-  const live = ids.filter((id) => byId.has(id))
+  const live = ids.filter((id) => id === HQ_ID || byId.has(id))
   return live.length > 0 ? live : null
 }
 
@@ -133,15 +147,18 @@ export default function HomePage() {
   // resolution here — the markers don't rebuild every second.
   const hourKey = now ? Math.floor(now.getTime() / HOUR_MS) : null
   const refMs = hourKey === null ? null : hourKey * HOUR_MS
+  // HQ is a marker too, so hovering it explains what it is.
   const markers = useMemo<GlobeMarker[]>(
-    () =>
-      clients.map((c) => ({
+    () => [
+      ...clients.map((c) => ({
         id: c.id,
-        location: [c.lat, c.lng],
+        location: [c.lat, c.lng] as [number, number],
         size: c.siteUrl ? 0.05 : 0.038,
         pulse: refMs !== null && isRecentLaunch(c, refMs),
       })),
-    [clients, refMs],
+      ...(origin ? [{ id: HQ_ID, location: origin, size: 0.03 }] : []),
+    ],
+    [clients, refMs, origin],
   )
 
   // The timers below read these rather than closing over them, so a
@@ -243,6 +260,7 @@ export default function HomePage() {
     () => (cardIds ?? []).map((id) => byId.get(id)).filter((c): c is GlobeClientMarker => Boolean(c)),
     [cardIds, byId],
   )
+  const cardHq = hq && cardIds?.[0] === HQ_ID ? hq : null
 
   const local = now
     ? `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
@@ -346,11 +364,13 @@ export default function HomePage() {
           origin={origin}
           activeId={activeId}
           hold={pinned !== null}
-          onHoverChange={(ids) => {
+          onHoverChange={(raw) => {
+            const ids = withoutStrayHq(raw)
             setHovered(ids)
             if (ids) setLastShown(ids)
           }}
-          onSelect={(ids) => {
+          onSelect={(raw) => {
+            const ids = withoutStrayHq(raw)
             // Empty globe clears the pin. A click on any member of the
             // pinned set closes it; anything else pins that spot and
             // eases it to the centre.
@@ -367,14 +387,19 @@ export default function HomePage() {
               return
             }
             const first = byId.get(ids[0])
-            if (!first) return
+            const at: [number, number] | null = first
+              ? [first.lat, first.lng]
+              : ids[0] === HQ_ID
+                ? origin
+                : null
+            if (!at) return
             setPinned(ids)
             setLastShown(ids)
-            globeRef.current?.focus(first.lat, first.lng)
+            globeRef.current?.focus(at[0], at[1])
           }}
           card={
-            cardMembers.length > 0 && refMs !== null ? (
-              <PlaceCard members={cardMembers} pinned={showingPin} nowMs={refMs} />
+            (cardMembers.length > 0 || cardHq) && refMs !== null ? (
+              <PlaceCard members={cardMembers} hq={cardHq} pinned={showingPin} nowMs={refMs} />
             ) : null
           }
         />
@@ -390,16 +415,45 @@ export default function HomePage() {
 
 function PlaceCard({
   members,
+  hq,
   pinned,
   nowMs,
 }: {
   members: GlobeClientMarker[]
+  /** Set when HQ's own dot is part of what's under the pointer. */
+  hq: GlobeData['hq'] | null
   pinned: boolean
   nowMs: number
 }) {
   const frame =
     'w-64 rounded-xl border bg-popover/95 p-3.5 text-popover-foreground shadow-pop backdrop-blur ' +
     (pinned ? 'border-foreground/30' : 'border-border')
+  if (hq) {
+    return (
+      <div className={frame}>
+        <HqCard hq={hq} />
+        {/* A client right next to HQ shares its spot — list them too. */}
+        {members.length > 0 && (
+          <ul className="mt-3 flex flex-col gap-1 border-t border-border-soft pt-2.5">
+            {[...members]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .slice(0, CLUSTER_ROWS)
+              .map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-2">
+                <Link
+                  href={`/clients?focus=${c.id}`}
+                  className="truncate text-[12.5px] font-medium hover:underline"
+                >
+                  {c.name}
+                </Link>
+                <Chip>{STATUS_LABEL[c.status] ?? c.status}</Chip>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
   if (members.length === 1) {
     return (
       <div className={frame}>
@@ -456,6 +510,25 @@ function PlaceCard({
         </Link>
       )}
     </div>
+  )
+}
+
+/** HQ explains itself: it's where the arcs come from, not a client. */
+function HqCard({ hq }: { hq: GlobeData['hq'] }) {
+  return (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold">{hq.name}</p>
+          <p className="eyebrow mt-0.5 text-muted-foreground">{hq.place}</p>
+        </div>
+        <Chip>Home base</Chip>
+      </div>
+      <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
+        Arcs fly from here out to your clients. When a client&rsquo;s site goes live, one fires
+        right away and their dot pulses for two weeks.
+      </p>
+    </>
   )
 }
 

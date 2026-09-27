@@ -8,7 +8,7 @@ import { STATE_NAME_TO_CODE } from './address'
  * somewhere else; nothing else depends on it.
  */
 
-export const HQ = { name: 'Genisys HQ', lat: 42.3601, lng: -71.0589 } as const
+export const HQ = { name: 'Genisys HQ', place: 'Boston, MA', lat: 42.3601, lng: -71.0589 } as const
 
 /** How long a site launch keeps its marker pulsing on the globe. */
 export const LAUNCH_WINDOW_DAYS = 14

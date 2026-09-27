@@ -456,20 +456,19 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
   )
 
   // Marker changes go straight to cobe. The active marker is drawn
-  // larger so the sphere agrees with the card; the origin is a small
-  // fixed dot. No ids: cobe would add an anchor element per marker,
-  // and the overlay already knows where everything is.
+  // larger so the sphere agrees with the card. The origin only gets its
+  // ring from the overlay — a dot there should be passed as a marker so
+  // it can be hovered and explained like everything else. No ids: cobe
+  // would add an anchor element per marker, and the overlay already
+  // knows where everything is.
   useEffect(() => {
     globeRef.current?.update({
-      markers: [
-        ...markers.map((m) => ({
-          location: m.location,
-          size: m.id === activeId ? m.size * 1.7 : m.size,
-        })),
-        ...(origin ? [{ location: origin, size: 0.03 }] : []),
-      ],
+      markers: markers.map((m) => ({
+        location: m.location,
+        size: m.id === activeId ? m.size * 1.7 : m.size,
+      })),
     })
-  }, [markers, activeId, origin])
+  }, [markers, activeId])
 
   // ---- hover -----------------------------------------------------------
   function report(ids: string[] | null) {
