@@ -159,7 +159,7 @@ const COUNTY_BACKFILL_BATCH = 20
 // per-lead CHARGE happens inline in the webhook (must be immediate);
 // only the payout runs on a schedule, because a fresh charge sits in
 // Stripe's pending balance for ~2 business days and can't be paid out
-// yet. runSweep() no-ops unless it's enabled in the NCT Leads tab.
+// yet. runSweep() no-ops unless it's enabled in Payments → Automations.
 const NCT_SWEEP_INTERVAL_MS = 15 * 60 * 1000
 let lastNctSweepAt = 0
 let nctSweepInFlight = false

@@ -11,7 +11,7 @@ import {
 /**
  * GET /api/payments/nct/overview
  *
- * Everything the NCT Leads tab renders: webhook credential, client
+ * NCT billing state (Payments → Automations reads the switches): webhook credential, client
  * configs with live weekly spend, the lead ledger, sweep history, and
  * this week's margin. Gated to the Payments email allowlist.
  */

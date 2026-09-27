@@ -89,11 +89,22 @@ export function StatusPill({ status }: { status: string | null }) {
     s === 'sent' ||
     s === 'posted' ||
     s === 'charged' ||
-    s === 'ok'
+    s === 'ok' ||
+    s === 'active' ||
+    s === 'completed'
       ? 'bg-success/15 text-success bg-success/15 text-success'
-      : s.includes('pending') || s.includes('progress') || s === 'capped'
+      : s.includes('pending') ||
+          s.includes('progress') ||
+          s === 'capped' ||
+          s === 'past_due' ||
+          s === 'trialing' ||
+          s.endsWith('needs_response')
         ? 'bg-warning/15 text-warning bg-warning/15 text-warning'
-        : s.includes('fail') || s.includes('cancel')
+        : s.includes('fail') ||
+            s.includes('cancel') ||
+            s === 'denied' ||
+            s === 'reversed' ||
+            s === 'lost'
           ? 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
           : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
   return (

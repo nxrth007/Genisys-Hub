@@ -12,8 +12,9 @@ import {
 /**
  * POST /api/payments/nct/actions
  *
- * Write actions for the NCT Leads tab. Allowlist-gated like the rest of
- * Payments. Actions:
+ * Write actions for NCT billing (switches live in Payments → Automations).
+ * Allowlist-gated like the rest of Payments. Actions:
+ *   setSwitch     — flip chargingEnabled or sweepEnabled, touching nothing else
  *   saveSettings  — charging switch, sweep policy, alert channel
  *   rotateToken   — new webhook secret (breaks NCT's sender until updated)
  *   saveConfig    — create/update a client billing config
@@ -36,6 +37,21 @@ export async function POST(req: NextRequest) {
   const action = String(body.action ?? '')
 
   try {
+    // One flag only. saveSettings rewrites every field from the body, so a
+    // client toggling from a stale copy could switch the other flag back on.
+    if (action === 'setSwitch') {
+      const key = body.key
+      if (key !== 'chargingEnabled' && key !== 'sweepEnabled') {
+        return NextResponse.json({ error: 'Unknown switch.' }, { status: 400 })
+      }
+      await getNctSettings()
+      await prisma.nctBillingSettings.update({
+        where: { id: 'singleton' },
+        data: { [key]: body.value === true },
+      })
+      return NextResponse.json({ ok: true })
+    }
+
     if (action === 'saveSettings') {
       await getNctSettings()
       await prisma.nctBillingSettings.update({

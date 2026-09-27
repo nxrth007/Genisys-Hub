@@ -482,7 +482,7 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
 
   if (!settings.chargingEnabled) {
     return record('no_config', {
-      failureReason: 'Charging is switched off in the NCT Leads tab.',
+      failureReason: 'Charging is switched off in Payments → Automations.',
     })
   }
 
@@ -502,7 +502,7 @@ export async function ingestLead(body: unknown): Promise<IngestResult> {
     return record('failed', {
       amountCents: config.pricePerLeadCents,
       failureReason:
-        'No Stripe customer ID on file for this client yet — add it in Roofing Clients, then press Charge.',
+        'No Stripe customer ID on file for this client yet, so the lead was not charged.',
     })
   }
 
