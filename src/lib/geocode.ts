@@ -29,6 +29,12 @@ const RETRY_ERROR_MS = 3600_000
 /** How long a claim on a client lasts if the process dies mid-lookup. */
 const LEASE_MS = 2 * 60_000
 
+// STATE_NAME_TO_CODE covers the fifty states; DC comes back from both
+// geocoders as a "state" too.
+const EXTRA_STATES: Record<string, string> = { 'district of columbia': 'DC', 'washington dc': 'DC' }
+const STATE_CODES = new Set([...Object.values(STATE_NAME_TO_CODE), 'DC'])
+const STATE_NAMES = [...Object.keys(STATE_NAME_TO_CODE), ...Object.keys(EXTRA_STATES)]
+
 /** Clears every geo field — for when the address a point came from changes. */
 export const GEO_RESET = {
   geoLat: null,
@@ -45,7 +51,8 @@ function stateCode(name: string | null | undefined): string | null {
   const t = name?.trim()
   if (!t) return null
   if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase()
-  return STATE_NAME_TO_CODE[t.toLowerCase()] ?? t
+  const key = t.toLowerCase()
+  return STATE_NAME_TO_CODE[key] ?? EXTRA_STATES[key] ?? t
 }
 
 /** "City, ST" when both are known, else whatever the geocoder called it. */
@@ -78,7 +85,10 @@ async function viaGoogle(query: string): Promise<Attempt | null> {
     if (!res.ok) return { point: null, definitive: false }
     const data = (await res.json()) as { status?: string; results?: GoogleResult[] }
     // A key without the Geocoding API enabled answers REQUEST_DENIED on
-    // every call: configuration, not a transient failure — Nominatim decides.
+    // every call: configuration, not a transient failure — Nominatim
+    // decides. OVER_DAILY_LIMIT stays transient below: it is also what a
+    // temporary usage cap returns, and an hourly retry is the cheaper
+    // mistake than a week-long "not found".
     if (data.status === 'REQUEST_DENIED') return null
     if (data.status === 'ZERO_RESULTS') return { point: null, definitive: true }
     if (data.status !== 'OK') return { point: null, definitive: false }
@@ -179,9 +189,36 @@ export async function geocode(query: string): Promise<Attempt> {
   return { point: null, definitive: osm.definitive && (google?.definitive ?? true) }
 }
 
-// A street address that names its state ("…, TX") or ends in a ZIP.
-// Anchored so a five-digit house number doesn't pass for a ZIP.
-const STATE_OR_ZIP = /,\s*[A-Za-z]{2}\b|\b[A-Za-z]{2}\s+\d{5}(?:-\d{4})?\b|\b\d{5}(?:-\d{4})?\s*$/
+/**
+ * Whether an address names its state well enough to geocode on its own:
+ * it ends in a ZIP ("… Ocala fl 34474"), a full state name ("… Austin
+ * Texas"), ", ST", or — in a part with no house number, like "Ocala FL" —
+ * a bare state code. A trailing country (", USA") and punctuation are
+ * ignored. A code that ends a street ("12 Oak Ct" is Court, not
+ * Connecticut) doesn't count, and a five-digit house number at the start
+ * doesn't pass for a ZIP.
+ */
+function namesState(address: string): boolean {
+  const a = address
+    .trim()
+    .replace(/[\s,]*\b(?:usa|us|u\.s\.a?\.?|united states(?: of america)?)\.?$/i, '')
+    .replace(/[.,\s]+$/, '')
+    .replace(/\bD\.C$/i, 'DC')
+  if (/\b\d{5}(?:-\d{4})?$/.test(a)) return true
+
+  // Judge the last comma/newline part: a state standing alone there
+  // (", Texas", ", TX") is unambiguous; one that merely ends it counts
+  // only when that part has no house number — a place ("Austin Texas",
+  // "Ocala FL"), not a street ("1234 W Washington", "12 Oak Ct").
+  const lastPart = (a.split(/[,\n]/).pop() ?? a).trim()
+  const placeLike = !/\d/.test(lastPart)
+  const lower = lastPart.toLowerCase()
+  const stateName = STATE_NAMES.find((n) => lower === n || lower.endsWith(` ${n}`))
+  if (stateName) return lower === stateName || placeLike
+  const code = lastPart.match(/(?:^|\s)([A-Za-z]{2})$/)?.[1]
+  if (!code || !STATE_CODES.has(code.toUpperCase())) return false
+  return lastPart.length === 2 || placeLike
+}
 
 /** The first place in the form's free-text "cities served" answer. */
 export function firstCity(cities: string | null | undefined): string | null {
@@ -207,10 +244,11 @@ export function clientGeoCandidates(input: {
   const address = input.address?.trim() || null
   const city = firstCity(input.cities)
   const out: string[] = []
-  if (address && STATE_OR_ZIP.test(address)) out.push(address)
+  if (address && namesState(address)) out.push(address)
   else if (address && city) out.push(`${address}, ${city}`)
   if (city) out.push(city)
-  return [...new Set(out)].map((q) => `${q}, USA`)
+  // Scope to the US unless the address already says so.
+  return [...new Set(out)].map((q) => (/\b(?:usa|united states)\b/i.test(q) ? q : `${q}, USA`))
 }
 
 export type GeoOutcome = 'placed' | 'not-found' | 'error' | 'no-address' | 'skipped'
@@ -233,7 +271,9 @@ export async function ensureClientGeo(clientId: string): Promise<GeoOutcome> {
       geoLat: null,
       OR: [{ geoRetryAt: null }, { geoRetryAt: { lte: now } }],
     },
-    data: { geoRetryAt: lease },
+    // The status marks the claim, so the Home route can tell a lookup in
+    // flight from a stored outcome; finish() always overwrites it.
+    data: { geoRetryAt: lease, geoStatus: 'looking-up' },
   })
   if (claimed.count !== 1) return 'skipped'
 

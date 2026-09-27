@@ -109,7 +109,7 @@ export async function GET() {
     else if (isDue) reason = 'pending'
     else if (c.geoStatus === 'not-found' || c.geoStatus === 'no-address') reason = 'not-found'
     else if (c.geoStatus === 'error') reason = 'error'
-    else reason = 'pending' // claimed, lookup in flight
+    else reason = 'pending' // 'looking-up': claimed, lookup in flight
 
     if (locatable && isDue) due.push(c.id)
     data.unplaced.push({ id: c.id, name: c.name, reason })

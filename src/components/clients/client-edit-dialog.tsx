@@ -94,6 +94,8 @@ export function ClientEditDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients-roster'] })
       qc.invalidateQueries({ queryKey: ['clients'] })
+      // Address and site edits move a dot or fire an arc on the Home globe.
+      qc.invalidateQueries({ queryKey: ['home-globe'] })
       onClose()
     },
     onError: (e: Error) => setError(e.message),

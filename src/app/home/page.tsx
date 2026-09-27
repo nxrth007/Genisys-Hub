@@ -67,8 +67,19 @@ function hostOf(url: string): string {
   }
 }
 
-const sameIds = (a: string[] | null, b: string[] | null) =>
-  (a ? a.join('|') : '') === (b ? b.join('|') : '')
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Keep only ids still on the map — clients can be archived between refreshes. */
+function stillPlaced(ids: string[] | null, byId: Map<string, GlobeClientMarker>): string[] | null {
+  if (!ids) return null
+  const live = ids.filter((id) => byId.has(id))
+  return live.length > 0 ? live : null
+}
+
+/** Same markers, whatever order the pointer found them in. */
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id))
+}
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Active',
@@ -82,9 +93,9 @@ export default function HomePage() {
   const now = useClock()
   const globeRef = useRef<GlobeHandle>(null)
   // A hover or pin is the set of markers under the pointer, nearest first.
-  const [hovered, setHovered] = useState<string[] | null>(null)
-  const [pinned, setPinned] = useState<string[] | null>(null)
-  // What the card last showed, so it can fade out with its content.
+  const [hoveredIds, setHovered] = useState<string[] | null>(null)
+  const [pinnedIds, setPinned] = useState<string[] | null>(null)
+  // What the card last showed, so it fades out with its own content.
   const [lastShown, setLastShown] = useState<string[] | null>(null)
 
   const data = useQuery<GlobeData>({
@@ -103,6 +114,20 @@ export default function HomePage() {
   const byId = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients])
   const hq = data.data?.hq ?? null
   const origin = useMemo<[number, number] | null>(() => (hq ? [hq.lat, hq.lng] : null), [hq])
+
+  // Memoized so each keeps its identity between renders (the clock
+  // re-renders every second) and effects keyed on them don't churn.
+  const hovered = useMemo(() => stillPlaced(hoveredIds, byId), [hoveredIds, byId])
+  const pinned = useMemo(() => stillPlaced(pinnedIds, byId), [pinnedIds, byId])
+  const lastPlaced = useMemo(() => stillPlaced(lastShown, byId), [lastShown, byId])
+  // Hover wins over a pin: moving onto another marker shows that one,
+  // and moving off returns to the pin. A pin behind the globe can't
+  // block hovering the rest of it.
+  const shown = hovered ?? pinned
+  const activeId = shown?.[0] ?? null
+  // The card is showing the pin whenever its content is the pinned set —
+  // including while that same marker is under the pointer.
+  const showingPin = pinned !== null && shown !== null && sameSet(shown, pinned)
 
   // Launch recency changes by the day, so the clock is read at hour
   // resolution here — the markers don't rebuild every second.
@@ -125,15 +150,17 @@ export default function HomePage() {
   const busyRef = useRef(false)
   useEffect(() => {
     clientsRef.current = clients
-    busyRef.current = hovered !== null || pinned !== null
+    busyRef.current = shown !== null
   })
 
   // Launch arcs. The first load replays the last two weeks of launches,
   // oldest first. After that only a site that has *just* gone live (or a
   // recent launch that has just been placed on the map) fires — and the
-  // globe turns to it first, unless someone is reading a card.
+  // globe turns to it first, unless someone is reading a card or motion
+  // is reduced. Launches queue one after another, never overlapping.
   const seenLaunch = useRef<Map<string, string | null> | null>(null)
   const launchTimers = useRef<number[]>([])
+  const nextLaunchAt = useRef(0)
   useEffect(() => {
     if (!origin || clients.length === 0) return
     const timers = launchTimers.current
@@ -150,6 +177,7 @@ export default function HomePage() {
           timers.push(window.setTimeout(() => fire(c), t))
           t += LAUNCH_STAGGER_MS
         })
+      nextLaunchAt.current = nowMs + t
       seenLaunch.current = new Map(clients.map((c) => [c.id, c.siteLiveAt]))
       return
     }
@@ -158,27 +186,35 @@ export default function HomePage() {
       (c) => c.siteLiveAt && seen.get(c.id) !== c.siteLiveAt && isRecentLaunch(c, nowMs),
     )
     for (const c of clients) seen.set(c.id, c.siteLiveAt)
-    fresh.forEach((c, i) => {
+    const reduce = prefersReducedMotion()
+    for (const c of fresh) {
+      const at = Math.max(nowMs, nextLaunchAt.current)
+      nextLaunchAt.current = at + LAUNCH_FOCUS_MS + LAUNCH_STAGGER_MS
       timers.push(
         window.setTimeout(() => {
-          if (!busyRef.current) globeRef.current?.focus(c.lat, c.lng)
-          timers.push(window.setTimeout(() => fire(c), LAUNCH_FOCUS_MS))
-        }, i * (LAUNCH_STAGGER_MS + LAUNCH_FOCUS_MS)),
+          if (!busyRef.current && !reduce) globeRef.current?.focus(c.lat, c.lng)
+          timers.push(window.setTimeout(() => fire(c), reduce ? 0 : LAUNCH_FOCUS_MS))
+        }, at - nowMs),
       )
-    })
+    }
   }, [origin, clients])
 
-  // Launch timers are cancelled only when the page goes away.
+  // Launch timers are cancelled only when the page goes away. Resetting
+  // the seen map there too lets a remount (including StrictMode's
+  // simulated one in dev) replay the recent launches.
   useEffect(() => {
     const timers = launchTimers.current
-    return () => timers.forEach((id) => clearTimeout(id))
+    return () => {
+      timers.forEach((id) => clearTimeout(id))
+      timers.length = 0
+      seenLaunch.current = null
+    }
   }, [])
 
   // Heartbeat: a slow round-robin of arcs from HQ. Skipped entirely for
   // reduced motion — launches still show, ambience doesn't.
   useEffect(() => {
-    if (!origin) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (!origin || prefersReducedMotion()) return
     let i = 0
     const id = window.setInterval(() => {
       const list = clientsRef.current
@@ -190,18 +226,19 @@ export default function HomePage() {
     return () => clearInterval(id)
   }, [origin])
 
-  // Esc clears a pinned card.
+  // Esc clears a pinned card, which fades out with whatever it was showing.
   useEffect(() => {
+    if (!pinned) return
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setPinned(null)
+      if (e.key !== 'Escape') return
+      setLastShown(shown)
+      setPinned(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [pinned, shown])
 
-  const shown = pinned ?? hovered
-  const activeId = shown?.[0] ?? null
-  const cardIds = shown ?? lastShown
+  const cardIds = shown ?? lastPlaced
   const cardMembers = useMemo(
     () => (cardIds ?? []).map((id) => byId.get(id)).filter((c): c is GlobeClientMarker => Boolean(c)),
     [cardIds, byId],
@@ -226,7 +263,10 @@ export default function HomePage() {
   const notPlaced = unplaced.length - placing
 
   return (
-    <div className="relative flex h-full min-h-[600px] flex-col overflow-hidden bg-background">
+    <div
+      data-globe-bounds
+      className="relative flex h-full min-h-[600px] flex-col overflow-hidden bg-background"
+    >
       {/* Faint grid so the black field reads as a surface, not a void. */}
       <div
         aria-hidden
@@ -265,8 +305,8 @@ export default function HomePage() {
         <WelcomeType />
       </div>
 
-      {/* Constellation readout — under the clock on small screens, bottom right on wide ones */}
-      <div className="eyebrow pointer-events-none absolute right-6 top-20 z-10 flex flex-col items-end gap-1 text-muted-foreground lg:bottom-6 lg:right-8 lg:top-auto">
+      {/* Constellation readout — under the clock, clear of the search bar at every width */}
+      <div className="eyebrow pointer-events-none absolute right-6 top-20 z-10 flex flex-col items-end gap-1 text-muted-foreground lg:right-8">
         {data.isLoading ? (
           <span>loading constellation…</span>
         ) : data.isError ? (
@@ -295,11 +335,13 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Globe */}
-      <div className="relative z-10 flex flex-1 items-center justify-center px-6">
+      {/* Globe — only the globe's own square takes the pointer, so the
+          full-width band around it doesn't cover the readout's link. It
+          paints after the readout, so the card sits on top of it. */}
+      <div className="pointer-events-none relative z-10 flex flex-1 items-center justify-center px-6">
         <Globe
           ref={globeRef}
-          className="w-[min(66vh,620px)] max-w-full"
+          className="pointer-events-auto w-[min(66vh,620px)] max-w-full"
           markers={markers}
           origin={origin}
           activeId={activeId}
@@ -309,28 +351,38 @@ export default function HomePage() {
             if (ids) setLastShown(ids)
           }}
           onSelect={(ids) => {
-            // Empty globe clears the pin; a marker toggles it and eases
-            // that spot to the centre.
-            const first = ids ? byId.get(ids[0]) : null
-            if (!ids || !first) {
+            // Empty globe clears the pin. A click on any member of the
+            // pinned set closes it; anything else pins that spot and
+            // eases it to the centre.
+            if (!ids) {
+              if (pinned) {
+                setLastShown(shown)
+                setPinned(null)
+              }
+              return
+            }
+            if (pinned && ids.some((id) => pinned.includes(id))) {
+              setLastShown(shown)
               setPinned(null)
               return
             }
-            setPinned((cur) => (sameIds(cur, ids) ? null : ids))
+            const first = byId.get(ids[0])
+            if (!first) return
+            setPinned(ids)
             setLastShown(ids)
             globeRef.current?.focus(first.lat, first.lng)
           }}
           card={
             cardMembers.length > 0 && refMs !== null ? (
-              <PlaceCard members={cardMembers} pinned={pinned !== null} nowMs={refMs} />
+              <PlaceCard members={cardMembers} pinned={showingPin} nowMs={refMs} />
             ) : null
           }
         />
       </div>
 
-      {/* Search */}
-      <div className="relative z-10 flex justify-center px-6 pb-[8vh]">
-        <HomeSearch />
+      {/* Search — the wrapper lets clicks through so nothing layered under it is blocked */}
+      <div className="pointer-events-none relative z-10 flex justify-center px-6 pb-[8vh]">
+        <HomeSearch className="pointer-events-auto" />
       </div>
     </div>
   )
@@ -356,14 +408,17 @@ function PlaceCard({
     )
   }
 
-  // Several clients share this spot — list them all.
+  // Several clients share this spot. The header names the place only
+  // when they all share it; otherwise each row carries its own.
+  const sharedPlace =
+    members[0].place && members.every((m) => m.place === members[0].place) ? members[0].place : null
   const rows = [...members].sort((a, b) => a.name.localeCompare(b.name))
   const extra = rows.length - CLUSTER_ROWS
   return (
     <div className={frame}>
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-[13px] font-semibold">{members.length} clients</p>
-        {members[0].place && <p className="eyebrow text-muted-foreground">{members[0].place}</p>}
+        {sharedPlace && <p className="eyebrow text-muted-foreground">{sharedPlace}</p>}
       </div>
       <ul className="mt-2.5 flex flex-col divide-y divide-border-soft">
         {rows.slice(0, CLUSTER_ROWS).map((c) => (
@@ -375,6 +430,9 @@ function PlaceCard({
               >
                 {c.name}
               </Link>
+              {!sharedPlace && c.place && (
+                <span className="eyebrow block truncate text-muted-foreground/80">{c.place}</span>
+              )}
               {c.siteUrl ? (
                 <a
                   href={c.siteUrl}

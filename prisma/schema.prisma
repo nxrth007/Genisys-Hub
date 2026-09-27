@@ -532,7 +532,8 @@ model Client {
 
   /// Where the client is, for the Home globe. Geocoded once from their
   /// address / first city (lib/geocode.ts). geoStatus is the last
-  /// outcome: placed | not-found | error | no-address. geoRetryAt is
+  /// outcome: placed | not-found | error | no-address, or looking-up
+  /// while a lookup holds the claim. geoRetryAt is
   /// when an unplaced client may be tried again (a week after a real
   /// miss, an hour after a transient failure) and doubles as the claim
   /// that stops two callers geocoding the same client at once.

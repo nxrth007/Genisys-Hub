@@ -23,7 +23,9 @@ import { cn } from '@/lib/utils'
  * with a fading trail, and a ring flash when it lands.
  *
  * Markers within the hit radius of each other are reported together
- * (nearest first), so clients who share a city can all be reached.
+ * (nearest first), so clients who share a city can all be reached. The
+ * card is kept inside the nearest `[data-globe-bounds]` ancestor, and
+ * flips below its marker when there is no room above.
  */
 
 export type GlobeMarker = {
@@ -35,7 +37,7 @@ export type GlobeMarker = {
 }
 
 export type GlobeHandle = {
-  /** Ease the globe until this point is centred. */
+  /** Ease the globe until this point is centred. Ignored mid-drag. */
   focus: (lat: number, lng: number) => void
   /** Send an arc from one point to another. */
   fireArc: (from: [number, number], to: [number, number]) => void
@@ -77,6 +79,9 @@ const HIT_RADIUS_PX = 16
 const CLICK_SLOP_PX = 5
 /** Time to cross from a marker to its card before the hover clears. */
 const HOVER_GRACE_MS = 220
+/** Gap between a marker and its card, and the card's minimum margin from the bounds. */
+const CARD_GAP_PX = 14
+const CARD_MARGIN_PX = 8
 
 // Arc animation, in ms.
 const ARC_SAMPLES = 64
@@ -140,6 +145,9 @@ function shortestDelta(from: number, to: number) {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
+/** Compare hover/pin sets by membership: the same markers in a new distance order are the same set. */
+const setKey = (ids: string[] | null) => (ids ? [...ids].sort().join('|') : '')
+
 /**
  * World-space points along the great circle from `from` to `to`, lifted
  * off the surface in the middle — higher for longer hops. Computed once
@@ -197,7 +205,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
   const positions = useRef<ScreenPos[]>([])
   const arcs = useRef<LiveArc[]>([])
   const overCard = useRef(false)
-  /** What was last reported through onHoverChange — compared by key, not by prop. */
+  /** Set-key of what was last reported through onHoverChange. */
   const reportedKey = useRef('')
   const clearTimer = useRef<number | null>(null)
 
@@ -210,6 +218,8 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
 
   useImperativeHandle(ref, () => ({
     focus(lat, lng) {
+      // A focus that arrives mid-drag would fight the user's hand.
+      if (pointer.current) return
       focusTarget.current = anglesFor(lat, lng)
       momentum.current = 0
     },
@@ -226,6 +236,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
     if (!wrap || !canvas || !arcCanvas) return
     const ctx = arcCanvas.getContext('2d')
     if (!ctx) return
+    const boundsEl = wrap.closest<HTMLElement>('[data-globe-bounds]')
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -346,6 +357,17 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
 
     let raf = 0
     const frame = (now: number) => {
+      // Layout reads first, while it is still clean from the last paint:
+      // only needed when a card is anchored.
+      const cardEl = cardRef.current
+      const anchoring = Boolean(cardEl && live.current.activeId)
+      const wrapRect = anchoring ? wrap.getBoundingClientRect() : null
+      const bounds = anchoring
+        ? boundsEl?.getBoundingClientRect() ?? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+        : null
+      const cardW = anchoring && cardEl ? cardEl.offsetWidth : 0
+      const cardH = anchoring && cardEl ? cardEl.offsetHeight : 0
+
       const target = focusTarget.current
       if (target) {
         const dp = shortestDelta(phi.current, target.phi)
@@ -379,19 +401,30 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
           ring.style.visibility = q.visible ? 'visible' : 'hidden'
         }
       }
-      const cardEl = cardRef.current
+
       if (cardEl) {
         const active = live.current.activeId
         const q = active ? next.find((m) => m.id === active) : null
         const show = Boolean(q && q.visible && live.current.hasCard)
-        // While hidden the card keeps its last position, so it fades out
-        // in place instead of jumping into the globe.
-        if (q && q.visible) {
-          cardEl.style.left = `${q.x * 100}%`
-          cardEl.style.top = `${q.y * 100}%`
+        // Placed above the marker, kept inside the bounds, flipped below
+        // when there is no room above. While hidden it keeps its last
+        // position, so it fades out in place.
+        if (q && q.visible && wrapRect && bounds) {
+          const mx = q.x * wrapRect.width
+          const my = q.y * wrapRect.height
+          const minLeft = bounds.left - wrapRect.left + CARD_MARGIN_PX
+          const maxLeft = bounds.right - wrapRect.left - cardW - CARD_MARGIN_PX
+          const left = Math.min(Math.max(mx - cardW / 2, minLeft), Math.max(minLeft, maxLeft))
+          let top = my - cardH - CARD_GAP_PX
+          if (wrapRect.top + top < bounds.top + CARD_MARGIN_PX) top = my + CARD_GAP_PX
+          cardEl.style.left = `${left}px`
+          cardEl.style.top = `${top}px`
         }
         cardEl.style.opacity = show ? '1' : '0'
         cardEl.style.pointerEvents = show ? 'auto' : 'none'
+        // Hidden means out of the tab order and the accessibility tree
+        // too, not just see-through. Written only when it changes.
+        if (cardEl.inert === show) cardEl.inert = !show
       }
 
       drawArcs(now)
@@ -440,7 +473,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
 
   // ---- hover -----------------------------------------------------------
   function report(ids: string[] | null) {
-    const key = ids ? ids.join('|') : ''
+    const key = setKey(ids)
     if (key === reportedKey.current) return
     reportedKey.current = key
     live.current.onHoverChange?.(ids)
@@ -480,10 +513,22 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
     return hits.map((h) => h.id)
   }
 
+  /** Update hover and cursor for a pointer position that isn't dragging. */
+  function hoverAt(el: HTMLElement, clientX: number, clientY: number) {
+    const ids = markersUnder(clientX, clientY)
+    el.style.cursor = ids ? 'pointer' : 'grab'
+    if (ids) {
+      cancelClear()
+      report(ids)
+    } else if (!overCard.current) {
+      scheduleClear()
+    }
+  }
+
   // ---- pointer ---------------------------------------------------------
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    // Primary button only: a right-click or middle-click is not a drag or a pick.
-    if (e.button !== 0) return
+    // Primary button only — and not a macOS ctrl-click, which is a right-click.
+    if (e.button !== 0 || e.ctrlKey) return
     pointer.current = { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, moved: false }
     momentum.current = 0
     focusTarget.current = null
@@ -493,14 +538,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
   function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     const p = pointer.current
     if (!p) {
-      const ids = markersUnder(e.clientX, e.clientY)
-      e.currentTarget.style.cursor = ids ? 'pointer' : 'grab'
-      if (ids) {
-        cancelClear()
-        report(ids)
-      } else if (!overCard.current) {
-        scheduleClear()
-      }
+      hoverAt(e.currentTarget, e.clientX, e.clientY)
       return
     }
     const dx = e.clientX - p.x
@@ -521,8 +559,19 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
   function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
     const p = pointer.current
     pointer.current = null
-    e.currentTarget.style.cursor = 'grab'
-    if (p && !p.moved) onSelect?.(markersUnder(e.clientX, e.clientY))
+    if (p && !p.moved) {
+      e.currentTarget.style.cursor = 'grab'
+      onSelect?.(markersUnder(e.clientX, e.clientY))
+      return
+    }
+    // After a drag, whatever is now under the pointer is the hover —
+    // including clearing one whose grace ran out mid-drag. Touch has no
+    // hover: a lifted finger over a dot must not pop a card.
+    if (e.pointerType === 'touch') {
+      e.currentTarget.style.cursor = 'grab'
+      return
+    }
+    hoverAt(e.currentTarget, e.clientX, e.clientY)
   }
 
   /** A cancelled gesture (scroll takeover, lost capture) is never a click. */
@@ -568,6 +617,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
         ))}
         <div
           ref={cardRef}
+          inert
           onPointerEnter={() => {
             overCard.current = true
             cancelClear()
@@ -576,8 +626,8 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
             overCard.current = false
             scheduleClear()
           }}
-          className="absolute z-10 -translate-x-1/2 -translate-y-[calc(100%+14px)] opacity-0 transition-opacity duration-150"
-          style={{ left: '50%', top: '50%', pointerEvents: 'none' }}
+          className="absolute z-10 opacity-0 transition-opacity duration-150"
+          style={{ left: 0, top: 0, pointerEvents: 'none' }}
         >
           {card}
         </div>

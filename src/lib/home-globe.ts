@@ -36,6 +36,7 @@ export type GlobeData = {
 }
 
 const ADMIN_AREA = /\b(County|Parish|Borough|Census Area|Municipality)$/i
+const EXTRA_STATES: Record<string, string> = { 'district of columbia': 'DC' }
 const COUNTRY = /^(usa|us|united states(?: of america)?)$/i
 const ZIP_ONLY = /^\d{5}(-\d{4})?$/
 
@@ -47,14 +48,18 @@ const ZIP_ONLY = /^\d{5}(-\d{4})?$/
  */
 export function placeFromLabel(label: string | null): string | null {
   if (!label) return null
-  const parts = label
+  const kept = label
     .split(',')
     .map((p) => p.trim())
-    .filter((p) => p && !COUNTRY.test(p) && !ZIP_ONLY.test(p) && !ADMIN_AREA.test(p))
+    .filter((p) => p && !COUNTRY.test(p) && !ZIP_ONLY.test(p))
+  // Drop a county only when a city is left to show; "Marion County, FL"
+  // (no city found) keeps it rather than collapsing to just "FL".
+  const withoutCounty = kept.filter((p) => !ADMIN_AREA.test(p))
+  const parts = withoutCounty.length >= 2 ? withoutCounty : kept
   if (parts.length === 0) return null
   if (parts.length === 1) return parts[0]
   const rawState = parts[parts.length - 1].replace(/\s*\d{5}(-\d{4})?$/, '').trim()
-  const state = STATE_NAME_TO_CODE[rawState.toLowerCase()] ?? rawState
+  const state = STATE_NAME_TO_CODE[rawState.toLowerCase()] ?? EXTRA_STATES[rawState.toLowerCase()] ?? rawState
   const city = parts[parts.length - 2]
   return state ? `${city}, ${state}` : city
 }

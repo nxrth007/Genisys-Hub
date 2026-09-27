@@ -186,9 +186,14 @@ export async function POST(req: NextRequest) {
   // Put the new client on the Home globe now rather than on the next
   // page load. Not awaited: a slow geocoder must not hold the sender.
   if (clientId) {
-    void ensureClientGeo(clientId).catch((err) =>
-      console.warn(`[client-onboarding] geocode failed for ${clientId}:`, err),
-    )
+    // A new submission may carry the address an earlier one lacked, so an
+    // unplaced client's backoff is lifted before trying again. A client
+    // already on the map keeps its point.
+    const id = clientId
+    void prisma.client
+      .updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } })
+      .then(() => ensureClientGeo(id))
+      .catch((err) => console.warn(`[client-onboarding] geocode failed for ${id}:`, err))
   }
 
   return NextResponse.json({ ok: true, id: intake.id, clientId })
