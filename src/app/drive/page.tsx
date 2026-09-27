@@ -168,12 +168,12 @@ export default function DrivePage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-              <HardDrive className="h-6 w-6 text-blue-600" />
+            <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+              <HardDrive className="h-6 w-6 text-primary" />
             </div>
             <h2 className="text-2xl font-bold tracking-tight">Drive</h2>
           </div>
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-muted-foreground">
             Files accessible to any connected Google account. Use the account chip to narrow to a single mailbox.
           </p>
         </div>
@@ -192,7 +192,7 @@ export default function DrivePage() {
             />
             <Link
               href="/settings"
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted border-border text-foreground/85 hover:bg-muted"
             >
               Manage accounts
             </Link>
@@ -213,18 +213,18 @@ export default function DrivePage() {
         <>
           <form onSubmit={submit} className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search file name or full-text content…"
-                className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
               />
             </div>
             <button
               type="submit"
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
             >
               Search
             </button>
@@ -236,17 +236,17 @@ export default function DrivePage() {
                 key={opt.value}
                 onClick={() => setKind(opt.value)}
                 className={cn(
-                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
                   kind === opt.value
-                    ? 'border-blue-600 bg-blue-600 text-white'
-                    : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                    ? 'border-primary bg-foreground text-background'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
                 )}
               >
                 {opt.label}
               </button>
             ))}
 
-            <div className="ml-2 flex items-center gap-1 border-l border-zinc-200 pl-2 dark:border-zinc-800">
+            <div className="ml-2 flex items-center gap-1 border-l border-border pl-2 border-border">
               {OWNERSHIP_OPTIONS.map((opt) => {
                 const Icon = opt.icon
                 return (
@@ -256,8 +256,8 @@ export default function DrivePage() {
                     className={cn(
                       'flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
                       ownership === opt.value
-                        ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                        : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                        ? 'border-primary bg-primary-soft text-primary bg-primary-soft text-primary'
+                        : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
                     )}
                     title={opt.label}
                   >
@@ -269,12 +269,12 @@ export default function DrivePage() {
             </div>
 
             {accounts.length > 1 && (
-              <div className="ml-auto flex items-center gap-1.5 text-xs text-zinc-500">
+              <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Filter className="h-3 w-3" />
                 <select
                   value={accountFilter}
                   onChange={(e) => setAccountFilter(e.target.value)}
-                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                  className="rounded-md border border-border bg-card px-2 py-1 text-xs border-border bg-card"
                 >
                   <option value="all">All accounts</option>
                   {accounts.map((a) => (
@@ -288,23 +288,23 @@ export default function DrivePage() {
           </div>
 
           {accountErrors.length > 0 && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950">
+            <div className="rounded-md border border-warning/30 bg-warning/15 p-3 text-sm border-warning/30 bg-warning/15">
               <div className="flex items-start gap-2">
-                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium text-amber-900 dark:text-amber-200">
+                  <div className="font-medium text-warning">
                     {accountErrors.length === 1
                       ? '1 account returned an error'
                       : `${accountErrors.length} accounts returned errors`}
                   </div>
-                  <ul className="mt-1 space-y-0.5 text-xs text-amber-800 dark:text-amber-300">
+                  <ul className="mt-1 space-y-0.5 text-xs text-warning">
                     {accountErrors.map((e) => (
                       <li key={e.account}>
                         <span className="font-medium">{e.account}:</span> {e.message}
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  <p className="mt-2 text-xs text-warning">
                     Most common fix: disconnect the account in Settings, then click Connect and
                     grant the Drive scope on Google&apos;s consent screen.
                   </p>
@@ -314,12 +314,12 @@ export default function DrivePage() {
           )}
 
           {resultMeta && (
-            <div className="flex items-center gap-3 text-xs text-zinc-500">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span>
                 {resultMeta.total} file{resultMeta.total === 1 ? '' : 's'}
               </span>
               {Array.from(resultMeta.byAcct.entries()).map(([acct, n]) => (
-                <span key={acct} className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                <span key={acct} className="rounded-lg bg-muted px-2 py-0.5 bg-surface-muted">
                   {acct}: {n}
                 </span>
               ))}
@@ -328,10 +328,10 @@ export default function DrivePage() {
 
           {filesQuery.isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : filesQuery.isError ? (
-            <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+            <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div>
                 <div className="font-medium">Couldn&apos;t load files</div>
@@ -339,7 +339,7 @@ export default function DrivePage() {
               </div>
             </div>
           ) : files.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center text-sm text-zinc-500 dark:border-zinc-800">
+            <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground border-border">
               No files match these filters.
             </div>
           ) : (
@@ -374,8 +374,8 @@ function FileList({
   onOpenFolder: (file: DriveFileResponse) => void
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+    <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+      <div className="divide-y divide-border-soft">
         {files.map((f) => (
           <FileRow
             key={f.id}
@@ -429,23 +429,23 @@ function FileRow({
           handleClick()
         }
       }}
-      className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:hover:bg-zinc-800/50 dark:focus:bg-zinc-800/50"
+      className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-muted focus:bg-zinc-50 focus:outline-none hover:bg-muted/50 dark:focus:bg-zinc-800/50"
     >
-      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted">
         {file.iconLink ? (
           <Image src={file.iconLink} alt="" width={18} height={18} className="h-[18px] w-[18px]" unoptimized />
         ) : (
-          <MimeIcon mime={file.mimeType} className="h-[18px] w-[18px] text-zinc-500" />
+          <MimeIcon mime={file.mimeType} className="h-[18px] w-[18px] text-muted-foreground" />
         )}
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm font-medium">{file.name}</p>
-          {file.starred ? <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-yellow-400" /> : null}
-          {file.shared ? <Users className="h-3 w-3 flex-shrink-0 text-zinc-400" /> : null}
+          {file.starred ? <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-warning" /> : null}
+          {file.shared ? <Users className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" /> : null}
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
           {owner && <span className="truncate">{truncate(owner, 28)}</span>}
           {file.modifiedTime && (
             <>
@@ -462,7 +462,7 @@ function FileRow({
           {multipleAccounts && (
             <>
               <span>•</span>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+              <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-primary bg-primary-soft text-primary">
                 {file.sourceAccount.split('@')[0]}
               </span>
             </>
@@ -523,10 +523,10 @@ function FileRowActions({
         onClick={() => patchMutation.mutate({ starred: !file.starred })}
         disabled={patchMutation.isPending}
         title={file.starred ? 'Unstar' : 'Star'}
-        className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-yellow-500 dark:hover:bg-zinc-800"
+        className="rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-warning hover:bg-muted"
       >
         <Star
-          className={cn('h-4 w-4', file.starred && 'fill-yellow-400 text-yellow-400')}
+          className={cn('h-4 w-4', file.starred && 'fill-yellow-400 text-warning')}
         />
       </button>
       <a
@@ -534,20 +534,20 @@ function FileRowActions({
         target="_blank"
         rel="noopener noreferrer"
         title="Open in Drive"
-        className="inline-block rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
+        className="inline-block rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-primary hover:bg-muted"
       >
         <ExternalLink className="h-4 w-4" />
       </a>
       <button
         onClick={() => setOpen((v) => !v)}
         title="More"
-        className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+        className="rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-foreground hover:bg-muted"
       >
         <MoreVertical className="h-4 w-4" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-border bg-card shadow-pop border-border bg-card">
           {renaming ? (
             <form
               onSubmit={(e) => {
@@ -575,12 +575,12 @@ function FileRowActions({
                     setNewName(file.name)
                   }
                 }}
-                className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-2 py-1 text-xs focus:border-primary/50 focus:outline-none border-border bg-background"
               />
               <div className="mt-2 flex gap-1">
                 <button
                   type="submit"
-                  className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                  className="flex-1 rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:bg-foreground/90"
                 >
                   Save
                 </button>
@@ -590,7 +590,7 @@ function FileRowActions({
                     setRenaming(false)
                     setNewName(file.name)
                   }}
-                  className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
                 >
                   Cancel
                 </button>
@@ -652,10 +652,10 @@ function MenuItem({
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800',
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted',
         destructive
-          ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50'
-          : 'text-zinc-700 dark:text-zinc-200'
+          ? 'text-destructive hover:bg-destructive/10 hover:bg-destructive/10'
+          : 'text-foreground/85 text-foreground'
       )}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -770,19 +770,19 @@ function PreviewModal({
       : `https://drive.google.com/file/d/${file.id}/view?usp=drivesdk&authuser=${encodeURIComponent(viewAs)}`
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-zinc-950">
-      <div className="flex flex-shrink-0 items-center gap-3 border-b border-zinc-200 bg-zinc-50/50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-border bg-surface-muted/50 px-4 py-2.5 border-border bg-card/50">
         <button
           onClick={onClose}
           title="Back to files (Esc)"
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-800" />
+        <div className="h-5 w-px bg-muted bg-surface-muted" />
 
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted">
           {file.iconLink ? (
             <Image
               src={file.iconLink}
@@ -793,13 +793,13 @@ function PreviewModal({
               unoptimized
             />
           ) : (
-            <MimeIcon mime={file.mimeType} className="h-4 w-4 text-zinc-500" />
+            <MimeIcon mime={file.mimeType} className="h-4 w-4 text-muted-foreground" />
           )}
         </div>
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{file.name}</p>
-          <p className="truncate text-xs text-zinc-500">
+          <p className="truncate text-xs text-muted-foreground">
             {file.modifiedTime ? `modified ${formatDate(file.modifiedTime)}` : ''}
             {file.size && formatBytes(file.size)
               ? ` · ${formatBytes(file.size)}`
@@ -808,7 +808,7 @@ function PreviewModal({
         </div>
 
         {canEdit && (
-          <div className="flex overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+          <div className="flex overflow-hidden rounded-md border border-border">
             {isSheet && (
               <ModeButton
                 label="Data"
@@ -833,8 +833,8 @@ function PreviewModal({
         )}
 
         {file.visibleToAccounts.length > 1 ? (
-          <div className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900">
-            <span className="text-zinc-500">{mode === 'edit' ? 'Edit as' : 'View as'}</span>
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs border-border bg-card">
+            <span className="text-muted-foreground">{mode === 'edit' ? 'Edit as' : 'View as'}</span>
             <select
               value={viewAs}
               onChange={(e) => setViewAs(e.target.value)}
@@ -849,7 +849,7 @@ function PreviewModal({
           </div>
         ) : (
           <span
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground border-border bg-card"
             title="Only this mailbox has access to this file"
           >
             as {viewAs}
@@ -864,8 +864,8 @@ function PreviewModal({
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium',
             mode === 'edit'
-              ? 'border border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-              : 'border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+              ? 'border border-primary bg-foreground text-background hover:bg-foreground/90'
+              : 'border border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
           )}
         >
           <Maximize2 className="h-3.5 w-3.5" />
@@ -874,9 +874,9 @@ function PreviewModal({
       </div>
 
       {mode === 'edit' && canEdit && addSessionUrl && (
-        <div className="flex flex-shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs dark:border-amber-900 dark:bg-amber-950">
-          <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600" />
-          <div className="min-w-0 flex-1 text-amber-900 dark:text-amber-200">
+        <div className="flex flex-shrink-0 items-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2 text-xs border-warning/30 bg-warning/15">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 text-warning" />
+          <div className="min-w-0 flex-1 text-warning">
             Seeing <span className="font-medium">&quot;You need access&quot;</span> or a login
             screen below? Chrome isn&apos;t signed into Google as{' '}
             <span className="font-mono">{viewAs}</span>. One-click fixes:
@@ -885,7 +885,7 @@ function PreviewModal({
             href={addSessionUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+            className="flex-shrink-0 rounded-md border border-warning/30 bg-card px-2.5 py-1 font-medium text-warning hover:bg-warning/15 border-warning/30 bg-warning/15 text-warning hover:bg-warning/15"
           >
             Sign in to Google
           </a>
@@ -893,7 +893,7 @@ function PreviewModal({
             href={editUrlNewTab || driveUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+            className="flex-shrink-0 rounded-md border border-warning/30 bg-card px-2.5 py-1 font-medium text-warning hover:bg-warning/15 border-warning/30 bg-warning/15 text-warning hover:bg-warning/15"
           >
             Edit in new tab
           </a>
@@ -908,7 +908,7 @@ function PreviewModal({
           key={`${file.id}-${mode}-${viewAs}`}
           src={iframeUrl}
           title={file.name}
-          className="flex-1 w-full bg-white dark:bg-zinc-950"
+          className="flex-1 w-full bg-background"
           allow="autoplay; clipboard-read; clipboard-write; fullscreen"
           // Sandbox only for third-party iframes (drive.google.com, docs.google.com).
           // Our own same-origin stream runs unsandboxed so Chrome's built-in PDF
@@ -923,7 +923,7 @@ function PreviewModal({
       )}
 
       {!canStream && (
-        <div className="flex-shrink-0 border-t border-zinc-200 bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-800 dark:border-zinc-800 dark:bg-amber-950/50 dark:text-amber-300">
+        <div className="flex-shrink-0 border-t border-border bg-warning/15 px-4 py-1.5 text-center text-[11px] text-warning border-border bg-warning/15 text-warning">
           This file type can&apos;t be rendered through the Hub. Showing Drive&apos;s native preview —
           if you see &quot;You need access&quot;, switch the account or open in Drive.
         </div>
@@ -950,8 +950,8 @@ function ModeButton({
       className={cn(
         'px-3 py-1 text-xs font-medium transition-colors',
         active
-          ? 'bg-blue-600 text-white'
-          : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+          ? 'bg-foreground text-background'
+          : 'bg-card text-muted-foreground hover:bg-muted bg-card text-foreground/85 hover:bg-muted'
       )}
     >
       {label}
@@ -1050,8 +1050,8 @@ function SheetsTable({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-950">
-      <div className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div className="flex flex-shrink-0 items-center gap-2 border-b border-border bg-surface-muted px-3 py-2 border-border bg-card">
         {query.data && query.data.tabs.length > 1 && (
           <div className="flex items-center gap-1 overflow-x-auto">
             {query.data.tabs.map((tab) => (
@@ -1064,8 +1064,8 @@ function SheetsTable({
                 className={cn(
                   'flex-shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                   (activeTab ?? query.data!.activeTab) === tab.title
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                    : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                    ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
+                    : 'text-muted-foreground hover:bg-muted text-muted-foreground hover:bg-muted'
                 )}
               >
                 {tab.title}
@@ -1074,17 +1074,17 @@ function SheetsTable({
           </div>
         )}
         <div className="relative ml-auto">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter rows…"
-            className="w-56 rounded-md border border-zinc-200 bg-white py-1 pl-7 pr-2 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            className="w-56 rounded-md border border-border bg-card py-1 pl-7 pr-2 text-xs focus:border-primary/50 focus:outline-none border-border bg-card"
           />
         </div>
         {query.data && (
-          <span className="flex-shrink-0 text-xs text-zinc-500">
+          <span className="flex-shrink-0 text-xs text-muted-foreground">
             {displayRows.length} / {dataRows.length}
             {' row'}
             {dataRows.length === 1 ? '' : 's'}
@@ -1094,30 +1094,30 @@ function SheetsTable({
 
       {query.isLoading ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : query.isError ? (
-        <div className="m-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="m-4 flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <div>
             <div className="font-medium">Couldn&apos;t load sheet data</div>
             <div className="mt-1 text-xs">{(query.error as Error).message}</div>
-            <div className="mt-2 text-xs text-red-700 dark:text-red-300">
+            <div className="mt-2 text-xs text-destructive">
               If this says &quot;insufficient scopes&quot;, reconnect the account in Settings
               to grant the Sheets permission.
             </div>
           </div>
         </div>
       ) : columnCount === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           This tab is empty.
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-max min-w-full border-collapse text-xs">
-            <thead className="sticky top-0 z-10 bg-zinc-50 shadow-[0_1px_0_0_rgba(0,0,0,0.06)] dark:bg-zinc-900">
+            <thead className="sticky top-0 z-10 bg-surface-muted shadow-[0_1px_0_0_rgba(0,0,0,0.06)] bg-card">
               <tr>
-                <th className="sticky left-0 z-20 w-10 border-r border-zinc-200 bg-zinc-50 px-2 py-2 text-right font-medium text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900">
+                <th className="sticky left-0 z-20 w-10 border-r border-border bg-surface-muted px-2 py-2 text-right font-medium text-muted-foreground/70 border-border bg-card">
                   #
                 </th>
                 {Array.from({ length: columnCount }, (_, i) => {
@@ -1127,16 +1127,16 @@ function SheetsTable({
                     <th
                       key={i}
                       onClick={() => toggleSort(i)}
-                      className="cursor-pointer select-none border-r border-zinc-200 px-3 py-2 text-left font-semibold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      className="cursor-pointer select-none border-r border-border px-3 py-2 text-left font-semibold text-foreground/85 hover:bg-muted border-border text-foreground hover:bg-muted"
                     >
                       <span className="inline-flex items-center gap-1">
                         {cell ? (
                           cell
                         ) : (
-                          <span className="font-mono text-zinc-400">{columnLetter(i)}</span>
+                          <span className="font-mono text-muted-foreground/70">{columnLetter(i)}</span>
                         )}
                         {sorted && (
-                          <span className="text-blue-600">
+                          <span className="text-primary">
                             {sort!.dir === 'asc' ? '↑' : '↓'}
                           </span>
                         )}
@@ -1148,14 +1148,14 @@ function SheetsTable({
             </thead>
             <tbody>
               {displayRows.map((row, r) => (
-                <tr key={r} className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
-                  <td className="sticky left-0 z-10 w-10 border-r border-b border-zinc-200 bg-white px-2 py-1.5 text-right text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950">
+                <tr key={r} className="hover:bg-muted dark:hover:bg-zinc-900/50">
+                  <td className="sticky left-0 z-10 w-10 border-r border-b border-border bg-card px-2 py-1.5 text-right text-muted-foreground/70 border-border bg-background">
                     {r + 2}
                   </td>
                   {Array.from({ length: columnCount }, (_, c) => (
                     <td
                       key={c}
-                      className="max-w-[320px] truncate border-r border-b border-zinc-100 px-3 py-1.5 text-zinc-800 dark:border-zinc-800 dark:text-zinc-100"
+                      className="max-w-[320px] truncate border-r border-b border-border-soft px-3 py-1.5 text-foreground border-border text-foreground"
                       title={row[c] || ''}
                     >
                       {row[c] ?? ''}
@@ -1234,13 +1234,13 @@ function NewFileMenu({
           setOpen((v) => !v)
           setStage(null)
         }}
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+        className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
       >
         <Plus className="h-3.5 w-3.5" /> New
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border border-border bg-card shadow-pop border-border bg-card">
           {!stage ? (
             <>
               <MenuItem icon={FileText} label="New Doc" onClick={() => setStage({ kind: 'document' })} />
@@ -1258,7 +1258,7 @@ function NewFileMenu({
               className="space-y-2 p-3"
             >
               <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                <label className="mb-1 block eyebrow text-muted-foreground">
                   Name
                 </label>
                 <input
@@ -1267,18 +1267,18 @@ function NewFileMenu({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={stage.kind === 'folder' ? 'Folder name' : 'Untitled'}
-                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                  className="w-full rounded-md border border-border px-2 py-1.5 text-xs focus:border-primary/50 focus:outline-none border-border bg-background"
                 />
               </div>
               {accounts.length > 1 && (
                 <div>
-                  <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                  <label className="mb-1 block eyebrow text-muted-foreground">
                     Create in
                   </label>
                   <select
                     value={account}
                     onChange={(e) => setAccount(e.target.value)}
-                    className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                    className="w-full rounded-md border border-border px-2 py-1.5 text-xs focus:border-primary/50 focus:outline-none border-border bg-background"
                   >
                     {accounts.map((a) => (
                       <option key={a} value={a}>
@@ -1292,7 +1292,7 @@ function NewFileMenu({
                 <button
                   type="submit"
                   disabled={createMutation.isPending || !name.trim()}
-                  className="flex-1 rounded-md bg-blue-600 px-2 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="flex-1 rounded-md bg-foreground px-2 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
                 >
                   {createMutation.isPending ? 'Creating…' : 'Create'}
                 </button>
@@ -1302,13 +1302,13 @@ function NewFileMenu({
                     setStage(null)
                     setName('')
                   }}
-                  className="rounded-md px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted"
                 >
                   Back
                 </button>
               </div>
               {createMutation.isError && (
-                <p className="text-xs text-red-600">
+                <p className="text-xs text-destructive">
                   {(createMutation.error as Error).message}
                 </p>
               )}
@@ -1340,10 +1340,10 @@ function Breadcrumbs({
   const crumbs = query.data?.crumbs ?? [{ id: folder.id, name: folder.name }]
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex items-center gap-1 overflow-x-auto rounded-md border border-border bg-surface-muted px-2 py-1 text-xs border-border bg-card">
       <button
         onClick={() => onNavigate(null)}
-        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted text-muted-foreground hover:bg-muted"
       >
         <Home className="h-3 w-3" />
         All files
@@ -1352,15 +1352,15 @@ function Breadcrumbs({
         const isLast = i === crumbs.length - 1
         return (
           <span key={c.id} className="flex items-center gap-1">
-            <ChevronRight className="h-3 w-3 flex-shrink-0 text-zinc-300" />
+            <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground/50" />
             {isLast ? (
-              <span className="px-1.5 py-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+              <span className="px-1.5 py-0.5 font-medium text-foreground">
                 {c.name}
               </span>
             ) : (
               <button
                 onClick={() => onNavigate({ id: c.id, name: c.name, account: folder.account })}
-                className="rounded-md px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted text-muted-foreground hover:bg-muted"
               >
                 {c.name}
               </button>
@@ -1374,15 +1374,15 @@ function Breadcrumbs({
 
 function EmptyAccountsState() {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-12 text-center dark:border-zinc-700 dark:bg-zinc-900">
-      <HardDrive className="mx-auto h-12 w-12 text-zinc-300 dark:text-zinc-600" />
+    <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center border-border bg-card">
+      <HardDrive className="mx-auto h-12 w-12 text-muted-foreground/50" />
       <h3 className="mt-4 text-sm font-semibold">No Google Drive accounts connected</h3>
-      <p className="mt-2 text-sm text-zinc-500">
+      <p className="mt-2 text-sm text-muted-foreground">
         Connect alex@ and ethan@leadgenisys.com to see files across both mailboxes here.
       </p>
       <Link
         href="/settings"
-        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:bg-foreground/90"
       >
         Go to Settings
       </Link>

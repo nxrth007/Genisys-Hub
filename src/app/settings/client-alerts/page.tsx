@@ -24,26 +24,26 @@ export default function ClientAlertsFocusedPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/clients"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Clients
           </Link>
-          <span className="text-xs text-zinc-300">·</span>
+          <span className="text-xs text-muted-foreground/50">·</span>
           <Link
             href="/settings"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             All settings
           </Link>
         </div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-orange-50 p-2.5 dark:bg-orange-950">
-            <PhoneIcon className="h-6 w-6 text-orange-600 dark:text-orange-300" />
+          <div className="rounded-lg bg-warning/15 p-2.5 bg-warning/15">
+            <PhoneIcon className="h-6 w-6 text-warning" />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Client SMS</h1>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Master toggle, sender number, per-client routing, and the
               live activity feed. Retry failed sends, cancel stuck
               pendings, or fire a test SMS — all in one place.

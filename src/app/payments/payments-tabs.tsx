@@ -147,7 +147,7 @@ function VolumeChart({
   const max = Math.max(1, ...daily.map((d) => d.gross))
   const total = daily.reduce((s, d) => s + d.gross, 0)
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="text-sm font-semibold text-foreground">
           Volume · last 30 days
@@ -207,7 +207,7 @@ function RowAction({
       className={cn(
         'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40',
         tone === 'danger'
-          ? 'border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40'
+          ? 'border-destructive/30 text-destructive hover:bg-destructive/10 border-destructive/30 text-destructive hover:bg-destructive/10'
           : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
@@ -291,7 +291,7 @@ function StripeTab() {
             setNotice(null)
             setShowNewInvoice(true)
           }}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
           New invoice
@@ -303,8 +303,8 @@ function StripeTab() {
           className={cn(
             'flex items-start gap-2 rounded-xl border p-3 text-sm',
             notice.tone === 'ok'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300',
+              ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
+              : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive',
           )}
         >
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -367,8 +367,8 @@ function StripeTab() {
 
       {/* Open disputes — surfaced loud since they need action */}
       {data.disputes.count > 0 && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-900 dark:bg-rose-950/40">
-          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-700 dark:text-rose-300">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 border-destructive/30 bg-destructive/10">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-destructive">
             <AlertCircle className="h-4 w-4" />
             {data.disputes.count} open dispute
             {data.disputes.count === 1 ? '' : 's'}
@@ -416,7 +416,7 @@ function StripeTab() {
                     <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">
                       {cents(c.amount, c.currency)}
                       {c.refunded && (
-                        <span className="ml-1 text-[10px] text-rose-500">
+                        <span className="ml-1 text-[10px] text-destructive">
                           refunded
                         </span>
                       )}
@@ -676,7 +676,7 @@ function NewInvoiceForm({
     )
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-foreground">New invoice</h3>
         <button
@@ -756,7 +756,7 @@ function NewInvoiceForm({
           type="button"
           disabled={!valid || busy}
           onClick={() => submit(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -818,7 +818,7 @@ function MercuryTab() {
       {data.accounts.length > 0 && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {data.accounts.map((a) => (
-            <div key={a.id} className="rounded-2xl border border-border bg-card p-4">
+            <div key={a.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center justify-between">
                 <p className="font-semibold text-foreground">{a.name}</p>
                 <span className="text-xs text-muted-foreground">
@@ -873,8 +873,8 @@ function MercuryTab() {
                         className={cn(
                           'whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums',
                           outgoing
-                            ? 'text-rose-600 dark:text-rose-400'
-                            : 'text-emerald-600 dark:text-emerald-400',
+                            ? 'text-destructive'
+                            : 'text-success',
                         )}
                       >
                         <span className="mr-1 inline-flex align-middle">
@@ -948,7 +948,7 @@ export function PaymentsTabs() {
       {tab === 'nct' && <NctLeadsTab />}
       {tab === 'payloads' && <PayloadLogTab />}
       {tab === 'log' && (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
           <Inbox className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
           <p className="text-sm font-medium text-foreground">Automation Log</p>
           <p className="mt-1 text-sm text-muted-foreground">

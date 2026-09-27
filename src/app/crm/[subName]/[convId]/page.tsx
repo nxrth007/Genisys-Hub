@@ -96,7 +96,7 @@ export default function ConversationDetailPage() {
   })
 
   if (isLoading) {
-    return <div className="p-8 text-center text-sm text-zinc-500">Loading conversation…</div>
+    return <div className="p-8 text-center text-sm text-muted-foreground">Loading conversation…</div>
   }
 
   if (error) {
@@ -104,11 +104,11 @@ export default function ConversationDetailPage() {
       <div className="space-y-4">
         <button
           onClick={() => router.push('/crm')}
-          className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+          className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" /> Back to CRM
         </button>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950 dark:border-red-900 dark:text-red-200">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive bg-destructive/10 border-destructive/30 text-destructive">
           {(error as Error).message}
         </div>
       </div>
@@ -130,7 +130,7 @@ export default function ConversationDetailPage() {
     <div className="space-y-4">
       <button
         onClick={() => router.push('/crm')}
-        className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+        className="flex items-center gap-2 text-sm text-primary hover:underline"
       >
         <ArrowLeft className="h-4 w-4" /> Back to CRM
       </button>
@@ -138,20 +138,20 @@ export default function ConversationDetailPage() {
       <div className="flex gap-4">
         {/* Messages */}
         <div className="flex-1 min-w-0">
-          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-center gap-3 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-              <div className="rounded-full bg-zinc-100 p-2 dark:bg-zinc-800">
-                <User className="h-4 w-4 text-zinc-500" />
+          <div className="rounded-xl border border-border bg-card border-border bg-card">
+            <div className="flex items-center gap-3 border-b border-border px-5 py-3 border-border">
+              <div className="rounded-full bg-muted p-2 bg-surface-muted">
+                <User className="h-4 w-4 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold text-sm">{contactName}</h3>
-                <p className="text-xs text-zinc-500">{subName}</p>
+                <p className="text-xs text-muted-foreground">{subName}</p>
               </div>
             </div>
 
             <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto">
               {messages.length === 0 ? (
-                <p className="py-8 text-center text-sm text-zinc-500">No messages yet.</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">No messages yet.</p>
               ) : (
                 messages
                   .slice()
@@ -161,17 +161,17 @@ export default function ConversationDetailPage() {
             </div>
 
             {/* Reply */}
-            <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+            <div className="border-t border-border p-4 border-border">
               <div className="flex gap-2 mb-3">
                 {(['Email', 'SMS'] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setReplyType(t)}
                     className={cn(
-                      'rounded-full px-3 py-1 text-xs font-medium',
+                      'rounded-md px-3 py-1 text-xs font-medium',
                       replyType === t
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+                        ? 'bg-foreground text-background'
+                        : 'bg-muted text-muted-foreground bg-surface-muted text-foreground/85'
                     )}
                   >
                     {t}
@@ -183,26 +183,26 @@ export default function ConversationDetailPage() {
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder={`Type your ${replyType.toLowerCase()} reply…`}
                 rows={3}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               />
               <div className="flex justify-between items-center mt-2">
-                <span className="text-xs text-zinc-400">Sending via GoHighLevel</span>
+                <span className="text-xs text-muted-foreground/70">Sending via GoHighLevel</span>
                 <button
                   onClick={() => sendMutation.mutate()}
                   disabled={sendMutation.isPending || !replyText.trim()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
                   {sendMutation.isPending ? 'Sending…' : `Send ${replyType}`}
                 </button>
               </div>
               {sendMutation.isError && (
-                <p className="mt-2 text-xs text-red-600">
+                <p className="mt-2 text-xs text-destructive">
                   {(sendMutation.error as Error).message}
                 </p>
               )}
               {sendMutation.isSuccess && (
-                <p className="mt-2 text-xs text-green-600">Message sent.</p>
+                <p className="mt-2 text-xs text-success">Message sent.</p>
               )}
             </div>
           </div>
@@ -211,11 +211,11 @@ export default function ConversationDetailPage() {
 
         {/* Contact panel */}
         <div className="hidden lg:block w-72 flex-shrink-0">
-          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sticky top-6">
-            <div className="border-b border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="rounded-xl border border-border bg-card border-border bg-card sticky top-6">
+            <div className="border-b border-border p-4 border-border">
               <h3 className="font-semibold">{contactName}</h3>
               {contact?.id && (
-                <p className="text-[10px] font-mono text-zinc-400 mt-1 truncate">{contact.id}</p>
+                <p className="text-[10px] font-mono text-muted-foreground/70 mt-1 truncate">{contact.id}</p>
               )}
             </div>
             <div className="p-4 space-y-2 text-xs">
@@ -242,13 +242,13 @@ export default function ConversationDetailPage() {
               )}
 
               {contact?.tags && contact.tags.length > 0 && (
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 mt-2">
-                  <p className="text-zinc-400 mb-1.5">Tags</p>
+                <div className="pt-2 border-t border-border mt-2">
+                  <p className="text-muted-foreground/70 mb-1.5">Tags</p>
                   <div className="flex flex-wrap gap-1">
                     {contact.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                        className="rounded-md bg-primary-soft px-2 py-0.5 text-[10px] text-primary bg-primary-soft text-primary"
                       >
                         {tag}
                       </span>
@@ -267,8 +267,8 @@ export default function ConversationDetailPage() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span className="text-zinc-400">{label}:</span>{' '}
-      <span className="text-zinc-700 dark:text-zinc-300 break-words">{value}</span>
+      <span className="text-muted-foreground/70">{label}:</span>{' '}
+      <span className="text-foreground/85 break-words">{value}</span>
     </div>
   )
 }
@@ -293,24 +293,24 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
   // hadn't noticed.
   const isOut = msg.direction === 'outbound'
 
-  let bg = 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-900'
+  let bg = 'bg-warning/15 border-warning/30 bg-warning/15 border-warning/30'
   let label = isEmail ? 'Email received' : isSms ? 'SMS received' : isCall ? 'Call missed' : 'Received'
   let align = ''
 
   if (isOut && isEmail) {
-    bg = 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-900'
+    bg = 'bg-success/15 border-success/30 bg-success/15 border-success/30'
     label = 'Email sent'
     align = 'ml-auto'
   } else if (isOut && isSms) {
-    bg = 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-900'
+    bg = 'bg-primary-soft border-primary/30 bg-primary-soft border-primary/30'
     label = 'SMS sent'
     align = 'ml-auto'
   } else if (isCall) {
-    bg = 'bg-zinc-100 border-zinc-300 dark:bg-zinc-800 dark:border-zinc-700'
+    bg = 'bg-muted border-border bg-surface-muted border-border'
     label = msg.direction === 'inbound' ? 'Inbound call' : 'Outbound call'
     align = msg.direction === 'inbound' ? '' : 'ml-auto'
   } else if (isOut) {
-    bg = 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-900'
+    bg = 'bg-success/15 border-success/30 bg-success/15 border-success/30'
     label = 'Sent'
     align = 'ml-auto'
   }
@@ -329,14 +329,14 @@ function MessageBubble({ msg, contactName }: { msg: Message; contactName: string
     <div className={cn('rounded-lg border p-3 max-w-[85%]', bg, align)}>
       <div className="flex justify-between text-[10px] mb-1 gap-2">
         <span className="font-semibold">{isOut ? 'You' : contactName}</span>
-        <span className="text-zinc-400">
+        <span className="text-muted-foreground/70">
           {label} · {formatMsgTime(msg.dateAdded)}
         </span>
       </div>
       {hasBody ? (
         <p className="text-xs whitespace-pre-wrap">{msg.body}</p>
       ) : attachments.length === 0 ? (
-        <p className="text-xs italic text-zinc-400">
+        <p className="text-xs italic text-muted-foreground/70">
           (no body returned by GHL — full content lives on the
           message-detail endpoint)
         </p>
@@ -375,7 +375,7 @@ function Attachment({ url }: { url: string }) {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="block overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700"
+        className="block overflow-hidden rounded-md border border-border"
         title={filename}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -396,10 +396,10 @@ function Attachment({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white/60 px-2 py-1 text-[11px] hover:bg-white dark:border-zinc-700 dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
+      className="inline-flex items-center gap-2 rounded-md border border-border bg-card/60 px-2 py-1 text-[11px] hover:bg-white border-border bg-card/60 hover:bg-muted"
       title={url}
     >
-      <span className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground/85 bg-muted text-foreground">
         {ext}
       </span>
       <span className="max-w-[180px] truncate">{filename}</span>

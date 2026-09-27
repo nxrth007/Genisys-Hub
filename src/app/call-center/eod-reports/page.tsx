@@ -89,7 +89,7 @@ function EodReportsList() {
 
   return (
     <div className="mx-auto w-full max-w-[1280px] space-y-6">
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <section className="rounded-xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-[17px] font-semibold tracking-tight">
             EOD reports
@@ -100,7 +100,7 @@ function EodReportsList() {
                 type="button"
                 onClick={() => setTeam('agent')}
                 className={cn(
-                  'rounded-full px-3 py-1 transition',
+                  'rounded-lg px-3 py-1 transition',
                   team === 'agent'
                     ? 'bg-card text-primary shadow-soft'
                     : 'text-muted-foreground hover:text-foreground',
@@ -112,7 +112,7 @@ function EodReportsList() {
                 type="button"
                 onClick={() => setTeam('team1')}
                 className={cn(
-                  'rounded-full px-3 py-1 transition',
+                  'rounded-lg px-3 py-1 transition',
                   team === 'team1'
                     ? 'bg-card text-primary shadow-soft'
                     : 'text-muted-foreground hover:text-foreground',
@@ -146,7 +146,7 @@ function EodReportsList() {
           <div className="mt-4 flex flex-col gap-5">
             {grouped.map(({ date, list }) => (
               <div key={date}>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="eyebrow text-muted-foreground">
                   {formatReportDate(date)}
                 </p>
                 <ul className="mt-2 flex flex-col">
@@ -197,7 +197,7 @@ function ReportRow({ report, first }: { report: EodReport; first: boolean }) {
               Flagged
             </Chip>
           )}
-          <span className="ml-auto flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span className="ml-auto flex items-center gap-2 eyebrow text-muted-foreground">
             <Stat label="Dials" value={report.dialsMade} />
             <Stat label="Appts" value={report.appointmentsGenerated} />
             <Stat label="Callbacks" value={report.callbacksScheduled} />
@@ -215,7 +215,7 @@ function ReportRow({ report, first }: { report: EodReport; first: boolean }) {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <span className="inline-flex items-baseline gap-1 rounded-full border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground">
+    <span className="inline-flex items-baseline gap-1 rounded-md border border-border-soft bg-surface-muted px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground">
       <span className="font-semibold tabular-nums text-foreground">
         {value}
       </span>
@@ -265,7 +265,7 @@ function isoToYmd(iso: string): string {
 
 function EodReportsSkeleton() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+    <div className="rounded-xl border border-border bg-card p-5 shadow-soft">
       <div className="h-6 w-32 animate-pulse rounded-md bg-muted" />
       <div className="mt-4 flex flex-col gap-4">
         {Array.from({ length: 3 }).map((_, i) => (

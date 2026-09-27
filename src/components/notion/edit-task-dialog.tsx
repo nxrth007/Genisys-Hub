@@ -168,12 +168,12 @@ export function EditTaskDialog({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <form
         onSubmit={submit}
-        className="relative w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl dark:bg-zinc-900"
+        className="relative w-full max-w-md space-y-4 rounded-xl bg-card p-5 shadow-pop bg-card"
       >
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold">Edit task</h3>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted-foreground">
               Updates land on the Notion page in place. Status + dates
               stay where they are — only the fields below get written.
             </p>
@@ -181,7 +181,7 @@ export function EditTaskDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -190,7 +190,7 @@ export function EditTaskDialog({
 
         {/* Title */}
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1 block eyebrow text-muted-foreground">
             Task
           </label>
           <input
@@ -199,14 +199,14 @@ export function EditTaskDialog({
             onChange={(e) => setTitle(e.target.value)}
             autoFocus
             placeholder="What needs to get done?"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </div>
 
         {/* Priority */}
         {hasPriority && (
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="mb-1.5 block eyebrow text-muted-foreground">
               Urgency
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -232,7 +232,7 @@ export function EditTaskDialog({
         {/* Assignee */}
         {schema.assigneeProp && (
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="mb-1.5 block eyebrow text-muted-foreground">
               Assignee
             </label>
             {hasAssignee ? (
@@ -254,9 +254,9 @@ export function EditTaskDialog({
                 ))}
               </div>
             ) : (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="rounded-md border border-warning/30 bg-warning/15 px-3 py-2 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
                 The{' '}
-                <code className="rounded bg-white/60 px-1 dark:bg-zinc-900/60">
+                <code className="rounded bg-card/60 px-1 bg-card/60">
                   &quot;{schema.assigneeProp}&quot;
                 </code>{' '}
                 column has no options yet.
@@ -266,23 +266,23 @@ export function EditTaskDialog({
         )}
 
         {error && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             {error}
           </p>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-3 border-border">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={mutation.isPending || !title.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {mutation.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

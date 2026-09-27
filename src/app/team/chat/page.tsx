@@ -202,23 +202,23 @@ export default function TeamChatPage() {
   const grouped = useMemo(() => groupByDay(messages), [messages])
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex h-screen flex-col bg-background">
+      <header className="border-b border-border bg-card px-4 py-3 border-border bg-card">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link
               href="/team"
-              className="inline-flex items-center gap-1 rounded-md p-1 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              className="inline-flex items-center gap-1 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
               aria-label="Back to dashboard"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <Target className="h-5 w-5 text-blue-600" />
+            <Target className="h-5 w-5 text-primary" />
             <div>
               <h1 className="text-sm font-semibold">
                 {channel?.name ?? 'Team chat'}
               </h1>
-              <p className="text-[10px] text-zinc-500">
+              <p className="text-[10px] text-muted-foreground">
                 Internal — replaces Microsoft Teams. Photos auto-expire after
                 30 days.
               </p>
@@ -226,7 +226,7 @@ export default function TeamChatPage() {
           </div>
           <button
             onClick={() => signOut({ callbackUrl: '/signin/team' })}
-            className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-foreground/85 transition hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
           >
             <LogOut className="h-3 w-3" />
             Sign out
@@ -240,12 +240,12 @@ export default function TeamChatPage() {
       >
         <div className="mx-auto max-w-4xl">
           {messagesQuery.isLoading ? (
-            <div className="flex h-32 items-center justify-center text-zinc-500">
+            <div className="flex h-32 items-center justify-center text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading messages…
             </div>
           ) : messages.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground border-border bg-card">
               No messages yet. Say hi.
             </div>
           ) : (
@@ -253,7 +253,7 @@ export default function TeamChatPage() {
               {grouped.map((group) => (
                 <div key={group.dayKey} className="space-y-1">
                   <div className="sticky top-0 z-10 my-2 flex items-center justify-center">
-                    <span className="rounded-full border border-zinc-200 bg-white px-3 py-0.5 text-[10px] font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+                    <span className="rounded-md border border-border bg-card px-3 py-0.5 text-[10px] font-medium text-muted-foreground border-border bg-card">
                       {group.label}
                     </span>
                   </div>
@@ -269,7 +269,7 @@ export default function TeamChatPage() {
 
       <form
         onSubmit={onSubmit}
-        className="border-t border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
+        className="border-t border-border bg-card px-4 py-3 border-border bg-card"
       >
         <div className="mx-auto max-w-4xl">
           {stagedFiles.length > 0 && (
@@ -277,14 +277,14 @@ export default function TeamChatPage() {
               {stagedFiles.map((f, i) => (
                 <div
                   key={`${f.name}-${i}`}
-                  className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                  className="flex items-center gap-2 rounded-md border border-border bg-surface-muted px-2 py-1 text-[11px] text-muted-foreground border-border bg-surface-muted text-foreground/85"
                 >
                   <ImageIcon className="h-3 w-3" />
                   <span className="max-w-[160px] truncate">{f.name}</span>
                   <button
                     type="button"
                     onClick={() => removeStaged(i)}
-                    className="rounded-full p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                    className="rounded-full p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
                     aria-label={`Remove ${f.name}`}
                   >
                     <X className="h-3 w-3" />
@@ -294,7 +294,7 @@ export default function TeamChatPage() {
             </div>
           )}
           {composerError && (
-            <div className="mb-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            <div className="mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               {composerError}
             </div>
           )}
@@ -302,7 +302,7 @@ export default function TeamChatPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex-shrink-0 rounded-md border border-zinc-200 bg-white p-2 text-zinc-500 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="flex-shrink-0 rounded-md border border-border bg-card p-2 text-muted-foreground transition hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
               aria-label="Attach photo"
               title="Attach JPEG/PNG photo (max 5 MB each, up to 4)"
             >
@@ -322,7 +322,7 @@ export default function TeamChatPage() {
               onKeyDown={onKeyDown}
               placeholder="Type a message (Cmd/Ctrl+Enter to send)…"
               rows={1}
-              className="min-h-[40px] max-h-[160px] flex-1 resize-none rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              className="min-h-[40px] max-h-[160px] flex-1 resize-none rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background text-foreground"
             />
             <button
               type="submit"
@@ -330,7 +330,7 @@ export default function TeamChatPage() {
                 sendMutation.isPending ||
                 (!text.trim() && stagedFiles.length === 0)
               }
-              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-50"
             >
               {sendMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -428,7 +428,7 @@ function MessageRun({ messages }: { messages: Message[] }) {
         <div className="flex items-baseline flex-wrap gap-2">
           <span className="text-sm font-semibold">{first.senderName}</span>
           {isAdmin && <AdminChip />}
-          <span className="text-[10px] text-zinc-400">
+          <span className="text-[10px] text-muted-foreground/70">
             {formatMsgTime(first.createdAt)}
           </span>
         </div>
@@ -500,7 +500,7 @@ function AdminChip() {
           animation: adminChipPulse 2.5s ease-in-out infinite;
         }
       `}</style>
-      <span className="admin-chip relative inline-flex items-center overflow-hidden rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
+      <span className="admin-chip relative inline-flex items-center overflow-hidden rounded-lg px-1.5 py-0.5 eyebrow text-white">
         <span className="relative z-10">Admin</span>
         <span
           aria-hidden
@@ -515,7 +515,7 @@ function MessageBody({ message }: { message: Message }) {
   return (
     <div>
       {message.text && (
-        <p className="whitespace-pre-wrap break-words text-sm text-zinc-700 dark:text-zinc-200">
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground/85 text-foreground">
           {message.text}
         </p>
       )}
@@ -532,7 +532,7 @@ function MessageBody({ message }: { message: Message }) {
               href={`/api/team/chat/attachments/${a.id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block overflow-hidden rounded-md border border-zinc-200 bg-zinc-50 transition hover:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800"
+              className="inline-block overflow-hidden rounded-md border border-border bg-surface-muted transition hover:border-primary/50 border-border bg-surface-muted"
             >
               <img
                 src={`/api/team/chat/attachments/${a.id}`}

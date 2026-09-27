@@ -67,24 +67,24 @@ function extractPropValue(prop: Record<string, unknown>): string {
 
 // Status column colors — matching Notion's dark theme style
 const COLUMN_STYLES: Record<string, { bg: string; headerBg: string; dot: string; text: string }> = {
-  'to do': { bg: 'bg-zinc-900/50', headerBg: 'bg-zinc-800', dot: 'bg-zinc-400', text: 'text-zinc-300' },
-  'not started': { bg: 'bg-zinc-900/50', headerBg: 'bg-zinc-800', dot: 'bg-zinc-400', text: 'text-zinc-300' },
-  'in progress': { bg: 'bg-blue-950/30', headerBg: 'bg-blue-900/60', dot: 'bg-blue-400', text: 'text-blue-300' },
-  'done': { bg: 'bg-green-950/30', headerBg: 'bg-green-900/60', dot: 'bg-green-400', text: 'text-green-300' },
-  'blocked': { bg: 'bg-red-950/30', headerBg: 'bg-red-900/60', dot: 'bg-red-400', text: 'text-red-300' },
-  'under review': { bg: 'bg-amber-950/30', headerBg: 'bg-amber-900/60', dot: 'bg-amber-400', text: 'text-amber-300' },
-  'no status': { bg: 'bg-zinc-900/50', headerBg: 'bg-zinc-800', dot: 'bg-zinc-500', text: 'text-zinc-400' },
+  'to do': { bg: 'bg-zinc-900/50', headerBg: 'bg-surface-muted', dot: 'bg-muted-foreground/50', text: 'text-muted-foreground/50' },
+  'not started': { bg: 'bg-zinc-900/50', headerBg: 'bg-surface-muted', dot: 'bg-muted-foreground/50', text: 'text-muted-foreground/50' },
+  'in progress': { bg: 'bg-blue-950/30', headerBg: 'bg-blue-900/60', dot: 'bg-primary', text: 'text-blue-300' },
+  'done': { bg: 'bg-green-950/30', headerBg: 'bg-green-900/60', dot: 'bg-success', text: 'text-success' },
+  'blocked': { bg: 'bg-red-950/30', headerBg: 'bg-red-900/60', dot: 'bg-destructive', text: 'text-destructive' },
+  'under review': { bg: 'bg-amber-950/30', headerBg: 'bg-amber-900/60', dot: 'bg-warning', text: 'text-warning' },
+  'no status': { bg: 'bg-zinc-900/50', headerBg: 'bg-surface-muted', dot: 'bg-muted-foreground', text: 'text-muted-foreground/70' },
 }
 
 // Light mode column styles
 const COLUMN_STYLES_LIGHT: Record<string, { bg: string; headerBg: string; dot: string; text: string }> = {
-  'to do': { bg: 'bg-zinc-50', headerBg: 'bg-zinc-100', dot: 'bg-zinc-400', text: 'text-zinc-700' },
-  'not started': { bg: 'bg-zinc-50', headerBg: 'bg-zinc-100', dot: 'bg-zinc-400', text: 'text-zinc-700' },
-  'in progress': { bg: 'bg-blue-50', headerBg: 'bg-blue-100', dot: 'bg-blue-500', text: 'text-blue-800' },
-  'done': { bg: 'bg-green-50', headerBg: 'bg-green-100', dot: 'bg-green-500', text: 'text-green-800' },
-  'blocked': { bg: 'bg-red-50', headerBg: 'bg-red-100', dot: 'bg-red-500', text: 'text-red-800' },
-  'under review': { bg: 'bg-amber-50', headerBg: 'bg-amber-100', dot: 'bg-amber-500', text: 'text-amber-800' },
-  'no status': { bg: 'bg-zinc-50', headerBg: 'bg-zinc-100', dot: 'bg-zinc-400', text: 'text-zinc-600' },
+  'to do': { bg: 'bg-surface-muted', headerBg: 'bg-muted', dot: 'bg-muted-foreground/50', text: 'text-foreground/85' },
+  'not started': { bg: 'bg-surface-muted', headerBg: 'bg-muted', dot: 'bg-muted-foreground/50', text: 'text-foreground/85' },
+  'in progress': { bg: 'bg-primary-soft', headerBg: 'bg-primary-soft', dot: 'bg-primary', text: 'text-primary' },
+  'done': { bg: 'bg-success/15', headerBg: 'bg-success/15', dot: 'bg-success', text: 'text-success' },
+  'blocked': { bg: 'bg-destructive/10', headerBg: 'bg-destructive/10', dot: 'bg-destructive', text: 'text-destructive' },
+  'under review': { bg: 'bg-warning/15', headerBg: 'bg-warning/15', dot: 'bg-warning', text: 'text-warning' },
+  'no status': { bg: 'bg-surface-muted', headerBg: 'bg-muted', dot: 'bg-muted-foreground/50', text: 'text-muted-foreground' },
 }
 
 function getColStyle(status: string) {
@@ -96,18 +96,18 @@ function getColStyle(status: string) {
 }
 
 const PRIORITY_BADGE: Record<string, { bg: string; text: string }> = {
-  'high': { bg: 'bg-red-500/20', text: 'text-red-400' },
-  'p0 - critical': { bg: 'bg-red-500/20', text: 'text-red-400' },
-  'p1 - high': { bg: 'bg-orange-500/20', text: 'text-orange-400' },
-  'medium': { bg: 'bg-amber-500/20', text: 'text-amber-400' },
-  'normal': { bg: 'bg-amber-500/20', text: 'text-amber-400' },
-  'p2 - medium': { bg: 'bg-amber-500/20', text: 'text-amber-400' },
-  'low': { bg: 'bg-green-500/20', text: 'text-green-400' },
-  'p3 - low': { bg: 'bg-green-500/20', text: 'text-green-400' },
+  'high': { bg: 'bg-destructive/20', text: 'text-destructive' },
+  'p0 - critical': { bg: 'bg-destructive/20', text: 'text-destructive' },
+  'p1 - high': { bg: 'bg-warning/20', text: 'text-warning' },
+  'medium': { bg: 'bg-warning/20', text: 'text-warning' },
+  'normal': { bg: 'bg-warning/20', text: 'text-warning' },
+  'p2 - medium': { bg: 'bg-warning/20', text: 'text-warning' },
+  'low': { bg: 'bg-success/20', text: 'text-success' },
+  'p3 - low': { bg: 'bg-success/20', text: 'text-success' },
 }
 
 function getPriorityBadge(p: string) {
-  return PRIORITY_BADGE[p.toLowerCase()] || { bg: 'bg-zinc-500/20', text: 'text-zinc-400' }
+  return PRIORITY_BADGE[p.toLowerCase()] || { bg: 'bg-muted-foreground/20', text: 'text-muted-foreground/70' }
 }
 
 type TaskItem = {
@@ -213,7 +213,7 @@ function DroppableColumn({
           <div className={cn('h-2.5 w-2.5 rounded-full', style.light.dot)} />
           <span className={cn('text-sm font-semibold', style.light.text)}>{statusName}</span>
         </div>
-        <span className="rounded-full bg-white/80 dark:bg-zinc-900/80 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <span className="rounded-md bg-card/80 bg-card/80 px-2 py-0.5 text-xs font-medium text-muted-foreground">
           {tasks.length}
         </span>
       </div>
@@ -223,7 +223,7 @@ function DroppableColumn({
         ref={setNodeRef}
         className={cn(
           'flex-1 min-h-0 overflow-y-auto rounded-b-xl border border-t-0 p-2 space-y-2 transition-colors',
-          isOver ? 'bg-blue-100/50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-600' : cn(style.light.bg, 'border-zinc-200 dark:border-zinc-700'),
+          isOver ? 'bg-blue-100/50 border-primary/30 bg-primary-soft dark:border-blue-600' : cn(style.light.bg, 'border-border'),
         )}
       >
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
@@ -249,13 +249,13 @@ function DroppableColumn({
         </SortableContext>
 
         {tasks.length === 0 && !isOver && (
-          <div className="text-center py-4 text-xs text-zinc-400">No tasks</div>
+          <div className="text-center py-4 text-xs text-muted-foreground/70">No tasks</div>
         )}
 
         {/* New task button */}
         <button
           onClick={() => onNewTask(statusName)}
-          className="w-full flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-zinc-400 hover:text-blue-500 hover:bg-white/50 dark:hover:bg-zinc-800/50 transition-colors"
+          className="w-full flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground/70 hover:text-primary hover:bg-white/50 hover:bg-muted/50 transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> New task
         </button>
@@ -334,8 +334,8 @@ function SortableTaskCard({
       {...attributes}
       {...listeners}
       className={cn(
-        'rounded-lg bg-white border border-zinc-200 shadow-sm transition-all cursor-grab active:cursor-grabbing dark:bg-zinc-900 dark:border-zinc-700',
-        isDragging && 'opacity-50 shadow-lg scale-105',
+        'rounded-lg bg-card border border-border transition-all cursor-grab active:cursor-grabbing bg-card border-border',
+        isDragging && 'opacity-50 shadow-pop scale-105',
       )}
     >
       {/* Title */}
@@ -345,7 +345,7 @@ function SortableTaskCard({
 
       {/* Description preview */}
       {desc && !isEditing && (
-        <p className="px-3 text-xs text-zinc-400 leading-relaxed line-clamp-2 mb-1">{desc}</p>
+        <p className="px-3 text-xs text-muted-foreground/70 leading-relaxed line-clamp-2 mb-1">{desc}</p>
       )}
 
       {/* Tags */}
@@ -356,32 +356,32 @@ function SortableTaskCard({
           </span>
         )}
         {multiSelect && multiSelect.split(', ').map((tag) => (
-          <span key={tag} className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/20 text-blue-400">
+          <span key={tag} className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/20 text-primary">
             {tag}
           </span>
         ))}
         {dueDate && (
-          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground bg-surface-muted text-muted-foreground">
             {new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>
         )}
       </div>
 
       {/* Bottom: Assignee + Actions */}
-      <div className="flex items-center justify-between border-t border-zinc-100 px-3 pt-2 pb-2 dark:border-zinc-800">
+      <div className="flex items-center justify-between border-t border-border-soft px-3 pt-2 pb-2 border-border">
         {assignee ? (
           <div className="flex min-w-0 items-center gap-1.5">
             <Avatar name={assignee} size="xs" />
-            <span className="truncate text-xs text-zinc-500">{assignee}</span>
+            <span className="truncate text-xs text-muted-foreground">{assignee}</span>
           </div>
         ) : (
-          <span className="text-xs italic text-zinc-400">Unassigned</span>
+          <span className="text-xs italic text-muted-foreground/70">Unassigned</span>
         )}
 
         <div className="flex items-center gap-1">
           <button
             onClick={() => setIsEditing(!isEditing)}
-            className="text-[10px] font-medium text-blue-500 hover:text-blue-600 px-1.5 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950"
+            className="text-[10px] font-medium text-primary hover:text-primary px-1.5 py-0.5 rounded hover:bg-primary-soft"
           >
             {isEditing ? 'Close' : 'Edit'}
           </button>
@@ -389,14 +389,14 @@ function SortableTaskCard({
             href={task.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-zinc-400 hover:text-blue-500 p-0.5"
+            className="text-muted-foreground/70 hover:text-primary p-0.5"
             title="Open in Notion"
           >
             <ExternalLink className="h-3 w-3" />
           </a>
           <button
             onClick={() => onDelete(task.id)}
-            className="text-zinc-300 hover:text-red-500 p-0.5"
+            className="text-muted-foreground/50 hover:text-destructive p-0.5"
             title="Delete task"
           >
             <Trash2 className="h-3 w-3" />
@@ -406,10 +406,10 @@ function SortableTaskCard({
 
       {/* Inline Edit Panel */}
       {isEditing && (
-        <div className="px-3 pb-3 space-y-2 border-t border-zinc-100 dark:border-zinc-800 pt-2">
+        <div className="px-3 pb-3 space-y-2 border-t border-border pt-2">
           {/* Title */}
           <div>
-            <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">Title</label>
+            <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase block mb-0.5">Title</label>
             <input
               defaultValue={title}
               onFocus={(e) => setEditTitle(e.target.value)}
@@ -424,13 +424,13 @@ function SortableTaskCard({
                   e.currentTarget.blur()
                 }
               }}
-              className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
+              className="w-full rounded border border-border px-2 py-1 text-xs bg-card border-border bg-surface-muted"
             />
           </div>
 
           {/* Status */}
           <div>
-            <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">Status</label>
+            <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase block mb-0.5">Status</label>
             <select
               value={status}
               onChange={(e) => {
@@ -442,7 +442,7 @@ function SortableTaskCard({
                 }
                 onUpdate(task.id, props)
               }}
-              className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
+              className="w-full rounded border border-border px-2 py-1 text-xs bg-card border-border bg-surface-muted"
             >
               {statusOptions.map((s) => (
                 <option key={s.name} value={s.name}>{s.name}</option>
@@ -453,11 +453,11 @@ function SortableTaskCard({
           {/* Priority */}
           {priorityProp && priorityOptions.length > 0 && (
             <div>
-              <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">Priority</label>
+              <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase block mb-0.5">Priority</label>
               <select
                 value={priority}
                 onChange={(e) => onUpdate(task.id, { [priorityProp]: { select: { name: e.target.value } } })}
-                className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
+                className="w-full rounded border border-border px-2 py-1 text-xs bg-card border-border bg-surface-muted"
               >
                 <option value="">None</option>
                 {priorityOptions.map((p) => (
@@ -471,8 +471,8 @@ function SortableTaskCard({
               state is diagnosable (shows a hint instead of vanishing). */}
           {assigneeProp && (
             <div>
-              <label className="text-[10px] font-semibold text-zinc-400 uppercase block mb-0.5">
-                Assignee <span className="font-normal normal-case text-zinc-400">({assigneePropType})</span>
+              <label className="text-[10px] font-semibold text-muted-foreground/70 uppercase block mb-0.5">
+                Assignee <span className="font-normal normal-case text-muted-foreground/70">({assigneePropType})</span>
               </label>
               {assigneeOptions.length > 0 ? (
                 <select
@@ -481,7 +481,7 @@ function SortableTaskCard({
                     const val = e.target.value
                     onUpdate(task.id, buildAssigneeUpdate(assigneeProp, assigneePropType, val))
                   }}
-                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs bg-white dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full rounded border border-border px-2 py-1 text-xs bg-card border-border bg-surface-muted"
                 >
                   <option value="">Unassigned</option>
                   {assigneeOptions.map((a) => (
@@ -489,11 +489,11 @@ function SortableTaskCard({
                   ))}
                 </select>
               ) : (
-                <div className="rounded border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <div className="rounded border border-warning/30 bg-warning/15 p-2 text-[10px] text-warning border-warning/30 bg-warning/15 text-warning">
                   <p className="font-medium">No assignees available.</p>
                   <p className="mt-1 leading-relaxed">
-                    Column <code className="rounded bg-white/70 px-1 dark:bg-zinc-900/70">&quot;{assigneeProp}&quot;</code>{' '}
-                    is type <code className="rounded bg-white/70 px-1 dark:bg-zinc-900/70">{assigneePropType}</code>.
+                    Column <code className="rounded bg-card/70 px-1 bg-card/70">&quot;{assigneeProp}&quot;</code>{' '}
+                    is type <code className="rounded bg-card/70 px-1 bg-card/70">{assigneePropType}</code>.
                     {' '}
                     {assigneePropType === 'people'
                       ? 'Share the Notion integration with workspace members so they show up here (Notion → Settings → My connections → the integration → add Alex, Ethan, Garrett as members).'
@@ -519,7 +519,7 @@ function TaskCardOverlay({ task, titleProp, priorityProp }: { task: TaskItem; ti
   const priBadge = priority ? getPriorityBadge(priority) : null
 
   return (
-    <div className="w-[260px] rounded-lg bg-white border-2 border-blue-400 shadow-xl p-3 dark:bg-zinc-900 dark:border-blue-500 opacity-90">
+    <div className="w-[260px] rounded-lg bg-card border-2 border-primary shadow-pop p-3 bg-card dark:border-blue-500 opacity-90">
       <p className="text-sm font-medium">{title || 'Untitled'}</p>
       {priBadge && (
         <span className={cn('inline-block mt-1 rounded px-1.5 py-0.5 text-[10px] font-semibold', priBadge.bg, priBadge.text)}>
@@ -616,7 +616,7 @@ function NewTaskForm({
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-blue-300 bg-white p-3 shadow-md dark:border-blue-600 dark:bg-zinc-900">
+    <div className="space-y-2 rounded-lg border border-primary/30 bg-card p-3 dark:border-blue-600 bg-card">
       <input
         autoFocus
         value={title}
@@ -626,20 +626,20 @@ function NewTaskForm({
           if (e.key === 'Escape') onClose()
         }}
         placeholder="Task name..."
-        className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+        className="w-full rounded border border-border px-2 py-1.5 text-sm border-border bg-surface-muted"
       />
 
       {(priorityProp && priorityOptions.length > 0) || assigneeProp ? (
         <div className="grid grid-cols-2 gap-2">
           {priorityProp && priorityOptions.length > 0 && (
             <div>
-              <label className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+              <label className="mb-0.5 block eyebrow text-muted-foreground/70">
                 Priority
               </label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                className="w-full rounded border border-border bg-card px-2 py-1 text-xs border-border bg-surface-muted"
               >
                 <option value="">—</option>
                 {priorityOptions.map((p) => (
@@ -652,14 +652,14 @@ function NewTaskForm({
           )}
           {assigneeProp && (
             <div className={assigneeOptions.length === 0 ? 'col-span-2' : undefined}>
-              <label className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
-                Assignee <span className="font-normal normal-case text-zinc-400">({assigneePropType})</span>
+              <label className="mb-0.5 block eyebrow text-muted-foreground/70">
+                Assignee <span className="font-normal normal-case text-muted-foreground/70">({assigneePropType})</span>
               </label>
               {assigneeOptions.length > 0 ? (
                 <select
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
-                  className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full rounded border border-border bg-card px-2 py-1 text-xs border-border bg-surface-muted"
                 >
                   <option value="">Unassigned</option>
                   {assigneeOptions.map((a) => (
@@ -669,7 +669,7 @@ function NewTaskForm({
                   ))}
                 </select>
               ) : (
-                <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <p className="rounded border border-warning/30 bg-warning/15 px-2 py-1 text-[10px] text-warning border-warning/30 bg-warning/15 text-warning">
                   Column <code>&quot;{assigneeProp}&quot;</code> ({assigneePropType}) has no options.
                   {' '}
                   {assigneePropType === 'people'
@@ -688,12 +688,12 @@ function NewTaskForm({
         <button
           onClick={handleCreate}
           disabled={!title.trim() || creating}
-          className="flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="flex items-center gap-1 rounded bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
           Create
         </button>
-        <button onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">
+        <button onClick={onClose} className="text-xs text-muted-foreground/70 hover:text-foreground">
           Cancel
         </button>
       </div>
@@ -1067,7 +1067,7 @@ export function TaskBoard({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
       </div>
     )
   }
@@ -1082,12 +1082,12 @@ export function TaskBoard({
         {variant === 'page' && (
           <button
             onClick={() => router.back()}
-            className="text-sm text-blue-600 hover:underline"
+            className="text-sm text-primary hover:underline"
           >
             &larr; Back
           </button>
         )}
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <p className="font-medium">Couldn&apos;t load this task board</p>
           <p className="mt-1 text-xs">{msg}</p>
           {variant === 'embed' && (
@@ -1098,7 +1098,7 @@ export function TaskBoard({
             <button
               onClick={() => pinMutation.mutate(null)}
               disabled={pinMutation.isPending}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 border-destructive/30 bg-destructive/10 text-destructive"
             >
               {pinMutation.isPending ? 'Unpinning…' : 'Unpin this board from Today'}
             </button>
@@ -1117,7 +1117,7 @@ export function TaskBoard({
           relies on the parent layout for chrome. */}
       {variant === 'page' && (
         <div className="flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline">
+          <button onClick={() => router.back()} className="text-sm text-primary hover:underline">
             &larr; Back to Notion
           </button>
           <div className="flex items-center gap-2">
@@ -1128,15 +1128,15 @@ export function TaskBoard({
               className={cn(
                 'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
                 isPinned
-                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                  ? 'border-primary bg-foreground text-background hover:bg-foreground/90'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
               )}
             >
               {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
               {isPinned ? 'Unpin from Today' : 'Pin to Today'}
             </button>
             {db.url && (
-              <a href={db.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-zinc-500 hover:text-blue-600">
+              <a href={db.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
                 Open in Notion <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -1152,24 +1152,24 @@ export function TaskBoard({
               {dbTitle}
             </h2>
             {variant === 'page' && (
-              <p className="text-sm text-zinc-500">{results.length} tasks</p>
+              <p className="text-sm text-muted-foreground">{results.length} tasks</p>
             )}
           </div>
           {variant === 'embed' && (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground bg-surface-muted text-muted-foreground">
               {results.length}
             </span>
           )}
         </div>
-        <div className="flex rounded-md border border-zinc-200 dark:border-zinc-700">
+        <div className="flex rounded-md border border-border">
           <button
             onClick={() => setViewMode('board')}
             className={cn(
               variant === 'embed' ? 'p-1' : 'p-2',
               'rounded-l-md',
               viewMode === 'board'
-                ? 'bg-blue-600 text-white'
-                : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                ? 'bg-foreground text-background'
+                : 'text-muted-foreground hover:bg-muted'
             )}
             title="Board view"
           >
@@ -1181,8 +1181,8 @@ export function TaskBoard({
               variant === 'embed' ? 'p-1' : 'p-2',
               'rounded-r-md',
               viewMode === 'list'
-                ? 'bg-blue-600 text-white'
-                : 'text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                ? 'bg-foreground text-background'
+                : 'text-muted-foreground hover:bg-muted'
             )}
             title="List view"
           >
@@ -1195,7 +1195,7 @@ export function TaskBoard({
            this just confirms a sync is in flight. Positioned so it doesn't
            reserve layout space (avoids a jumpy board on every drop). */}
       {(updateMutation.isPending || deleteMutation.isPending) && (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 shadow-sm dark:border-blue-800 dark:bg-zinc-900 dark:text-blue-300">
+        <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-lg border border-primary/30 bg-card px-3 py-1.5 text-xs font-medium text-primary border-primary/30 bg-card text-primary">
           <Loader2 className="h-3 w-3 animate-spin" /> Syncing with Notion
         </div>
       )}
@@ -1246,19 +1246,19 @@ export function TaskBoard({
         </DndContext>
       ) : (
         /* List View */
-        <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+        <div className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-800">
+            <thead className="bg-surface-muted">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 text-xs">Task</th>
-                <th className="text-left px-4 py-3 font-medium text-zinc-500 text-xs">Status</th>
-                {priorityProp && <th className="text-left px-4 py-3 font-medium text-zinc-500 text-xs">Priority</th>}
-                {assigneeProp && <th className="text-left px-4 py-3 font-medium text-zinc-500 text-xs">Assignee</th>}
-                {dateProp && <th className="text-left px-4 py-3 font-medium text-zinc-500 text-xs">Due</th>}
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Task</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Status</th>
+                {priorityProp && <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Priority</th>}
+                {assigneeProp && <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Assignee</th>}
+                {dateProp && <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Due</th>}
                 <th className="w-10"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody className="divide-y divide-border-soft">
               {results.map((task) => {
                 const title = extractPropValue(task.properties[titleProp] || {})
                 const status = extractPropValue(task.properties[statusPropName] || {})
@@ -1267,7 +1267,7 @@ export function TaskBoard({
                 const dueDate = dateProp ? extractPropValue(task.properties[dateProp] || {}) : ''
 
                 return (
-                  <tr key={task.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                  <tr key={task.id} className="hover:bg-muted">
                     <td className="px-4 py-3 font-medium">
                       <input
                         defaultValue={title || 'Untitled'}
@@ -1278,7 +1278,7 @@ export function TaskBoard({
                           }
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-full bg-transparent border-0 p-0 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 focus:rounded focus:px-1"
+                        className="w-full bg-transparent border-0 p-0 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary/30 focus:rounded focus:px-1"
                       />
                     </td>
                     <td className="px-4 py-3">
@@ -1293,7 +1293,7 @@ export function TaskBoard({
                           }
                           handleUpdate(task.id, props)
                         }}
-                        className="rounded-full border-0 bg-transparent text-xs font-medium cursor-pointer"
+                        className="rounded-lg border-0 bg-transparent text-xs font-medium cursor-pointer"
                       >
                         {statusOptions.map((s) => (
                           <option key={s.name} value={s.name}>{s.name}</option>
@@ -1305,7 +1305,7 @@ export function TaskBoard({
                         <select
                           value={priority}
                           onChange={(e) => handleUpdate(task.id, { [priorityProp]: { select: { name: e.target.value } } })}
-                          className="rounded-full border-0 bg-transparent text-xs font-medium cursor-pointer"
+                          className="rounded-lg border-0 bg-transparent text-xs font-medium cursor-pointer"
                         >
                           <option value="">-</option>
                           {priorityOptions.map((p) => (
@@ -1315,7 +1315,7 @@ export function TaskBoard({
                       </td>
                     )}
                     {assigneeProp && (
-                      <td className="px-4 py-3 text-xs text-zinc-500">
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
                         {assigneeOptions.length > 0 ? (
                           <select
                             value={assignee}
@@ -1340,13 +1340,13 @@ export function TaskBoard({
                       </td>
                     )}
                     {dateProp && (
-                      <td className="px-4 py-3 text-xs text-zinc-500">
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
                         {dueDate ? new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}
                       </td>
                     )}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-blue-600">
+                        <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground/70 hover:text-primary">
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                         <button
@@ -1355,7 +1355,7 @@ export function TaskBoard({
                               deleteMutation.mutate(task.id)
                             }
                           }}
-                          className="text-zinc-300 hover:text-red-500"
+                          className="text-muted-foreground/50 hover:text-destructive"
                           title="Delete task"
                         >
                           <Trash2 className="h-3.5 w-3.5" />

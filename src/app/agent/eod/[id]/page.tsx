@@ -35,14 +35,14 @@ export default function EditEodReportPage(props: {
   if (query.isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
 
   if (query.isError || !query.data) {
     return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+      <div className="mx-auto max-w-3xl rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
         Couldn&apos;t load this report. It may have been deleted.
       </div>
     )

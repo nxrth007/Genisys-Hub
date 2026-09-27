@@ -337,13 +337,13 @@ export default function DocumentsPage() {
       onDrop={onDrop}
     >
       {isDragOver && (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-blue-600/10 backdrop-blur-sm">
-          <div className="rounded-2xl border-2 border-dashed border-blue-500 bg-white/95 px-8 py-6 shadow-xl dark:bg-zinc-900/95">
-            <Upload className="mx-auto h-10 w-10 text-blue-600" />
-            <p className="mt-2 text-center text-lg font-semibold text-blue-700 dark:text-blue-300">
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
+          <div className="rounded-xl border-2 border-dashed border-primary bg-card/95 px-8 py-6 shadow-pop bg-card/95">
+            <Upload className="mx-auto h-10 w-10 text-primary" />
+            <p className="mt-2 text-center text-lg font-semibold text-primary">
               Drop to upload
             </p>
-            <p className="text-center text-xs text-zinc-500">
+            <p className="text-center text-xs text-muted-foreground">
               Files will land in{' '}
               {folderId
                 ? crumbs[crumbs.length - 1]?.name || 'current folder'
@@ -356,12 +356,12 @@ export default function DocumentsPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-              <FolderOpen className="h-6 w-6 text-blue-600" />
+            <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+              <FolderOpen className="h-6 w-6 text-primary" />
             </div>
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Documents</h2>
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Internal contracts and important files. Stored in the Hub — separate
                 from Google Drive. Drag and drop to upload.
               </p>
@@ -371,7 +371,7 @@ export default function DocumentsPage() {
         <div className="flex flex-shrink-0 items-center gap-2">
           <button
             onClick={() => setShowNewFolder(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
           >
             <FolderPlus className="h-3.5 w-3.5" />
             New folder
@@ -379,7 +379,7 @@ export default function DocumentsPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={upload.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {upload.isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -414,18 +414,18 @@ export default function DocumentsPage() {
 
       {/* Search */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search all documents and folders…"
-          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-9 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
         />
         {searchInput && (
           <button
             onClick={() => setSearchInput('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted"
             title="Clear search"
           >
             <X className="h-3.5 w-3.5" />
@@ -435,14 +435,14 @@ export default function DocumentsPage() {
 
       {/* Breadcrumb — hidden while searching since results span folders */}
       {!isSearching && (
-        <div className="flex items-center gap-1 overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center gap-1 overflow-x-auto rounded-md border border-border bg-surface-muted px-3 py-2 text-xs border-border bg-card">
           <button
             onClick={() => setFolderId(null)}
             className={cn(
               'flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition-colors',
               folderId === null
-                ? 'text-zinc-900 dark:text-zinc-100'
-                : 'text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
             <Home className="h-3 w-3" />
@@ -452,15 +452,15 @@ export default function DocumentsPage() {
             const isLast = i === crumbs.length - 1
             return (
               <span key={c.id} className="flex items-center gap-1">
-                <ChevronRight className="h-3 w-3 flex-shrink-0 text-zinc-300" />
+                <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground/50" />
                 {isLast ? (
-                  <span className="px-1.5 py-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+                  <span className="px-1.5 py-0.5 font-medium text-foreground">
                     {c.name}
                   </span>
                 ) : (
                   <button
                     onClick={() => setFolderId(c.id)}
-                    className="rounded-md px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                    className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     {c.name}
                   </button>
@@ -472,7 +472,7 @@ export default function DocumentsPage() {
       )}
 
       {uploadError && (
-        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <div className="min-w-0">
             <p className="font-medium">Upload failed</p>
@@ -487,21 +487,21 @@ export default function DocumentsPage() {
             e.preventDefault()
             if (newFolderName.trim()) createFolder.mutate()
           }}
-          className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/30"
+          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary-soft p-3 border-primary/30 bg-primary-soft/30"
         >
-          <FolderPlus className="h-4 w-4 flex-shrink-0 text-blue-600" />
+          <FolderPlus className="h-4 w-4 flex-shrink-0 text-primary" />
           <input
             autoFocus
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             placeholder="Folder name"
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
           <button
             type="submit"
             disabled={createFolder.isPending || !newFolderName.trim()}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {createFolder.isPending ? 'Creating…' : 'Create'}
           </button>
@@ -511,12 +511,12 @@ export default function DocumentsPage() {
               setShowNewFolder(false)
               setNewFolderName('')
             }}
-            className="rounded-md px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
           >
             Cancel
           </button>
           {createFolder.isError && (
-            <span className="text-xs text-red-600">
+            <span className="text-xs text-destructive">
               {(createFolder.error as Error).message}
             </span>
           )}
@@ -555,21 +555,21 @@ export default function DocumentsPage() {
         />
       ) : listing.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : folders.length === 0 && documents.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <FolderOpen className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
-          <p className="mt-3 text-sm text-zinc-500">
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <FolderOpen className="mx-auto h-10 w-10 text-muted-foreground/50" />
+          <p className="mt-3 text-sm text-muted-foreground">
             {folderId ? 'This folder is empty.' : 'No documents yet.'}
           </p>
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             Click Upload, drag files onto the page, or create a folder.
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+          <div className="divide-y divide-border-soft">
             {folders.map((f) => (
               <FolderRow
                 key={f.id}
@@ -625,7 +625,7 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <p className="text-xs text-zinc-400">
+      <p className="text-xs text-muted-foreground/70">
         Allowed: PDF, Word, Excel, PowerPoint, text, PNG/JPEG. Max 25 MB per file.
       </p>
 
@@ -683,12 +683,12 @@ function FolderRow({
   // end up with an invalid <button><form><input> nesting (react warns,
   // screen readers get confused, Safari has been known to misfire Enter).
   const icon = (
-    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950">
-      <Folder className="h-[18px] w-[18px] text-blue-600" />
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary-soft">
+      <Folder className="h-[18px] w-[18px] text-primary" />
     </div>
   )
   const meta = (
-    <p className="mt-0.5 text-xs text-zinc-500">
+    <p className="mt-0.5 text-xs text-muted-foreground">
       {folder._count.documents} file{folder._count.documents === 1 ? '' : 's'}
       {folder._count.children > 0 &&
         ` · ${folder._count.children} subfolder${folder._count.children === 1 ? '' : 's'}`}
@@ -705,7 +705,7 @@ function FolderRow({
   }
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted hover:bg-muted/50">
       {renaming ? (
         // Form lives at row level, NOT inside a button wrapper.
         <form
@@ -728,7 +728,7 @@ function FolderRow({
                   setRenaming(false)
                 }
               }}
-              className="w-full rounded-md border border-blue-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+              className="w-full rounded-md border border-primary bg-card px-2 py-0.5 text-sm focus:outline-none bg-background"
             />
             {meta}
           </div>
@@ -772,8 +772,8 @@ function DocumentRow({
   const previewable = canPreview(doc.mimeType)
 
   const icon = (
-    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
-      <MimeIcon mime={doc.mimeType} className="h-[18px] w-[18px] text-zinc-500" />
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted">
+      <MimeIcon mime={doc.mimeType} className="h-[18px] w-[18px] text-muted-foreground" />
     </div>
   )
 
@@ -784,7 +784,7 @@ function DocumentRow({
   }
 
   const meta = (
-    <p className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">
+    <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
       <span>{humanSize(doc.sizeBytes)}</span>
       <span>·</span>
       <span>added {formatDate(doc.createdAt)}</span>
@@ -800,7 +800,7 @@ function DocumentRow({
       {previewable && !renaming && (
         <>
           <span>·</span>
-          <span className="inline-flex items-center gap-1 text-blue-600">
+          <span className="inline-flex items-center gap-1 text-primary">
             <Eye className="h-3 w-3" />
             click to preview
           </span>
@@ -810,7 +810,7 @@ function DocumentRow({
   )
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted hover:bg-muted/50">
       {renaming ? (
         <form
           onSubmit={(e) => {
@@ -832,7 +832,7 @@ function DocumentRow({
                   setRenaming(false)
                 }
               }}
-              className="w-full rounded-md border border-blue-500 bg-white px-2 py-0.5 text-sm focus:outline-none dark:bg-zinc-950"
+              className="w-full rounded-md border border-primary bg-card px-2 py-0.5 text-sm focus:outline-none bg-background"
             />
             {meta}
           </div>
@@ -857,7 +857,7 @@ function DocumentRow({
         href={`/api/documents/${doc.id}`}
         download={doc.filename}
         title="Download"
-        className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
+        className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-primary hover:bg-muted"
       >
         <Download className="h-3.5 w-3.5" />
       </a>
@@ -901,12 +901,12 @@ function RowMenu({
       <button
         onClick={() => setOpen((v) => !v)}
         title="More"
-        className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+        className="rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-foreground hover:bg-muted"
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-md border border-border bg-card shadow-pop border-border bg-card">
           <MenuItem
             icon={Pencil}
             label="Rename"
@@ -953,10 +953,10 @@ function MenuItem({
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800',
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted',
         destructive
-          ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50'
-          : 'text-zinc-700 dark:text-zinc-200'
+          ? 'text-destructive hover:bg-destructive/10 hover:bg-destructive/10'
+          : 'text-foreground/85 text-foreground'
       )}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -989,42 +989,42 @@ function SearchListing({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
   if (results.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-        <Search className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
-        <p className="mt-3 text-sm text-zinc-500">
+      <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+        <Search className="mx-auto h-10 w-10 text-muted-foreground/50" />
+        <p className="mt-3 text-sm text-muted-foreground">
           No matches for &quot;{query}&quot;.
         </p>
       </div>
     )
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50">
+    <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+      <div className="border-b border-border bg-surface-muted px-4 py-2 text-xs text-muted-foreground border-border bg-background/50">
         {results.length} result{results.length === 1 ? '' : 's'} for &quot;{query}&quot;
       </div>
-      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      <div className="divide-y divide-border-soft">
         {results.map((r) =>
           r.kind === 'folder' ? (
             <div
               key={`f-${r.id}`}
-              className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted hover:bg-muted/50"
             >
               <button
                 onClick={() => onOpenFolder(r.id)}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-blue-100 dark:bg-blue-950">
-                  <Folder className="h-[18px] w-[18px] text-blue-600" />
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary-soft">
+                  <Folder className="h-[18px] w-[18px] text-primary" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{r.name}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {r.path.length > 0 ? r.path.join(' / ') : 'Root'} ·{' '}
                     {r.documentCount} file{r.documentCount === 1 ? '' : 's'}
                   </p>
@@ -1035,7 +1035,7 @@ function SearchListing({
                   onDeleteFolder(r.id, r.name, r.documentCount + r.childCount)
                 }
                 title="Delete folder"
-                className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-red-50 hover:text-red-600 opacity-0 group-hover:opacity-100 dark:hover:bg-red-950"
+                className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1043,7 +1043,7 @@ function SearchListing({
           ) : (
             <div
               key={`d-${r.id}`}
-              className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted hover:bg-muted/50"
             >
               <button
                 onClick={() => (canPreview(r.mimeType) ? onPreviewDoc(r) : null)}
@@ -1053,15 +1053,15 @@ function SearchListing({
                   !canPreview(r.mimeType) && 'cursor-default'
                 )}
               >
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted">
                   <MimeIcon
                     mime={r.mimeType}
-                    className="h-[18px] w-[18px] text-zinc-500"
+                    className="h-[18px] w-[18px] text-muted-foreground"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{r.filename}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {r.path.length > 0 ? r.path.join(' / ') : 'Root'} ·{' '}
                     {humanSize(r.sizeBytes)}
                     {r.uploadedBy.name && ` · ${r.uploadedBy.name}`}
@@ -1072,14 +1072,14 @@ function SearchListing({
                 href={`/api/documents/${r.id}`}
                 download={r.filename}
                 title="Download"
-                className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-zinc-100 hover:text-blue-600 dark:hover:bg-zinc-800"
+                className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground/50 hover:bg-muted hover:text-primary hover:bg-muted"
               >
                 <Download className="h-3.5 w-3.5" />
               </a>
               <button
                 onClick={() => onDeleteDoc(r.id, r.filename)}
                 title="Delete"
-                className="flex-shrink-0 rounded-md p-1.5 text-zinc-300 hover:bg-red-50 hover:text-red-600 opacity-0 group-hover:opacity-100 dark:hover:bg-red-950"
+                className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1119,28 +1119,28 @@ function PreviewModal({
   const url = `/api/documents/${doc.id}`
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-zinc-950">
-      <div className="flex flex-shrink-0 items-center gap-3 border-b border-zinc-200 bg-zinc-50/50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-border bg-surface-muted/50 px-4 py-2.5 border-border bg-card/50">
         <button
           onClick={onClose}
           title="Close (Esc)"
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
         >
           <X className="h-4 w-4" />
         </button>
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-zinc-100 dark:bg-zinc-800">
-          <MimeIcon mime={doc.mimeType} className="h-4 w-4 text-zinc-500" />
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted">
+          <MimeIcon mime={doc.mimeType} className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{filename}</p>
-          <p className="truncate text-xs text-zinc-500">{humanSize(doc.sizeBytes)}</p>
+          <p className="truncate text-xs text-muted-foreground">{humanSize(doc.sizeBytes)}</p>
         </div>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
           title="Open in new tab"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
         >
           <ExternalLink className="h-3.5 w-3.5" />
           Open
@@ -1148,7 +1148,7 @@ function PreviewModal({
         <a
           href={url}
           download={filename}
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
         >
           <Download className="h-3.5 w-3.5" />
           Download
@@ -1157,7 +1157,7 @@ function PreviewModal({
       <iframe
         src={url}
         title={filename}
-        className="flex-1 w-full bg-white dark:bg-zinc-950"
+        className="flex-1 w-full bg-background"
       />
     </div>
   )
@@ -1241,17 +1241,17 @@ function MoveDialog({
           className={cn(
             'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
             selectedId === f.id
-              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200'
+              ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
               : disabledIds.has(f.id)
-                ? 'cursor-not-allowed text-zinc-300 dark:text-zinc-600'
-                : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                ? 'cursor-not-allowed text-muted-foreground/50'
+                : 'hover:bg-muted'
           )}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
-          <Folder className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
+          <Folder className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
           <span className="truncate">{f.name}</span>
           {f.id === currentLocationId && (
-            <span className="ml-auto text-[10px] text-zinc-400">current</span>
+            <span className="ml-auto text-[10px] text-muted-foreground/70">current</span>
           )}
         </button>
         {renderTree(f.id, depth + 1)}
@@ -1266,11 +1266,11 @@ function MoveDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-card shadow-pop border-border bg-card"
       >
-        <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <div className="border-b border-border px-4 py-3 border-border">
           <h3 className="text-sm font-semibold">Move to folder</h3>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {target.kind === 'document' ? target.filename : target.name}
           </p>
         </div>
@@ -1282,35 +1282,35 @@ function MoveDialog({
             className={cn(
               'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
               selectedId === null
-                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200'
-                : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
+                : 'hover:bg-muted'
             )}
           >
-            <Home className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
+            <Home className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
             <span className="font-medium">Root (Documents)</span>
             {currentLocationId === null && (
-              <span className="ml-auto text-[10px] text-zinc-400">current</span>
+              <span className="ml-auto text-[10px] text-muted-foreground/70">current</span>
             )}
           </button>
           {renderTree(null, 0)}
           {folders.length === 0 && (
-            <p className="px-2 py-4 text-xs text-zinc-400">
+            <p className="px-2 py-4 text-xs text-muted-foreground/70">
               No folders yet. Cancel and create one first.
             </p>
           )}
         </div>
 
         {error && (
-          <div className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <div className="border-t border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             {error}
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 border-border">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
           >
             Cancel
           </button>
@@ -1318,7 +1318,7 @@ function MoveDialog({
             type="button"
             onClick={() => onMove(selectedId)}
             disabled={pending || selectedId === currentLocationId}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {pending ? 'Moving…' : 'Move here'}
           </button>

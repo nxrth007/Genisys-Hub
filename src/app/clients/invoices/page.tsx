@@ -150,7 +150,7 @@ export default function InvoicesPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/clients"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted text-foreground/85 hover:bg-muted"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to Clients
@@ -158,12 +158,12 @@ export default function InvoicesPage() {
       </div>
 
       <header className="flex items-start gap-3">
-        <div className="rounded-lg bg-amber-50 p-2.5 dark:bg-amber-950">
-          <Receipt className="h-6 w-6 text-amber-600" />
+        <div className="rounded-lg bg-warning/15 p-2.5 bg-warning/15">
+          <Receipt className="h-6 w-6 text-warning" />
         </div>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Every PPA invoice the automation has generated. Most recent
             first.
           </p>
@@ -185,7 +185,7 @@ export default function InvoicesPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 border-border bg-card">
         <FilterSelect
           label="Client"
           value={clientFilter}
@@ -208,7 +208,7 @@ export default function InvoicesPage() {
       </div>
 
       {isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error instanceof Error ? error.message : 'Failed to load'}
         </div>
@@ -220,14 +220,14 @@ export default function InvoicesPage() {
           Loading invoices…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-          <Receipt className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
+        <div className="rounded-lg border border-dashed border-border bg-surface-muted p-8 text-center text-sm text-muted-foreground border-border bg-card text-muted-foreground">
+          <Receipt className="mx-auto mb-2 h-6 w-6 text-muted-foreground/70" />
           No invoices match these filters.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card border-border bg-card">
           <table className="w-full text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+            <thead className="border-b border-border bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
               <tr>
                 <th className="px-4 py-2 text-left font-semibold">Client</th>
                 <th className="px-4 py-2 text-left font-semibold">Cycle</th>
@@ -243,7 +243,7 @@ export default function InvoicesPage() {
               {filtered.map((inv) => (
                 <tr
                   key={inv.id}
-                  className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                  className="border-b border-border-soft last:border-0 border-border"
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -255,7 +255,7 @@ export default function InvoicesPage() {
                       <span className="font-medium">{inv.client.name}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {formatRange(inv.cycleStartAt, inv.cycleEndAt)}
                   </td>
                   <td className="px-4 py-3 tabular-nums font-semibold">
@@ -267,7 +267,7 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3">
                     {inv.emailSentAt ? (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-success"
                         title={new Date(inv.emailSentAt).toLocaleString()}
                       >
                         <CheckCircle2 className="h-3 w-3" />
@@ -275,10 +275,10 @@ export default function InvoicesPage() {
                       </span>
                     ) : inv.deliveryError === 'overflow' ||
                       inv.deliveryError === 'missing_contact_info' ? (
-                      <span className="text-[11px] text-zinc-400">—</span>
+                      <span className="text-[11px] text-muted-foreground/70">—</span>
                     ) : (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive"
                         title={inv.deliveryError || 'Not sent'}
                       >
                         <X className="h-3 w-3" />
@@ -289,7 +289,7 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3">
                     {inv.smsSentAt ? (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-success"
                         title={new Date(inv.smsSentAt).toLocaleString()}
                       >
                         <CheckCircle2 className="h-3 w-3" />
@@ -297,10 +297,10 @@ export default function InvoicesPage() {
                       </span>
                     ) : inv.deliveryError === 'overflow' ||
                       inv.deliveryError === 'missing_contact_info' ? (
-                      <span className="text-[11px] text-zinc-400">—</span>
+                      <span className="text-[11px] text-muted-foreground/70">—</span>
                     ) : (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive"
                         title={inv.deliveryError || 'Not sent'}
                       >
                         <X className="h-3 w-3" />
@@ -308,7 +308,7 @@ export default function InvoicesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-xs text-zinc-500">
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
                     {new Date(inv.createdAt).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -321,12 +321,12 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           onClick={() => copyLink(inv.id, inv.paymentLink)}
-                          className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground/85 transition hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
                           title="Copy QuickBooks payment link"
                         >
                           {copiedId === inv.id ? (
                             <>
-                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                              <CheckCircle2 className="h-3 w-3 text-success" />
                               Copied
                             </>
                           ) : (
@@ -342,7 +342,7 @@ export default function InvoicesPage() {
                           type="button"
                           onClick={() => resendMutation.mutate(inv.id)}
                           disabled={resendMutation.isPending}
-                          className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition hover:bg-primary-soft disabled:opacity-50 border-primary/30 bg-primary-soft text-primary"
                           title="Re-attempt email + SMS delivery"
                         >
                           {resendMutation.isPending &&
@@ -366,8 +366,8 @@ export default function InvoicesPage() {
       {/* Footer explainer for the overflow / missing-contact rows.
           These are the cases where the automation deliberately
           didn't auto-send — admin needs to know what to do. */}
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-        <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+      <div className="rounded-lg border border-border bg-surface-muted p-4 text-xs text-muted-foreground border-border bg-card text-muted-foreground">
+        <p className="font-semibold text-foreground/85">
           Reading the delivery columns
         </p>
         <ul className="mt-2 space-y-1">
@@ -402,13 +402,13 @@ function SummaryCard({
       className={cn(
         'rounded-xl border p-3',
         tone === 'emerald'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+          ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
           : tone === 'rose'
-            ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
-            : 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200',
+            ? 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
+            : 'border-border bg-card text-foreground border-border bg-card text-foreground',
       )}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+      <p className="eyebrow opacity-70">
         {label}
       </p>
       <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
@@ -428,12 +428,12 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+    <label className="flex items-center gap-1.5 eyebrow text-muted-foreground">
       {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 focus:border-blue-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground/85 transition hover:bg-muted focus:border-primary/50 focus:outline-none border-border bg-surface-muted text-foreground"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

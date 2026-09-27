@@ -514,10 +514,10 @@ export default function TodayPage() {
                 "+ New task" per Alex's spec. */}
             <Link
               href="/follow-ups"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
               title="Prospects who need a nudge — from Gmail + GHL"
             >
-              <Sparkles className="h-4 w-4 text-amber-500" />
+              <Sparkles className="h-4 w-4 text-warning" />
               Follow-ups
             </Link>
             <button
@@ -528,7 +528,7 @@ export default function TodayPage() {
                   setShowAdd(true)
                 }
               }}
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-primary/90"
+              className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-primary-foreground shadow-soft transition hover:bg-foreground/90"
               title={
                 pinnedDbId
                   ? 'Add a task to the "To Do" column on the pinned board'
@@ -678,9 +678,9 @@ export default function TodayPage() {
         </div>
       ) : (
         // Local task list — styled to mirror the mockup's checklist
-        // card: rounded-2xl, bg-card, shadow-soft, "Add a task" footer
+        // card: rounded-xl, bg-card, shadow-soft, "Add a task" footer
         // row that opens the same modal the header button does.
-        <section className="rounded-2xl border border-border bg-card p-2 shadow-soft">
+        <section className="rounded-xl border border-border bg-card p-2 shadow-soft">
           <div className="flex items-center justify-between border-b border-border-soft px-3 py-2">
             <h3 className="text-sm font-semibold">
               Tasks
@@ -713,7 +713,7 @@ export default function TodayPage() {
               </div>
             ) : incompleteTasks.length === 0 ? (
               <div className="px-5 py-12 text-center">
-                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-500/60" />
+                <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-success/60" />
                 {tasks.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No tasks yet. Click &ldquo;New task&rdquo; to get
@@ -806,12 +806,12 @@ export default function TodayPage() {
         </div>
 
         {calQuery.isLoading ? (
-          <div className="rounded-2xl border border-border bg-card p-5 text-center text-sm text-muted-foreground shadow-soft">
+          <div className="rounded-xl border border-border bg-card p-5 text-center text-sm text-muted-foreground shadow-soft">
             Loading calendar…
           </div>
         ) : calQuery.isError ? (
-          <div className="flex items-start gap-2 rounded-2xl border border-border-soft bg-surface-muted p-4 text-sm">
-            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+          <div className="flex items-start gap-2 rounded-xl border border-border-soft bg-surface-muted p-4 text-sm">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
             <div>
               <div className="font-medium">Calendar unavailable</div>
               <div className="mt-1 text-xs text-muted-foreground">
@@ -824,7 +824,7 @@ export default function TodayPage() {
             </div>
           </div>
         ) : events.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center shadow-soft">
+          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center shadow-soft">
             <Calendar className="mx-auto h-7 w-7 text-muted-foreground/40" />
             <p className="mt-2 text-sm text-muted-foreground">
               {scope === 'Daily'
@@ -856,7 +856,7 @@ export default function TodayPage() {
                 <li
                   key={ev.id || i}
                   className={cn(
-                    'flex items-center gap-4 rounded-2xl border px-4 py-3 transition',
+                    'flex items-center gap-4 rounded-xl border px-4 py-3 transition',
                     isFirst
                       ? 'border-primary/20 bg-primary-soft'
                       : 'border-border bg-card shadow-soft hover:bg-surface-muted'
@@ -899,7 +899,7 @@ export default function TodayPage() {
                   <div className="flex flex-shrink-0 items-center gap-2">
                     {meetingEndedLongAgo && (
                       <span
-                        className="inline-flex items-center rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white"
+                        className="inline-flex items-center rounded-lg bg-destructive px-2.5 py-1 eyebrow text-destructive-foreground"
                         title={
                           ev.endTime
                             ? `Meeting ended at ${formatTime(ev.endTime)} (10+ min ago)`
@@ -917,9 +917,9 @@ export default function TodayPage() {
                       // the layout stays consistent across rows.
                       <span
                         className={cn(
-                          'rounded-full px-4 py-1.5 text-xs font-semibold',
+                          'rounded-lg px-4 py-1.5 text-xs font-semibold',
                           isFirst
-                            ? 'bg-primary text-primary-foreground'
+                            ? 'bg-foreground text-primary-foreground'
                             : 'border border-border bg-card text-foreground/80'
                         )}
                       >
@@ -1007,11 +1007,11 @@ function TaskRow({
           // through or greyed out." Mostly a transient state since
           // completed tasks roll off the view, but un-checking
           // briefly shows it too.
-          <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500">
-            <Check className="h-3 w-3 text-white" strokeWidth={3} />
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-success">
+            <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
           </span>
         ) : (
-          <Circle className="h-5 w-5 text-zinc-400 hover:text-blue-600" />
+          <Circle className="h-5 w-5 text-muted-foreground/70 hover:text-primary" />
         )}
       </button>
 
@@ -1023,17 +1023,17 @@ function TaskRow({
       >
         <div className="text-sm font-medium">
           {task.priority === 'high' && (
-            <span className="text-red-500 mr-1">!</span>
+            <span className="text-destructive mr-1">!</span>
           )}
           {task.title}
         </div>
         {task.notes && (
-          <div className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{task.notes}</div>
+          <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{task.notes}</div>
         )}
       </button>
 
       {task.dueAt && (
-        <div className="flex items-center gap-1 text-xs text-zinc-400 flex-shrink-0">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground/70 flex-shrink-0">
           <Clock className="h-3 w-3" />
           {formatTime(task.dueAt)}
         </div>
@@ -1042,7 +1042,7 @@ function TaskRow({
       <button
         onClick={() => deleteMutation.mutate()}
         disabled={deleteMutation.isPending}
-        className="flex-shrink-0 text-zinc-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+        className="flex-shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
         title="Delete task"
       >
         <Trash2 className="h-4 w-4" />
@@ -1095,7 +1095,7 @@ function AssigneePill({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+        className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
       >
         <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-muted-foreground">Assignee:</span>
@@ -1108,7 +1108,7 @@ function AssigneePill({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-border bg-card shadow-lg">
+          <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-border bg-card shadow-pop">
             <button
               type="button"
               onClick={() => {
@@ -1164,7 +1164,7 @@ function AssigneePill({
                   value === u.id && 'bg-muted/60 font-semibold',
                 )}
               >
-                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
+                <span className="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full bg-foreground text-[10px] font-bold text-background">
                   {firstNameOf(u)[0].toUpperCase()}
                 </span>
                 <span className="truncate">{firstNameOf(u)}</span>
@@ -1242,7 +1242,7 @@ function TaskDetailModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-lg rounded-t-2xl border border-border bg-card shadow-2xl sm:rounded-2xl"
+        className="w-full max-w-lg rounded-t-2xl border border-border bg-card shadow-pop sm:rounded-2xl"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h3 className="text-sm font-semibold">Task details</h3>
@@ -1258,7 +1258,7 @@ function TaskDetailModal({
 
         <div className="space-y-3 p-5">
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="mb-1 block eyebrow text-muted-foreground">
               Title
             </label>
             <input
@@ -1270,7 +1270,7 @@ function TaskDetailModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="mb-1 block eyebrow text-muted-foreground">
               Notes
             </label>
             <textarea
@@ -1283,7 +1283,7 @@ function TaskDetailModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="mb-1 block eyebrow text-muted-foreground">
                 Due date
               </label>
               <input
@@ -1294,7 +1294,7 @@ function TaskDetailModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <label className="mb-1 block eyebrow text-muted-foreground">
                 Priority
               </label>
               <select
@@ -1312,7 +1312,7 @@ function TaskDetailModal({
           </div>
 
           {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               {error}
             </div>
           )}
@@ -1329,7 +1329,7 @@ function TaskDetailModal({
               type="button"
               onClick={save}
               disabled={submitting || !title.trim()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? 'Saving…' : 'Save'}
             </button>
@@ -1375,12 +1375,12 @@ function AddTaskModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+      <div className="relative w-full max-w-md rounded-xl bg-card p-6 shadow-pop bg-card">
         <div className="flex items-start justify-between mb-4">
           <h3 className="text-lg font-semibold">Add task</h3>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted"
           >
             <X className="h-5 w-5" />
           </button>
@@ -1395,7 +1395,7 @@ function AddTaskModal({
               placeholder="What needs to get done?"
               required
               autoFocus
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
@@ -1405,7 +1405,7 @@ function AddTaskModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Additional context"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
@@ -1420,11 +1420,11 @@ function AddTaskModal({
                     'rounded-md px-3 py-1.5 text-xs font-medium border transition-colors',
                     priority === p
                       ? p === 'high'
-                        ? 'border-red-300 bg-red-50 text-red-700'
+                        ? 'border-destructive/30 bg-destructive/10 text-destructive'
                         : p === 'low'
-                          ? 'border-zinc-300 bg-zinc-50 text-zinc-600'
-                          : 'border-blue-300 bg-blue-50 text-blue-700'
-                      : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
+                          ? 'border-border bg-surface-muted text-muted-foreground'
+                          : 'border-primary/30 bg-primary-soft text-primary'
+                      : 'border-border text-muted-foreground/70 hover:border-foreground/30'
                   )}
                 >
                   {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -1436,14 +1436,14 @@ function AddTaskModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="rounded-md px-4 py-2 text-sm font-medium text-foreground/85 hover:bg-muted text-foreground/85 hover:bg-muted"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !title.trim()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting ? 'Adding…' : 'Add task'}
             </button>
@@ -1474,9 +1474,9 @@ function JoinButton({
       rel={link.kind === 'phone' ? undefined : 'noopener noreferrer'}
       title={link.url}
       className={cn(
-        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition',
+        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-semibold transition',
         highlighted
-          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+          ? 'bg-foreground text-primary-foreground hover:bg-foreground/90'
           : 'border border-border bg-card text-foreground/80 hover:bg-muted'
       )}
     >

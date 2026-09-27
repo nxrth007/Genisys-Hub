@@ -228,7 +228,7 @@ function RemindersView() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or phone…"
-            className="w-full rounded-full border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary focus:outline-none"
+            className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary focus:outline-none"
           />
         </form>
       </div>
@@ -239,18 +239,18 @@ function RemindersView() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : query.isError ? (
-        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+        <div className="rounded-xl border border-border bg-card p-6 text-sm text-destructive">
           Couldn&apos;t load reminders. Try refreshing.
         </div>
       ) : reminders.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
           <MessagesSquare className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
             No reminders match these filters.
           </p>
         </div>
       ) : (
-        <ul className="divide-y divide-border-soft overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+        <ul className="divide-y divide-border-soft overflow-hidden rounded-xl border border-border bg-card shadow-soft">
           {reminders.map((r) => (
             <ReminderRow
               key={r.id}
@@ -405,7 +405,7 @@ function ReminderRow({
               }}
               disabled={cancelMutation.isPending}
               title="Pause — cancel this pending reminder so it doesn't fire."
-              className="rounded p-1.5 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-950/40"
+              className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 hover:bg-destructive/10"
             >
               <Ban className="h-3.5 w-3.5" />
             </button>
@@ -424,7 +424,7 @@ function ReminderRow({
               }}
               disabled={resumeMutation.isPending}
               title="Resume — flip back to pending. Dispatcher will pick it up at scheduledFor."
-              className="rounded p-1.5 text-muted-foreground hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 dark:hover:bg-blue-950/40"
+              className="rounded p-1.5 text-muted-foreground hover:bg-primary-soft hover:text-primary disabled:opacity-50 hover:bg-primary-soft/40"
             >
               {resumeMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -439,7 +439,7 @@ function ReminderRow({
               onClick={() => sendNowMutation.mutate()}
               disabled={sendNowMutation.isPending}
               title="Send now"
-              className="rounded p-1.5 text-muted-foreground hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50 dark:hover:bg-emerald-950/40"
+              className="rounded p-1.5 text-muted-foreground hover:bg-success/15 hover:text-success disabled:opacity-50 hover:bg-success/10"
             >
               {sendNowMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -464,7 +464,7 @@ function ReminderRow({
       {expanded && (
         <div className="mt-3 grid gap-3 rounded-xl border border-border-soft bg-surface-muted p-3 text-xs sm:grid-cols-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="eyebrow text-muted-foreground">
               Sent at
             </p>
             <p className="mt-0.5 tabular-nums">
@@ -480,13 +480,13 @@ function ReminderRow({
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="eyebrow text-muted-foreground">
               Customer timezone
             </p>
             <p className="mt-0.5">{reminder.customerTimezone}</p>
           </div>
           <div className="sm:col-span-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="eyebrow text-muted-foreground">
               Message body
             </p>
             <p className="mt-0.5 whitespace-pre-wrap rounded-md border border-border-soft bg-card p-2 font-mono">
@@ -496,11 +496,11 @@ function ReminderRow({
           </div>
           {reminder.errorMessage && (
             <div className="sm:col-span-2">
-              <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-rose-600">
+              <p className="flex items-center gap-1 eyebrow text-destructive">
                 <AlertCircle className="h-3 w-3" />
                 Error
               </p>
-              <p className="mt-0.5 rounded-md border border-rose-200 bg-rose-50 p-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+              <p className="mt-0.5 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive border-destructive/30 bg-destructive/10 text-destructive">
                 {reminder.errorMessage}
               </p>
             </div>
@@ -528,18 +528,18 @@ function StatusChip({
 }) {
   const activeTone =
     tone === 'emerald'
-      ? 'bg-emerald-600 text-white'
+      ? 'bg-success text-success-foreground'
       : tone === 'rose'
-        ? 'bg-rose-600 text-white'
+        ? 'bg-destructive text-destructive-foreground'
         : tone === 'blue'
-          ? 'bg-blue-600 text-white'
+          ? 'bg-foreground text-background'
           : 'bg-zinc-700 text-white'
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition',
+        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition',
         active
           ? `${activeTone} border-transparent shadow-soft`
           : 'border-border bg-card text-foreground/80 hover:bg-muted'
@@ -548,8 +548,8 @@ function StatusChip({
       {label}
       <span
         className={cn(
-          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
-          active ? 'bg-white/25 text-white' : 'bg-muted text-muted-foreground'
+          'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          active ? 'bg-card/25 text-white' : 'bg-muted text-muted-foreground'
         )}
       >
         {count}
@@ -628,8 +628,8 @@ function formatTime(d: Date, timezone: string): string {
 function RemindersSkeleton() {
   return (
     <div className="mx-auto w-full max-w-[1280px] space-y-6">
-      <div className="h-9 w-full animate-pulse rounded-full bg-muted" />
-      <div className="h-64 animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+      <div className="h-9 w-full animate-pulse rounded-lg bg-muted" />
+      <div className="h-64 animate-pulse rounded-xl border border-border bg-card shadow-soft" />
     </div>
   )
 }

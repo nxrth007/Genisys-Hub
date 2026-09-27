@@ -207,12 +207,12 @@ export default function CrmPage() {
     <div className="max-w-5xl space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <MessageSquare className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+            <MessageSquare className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">CRM — GoHighLevel</h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               {rawGroups.length > 0
                 ? `${totalAll} conversation${totalAll === 1 ? '' : 's'} across ${rawGroups.length} sub-account${rawGroups.length === 1 ? '' : 's'}`
                 : 'Conversations from all your GHL sub-accounts.'}
@@ -226,7 +226,7 @@ export default function CrmPage() {
               reminder threads. */}
           <Link
             href="/crm/clients"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-purple-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-purple-600 border-border bg-card text-foreground/85 hover:bg-muted"
             title="Conversations with registered clients on the Genisys sub-account. Excludes reminder threads."
           >
             <Building2 className="h-3.5 w-3.5" />
@@ -237,7 +237,7 @@ export default function CrmPage() {
               full thread + reply UI on click. */}
           <Link
             href="/crm/messages"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-primary border-border bg-card text-foreground/85 hover:bg-muted"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             Reminder threads
@@ -252,19 +252,19 @@ export default function CrmPage() {
           search misses what's currently on screen. Same affordance
           GHL gives natively at the top of their Conversations view. */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
         <input
           type="search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search by lead name, phone, email, or message…"
-          className="w-full rounded-lg border border-zinc-200 bg-white px-9 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-lg border border-border bg-card px-9 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
         />
         {searchQuery && (
           <button
             type="button"
             onClick={() => setSearchQuery('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
             aria-label="Clear search"
           >
             <X className="h-3.5 w-3.5" />
@@ -299,24 +299,24 @@ export default function CrmPage() {
           hint="Threads the appointment-reminder system has touched. Customer SMS replies live here."
         />
         {searchActive && (
-          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+          <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-primary-soft px-2.5 py-1 text-xs font-medium text-primary bg-primary-soft text-primary">
             {totalConvos} match{totalConvos === 1 ? '' : 'es'} for &quot;{searchQuery.trim()}&quot;
           </span>
         )}
       </div>
 
       {isLoading ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground border-border bg-card">
           Loading conversations from all sub-accounts…
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
-          <div className="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-6 border-warning/30 bg-warning/15">
+          <div className="flex items-start gap-3 text-sm text-warning">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div>
               <div className="font-medium">Could not load conversations</div>
               <div className="text-xs mt-1">{(error as Error).message}</div>
-              <div className="text-xs mt-1 text-amber-600 dark:text-amber-300">
+              <div className="text-xs mt-1 text-warning">
                 Make sure your GHL Private Integration tokens are in the vault tagged{' '}
                 <code>ghl</code>.
               </div>
@@ -329,12 +329,12 @@ export default function CrmPage() {
         // their GHL is connected, they just couldn't find a
         // matching thread. Tell them to widen with Load more
         // (older history isn't loaded yet) or adjust the term.
-        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
-          <Search className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
+        <div className="rounded-xl border border-border bg-card px-6 py-12 text-center border-border bg-card">
+          <Search className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
           <p className="text-sm font-medium">
             No conversations match &quot;{searchQuery.trim()}&quot;
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Search runs across the conversations already loaded. If the
             lead is older, clear the search and use &quot;Load more&quot;
             on the relevant sub-account to pull in more history, then
@@ -343,7 +343,7 @@ export default function CrmPage() {
           <button
             type="button"
             onClick={() => setSearchQuery('')}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted border-border text-foreground/85 hover:bg-muted"
           >
             <X className="h-3 w-3" />
             Clear search
@@ -351,9 +351,9 @@ export default function CrmPage() {
         </div>
       ) : groups.length === 0 ? (
         <div className="space-y-3">
-          <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
-            <Building2 className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
-            <p className="text-sm text-zinc-500">
+          <div className="rounded-xl border border-border bg-card px-6 py-12 text-center border-border bg-card">
+            <Building2 className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+            <p className="text-sm text-muted-foreground">
               {discoveredEntries === 0 ? (
                 <>No vault entries tagged <code>ghl</code> were found.</>
               ) : (
@@ -366,13 +366,13 @@ export default function CrmPage() {
           </div>
 
           {resolutionErrors.length > 0 && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
-              <h3 className="font-semibold text-sm text-red-900 dark:text-red-200 mb-2">
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 border-destructive/30 bg-destructive/10">
+              <h3 className="font-semibold text-sm text-destructive mb-2">
                 Resolution errors
               </h3>
               <ul className="space-y-2 text-xs">
                 {resolutionErrors.map((re) => (
-                  <li key={re.vaultName} className="text-red-800 dark:text-red-300">
+                  <li key={re.vaultName} className="text-destructive">
                     <span className="font-mono font-semibold">{re.vaultName}</span>: {re.error}
                   </li>
                 ))}
@@ -427,26 +427,26 @@ function SubAccountGroup({
   )
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+    <section className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+        className="flex w-full items-center justify-between px-5 py-3 hover:bg-muted hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-3">
           {expanded ? (
-            <ChevronDown className="h-4 w-4 text-zinc-400" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground/70" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-zinc-400" />
+            <ChevronRight className="h-4 w-4 text-muted-foreground/70" />
           )}
-          <Building2 className="h-4 w-4 text-blue-600" />
+          <Building2 className="h-4 w-4 text-primary" />
           <h3 className="font-semibold text-sm">{group.subAccount.locationName}</h3>
-          <span className="text-xs text-zinc-400">
+          <span className="text-xs text-muted-foreground/70">
             ({convos.length} {convos.length === 1 ? 'conversation' : 'conversations'})
           </span>
         </div>
         {totalUnread > 0 && (
           <span
-            className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white shadow-sm"
+            className="inline-flex min-w-[20px] items-center justify-center rounded-md bg-foreground px-1.5 py-0.5 text-[11px] font-bold text-background"
             title={`${totalUnread} unread message${totalUnread === 1 ? '' : 's'} in this sub-account`}
           >
             {totalUnread}
@@ -455,18 +455,18 @@ function SubAccountGroup({
       </button>
 
       {expanded && (
-        <div className="border-t border-zinc-100 dark:border-zinc-800">
+        <div className="border-t border-border">
           {group.error ? (
-            <div className="px-5 py-4 text-xs text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-300">
+            <div className="px-5 py-4 text-xs text-destructive bg-destructive/10 text-destructive">
               Error: {group.error}
             </div>
           ) : convos.length === 0 ? (
-            <div className="px-5 py-6 text-center text-xs text-zinc-500">
+            <div className="px-5 py-6 text-center text-xs text-muted-foreground">
               No conversations yet.
             </div>
           ) : (
             <>
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <div className="divide-y divide-border-soft">
                 {convos.map((conv) => (
                   <ConversationRow
                     key={conv.id}
@@ -479,12 +479,12 @@ function SubAccountGroup({
                   conversations available (nextCursor present). Hidden
                   when we've paged to the end of history. */}
               {onLoadMore && (
-                <div className="border-t border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                <div className="border-t border-border-soft px-5 py-3 border-border">
                   <button
                     type="button"
                     onClick={onLoadMore}
                     disabled={isLoadingMore}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-muted"
                   >
                     {isLoadingMore ? (
                       <>
@@ -520,33 +520,33 @@ function ConversationRow({
   return (
     <Link
       href={href}
-      className="flex items-start gap-4 px-5 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      className="flex items-start gap-4 px-5 py-3 transition-colors hover:bg-muted hover:bg-muted/50"
     >
-      <div className="rounded-full bg-zinc-100 p-2 dark:bg-zinc-800 flex-shrink-0">
-        <User className="h-4 w-4 text-zinc-500" />
+      <div className="rounded-full bg-muted p-2 bg-surface-muted flex-shrink-0">
+        <User className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{name}</span>
           {(conversation.unreadCount ?? 0) > 0 && (
             <span
-              className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white shadow-sm"
+              className="inline-flex min-w-[18px] items-center justify-center rounded-md bg-foreground px-1.5 py-0.5 text-[11px] font-bold text-background"
               title={`${conversation.unreadCount} unread message${conversation.unreadCount === 1 ? '' : 's'}`}
             >
               {conversation.unreadCount}
             </span>
           )}
           {conversation.lastMessageType && (
-            <span className="text-[10px] text-zinc-400 uppercase tracking-wide">
+            <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">
               {cleanMessageType(conversation.lastMessageType)}
             </span>
           )}
         </div>
-        <p className="text-xs text-zinc-500 truncate mt-0.5">
+        <p className="text-xs text-muted-foreground truncate mt-0.5">
           {conversation.lastMessageBody || 'No messages yet'}
         </p>
       </div>
-      <span className="text-[11px] text-zinc-400 whitespace-nowrap flex-shrink-0">
+      <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap flex-shrink-0">
         {conversation.lastMessageDate ? formatRelative(conversation.lastMessageDate) : ''}
       </span>
     </Link>
@@ -572,19 +572,19 @@ function FilterChip({
       onClick={onClick}
       title={hint}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition',
+        'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition',
         active
-          ? 'border-blue-600 bg-blue-600 text-white'
-          : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800',
+          ? 'border-primary bg-foreground text-background'
+          : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted',
       )}
     >
       {label}
       <span
         className={cn(
-          'inline-flex items-center rounded-full px-1.5 text-[10px] font-semibold',
+          'inline-flex items-center rounded-lg px-1.5 text-[10px] font-semibold',
           active
-            ? 'bg-white/20 text-white'
-            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
+            ? 'bg-card/20 text-white'
+            : 'bg-muted text-muted-foreground bg-surface-muted text-foreground/85',
         )}
       >
         {count}

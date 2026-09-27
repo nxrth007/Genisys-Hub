@@ -145,19 +145,19 @@ export default function VicidialUsersPage() {
     <div className="space-y-6 p-6">
       <Link
         href="/agents"
-        className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to Agents
       </Link>
 
       <header className="flex items-start gap-3">
-        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-          <Users className="h-6 w-6 text-blue-600" />
+        <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+          <Users className="h-6 w-6 text-primary" />
         </div>
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Vicidial Users</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             Live mirror of the BPO&apos;s dialer Users listing. Cross-
             referenced against Hub Team #1 assignments so unlinked numbers
             are visible at a glance.
@@ -170,16 +170,16 @@ export default function VicidialUsersPage() {
           assignment; admin should fix it before the user tries to
           dial. Only renders when both queries succeeded. */}
       {vicidialQuery.data?.ok && orphanedHubMembers.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-4 border-warning/30 bg-warning/15">
           <div className="flex items-start gap-2">
-            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
             <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              <p className="text-sm font-semibold text-warning">
                 {orphanedHubMembers.length} Hub team member
                 {orphanedHubMembers.length === 1 ? '' : 's'} with no matching
                 Vicidial user
               </p>
-              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+              <p className="mt-1 text-xs text-warning">
                 Their assigned call-center number doesn&apos;t appear in
                 Vicidial&apos;s Users list. Update the number in{' '}
                 <Link
@@ -192,9 +192,9 @@ export default function VicidialUsersPage() {
               </p>
               <ul className="mt-2 space-y-0.5 text-xs">
                 {orphanedHubMembers.map((m) => (
-                  <li key={m.id} className="font-mono text-amber-900 dark:text-amber-200">
+                  <li key={m.id} className="font-mono text-warning">
                     {m.name ?? '(no name)'} →{' '}
-                    <span className="rounded bg-amber-100 px-1 dark:bg-amber-900">
+                    <span className="rounded bg-warning/15 px-1 bg-warning/15">
                       {m.callCenterNumber}
                     </span>
                   </li>
@@ -218,7 +218,7 @@ export default function VicidialUsersPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 border-border bg-card">
         <FilterSelect
           label="Status"
           value={filter}
@@ -229,20 +229,20 @@ export default function VicidialUsersPage() {
             { value: 'inactive', label: 'Inactive' },
           ]}
         />
-        <div className="relative flex flex-1 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-800">
-          <Search className="h-3.5 w-3.5 text-zinc-400" />
+        <div className="relative flex flex-1 items-center gap-2 rounded-md border border-border bg-surface-muted px-2 py-1 border-border bg-surface-muted">
+          <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search user ID, name, group…"
-            className="w-full bg-transparent text-xs outline-none placeholder:text-zinc-400"
+            className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="rounded-full p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700"
+              className="rounded-full p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted"
             >
               <X className="h-3 w-3" />
             </button>
@@ -251,28 +251,28 @@ export default function VicidialUsersPage() {
       </div>
 
       {vicidialQuery.isLoading || membersQuery.isLoading ? (
-        <div className="flex items-center justify-center py-16 text-zinc-500">
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Loading…
         </div>
       ) : vicidialQuery.data && !vicidialQuery.data.ok ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-4 border-warning/30 bg-warning/15">
           <div className="flex items-start gap-2">
-            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
             <div>
-              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              <p className="text-sm font-semibold text-warning">
                 Couldn&apos;t load Vicidial users
               </p>
-              <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+              <p className="mt-1 text-xs text-warning">
                 {vicidialQuery.data.error}
               </p>
             </div>
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-x-auto rounded-xl border border-border bg-card border-border bg-card">
           <table className="w-full text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+            <thead className="border-b border-border bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
               <tr>
                 <th className="px-4 py-2 text-left font-semibold">User ID</th>
                 <th className="px-4 py-2 text-left font-semibold">Full name</th>
@@ -288,24 +288,24 @@ export default function VicidialUsersPage() {
                 return (
                   <tr
                     key={u.userId}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                    className="border-b border-border-soft last:border-0 border-border"
                   >
                     <td className="px-4 py-2 font-mono text-xs">{u.userId}</td>
                     <td className="px-4 py-2 font-medium">{u.fullName}</td>
                     <td className="px-4 py-2 tabular-nums">
                       {u.userLevel ?? '—'}
                     </td>
-                    <td className="px-4 py-2 text-zinc-600 dark:text-zinc-400">
+                    <td className="px-4 py-2 text-muted-foreground">
                       {u.userGroup}
                     </td>
                     <td className="px-4 py-2">
                       {u.active ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-success">
                           <CheckCircle2 className="h-3 w-3" />
                           Yes
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-400">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground/70">
                           <X className="h-3 w-3" />
                           No
                         </span>
@@ -315,12 +315,12 @@ export default function VicidialUsersPage() {
                       {link ? (
                         <Link
                           href={`/admin/team-members`}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline text-primary"
                         >
                           {link.name ?? '(no name)'}
                         </Link>
                       ) : (
-                        <span className="text-[11px] text-zinc-400">
+                        <span className="text-[11px] text-muted-foreground/70">
                           unlinked
                         </span>
                       )}
@@ -332,7 +332,7 @@ export default function VicidialUsersPage() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-4 py-8 text-center text-xs text-zinc-500"
+                    className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
                     No users match these filters.
                   </td>
@@ -344,7 +344,7 @@ export default function VicidialUsersPage() {
       )}
 
       {vicidialQuery.data?.ok && (
-        <p className="text-center text-[10px] text-zinc-400">
+        <p className="text-center text-[10px] text-muted-foreground/70">
           Display only. Mirror refreshes every 5 minutes — last update{' '}
           {formatRelative(vicidialQuery.data.fetchedAt)}.
         </p>
@@ -367,15 +367,15 @@ function SummaryCard({
       className={cn(
         'rounded-xl border p-3',
         tone === 'emerald'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+          ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
           : tone === 'blue'
-            ? 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
+            ? 'border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary'
             : tone === 'zinc'
-              ? 'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300'
-              : 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200',
+              ? 'border-border bg-surface-muted text-foreground/85 border-border bg-background text-foreground/85'
+              : 'border-border bg-card text-foreground border-border bg-card text-foreground',
       )}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+      <p className="eyebrow opacity-70">
         {label}
       </p>
       <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
@@ -395,12 +395,12 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+    <label className="flex items-center gap-1.5 eyebrow text-muted-foreground">
       {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 focus:border-blue-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground/85 transition hover:bg-muted focus:border-primary/50 focus:outline-none border-border bg-surface-muted text-foreground"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

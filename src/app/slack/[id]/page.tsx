@@ -115,16 +115,16 @@ export default function SlackChannelPage() {
   return (
     <div className="flex h-[calc(100vh-7rem)] w-full flex-col">
       {/* ---- Header --------------------------------------------------- */}
-      <div className="mb-3 flex items-start gap-3 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+      <div className="mb-3 flex items-start gap-3 border-b border-border pb-3 border-border">
         <button
           onClick={() => router.push('/slack')}
-          className="mt-0.5 rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="mt-0.5 rounded-md p-1.5 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
           aria-label="Back to channels"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-          <Hash className="h-4 w-4 text-zinc-500" />
+        <div className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg bg-surface-muted">
+          <Hash className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -132,14 +132,14 @@ export default function SlackChannelPage() {
               {channelName}
             </h2>
             {memberCount > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground bg-surface-muted text-foreground/85">
                 <Users className="h-3 w-3" />
                 {memberCount}
               </span>
             )}
           </div>
           {channelTopic && (
-            <p className="mt-0.5 truncate text-xs text-zinc-500">
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {channelTopic}
             </p>
           )}
@@ -147,18 +147,18 @@ export default function SlackChannelPage() {
       </div>
 
       {/* ---- Messages ------------------------------------------------- */}
-      <div className="flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex-1 overflow-y-auto rounded-xl border border-border bg-card border-border bg-card">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             Loading messages…
           </div>
         ) : error ? (
-          <div className="p-6 text-center text-sm text-red-600">
+          <div className="p-6 text-center text-sm text-destructive">
             {(error as Error).message}
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-500">
-            <MessageSquare className="h-8 w-8 text-zinc-300" />
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+            <MessageSquare className="h-8 w-8 text-muted-foreground/50" />
             <p>No messages in this channel yet.</p>
           </div>
         ) : (
@@ -175,7 +175,7 @@ export default function SlackChannelPage() {
         }}
         className="mt-3"
       >
-        <div className="flex items-end gap-2 rounded-xl border border-zinc-200 bg-white p-2 shadow-sm focus-within:border-blue-500 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2 focus-within:border-blue-500 border-border bg-card">
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
@@ -189,7 +189,7 @@ export default function SlackChannelPage() {
             type="submit"
             disabled={sendMutation.isPending || !reply.trim()}
             className={cn(
-              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50'
+              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 py-2 text-sm font-medium text-background transition hover:bg-foreground/90 disabled:opacity-50'
             )}
           >
             <Send className="h-3.5 w-3.5" />
@@ -199,7 +199,7 @@ export default function SlackChannelPage() {
       </form>
 
       {sendMutation.isError && (
-        <p className="mt-2 text-xs text-red-500">
+        <p className="mt-2 text-xs text-destructive">
           Failed: {(sendMutation.error as Error).message}
         </p>
       )}
@@ -249,11 +249,11 @@ function MessageList({
               key={item.key}
               className="my-3 flex items-center gap-3 first:mt-0"
             >
-              <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+              <div className="h-px flex-1 bg-muted bg-surface-muted" />
+              <span className="rounded-lg border border-border bg-card px-2.5 py-0.5 eyebrow text-muted-foreground border-border bg-card text-muted-foreground">
                 {item.label}
               </span>
-              <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-px flex-1 bg-muted bg-surface-muted" />
             </div>
           )
         }
@@ -325,7 +325,7 @@ function MessageGroup({
       <div className="min-w-0">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-semibold">{group.authorName}</span>
-          <span className="text-[11px] text-zinc-400">
+          <span className="text-[11px] text-muted-foreground/70">
             {formatMsgTime(group.timestamp)}
           </span>
         </div>
@@ -335,7 +335,7 @@ function MessageGroup({
             {!!m.replyCount && m.replyCount > 0 && (
               <button
                 type="button"
-                className="mt-1 inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:bg-blue-950"
+                className="mt-1 inline-flex items-center gap-1 rounded-md bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary transition hover:bg-primary-soft text-primary hover:bg-primary-soft"
                 title="Thread navigation coming soon"
               >
                 <MessageSquare className="h-3 w-3" />
@@ -378,7 +378,7 @@ function SlackText({
 }) {
   const lines = decodeSlackEntities(text).split('\n')
   return (
-    <div className="break-words text-zinc-700 dark:text-zinc-300">
+    <div className="break-words text-foreground/85">
       {lines.map((line, i) => (
         <p key={i} className={i > 0 ? 'mt-1' : ''}>
           {line.length === 0 ? ' ' : renderInline(line, userMap)}
@@ -478,7 +478,7 @@ function renderMrkdwn(s: string): ReactNode[] {
     {
       re: /`([^`\n]+)`/,
       wrap: (c) => (
-        <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[12.5px] text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12.5px] text-foreground bg-surface-muted text-foreground">
           {c}
         </code>
       ),
@@ -546,7 +546,7 @@ function decodeSlackEntities(s: string): string {
 
 function Mention({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded bg-blue-100 px-1 py-0.5 text-[13px] font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
+    <span className="rounded bg-primary-soft px-1 py-0.5 text-[13px] font-medium text-primary bg-primary-soft text-primary">
       {children}
     </span>
   )
@@ -566,7 +566,7 @@ function ExternalLink({
       href={href}
       target={external ? '_blank' : undefined}
       rel={external ? 'noreferrer' : undefined}
-      className="break-all text-blue-600 underline decoration-blue-200 underline-offset-2 hover:decoration-blue-500 dark:text-blue-400 dark:decoration-blue-900"
+      className="break-all text-primary underline decoration-blue-200 underline-offset-2 hover:decoration-blue-500 text-primary dark:decoration-blue-900"
     >
       {children}
     </a>

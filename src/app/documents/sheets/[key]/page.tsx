@@ -137,7 +137,7 @@ export default function PinnedSheetDetailPage({
   if (query.isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
       </div>
     )
   }
@@ -147,12 +147,12 @@ export default function PinnedSheetDetailPage({
       <div className="mx-auto max-w-2xl space-y-4 py-8">
         <Link
           href="/documents"
-          className="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Documents
         </Link>
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {(query.error as Error).message}
         </div>
       </div>
@@ -171,7 +171,7 @@ export default function PinnedSheetDetailPage({
       />
 
       {data.globalReadError && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           {data.globalReadError}
         </div>
       )}
@@ -207,7 +207,7 @@ function DetailHeader({
     <div className="space-y-3">
       <Link
         href="/documents"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to Documents
@@ -226,10 +226,10 @@ function DetailHeader({
                 {data.title}
               </h1>
               {isFetching && (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-400" />
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground/70" />
               )}
             </div>
-            <p className="mt-1 max-w-3xl text-sm text-zinc-500">
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               {data.description}
             </p>
           </div>
@@ -239,7 +239,7 @@ function DetailHeader({
             type="button"
             onClick={onRefresh}
             disabled={isFetching}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-foreground/85 hover:bg-muted disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-muted"
             title="Pull the latest values from the Google Sheet right now. The page also auto-refreshes every 60 seconds."
           >
             <RefreshCw
@@ -251,7 +251,7 @@ function DetailHeader({
             href={data.viewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
           >
             <ExternalLink className="h-3.5 w-3.5" />
             Open in Google Sheets
@@ -303,7 +303,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
             value={aggregate!.topFigure?.value ?? '—'}
             hint={aggregate!.topFigure?.label ?? 'No currency cells found'}
             accent={data.accent.badgeText}
-            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
+            icon={<TrendingUp className="h-4 w-4 text-success" />}
           />
           <KPICard
             label="Sum positive cells"
@@ -314,7 +314,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                 : undefined
             }
             accent={data.accent.badgeText}
-            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
+            icon={<TrendingUp className="h-4 w-4 text-success" />}
           />
           <KPICard
             label="Sum negative cells"
@@ -325,7 +325,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                 : undefined
             }
             accent={data.accent.badgeText}
-            icon={<TrendingDown className="h-4 w-4 text-rose-500" />}
+            icon={<TrendingDown className="h-4 w-4 text-destructive" />}
           />
           <KPICard
             label="Tabs · rows"
@@ -346,7 +346,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
 
       {/* Per-tab grid — clickable to focus iframe */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <h2 className="mb-3 eyebrow text-muted-foreground">
           Per-tab breakdown · click a tab to focus the iframe
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -356,23 +356,23 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
               type="button"
               onClick={() => setActiveGid(tab.id)}
               className={cn(
-                'rounded-xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md dark:bg-zinc-900',
+                'rounded-xl border bg-card p-4 text-left transition bg-card',
                 activeGid === tab.id
-                  ? 'border-blue-300 ring-2 ring-blue-200 dark:border-blue-800 dark:ring-blue-900'
-                  : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
+                  ? 'border-primary/30 ring-2 ring-blue-200 border-primary/30 dark:ring-blue-900'
+                  : 'border-border hover:border-foreground/30 border-border hover:border-foreground/30',
               )}
             >
               <div className="flex items-center justify-between gap-2">
                 <h3 className="truncate text-sm font-semibold">{tab.title}</h3>
                 {activeGid === tab.id && (
-                  <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                  <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
                 )}
               </div>
-              <p className="mt-1 text-[11px] text-zinc-400">
+              <p className="mt-1 text-[11px] text-muted-foreground/70">
                 {tab.rowCount} rows · {tab.columnCount} cols
               </p>
               {tab.readError ? (
-                <p className="mt-2 flex items-center gap-1 text-[11px] text-amber-700">
+                <p className="mt-2 flex items-center gap-1 text-[11px] text-warning">
                   <AlertCircle className="h-3 w-3" />
                   {tab.readError}
                 </p>
@@ -382,7 +382,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                 // the generic dollar-sign inference here would just
                 // contradict the headline numbers (it triple-counts
                 // cross-tab formula values), so we hide it.
-                <p className="mt-2 text-[11px] text-zinc-400">
+                <p className="mt-2 text-[11px] text-muted-foreground/70">
                   {data.structuredSummary.tab === tab.title
                     ? 'Source of headline KPIs above'
                     : 'Click to focus the iframe on this tab'}
@@ -394,7 +394,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                       key={`${item.label}-${i}`}
                       className="flex items-start justify-between gap-2 text-[11px]"
                     >
-                      <span className="text-zinc-500">{item.label}</span>
+                      <span className="text-muted-foreground">{item.label}</span>
                       <span
                         className={cn(
                           'flex-shrink-0 font-semibold tabular-nums',
@@ -407,7 +407,7 @@ function FinancialsDetailView({ data }: { data: DetailResponse }) {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-2 text-[11px] text-zinc-400">
+                <p className="mt-2 text-[11px] text-muted-foreground/70">
                   No headline figures detected
                 </p>
               )}
@@ -586,7 +586,7 @@ function GenericFulfillmentBody({ data }: { data: DetailResponse }) {
                       data.accent.badgeText,
                       'border-current/30',
                     )
-                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400',
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-muted-foreground',
               )}
             >
               {tab.title}{' '}
@@ -600,12 +600,12 @@ function GenericFulfillmentBody({ data }: { data: DetailResponse }) {
 
       {/* Per-row client cards */}
       {breakdown.dataRows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-6 py-10 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="rounded-xl border border-dashed border-border bg-surface-muted px-6 py-10 text-center text-sm text-muted-foreground border-border bg-background">
           No client rows detected on this tab.
         </div>
       ) : (
         <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <h2 className="mb-3 eyebrow text-muted-foreground">
             Client breakdown · every row, every filled-in field
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -715,13 +715,13 @@ function ClientRowCard({
     statusColIdx >= 0 ? row[statusColIdx]?.trim() ?? '' : ''
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold tracking-tight">{primaryName}</h3>
         {status && (
           <span
             className={cn(
-              'flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+              'flex-shrink-0 rounded-lg px-2 py-0.5 eyebrow',
               accent.badgeBg,
               accent.badgeText,
             )}
@@ -731,15 +731,15 @@ function ClientRowCard({
         )}
       </div>
       {fields.length === 0 ? (
-        <p className="mt-2 text-xs text-zinc-400">No additional fields filled.</p>
+        <p className="mt-2 text-xs text-muted-foreground/70">No additional fields filled.</p>
       ) : (
         <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
           {fields.map(({ header, value, idx }) => (
             <div key={idx} className="flex flex-col">
-              <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+              <dt className="eyebrow text-muted-foreground/70">
                 {header || `Col ${idx + 1}`}
               </dt>
-              <dd className="text-xs text-zinc-700 dark:text-zinc-300">
+              <dd className="text-xs text-foreground/85">
                 {value}
               </dd>
             </div>
@@ -770,7 +770,7 @@ function GenericDetailView({ data }: { data: DetailResponse }) {
                 'rounded-md border px-3 py-1.5 text-xs font-medium transition',
                 activeGid === tab.id
                   ? cn(data.accent.badgeBg, data.accent.badgeText)
-                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400',
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-muted-foreground',
               )}
             >
               {tab.title}
@@ -819,11 +819,11 @@ function StructuredHeadline({
           accent={accent}
           icon={
             kpi.label.toLowerCase().includes('profit') ? (
-              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              <TrendingUp className="h-4 w-4 text-success" />
             ) : kpi.label.toLowerCase().includes('expense') ? (
-              <TrendingDown className="h-4 w-4 text-rose-500" />
+              <TrendingDown className="h-4 w-4 text-destructive" />
             ) : (
-              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              <TrendingUp className="h-4 w-4 text-success" />
             )
           }
         />
@@ -855,9 +855,9 @@ function StructuredSections({
           {summary.metricSections.map((section, i) => (
             <div
               key={`${section.title}-${i}`}
-              className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+              className="rounded-xl border border-border bg-card p-4 border-border bg-card"
             >
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              <h3 className="mb-3 eyebrow text-muted-foreground">
                 {section.title}
               </h3>
               <ul className="space-y-1.5">
@@ -866,7 +866,7 @@ function StructuredSections({
                     key={`${r.label}-${j}`}
                     className="flex items-start justify-between gap-3 text-xs"
                   >
-                    <span className="text-zinc-600 dark:text-zinc-400">
+                    <span className="text-muted-foreground">
                       {r.label}
                     </span>
                     <span
@@ -888,15 +888,15 @@ function StructuredSections({
       {summary.grids.map((grid, i) => (
         <section
           key={`${grid.title}-${i}`}
-          className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+          className="rounded-xl border border-border bg-card p-4 border-border bg-card"
         >
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <h3 className="mb-3 eyebrow text-muted-foreground">
             {grid.title}
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-xs">
               <thead>
-                <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wider text-zinc-500 dark:border-zinc-800">
+                <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground border-border">
                   {grid.headers.map((h, j) => (
                     <th
                       key={`${h}-${j}`}
@@ -914,7 +914,7 @@ function StructuredSections({
                 {grid.rows.map((row, r) => (
                   <tr
                     key={r}
-                    className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                    className="border-b border-border-soft last:border-0 border-border"
                   >
                     {row.map((cell, c) => (
                       <td
@@ -933,7 +933,7 @@ function StructuredSections({
                   </tr>
                 ))}
                 {grid.totals && (
-                  <tr className="border-t-2 border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950">
+                  <tr className="border-t-2 border-border bg-surface-muted border-border bg-background">
                     {grid.totals.map((cell, c) => (
                       <td
                         key={c}
@@ -991,7 +991,7 @@ function StructuredFulfillmentBody({ data }: { data: DetailResponse }) {
           only one tab (no navigation needed). */}
       {data.tabs.length > 1 && (
         <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          <h2 className="mb-3 eyebrow text-muted-foreground">
             Tabs · click to focus the iframe
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1001,19 +1001,19 @@ function StructuredFulfillmentBody({ data }: { data: DetailResponse }) {
                 type="button"
                 onClick={() => setActiveGid(tab.id)}
                 className={cn(
-                  'rounded-xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md dark:bg-zinc-900',
+                  'rounded-xl border bg-card p-4 text-left transition bg-card',
                   activeGid === tab.id
-                    ? 'border-blue-300 ring-2 ring-blue-200 dark:border-blue-800 dark:ring-blue-900'
-                    : 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
+                    ? 'border-primary/30 ring-2 ring-blue-200 border-primary/30 dark:ring-blue-900'
+                    : 'border-border hover:border-foreground/30 border-border hover:border-foreground/30',
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="truncate text-sm font-semibold">{tab.title}</h3>
                   {activeGid === tab.id && (
-                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
                   )}
                 </div>
-                <p className="mt-1 text-[11px] text-zinc-400">
+                <p className="mt-1 text-[11px] text-muted-foreground/70">
                   {tab.rowCount} rows · {tab.columnCount} cols
                 </p>
               </button>
@@ -1044,14 +1044,14 @@ function StructuredCards({
 }) {
   return (
     <section>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      <h2 className="mb-3 eyebrow text-muted-foreground">
         Clients
       </h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {cards.map((card, i) => (
           <div
             key={`${card.title}-${i}`}
-            className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-xl border border-border bg-card p-4 border-border bg-card"
           >
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-sm font-semibold tracking-tight">
@@ -1059,7 +1059,7 @@ function StructuredCards({
               </h3>
               {card.headline && (
                 <div className="flex-shrink-0 text-right">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  <p className="eyebrow text-muted-foreground">
                     {card.headline.label}
                   </p>
                   <p
@@ -1076,14 +1076,14 @@ function StructuredCards({
 
             {card.bullets && card.bullets.items.length > 0 && (
               <div className="mt-3">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <p className="mb-1.5 eyebrow text-muted-foreground">
                   {card.bullets.sectionLabel}
                 </p>
                 <ul className="space-y-1">
                   {card.bullets.items.map((item, j) => (
                     <li
                       key={j}
-                      className="flex items-start gap-2 text-xs text-zinc-700 dark:text-zinc-300"
+                      className="flex items-start gap-2 text-xs text-foreground/85"
                     >
                       <span
                         className={cn(
@@ -1123,9 +1123,9 @@ function KPICard({
   icon?: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <p className="eyebrow text-muted-foreground">
           {label}
         </p>
         {icon}
@@ -1139,7 +1139,7 @@ function KPICard({
         {value}
       </p>
       {hint && (
-        <p className="mt-1 truncate text-[11px] text-zinc-400">{hint}</p>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground/70">{hint}</p>
       )}
     </div>
   )
@@ -1161,19 +1161,19 @@ function SheetIframe({
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <h2 className="eyebrow text-muted-foreground">
           Live editable view
           {activeTabTitle && (
-            <span className="ml-2 normal-case text-zinc-400">
+            <span className="ml-2 normal-case text-muted-foreground/70">
               · {activeTabTitle}
             </span>
           )}
         </h2>
-        <p className="text-[11px] text-zinc-400">
+        <p className="text-[11px] text-muted-foreground/70">
           Edits land directly in the source Google Sheet.
         </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
         <iframe
           key={activeGid}
           src={src}

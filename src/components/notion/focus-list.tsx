@@ -669,19 +669,19 @@ export function FocusList({
 
   if (isLoading) {
     return (
-      <div className="py-16 text-center text-sm text-zinc-400">Loading tasks…</div>
+      <div className="py-16 text-center text-sm text-muted-foreground/70">Loading tasks…</div>
     )
   }
   if (error) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="rounded-xl border border-warning/30 bg-warning/15 p-4 text-sm text-warning border-warning/30 bg-warning/15 text-warning">
         Couldn&apos;t load the pinned Notion board: {(error as Error).message}
       </div>
     )
   }
   if (!schema) {
     return (
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground border-border bg-card">
         This Notion database doesn&apos;t have a status column. Add a Status or
         Select column named &quot;Status&quot; to use the Focus view.
       </div>
@@ -848,8 +848,8 @@ export function FocusList({
         {/* ---- Assignee sidebar (hidden on /today via prop) ---- */}
         {showAssigneeSidebar && (
           <div className="lg:sticky lg:top-4 lg:self-start">
-            <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-              <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="rounded-xl border border-border bg-card p-3 border-border bg-card">
+              <div className="mb-2 flex items-center gap-1.5 px-2 eyebrow text-muted-foreground">
                 <Users className="h-3 w-3" />
                 Filter by assignee
               </div>
@@ -937,33 +937,33 @@ const SECTION_TONES: Record<
   { iconBg: string; icon: string; accent: string }
 > = {
   blue: {
-    iconBg: 'bg-blue-50 dark:bg-blue-950/50',
-    icon: 'text-blue-600',
+    iconBg: 'bg-primary-soft',
+    icon: 'text-primary',
     accent: 'before:bg-blue-500',
   },
   red: {
-    iconBg: 'bg-rose-50 dark:bg-rose-950/50',
-    icon: 'text-rose-600',
+    iconBg: 'bg-destructive/10',
+    icon: 'text-destructive',
     accent: 'before:bg-rose-500',
   },
   indigo: {
-    iconBg: 'bg-indigo-50 dark:bg-indigo-950/50',
-    icon: 'text-indigo-600',
+    iconBg: 'bg-muted dark:bg-indigo-950/50',
+    icon: 'text-foreground/80',
     accent: 'before:bg-indigo-500',
   },
   amber: {
-    iconBg: 'bg-amber-50 dark:bg-amber-950/50',
-    icon: 'text-amber-600',
+    iconBg: 'bg-warning/15',
+    icon: 'text-warning',
     accent: 'before:bg-amber-500',
   },
   emerald: {
-    iconBg: 'bg-emerald-50 dark:bg-emerald-950/50',
-    icon: 'text-emerald-600',
+    iconBg: 'bg-success/15',
+    icon: 'text-success',
     accent: 'before:bg-emerald-500',
   },
   violet: {
-    iconBg: 'bg-violet-50 dark:bg-violet-950/50',
-    icon: 'text-violet-600',
+    iconBg: 'bg-muted dark:bg-violet-950/50',
+    icon: 'text-foreground/80',
     accent: 'before:bg-violet-500',
   },
 }
@@ -1000,8 +1000,8 @@ function LeftoverCard({
   onEdit?: (id: string) => void
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/40 shadow-soft dark:border-amber-900/60 dark:bg-amber-950/20">
-      <div className="flex items-center gap-2 border-b border-amber-200/60 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:border-amber-900/40 dark:text-amber-300">
+    <div className="overflow-hidden rounded-xl border border-warning/30 bg-warning/10 shadow-soft border-warning/30 bg-warning/10">
+      <div className="flex items-center gap-2 border-b border-warning/30 px-4 py-2.5 eyebrow text-warning border-warning/30 text-warning">
         <Clock className="h-3.5 w-3.5" />
         Leftover tasks ({tasks.length})
         <span className="ml-auto text-[10px] font-normal normal-case tracking-normal text-amber-700/70 dark:text-amber-400/70">
@@ -1058,8 +1058,8 @@ function FlatChecklist({
   const total = active.length + doneInRange.length
   if (total === 0) {
     return (
-      <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="grid place-items-center px-4 py-12 text-center text-sm text-zinc-500">
+      <div className="rounded-xl border border-border bg-card shadow-soft border-border bg-card">
+        <div className="grid place-items-center px-4 py-12 text-center text-sm text-muted-foreground">
           {assigneeFilterLabel ? (
             <div className="space-y-1.5">
               <p>
@@ -1069,7 +1069,7 @@ function FlatChecklist({
                 </span>{' '}
                 in this range.
               </p>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-muted-foreground/70">
                 Switch the Assignee pill above to{' '}
                 <span className="font-medium">All</span> to see every
                 teammate&apos;s tasks, or scope the calendar pill
@@ -1089,13 +1089,13 @@ function FlatChecklist({
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card shadow-soft border-border bg-card">
       {/* Main list — open tasks first, then today's completed
           tasks at the bottom of the same list (with the green
           check, no strikethrough). When the day rolls and the
           completed tasks fall out of the date range, they
           disappear from this list. */}
-      <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      <ul className="divide-y divide-border-soft">
         {active.map((t) => (
           <li key={t.id}>
             <TaskRow
@@ -1173,20 +1173,20 @@ function FocusSection({
       className={cn(
         // `before` pseudo-element renders a thin colored accent strip on
         // the left edge so each bucket is visually distinct at a glance.
-        'relative overflow-hidden rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        'relative overflow-hidden rounded-xl border bg-card transition-colors bg-card',
         'before:absolute before:left-0 before:top-0 before:h-full before:w-1',
         t.accent,
         isOver
-          ? 'border-blue-400 ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900/40'
-          : 'border-zinc-200 dark:border-zinc-800'
+          ? 'border-primary ring-2 ring-blue-200 dark:border-blue-500 dark:ring-blue-900/40'
+          : 'border-border'
       )}
     >
-      <div className="flex items-center gap-3 border-b border-zinc-100 pl-5 pr-4 py-3.5 dark:border-zinc-800">
+      <div className="flex items-center gap-3 border-b border-border-soft pl-5 pr-4 py-3.5 border-border">
         <div className={cn('rounded-lg p-2', t.iconBg)}>
           <Icon className={cn('h-4 w-4', t.icon)} />
         </div>
         <h3 className="text-[15px] font-semibold tracking-tight">{label}</h3>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground bg-surface-muted text-muted-foreground">
           {count}
         </span>
       </div>
@@ -1194,13 +1194,13 @@ function FocusSection({
         <p
           className={cn(
             'px-5 py-7 text-center text-sm transition-colors',
-            isOver ? 'text-blue-600 dark:text-blue-300' : 'text-zinc-400'
+            isOver ? 'text-primary' : 'text-muted-foreground/70'
           )}
         >
           {isOver ? 'Drop to move here' : emptyHint || 'Nothing here.'}
         </p>
       ) : (
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="divide-y divide-border-soft">
           {tasks.map((task) => (
             <TaskRow
               key={task.id}
@@ -1244,34 +1244,34 @@ function DoneSection({
       className={cn(
         // Same accent-strip pattern as the live sections above so the
         // collapsed Done card visually belongs to the same family.
-        'relative overflow-hidden rounded-xl border bg-white transition-colors dark:bg-zinc-900',
+        'relative overflow-hidden rounded-xl border bg-card transition-colors bg-card',
         'before:absolute before:left-0 before:top-0 before:h-full before:w-1',
         t.accent,
         isOver
-          ? 'border-emerald-400 ring-2 ring-emerald-200 dark:border-emerald-500 dark:ring-emerald-900/40'
-          : 'border-zinc-200 dark:border-zinc-800'
+          ? 'border-success ring-2 ring-emerald-200 dark:border-emerald-500 dark:ring-emerald-900/40'
+          : 'border-border'
       )}
     >
       <button
         onClick={onToggleExpanded}
-        className="flex w-full items-center gap-3 pl-5 pr-4 py-3.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+        className="flex w-full items-center gap-3 pl-5 pr-4 py-3.5 text-left hover:bg-muted hover:bg-muted/50"
       >
         <div className={cn('rounded-lg p-2', t.iconBg)}>
           <CheckCircle2 className={cn('h-4 w-4', t.icon)} />
         </div>
         <h3 className="text-[15px] font-semibold tracking-tight">
           {isOver ? (
-            <span className="text-emerald-700 dark:text-emerald-300">
+            <span className="text-success">
               Drop to mark as done
             </span>
           ) : (
             'Recently done'
           )}
         </h3>
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground bg-surface-muted text-muted-foreground">
           {tasks.length}
         </span>
-        <span className="ml-auto text-zinc-400">
+        <span className="ml-auto text-muted-foreground/70">
           {expanded ? (
             <ChevronDown className="h-4 w-4" />
           ) : (
@@ -1280,7 +1280,7 @@ function DoneSection({
         </span>
       </button>
       {expanded && tasks.length > 0 && (
-        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="divide-y divide-border-soft">
           {tasks.slice(0, 20).map((task) => (
             <TaskRow
               key={task.id}
@@ -1348,7 +1348,7 @@ function FocusDndWrapper({
       {children}
       <DragOverlay>
         {activeTask ? (
-          <div className="rounded-lg border-2 border-blue-400 bg-white px-4 py-2 text-sm font-medium shadow-xl dark:bg-zinc-900">
+          <div className="rounded-lg border-2 border-primary bg-card px-4 py-2 text-sm font-medium shadow-pop bg-card">
             {activeTask.title}
           </div>
         ) : null}
@@ -1360,11 +1360,11 @@ function FocusDndWrapper({
 // ---- Task row -------------------------------------------------------------
 
 const PRIORITY_PILL: Record<string, string> = {
-  high: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
-  urgent: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
-  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  normal: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  high: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
+  urgent: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
+  medium: 'bg-warning/15 text-warning bg-warning/15 text-warning',
+  normal: 'bg-warning/15 text-warning bg-warning/15 text-warning',
+  low: 'bg-success/15 text-success bg-success/15 text-success',
 }
 
 function TaskRow({
@@ -1430,7 +1430,7 @@ function TaskRow({
     PRIORITY_PILL[priorityKey] ||
     (HIGH_PRIORITY.has(priorityKey)
       ? PRIORITY_PILL.high
-      : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400')
+      : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground')
 
   return (
     <div
@@ -1439,7 +1439,7 @@ function TaskRow({
         // items-start so multi-line meta doesn't vertically shift the
         // checkbox off the title baseline. Consistent left padding (pl-5)
         // aligns every row with the section header's text column.
-        'group relative flex items-start gap-2.5 pl-5 pr-4 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
+        'group relative flex items-start gap-2.5 pl-5 pr-4 py-2.5 transition-colors hover:bg-muted hover:bg-muted/40',
         isDragging && 'opacity-40'
       )}
     >
@@ -1453,7 +1453,7 @@ function TaskRow({
             {...listeners}
             aria-label="Drag to reorder"
             onClick={(e) => e.preventDefault()}
-            className="cursor-grab text-zinc-300 opacity-0 transition-opacity hover:text-zinc-500 group-hover:opacity-100 active:cursor-grabbing dark:text-zinc-600"
+            className="cursor-grab text-muted-foreground/50 opacity-0 transition-opacity hover:text-muted-foreground group-hover:opacity-100 active:cursor-grabbing text-muted-foreground/50"
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -1471,11 +1471,11 @@ function TaskRow({
         className="flex h-5 flex-shrink-0 items-center transition-colors"
       >
         {done ? (
-          <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500">
-            <Check className="h-3 w-3 text-white" strokeWidth={3} />
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-success">
+            <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
           </span>
         ) : (
-          <Circle className="h-5 w-5 text-zinc-300 hover:text-blue-500 dark:text-zinc-600" />
+          <Circle className="h-5 w-5 text-muted-foreground/50 hover:text-primary text-muted-foreground/50" />
         )}
       </button>
 
@@ -1497,7 +1497,7 @@ function TaskRow({
               }
             }}
             onBlur={commitEdit}
-            className="w-full rounded-md border border-blue-400 bg-white px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-200 dark:bg-zinc-950 dark:focus:ring-blue-900/60"
+            className="w-full rounded-md border border-primary bg-card px-2 py-1 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/30 bg-background dark:focus:ring-blue-900/60"
           />
         ) : (
           <>
@@ -1520,7 +1520,7 @@ function TaskRow({
               {task.priority && (
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    'rounded-lg px-2 py-0.5 eyebrow',
                     // Per Alex 2026-05-09: keep the urgency chip's
                     // tier color on done rows too. Was previously
                     // dimmed gray once checked off, which lost the
@@ -1533,14 +1533,14 @@ function TaskRow({
                 </span>
               )}
               {overdue && !done && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                <span className="inline-flex items-center gap-0.5 rounded-lg bg-destructive/10 px-1.5 py-0.5 eyebrow text-destructive bg-destructive/10 text-destructive">
                   <AlertTriangle className="h-2.5 w-2.5" />
                   Overdue
                 </span>
               )}
             </div>
             {(task.assignee || task.dueDate) && (
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                 {task.assignee && (
                   <span className="inline-flex items-center gap-1.5 leading-none">
                     <Avatar name={task.assignee} size="xs" />
@@ -1572,7 +1572,7 @@ function TaskRow({
             <button
               onClick={() => onToggle(false)}
               title="Restore — mark as not done"
-              className="rounded p-1 text-zinc-400 hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/40"
+              className="rounded p-1 text-muted-foreground/70 hover:bg-success/15 hover:text-success hover:bg-success/10"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
@@ -1586,7 +1586,7 @@ function TaskRow({
               else if (!done) setIsEditing(true)
             }}
             title={onEdit ? 'Edit task' : 'Edit title'}
-            className="rounded p-1 text-zinc-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40"
+            className="rounded p-1 text-muted-foreground/70 hover:bg-primary-soft hover:text-primary hover:bg-primary-soft/40"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -1595,14 +1595,14 @@ function TaskRow({
             target="_blank"
             rel="noopener noreferrer"
             title="Open in Notion"
-            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="rounded p-1 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
           <button
             onClick={onDelete}
             title="Delete"
-            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+            className="rounded p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -1651,8 +1651,8 @@ function AssigneeRow({
       className={cn(
         'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
         active
-          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
-          : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
+          ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
+          : 'text-muted-foreground hover:bg-muted text-muted-foreground hover:bg-muted/80'
       )}
     >
       {color ? (
@@ -1665,10 +1665,10 @@ function AssigneeRow({
       </span>
       <span
         className={cn(
-          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
           active
-            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200'
-            : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+            ? 'bg-primary-soft text-primary bg-primary-soft/60 text-primary'
+            : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
         )}
       >
         {count}

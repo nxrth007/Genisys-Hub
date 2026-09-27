@@ -74,7 +74,7 @@ export default function AgentsAdminPage() {
           <>
             <Link
               href="/team/live-report"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
               title="Live mirror of the Vicidial admin dashboard — read-only stats refreshing every minute"
             >
               <Activity className="h-4 w-4" />
@@ -82,7 +82,7 @@ export default function AgentsAdminPage() {
             </Link>
             <Link
               href="/agents/vicidial-users"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
               title="Mirror of the Vicidial Users list — cross-referenced with Hub Team #1 assignments"
             >
               <Users className="h-4 w-4" />
@@ -90,7 +90,7 @@ export default function AgentsAdminPage() {
             </Link>
             <Link
               href="/team/chat"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
               title="Open the Team #1 chat — you appear with an animated Admin chip next to your name"
             >
               <MessageSquare className="h-4 w-4" />
@@ -98,7 +98,7 @@ export default function AgentsAdminPage() {
             </Link>
             <Link
               href="/admin/team-members"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted"
             >
               <Users className="h-4 w-4" />
               Team #1 members
@@ -112,7 +112,7 @@ export default function AgentsAdminPage() {
           <Clock className="h-3.5 w-3.5" />
           Pending
           {pending.length > 0 && (
-            <span className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            <span className="ml-1 rounded-md bg-warning px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground">
               {pending.length}
             </span>
           )}
@@ -135,11 +135,11 @@ export default function AgentsAdminPage() {
         <AppointmentEditsTab />
       ) : agentsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <p className="text-sm text-zinc-500">
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <p className="text-sm text-muted-foreground">
             {tab === 'pending'
               ? 'No pending registrations.'
               : tab === 'approved'
@@ -201,14 +201,14 @@ function AppointmentEditsTab() {
   if (editsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
 
   if (editsQuery.isError) {
     return (
-      <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
         {(editsQuery.error as Error).message}
       </div>
     )
@@ -218,8 +218,8 @@ function AppointmentEditsTab() {
   const clients = editsQuery.data?.clients ?? {}
   if (edits.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-        <p className="text-sm text-zinc-500">
+      <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+        <p className="text-sm text-muted-foreground">
           No appointment edits yet. When Mary (or anyone) changes a field on an
           existing appointment, the change shows up here with who / what /
           when.
@@ -281,7 +281,7 @@ function AppointmentEditRow({
   // guess (the field-level diff below is the source of truth on
   // "what was it before vs after").
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -290,13 +290,13 @@ function AppointmentEditRow({
             </span>
             {edit.clientName && (
               <span
-                className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground bg-surface-muted text-foreground/85"
                 title="Client linked to this appointment when the edit was saved. If the edit changed the client, see the Before/After below for the exact swap."
               >
                 {edit.clientName}
               </span>
             )}
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            <span className="rounded-md bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary bg-primary-soft text-primary">
               {edit.source === 'agent-form' ? (
                 <>
                   <PencilLine className="mr-0.5 inline h-2.5 w-2.5 align-text-bottom" />
@@ -310,12 +310,12 @@ function AppointmentEditRow({
               )}
             </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+          <p className="mt-1 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/85">
               {edit.editorName || edit.editorEmail || '(unknown editor)'}
             </span>
             {edit.editorName && edit.editorEmail && (
-              <span className="text-zinc-400"> &lt;{edit.editorEmail}&gt;</span>
+              <span className="text-muted-foreground/70"> &lt;{edit.editorEmail}&gt;</span>
             )}
             {' '}·{' '}
             <span title={new Date(edit.createdAt).toString()}>
@@ -343,15 +343,15 @@ function AppointmentEditRow({
         </div>
       </div>
 
-      <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+      <div className="mt-3 border-t border-border-soft pt-3 border-border">
         {changeEntries.length === 0 ? (
-          <p className="text-xs text-zinc-400">No tracked field changes.</p>
+          <p className="text-xs text-muted-foreground/70">No tracked field changes.</p>
         ) : (
           <>
             {/* Header row makes Before/After explicit so admin
                 doesn't have to infer direction from the strikethrough
                 + arrow. */}
-            <div className="mb-1.5 grid grid-cols-[8rem_1fr_1fr] gap-x-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+            <div className="mb-1.5 grid grid-cols-[8rem_1fr_1fr] gap-x-3 eyebrow text-muted-foreground/70">
               <span>Field</span>
               <span>Before</span>
               <span>After</span>
@@ -362,7 +362,7 @@ function AppointmentEditRow({
                   key={field}
                   className="grid grid-cols-[8rem_1fr_1fr] items-start gap-x-3 text-xs"
                 >
-                  <span className="truncate font-medium text-zinc-500 dark:text-zinc-400">
+                  <span className="truncate font-medium text-muted-foreground">
                     {fieldLabel(field)}
                   </span>
                   <div className="min-w-0">
@@ -413,8 +413,8 @@ function FieldValueChip({
 
   const baseClasses =
     tone === 'before'
-      ? 'inline-flex items-center gap-1.5 rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-      : 'inline-flex items-center gap-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+      ? 'inline-flex items-center gap-1.5 rounded bg-destructive/10 px-1.5 py-0.5 text-destructive bg-destructive/10 text-destructive'
+      : 'inline-flex items-center gap-1.5 rounded bg-success/15 px-1.5 py-0.5 text-success bg-success/15 text-success'
 
   if (isEmpty) {
     return (
@@ -507,10 +507,10 @@ function TabButton({
     <button
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors',
+        'inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors',
         active
-          ? 'bg-blue-600 text-white shadow-sm'
-          : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
+          ? 'bg-foreground text-background'
+          : 'text-muted-foreground hover:bg-muted text-muted-foreground hover:bg-muted/80'
       )}
     >
       {children}
@@ -557,19 +557,19 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
   })
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="truncate font-semibold">{agent.name || '(no name)'}</p>
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                'rounded-md px-2 py-0.5 text-[10px] font-semibold',
                 agent.role === 'agent_pending'
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  ? 'bg-warning/15 text-warning bg-warning/15 text-warning'
                   : agent.role === 'agent'
-                    ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                    : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                    ? 'bg-success/15 text-success bg-success/15 text-success'
+                    : 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
               )}
             >
               {agent.role === 'agent_pending'
@@ -579,8 +579,8 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
                   : 'Denied'}
             </span>
           </div>
-          <p className="mt-0.5 text-sm text-zinc-500">{agent.email}</p>
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-0.5 text-sm text-muted-foreground">{agent.email}</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">
             Registered {new Date(agent.createdAt).toLocaleDateString()}
             {agent.approvedAt &&
               ` · Approved ${new Date(agent.approvedAt).toLocaleDateString()}`}
@@ -597,14 +597,14 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               <button
                 onClick={() => mutation.mutate({ action: 'approve' })}
                 disabled={mutation.isPending}
-                className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1.5 text-xs font-medium text-success-foreground hover:bg-success/90 disabled:opacity-50"
               >
                 <Check className="h-3 w-3" /> Approve
               </button>
               <button
                 onClick={() => mutation.mutate({ action: 'deny' })}
                 disabled={mutation.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                className="inline-flex items-center gap-1 rounded-md border border-destructive/30 bg-card px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 border-destructive/30 bg-destructive/10"
               >
                 <X className="h-3 w-3" /> Deny
               </button>
@@ -628,8 +628,8 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
                 className={cn(
                   'inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
                   agent.managesTeamNumber
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                    : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300',
+                    ? 'border-primary/30 bg-primary-soft text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85',
                 )}
                 title={
                   agent.managesTeamNumber
@@ -645,7 +645,7 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               <button
                 onClick={() => mutation.mutate({ action: 'deny' })}
                 disabled={mutation.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                className="inline-flex items-center gap-1 rounded-md border border-destructive/30 bg-card px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 border-destructive/30 bg-destructive/10"
                 title="Revoke access"
               >
                 <X className="h-3 w-3" /> Revoke
@@ -656,7 +656,7 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
             <button
               onClick={() => mutation.mutate({ action: 'approve' })}
               disabled={mutation.isPending}
-              className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1.5 text-xs font-medium text-success-foreground hover:bg-success/90 disabled:opacity-50"
               title="Approve a previously-denied registration"
             >
               <Check className="h-3 w-3" /> Approve
@@ -664,7 +664,7 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
           )}
           <button
             onClick={() => setShowReset((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85"
           >
             <KeyRound className="h-3 w-3" /> Password
           </button>
@@ -679,7 +679,7 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               }
             }}
             disabled={deleteMutation.isPending}
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+            className="rounded-md p-1.5 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
             title="Delete account"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -697,10 +697,10 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
             }
             mutation.mutate({ action: 'reset_password', newPassword })
           }}
-          className="mt-3 flex items-end gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800"
+          className="mt-3 flex items-end gap-2 border-t border-border-soft pt-3 border-border"
         >
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-medium text-zinc-500">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               New password for {agent.email}
             </label>
             <input
@@ -708,13 +708,13 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="At least 8 characters"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <button
             type="submit"
             disabled={mutation.isPending || !newPassword}
-            className="rounded-md bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             Set password
           </button>
@@ -725,7 +725,7 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
               setNewPassword('')
               setError(null)
             }}
-            className="rounded-md px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-muted"
           >
             Cancel
           </button>
@@ -733,14 +733,14 @@ function AgentCard({ agent, onChange }: { agent: Agent; onChange: () => void }) 
       )}
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           {error}
         </div>
       )}
 
       {mutation.isSuccess && mutation.variables && !showReset && !error && (
-        <p className="mt-2 text-xs text-green-600">Saved.</p>
+        <p className="mt-2 text-xs text-success">Saved.</p>
       )}
     </div>
   )

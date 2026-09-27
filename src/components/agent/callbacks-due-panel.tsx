@@ -91,8 +91,8 @@ export function CallbacksDuePanel() {
       className={cn(
         'rounded-xl border p-4',
         overdue.length > 0
-          ? 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20'
-          : 'border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20'
+          ? 'border-destructive/30 bg-destructive/10 border-destructive/30 bg-destructive/10'
+          : 'border-primary/30 bg-primary-soft/50 border-primary/30 bg-primary-soft/20'
       )}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -100,24 +100,24 @@ export function CallbacksDuePanel() {
           <PhoneCall
             className={cn(
               'h-4 w-4',
-              overdue.length > 0 ? 'text-red-600' : 'text-blue-600'
+              overdue.length > 0 ? 'text-destructive' : 'text-primary'
             )}
           />
           <h3 className="text-sm font-semibold">
             Callbacks{' '}
             {overdue.length > 0 ? (
-              <span className="text-red-600">
+              <span className="text-destructive">
                 ({overdue.length} overdue
                 {dueToday.length > 0 ? `, ${dueToday.length} due today` : ''})
               </span>
             ) : (
-              <span className="text-blue-600">({dueToday.length} due today)</span>
+              <span className="text-primary">({dueToday.length} due today)</span>
             )}
           </h3>
         </div>
         <Link
           href="/agent/callbacks"
-          className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline text-primary"
         >
           View all
           <ArrowRight className="h-3 w-3" />
@@ -133,14 +133,14 @@ export function CallbacksDuePanel() {
               <button
                 onClick={() => toggleMutation.mutate(c.id)}
                 title="Mark as done"
-                className="flex-shrink-0 rounded-full transition-transform hover:scale-110"
+                className="flex-shrink-0 rounded-lg transition-transform hover:scale-110"
               >
                 <Circle
                   className={cn(
                     'h-5 w-5',
                     isOverdue
-                      ? 'text-red-400 hover:text-red-600'
-                      : 'text-blue-400 hover:text-blue-600'
+                      ? 'text-destructive hover:text-destructive'
+                      : 'text-primary hover:text-primary'
                   )}
                 />
               </button>
@@ -151,12 +151,12 @@ export function CallbacksDuePanel() {
                 <div className="flex items-center gap-2">
                   <p className="truncate text-sm font-medium">{c.customerName}</p>
                   {isOverdue ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive bg-destructive/10 text-destructive">
                       <AlertTriangle className="h-2.5 w-2.5" />
                       Overdue
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-primary-soft px-1.5 py-0.5 text-[10px] font-semibold text-primary bg-primary-soft text-primary">
                       <Clock className="h-2.5 w-2.5" />
                       {when.toLocaleTimeString('en-US', {
                         hour: 'numeric',
@@ -166,7 +166,7 @@ export function CallbacksDuePanel() {
                     </span>
                   )}
                 </div>
-                <p className="truncate font-mono text-[11px] text-zinc-500">
+                <p className="truncate font-mono text-[11px] text-muted-foreground">
                   {c.customerPhone}
                   {c.notes && ` · ${c.notes}`}
                 </p>
@@ -178,7 +178,7 @@ export function CallbacksDuePanel() {
       </div>
 
       {rows.length > 5 && (
-        <p className="mt-2 text-center text-[11px] text-zinc-500">
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">
           +{rows.length - 5} more on the{' '}
           <Link href="/agent/callbacks" className="underline">
             callbacks page

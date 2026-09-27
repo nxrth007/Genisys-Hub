@@ -222,7 +222,7 @@ function CallCenterAgentsPageInner() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3">
         <div className="flex items-center gap-1">
           {(['7d', '30d', '90d', 'all'] as const).map((r) => (
             <button
@@ -230,9 +230,9 @@ function CallCenterAgentsPageInner() {
               type="button"
               onClick={() => setParam('range', r === '30d' ? null : r)}
               className={cn(
-                'rounded-full px-3 py-1 text-xs font-medium transition',
+                'rounded-md px-3 py-1 text-xs font-medium transition',
                 range === r
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-foreground text-primary-foreground'
                   : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted/80',
               )}
             >
@@ -248,9 +248,9 @@ function CallCenterAgentsPageInner() {
             type="button"
             onClick={() => setParam('client', null)}
             className={cn(
-              'rounded-full px-3 py-1 text-xs font-medium transition',
+              'rounded-md px-3 py-1 text-xs font-medium transition',
               clientFilter === 'all'
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-foreground text-primary-foreground'
                 : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted/80',
             )}
           >
@@ -262,9 +262,9 @@ function CallCenterAgentsPageInner() {
               type="button"
               onClick={() => setParam('client', c.id)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition',
                 clientFilter === c.id
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-foreground text-primary-foreground'
                   : 'bg-surface-muted text-muted-foreground hover:bg-surface-muted/80',
               )}
               title={c.state ? `${c.name} (${c.state})` : c.name}
@@ -308,11 +308,11 @@ function CallCenterAgentsPageInner() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : query.isError ? (
-        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+        <div className="rounded-xl border border-border bg-card p-6 text-sm text-destructive">
           Couldn&apos;t load the agent roster. Try refreshing.
         </div>
       ) : data && data.agents.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
           <Users className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
             {activeOnly
@@ -356,10 +356,10 @@ function UnattributedBanner({
   // agent fallback means a multi-agent workspace with missing data.
   const onlySecondary = breakdown.primary === 0 && breakdown.secondary > 0
   const tone = onlySecondary
-    ? 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200'
-    : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
+    ? 'border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary'
+    : 'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning'
   return (
-    <div className={cn('rounded-2xl border px-4 py-3 text-xs', tone)}>
+    <div className={cn('rounded-xl border px-4 py-3 text-xs', tone)}>
       <p className="flex items-start gap-2">
         <CircleAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
         <span>
@@ -439,7 +439,7 @@ function AgentCard({
 }) {
   const display = agent.name || agent.email
   return (
-    <article className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+    <article className="overflow-hidden rounded-xl border border-border bg-card shadow-soft">
       {/* Row 1 — identity + status badge */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-soft px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-3">
@@ -497,11 +497,11 @@ function AgentCard({
             )}
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <Tag dot="bg-blue-500" label={`${agent.bookings.booked} booked`} />
-            <Tag dot="bg-amber-500" label={`${agent.bookings.rescheduled} resched`} />
-            <Tag dot="bg-green-500" label={`${agent.bookings.showed} showed`} />
-            <Tag dot="bg-red-500" label={`${agent.bookings.noShow} no-show`} />
-            <Tag dot="bg-zinc-400" label={`${agent.bookings.cancelled} cancel`} />
+            <Tag dot="bg-primary" label={`${agent.bookings.booked} booked`} />
+            <Tag dot="bg-warning" label={`${agent.bookings.rescheduled} resched`} />
+            <Tag dot="bg-success" label={`${agent.bookings.showed} showed`} />
+            <Tag dot="bg-destructive" label={`${agent.bookings.noShow} no-show`} />
+            <Tag dot="bg-muted-foreground/50" label={`${agent.bookings.cancelled} cancel`} />
           </div>
           <div className="mt-3 flex items-center gap-4 text-xs">
             <div>
@@ -514,10 +514,10 @@ function AgentCard({
                   agent.bookings.showRate == null
                     ? 'text-muted-foreground'
                     : agent.bookings.showRate >= 70
-                      ? 'text-green-600'
+                      ? 'text-success'
                       : agent.bookings.showRate >= 40
-                        ? 'text-amber-600'
-                        : 'text-red-600',
+                        ? 'text-warning'
+                        : 'text-destructive',
                 )}
               >
                 {agent.bookings.showRate != null
@@ -529,7 +529,7 @@ function AgentCard({
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 Pipeline
               </p>
-              <p className="font-semibold tabular-nums text-green-700 dark:text-green-300">
+              <p className="font-semibold tabular-nums text-success">
                 ${agent.bookings.pipelineDollars.toLocaleString()}
               </p>
             </div>
@@ -545,7 +545,7 @@ function AgentCard({
               {agent.activity.expectedDays && agent.activity.expectedDays > 0 && (
                 <>
                   {' '}
-                  <span className="text-amber-600">
+                  <span className="text-warning">
                     ({agent.activity.expectedDays} expected weekday
                     {agent.activity.expectedDays === 1 ? '' : 's'})
                   </span>
@@ -582,7 +582,7 @@ function AgentCard({
                 </span>
                 {agent.activity.missingDays != null &&
                   agent.activity.missingDays > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning bg-warning/15 text-warning">
                       <CircleAlert className="h-3 w-3" />
                       {agent.activity.missingDays} missing
                     </span>
@@ -639,7 +639,7 @@ function SectionLabel({
   label: string
 }) {
   return (
-    <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <p className="inline-flex items-center gap-1 eyebrow text-muted-foreground">
       <Icon className="h-3 w-3" />
       {label}
     </p>
@@ -664,14 +664,14 @@ function StatusBadge({
 }) {
   const tone =
     status === 'active'
-      ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
+      ? 'bg-success/15 text-success bg-success/15 text-success'
       : status === 'quiet'
-        ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+        ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
         : status === 'stale'
-          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+          ? 'bg-warning/15 text-warning bg-warning/15 text-warning'
           : status === 'dormant'
-            ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+            ? 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
+            : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
   const label =
     status === 'active'
       ? 'Active'
@@ -689,7 +689,7 @@ function StatusBadge({
     <span
       title={title}
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold',
+        'inline-flex items-center rounded-md px-2.5 py-0.5 text-[10px] font-semibold',
         tone,
       )}
     >
@@ -709,7 +709,7 @@ function PerClientBar({
   return (
     <div className="mt-2 space-y-2">
       <div
-        className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-muted"
+        className="flex h-2.5 w-full overflow-hidden rounded-lg bg-surface-muted"
         role="img"
         aria-label={`Per-client booking breakdown across ${perClient.length} clients`}
       >
@@ -775,7 +775,7 @@ function Sparkline({
               className={cn(
                 'w-full rounded-t transition-colors',
                 b.count > 0
-                  ? 'bg-primary group-hover:bg-primary/80'
+                  ? 'bg-foreground group-hover:bg-primary/80'
                   : 'bg-surface-muted',
               )}
             />

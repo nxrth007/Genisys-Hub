@@ -390,7 +390,7 @@ export function AppointmentForm({
       <div className="flex items-center justify-between">
         <Link
           href="/agent"
-          className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-blue-600"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -402,16 +402,16 @@ export function AppointmentForm({
 
       <form
         onSubmit={submit}
-        className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+        className="space-y-4 rounded-xl border border-border bg-card p-5 border-border bg-card"
       >
         {/* Client picker — required on create. Sits at the top because
             choosing the right client is the first branching decision an
             agent has to make before anything else makes sense. */}
         <Field label="Booking for which client?" required>
           {clientsQuery.isLoading ? (
-            <div className="text-xs text-zinc-400">Loading clients…</div>
+            <div className="text-xs text-muted-foreground/70">Loading clients…</div>
           ) : clients.length === 0 ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <div className="rounded-md border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
               No clients configured yet. Contact an admin.
             </div>
           ) : (
@@ -427,8 +427,8 @@ export function AppointmentForm({
                     className={cn(
                       'flex items-center gap-2 rounded-lg border-2 px-4 py-2.5 text-sm font-medium transition-all disabled:opacity-50',
                       active
-                        ? 'border-transparent text-white shadow-md'
-                        : 'border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-900'
+                        ? 'border-transparent text-white'
+                        : 'border-border bg-card text-foreground/85 hover:border-foreground/30 hover:bg-muted border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted'
                     )}
                     style={active ? { backgroundColor: c.color } : undefined}
                   >
@@ -439,7 +439,7 @@ export function AppointmentForm({
                         <span
                           className={cn(
                             'text-[10px] font-normal',
-                            active ? 'text-white/80' : 'text-zinc-400'
+                            active ? 'text-white/80' : 'text-muted-foreground/70'
                           )}
                         >
                           {c.state}
@@ -449,7 +449,7 @@ export function AppointmentForm({
                         <span
                           className={cn(
                             'text-[10px] font-normal',
-                            active ? 'text-white/70' : 'text-zinc-400'
+                            active ? 'text-white/70' : 'text-muted-foreground/70'
                           )}
                         >
                           {c.contactName}
@@ -499,13 +499,13 @@ export function AppointmentForm({
                 ? `from ${selected.name} (${selected.state})`
                 : 'default — pick a client or add an address'
             return (
-              <p className="mt-1.5 text-[11px] text-zinc-500">
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Time is read at the customer&apos;s clock —{' '}
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                <span className="font-medium text-foreground/85">
                   {shortLabel}
                 </span>{' '}
                 ({tz}).{' '}
-                <span className="text-zinc-400">{sourceLabel}.</span>
+                <span className="text-muted-foreground/70">{sourceLabel}.</span>
               </p>
             )
           })()}
@@ -532,16 +532,16 @@ export function AppointmentForm({
               className={cn(
                 'mt-2 rounded-md border p-3 text-xs',
                 hasSameCustomer
-                  ? 'border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950'
-                  : 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950',
+                  ? 'border-destructive/30 bg-destructive/10 border-destructive/30 bg-destructive/10'
+                  : 'border-warning/30 bg-warning/15 border-warning/30 bg-warning/15',
               )}
             >
               <div
                 className={cn(
                   'flex items-start gap-2',
                   hasSameCustomer
-                    ? 'text-rose-900 dark:text-rose-200'
-                    : 'text-amber-900 dark:text-amber-200',
+                    ? 'text-destructive'
+                    : 'text-warning',
                 )}
               >
                 <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -551,7 +551,7 @@ export function AppointmentForm({
                       <p className="font-semibold">
                         This customer already has an appointment.
                       </p>
-                      <p className="mt-0.5 text-rose-800 dark:text-rose-300">
+                      <p className="mt-0.5 text-destructive">
                         Don&apos;t create a duplicate — open the existing
                         appointment and update its date/time + notes
                         instead. Use the &quot;Edit this one&quot; button
@@ -564,7 +564,7 @@ export function AppointmentForm({
                         Time conflicts with {conflicts.length} existing
                         booking{conflicts.length === 1 ? '' : 's'}
                       </p>
-                      <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+                      <p className="mt-0.5 text-warning">
                         This client already has something booked within an
                         hour of this slot — the closer can&apos;t take two
                         at once. Bookings for other clients in the same
@@ -584,7 +584,7 @@ export function AppointmentForm({
                           <span
                             className={cn(
                               'mt-0.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full',
-                              same ? 'bg-rose-500' : 'bg-amber-500',
+                              same ? 'bg-destructive' : 'bg-warning',
                             )}
                           />
                           <span className="flex-1 min-w-0">
@@ -600,7 +600,7 @@ export function AppointmentForm({
                             {' — '}
                             {c.customerName} ({c.customerPhone})
                             {same && (
-                              <span className="ml-1.5 rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                              <span className="ml-1.5 rounded-lg bg-destructive/10 px-1.5 py-0.5 eyebrow text-destructive bg-destructive/10 text-destructive">
                                 Same customer
                               </span>
                             )}
@@ -609,8 +609,8 @@ export function AppointmentForm({
                                 className={cn(
                                   'ml-1',
                                   same
-                                    ? 'text-rose-700 dark:text-rose-400'
-                                    : 'text-amber-700 dark:text-amber-400',
+                                    ? 'text-destructive'
+                                    : 'text-warning',
                                 )}
                               >
                                 · booked by {c.agent.name}
@@ -618,12 +618,12 @@ export function AppointmentForm({
                             )}
                             <span
                               className={cn(
-                                'ml-2 rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
+                                'ml-2 rounded-md px-1.5 py-0.5 text-[9px] font-semibold',
                                 c.status === 'booked'
-                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                  ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
                                   : c.status === 'showed'
-                                    ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+                                    ? 'bg-success/15 text-success bg-success/15 text-success'
+                                    : 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85',
                               )}
                             >
                               {c.status}
@@ -639,8 +639,8 @@ export function AppointmentForm({
                             className={cn(
                               'inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold transition',
                               same
-                                ? 'bg-rose-600 text-white hover:bg-rose-700'
-                                : 'border border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900',
+                                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                                : 'border border-warning/30 text-warning hover:bg-warning/15 border-warning/30 text-warning hover:bg-warning/15',
                             )}
                             title="Open this appointment to edit its date/time and notes instead of creating a duplicate."
                           >
@@ -654,8 +654,8 @@ export function AppointmentForm({
                     className={cn(
                       'mt-3 flex items-center gap-2',
                       hasSameCustomer
-                        ? 'text-rose-900 dark:text-rose-200'
-                        : 'text-amber-900 dark:text-amber-200',
+                        ? 'text-destructive'
+                        : 'text-warning',
                     )}
                   >
                     <input
@@ -674,8 +674,8 @@ export function AppointmentForm({
                         if (e.target.checked) setRaceConflicts(null)
                       }}
                       className={cn(
-                        'h-3.5 w-3.5 rounded text-blue-600 focus:ring-blue-500',
-                        hasSameCustomer ? 'border-rose-400' : 'border-amber-400',
+                        'h-3.5 w-3.5 rounded text-primary focus:ring-primary/30',
+                        hasSameCustomer ? 'border-destructive' : 'border-warning',
                       )}
                     />
                     <span className="text-xs font-medium">
@@ -690,7 +690,7 @@ export function AppointmentForm({
             )
           })()}
           {conflictsQuery.isFetching && !hasConflicts && isoCandidate && (
-            <p className="mt-1 text-[10px] text-zinc-400">Checking for conflicts…</p>
+            <p className="mt-1 text-[10px] text-muted-foreground/70">Checking for conflicts…</p>
           )}
         </Field>
 
@@ -735,7 +735,7 @@ export function AppointmentForm({
             autoComplete="off"
             className={inputCls}
           />
-          <p className="mt-1 text-[11px] text-zinc-500">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             Optional. Leave blank to use your own name.
           </p>
         </Field>
@@ -793,7 +793,7 @@ export function AppointmentForm({
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Monthly bill">
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/70">
                 $
               </span>
               <input
@@ -867,7 +867,7 @@ export function AppointmentForm({
 
           <Field label="Estimated deal value">
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground/70">
                 $
               </span>
               <input
@@ -905,19 +905,19 @@ export function AppointmentForm({
         </Field>
 
         {error && (
-          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {error}
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+        <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-4 border-border">
           {mode === 'edit' ? (
             <button
               type="button"
               onClick={onDelete}
               disabled={deleting || submitting}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:bg-red-950/20 dark:hover:bg-red-950/40"
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 border-destructive/30 bg-destructive/10 hover:bg-destructive/10"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {deleting ? 'Deleting…' : 'Delete'}
@@ -929,7 +929,7 @@ export function AppointmentForm({
           <div className="flex items-center gap-2">
             <Link
               href="/agent"
-              className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
             >
               Cancel
             </Link>
@@ -941,7 +941,7 @@ export function AppointmentForm({
                   ? 'Resolve the time conflict above, or tick "Book anyway" to override'
                   : undefined
               }
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
             >
               {mode === 'create' ? <Save className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {submitting ? 'Saving…' : mode === 'create' ? 'Save appointment' : 'Save changes'}
@@ -954,7 +954,7 @@ export function AppointmentForm({
 }
 
 const inputCls =
-  'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950'
+  'w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background'
 
 function Field({
   label,
@@ -971,13 +971,13 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+      <span className="mb-1 block text-xs font-medium text-muted-foreground">
         {label}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
       </span>
       {children}
       {hint && (
-        <span className="mt-1 block text-[11px] text-zinc-500 dark:text-zinc-500">
+        <span className="mt-1 block text-[11px] text-muted-foreground">
           {hint}
         </span>
       )}

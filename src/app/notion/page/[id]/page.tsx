@@ -72,7 +72,7 @@ function RichText({ items }: { items: RichTextItem[] }) {
 
         if (a.code) {
           node = (
-            <code className="rounded bg-zinc-200 dark:bg-zinc-700/50 px-1.5 py-0.5 text-xs font-mono text-blue-300">
+            <code className="rounded bg-muted bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-blue-300">
               {node}
             </code>
           )
@@ -88,7 +88,7 @@ function RichText({ items }: { items: RichTextItem[] }) {
               href={item.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 underline decoration-blue-400/30 hover:decoration-blue-400"
+              className="text-primary underline decoration-blue-400/30 hover:decoration-blue-400"
             >
               {node}
             </a>
@@ -111,7 +111,7 @@ function BlockRenderer({ block }: { block: Block }) {
   switch (type) {
     case 'paragraph':
       return (
-        <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+        <p className="text-sm leading-relaxed text-foreground/85">
           {richText && richText.length > 0 ? (
             <RichText items={richText} />
           ) : (
@@ -122,35 +122,35 @@ function BlockRenderer({ block }: { block: Block }) {
 
     case 'heading_1':
       return (
-        <h1 className="mt-6 mb-2 text-xl font-bold text-zinc-900 dark:text-zinc-100">
+        <h1 className="mt-6 mb-2 text-xl font-bold text-foreground">
           <RichText items={richText || []} />
         </h1>
       )
 
     case 'heading_2':
       return (
-        <h2 className="mt-5 mb-2 text-lg font-bold text-zinc-900 dark:text-zinc-100">
+        <h2 className="mt-5 mb-2 text-lg font-bold text-foreground">
           <RichText items={richText || []} />
         </h2>
       )
 
     case 'heading_3':
       return (
-        <h3 className="mt-4 mb-1.5 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+        <h3 className="mt-4 mb-1.5 text-base font-semibold text-foreground">
           <RichText items={richText || []} />
         </h3>
       )
 
     case 'bulleted_list_item':
       return (
-        <li className="ml-5 list-disc text-sm text-zinc-700 dark:text-zinc-300">
+        <li className="ml-5 list-disc text-sm text-foreground/85">
           <RichText items={richText || []} />
         </li>
       )
 
     case 'numbered_list_item':
       return (
-        <li className="ml-5 list-decimal text-sm text-zinc-700 dark:text-zinc-300">
+        <li className="ml-5 list-decimal text-sm text-foreground/85">
           <RichText items={richText || []} />
         </li>
       )
@@ -158,14 +158,14 @@ function BlockRenderer({ block }: { block: Block }) {
     case 'to_do': {
       const checked = content.checked as boolean
       return (
-        <div className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <div className="flex items-start gap-2 text-sm text-foreground/85">
           <input
             type="checkbox"
             checked={checked}
             readOnly
-            className="mt-1 accent-blue-600"
+            className="mt-1 accent-primary"
           />
-          <span className={cn(checked && 'line-through text-zinc-500')}>
+          <span className={cn(checked && 'line-through text-muted-foreground')}>
             <RichText items={richText || []} />
           </span>
         </div>
@@ -174,8 +174,8 @@ function BlockRenderer({ block }: { block: Block }) {
 
     case 'toggle':
       return (
-        <details className="text-sm text-zinc-700 dark:text-zinc-300">
-          <summary className="cursor-pointer font-medium text-zinc-800 dark:text-zinc-200 hover:text-zinc-900 dark:hover:text-zinc-100">
+        <details className="text-sm text-foreground/85">
+          <summary className="cursor-pointer font-medium text-foreground hover:text-foreground">
             <RichText items={richText || []} />
           </summary>
         </details>
@@ -183,7 +183,7 @@ function BlockRenderer({ block }: { block: Block }) {
 
     case 'quote':
       return (
-        <blockquote className="border-l-2 border-blue-500 pl-4 text-sm italic text-zinc-500 dark:text-zinc-400">
+        <blockquote className="border-l-2 border-primary pl-4 text-sm italic text-muted-foreground">
           <RichText items={richText || []} />
         </blockquote>
       )
@@ -191,7 +191,7 @@ function BlockRenderer({ block }: { block: Block }) {
     case 'callout': {
       const icon = (content.icon as { emoji?: string })?.emoji
       return (
-        <div className="flex gap-3 rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-100 dark:bg-zinc-800/50 p-4 text-sm text-zinc-700 dark:text-zinc-300">
+        <div className="flex gap-3 rounded-lg border border-border border-border border-border/50 bg-card bg-muted bg-surface-muted/50 p-4 text-sm text-foreground/85">
           {icon && <span className="text-lg flex-shrink-0">{icon}</span>}
           <div>
             <RichText items={richText || []} />
@@ -204,13 +204,13 @@ function BlockRenderer({ block }: { block: Block }) {
       const language = (content.language as string) || ''
       const codeText = richText?.map((r) => r.plain_text).join('') || ''
       return (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-zinc-900 overflow-hidden">
+        <div className="rounded-lg border border-border border-border border-border/50 bg-foreground overflow-hidden">
           {language && (
-            <div className="border-b border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 px-4 py-1.5 text-xs text-zinc-500">
+            <div className="border-b border-border border-border border-border/50 px-4 py-1.5 text-xs text-muted-foreground">
               {language}
             </div>
           )}
-          <pre className="overflow-x-auto p-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
+          <pre className="overflow-x-auto p-4 text-xs leading-relaxed text-foreground/85">
             <code>{codeText}</code>
           </pre>
         </div>
@@ -218,7 +218,7 @@ function BlockRenderer({ block }: { block: Block }) {
     }
 
     case 'divider':
-      return <hr className="my-4 border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50" />
+      return <hr className="my-4 border-border border-border border-border/50" />
 
     case 'image': {
       const imageType = content.type as string
@@ -233,16 +233,16 @@ function BlockRenderer({ block }: { block: Block }) {
             <img
               src={src}
               alt={caption?.map((c) => c.plain_text).join('') || 'Image'}
-              className="max-w-full rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50"
+              className="max-w-full rounded-lg border border-border border-border border-border/50"
             />
           ) : (
-            <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-100 dark:bg-zinc-800/50 p-6 text-sm text-zinc-500">
+            <div className="flex items-center gap-2 rounded-lg border border-border border-border border-border/50 bg-card bg-muted bg-surface-muted/50 p-6 text-sm text-muted-foreground">
               <ImageIcon className="h-4 w-4" />
               Image unavailable
             </div>
           )}
           {caption && caption.length > 0 && (
-            <figcaption className="mt-2 text-center text-xs text-zinc-500">
+            <figcaption className="mt-2 text-center text-xs text-muted-foreground">
               <RichText items={caption} />
             </figcaption>
           )}
@@ -257,7 +257,7 @@ function BlockRenderer({ block }: { block: Block }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-100 dark:bg-zinc-800/50 p-3 text-sm text-blue-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors truncate"
+          className="block rounded-lg border border-border border-border border-border/50 bg-card bg-muted bg-surface-muted/50 p-3 text-sm text-primary hover:bg-muted transition-colors truncate"
         >
           {url}
         </a>
@@ -271,7 +271,7 @@ function BlockRenderer({ block }: { block: Block }) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="block rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-white dark:bg-zinc-100 dark:bg-zinc-800/50 p-3 text-sm text-blue-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors truncate"
+          className="block rounded-lg border border-border border-border border-border/50 bg-card bg-muted bg-surface-muted/50 p-3 text-sm text-primary hover:bg-muted transition-colors truncate"
         >
           {url}
         </a>
@@ -280,7 +280,7 @@ function BlockRenderer({ block }: { block: Block }) {
 
     case 'table_of_contents':
       return (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-200 dark:border-zinc-700/50 bg-zinc-50 dark:bg-zinc-100 dark:bg-zinc-800/30 p-3 text-xs text-zinc-500 italic">
+        <div className="rounded-lg border border-border border-border border-border/50 bg-surface-muted bg-muted bg-surface-muted/30 p-3 text-xs text-muted-foreground italic">
           Table of contents
         </div>
       )
@@ -314,7 +314,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
       <div className="mb-6">
         <Link
           href="/notion"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400 transition-colors hover:text-zinc-800 dark:hover:text-zinc-200"
+          className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Notion
@@ -324,13 +324,13 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
       {/* Loading */}
       {pageQuery.isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
 
       {/* Error */}
       {pageQuery.isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-900/20 p-4 text-sm text-red-400">
+        <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-900/20 p-4 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <span>Failed to load page. Make sure the Notion integration has access.</span>
         </div>
@@ -347,9 +347,9 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
                   {page.icon?.emoji ? (
                     <span className="text-3xl">{page.icon.emoji}</span>
                   ) : (
-                    <FileText className="h-7 w-7 text-blue-500" />
+                    <FileText className="h-7 w-7 text-primary" />
                   )}
-                  <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{title}</h1>
+                  <h1 className="text-2xl font-bold text-foreground">{title}</h1>
                 </div>
               </div>
               {page.url && (
@@ -357,7 +357,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
                   href={page.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-100 dark:bg-zinc-800/50 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition-colors hover:border-blue-600 hover:text-blue-400"
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card bg-muted bg-surface-muted/50 px-3 py-2 text-xs font-medium text-foreground/85 transition-colors hover:border-blue-600 hover:text-blue-400"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Open in Notion
@@ -369,7 +369,7 @@ export default function NotionPageView({ params }: { params: Promise<{ id: strin
           {/* Blocks */}
           <div className="max-w-3xl space-y-2">
             {blocks.length === 0 ? (
-              <p className="py-10 text-center text-sm text-zinc-500">
+              <p className="py-10 text-center text-sm text-muted-foreground">
                 This page has no content blocks.
               </p>
             ) : (

@@ -230,7 +230,7 @@ function StatusUpdatesInner() {
         <h1 className="text-2xl font-bold tracking-tight">Status Updates</h1>
         <p className="text-sm text-muted-foreground">
           Outcomes your clients have reported from their dashboards. Click
-          <span className="mx-1 inline-flex items-center gap-1 rounded-md border border-yellow-400 bg-yellow-50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-800 dark:border-yellow-500 dark:bg-yellow-950 dark:text-yellow-300">
+          <span className="mx-1 inline-flex items-center gap-1 rounded-md border border-warning bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning dark:border-yellow-500 bg-warning/15 text-warning">
             View update
           </span>
           on any row to read what the client said, then mark it reviewed once
@@ -250,7 +250,7 @@ function StatusUpdatesInner() {
       />
 
       {isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error instanceof Error ? error.message : 'Failed to load'}
         </div>
@@ -261,7 +261,7 @@ function StatusUpdatesInner() {
           we have, but the user needs to know they're not seeing
           the full sheet-side pipeline. */}
       {data?.sheetReadError && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <div>
             <p className="font-semibold">Sheet read degraded</p>
@@ -280,8 +280,8 @@ function StatusUpdatesInner() {
           Loading…
         </div>
       ) : updatedFeed.length === 0 && pendingFeed.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-          <Inbox className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
+        <div className="rounded-lg border border-dashed border-border bg-surface-muted p-8 text-center text-sm text-muted-foreground border-border bg-card text-muted-foreground">
+          <Inbox className="mx-auto mb-2 h-6 w-6 text-muted-foreground/70" />
           No appointments match these filters.
         </div>
       ) : (
@@ -360,7 +360,7 @@ function SummaryStrip({
             toneClasses(item.tone),
           )}
         >
-          <p className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+          <p className="eyebrow opacity-70">
             {item.label}
           </p>
           <p className="mt-1 text-2xl font-bold tabular-nums">
@@ -375,15 +375,15 @@ function SummaryStrip({
 function toneClasses(tone: 'neutral' | 'green' | 'red' | 'amber' | 'rose') {
   switch (tone) {
     case 'green':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+      return 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
     case 'red':
-      return 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+      return 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
     case 'amber':
-      return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+      return 'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning'
     case 'rose':
-      return 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+      return 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
     default:
-      return 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200'
+      return 'border-border bg-card text-foreground border-border bg-card text-foreground'
   }
 }
 
@@ -419,7 +419,7 @@ function FiltersBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 border-border bg-card">
       <FilterSelect
         label="Review"
         value={reviewStatus}
@@ -451,20 +451,20 @@ function FiltersBar({
           ...clientOptions.map((c) => ({ value: c.id, label: c.name })),
         ]}
       />
-      <div className="flex flex-1 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-800">
-        <Search className="h-3.5 w-3.5 text-zinc-400" />
+      <div className="flex flex-1 items-center gap-2 rounded-md border border-border bg-surface-muted px-2 py-1 border-border bg-surface-muted">
+        <Search className="h-3.5 w-3.5 text-muted-foreground/70" />
         <input
           type="text"
           value={searchInput}
           onChange={(e) => onSearchInput(e.target.value)}
           placeholder="Search name, phone, address, notes…"
-          className="w-full bg-transparent text-xs outline-none placeholder:text-zinc-400"
+          className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
         />
         {searchInput && (
           <button
             type="button"
             onClick={() => onSearchInput('')}
-            className="rounded-full p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+            className="rounded-full p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
             aria-label="Clear search"
           >
             <X className="h-3 w-3" />
@@ -487,12 +487,12 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+    <label className="flex items-center gap-1.5 eyebrow text-muted-foreground">
       {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 focus:border-blue-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
+        className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground/85 transition hover:bg-muted focus:border-primary/50 focus:outline-none border-border bg-surface-muted text-foreground"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -528,7 +528,7 @@ function RecentUpdatesFeed({
 
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+      <div className="rounded-xl border border-dashed border-border bg-surface-muted p-6 text-center text-sm text-muted-foreground border-border bg-card text-muted-foreground">
         No client updates yet — you&apos;re all caught up.
       </div>
     )
@@ -539,15 +539,15 @@ function RecentUpdatesFeed({
       {buckets.map((bucket) => (
         <div key={bucket.label}>
           <div className="mb-2 flex items-center gap-2">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+            <h2 className="eyebrow text-muted-foreground/70">
               {bucket.label}
             </h2>
-            <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground bg-surface-muted text-muted-foreground">
               {bucket.items.length}
             </span>
-            <span className="h-px flex-1 bg-zinc-100 dark:bg-zinc-800" />
+            <span className="h-px flex-1 bg-surface-muted" />
           </div>
-          <ul className="overflow-hidden rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-100 dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800">
+          <ul className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border-soft border-border bg-card divide-border-soft">
             {bucket.items.map(({ client, appointment }) => (
               <UpdatedRow
                 key={appointment.id}
@@ -571,30 +571,30 @@ function RecentUpdatesFeed({
 function AwaitingSection({ items }: { items: FeedItem[] }) {
   const [open, setOpen] = useState(false)
   return (
-    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-950/40"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-muted dark:hover:bg-zinc-950/40"
       >
         <div className="flex min-w-0 items-center gap-2">
           {open ? (
-            <ChevronDown className="h-4 w-4 flex-shrink-0 text-zinc-400" />
+            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
           ) : (
-            <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-400" />
+            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
           )}
-          <Clock className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
+          <Clock className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/70" />
           <h2 className="text-sm font-semibold">Awaiting client input</h2>
-          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground bg-surface-muted text-muted-foreground">
             {items.length}
           </span>
         </div>
-        <span className="hidden text-[11px] text-zinc-400 sm:inline">
+        <span className="hidden text-[11px] text-muted-foreground/70 sm:inline">
           Appointments clients haven&apos;t reported on yet
         </span>
       </button>
       {open && (
-        <ul className="border-t border-zinc-100 divide-y divide-zinc-100 dark:border-zinc-800 dark:divide-zinc-800">
+        <ul className="border-t border-border-soft divide-y divide-border-soft border-border divide-border-soft">
           {items.map(({ client, appointment }) => (
             <PendingRow
               key={appointment.id}
@@ -612,7 +612,7 @@ function AwaitingSection({ items }: { items: FeedItem[] }) {
  *  now that rows aren't grouped under a per-client header. */
 function ClientTag({ client }: { client: Section['client'] }) {
   return (
-    <span className="inline-flex max-w-[10rem] items-center gap-1 truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+    <span className="inline-flex max-w-[10rem] items-center gap-1 truncate text-[11px] font-medium text-muted-foreground">
       <span
         className="h-2 w-2 flex-shrink-0 rounded-full"
         style={{ backgroundColor: client.color }}
@@ -644,20 +644,20 @@ function UpdatedRow({
       className={cn(
         'flex flex-wrap items-center gap-3 px-4 py-3 transition',
         reviewed
-          ? 'bg-white dark:bg-zinc-900'
-          : 'bg-amber-50/40 dark:bg-amber-950/15',
+          ? 'bg-card'
+          : 'bg-warning/10 bg-warning/10',
       )}
     >
       {/* Unreviewed accent rail so new updates pop at a glance. */}
       {!reviewed && (
         <span
-          className="-my-3 -ml-4 mr-0 w-1 self-stretch bg-amber-400 dark:bg-amber-500"
+          className="-my-3 -ml-4 mr-0 w-1 self-stretch bg-warning dark:bg-amber-500"
           aria-hidden
         />
       )}
       <div
         className={cn(
-          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 eyebrow',
           tone.chipClass,
         )}
       >
@@ -671,12 +671,12 @@ function UpdatedRow({
           </p>
           <ClientTag client={client} />
         </div>
-        <p className="truncate text-[11px] text-zinc-500">
+        <p className="truncate text-[11px] text-muted-foreground">
           {formatDateTime(appointment.apptDateTime)}
           {appointment.address && ` · ${appointment.address}`}
         </p>
       </div>
-      <div className="flex flex-col items-end gap-1 text-right text-[10px] text-zinc-500">
+      <div className="flex flex-col items-end gap-1 text-right text-[10px] text-muted-foreground">
         <span
           title={
             appointment.clientStatusUpdatedAt
@@ -687,7 +687,7 @@ function UpdatedRow({
           Updated {formatRelative(appointment.clientStatusUpdatedAt)}
         </span>
         {reviewed && appointment.clientStatusReviewedBy && (
-          <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-0.5 text-success">
             <CheckCircle2 className="h-2.5 w-2.5" />
             Reviewed by {appointment.clientStatusReviewedBy.name}
           </span>
@@ -696,7 +696,7 @@ function UpdatedRow({
       <button
         type="button"
         onClick={onView}
-        className="inline-flex items-center gap-1 rounded-md border border-yellow-400 bg-yellow-50 px-2.5 py-1 text-[11px] font-medium text-yellow-800 transition hover:bg-yellow-100 dark:border-yellow-500 dark:bg-yellow-950 dark:text-yellow-300 dark:hover:bg-yellow-900"
+        className="inline-flex items-center gap-1 rounded-md border border-warning bg-warning/15 px-2.5 py-1 text-[11px] font-medium text-warning transition hover:bg-warning/15 dark:border-yellow-500 bg-warning/15 text-warning hover:bg-warning/15"
       >
         View update
       </button>
@@ -712,9 +712,9 @@ function PendingRow({
   appointment: Appointment
 }) {
   return (
-    <li className="flex items-center gap-3 px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+    <li className="flex items-center gap-3 px-4 py-2 text-xs text-muted-foreground">
       <span
-        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+        className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-0.5 eyebrow text-muted-foreground border-border bg-surface-muted text-muted-foreground"
         title={
           appointment.hasDbRow
             ? "Client hasn't reported back yet"
@@ -725,10 +725,10 @@ function PendingRow({
         {appointment.status}
       </span>
       <div className="min-w-0 flex-1 truncate">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">
+        <span className="font-medium text-foreground/85">
           {appointment.customerName}
         </span>
-        <span className="text-zinc-400">
+        <span className="text-muted-foreground/70">
           {' '}
           · {formatDateTime(appointment.apptDateTime)}
         </span>
@@ -736,7 +736,7 @@ function PendingRow({
       <ClientTag client={client} />
       {appointment.sourceKind === 'secondary' && (
         <span
-          className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+          className="rounded-lg bg-muted px-1.5 py-0.5 eyebrow text-foreground/80 bg-muted text-foreground/80"
           title="Imported from a partner secondary sheet (Yassin's pipeline)"
         >
           partner
@@ -744,7 +744,7 @@ function PendingRow({
       )}
       {!appointment.hasDbRow && appointment.sourceKind !== 'secondary' && (
         <span
-          className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+          className="rounded-lg bg-muted px-1.5 py-0.5 eyebrow text-muted-foreground bg-surface-muted text-muted-foreground"
           title="Sheet row without a Hub appointment — clients can't update this one from their dashboard"
         >
           sheet
@@ -810,7 +810,7 @@ function ViewUpdateModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-card p-6 shadow-pop bg-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
@@ -821,12 +821,12 @@ function ViewUpdateModal({
                 style={{ backgroundColor: client.color }}
                 aria-hidden
               />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              <span className="eyebrow text-muted-foreground">
                 {client.name}
               </span>
             </div>
             <h2 className="text-xl font-bold">{appointment.customerName}</h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               {formatDateTime(appointment.apptDateTime)}
               {appointment.address && ` · ${appointment.address}`}
             </p>
@@ -834,7 +834,7 @@ function ViewUpdateModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="rounded-full p-1 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -852,15 +852,15 @@ function ViewUpdateModal({
             {tone.label}
           </div>
           {appointment.previousStatus && (
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted-foreground">
               was{' '}
-              <span className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <span className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-foreground/85 bg-surface-muted text-foreground/85">
                 {appointment.previousStatus}
               </span>
             </span>
           )}
           <span
-            className="text-xs text-zinc-400"
+            className="text-xs text-muted-foreground/70"
             title={
               appointment.clientStatusUpdatedAt
                 ? new Date(appointment.clientStatusUpdatedAt).toLocaleString()
@@ -873,10 +873,10 @@ function ViewUpdateModal({
 
         {appointment.clientNotes && (
           <div className="mt-5">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+            <p className="mb-1 eyebrow text-success">
               What the client said
             </p>
-            <div className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            <div className="whitespace-pre-wrap rounded-md border border-success/30 bg-success/15 p-3 text-sm text-success border-success/30 bg-success/15 text-success">
               {appointment.clientNotes}
             </div>
           </div>
@@ -884,10 +884,10 @@ function ViewUpdateModal({
 
         {appointment.notes && (
           <div className="mt-4">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            <p className="mb-1 eyebrow text-muted-foreground">
               Notes from the call (Mary)
             </p>
-            <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+            <div className="whitespace-pre-wrap rounded-md border border-border bg-surface-muted p-3 text-sm text-foreground/85 border-border bg-card text-foreground">
               {appointment.notes}
             </div>
           </div>
@@ -908,13 +908,13 @@ function ViewUpdateModal({
           </DetailItem>
         </dl>
 
-        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border-soft pt-4 border-border">
           {appointment.recordingUrl && (
             <a
               href={appointment.recordingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary-soft px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary hover:bg-primary-soft"
             >
               <Play className="h-3 w-3" />
               Listen to call
@@ -922,7 +922,7 @@ function ViewUpdateModal({
           )}
           <a
             href={`/call-center/master-tracker?focus=${encodeURIComponent(appointment.id)}`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
           >
             <ExternalLink className="h-3 w-3" />
             Open in Master Tracker
@@ -934,8 +934,8 @@ function ViewUpdateModal({
             className={cn(
               'ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-60',
               reviewed
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40'
-                : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                ? 'border-success/30 bg-success/15 text-success hover:bg-success/15 border-success/30 bg-success/15 text-success hover:bg-success/10'
+                : 'border-border bg-card text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted',
             )}
           >
             {mutation.isPending ? (
@@ -947,7 +947,7 @@ function ViewUpdateModal({
           </button>
         </div>
         {mutation.isError && (
-          <p className="mt-2 text-right text-xs text-rose-600 dark:text-rose-400">
+          <p className="mt-2 text-right text-xs text-destructive">
             {(mutation.error as Error).message}
           </p>
         )}
@@ -965,10 +965,10 @@ function DetailItem({
 }) {
   return (
     <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+      <dt className="eyebrow text-muted-foreground">
         {label}
       </dt>
-      <dd className="mt-0.5 text-zinc-700 dark:text-zinc-300">{children}</dd>
+      <dd className="mt-0.5 text-foreground/85">{children}</dd>
     </div>
   )
 }
@@ -988,35 +988,35 @@ function outcomeTone(status: string): {
         label: 'Showed',
         icon: <CheckCircle2 className="h-3 w-3" />,
         chipClass:
-          'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+          'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success',
       }
     case 'no_show':
       return {
         label: 'No-show',
         icon: <X className="h-3 w-3" />,
         chipClass:
-          'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300',
+          'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive',
       }
     case 'won':
       return {
         label: 'Won',
         icon: <CheckCircle2 className="h-3 w-3" />,
         chipClass:
-          'border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+          'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success',
       }
     case 'lost':
       return {
         label: 'Lost',
         icon: <X className="h-3 w-3" />,
         chipClass:
-          'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+          'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning',
       }
     default:
       return {
         label: status,
         icon: <Clock className="h-3 w-3" />,
         chipClass:
-          'border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+          'border-border bg-surface-muted text-foreground/85 border-border bg-surface-muted text-foreground/85',
       }
   }
 }

@@ -69,7 +69,7 @@ export default function ClientAccountPage() {
   if (meQuery.isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
       </div>
     )
   }
@@ -77,7 +77,7 @@ export default function ClientAccountPage() {
   if (meQuery.isError || !meQuery.data) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-10">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {(meQuery.error as Error)?.message ?? 'Failed to load your account'}
         </div>
       </div>
@@ -87,24 +87,24 @@ export default function ClientAccountPage() {
   const { user, client } = meQuery.data
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+    <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
         <Link
           href="/client"
-          className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to dashboard
         </Link>
 
         <h1 className="mb-1 text-2xl font-bold tracking-tight">My account</h1>
-        <p className="mb-6 text-sm text-zinc-500">
+        <p className="mb-6 text-sm text-muted-foreground">
           Your sign-in details and password. Need to update your business
           info? Reach out in your Slack channel.
         </p>
 
-        <section className="mb-6 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <section className="mb-6 rounded-xl border border-border bg-card p-5 border-border bg-card">
+          <h2 className="mb-4 eyebrow text-muted-foreground">
             Profile
           </h2>
           <dl className="space-y-3">
@@ -127,12 +127,12 @@ export default function ClientAccountPage() {
           </dl>
         </section>
 
-        <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <section className="rounded-xl border border-border bg-card p-5 border-border bg-card">
+          <h2 className="mb-1 flex items-center gap-2 eyebrow text-muted-foreground">
             <KeyRound className="h-3.5 w-3.5" />
             Change password
           </h2>
-          <p className="mb-4 text-[11px] text-zinc-500">
+          <p className="mb-4 text-[11px] text-muted-foreground">
             Pick something at least 10 characters. You&apos;ll stay signed
             in after the change.
           </p>
@@ -156,18 +156,18 @@ function ProfileRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-0.5 text-zinc-400">{icon}</span>
+      <span className="mt-0.5 text-muted-foreground/70">{icon}</span>
       <div className="min-w-0 flex-1">
-        <dt className="text-[11px] uppercase tracking-wide text-zinc-500">
+        <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
           {label}
         </dt>
-        <dd className="mt-0.5 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <dd className="mt-0.5 text-sm font-medium text-foreground">
           {value || (
-            <span className="font-normal text-zinc-400">Not set</span>
+            <span className="font-normal text-muted-foreground/70">Not set</span>
           )}
         </dd>
         {sub && (
-          <p className="mt-0.5 text-[11px] text-zinc-500">{sub}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>
         )}
       </div>
     </div>
@@ -218,7 +218,7 @@ function ChangePasswordForm() {
   return (
     <form onSubmit={submit} className="space-y-3">
       <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
           Current password
         </label>
         <input
@@ -227,11 +227,11 @@ function ChangePasswordForm() {
           onChange={(e) => setCurrentPassword(e.target.value)}
           required
           autoComplete="current-password"
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
           New password (10+ characters)
         </label>
         <input
@@ -241,11 +241,11 @@ function ChangePasswordForm() {
           required
           minLength={10}
           autoComplete="new-password"
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
           Confirm new password
         </label>
         <input
@@ -255,18 +255,18 @@ function ChangePasswordForm() {
           required
           minLength={10}
           autoComplete="new-password"
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           {error}
         </div>
       )}
       {success && (
-        <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+        <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/15 p-2 text-xs text-success border-success/30 bg-success/15 text-success">
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
           Password updated.
         </div>
@@ -277,7 +277,7 @@ function ChangePasswordForm() {
         disabled={
           submitting || !currentPassword || !newPassword || !confirm
         }
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-50"
       >
         {submitting ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />

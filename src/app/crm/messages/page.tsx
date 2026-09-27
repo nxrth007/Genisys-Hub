@@ -87,12 +87,12 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-          <MessageSquare className="h-6 w-6 text-blue-600" />
+        <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+          <MessageSquare className="h-6 w-6 text-primary" />
         </div>
         <div className="flex-1">
           <h2 className="text-2xl font-bold tracking-tight">Reminder messages</h2>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             Customer SMS threads the reminder system started. Replies
             land here too — click a conversation to read or respond.
           </p>
@@ -104,25 +104,25 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
       </div>
 
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by customer name, phone, or message…"
-          className="w-full rounded-lg border border-zinc-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-lg border border-border bg-card py-2.5 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
         />
       </div>
 
-      <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-xl border border-border bg-card border-border bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-sm text-zinc-500">
+          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Loading conversations…
           </div>
         ) : error ? (
           <div className="p-6">
-            <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div>
                 <div className="font-medium">Couldn&apos;t load conversations</div>
@@ -131,8 +131,8 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
             </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-zinc-500">
-            <MessageSquare className="mx-auto h-8 w-8 text-zinc-300" />
+          <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+            <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground/50" />
             <p className="mt-2">
               {conversations.length === 0
                 ? 'No reminder conversations yet. Once the system fires its first SMS, threads will appear here.'
@@ -140,12 +140,12 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          <ul className="divide-y divide-border-soft">
             {filtered.map((c) => (
               <li key={c.ghlConversationId}>
                 <Link
                   href={`${basePath}/${encodeURIComponent(c.ghlConversationId)}`}
-                  className="flex items-start gap-3 px-5 py-4 transition hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  className="flex items-start gap-3 px-5 py-4 transition hover:bg-muted"
                 >
                   <Avatar name={c.customerName} size="md" />
                   <div className="min-w-0 flex-1">
@@ -153,7 +153,7 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
                       <p className="truncate text-sm font-semibold">
                         {c.customerName}
                       </p>
-                      <span className="text-[11px] text-zinc-500">
+                      <span className="text-[11px] text-muted-foreground">
                         · {c.customerPhone}
                       </span>
                       {c.reminderCount > 1 && (
@@ -163,11 +163,11 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
                       )}
                     </div>
                     {c.lastOutboundBody && (
-                      <p className="mt-1 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                         {c.lastOutboundBody}
                       </p>
                     )}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         Appt: {formatDate(c.apptDateTime)}
@@ -182,7 +182,7 @@ export function ReminderMessagesList({ basePath }: { basePath: string }) {
         )}
       </div>
 
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-muted-foreground">
         <Phone className="mr-1 inline h-3 w-3" />
         Replies fire from the configured agency sender phone in
         Settings. Outbound from anywhere else (manual GHL, agent

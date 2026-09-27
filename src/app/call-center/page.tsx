@@ -184,7 +184,7 @@ function AppointmentsView() {
       </div>
 
       {/* ---- Today's appointments list (mockup pattern) ---- */}
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <section className="rounded-xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight">
             Appointments
@@ -255,9 +255,9 @@ function AppointmentsView() {
                   <Link
                     href={`/call-center/master-tracker?focus=${a.id}`}
                     className={cn(
-                      'rounded-full px-3.5 py-1.5 text-xs font-semibold transition',
+                      'rounded-lg px-3.5 py-1.5 text-xs font-semibold transition',
                       isFirst
-                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                        ? 'bg-foreground text-primary-foreground hover:bg-foreground/90'
                         : 'border border-border bg-card text-foreground/80 hover:bg-muted'
                     )}
                   >
@@ -305,11 +305,11 @@ function AppointmentsSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-[124px] animate-pulse rounded-2xl border border-border bg-card shadow-soft"
+            className="h-[124px] animate-pulse rounded-xl border border-border bg-card shadow-soft"
           />
         ))}
       </div>
-      <div className="h-64 animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+      <div className="h-64 animate-pulse rounded-xl border border-border bg-card shadow-soft" />
     </div>
   )
 }

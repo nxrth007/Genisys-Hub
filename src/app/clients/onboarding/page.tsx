@@ -74,7 +74,7 @@ export default function ClientOnboardingPage() {
         actions={
           <Link
             href="/clients"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4" /> Back to clients
           </Link>
@@ -181,7 +181,7 @@ function PendingTab() {
   }
   if (error) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+      <div className="rounded-xl border border-border bg-card p-6 text-sm text-destructive">
         Couldn&apos;t load pending applications. Try refreshing.
       </div>
     )
@@ -190,7 +190,7 @@ function PendingTab() {
 
   if (clients.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+      <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
         <Hourglass className="mx-auto h-10 w-10 text-muted-foreground/50" />
         <p className="mt-3 text-sm font-medium">
           No applications waiting on review
@@ -246,7 +246,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
   })
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-5">
+    <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -258,7 +258,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
               aria-hidden
             />
             <h3 className="truncate text-sm font-semibold">{client.name}</h3>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-lg bg-muted px-2 py-0.5 eyebrow text-muted-foreground">
               {client.package}
             </span>
             {client.state && (
@@ -327,7 +327,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
               decide.mutate('approve')
             }}
             disabled={decide.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground transition hover:bg-success/90 disabled:opacity-50"
           >
             {decide.isPending && decide.variables === 'approve' ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -349,7 +349,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
               }
             }}
             disabled={decide.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950"
+            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-card px-3 py-1.5 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 bg-card text-destructive hover:bg-destructive/10"
           >
             {decide.isPending && decide.variables === 'deny' ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -378,7 +378,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
             }}
             disabled={decide.isPending}
             title="Permanently remove this pending signup (spam / test / duplicate)"
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-red-950 dark:hover:text-red-300"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-red-300 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-destructive/10 hover:text-destructive"
           >
             {decide.isPending && decide.variables === 'delete' ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -391,7 +391,7 @@ function PendingClientCard({ client }: { client: PendingClient }) {
       </div>
 
       {error && (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {error}
         </div>
       )}
@@ -422,7 +422,7 @@ function CredentialsTab() {
   }
   if (error) {
     return (
-      <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+      <div className="rounded-xl border border-border bg-card p-6 text-sm text-destructive">
         Couldn&apos;t load clients. Try refreshing.
       </div>
     )
@@ -442,7 +442,7 @@ function CredentialsTab() {
         forgotten password.
       </p>
       <BulkProvisionPanel onProvisioned={() => qc.invalidateQueries()} />
-      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         <ul className="divide-y divide-border">
           {clients.map((c) => (
             <CredentialsRow key={c.id} client={c} />
@@ -544,13 +544,13 @@ function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
   }
 
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+    <div className="rounded-xl border border-primary/30 bg-primary-soft p-4 border-primary/30 bg-primary-soft">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+          <h3 className="text-sm font-semibold text-primary">
             Roll out logins for existing clients
           </h3>
-          <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
+          <p className="mt-1 text-xs text-primary">
             Generates a /client login for every active client that
             doesn&apos;t already have one. Each gets a professional
             welcome email with their credentials + a heads-up SMS
@@ -575,7 +575,7 @@ function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
             if (!ok) return
             bulkMutation.mutate()
           }}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-50"
         >
           {bulkMutation.isPending ? (
             <>
@@ -593,7 +593,7 @@ function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
       </div>
 
       {missingEmail.length > 0 && (
-        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="mt-3 rounded-md border border-warning/30 bg-warning/15 p-2.5 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           <p className="font-medium">
             {missingEmail.length} client
             {missingEmail.length === 1 ? '' : 's'} missing a contact
@@ -611,10 +611,10 @@ function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
       )}
 
       {summary && (
-        <div className="mt-3 rounded-md border border-blue-200 bg-white p-3 text-xs dark:border-blue-900 dark:bg-zinc-900">
-          <p className="font-semibold text-blue-900 dark:text-blue-200">
+        <div className="mt-3 rounded-md border border-primary/30 bg-card p-3 text-xs border-primary/30 bg-card">
+          <p className="font-semibold text-primary">
             Done.{' '}
-            <span className="font-normal text-blue-800 dark:text-blue-300">
+            <span className="font-normal text-primary">
               {summary.summary.generated} login
               {summary.summary.generated === 1 ? '' : 's'} generated ·{' '}
               {summary.summary.emailsSent} email
@@ -636,7 +636,7 @@ function BulkProvisionPanel({ onProvisioned }: { onProvisioned: () => void }) {
             </span>
           </p>
           {summary.results.some((r) => !r.ok || r.error) && (
-            <ul className="mt-2 space-y-0.5 text-zinc-700 dark:text-zinc-300">
+            <ul className="mt-2 space-y-0.5 text-foreground/85">
               {summary.results
                 .filter((r) => !r.ok || r.error)
                 .map((r) => (
@@ -712,7 +712,7 @@ function CredentialsRow({ client }: { client: Client }) {
                 · {client.state}
               </span>
             )}
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-lg bg-muted px-2 py-0.5 eyebrow text-muted-foreground">
               {client.package}
             </span>
           </div>
@@ -734,14 +734,14 @@ function CredentialsRow({ client }: { client: Client }) {
                 Checking login status…
               </span>
             ) : hasLogin ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-success/30 bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success border-success/30 bg-success/15 text-success">
                 <CheckCircle2 className="h-3 w-3" />
                 {user!.mustChangePassword
                   ? 'Login active · awaiting first sign-in'
                   : 'Login active'}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground border-border bg-surface-muted text-foreground/85">
                 No login yet
               </span>
             )}
@@ -758,7 +758,7 @@ function CredentialsRow({ client }: { client: Client }) {
             type="button"
             onClick={() => generate.mutate()}
             disabled={generate.isPending || !client.contactEmail}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-50"
             title={
               !client.contactEmail
                 ? 'Add a contact email first'
@@ -783,9 +783,9 @@ function CredentialsRow({ client }: { client: Client }) {
           it if the email send failed for any reason. Clears as soon
           as admin navigates away or generates a new one. */}
       {tempPassword && (
-        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950">
+        <div className="mt-3 rounded-md border border-primary/30 bg-primary-soft p-3 text-xs border-primary/30 bg-primary-soft">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 font-medium text-blue-800 dark:text-blue-200">
+            <div className="flex items-center gap-2 font-medium text-primary">
               <KeyRound className="h-3.5 w-3.5" />
               Temporary password generated
             </div>
@@ -793,18 +793,18 @@ function CredentialsRow({ client }: { client: Client }) {
                 we can't tell synchronously whether it landed. Show
                 "Sending to X" + the inline password — admin can copy
                 if the client doesn't see it within a minute. */}
-            <span className="text-blue-700 dark:text-blue-300">
+            <span className="text-primary">
               Sending to {client.contactEmail}
             </span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <code className="flex-1 rounded bg-white px-2 py-1 font-mono text-xs dark:bg-blue-900">
+            <code className="flex-1 rounded bg-card px-2 py-1 font-mono text-xs bg-primary-soft">
               {tempPassword}
             </code>
             <button
               type="button"
               onClick={copyPassword}
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900 dark:text-blue-200"
+              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-card px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary"
             >
               {copied ? (
                 <Check className="h-3 w-3" />
@@ -817,7 +817,7 @@ function CredentialsRow({ client }: { client: Client }) {
         </div>
       )}
       {generate.isError && (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {(generate.error as Error).message}
         </div>
       )}

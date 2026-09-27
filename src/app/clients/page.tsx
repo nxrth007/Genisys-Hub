@@ -557,11 +557,11 @@ export default function ClientsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : query.isError ? (
-        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-destructive">
+        <div className="rounded-xl border border-border bg-card p-6 text-sm text-destructive">
           Couldn&apos;t load the client list. Try refreshing.
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
           <Building2 className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <p className="mt-3 text-sm text-muted-foreground">
             {clients.length === 0
@@ -850,10 +850,10 @@ function ClientRow({
         {/* Bar — booked appointments toward the contracted cap.
             Single gradient green for every client (Ethan, 2026-05-08);
             muted rail when no cap or no bookings yet. */}
-        <div className="h-1 w-full overflow-hidden rounded-full bg-border">
+        <div className="h-1 w-full overflow-hidden rounded-lg bg-border">
           {showBar && (
             <div
-              className={cn('h-full rounded-full', barClass)}
+              className={cn('h-full rounded-lg', barClass)}
               style={{ width: `${Math.min(barWidth, 100)}%` }}
             />
           )}
@@ -1061,7 +1061,7 @@ function ClientDetailDialog({
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-xl flex-col gap-5 rounded-2xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
+        className="flex w-full max-w-xl flex-col gap-5 rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -1189,9 +1189,9 @@ function ClientDetailDialog({
               </span>
             </p>
           </div>
-          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-border">
+          <div className="mt-2 h-1 w-full overflow-hidden rounded-lg bg-border">
             <div
-              className="h-full rounded-full bg-foreground/70"
+              className="h-full rounded-lg bg-foreground/70"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -1418,7 +1418,7 @@ function DeleteClientDialog({
             password: password.trim(),
           })
         }}
-        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
+        className="flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-popover p-6 text-popover-foreground shadow-pop"
       >
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-destructive/10 p-2">
@@ -1568,7 +1568,7 @@ function AdditionalInfo({ client }: { client: ClientWithCounts }) {
         aria-expanded={open}
         className="flex w-full items-center justify-between px-3 py-2.5 text-left transition hover:bg-surface-muted"
       >
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="eyebrow text-muted-foreground">
           Additional info
         </span>
         <ChevronDown
@@ -1705,7 +1705,7 @@ function DetailRow({
     <div className="flex items-start gap-2 text-sm">
       <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="eyebrow text-muted-foreground">
           {label}
         </p>
         <p
@@ -1802,7 +1802,7 @@ function LoginDetailRow({
     <div className="flex items-start gap-2 text-sm">
       <KeyRound className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <p className="eyebrow text-muted-foreground">
           Client login
         </p>
         <p className="mt-0.5 break-all text-sm text-foreground/85">{email}</p>
@@ -1835,7 +1835,7 @@ function Section({
 }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="mb-2 eyebrow text-muted-foreground">
         {label}
       </p>
       {children}

@@ -70,8 +70,8 @@ export function NctLeadsTab() {
           className={cn(
             'flex items-start gap-2 rounded-xl border p-3 text-sm',
             notice.tone === 'ok'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300',
+              ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
+              : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive',
           )}
         >
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -112,7 +112,7 @@ export function NctLeadsTab() {
       </div>
 
       {/* ---- Webhook credential for NCT */}
-      <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="rounded-xl border border-border bg-card p-4">
         <h3 className="mb-1 text-sm font-semibold text-foreground">
           Webhook endpoint — give this to NCT
         </h3>
@@ -195,7 +195,7 @@ export function NctLeadsTab() {
       </div>
 
       {data.configs.length === 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-3 text-sm text-warning border-warning/30 bg-warning/15 text-warning">
           No roofing clients configured yet — leads will be recorded but never
           charged. Add one on the <strong>Roofing Clients</strong> tab.
         </div>
@@ -391,7 +391,7 @@ function SettingsPanel({
   )
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <h3 className="mb-3 text-sm font-semibold text-foreground">Automation</h3>
 
       <label className="flex items-start gap-2 rounded-xl border border-border p-3">
@@ -549,7 +549,7 @@ function SettingsPanel({
               notifyEveryLead,
             })
           }
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
+          className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-40"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />

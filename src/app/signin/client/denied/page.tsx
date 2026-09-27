@@ -12,7 +12,7 @@ import { XCircle, LogOut } from 'lucide-react'
 export default function ClientDeniedPage() {
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-gradient-to-b from-zinc-50 to-zinc-100 px-4 py-6 dark:from-zinc-950 dark:to-zinc-900">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 text-center shadow-lg sm:p-8 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 text-center shadow-pop sm:p-8 border-border bg-card">
         <div className="mb-5 flex items-center justify-center">
           <Image
             src="/genisys-logo.png"
@@ -23,11 +23,11 @@ export default function ClientDeniedPage() {
             className="h-auto w-40 sm:w-44 dark:invert"
           />
         </div>
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-950">
-          <XCircle className="h-5 w-5 text-rose-600 dark:text-rose-300" />
+        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+          <XCircle className="h-5 w-5 text-destructive" />
         </div>
         <h1 className="text-base font-semibold">Account not active</h1>
-        <p className="mt-2 text-xs text-zinc-500">
+        <p className="mt-2 text-xs text-muted-foreground">
           This Lead Genisys account isn&apos;t active. If you believe
           this is a mistake, reach out to your account manager and
           we&apos;ll take a look.
@@ -35,7 +35,7 @@ export default function ClientDeniedPage() {
 
         <button
           onClick={() => signOut({ callbackUrl: '/signin/client' })}
-          className="mt-6 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="mt-6 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
         >
           <LogOut className="h-3.5 w-3.5" />
           Sign out

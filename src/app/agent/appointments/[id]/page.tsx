@@ -79,14 +79,14 @@ export default function EditAppointmentPage({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
 
   if (error || !data) {
     return (
-      <div className="mx-auto max-w-2xl rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+      <div className="mx-auto max-w-2xl rounded-xl border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
         Couldn&apos;t load this appointment. It may have been deleted, or belong to another agent.
       </div>
     )

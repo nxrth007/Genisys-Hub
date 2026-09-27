@@ -107,7 +107,7 @@ export function DateRangePicker({
       <button
         type="button"
         onClick={() => setOpen((s) => !s)}
-        className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-sm font-medium shadow-soft transition hover:bg-muted"
+        className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2 text-sm font-medium shadow-soft transition hover:bg-muted"
       >
         <CalendarIcon className="h-4 w-4 text-muted-foreground" />
         <span>{formatRangeLabel(value)}</span>
@@ -115,7 +115,7 @@ export function DateRangePicker({
       {open && (
         <div
           className={cn(
-            'absolute z-30 mt-1 flex w-[640px] flex-col gap-4 rounded-2xl border border-border bg-popover p-4 shadow-pop',
+            'absolute z-30 mt-1 flex w-[640px] flex-col gap-4 rounded-xl border border-border bg-popover p-4 shadow-pop',
             align === 'end' ? 'right-0' : 'left-0'
           )}
         >
@@ -161,7 +161,7 @@ export function DateRangePicker({
                   setPickStart(null)
                   setOpen(false)
                 }}
-                className="rounded-full border border-border bg-card px-3 py-1 text-xs font-medium hover:bg-muted"
+                className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium hover:bg-muted"
               >
                 {p.label}
               </button>
@@ -248,7 +248,7 @@ function Month({
         )}
       </div>
 
-      <div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="grid grid-cols-7 gap-y-0.5 text-center eyebrow text-muted-foreground">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
           <div key={d}>{d}</div>
         ))}
@@ -273,7 +273,7 @@ function Month({
                 'mx-auto flex h-8 w-8 items-center justify-center rounded-md text-sm transition',
                 inRange && !isStart && !isEnd && 'bg-primary-soft text-primary',
                 (isStart || isEnd || isPickAnchor) &&
-                  'bg-primary text-primary-foreground font-semibold',
+                  'bg-foreground text-primary-foreground font-semibold',
                 !inRange &&
                   !isPickAnchor &&
                   'hover:bg-muted hover:text-foreground'

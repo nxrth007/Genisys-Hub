@@ -60,17 +60,17 @@ export function StatCard({
   tone?: 'default' | 'good' | 'bad'
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="eyebrow text-muted-foreground">
         {label}
       </p>
       <p
         className={cn(
           'mt-1 text-2xl font-bold tabular-nums',
           tone === 'good'
-            ? 'text-emerald-600 dark:text-emerald-400'
+            ? 'text-success'
             : tone === 'bad'
-              ? 'text-rose-600 dark:text-rose-400'
+              ? 'text-destructive'
               : 'text-foreground',
         )}
       >
@@ -90,16 +90,16 @@ export function StatusPill({ status }: { status: string | null }) {
     s === 'posted' ||
     s === 'charged' ||
     s === 'ok'
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      ? 'bg-success/15 text-success bg-success/15 text-success'
       : s.includes('pending') || s.includes('progress') || s === 'capped'
-        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+        ? 'bg-warning/15 text-warning bg-warning/15 text-warning'
         : s.includes('fail') || s.includes('cancel')
-          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+          ? 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
+          : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
   return (
     <span
       className={cn(
-        'inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+        'inline-block rounded-lg px-2 py-0.5 eyebrow',
         tone,
       )}
     >
@@ -118,7 +118,7 @@ export function LoadingBlock() {
 
 export function ErrorBlock({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+    <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
       <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
       <span>{message}</span>
     </div>

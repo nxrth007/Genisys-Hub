@@ -86,15 +86,15 @@ export function PinnedSheetsSection() {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center justify-center rounded-2xl border border-zinc-200 bg-white py-10 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+      <div className="flex items-center justify-center rounded-xl border border-border bg-card py-10 border-border bg-card">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/70" />
       </div>
     )
   }
 
   if (query.isError) {
     return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+      <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
         Couldn&apos;t load pinned sheets: {(query.error as Error).message}
       </div>
     )
@@ -106,11 +106,11 @@ export function PinnedSheetsSection() {
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Pinned sheets
         </h3>
         {query.isFetching && (
-          <RefreshCw className="h-3.5 w-3.5 animate-spin text-zinc-400" />
+          <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground/70" />
         )}
       </div>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -128,7 +128,7 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
   return (
     <Link
       href={`/documents/sheets/${sheet.key}`}
-      className="group block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+      className="group block overflow-hidden rounded-xl border border-border bg-card transition hover:border-foreground/30 border-border bg-card hover:border-foreground/30"
       title="Open the full detail view"
     >
       {/* Card header — title + description on the left, action buttons
@@ -145,7 +145,7 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
             <h4 className="text-sm font-semibold tracking-tight">
               {sheet.title}
             </h4>
-            <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
               {sheet.description}
             </p>
           </div>
@@ -172,7 +172,7 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
             title="Open in Google Sheets"
           >
             <ExternalLink className="h-3 w-3" />
@@ -182,7 +182,7 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
       </div>
 
       {sheet.readError && (
-        <div className="border-t border-amber-200 bg-amber-50 px-5 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="border-t border-warning/30 bg-warning/15 px-5 py-2 text-[11px] text-warning border-warning/30 bg-warning/15 text-warning">
           Couldn&apos;t read summary metadata ({sheet.readError}). Open the
           detailed view or Google Sheets for the live data.
         </div>
@@ -192,14 +192,14 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
           the iframe lives on the detail page. Compact, readable, gives
           admin a one-glance answer to "what's in this workbook." */}
       {items.length > 0 && (
-        <div className="border-t border-zinc-200 bg-zinc-50/50 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-950/50">
+        <div className="border-t border-border bg-surface-muted/50 px-5 py-3 border-border bg-background/50">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {items.slice(0, 6).map((item, i) => (
               <div
                 key={`${item.label}-${i}`}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900"
+                className="rounded-lg border border-border bg-card px-3 py-2 border-border bg-card"
               >
-                <div className="truncate text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <div className="truncate eyebrow text-muted-foreground">
                   {item.label}
                 </div>
                 <div
@@ -212,7 +212,7 @@ function PinnedSheetCard({ sheet }: { sheet: PinnedSheetPayload }) {
                   {item.value}
                 </div>
                 {item.hint && (
-                  <div className="mt-0.5 truncate text-[10px] text-zinc-400">
+                  <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70">
                     {item.hint}
                   </div>
                 )}

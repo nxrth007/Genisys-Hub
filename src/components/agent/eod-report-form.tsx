@@ -183,7 +183,7 @@ export function EodReportForm({
       <div>
         <Link
           href={pageBase}
-          className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to reports
@@ -191,7 +191,7 @@ export function EodReportForm({
         <h1 className="mt-2 text-2xl font-bold tracking-tight">
           {mode === 'create' ? 'Submit End-of-Day Report' : 'Edit EOD Report'}
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           Quick recap of your shift — takes ~2 minutes. Ethan and the
           management team review these daily to unblock technical + process
           issues faster.
@@ -199,7 +199,7 @@ export function EodReportForm({
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -212,9 +212,9 @@ export function EodReportForm({
             required
             value={values.reportDate}
             onChange={(e) => update('reportDate', e.target.value)}
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Defaults to today. Only one report per day — revisiting this page
             tomorrow will start a fresh one.
           </p>
@@ -255,7 +255,7 @@ export function EodReportForm({
       </Section>
 
       <Section title="Technical issues (optional)" icon={TriangleAlert}>
-        <p className="mb-3 text-xs text-zinc-500">
+        <p className="mb-3 text-xs text-muted-foreground">
           Tap every category that caused friction today. Leave blank if the
           shift ran smoothly.
         </p>
@@ -268,10 +268,10 @@ export function EodReportForm({
                 type="button"
                 onClick={() => toggleTag(tag.value)}
                 className={cn(
-                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
                   active
-                    ? 'border-amber-500 bg-amber-500 text-white shadow-sm'
-                    : 'border-zinc-200 bg-white text-zinc-700 hover:border-amber-300 hover:bg-amber-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-amber-700 dark:hover:bg-amber-950/40'
+                    ? 'border-warning bg-warning text-warning-foreground'
+                    : 'border-border bg-card text-foreground/85 hover:border-amber-300 hover:bg-warning/15 border-border bg-card text-foreground/85 dark:hover:border-amber-700 hover:bg-warning/10'
                 )}
               >
                 {tag.label}
@@ -284,7 +284,7 @@ export function EodReportForm({
           value={values.technicalIssueNotes}
           onChange={(e) => update('technicalIssueNotes', e.target.value)}
           rows={3}
-          className="mt-3 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="mt-3 w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </Section>
 
@@ -294,7 +294,7 @@ export function EodReportForm({
           value={values.organizationalIssues}
           onChange={(e) => update('organizationalIssues', e.target.value)}
           rows={3}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </Section>
 
@@ -304,7 +304,7 @@ export function EodReportForm({
           value={values.wins}
           onChange={(e) => update('wins', e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </Section>
 
@@ -314,12 +314,12 @@ export function EodReportForm({
           value={values.tomorrowFocus}
           onChange={(e) => update('tomorrowFocus', e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       </Section>
 
-      <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-1 py-3 dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="text-xs text-zinc-500">
+      <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-border bg-card px-1 py-3 border-border bg-background">
+        <div className="text-xs text-muted-foreground">
           {hasAnyIssue
             ? 'Issues flagged — management will see this highlighted.'
             : 'No issues flagged.'}
@@ -330,7 +330,7 @@ export function EodReportForm({
               type="button"
               onClick={onDelete}
               disabled={deleting || saving}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10"
             >
               <Trash2 className="h-4 w-4" />
               {deleting ? 'Deleting…' : 'Delete'}
@@ -339,7 +339,7 @@ export function EodReportForm({
           <button
             type="submit"
             disabled={saving || deleting}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             {saving ? 'Saving…' : mode === 'create' ? 'Submit report' : 'Save changes'}
@@ -360,9 +360,9 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-        {Icon && <Icon className="h-4 w-4 text-blue-600" />}
+    <section className="rounded-xl border border-border bg-card p-5 border-border bg-card">
+      <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground/85 text-foreground">
+        {Icon && <Icon className="h-4 w-4 text-primary" />}
         {title}
       </h3>
       {children}
@@ -385,8 +385,8 @@ function NumberField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        <Icon className="h-3.5 w-3.5 text-blue-600" />
+      <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground text-foreground/85">
+        <Icon className="h-3.5 w-3.5 text-primary" />
         {label}
       </span>
       <input
@@ -397,9 +397,9 @@ function NumberField({
         placeholder="0"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+        className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm tabular-nums focus:border-primary/50 focus:outline-none border-border bg-background"
       />
-      <span className="mt-1 block text-[10px] text-zinc-400">{hint}</span>
+      <span className="mt-1 block text-[10px] text-muted-foreground/70">{hint}</span>
     </label>
   )
 }

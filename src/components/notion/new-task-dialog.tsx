@@ -162,14 +162,14 @@ export function NewTaskDialog({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <form
         onSubmit={submit}
-        className="relative w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl dark:bg-zinc-900"
+        className="relative w-full max-w-md space-y-4 rounded-xl bg-card p-5 shadow-pop bg-card"
       >
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold">New task</h3>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-muted-foreground">
               Adds to the board&apos;s{' '}
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              <span className="font-medium text-foreground/85">
                 &ldquo;{targetStatus}&rdquo;
               </span>{' '}
               column.
@@ -178,7 +178,7 @@ export function NewTaskDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -187,7 +187,7 @@ export function NewTaskDialog({
 
         {/* Title */}
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1 block eyebrow text-muted-foreground">
             Task
           </label>
           <input
@@ -196,14 +196,14 @@ export function NewTaskDialog({
             onChange={(e) => setTitle(e.target.value)}
             autoFocus
             placeholder="What needs to get done?"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </div>
 
         {/* Urgency — pill selector */}
         {hasPriority && (
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="mb-1.5 block eyebrow text-muted-foreground">
               Urgency
             </label>
             <div className="flex flex-wrap gap-1.5">
@@ -229,7 +229,7 @@ export function NewTaskDialog({
         {/* Assignee — avatar-prefixed dropdown when options exist */}
         {schema.assigneeProp && (
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="mb-1.5 block eyebrow text-muted-foreground">
               Assignee
             </label>
             {hasAssignee ? (
@@ -251,8 +251,8 @@ export function NewTaskDialog({
                 ))}
               </div>
             ) : (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                The <code className="rounded bg-white/60 px-1 dark:bg-zinc-900/60">
+              <p className="rounded-md border border-warning/30 bg-warning/15 px-3 py-2 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
+                The <code className="rounded bg-card/60 px-1 bg-card/60">
                   &quot;{schema.assigneeProp}&quot;
                 </code>{' '}
                 column ({schema.assigneePropType}) has no options yet.
@@ -271,17 +271,17 @@ export function NewTaskDialog({
             the FOLLOW_UP_MARKER glyph so the FocusList routes it into
             the Follow-ups bucket — no DB schema changes needed. */}
         <div>
-          <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <label className="mb-1.5 block eyebrow text-muted-foreground">
             Type
           </label>
           <button
             type="button"
             onClick={() => setIsFollowUp((v) => !v)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+              'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors',
               isFollowUp
-                ? 'border-violet-600 bg-violet-600 text-white'
-                : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                ? 'border-violet-600 bg-foreground/80 text-white'
+                : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground/85 hover:bg-muted',
             )}
             title={
               isFollowUp
@@ -293,7 +293,7 @@ export function NewTaskDialog({
             Follow-up
           </button>
           {isFollowUp && (
-            <p className="mt-1.5 text-[11px] text-zinc-500">
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
               Tagged with a leading <span className="font-semibold">🔁</span> so
               you can spot it in Notion. Set a due date below for
               the reminder.
@@ -310,7 +310,7 @@ export function NewTaskDialog({
             Notion DB has no date column. */}
         {isFollowUp && schema.dateProp && (
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="mb-1.5 block eyebrow text-muted-foreground">
               Due date
             </label>
             <div className="flex items-center gap-2">
@@ -318,13 +318,13 @@ export function NewTaskDialog({
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:ring-blue-900/60"
+                className="rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 border-border bg-background dark:focus:ring-blue-900/60"
               />
               {dueDate && (
                 <button
                   type="button"
                   onClick={() => setDueDate('')}
-                  className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+                  className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline text-muted-foreground hover:text-foreground"
                 >
                   clear
                 </button>
@@ -334,23 +334,23 @@ export function NewTaskDialog({
         )}
 
         {error && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             {error}
           </p>
         )}
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-3 border-border">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting || !title.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {submitting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -369,24 +369,24 @@ export function NewTaskDialog({
 
 const PRIORITY_TONE: Record<string, { active: string; idle: string }> = {
   high: {
-    active: 'bg-rose-600 text-white border-rose-600',
-    idle: 'border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40',
+    active: 'bg-destructive text-destructive-foreground border-destructive',
+    idle: 'border-destructive/30 text-destructive hover:bg-destructive/10 border-destructive/30 text-destructive hover:bg-destructive/10',
   },
   urgent: {
-    active: 'bg-rose-600 text-white border-rose-600',
-    idle: 'border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40',
+    active: 'bg-destructive text-destructive-foreground border-destructive',
+    idle: 'border-destructive/30 text-destructive hover:bg-destructive/10 border-destructive/30 text-destructive hover:bg-destructive/10',
   },
   medium: {
-    active: 'bg-amber-500 text-white border-amber-500',
-    idle: 'border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40',
+    active: 'bg-warning text-warning-foreground border-warning',
+    idle: 'border-warning/30 text-warning hover:bg-warning/15 border-warning/30 text-warning hover:bg-warning/10',
   },
   normal: {
-    active: 'bg-amber-500 text-white border-amber-500',
-    idle: 'border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-300 dark:hover:bg-amber-950/40',
+    active: 'bg-warning text-warning-foreground border-warning',
+    idle: 'border-warning/30 text-warning hover:bg-warning/15 border-warning/30 text-warning hover:bg-warning/10',
   },
   low: {
-    active: 'bg-emerald-600 text-white border-emerald-600',
-    idle: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/40',
+    active: 'bg-success text-success-foreground border-success',
+    idle: 'border-success/30 text-success hover:bg-success/15 border-success/30 text-success hover:bg-success/10',
   },
 }
 
@@ -406,8 +406,8 @@ export function PriorityPill({
   const key = value.toLowerCase().replace(/[^a-z]/g, '')
   const tone = PRIORITY_TONE[key]
   const neutral = {
-    active: 'bg-zinc-700 text-white border-zinc-700 dark:bg-zinc-200 dark:text-zinc-900 dark:border-zinc-200',
-    idle: 'border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800',
+    active: 'bg-zinc-700 text-white border-zinc-700 dark:bg-zinc-200 text-background border-border',
+    idle: 'border-border text-muted-foreground hover:bg-muted border-border text-muted-foreground hover:bg-muted',
   }
   const styles = tone || neutral
   return (
@@ -415,7 +415,7 @@ export function PriorityPill({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+        'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
         active ? styles.active : styles.idle
       )}
     >
@@ -440,10 +440,10 @@ export function AssigneePill({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium transition-colors',
+        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors',
         active
-          ? 'border-blue-600 bg-blue-600 text-white'
-          : 'border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
+          ? 'border-primary bg-foreground text-background'
+          : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground/85 hover:bg-muted'
       )}
     >
       {name ? <Avatar name={name} size="xs" /> : null}

@@ -137,10 +137,10 @@ export function ReminderConversationDetail({
 
   return (
     <div className="mx-auto flex h-[calc(100vh-7rem)] w-full max-w-3xl flex-col">
-      <div className="mb-3 flex items-center gap-3 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+      <div className="mb-3 flex items-center gap-3 border-b border-border pb-3 border-border">
         <Link
           href={basePath}
-          className="rounded-md p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="rounded-md p-1.5 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
           aria-label="Back to messages"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -153,27 +153,27 @@ export function ReminderConversationDetail({
             {data?.customerName ?? 'Loading…'}
           </h2>
           {data?.customerPhone && (
-            <p className="truncate text-xs text-zinc-500">
+            <p className="truncate text-xs text-muted-foreground">
               {data.customerPhone}
             </p>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex-1 overflow-y-auto rounded-xl border border-border bg-card px-4 py-3 border-border bg-card">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Loading thread…
           </div>
         ) : error ? (
-          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <div>{(error as Error).message}</div>
           </div>
         ) : sortedMessages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-sm text-zinc-500">
-            <MessageSquare className="h-8 w-8 text-zinc-300" />
+          <div className="flex h-full flex-col items-center justify-center text-sm text-muted-foreground">
+            <MessageSquare className="h-8 w-8 text-muted-foreground/50" />
             <p className="mt-2">No messages in this thread yet.</p>
           </div>
         ) : (
@@ -193,7 +193,7 @@ export function ReminderConversationDetail({
         }}
         className="mt-3"
       >
-        <div className="flex items-end gap-2 rounded-xl border border-zinc-200 bg-white p-2 shadow-sm focus-within:border-blue-500 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2 focus-within:border-blue-500 border-border bg-card">
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
@@ -207,7 +207,7 @@ export function ReminderConversationDetail({
             type="submit"
             disabled={sendMutation.isPending || !reply.trim()}
             className={cn(
-              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50',
+              'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3.5 py-2 text-sm font-medium text-background transition hover:bg-foreground/90 disabled:opacity-50',
             )}
           >
             <Send className="h-3.5 w-3.5" />
@@ -216,7 +216,7 @@ export function ReminderConversationDetail({
         </div>
       </form>
       {sendMutation.isError && (
-        <p className="mt-2 text-xs text-red-600">
+        <p className="mt-2 text-xs text-destructive">
           Failed: {(sendMutation.error as Error).message}
         </p>
       )}
@@ -240,14 +240,14 @@ function MessageBubble({ message }: { message: Message }) {
     >
       <div
         className={cn(
-          'max-w-[75%] rounded-2xl px-3 py-2 text-sm',
+          'max-w-[75%] rounded-xl px-3 py-2 text-sm',
           inbound
-            ? 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100'
-            : 'bg-blue-600 text-white',
+            ? 'bg-muted text-foreground bg-surface-muted text-foreground'
+            : 'bg-foreground text-background',
         )}
       >
         {reminderLabel && (
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
+          <div className="mb-1 eyebrow opacity-80">
             {reminderLabel} reminder
           </div>
         )}
@@ -256,7 +256,7 @@ function MessageBubble({ message }: { message: Message }) {
           <div
             className={cn(
               'mt-1 text-[10px]',
-              inbound ? 'text-zinc-500' : 'text-blue-100',
+              inbound ? 'text-muted-foreground' : 'text-blue-100',
             )}
           >
             {formatTime(message.dateAdded)}

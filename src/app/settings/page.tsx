@@ -69,7 +69,7 @@ function AccessLinksSection() {
   return (
     <div>
       <h3 className="text-lg font-semibold tracking-tight">Access</h3>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-muted-foreground">
         Admin only. Controls who can reach Hub data from outside the Hub.
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -77,13 +77,13 @@ function AccessLinksSection() {
           <Link
             key={l.href}
             href={l.href}
-            className="group rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-blue-300 hover:bg-blue-50/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-900 dark:hover:bg-blue-950/20"
+            className="group rounded-xl border border-border bg-card p-4 transition hover:border-primary/50 hover:bg-blue-50/40 border-border bg-card dark:hover:border-blue-900 hover:bg-primary-soft/20"
           >
             <p className="flex items-center justify-between text-sm font-semibold">
               {l.title}
-              <ArrowRight className="h-4 w-4 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600" />
+              <ArrowRight className="h-4 w-4 text-muted-foreground/70 transition group-hover:translate-x-0.5 group-hover:text-primary" />
             </p>
-            <p className="mt-1 text-xs text-zinc-500">{l.body}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{l.body}</p>
           </Link>
         ))}
       </div>
@@ -97,12 +97,12 @@ export default function SettingsPage() {
     <div className="max-w-3xl space-y-8">
       <div>
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Settings className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+            <Settings className="h-6 w-6 text-primary" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         </div>
-        <p className="mt-2 text-sm text-zinc-500">
+        <p className="mt-2 text-sm text-muted-foreground">
           Configure integrations, connect accounts, and verify things are working.
         </p>
       </div>
@@ -203,22 +203,22 @@ function GmailConnectSection() {
   const accounts = data?.accounts ?? []
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <Mail className="h-5 w-5 text-blue-600" />
+          <Mail className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">Gmail accounts</h3>
         </div>
         <a
           href="/api/gmail/connect"
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-3.5 w-3.5" /> Connect account
         </a>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
-        Connect <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">alex@leadgenisys.com</code>{' '}
-        and <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">ethan@leadgenisys.com</code>.
+      <p className="text-sm text-muted-foreground mb-4">
+        Connect <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">alex@leadgenisys.com</code>{' '}
+        and <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">ethan@leadgenisys.com</code>.
         Each click opens Google&apos;s consent screen — sign in as that specific account.
       </p>
 
@@ -229,17 +229,17 @@ function GmailConnectSection() {
       )}
 
       {accounts.length === 0 ? (
-        <p className="text-xs text-zinc-400 py-2">No accounts connected yet.</p>
+        <p className="text-xs text-muted-foreground/70 py-2">No accounts connected yet.</p>
       ) : (
         <div className="space-y-2">
           {accounts.map((a) => (
             <div
               key={a.id}
-              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+              className="flex items-center justify-between rounded-md border border-border px-3 py-2 border-border"
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{a.email}</p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-muted-foreground">
                   {a._count?.emails ?? 0} email{a._count?.emails === 1 ? '' : 's'} synced
                 </p>
               </div>
@@ -247,7 +247,7 @@ function GmailConnectSection() {
                 <button
                   onClick={() => syncMutation.mutate(a.email)}
                   disabled={syncMutation.isPending}
-                  className="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
                 >
                   {syncMutation.isPending && syncMutation.variables === a.email
                     ? 'Syncing…'
@@ -256,7 +256,7 @@ function GmailConnectSection() {
                 <button
                   onClick={() => disconnectMutation.mutate(a.email)}
                   disabled={disconnectMutation.isPending}
-                  className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                  className="rounded-md p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
                   title="Disconnect"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -308,46 +308,46 @@ function DriveConnectSection() {
   const accounts = data?.accounts ?? []
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <HardDrive className="h-5 w-5 text-blue-600" />
+          <HardDrive className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">Google Drive accounts</h3>
         </div>
         <a
           href="/api/drive/connect"
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-3.5 w-3.5" /> Connect account
         </a>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
+      <p className="text-sm text-muted-foreground mb-4">
         Read-only access to files owned by or shared with{' '}
-        <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">alex@leadgenisys.com</code>{' '}
+        <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">alex@leadgenisys.com</code>{' '}
         and{' '}
-        <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">ethan@leadgenisys.com</code>.
+        <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">ethan@leadgenisys.com</code>.
         Connect both accounts — the Drive page merges results so you see every file either of you can reach.
       </p>
 
       {notice && <Alert variant={notice.type}>{notice.text}</Alert>}
 
       {accounts.length === 0 ? (
-        <p className="text-xs text-zinc-400 py-2">No Drive accounts connected yet.</p>
+        <p className="text-xs text-muted-foreground/70 py-2">No Drive accounts connected yet.</p>
       ) : (
         <div className="space-y-2">
           {accounts.map((a) => (
             <div
               key={a.id}
-              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+              className="flex items-center justify-between rounded-md border border-border px-3 py-2 border-border"
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{a.email}</p>
-                <p className="text-xs text-zinc-500">Read-only Drive access</p>
+                <p className="text-xs text-muted-foreground">Read-only Drive access</p>
               </div>
               <button
                 onClick={() => disconnectMutation.mutate(a.email)}
                 disabled={disconnectMutation.isPending}
-                className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                className="rounded-md p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
                 title="Disconnect"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -409,26 +409,26 @@ function CalendarConnectionsSection() {
   const connections = data?.connections ?? []
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-3">
-          <Calendar className="h-5 w-5 text-blue-600" />
+          <Calendar className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">Calendar connections</h3>
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-3.5 w-3.5" /> Add iCal feed
         </button>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
+      <p className="text-sm text-muted-foreground mb-4">
         Add external calendars via iCal URL. Events appear on the Calendar page with their own color.
         Get the URL from Google Calendar → Settings → Integrate calendar → Secret address in iCal format.
       </p>
 
       {showAdd && (
-        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30 space-y-3">
+        <div className="mb-4 rounded-lg border border-primary/30 bg-primary-soft p-4 border-primary/30 bg-primary-soft/30 space-y-3">
           <div>
             <label className="mb-1 block text-xs font-medium">Label</label>
             <input
@@ -436,7 +436,7 @@ function CalendarConnectionsSection() {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder='e.g. "Solar Meetings" or "Trustware (Ethan)"'
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
@@ -446,47 +446,47 @@ function CalendarConnectionsSection() {
               value={icalUrl}
               onChange={(e) => setIcalUrl(e.target.value)}
               placeholder="https://calendar.google.com/calendar/ical/..."
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono text-xs focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm font-mono text-xs focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => addMutation.mutate({ label, icalUrl })}
               disabled={addMutation.isPending || !label || !icalUrl}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
             >
               {addMutation.isPending ? 'Adding…' : 'Add'}
             </button>
             <button
               onClick={() => setShowAdd(false)}
-              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
             >
               Cancel
             </button>
           </div>
           {addMutation.isError && (
-            <p className="text-xs text-red-600">{(addMutation.error as Error).message}</p>
+            <p className="text-xs text-destructive">{(addMutation.error as Error).message}</p>
           )}
         </div>
       )}
 
       {connections.length === 0 ? (
-        <p className="text-xs text-zinc-400 py-2">No external calendars connected yet.</p>
+        <p className="text-xs text-muted-foreground/70 py-2">No external calendars connected yet.</p>
       ) : (
         <div className="space-y-2">
           {connections.map((c) => (
             <div
               key={c.id}
-              className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+              className="flex items-center justify-between rounded-md border border-border px-3 py-2 border-border"
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium">{c.label}</p>
-                <p className="text-xs text-zinc-500 truncate">{c.provider === 'ical' ? 'iCal feed' : c.provider}</p>
+                <p className="text-xs text-muted-foreground truncate">{c.provider === 'ical' ? 'iCal feed' : c.provider}</p>
               </div>
               <button
                 onClick={() => deleteMutation.mutate(c.id)}
                 disabled={deleteMutation.isPending}
-                className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                className="rounded-md p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
                 title="Remove"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -673,20 +673,20 @@ function ScheduledBriefsSection() {
   })
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="mb-1 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Bell className="h-5 w-5 text-blue-600" />
+          <Bell className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">Daily brief schedules</h3>
         </div>
         <button
           onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-3.5 w-3.5" /> Add schedule
         </button>
       </div>
-      <p className="mb-4 text-sm text-zinc-500">
+      <p className="mb-4 text-sm text-muted-foreground">
         Scheduled morning briefs run via the in-process cron. For GHL SMS, the
         schedule owner&apos;s timezone decides when 9 AM happens — the{' '}
         <span className="font-medium">phone</span> is the actual recipient and
@@ -700,10 +700,10 @@ function ScheduledBriefsSection() {
             e.preventDefault()
             saveMutation.mutate()
           }}
-          className="mb-4 space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30"
+          className="mb-4 space-y-3 rounded-lg border border-primary/30 bg-primary-soft p-4 border-primary/30 bg-primary-soft/30"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            <span className="eyebrow text-muted-foreground">
               Quick preset:
             </span>
             {presets.map((p) => (
@@ -711,7 +711,7 @@ function ScheduledBriefsSection() {
                 key={p.label}
                 type="button"
                 onClick={() => setForm(p.values)}
-                className="rounded-full border border-blue-300 bg-white px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-zinc-900 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                className="rounded-md border border-primary/30 bg-card px-3 py-1 text-xs font-medium text-primary hover:bg-primary-soft border-primary/30 bg-card text-primary hover:bg-primary-soft/50"
               >
                 {p.label}
               </button>
@@ -727,9 +727,9 @@ function ScheduledBriefsSection() {
                 value={effectiveUserEmail}
                 onChange={(e) => setForm({ ...form, userEmail: e.target.value })}
                 required
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               />
-              <p className="mt-1 text-[10px] text-zinc-500">
+              <p className="mt-1 text-[10px] text-muted-foreground">
                 Record-keeping only. Defaulted to you. The actual SMS goes to
                 the phone below — Ethan does NOT need a Hub account.
               </p>
@@ -741,9 +741,9 @@ function ScheduledBriefsSection() {
                 value={form.timeOfDay}
                 onChange={(e) => setForm({ ...form, timeOfDay: e.target.value })}
                 required
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               />
-              <p className="mt-1 text-[10px] text-zinc-500">
+              <p className="mt-1 text-[10px] text-muted-foreground">
                 Interpreted in the timezone below.
               </p>
             </div>
@@ -754,7 +754,7 @@ function ScheduledBriefsSection() {
               <select
                 value={form.timezone}
                 onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               >
                 {TIMEZONE_OPTIONS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -762,7 +762,7 @@ function ScheduledBriefsSection() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-[10px] text-zinc-500">
+              <p className="mt-1 text-[10px] text-muted-foreground">
                 When 9:00 AM happens, in the recipient&apos;s local time.
               </p>
             </div>
@@ -773,7 +773,7 @@ function ScheduledBriefsSection() {
                 onChange={(e) =>
                   setForm({ ...form, channel: e.target.value as 'slack' | 'ghl_sms' })
                 }
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               >
                 <option value="ghl_sms">GHL SMS</option>
                 <option value="slack">Slack DM</option>
@@ -789,9 +789,9 @@ function ScheduledBriefsSection() {
                   value={form.recipientPhone}
                   onChange={(e) => setForm({ ...form, recipientPhone: e.target.value })}
                   placeholder="+16035026226"
-                  className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                  className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
                 />
-                <p className="mt-1 text-[10px] text-zinc-500">
+                <p className="mt-1 text-[10px] text-muted-foreground">
                   Who actually gets the text. GHL will auto-create the contact
                   if it doesn&apos;t exist yet.
                 </p>
@@ -806,9 +806,9 @@ function ScheduledBriefsSection() {
                 value={form.notionAssignee}
                 onChange={(e) => setForm({ ...form, notionAssignee: e.target.value })}
                 placeholder="Ethan"
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
               />
-              <p className="mt-1 text-[10px] text-zinc-500">
+              <p className="mt-1 text-[10px] text-muted-foreground">
                 If set, the brief pulls To-Do tasks assigned to this name from the
                 pinned Notion Kanban (Today page) instead of local Hub tasks.
               </p>
@@ -818,19 +818,19 @@ function ScheduledBriefsSection() {
             <button
               type="submit"
               disabled={saveMutation.isPending}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
             >
               {saveMutation.isPending ? 'Saving…' : 'Save'}
             </button>
             <button
               type="button"
               onClick={() => setShowAdd(false)}
-              className="rounded-md px-3 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
             >
               Cancel
             </button>
             {saveMutation.isError && (
-              <span className="text-xs text-red-600">
+              <span className="text-xs text-destructive">
                 {(saveMutation.error as Error).message}
               </span>
             )}
@@ -839,15 +839,15 @@ function ScheduledBriefsSection() {
       )}
 
       {schedules.length === 0 ? (
-        <p className="py-2 text-xs text-zinc-400">No scheduled briefs yet.</p>
+        <p className="py-2 text-xs text-muted-foreground/70">No scheduled briefs yet.</p>
       ) : (
         <div className="space-y-2">
           {schedules.map((s) => (
             <div
               key={s.id}
               className={cn(
-                'flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800',
-                !s.enabled && 'bg-zinc-50 opacity-70 dark:bg-zinc-950/40'
+                'flex items-center justify-between rounded-md border border-border px-3 py-2 border-border',
+                !s.enabled && 'bg-surface-muted opacity-70 bg-background/40'
               )}
             >
               <div className="min-w-0">
@@ -857,10 +857,10 @@ function ScheduledBriefsSection() {
                   </p>
                   <span
                     className={cn(
-                      'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                      'rounded-md px-2 py-0.5 text-[10px] font-semibold',
                       s.channel === 'ghl_sms'
-                        ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                        ? 'bg-success/15 text-success bg-success/15 text-success'
+                        : 'bg-primary-soft text-primary bg-primary-soft text-primary'
                     )}
                   >
                     {s.channel === 'ghl_sms' ? (
@@ -872,16 +872,16 @@ function ScheduledBriefsSection() {
                     )}
                   </span>
                   {!s.enabled && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning bg-warning/15 text-warning">
                       <Pause className="h-2.5 w-2.5" /> Paused
                     </span>
                   )}
-                  <span className="text-xs text-zinc-500">
+                  <span className="text-xs text-muted-foreground">
                     {s.timeOfDay}
                     {s.timezone ? ` ${shortTz(s.timezone)}` : ''}
                   </span>
                 </div>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-muted-foreground">
                   {s.channel === 'ghl_sms' && s.recipientPhone
                     ? `→ ${s.recipientPhone}`
                     : s.user.email}
@@ -903,8 +903,8 @@ function ScheduledBriefsSection() {
                   className={cn(
                     'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors',
                     s.enabled
-                      ? 'text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40'
-                      : 'text-green-700 hover:bg-green-50 dark:text-green-300 dark:hover:bg-green-950/40'
+                      ? 'text-warning hover:bg-warning/15 text-warning hover:bg-warning/10'
+                      : 'text-success hover:bg-success/15 text-success hover:bg-success/10'
                   )}
                 >
                   {s.enabled ? (
@@ -920,7 +920,7 @@ function ScheduledBriefsSection() {
                 <button
                   onClick={() => testMutation.mutate(s)}
                   disabled={testMutation.isPending}
-                  className="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
                 >
                   {testMutation.isPending && testMutation.variables?.id === s.id
                     ? 'Sending…'
@@ -929,7 +929,7 @@ function ScheduledBriefsSection() {
                 <button
                   onClick={() => deleteMutation.mutate(s.id)}
                   disabled={deleteMutation.isPending}
-                  className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+                  className="rounded-md p-1 text-muted-foreground/70 hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10"
                   title="Delete"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -984,13 +984,13 @@ function SlackTestSection() {
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center gap-3 mb-1">
-        <Hash className="h-5 w-5 text-blue-600" />
+        <Hash className="h-5 w-5 text-primary" />
         <h3 className="font-semibold">Slack — Send test DM</h3>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
-        Uses <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">Slack Bot Token</code>{' '}
+      <p className="text-sm text-muted-foreground mb-4">
+        Uses <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">Slack Bot Token</code>{' '}
         from the vault. Looks up the user by email in your Slack workspace and sends a direct message.
         This is how morning briefs will be delivered.
       </p>
@@ -1004,9 +1004,9 @@ function SlackTestSection() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="ethan@leadgenisys.com"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             Must match the email the person uses to sign into your Slack workspace.
           </p>
         </div>
@@ -1018,7 +1018,7 @@ function SlackTestSection() {
             onChange={(e) => setMessage(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </div>
 
@@ -1026,7 +1026,7 @@ function SlackTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !email || !message}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test DM'}
@@ -1111,14 +1111,14 @@ function ClientSlackDeliverySection() {
   const channels = channelsQuery.data?.channels ?? []
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-emerald-50 p-2 dark:bg-emerald-950">
-          <Hash className="h-5 w-5 text-emerald-600" />
+        <div className="rounded-lg bg-success/15 p-2 bg-success/15">
+          <Hash className="h-5 w-5 text-success" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">Client → Slack delivery</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Pick the Slack channel for each client. When a new appointment
             for that client lands on the master sheet (whether a Hub
             booking or a manual entry), the bot posts the appointment
@@ -1142,9 +1142,9 @@ function ClientSlackDeliverySection() {
 
       <div className="mt-5 space-y-2">
         {clientsQuery.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading clients…</p>
+          <p className="text-sm text-muted-foreground">Loading clients…</p>
         ) : clients.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             No active clients. Add one on the Clients page first.
           </p>
         ) : (
@@ -1223,16 +1223,16 @@ function ClientWorkspaceProvisioningSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-violet-50 p-2 dark:bg-violet-950">
-          <Hash className="h-5 w-5 text-violet-600" />
+        <div className="rounded-lg bg-muted p-2 bg-muted">
+          <Hash className="h-5 w-5 text-foreground/80" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">
             Slack channel auto-provisioning
           </h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             When admin approves a pending client, the bot creates a
             private <code>client-{`{slug}`}</code> channel, invites
             the team as members, and sends the client&apos;s
@@ -1255,10 +1255,10 @@ function ClientWorkspaceProvisioningSection() {
         </div>
       )}
 
-      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <div>
           <p className="text-sm font-medium">Auto-create on approval</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             {enabled
               ? 'Approving a client will auto-create their Slack channel and invite the team + the client.'
               : 'Off — channels are not created automatically. Admin can still pick a channel manually below.'}
@@ -1271,8 +1271,8 @@ function ClientWorkspaceProvisioningSection() {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
             enabled
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+              ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+              : 'bg-muted text-foreground/85 hover:bg-muted bg-surface-muted text-foreground/85',
           )}
         >
           {updateMutation.isPending ? (
@@ -1344,16 +1344,16 @@ function ClientRecordingLinksSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-950">
-          <Headphones className="h-5 w-5 text-blue-600" />
+        <div className="rounded-lg bg-primary-soft p-2 bg-primary-soft">
+          <Headphones className="h-5 w-5 text-primary" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">
             Call recordings for clients
           </h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Controls whether clients get a &ldquo;Listen to call&rdquo;
             link in their Slack channel posts, their appointment
             emails, and on their <code>/client</code> dashboard. Your
@@ -1376,10 +1376,10 @@ function ClientRecordingLinksSection() {
         </div>
       )}
 
-      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <div>
           <p className="text-sm font-medium">Show recording links to clients</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             {enabled
               ? 'On — clients can listen to call recordings from Slack, email, and their dashboard.'
               : 'Off — clients see no recording links anywhere. Internal playback still works.'}
@@ -1392,8 +1392,8 @@ function ClientRecordingLinksSection() {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
             enabled
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+              ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+              : 'bg-muted text-foreground/85 hover:bg-muted bg-surface-muted text-foreground/85',
           )}
         >
           {updateMutation.isPending ? (
@@ -1524,14 +1524,14 @@ export function ClientAlertsSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-purple-50 p-2 dark:bg-purple-950">
-          <PhoneIcon className="h-5 w-5 text-purple-600" />
+        <div className="rounded-lg bg-muted p-2 bg-muted">
+          <PhoneIcon className="h-5 w-5 text-foreground/80" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">Client Alerts (SMS)</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Sends each client an SMS with the same details that go to
             their Slack channel, whenever a new appointment lands in
             the master sheet for them. Recipient is taken from each
@@ -1556,10 +1556,10 @@ export function ClientAlertsSection() {
       )}
 
       {/* Master toggle */}
-      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <div>
           <p className="text-sm font-medium">Master enable</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             {enabled
               ? 'Cron is sending SMS to clients with a contactPhone configured.'
               : 'Off — cron logs the heartbeat but sends nothing.'}
@@ -1572,8 +1572,8 @@ export function ClientAlertsSection() {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
             enabled
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+              ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+              : 'bg-muted text-foreground/85 hover:bg-muted bg-surface-muted text-foreground/85',
           )}
         >
           {updateMutation.isPending ? (
@@ -1590,11 +1590,11 @@ export function ClientAlertsSection() {
       </div>
 
       {/* Sender phone */}
-      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-4 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <label className="text-sm font-medium">
           Sender phone (optional)
         </label>
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           E.164 format (e.g. <code>+16038034828</code>). Leave blank to
           fall back to the GHL location&apos;s default. Make sure the
           number is provisioned on the GHL sub-account that the{' '}
@@ -1607,13 +1607,13 @@ export function ClientAlertsSection() {
             value={senderDraft}
             onChange={(e) => setSenderDraft(e.target.value)}
             placeholder="+16038034828"
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none border-border bg-card"
           />
           <button
             type="button"
             disabled={!senderDirty || updateMutation.isPending}
             onClick={handleSaveSender}
-            className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
+            className="rounded-md bg-foreground/80 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
           >
             Save
           </button>
@@ -1635,13 +1635,13 @@ export function ClientAlertsSection() {
 
       {/* Per-client status + test buttons */}
       <div className="mt-5">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <p className="mb-2 eyebrow text-muted-foreground">
           Per-client status
         </p>
         {clientsQuery.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading clients…</p>
+          <p className="text-sm text-muted-foreground">Loading clients…</p>
         ) : clients.length === 0 ? (
-          <p className="text-sm text-zinc-500">No active clients yet.</p>
+          <p className="text-sm text-muted-foreground">No active clients yet.</p>
         ) : (
           <div className="space-y-2">
             {clients.map((c) => (
@@ -1733,11 +1733,11 @@ function ClientAlertsRecentActivity() {
   })
 
   return (
-    <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="mt-5 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">Recent activity</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             Last 20 alert attempts. Pending = waiting out the 30-minute
             buffer; delivered = SMS was sent; failed = GHL errored;
             backfilled = pre-existing row marked &quot;already-handled&quot;
@@ -1748,7 +1748,7 @@ function ClientAlertsRecentActivity() {
           type="button"
           onClick={() => query.refetch()}
           disabled={query.isFetching}
-          className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-muted"
         >
           {query.isFetching ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -1760,19 +1760,19 @@ function ClientAlertsRecentActivity() {
       </div>
 
       {query.isError && (
-        <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+        <p className="mt-2 text-xs text-destructive">
           Couldn&apos;t load recent activity:{' '}
           {(query.error as Error).message}
         </p>
       )}
 
       {query.isLoading ? (
-        <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           Loading…
         </div>
       ) : rows.length === 0 ? (
-        <p className="mt-3 text-xs text-zinc-500">
+        <p className="mt-3 text-xs text-muted-foreground">
           No alert deliveries yet. The first booking after enabling the
           master toggle will show up here.
         </p>
@@ -1781,7 +1781,7 @@ function ClientAlertsRecentActivity() {
           {rows.map((r) => (
             <li
               key={r.id}
-              className="flex flex-col gap-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-center sm:gap-3"
+              className="flex flex-col gap-1 rounded-md border border-border bg-card px-3 py-2 text-xs border-border bg-card sm:flex-row sm:items-center sm:gap-3"
             >
               <ClientAlertStatusPill status={r.status} />
               <div className="min-w-0 flex-1">
@@ -1789,12 +1789,12 @@ function ClientAlertsRecentActivity() {
                   <span className="font-medium">
                     {r.clientName ?? '(unrouted)'}
                   </span>
-                  <span className="text-zinc-400">·</span>
-                  <span className="font-mono text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">
+                  <span className="text-muted-foreground/70">·</span>
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
                     {r.recipientPhone || '—'}
                   </span>
                 </div>
-                <div className="text-[11px] text-zinc-500">
+                <div className="text-[11px] text-muted-foreground">
                   {r.apptDateTime
                     ? `Appt ${formatShortDateTime(r.apptDateTime)}`
                     : 'No appt time'}
@@ -1811,7 +1811,7 @@ function ClientAlertsRecentActivity() {
                   {r.errorMessage && (
                     <>
                       {' · '}
-                      <span className="text-red-600 dark:text-red-400">
+                      <span className="text-destructive">
                         {r.errorMessage}
                       </span>
                     </>
@@ -1832,7 +1832,7 @@ function ClientAlertsRecentActivity() {
                       }
                     }}
                     disabled={cancelMutation.isPending}
-                    className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                    className="inline-flex items-center gap-1 rounded-md border border-destructive/30 bg-card px-2 py-1 text-[10px] font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 bg-card text-destructive hover:bg-destructive/10"
                   >
                     Cancel
                   </button>
@@ -1873,7 +1873,7 @@ function ClientAlertsRecentActivity() {
                     disabled={
                       retryMutation.isPending && retryMutation.variables === r.id
                     }
-                    className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md bg-foreground/80 px-2 py-1 text-[10px] font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
                     title={
                       r.status === 'pending'
                         ? "Force-fire this pending alert now (skips the buffer wait + dispatcher tick)."
@@ -1892,7 +1892,7 @@ function ClientAlertsRecentActivity() {
                     {r.status === 'pending' ? 'Fire now' : 'Retry'}
                   </button>
                 )}
-                <div className="text-[10px] text-zinc-400">
+                <div className="text-[10px] text-muted-foreground/70">
                   logged {formatShortDateTime(r.createdAt)}
                 </div>
               </div>
@@ -1910,23 +1910,23 @@ function ClientAlertStatusPill({ status }: { status: string }) {
   const tone = (() => {
     switch (status) {
       case 'delivered':
-        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+        return 'bg-success/15 text-success bg-success/10 text-success'
       case 'pending':
-        return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+        return 'bg-warning/15 text-warning bg-warning/10 text-warning'
       case 'failed':
-        return 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+        return 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
       case 'cancelled':
-        return 'bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800 dark:text-zinc-500'
+        return 'bg-muted text-muted-foreground line-through bg-surface-muted text-muted-foreground/70'
       case 'backfilled':
-        return 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+        return 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
       default:
-        return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+        return 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
     }
   })()
   return (
     <span
       className={cn(
-        'inline-flex flex-shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+        'inline-flex flex-shrink-0 items-center justify-center rounded-lg px-2 py-0.5 eyebrow',
         tone,
       )}
     >
@@ -1998,9 +1998,9 @@ function DirectTestSendRow() {
   })
 
   return (
-    <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50/40 px-4 py-3 dark:border-purple-900/50 dark:bg-purple-950/20">
+    <div className="mt-4 rounded-lg border border-border bg-purple-50/40 px-4 py-3 dark:border-purple-900/50 dark:bg-purple-950/20">
       <label className="text-sm font-medium">Test send to a specific number</label>
-      <p className="mt-0.5 text-xs text-zinc-500">
+      <p className="mt-0.5 text-xs text-muted-foreground">
         Fire a sample SMS to any phone using the current GHL config —
         useful for testing against your own number before any client
         is configured. Any common US format works
@@ -2012,7 +2012,7 @@ function DirectTestSendRow() {
           value={phoneDraft}
           onChange={(e) => setPhoneDraft(e.target.value)}
           placeholder="(603) 803-4828"
-          className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          className="flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none border-border bg-card"
         />
         <button
           type="button"
@@ -2028,7 +2028,7 @@ function DirectTestSendRow() {
               testMutation.mutate({ recipientPhone: trimmed })
             }
           }}
-          className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md bg-foreground/80 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-purple-700 disabled:opacity-50"
         >
           {testMutation.isPending ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -2070,7 +2070,7 @@ function ClientAlertRow({ client }: { client: ClientForRouting }) {
   })
 
   return (
-    <div className="flex items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 border-border bg-card">
       <div className="flex items-center gap-3">
         <span
           className="h-2.5 w-2.5 rounded-full"
@@ -2080,11 +2080,11 @@ function ClientAlertRow({ client }: { client: ClientForRouting }) {
         <div>
           <p className="text-sm font-medium">{client.name}</p>
           {hasPhone ? (
-            <p className="font-mono text-xs text-zinc-500">
+            <p className="font-mono text-xs text-muted-foreground">
               {client.contactPhone}
             </p>
           ) : (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
+            <p className="text-xs text-warning">
               No contactPhone — set in /clients to enable alerts
             </p>
           )}
@@ -2102,7 +2102,7 @@ function ClientAlertRow({ client }: { client: ClientForRouting }) {
           }
         }}
         disabled={!hasPhone || testMutation.isPending}
-        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:bg-muted disabled:opacity-50 border-border text-foreground/85 hover:bg-muted"
         title={
           hasPhone
             ? 'Send a sample SMS using the current Client Alerts config.'
@@ -2220,7 +2220,7 @@ function ClientRoutingRow({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2.5 border-border">
       <span
         className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
         style={{ backgroundColor: client.color }}
@@ -2230,16 +2230,16 @@ function ClientRoutingRow({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{client.name}</span>
           {client.state && (
-            <span className="text-[11px] text-zinc-500">{client.state}</span>
+            <span className="text-[11px] text-muted-foreground">{client.state}</span>
           )}
           {client.lifecycle !== 'active' && (
             <span
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+                'rounded px-1.5 py-0.5 eyebrow',
                 client.lifecycle === 'paused' &&
-                  'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+                  'bg-warning/15 text-warning bg-warning/15 text-warning',
                 client.lifecycle === 'onboarding' &&
-                  'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
+                  'bg-primary-soft text-primary bg-primary-soft text-primary'
               )}
             >
               {client.lifecycle}
@@ -2247,7 +2247,7 @@ function ClientRoutingRow({
           )}
         </div>
         {client.slackChannelId && client.slackChannelName && (
-          <p className="mt-0.5 text-[11px] text-zinc-500">
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             Currently routes to{' '}
             <span className="font-mono">#{client.slackChannelName}</span>
           </p>
@@ -2259,7 +2259,7 @@ function ClientRoutingRow({
           value={draftId}
           onChange={(e) => setDraftId(e.target.value)}
           disabled={channelsLoading || channels.length === 0}
-          className="rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-sm focus:border-primary/50 focus:outline-none disabled:opacity-50 border-border bg-card"
         >
           <option value="">— No delivery —</option>
           {channels.map((ch) => (
@@ -2274,7 +2274,7 @@ function ClientRoutingRow({
           <button
             type="button"
             onClick={handleAcceptSuggestion}
-            className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+            className="rounded-md border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-xs font-medium text-primary transition hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary"
             title={`We think this matches #${suggestion.name}`}
           >
             Use #{suggestion.name}
@@ -2288,8 +2288,8 @@ function ClientRoutingRow({
           className={cn(
             'rounded-md px-3 py-1.5 text-xs font-semibold transition',
             dirty
-              ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
-              : 'border border-zinc-200 text-zinc-400 dark:border-zinc-700'
+              ? 'bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50'
+              : 'border border-border text-muted-foreground/70 border-border'
           )}
         >
           {saveMutation.isPending
@@ -2308,7 +2308,7 @@ function ClientRoutingRow({
             testMutation.isPending ||
             saveMutation.isPending
           }
-          className="rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition hover:bg-muted disabled:opacity-50 border-border text-foreground/85 hover:bg-muted"
           title={
             dirty
               ? 'Save your channel choice before sending a test post'
@@ -2331,7 +2331,7 @@ function ClientRoutingRow({
               }
             }}
             disabled={undoMutation.isPending}
-            className="rounded-md border border-rose-200 px-2.5 py-1.5 text-xs text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+            className="rounded-md border border-destructive/30 px-2.5 py-1.5 text-xs text-destructive transition hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10"
             title="Delete the last 24h of bot posts in this channel and re-mark those rows as backfilled"
           >
             {undoMutation.isPending ? 'Cleaning…' : 'Undo last 24h'}
@@ -2340,27 +2340,27 @@ function ClientRoutingRow({
       </div>
 
       {saveMutation.isError && (
-        <div className="basis-full text-xs text-red-600">
+        <div className="basis-full text-xs text-destructive">
           Save failed: {(saveMutation.error as Error).message}
         </div>
       )}
       {testMutation.isError && (
-        <div className="basis-full text-xs text-red-600">
+        <div className="basis-full text-xs text-destructive">
           Test failed: {(testMutation.error as Error).message}
         </div>
       )}
       {testMutation.isSuccess && (
-        <div className="basis-full text-xs text-emerald-600">
+        <div className="basis-full text-xs text-success">
           Test post sent. Check the channel to confirm.
         </div>
       )}
       {undoMutation.isError && (
-        <div className="basis-full text-xs text-red-600">
+        <div className="basis-full text-xs text-destructive">
           Undo failed: {(undoMutation.error as Error).message}
         </div>
       )}
       {undoMutation.isSuccess && (
-        <div className="basis-full text-xs text-emerald-600">
+        <div className="basis-full text-xs text-success">
           Cleaned up {undoMutation.data.deletedFromSlack} of{' '}
           {undoMutation.data.found} recent posts. Future syncs will skip
           these rows.
@@ -2433,14 +2433,14 @@ function SolarApiUsageSection() {
   })
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950">
-          <Sun className="h-5 w-5 text-amber-600" />
+        <div className="rounded-lg bg-warning/15 p-2 bg-warning/15">
+          <Sun className="h-5 w-5 text-warning" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">Solar API usage</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Tracks Google Solar API calls (Project Sunroof) made from
             the booking form. Each unique address is a billable call;
             repeats hit local cache and cost zero.
@@ -2449,49 +2449,49 @@ function SolarApiUsageSection() {
       </div>
 
       {isLoading ? (
-        <p className="mt-4 text-sm text-zinc-500">Loading…</p>
+        <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
       ) : (
         <div className="mt-4 grid grid-cols-3 gap-3">
-          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <div className="rounded-lg border border-border px-3 py-2 border-border">
+            <p className="eyebrow text-muted-foreground">
               Calls in {monthLabel}
             </p>
             <p className="mt-0.5 text-2xl font-bold tabular-nums">
               {data?.calls ?? 0}
             </p>
           </div>
-          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <div className="rounded-lg border border-border px-3 py-2 border-border">
+            <p className="eyebrow text-muted-foreground">
               Approx cost
             </p>
             <p className="mt-0.5 text-2xl font-bold tabular-nums">
               ${estCost.toFixed(2)}
             </p>
-            <p className="text-[10px] text-zinc-500">
+            <p className="text-[10px] text-muted-foreground">
               ~$0.10/call estimate
             </p>
           </div>
-          <div className="rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <div className="rounded-lg border border-border px-3 py-2 border-border">
+            <p className="eyebrow text-muted-foreground">
               Cached addresses
             </p>
             <p className="mt-0.5 text-2xl font-bold tabular-nums">
               {data?.cachedTotal ?? 0}
             </p>
-            <p className="text-[10px] text-zinc-500">
+            <p className="text-[10px] text-muted-foreground">
               future re-checks free
             </p>
           </div>
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-zinc-500">
+      <p className="mt-3 text-[11px] text-muted-foreground">
         Set a Google Cloud{' '}
         <a
           href="https://console.cloud.google.com/billing"
           target="_blank"
           rel="noreferrer"
-          className="underline underline-offset-2 hover:text-blue-600"
+          className="underline underline-offset-2 hover:text-primary"
         >
           billing alert
         </a>{' '}
@@ -2526,14 +2526,14 @@ function TwilioTestSection() {
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center gap-3 mb-1">
-        <MessageSquare className="h-5 w-5 text-blue-600" />
+        <MessageSquare className="h-5 w-5 text-primary" />
         <h3 className="font-semibold">Twilio — Send test SMS</h3>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
-        Uses <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">Twilio Account SID</code>{' '}
-        and <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">Twilio Auth Token</code>{' '}
+      <p className="text-sm text-muted-foreground mb-4">
+        Uses <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">Twilio Account SID</code>{' '}
+        and <code className="text-xs bg-surface-muted px-1 py-0.5 rounded">Twilio Auth Token</code>{' '}
         from the vault. On the trial plan, the destination number must be verified in the Twilio console.
       </p>
 
@@ -2546,9 +2546,9 @@ function TwilioTestSection() {
             onChange={(e) => setTo(e.target.value)}
             placeholder="+16035026226"
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm font-mono focus:border-primary/50 focus:outline-none border-border bg-background"
           />
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             Include the <code>+</code> and country code. Ethan: <code>+16035026226</code>. Alex: <code>+16034185315</code>.
           </p>
         </div>
@@ -2560,9 +2560,9 @@ function TwilioTestSection() {
             onChange={(e) => setBody(e.target.value)}
             rows={3}
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             {body.length} / 1600 characters. Trial messages are prefixed with &quot;Sent from your Twilio trial account -&quot;.
           </p>
         </div>
@@ -2571,7 +2571,7 @@ function TwilioTestSection() {
           <button
             type="submit"
             disabled={mutation.isPending || !to || !body}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             <Send className="h-4 w-4" />
             {mutation.isPending ? 'Sending…' : 'Send test SMS'}
@@ -2602,9 +2602,9 @@ function TwilioTestSection() {
 
 function ComingSoonSection() {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-800 dark:bg-zinc-950/50">
+    <section className="rounded-xl border border-border bg-surface-muted p-6 border-border bg-background/50">
       <h3 className="font-semibold mb-2">Coming next</h3>
-      <ul className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <ul className="space-y-2 text-sm text-muted-foreground">
         <li>• Connect additional Gmail accounts (alex@, ethan@leadgenisys.com)</li>
         <li>• Register each GHL sub-account with its token mapping</li>
         <li>• Per-user morning brief schedule (time of day + what to include)</li>
@@ -2622,12 +2622,12 @@ function ComingSoonSection() {
  */
 function SheetMaintenanceSection() {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-center gap-3 mb-1">
-        <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+        <FileSpreadsheet className="h-5 w-5 text-primary" />
         <h3 className="font-semibold">Sheet maintenance (admin)</h3>
       </div>
-      <p className="text-sm text-zinc-500 mb-4">
+      <p className="text-sm text-muted-foreground mb-4">
         One-off migrations on the master appointments spreadsheet. Safe to
         re-run — each action skips tabs that are already up to date.
       </p>
@@ -2724,13 +2724,13 @@ function ReconcileMissingRow() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4 border-border">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Wrench className="h-4 w-4 text-zinc-400" />
+            <Wrench className="h-4 w-4 text-muted-foreground/70" />
             Reconcile DB ↔ master sheet
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Finds Appointments in the database that don&apos;t have a
             matching row in the master sheet — sync failures, never-
             synced rows, and rows that were deleted from the sheet
@@ -2739,22 +2739,22 @@ function ReconcileMissingRow() {
             tracker shows 21&quot; gap.
           </p>
           {lookup.isLoading ? (
-            <p className="mt-2 text-xs text-zinc-500">Checking…</p>
+            <p className="mt-2 text-xs text-muted-foreground">Checking…</p>
           ) : lookup.isError ? (
-            <p className="mt-2 text-xs text-rose-600">
+            <p className="mt-2 text-xs text-destructive">
               Couldn&apos;t check: {(lookup.error as Error).message}
             </p>
           ) : counts ? (
             total === 0 ? (
-              <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+              <p className="mt-2 text-xs text-success">
                 ✓ No gap — every DB appointment has a matching sheet row.
               </p>
             ) : (
               <p className="mt-2 text-xs">
-                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                <span className="font-semibold text-warning">
                   {total} DB row{total === 1 ? '' : 's'} missing from sheet
                 </span>
-                <span className="text-zinc-500">
+                <span className="text-muted-foreground">
                   {' '}
                   ({counts.neverSynced} never synced, {counts.syncFailed}{' '}
                   sync failed, {counts.sheetRowMissing} sheet row deleted)
@@ -2767,7 +2767,7 @@ function ReconcileMissingRow() {
           type="button"
           onClick={() => reconcile.mutate()}
           disabled={reconcile.isPending || total === 0}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           title={
             total === 0
               ? 'Nothing to reconcile.'
@@ -2786,8 +2786,8 @@ function ReconcileMissingRow() {
           eyeball what's about to be retried. Only renders when there's
           a gap. */}
       {!lookup.isLoading && counts && counts.total > 0 && lookup.data && (
-        <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="mb-2 font-medium text-zinc-600 dark:text-zinc-400">
+        <div className="mt-2 rounded-md border border-border bg-surface-muted px-4 py-3 text-xs border-border bg-background">
+          <p className="mb-2 font-medium text-muted-foreground">
             Sample (first {Math.min(lookup.data.sample.length, 25)} of {counts.total}):
           </p>
           <div className="space-y-1">
@@ -2799,22 +2799,22 @@ function ReconcileMissingRow() {
                 <div className="min-w-0 flex-1">
                   <span className="font-medium">{m.customerName}</span>
                   {m.clientName && (
-                    <span className="text-zinc-500"> · {m.clientName}</span>
+                    <span className="text-muted-foreground"> · {m.clientName}</span>
                   )}
-                  <span className="text-zinc-500">
+                  <span className="text-muted-foreground">
                     {' · '}
                     {new Date(m.apptDateTime).toLocaleString('en-US')}
                   </span>
                 </div>
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                    'rounded-md px-2 py-0.5 text-[10px] font-semibold',
                     m.reason === 'sync-failed' &&
-                      'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+                      'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
                     m.reason === 'never-synced' &&
-                      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                      'bg-warning/15 text-warning bg-warning/15 text-warning',
                     m.reason === 'sheet-row-missing' &&
-                      'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+                      'bg-muted text-foreground/85 bg-surface-muted text-foreground/85',
                   )}
                   title={m.syncError ?? undefined}
                 >
@@ -2845,11 +2845,11 @@ function ReconcileMissingRow() {
               {reconcile.data.failures.slice(0, 5).map((f) => (
                 <div key={f.id}>
                   {f.customerName}:{' '}
-                  <span className="text-rose-600">{f.error}</span>
+                  <span className="text-destructive">{f.error}</span>
                 </div>
               ))}
               {reconcile.data.failures.length > 5 && (
-                <div className="text-zinc-500">
+                <div className="text-muted-foreground">
                   …{reconcile.data.failures.length - 5} more (check Render
                   logs for the rest)
                 </div>
@@ -2889,13 +2889,13 @@ function BackfillLoggedAtRow() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4 border-border">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Wrench className="h-4 w-4 text-zinc-400" />
+            <Wrench className="h-4 w-4 text-muted-foreground/70" />
             Backfill blank &quot;Logged At&quot; cells
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Stamps every row that has a customer name but no Logged At
             value with the current timestamp. Only touches blank cells —
             existing values stay put. Honest caveat: the stamp is the
@@ -2908,7 +2908,7 @@ function BackfillLoggedAtRow() {
           type="button"
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           {mutation.isPending ? 'Running…' : 'Run'}
         </button>
@@ -2930,7 +2930,7 @@ function BackfillLoggedAtRow() {
                 </div>
               ))}
             {mutation.data.tabsSkipped.length > 0 && (
-              <div className="mt-1 text-zinc-500">
+              <div className="mt-1 text-muted-foreground">
                 Skipped: {mutation.data.tabsSkipped
                   .map((s) => `${s.tab} (${s.reason})`)
                   .join(', ')}
@@ -3010,11 +3010,11 @@ function onEdit(e) {
   }
 
   return (
-    <details className="mt-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+    <details className="mt-4 rounded-md border border-border p-4 border-border">
       <summary className="cursor-pointer text-sm font-medium">
         Auto-stamp Logged At for manual sheet entries (Apps Script)
       </summary>
-      <p className="mt-2 text-xs text-zinc-500">
+      <p className="mt-2 text-xs text-muted-foreground">
         Paste this into <em>Extensions → Apps Script</em> on the master
         spreadsheet. After saving + authorizing once, every row the call
         center types will get a Logged At timestamp the moment the
@@ -3025,13 +3025,13 @@ function onEdit(e) {
         <textarea
           readOnly
           value={SCRIPT}
-          className="flex-1 h-48 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-[11px] dark:border-zinc-800 dark:bg-zinc-950"
+          className="flex-1 h-48 rounded-md border border-border bg-surface-muted p-3 font-mono text-[11px] border-border bg-background"
           onClick={(e) => (e.currentTarget as HTMLTextAreaElement).select()}
         />
         <button
           type="button"
           onClick={copyScript}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium hover:bg-muted border-border bg-card hover:bg-muted"
         >
           {copied ? 'Copied!' : 'Copy'}
         </button>
@@ -3078,19 +3078,19 @@ function SheetMigrationRow({
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4 border-border">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Wrench className="h-4 w-4 text-zinc-400" />
+            <Wrench className="h-4 w-4 text-muted-foreground/70" />
             {title}
           </div>
-          <p className="mt-1 text-xs text-zinc-500">{description}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         </div>
         <button
           type="button"
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           {mutation.isPending ? 'Running…' : 'Run'}
         </button>
@@ -3149,8 +3149,8 @@ function Alert({
 }) {
   const styles =
     variant === 'success'
-      ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-950 dark:text-green-200'
-      : 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200'
+      ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
+      : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
 
   const Icon = variant === 'success' ? Check : AlertCircle
 
@@ -3263,14 +3263,14 @@ function SecondarySheetsSection() {
   const clients = clientsQuery.data?.clients ?? []
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-violet-50 p-2 dark:bg-violet-950">
-          <FileSpreadsheet className="h-5 w-5 text-violet-600" />
+        <div className="rounded-lg bg-muted p-2 bg-muted">
+          <FileSpreadsheet className="h-5 w-5 text-foreground/80" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">Partner sheets</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Register additional Google Sheets that partner call centers
             (Yassin&apos;s team, etc.) use to log appointments. Each sheet
             is hard-attributed to a single client — every row in it gets
@@ -3280,13 +3280,13 @@ function SecondarySheetsSection() {
             Tracker hides these rows; you and Ethan see them with a
             &quot;partner&quot; badge.
           </p>
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-muted-foreground">
             Make sure each sheet is shared with{' '}
-            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+            <code className="rounded bg-muted px-1 bg-surface-muted">
               alex@leadgenisys.com
             </code>{' '}
             (Viewer access is enough). Tab name defaults to{' '}
-            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+            <code className="rounded bg-muted px-1 bg-surface-muted">
               Sheet1
             </code>{' '}
             — if the partner renamed it, we auto-fall-back to the first
@@ -3297,9 +3297,9 @@ function SecondarySheetsSection() {
 
       <div className="mt-5 space-y-2">
         {sheetsQuery.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading registered sheets…</p>
+          <p className="text-sm text-muted-foreground">Loading registered sheets…</p>
         ) : sheets.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
+          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground border-border">
             No partner sheets registered yet. Add one below.
           </p>
         ) : (
@@ -3316,7 +3316,7 @@ function SecondarySheetsSection() {
         )}
       </div>
 
-      <div className="mt-6 border-t border-zinc-100 pt-5 dark:border-zinc-800">
+      <div className="mt-6 border-t border-border-soft pt-5 border-border">
         <h4 className="mb-3 text-sm font-semibold">Add a sheet</h4>
         <SecondarySheetCreateForm
           clients={clients}
@@ -3378,7 +3378,7 @@ function SecondarySheetRow({
   const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/edit`
 
   return (
-    <div className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+    <div className="rounded-xl border border-border p-3 border-border">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -3386,27 +3386,27 @@ function SecondarySheetRow({
               href={sheetUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="truncate text-sm font-semibold text-blue-600 hover:underline"
+              className="truncate text-sm font-semibold text-primary hover:underline"
               title={sheet.spreadsheetId}
             >
               {sheet.label || 'Untitled partner sheet'}
             </a>
             {sheet.enabled ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <span className="rounded-md bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success bg-success/15 text-success">
                 Enabled
               </span>
             ) : (
-              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground bg-surface-muted text-foreground/85">
                 Paused
               </span>
             )}
           </div>
-          <p className="mt-1 truncate text-[11px] text-zinc-500">
-            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
+          <p className="mt-1 truncate text-[11px] text-muted-foreground">
+            <code className="rounded bg-muted px-1 bg-surface-muted">
               {sheet.spreadsheetId}
             </code>{' '}
-            · tab <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{sheet.tabTitle}</code>
-            {' '}· mapping <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{sheet.columnMappingKey}</code>
+            · tab <code className="rounded bg-muted px-1 bg-surface-muted">{sheet.tabTitle}</code>
+            {' '}· mapping <code className="rounded bg-muted px-1 bg-surface-muted">{sheet.columnMappingKey}</code>
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
@@ -3414,7 +3414,7 @@ function SecondarySheetRow({
             value={sheet.clientId ?? ''}
             onChange={(e) => patch.mutate({ clientId: e.target.value })}
             disabled={patch.isPending}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs disabled:opacity-50 border-border bg-card"
           >
             <option value="" disabled>
               Pick a client…
@@ -3429,7 +3429,7 @@ function SecondarySheetRow({
             type="button"
             onClick={() => patch.mutate({ enabled: !sheet.enabled })}
             disabled={patch.isPending}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            className="rounded-md border border-border bg-card px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50 border-border bg-card hover:bg-muted"
             title={sheet.enabled ? 'Pause this sheet (stop ingesting)' : 'Resume ingestion for this sheet'}
           >
             {sheet.enabled ? (
@@ -3450,14 +3450,14 @@ function SecondarySheetRow({
               }
             }}
             disabled={remove.isPending}
-            className="rounded-md border border-rose-200 bg-white px-2 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-zinc-900 dark:text-rose-300 dark:hover:bg-rose-950"
+            className="rounded-md border border-destructive/30 bg-card px-2 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 bg-card text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
       {error && (
-        <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {error}
         </div>
       )}
@@ -3524,7 +3524,7 @@ function SecondarySheetCreateForm({
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <span className="mb-1 block eyebrow text-muted-foreground">
             Spreadsheet URL or ID
           </span>
           <input
@@ -3533,11 +3533,11 @@ function SecondarySheetCreateForm({
             onChange={(e) => setSpreadsheetUrlOrId(e.target.value)}
             required
             placeholder="https://docs.google.com/spreadsheets/d/ABC..."
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <span className="mb-1 block eyebrow text-muted-foreground">
             Client this sheet is for
           </span>
           <select
@@ -3545,7 +3545,7 @@ function SecondarySheetCreateForm({
             onChange={(e) => setClientId(e.target.value)}
             required
             disabled={disabled}
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm disabled:opacity-50 border-border bg-background"
           >
             <option value="" disabled>
               Pick a client…
@@ -3560,7 +3560,7 @@ function SecondarySheetCreateForm({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <span className="mb-1 block eyebrow text-muted-foreground">
             Tab name (optional)
           </span>
           <input
@@ -3568,11 +3568,11 @@ function SecondarySheetCreateForm({
             value={tabTitle}
             onChange={(e) => setTabTitle(e.target.value)}
             placeholder="Sheet1"
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <span className="mb-1 block eyebrow text-muted-foreground">
             Label (optional)
           </span>
           <input
@@ -3580,12 +3580,12 @@ function SecondarySheetCreateForm({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Yassin — Sunny Sky Solar"
-            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </label>
       </div>
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {error}
         </div>
       )}
@@ -3596,7 +3596,7 @@ function SecondarySheetCreateForm({
           !spreadsheetUrlOrId.trim() ||
           !clientId
         }
-        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:bg-foreground/90 disabled:opacity-50"
       >
         {create.isPending ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3678,17 +3678,17 @@ function AppointmentRemindersSection() {
   })
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="mb-1 flex items-center gap-3">
-        <MessagesSquare className="h-5 w-5 text-blue-600" />
+        <MessagesSquare className="h-5 w-5 text-primary" />
         <h3 className="font-semibold">Appointment SMS reminders</h3>
         {config?.enabled && (
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+          <span className="rounded-lg bg-success/15 px-2 py-0.5 eyebrow text-success bg-success/15 text-success">
             Live
           </span>
         )}
       </div>
-      <p className="mb-4 text-sm text-zinc-500">
+      <p className="mb-4 text-sm text-muted-foreground">
         SMS reminders to customers a day before, 2 hours before, 30 minutes
         before, and at the start of every booked appointment. Pulls from the
         master tracker sheet so manual entries get reminders too. Past
@@ -3697,12 +3697,12 @@ function AppointmentRemindersSection() {
       </p>
 
       {/* Master toggle */}
-      <div className="flex items-start justify-between gap-4 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-4 rounded-md border border-border p-4 border-border">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
             {config?.enabled ? 'Reminders are sending' : 'Reminders are paused'}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Master switch — when off, the cron sync still keeps reminder rows
             up to date, but nothing actually fires. Flip on once you&apos;ve
             confirmed templates look right.
@@ -3715,8 +3715,8 @@ function AppointmentRemindersSection() {
           className={cn(
             'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium disabled:opacity-50',
             config?.enabled
-              ? 'bg-rose-600 text-white hover:bg-rose-700'
-              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              : 'bg-success text-success-foreground hover:bg-success/90'
           )}
         >
           {config?.enabled ? (
@@ -3746,9 +3746,9 @@ function AppointmentRemindersSection() {
                 updateConfig.mutate({ vaultEntryName: v })
               }
             }}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
-          <p className="mt-1 text-[11px] text-zinc-500">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             Vault entry name holding the GHL Private Integration JWT
             (must include the location id).
           </p>
@@ -3768,9 +3768,9 @@ function AppointmentRemindersSection() {
                 updateConfig.mutate({ lookaheadDays: n })
               }
             }}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
-          <p className="mt-1 text-[11px] text-zinc-500">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             How far ahead to schedule reminders. Re-evaluated on each
             5-minute sync.
           </p>
@@ -3782,13 +3782,13 @@ function AppointmentRemindersSection() {
           impact is different (fires on every new appointment, not
           on a schedule). Backfill on first-enable is server-side
           so admins don't have to think about retroactive blasts. */}
-      <div className="mt-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-3 rounded-lg border border-border bg-card p-3 border-border bg-background">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
             <p className="text-xs font-semibold">
               Booking confirmation SMS
             </p>
-            <p className="mt-1 text-[11px] text-zinc-500">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               Fires once, right after a booking lands on the master
               sheet (whether typed manually or saved through the Hub
               form). Lands within ~1 minute of the row syncing.
@@ -3796,7 +3796,7 @@ function AppointmentRemindersSection() {
               of the templates editor below.
             </p>
             {config?.confirmationEnabled && (
-              <p className="mt-1 text-[11px] text-emerald-600">
+              <p className="mt-1 text-[11px] text-success">
                 ✓ Active. New appointments will get the confirmation text.
               </p>
             )}
@@ -3818,8 +3818,8 @@ function AppointmentRemindersSection() {
             className={cn(
               'inline-flex flex-shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
               config?.confirmationEnabled
-                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-                : 'border border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800',
+                ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+                : 'border border-border text-muted-foreground hover:bg-muted border-border text-foreground/85 hover:bg-muted',
             )}
             disabled={updateConfig.isPending}
           >
@@ -3849,9 +3849,9 @@ function AppointmentRemindersSection() {
               updateConfig.mutate({ senderPhone: v || null })
             }
           }}
-          className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
         />
-        <p className="mt-1 text-[11px] text-zinc-500">
+        <p className="mt-1 text-[11px] text-muted-foreground">
           E.164 phone number SMS reminders + morning briefs are sent
           from. Must already be loaded in your GHL sub-account.
           Leave blank to use GHL&apos;s default location number.
@@ -3874,7 +3874,7 @@ function AppointmentRemindersSection() {
                 updateConfig.mutate({ quietHoursStart: v })
               }
             }}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
         </div>
         <div>
@@ -3890,11 +3890,11 @@ function AppointmentRemindersSection() {
                 updateConfig.mutate({ quietHoursEnd: v })
               }
             }}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
         </div>
       </div>
-      <p className="mt-1 text-[11px] text-zinc-500">
+      <p className="mt-1 text-[11px] text-muted-foreground">
         TCPA compliance window — sends outside <code>{config?.quietHoursEnd}–
         {config?.quietHoursStart}</code> in the customer&apos;s local
         timezone are deferred until the window opens. Defaults
@@ -3902,10 +3902,10 @@ function AppointmentRemindersSection() {
       </p>
 
       {/* Manual sync */}
-      <div className="mt-3 flex items-center justify-between rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="mt-3 flex items-center justify-between rounded-md border border-border p-4 border-border">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Sync from sheet now</p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Re-reads every row of the master tracker sheet and rebuilds
             the reminder queue. Idempotent — safe to run any time. The
             cron does this every 5 minutes automatically.
@@ -3915,7 +3915,7 @@ function AppointmentRemindersSection() {
           type="button"
           onClick={() => syncMutation.mutate()}
           disabled={syncMutation.isPending}
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           <RefreshCw
             className={cn(
@@ -3956,7 +3956,7 @@ function AppointmentRemindersSection() {
       {/* Templates editor */}
       <div className="mt-6">
         <h4 className="mb-1 text-sm font-semibold">Message templates</h4>
-        <p className="mb-3 text-xs text-zinc-500">
+        <p className="mb-3 text-xs text-muted-foreground">
           Click any variable chip below the editor to insert it at
           the cursor. The live preview shows what the customer will
           actually see. Cells marked{' '}
@@ -4025,9 +4025,9 @@ function ReminderTemplatesGrid() {
   })
 
   if (query.isLoading)
-    return <p className="text-xs text-zinc-500">Loading templates…</p>
+    return <p className="text-xs text-muted-foreground">Loading templates…</p>
   if (query.isError)
-    return <p className="text-xs text-rose-600">Couldn&apos;t load templates.</p>
+    return <p className="text-xs text-destructive">Couldn&apos;t load templates.</p>
   if (!query.data) return null
 
   return (
@@ -4046,7 +4046,7 @@ function ReminderTemplatesGrid() {
         <details
           key={row.clientId ?? 'global'}
           open={isGlobalSection}
-          className="rounded-md border border-zinc-200 dark:border-zinc-800"
+          className="rounded-md border border-border"
         >
           <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
             <span
@@ -4056,7 +4056,7 @@ function ReminderTemplatesGrid() {
             />
             {row.clientName}
             {row.state && (
-              <span className="text-xs font-normal text-zinc-500">
+              <span className="text-xs font-normal text-muted-foreground">
                 · {row.state}
               </span>
             )}
@@ -4067,10 +4067,10 @@ function ReminderTemplatesGrid() {
             {!isGlobalSection && (
               <span
                 className={cn(
-                  'ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  'ml-auto rounded-md px-2 py-0.5 text-[10px] font-semibold',
                   overrideCount === 0
-                    ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+                    ? 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
+                    : 'bg-primary-soft text-primary bg-primary-soft text-primary',
                 )}
                 title={
                   overrideCount === 0
@@ -4084,7 +4084,7 @@ function ReminderTemplatesGrid() {
               </span>
             )}
           </summary>
-          <div className="space-y-3 border-t border-zinc-200 p-3 dark:border-zinc-800">
+          <div className="space-y-3 border-t border-border p-3 border-border">
             {row.cells.map((cell) => (
               <TemplateCellEditor
                 key={`${row.clientId ?? 'g'}:${cell.type}`}
@@ -4188,10 +4188,10 @@ function TemplateCellEditor({
   )
 
   return (
-    <div className="rounded-md border border-zinc-100 p-3 dark:border-zinc-800">
+    <div className="rounded-md border border-border-soft p-3 border-border">
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider">
+          <span className="eyebrow">
             {REMINDER_LABELS[cell.type]}
           </span>
           {/* Spelled-out source label instead of the cryptic
@@ -4202,13 +4202,13 @@ function TemplateCellEditor({
               just inheriting the global. */}
           <span
             className={cn(
-              'rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap',
+              'rounded-md px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap',
               cell.source === 'client' &&
-                'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+                'bg-primary-soft text-primary bg-primary-soft text-primary',
               cell.source === 'global' &&
-                'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                'bg-warning/15 text-warning bg-warning/15 text-warning',
               cell.source === 'default' &&
-                'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+                'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
             )}
             title={
               cell.source === 'client'
@@ -4248,7 +4248,7 @@ function TemplateCellEditor({
         value={body}
         onChange={(e) => update({ body: e.target.value })}
         rows={3}
-        className="w-full resize-y rounded-md border border-zinc-200 px-3 py-2 text-xs font-mono dark:border-zinc-800 dark:bg-zinc-950"
+        className="w-full resize-y rounded-md border border-border px-3 py-2 text-xs font-mono border-border bg-background"
       />
       <SmsLengthHint body={body} />
 
@@ -4256,7 +4256,7 @@ function TemplateCellEditor({
           referenced in the body) get a blue tint so the admin sees
           which variables the template currently uses. */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <span className="eyebrow text-muted-foreground">
           Insert:
         </span>
         {TEMPLATE_VARIABLES.map((v) => {
@@ -4268,10 +4268,10 @@ function TemplateCellEditor({
               onClick={() => insertVariable(v.placeholder)}
               title={`${v.description}\n\nExample: "${v.sample}"`}
               className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition',
+                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium transition',
                 active
-                  ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
-                  : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                  ? 'border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary'
+                  : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
               )}
             >
               <Plus className="h-2.5 w-2.5" />
@@ -4282,7 +4282,7 @@ function TemplateCellEditor({
       </div>
 
       {unknownVariables.length > 0 && (
-        <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <strong>Unknown variable{unknownVariables.length === 1 ? '' : 's'}:</strong>{' '}
           {unknownVariables.map((k, i) => (
             <span key={k}>
@@ -4302,7 +4302,7 @@ function TemplateCellEditor({
           <button
             type="button"
             onClick={onReset}
-            className="rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted"
             title="Remove this override and fall back to the next layer"
           >
             Reset
@@ -4315,7 +4315,7 @@ function TemplateCellEditor({
             setDirty(false)
           }}
           disabled={!dirty || !body.trim()}
-          className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-md bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           Save
         </button>
@@ -4335,13 +4335,13 @@ function TemplatePreview({ body }: { body: string }) {
     SAMPLE_FILLS[key] !== undefined ? SAMPLE_FILLS[key] : `{${key}}`
   )
   return (
-    <div className="mt-2 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/20">
-      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+    <div className="mt-2 rounded-md border border-primary/30 bg-primary-soft/60 px-3 py-2 border-primary/30 bg-primary-soft/20">
+      <p className="mb-0.5 eyebrow text-primary">
         Preview · what the customer will see
       </p>
       <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
         {rendered || (
-          <span className="text-zinc-400">
+          <span className="text-muted-foreground/70">
             (empty — pick a chip above to start)
           </span>
         )}
@@ -4370,17 +4370,17 @@ function SmsLengthHint({ body }: { body: string }) {
     chars === 0 ? 0 : chars <= 160 ? 1 : Math.ceil((chars - 160) / 153) + 1
   const tone =
     segments === 0
-      ? 'text-zinc-400'
+      ? 'text-muted-foreground/70'
       : segments === 1
-        ? 'text-emerald-600 dark:text-emerald-400'
+        ? 'text-success'
         : segments === 2
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400'
+          ? 'text-warning'
+          : 'text-destructive'
   return (
     <p className={cn('mt-1 text-[10px] tabular-nums', tone)}>
       ~{chars} chars · {segments} SMS segment{segments === 1 ? '' : 's'}
       {segments > 1 && (
-        <span className="ml-2 text-zinc-500">
+        <span className="ml-2 text-muted-foreground">
           (long messages cost more + may arrive out of order)
         </span>
       )}
@@ -4427,14 +4427,14 @@ function ReminderRecentLog() {
   })
 
   if (query.isLoading)
-    return <p className="text-xs text-zinc-500">Loading log…</p>
+    return <p className="text-xs text-muted-foreground">Loading log…</p>
   if (query.isError)
-    return <p className="text-xs text-rose-600">Couldn&apos;t load log.</p>
+    return <p className="text-xs text-destructive">Couldn&apos;t load log.</p>
 
   const reminders = query.data?.reminders ?? []
   if (reminders.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-zinc-200 p-3 text-xs text-zinc-500 dark:border-zinc-800">
+      <p className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground border-border">
         No reminder activity yet. Click &ldquo;Sync now&rdquo; above once your
         master sheet has at least one upcoming appointment.
       </p>
@@ -4442,10 +4442,10 @@ function ReminderRecentLog() {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+    <div className="overflow-hidden rounded-md border border-border">
       <table className="w-full text-xs">
-        <thead className="bg-zinc-50 dark:bg-zinc-900">
-          <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <thead className="bg-card">
+          <tr className="text-left eyebrow text-muted-foreground">
             <th className="px-3 py-2">Status</th>
             <th className="px-3 py-2">Window</th>
             <th className="px-3 py-2">Customer</th>
@@ -4455,23 +4455,23 @@ function ReminderRecentLog() {
             <th className="px-3 py-2 text-right">Action</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <tbody className="divide-y divide-border-soft">
           {reminders.map((r) => (
-            <tr key={r.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+            <tr key={r.id} className="hover:bg-muted hover:bg-muted/40">
               <td className="px-3 py-2">
                 <span
                   className={cn(
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                    'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold',
                     r.status === 'sent' &&
-                      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+                      'bg-success/15 text-success bg-success/15 text-success',
                     r.status === 'pending' &&
-                      'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+                      'bg-primary-soft text-primary bg-primary-soft text-primary',
                     r.status === 'failed' &&
-                      'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+                      'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
                     r.status === 'skipped' &&
-                      'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+                      'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
                     r.status === 'cancelled' &&
-                      'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
                   )}
                   title={r.errorMessage || ''}
                 >
@@ -4484,12 +4484,12 @@ function ReminderRecentLog() {
               </td>
               <td className="px-3 py-2">
                 <div className="font-medium">{r.customerName}</div>
-                <div className="text-[10px] text-zinc-500">
+                <div className="text-[10px] text-muted-foreground">
                   {r.customerPhone}
                 </div>
               </td>
               <td className="px-3 py-2">{r.clientName ?? '—'}</td>
-              <td className="px-3 py-2 tabular-nums text-zinc-500">
+              <td className="px-3 py-2 tabular-nums text-muted-foreground">
                 {new Date(r.scheduledFor).toLocaleString('en-US', {
                   month: 'short',
                   day: 'numeric',
@@ -4498,7 +4498,7 @@ function ReminderRecentLog() {
                   hour12: true,
                 })}
               </td>
-              <td className="px-3 py-2 tabular-nums text-zinc-500">
+              <td className="px-3 py-2 tabular-nums text-muted-foreground">
                 {r.sentAt
                   ? new Date(r.sentAt).toLocaleString('en-US', {
                       month: 'short',
@@ -4569,7 +4569,7 @@ function ReminderRowAction({
             onToggle('cancel')
           }
         }}
-        className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-0.5 text-[10px] font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+        className="inline-flex items-center gap-1 rounded-md border border-destructive/30 px-2 py-0.5 text-[10px] font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10"
         title="Cancel this pending reminder so it doesn't fire."
       >
         {pending ? '…' : 'Pause'}
@@ -4594,7 +4594,7 @@ function ReminderRowAction({
             onToggle('resume')
           }
         }}
-        className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-50 disabled:opacity-50 dark:border-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-950/40"
+        className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-2 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary-soft disabled:opacity-50 border-primary/30 text-primary hover:bg-primary-soft/40"
         title="Flip back to pending — the dispatcher will pick it up at scheduledFor."
       >
         {pending ? '…' : 'Resume'}
@@ -4604,7 +4604,7 @@ function ReminderRowAction({
 
   // Past-due cancelled/backfilled, or terminal (sent/sending/failed)
   // — no action. Faded em-dash keeps the column visually consistent.
-  return <span className="text-[10px] text-zinc-400">—</span>
+  return <span className="text-[10px] text-muted-foreground/70">—</span>
 }
 
 /**
@@ -4670,9 +4670,9 @@ function ReminderTestSendBlock() {
   })
 
   return (
-    <div className="mt-6 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="mt-6 rounded-md border border-border p-4 border-border">
       <h4 className="mb-1 text-sm font-semibold">Send a test message</h4>
-      <p className="mb-3 text-xs text-zinc-500">
+      <p className="mb-3 text-xs text-muted-foreground">
         Renders the active template and fires a one-off SMS via GHL.
         Doesn&apos;t create a reminder row in the log. Use this to
         verify your vault token, preview the customer-facing copy, or
@@ -4686,7 +4686,7 @@ function ReminderTestSendBlock() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="(555) 123-4567"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
         </div>
         <div>
@@ -4694,7 +4694,7 @@ function ReminderTestSendBlock() {
           <select
             value={reminderType}
             onChange={(e) => setReminderType(e.target.value as ReminderType)}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           >
             {REMINDER_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -4708,7 +4708,7 @@ function ReminderTestSendBlock() {
           <select
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           >
             <option value="">Use default / global template</option>
             {(clientsQuery.data?.clients ?? []).map((c) => (
@@ -4724,7 +4724,7 @@ function ReminderTestSendBlock() {
             type="text"
             value={customerName}
             onChange={(e) => setCustomerName(e.target.value)}
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
         </div>
         <div className="sm:col-span-2">
@@ -4736,7 +4736,7 @@ function ReminderTestSendBlock() {
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="e.g. 1533 218th ST TORRANCE CA 90501"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm border-border bg-background"
           />
         </div>
       </div>
@@ -4745,7 +4745,7 @@ function ReminderTestSendBlock() {
           type="button"
           onClick={() => sendMutation.mutate()}
           disabled={sendMutation.isPending || !phone.trim()}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
         >
           {sendMutation.isPending ? 'Sending…' : 'Send test'}
         </button>
@@ -4763,7 +4763,7 @@ function ReminderTestSendBlock() {
             .
           </div>
           {result.messageBody && (
-            <div className="mt-2 whitespace-pre-wrap rounded-md border border-emerald-200 bg-white/60 p-2 font-mono text-xs dark:border-emerald-900 dark:bg-zinc-900/60">
+            <div className="mt-2 whitespace-pre-wrap rounded-md border border-success/30 bg-card/60 p-2 font-mono text-xs border-success/30 bg-card/60">
               {result.messageBody}
             </div>
           )}
@@ -4775,10 +4775,10 @@ function ReminderTestSendBlock() {
           <div className="mt-1 text-xs">{result.error}</div>
           {result.messageBody && (
             <>
-              <div className="mt-2 text-[11px] text-zinc-500">
+              <div className="mt-2 text-[11px] text-muted-foreground">
                 Rendered body (would have been sent):
               </div>
-              <div className="mt-1 whitespace-pre-wrap rounded-md border border-rose-200 bg-white/60 p-2 font-mono text-xs dark:border-rose-900 dark:bg-zinc-900/60">
+              <div className="mt-1 whitespace-pre-wrap rounded-md border border-destructive/30 bg-card/60 p-2 font-mono text-xs border-destructive/30 bg-card/60">
                 {result.messageBody}
               </div>
             </>
@@ -4979,14 +4979,14 @@ function ClientEmailAlertsSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-rose-50 p-2 dark:bg-rose-950">
-          <Mail className="h-5 w-5 text-rose-600" />
+        <div className="rounded-lg bg-destructive/10 p-2 bg-destructive/10">
+          <Mail className="h-5 w-5 text-destructive" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">Client Alerts (Email)</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Third client-alert channel parallel to Slack + SMS. Sends an
             HTML-formatted appointment summary to each opted-in client&apos;s{' '}
             <code>contactEmail</code> when a new booking lands. Per-client
@@ -5008,10 +5008,10 @@ function ClientEmailAlertsSection() {
       )}
 
       {/* Master toggle */}
-      <div className="mt-5 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-5 flex items-center justify-between rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <div>
           <p className="text-sm font-medium">Master enable</p>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             {enabled
               ? 'Cron is sending email to clients with the per-client toggle ON below.'
               : 'Off — cron logs the heartbeat but sends nothing.'}
@@ -5024,8 +5024,8 @@ function ClientEmailAlertsSection() {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
             enabled
-              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+              ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+              : 'bg-muted text-foreground/85 hover:bg-muted bg-surface-muted text-foreground/85',
           )}
         >
           {updateMutation.isPending ? (
@@ -5042,9 +5042,9 @@ function ClientEmailAlertsSection() {
       </div>
 
       {/* From-account picker */}
-      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-4 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <label className="text-sm font-medium">From: Gmail account</label>
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Which connected Gmail account sends the alert. Defaults to{' '}
           <code>alex@leadgenisys.com</code> when blank.
         </p>
@@ -5052,7 +5052,7 @@ function ClientEmailAlertsSection() {
           <select
             value={fromDraft}
             onChange={(e) => setFromDraft(e.target.value)}
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-destructive/60 focus:outline-none border-border bg-card"
           >
             <option value="">— Use default (alex@leadgenisys.com) —</option>
             {accounts.map((a) => (
@@ -5065,7 +5065,7 @@ function ClientEmailAlertsSection() {
             type="button"
             disabled={!fromDirty || updateMutation.isPending}
             onClick={handleSaveFrom}
-            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition hover:bg-destructive/90 disabled:opacity-50"
           >
             Save
           </button>
@@ -5073,9 +5073,9 @@ function ClientEmailAlertsSection() {
       </div>
 
       {/* Sender display name */}
-      <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="mt-4 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
         <label className="text-sm font-medium">From: display name</label>
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           What appears in the recipient&apos;s inbox (e.g. &quot;Genisys
           Hub&quot;). Falls back to <code>Genisys Hub</code> when blank.
         </p>
@@ -5085,13 +5085,13 @@ function ClientEmailAlertsSection() {
             value={senderNameDraft}
             onChange={(e) => setSenderNameDraft(e.target.value)}
             placeholder="Genisys Hub"
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-destructive/60 focus:outline-none border-border bg-card"
           />
           <button
             type="button"
             disabled={!senderNameDirty || updateMutation.isPending}
             onClick={handleSaveSenderName}
-            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition hover:bg-destructive/90 disabled:opacity-50"
           >
             Save
           </button>
@@ -5100,13 +5100,13 @@ function ClientEmailAlertsSection() {
 
       {/* Per-client toggle list */}
       <div className="mt-5">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <p className="mb-2 eyebrow text-muted-foreground">
           Per-client opt-in
         </p>
         {clientsQuery.isLoading ? (
-          <p className="text-xs text-zinc-500">Loading clients…</p>
+          <p className="text-xs text-muted-foreground">Loading clients…</p>
         ) : clients.length === 0 ? (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted-foreground">
             No active clients on the roster yet.
           </p>
         ) : (
@@ -5116,7 +5116,7 @@ function ClientEmailAlertsSection() {
               return (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950"
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 border-border bg-background"
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
                     <span
@@ -5126,9 +5126,9 @@ function ClientEmailAlertsSection() {
                     />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{c.name}</p>
-                      <p className="truncate text-[11px] text-zinc-500">
+                      <p className="truncate text-[11px] text-muted-foreground">
                         {c.contactEmail || (
-                          <span className="text-amber-600">
+                          <span className="text-warning">
                             no contact email set
                           </span>
                         )}
@@ -5155,8 +5155,8 @@ function ClientEmailAlertsSection() {
                     className={cn(
                       'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition disabled:opacity-50',
                       c.emailAlertsEnabled
-                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300',
+                        ? 'bg-success/15 text-success hover:bg-success/15 text-success'
+                        : 'bg-muted text-foreground/85 hover:bg-muted bg-surface-muted text-foreground/85',
                     )}
                   >
                     {c.emailAlertsEnabled ? (
@@ -5225,9 +5225,9 @@ function EmailAlertsTestSendRow() {
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="mt-4 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-background">
       <p className="text-sm font-medium">Send a test email</p>
-      <p className="mt-0.5 text-xs text-zinc-500">
+      <p className="mt-0.5 text-xs text-muted-foreground">
         Fires a sample alert to any address using a fake appointment. Use it
         to verify rendering + From: header before flipping a client on.
       </p>
@@ -5237,20 +5237,20 @@ function EmailAlertsTestSendRow() {
           value={recipient}
           onChange={(e) => setRecipient(e.target.value)}
           placeholder="you@yourdomain.com"
-          className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-destructive/60 focus:outline-none border-border bg-card"
         />
         <input
           type="text"
           value={clientName}
           onChange={(e) => setClientName(e.target.value)}
           placeholder="Client name in sample"
-          className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm focus:border-destructive/60 focus:outline-none border-border bg-card"
         />
         <button
           type="button"
           disabled={sending || !recipient.trim()}
           onClick={send}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition hover:bg-destructive/90 disabled:opacity-50"
         >
           {sending ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -5265,8 +5265,8 @@ function EmailAlertsTestSendRow() {
           className={cn(
             'mt-2 rounded-md px-3 py-1.5 text-xs',
             result.ok
-              ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-              : 'bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200',
+              ? 'bg-success/15 text-success bg-success/15 text-success'
+              : 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
           )}
         >
           {result.ok ? (
@@ -5299,42 +5299,42 @@ function EmailAlertsRecentActivity() {
 
   function statusTone(status: string): string {
     if (status === 'delivered') {
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      return 'bg-success/15 text-success bg-success/15 text-success'
     }
     if (status === 'failed') {
-      return 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+      return 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
     }
     if (status === 'pending' || status === 'sending') {
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+      return 'bg-primary-soft text-primary bg-primary-soft text-primary'
     }
     if (status === 'backfilled') {
-      return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+      return 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85'
     }
     if (status === 'skipped') {
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+      return 'bg-warning/15 text-warning bg-warning/15 text-warning'
     }
-    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+    return 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85'
   }
 
   return (
     <div className="mt-5">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <p className="eyebrow text-muted-foreground">
           Recent activity (last 20)
         </p>
         <button
           type="button"
           onClick={() => query.refetch()}
-          className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
         >
           <RefreshCw className="h-3 w-3" />
           Refresh
         </button>
       </div>
       {query.isLoading ? (
-        <p className="text-xs text-zinc-500">Loading…</p>
+        <p className="text-xs text-muted-foreground">Loading…</p>
       ) : deliveries.length === 0 ? (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-muted-foreground">
           No deliveries yet. Send a test email above or wait for an
           appointment to fire.
         </p>
@@ -5343,7 +5343,7 @@ function EmailAlertsRecentActivity() {
           {deliveries.map((d) => (
             <li
               key={d.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950"
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 border-border bg-background"
             >
               <div className="flex min-w-0 items-center gap-2.5">
                 {d.client && (
@@ -5356,11 +5356,11 @@ function EmailAlertsRecentActivity() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {d.client?.name ?? 'Unattached'}
-                    <span className="font-normal text-zinc-500"> · {d.recipientEmail}</span>
+                    <span className="font-normal text-muted-foreground"> · {d.recipientEmail}</span>
                   </p>
-                  <p className="truncate text-[11px] text-zinc-500">
+                  <p className="truncate text-[11px] text-muted-foreground">
                     {d.errorMessage ? (
-                      <span className="text-red-600">{d.errorMessage}</span>
+                      <span className="text-destructive">{d.errorMessage}</span>
                     ) : d.scheduledFor && d.status === 'pending' ? (
                       `Fires ${new Date(d.scheduledFor).toLocaleString()}`
                     ) : d.deliveredAt ? (
@@ -5373,7 +5373,7 @@ function EmailAlertsRecentActivity() {
               </div>
               <span
                 className={cn(
-                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                  'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold',
                   statusTone(d.status),
                 )}
               >
@@ -5428,14 +5428,14 @@ function PpaInvoicingSection() {
   const effectivelyEnabled = enabled && !envOverride
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <section className="rounded-xl border border-border bg-card p-6 border-border bg-card">
       <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-amber-50 p-2 dark:bg-amber-950">
-          <Receipt className="h-5 w-5 text-amber-600" />
+        <div className="rounded-lg bg-warning/15 p-2 bg-warning/15">
+          <Receipt className="h-5 w-5 text-warning" />
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold">PPA bi-weekly invoicing</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Once every 14 days from each PPA client&apos;s service-start date, the
             Hub tallies their qualified appointments (showed / won / lost
             updates from you, Ethan, or the client themselves) and sends an
@@ -5448,25 +5448,25 @@ function PpaInvoicingSection() {
       </div>
 
       {settingsQuery.isLoading ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading…
         </div>
       ) : settingsQuery.isError ? (
-        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {(settingsQuery.error as Error).message}
         </div>
       ) : (
         <div className="mt-5 space-y-3">
           {envOverride && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            <div className="rounded-md border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
               <strong>Force-disabled via env var.</strong>{' '}
               <code>PPA_INVOICING_DISABLED=true</code> is set on Render — the
               toggle below is ignored until that env var is removed. Use this
               path for active incidents.
             </div>
           )}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-muted px-4 py-3 border-border bg-surface-muted">
             <div>
               <p className="text-sm font-medium">
                 Daily automation:{' '}
@@ -5474,14 +5474,14 @@ function PpaInvoicingSection() {
                   className={cn(
                     'font-semibold',
                     effectivelyEnabled
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-zinc-400',
+                      ? 'text-success'
+                      : 'text-muted-foreground/70',
                   )}
                 >
                   {effectivelyEnabled ? 'Enabled' : 'Paused'}
                 </span>
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Runs once per day around 10 AM EDT. Toggling here takes
                 effect on the next cron tick — no deploy needed.
               </p>
@@ -5493,8 +5493,8 @@ function PpaInvoicingSection() {
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50',
                 enabled
-                  ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                  : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+                  ? 'border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/10 border-destructive/30 bg-destructive/10 text-destructive'
+                  : 'border-success/30 bg-success/15 text-success hover:bg-success/15 border-success/30 bg-success/15 text-success',
               )}
             >
               {mutation.isPending ? (
@@ -5508,7 +5508,7 @@ function PpaInvoicingSection() {
             </button>
           </div>
           {mutation.isError && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               {(mutation.error as Error).message}
             </div>
           )}

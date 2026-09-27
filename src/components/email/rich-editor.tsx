@@ -68,7 +68,7 @@ export function RichEditor({
   return (
     <div
       className={cn(
-        'rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden',
+        'rounded-lg border border-border bg-card border-border bg-background overflow-hidden',
         className
       )}
     >
@@ -113,7 +113,7 @@ function Toolbar({ editor }: { editor: Editor }) {
   }, [editor])
 
   return (
-    <div className="flex items-center gap-0.5 flex-wrap border-b border-zinc-200 bg-zinc-50 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex items-center gap-0.5 flex-wrap border-b border-border bg-surface-muted px-2 py-1.5 border-border bg-card">
       <ToolbarBtn
         active={editor.isActive('bold')}
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -232,8 +232,8 @@ function ToolbarBtn({
       className={cn(
         'rounded p-1.5 transition-colors',
         active
-          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-          : 'text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+          ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground',
         disabled && 'opacity-30 cursor-not-allowed'
       )}
     >
@@ -243,5 +243,5 @@ function ToolbarBtn({
 }
 
 function Separator() {
-  return <div className="mx-1 h-5 w-px bg-zinc-200 dark:bg-zinc-700" />
+  return <div className="mx-1 h-5 w-px bg-muted" />
 }

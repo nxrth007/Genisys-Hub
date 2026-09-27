@@ -104,15 +104,15 @@ function LeaderboardView() {
   return (
     <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6">
       {/* ---- Incentive banner ---- */}
-      <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-primary-soft via-card to-amber-50 p-6 shadow-card backdrop-blur-xl dark:to-amber-950/20">
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary-soft via-card to-amber-50 p-6 shadow-card backdrop-blur-xl dark:to-amber-950/20">
         <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/40" />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
+            <div className="grid h-12 w-12 place-items-center rounded-xl bg-foreground text-primary-foreground shadow-soft">
               <Trophy className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-primary">
+              <p className="eyebrow text-primary">
                 Top performers
               </p>
               <p className="text-base font-semibold tracking-tight">
@@ -123,7 +123,7 @@ function LeaderboardView() {
             </div>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="rounded-full border border-border/40 bg-card/70 px-3 py-1 text-xs font-semibold backdrop-blur">
+            <span className="rounded-md border border-border/40 bg-card/70 px-3 py-1 text-xs font-semibold backdrop-blur">
               {dateLabel}
             </span>
             <span className="text-muted-foreground">
@@ -140,11 +140,11 @@ function LeaderboardView() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : query.isError ? (
-        <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-destructive shadow-soft">
+        <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-destructive shadow-soft">
           Couldn&apos;t load the leaderboard. Try refreshing.
         </p>
       ) : podium.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center shadow-soft">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center shadow-soft">
           <Trophy className="mx-auto h-10 w-10 text-muted-foreground/40" />
           <p className="mt-3 text-sm text-muted-foreground">
             No agents have booked appointments in this window.
@@ -174,7 +174,7 @@ function LeaderboardView() {
           </div>
 
           {/* ---- Full ranking ---- */}
-          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-soft">
             <div className="flex items-center justify-between border-b border-border-soft px-5 py-4">
               <h2 className="text-[15px] font-semibold tracking-tight">
                 Full ranking
@@ -196,9 +196,9 @@ function LeaderboardView() {
                     <span
                       className={cn(
                         'grid h-8 w-8 place-items-center rounded-full text-sm font-bold tabular-nums',
-                        i === 0 && 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
-                        i === 1 && 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/40 dark:text-zinc-200',
-                        i === 2 && 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200',
+                        i === 0 && 'bg-warning/15 text-warning bg-warning/15 text-warning',
+                        i === 1 && 'bg-muted text-foreground/85 bg-muted/40 text-foreground',
+                        i === 2 && 'bg-warning/15 text-warning bg-warning/15 text-warning',
                         !isTop3 && 'bg-muted text-foreground/60'
                       )}
                     >
@@ -221,11 +221,11 @@ function LeaderboardView() {
                           ` · $${(r.appointments.pipelineDollars / 1000).toFixed(0)}k pipeline`}
                       </p>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="h-1.5 w-full overflow-hidden rounded-lg bg-muted">
                       <div
                         className={cn(
-                          'h-full rounded-full transition-all',
-                          i === 0 ? 'bg-amber-400' : 'bg-primary'
+                          'h-full rounded-lg transition-all',
+                          i === 0 ? 'bg-warning' : 'bg-foreground'
                         )}
                         style={{ width: `${pct}%` }}
                       />
@@ -255,7 +255,7 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
       icon: Crown,
       glow: 'from-amber-200/70 via-amber-100/40 to-transparent',
       ring: 'ring-amber-300/70',
-      iconColor: 'text-amber-500',
+      iconColor: 'text-warning',
       pill: 'bg-amber-400/90 text-amber-950',
       label: '1st',
       height: 'h-[280px]',
@@ -265,8 +265,8 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
       icon: Medal,
       glow: 'from-zinc-200/60 via-zinc-100/30 to-transparent',
       ring: 'ring-zinc-300/70',
-      iconColor: 'text-zinc-500',
-      pill: 'bg-zinc-300/90 text-zinc-900',
+      iconColor: 'text-muted-foreground',
+      pill: 'bg-muted-foreground/40 text-foreground',
       label: '2nd',
       height: 'h-[252px]',
       prize: 'Runner-up',
@@ -275,7 +275,7 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
       icon: Award,
       glow: 'from-orange-200/60 via-orange-100/30 to-transparent',
       ring: 'ring-orange-300/70',
-      iconColor: 'text-orange-500',
+      iconColor: 'text-warning',
       pill: 'bg-orange-400/90 text-orange-950',
       label: '3rd',
       height: 'h-[230px]',
@@ -288,7 +288,7 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
   return (
     <div
       className={cn(
-        'relative flex flex-col items-center justify-end overflow-hidden rounded-3xl border border-border/60 bg-card/70 px-5 pb-6 pt-8 shadow-card backdrop-blur-xl',
+        'relative flex flex-col items-center justify-end overflow-hidden rounded-2xl border border-border/60 bg-card/70 px-5 pb-6 pt-8 shadow-card backdrop-blur-xl',
         meta.height
       )}
     >
@@ -298,11 +298,11 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
           meta.glow
         )}
       />
-      <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-white/40" />
+      <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/40" />
 
       <span
         className={cn(
-          'absolute right-4 top-4 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider shadow-sm backdrop-blur',
+          'absolute right-4 top-4 rounded-lg px-2.5 py-1 eyebrow backdrop-blur',
           meta.pill
         )}
       >
@@ -313,7 +313,7 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
 
       <div
         className={cn(
-          'rounded-full ring-4 ring-offset-2 ring-offset-card/0',
+          'rounded-lg ring-4 ring-offset-2 ring-offset-card/0',
           meta.ring
         )}
       >
@@ -332,11 +332,11 @@ function PodiumCard({ rank, row }: { rank: 1 | 2 | 3; row: Row }) {
       <p className="mt-3 text-[34px] font-bold leading-none tracking-tight tabular-nums text-foreground">
         {row.appointments.total}
       </p>
-      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="mt-0.5 eyebrow text-muted-foreground">
         appts set
       </p>
 
-      <div className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-card/80 px-3 py-1.5 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur">
+      <div className="relative z-10 mt-4 inline-flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/80 px-3 py-1.5 text-[11px] font-semibold text-foreground backdrop-blur">
         <Sparkles className="h-3 w-3 text-primary" />
         {meta.prize}
       </div>
@@ -359,13 +359,13 @@ function formatRangeLabel(since: string | null, until: string | null): string {
 function LeaderboardSkeleton() {
   return (
     <div className="flex flex-col gap-6">
-      <div className="h-24 animate-pulse rounded-3xl border border-border bg-card shadow-soft" />
+      <div className="h-24 animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
       <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-3">
-        <div className="h-[252px] animate-pulse rounded-3xl border border-border bg-card shadow-soft" />
-        <div className="h-[280px] animate-pulse rounded-3xl border border-border bg-card shadow-soft" />
-        <div className="h-[230px] animate-pulse rounded-3xl border border-border bg-card shadow-soft" />
+        <div className="h-[252px] animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+        <div className="h-[280px] animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+        <div className="h-[230px] animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
       </div>
-      <div className="h-64 animate-pulse rounded-2xl border border-border bg-card shadow-soft" />
+      <div className="h-64 animate-pulse rounded-xl border border-border bg-card shadow-soft" />
     </div>
   )
 }

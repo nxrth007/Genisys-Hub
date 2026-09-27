@@ -79,14 +79,14 @@ export default function ClientMessagesPage() {
     <div className="max-w-5xl space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-purple-50 p-2.5 dark:bg-purple-950">
-            <MessageSquare className="h-6 w-6 text-purple-600" />
+          <div className="rounded-lg bg-muted p-2.5 bg-muted">
+            <MessageSquare className="h-6 w-6 text-foreground/80" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">
               Client Messages
             </h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               Conversations on your Genisys sub-account, filtered to
               registered clients only. Reminder threads are excluded —
               they live on{' '}
@@ -102,7 +102,7 @@ export default function ClientMessagesPage() {
         </div>
         <Link
           href="/crm"
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-blue-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-primary border-border bg-card text-foreground/85 hover:bg-muted"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           All conversations
@@ -114,10 +114,10 @@ export default function ClientMessagesPage() {
           matches to distinguish "no client comms yet" from "filter
           broken" or "no clients have contactPhone set." */}
       {diag && !isLoading && (
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="rounded-md border border-border bg-surface-muted px-4 py-2 text-[11px] text-muted-foreground border-border bg-card text-muted-foreground">
           {diag.ghlFetched} conversations fetched from Genisys ·{' '}
           {diag.remindersExcluded} reminder threads excluded ·{' '}
-          <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+          <span className="font-semibold text-foreground/85 text-foreground">
             {diag.matched} matched a registered client
           </span>{' '}
           (across {diag.registeredClients} active client
@@ -126,17 +126,17 @@ export default function ClientMessagesPage() {
       )}
 
       {isLoading ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-6 py-12 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground border-border bg-card">
           Loading client conversations…
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
-          <div className="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-6 border-warning/30 bg-warning/15">
+          <div className="flex items-start gap-3 text-sm text-warning">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <div>
               <div className="font-medium">Couldn&apos;t load</div>
               <div className="mt-1 text-xs">{(error as Error).message}</div>
-              <div className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+              <div className="mt-1 text-xs text-warning">
                 Confirm the &ldquo;GHL Genisys Token&rdquo; vault entry
                 exists and the GHL Private Integration scopes include{' '}
                 <code>conversations.readonly</code>.
@@ -145,12 +145,12 @@ export default function ClientMessagesPage() {
           </div>
         </div>
       ) : conversations.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-6 py-16 text-center dark:border-zinc-800 dark:bg-zinc-900">
-          <Building2 className="mx-auto h-8 w-8 text-zinc-300 dark:text-zinc-600" />
+        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center border-border bg-card">
+          <Building2 className="mx-auto h-8 w-8 text-muted-foreground/50" />
           <p className="mt-3 text-sm font-medium">
             No client conversations yet
           </p>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-xs text-muted-foreground">
             Messages appear here when one of your registered clients
             (matched by contact phone, email, or name) sends or
             receives a thread on the Genisys GHL sub-account. Make
@@ -162,8 +162,8 @@ export default function ClientMessagesPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+          <ul className="divide-y divide-border-soft">
             {conversations.map((c) => (
               <ClientConversationRow key={c.id} conversation={c} />
             ))}
@@ -203,10 +203,10 @@ function ClientConversationRow({
     <li>
       <Link
         href={href}
-        className="flex items-start gap-4 px-5 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+        className="flex items-start gap-4 px-5 py-3 transition-colors hover:bg-muted hover:bg-muted/50"
       >
-        <div className="flex-shrink-0 rounded-full bg-zinc-100 p-2 dark:bg-zinc-800">
-          <User className="h-4 w-4 text-zinc-500" />
+        <div className="flex-shrink-0 rounded-full bg-muted p-2 bg-surface-muted">
+          <User className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -215,7 +215,7 @@ function ClientConversationRow({
                 see at a glance which client this thread belongs to
                 without opening it. */}
             <span
-              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground/85 bg-surface-muted text-foreground/85"
               title={`Matched ${conversation.client.name} via ${matchedOnLabel}`}
             >
               <span
@@ -225,22 +225,22 @@ function ClientConversationRow({
               />
               {conversation.client.name}
               {conversation.client.state && (
-                <span className="font-normal text-zinc-500">
+                <span className="font-normal text-muted-foreground">
                   · {conversation.client.state}
                 </span>
               )}
             </span>
             {conversation.unreadCount > 0 && (
-              <span className="flex-shrink-0 rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+              <span className="flex-shrink-0 rounded-lg bg-foreground px-1.5 text-[10px] font-bold text-background">
                 {conversation.unreadCount}
               </span>
             )}
           </div>
-          <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500">
+          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
             {conversation.lastMessageBody || '(no message body)'}
           </p>
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1.5 text-[11px] text-zinc-500">
+        <div className="flex flex-shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
           {lastDate && (
             <span
               className="tabular-nums"
@@ -249,7 +249,7 @@ function ClientConversationRow({
               {formatRelative(lastDate)}
             </span>
           )}
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-300" />
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
         </div>
       </Link>
     </li>

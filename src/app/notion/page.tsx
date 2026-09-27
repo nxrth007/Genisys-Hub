@@ -99,13 +99,13 @@ export default function NotionPage() {
       {/* Search */}
       <form onSubmit={handleSubmit}>
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search pages and databases…"
-            className="w-full rounded-lg border border-zinc-200 bg-white py-2.5 pl-10 pr-4 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            className="w-full rounded-lg border border-border bg-card py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 border-border bg-card text-foreground placeholder:text-muted-foreground"
           />
         </div>
       </form>
@@ -117,10 +117,10 @@ export default function NotionPage() {
             key={f.value}
             onClick={() => setFilter(f.value)}
             className={cn(
-              'rounded-full px-4 py-1.5 text-xs font-medium transition-colors',
+              'rounded-lg px-4 py-1.5 text-xs font-medium transition-colors',
               filter === f.value
-                ? 'bg-blue-600 text-white'
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-200'
+                ? 'bg-foreground text-background'
+                : 'bg-muted text-muted-foreground hover:bg-muted hover:text-foreground bg-surface-muted text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
             {f.label}
@@ -131,13 +131,13 @@ export default function NotionPage() {
       {/* Loading */}
       {searchQuery.isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
 
       {/* Error */}
       {searchQuery.isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <span>Failed to search Notion. Check your API key in Settings.</span>
         </div>
@@ -148,8 +148,8 @@ export default function NotionPage() {
         <>
           {/* Empty state */}
           {results.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200 py-16 text-center text-zinc-500 dark:border-zinc-800">
-              <BookOpen className="mb-3 h-10 w-10 text-zinc-300 dark:text-zinc-600" />
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center text-muted-foreground border-border">
+              <BookOpen className="mb-3 h-10 w-10 text-muted-foreground/50" />
               <p className="text-sm font-medium">No results found</p>
               <p className="mt-1 text-xs">
                 {submitted
@@ -162,10 +162,10 @@ export default function NotionPage() {
           {/* Databases section */}
           {databases.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                <Database className="h-4 w-4 text-blue-500" />
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground/85">
+                <Database className="h-4 w-4 text-primary" />
                 Databases
-                <span className="text-xs font-normal text-zinc-500">
+                <span className="text-xs font-normal text-muted-foreground">
                   ({databases.length})
                 </span>
               </h2>
@@ -173,22 +173,22 @@ export default function NotionPage() {
                 {databases.map((db) => (
                   <div
                     key={db.id}
-                    className="rounded-xl border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+                    className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-foreground/30 border-border bg-card hover:border-foreground/30"
                   >
                     <div className="mb-2 flex items-start justify-between">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="flex-shrink-0 text-lg">
                           {db.icon?.emoji || (
-                            <Database className="h-4 w-4 text-zinc-400" />
+                            <Database className="h-4 w-4 text-muted-foreground/70" />
                           )}
                         </span>
-                        <span className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        <span className="truncate text-sm font-medium text-foreground">
                           {extractTitle(db)}
                         </span>
                       </div>
                     </div>
                     {db.last_edited_time && (
-                      <p className="mb-3 text-xs text-zinc-500">
+                      <p className="mb-3 text-xs text-muted-foreground">
                         Edited {formatDate(db.last_edited_time)}
                       </p>
                     )}
@@ -204,7 +204,7 @@ export default function NotionPage() {
                         return isTaskDb ? (
                           <Link
                             href={`/notion/tasks/${stripDashes(db.id)}`}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+                            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-colors hover:bg-foreground/90"
                           >
                             <LayoutGrid className="h-3 w-3" />
                             Board View
@@ -213,7 +213,7 @@ export default function NotionPage() {
                       })()}
                       <Link
                         href={`/notion/db/${stripDashes(db.id)}`}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground/85 transition-colors hover:bg-muted hover:text-foreground border-border text-foreground/85 hover:bg-muted hover:text-foreground"
                       >
                         <Table className="h-3 w-3" />
                         Table View
@@ -228,34 +228,34 @@ export default function NotionPage() {
           {/* Pages section */}
           {pages.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                <FileText className="h-4 w-4 text-blue-500" />
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground/85">
+                <FileText className="h-4 w-4 text-primary" />
                 Pages
-                <span className="text-xs font-normal text-zinc-500">
+                <span className="text-xs font-normal text-muted-foreground">
                   ({pages.length})
                 </span>
               </h2>
-              <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="divide-y divide-border-soft rounded-xl border border-border bg-card divide-border-soft border-border bg-card">
                 {pages.map((page) => (
                   <div
                     key={page.id}
-                    className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                    className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-muted hover:bg-muted/60"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex-shrink-0 text-base">
                         {page.icon?.emoji || (
-                          <FileText className="h-4 w-4 text-zinc-400" />
+                          <FileText className="h-4 w-4 text-muted-foreground/70" />
                         )}
                       </span>
                       <div className="min-w-0">
                         <Link
                           href={`/notion/page/${stripDashes(page.id)}`}
-                          className="block truncate text-sm font-medium text-zinc-900 transition-colors hover:text-blue-600 dark:text-zinc-100 dark:hover:text-blue-400"
+                          className="block truncate text-sm font-medium text-foreground transition-colors hover:text-primary text-foreground hover:text-primary"
                         >
                           {extractTitle(page)}
                         </Link>
                         {page.last_edited_time && (
-                          <p className="text-xs text-zinc-500">
+                          <p className="text-xs text-muted-foreground">
                             Edited {formatDate(page.last_edited_time)}
                           </p>
                         )}
@@ -264,7 +264,7 @@ export default function NotionPage() {
                     <div className="flex flex-shrink-0 items-center gap-2">
                       <Link
                         href={`/notion/page/${stripDashes(page.id)}`}
-                        className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        className="rounded-md px-3 py-1.5 text-xs font-medium text-foreground/85 transition-colors hover:bg-muted hover:text-foreground text-foreground/85 hover:bg-muted hover:text-foreground"
                       >
                         View
                       </Link>
@@ -273,7 +273,7 @@ export default function NotionPage() {
                           href={page.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                          className="rounded-md p-1.5 text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
                           title="Open in Notion"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />

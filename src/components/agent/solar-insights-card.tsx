@@ -33,13 +33,13 @@ type SolarSummary = {
 
 const VIABILITY_TONE: Record<SolarSummary['viability'], string> = {
   excellent:
-    'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300',
+    'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success',
   good:
-    'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300',
+    'border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary',
   limited:
-    'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300',
+    'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning',
   unavailable:
-    'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400',
+    'border-border bg-surface-muted text-muted-foreground border-border bg-background text-muted-foreground',
 }
 
 const VIABILITY_LABEL: Record<SolarSummary['viability'], string> = {
@@ -125,10 +125,10 @@ export function SolarInsightsCard({
           onClick={fetchInsights}
           disabled={!ready}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md border border-dashed border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition',
+            'inline-flex items-center gap-1.5 rounded-md border border-dashed border-warning/30 px-2.5 py-1.5 text-xs font-medium text-warning transition',
             ready
-              ? 'hover:border-amber-400 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/30'
-              : 'opacity-50 cursor-not-allowed dark:border-zinc-800 dark:text-zinc-500'
+              ? 'hover:border-amber-400 hover:bg-warning/15 border-warning/30 text-warning hover:bg-warning/10'
+              : 'opacity-50 cursor-not-allowed border-border text-muted-foreground/70'
           )}
           title={
             ready
@@ -142,7 +142,7 @@ export function SolarInsightsCard({
       )}
 
       {state.kind === 'loading' && (
-        <div className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="inline-flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/15 px-2.5 py-1.5 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Pulling solar data…
         </div>
@@ -153,8 +153,8 @@ export function SolarInsightsCard({
           className={cn(
             'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
             state.soft
-              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200'
-              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300'
+              ? 'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning'
+              : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
           )}
         >
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
@@ -195,14 +195,14 @@ function SolarResultCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Sun className="h-4 w-4" />
-          <span className="text-xs font-semibold uppercase tracking-wider">
+          <span className="eyebrow">
             Solar potential — {VIABILITY_LABEL[summary.viability]}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
           {summary.fromCache && (
             <span
-              className="rounded bg-zinc-100 px-1.5 py-0.5 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+              className="rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground bg-surface-muted text-muted-foreground"
               title="This result came from local cache — no API charge"
             >
               Cached
@@ -211,7 +211,7 @@ function SolarResultCard({
           <button
             type="button"
             onClick={onRefresh}
-            className="underline underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-200"
+            className="underline underline-offset-2 hover:text-foreground"
             title="Re-pull from Google. Will reuse cache if available."
           >
             Refresh
@@ -220,7 +220,7 @@ function SolarResultCard({
       </div>
 
       {summary.viability === 'unavailable' ? (
-        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-xs text-muted-foreground">
           Google has no solar imagery for this location. Common in rural areas
           or recent construction. The customer is still bookable — Mary can
           rely on her own qualifying questions instead.
@@ -273,7 +273,7 @@ function SolarResultCard({
       )}
 
       {(summary.imageryQuality || summary.imageryCapturedAt) && (
-        <p className="mt-3 text-[10px] text-zinc-500">
+        <p className="mt-3 text-[10px] text-muted-foreground">
           Imagery:{' '}
           {summary.imageryQuality
             ? summary.imageryQuality.toLowerCase() + ' quality'
@@ -298,13 +298,13 @@ function Stat({
 }) {
   return (
     <div className="min-w-0">
-      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+      <p className="flex items-center gap-1 eyebrow text-muted-foreground">
         <Icon className="h-3 w-3" />
         {label}
       </p>
       <p className="mt-0.5 text-sm font-semibold tabular-nums">{value}</p>
       {subtitle && (
-        <p className="text-[10px] text-zinc-500">{subtitle}</p>
+        <p className="text-[10px] text-muted-foreground">{subtitle}</p>
       )}
     </div>
   )

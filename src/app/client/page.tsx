@@ -150,7 +150,7 @@ export default function ClientHomePage() {
   if (meQuery.isLoading) {
     return (
       <FullPageState>
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
       </FullPageState>
     )
   }
@@ -158,7 +158,7 @@ export default function ClientHomePage() {
   if (meQuery.isError || !meQuery.data) {
     return (
       <FullPageState>
-        <div className="text-center text-sm text-red-600">
+        <div className="text-center text-sm text-destructive">
           {(meQuery.error as Error)?.message ?? 'Failed to load your account'}
         </div>
       </FullPageState>
@@ -168,7 +168,7 @@ export default function ClientHomePage() {
   const { user, client } = meQuery.data
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
+    <div className="min-h-screen bg-background">
       <DashboardHeader
         title={client?.name ?? 'Your Lead Genisys account'}
         subtitle={subtitleFor(user.role)}
@@ -247,13 +247,13 @@ function DashboardHeader({
     ? `https://slack.com/app_redirect?channel=${slackChannel.id}`
     : null
   return (
-    <header className="border-b border-zinc-200 bg-white px-4 py-4 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <header className="border-b border-border bg-card px-4 py-4 sm:px-6 border-border bg-card">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Building2 className="h-5 w-5 shrink-0 text-blue-600" />
+          <Building2 className="h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold">{title}</h1>
-            <p className="truncate text-[11px] text-zinc-500">{subtitle}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{subtitle}</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -267,7 +267,7 @@ function DashboardHeader({
                   ? `Open #${slackChannel.name} in Slack`
                   : 'Open your Slack channel'
               }
-              className="hidden items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 sm:inline-flex dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200 dark:hover:bg-violet-900"
+              className="hidden items-center gap-1.5 rounded-md border border-border bg-muted px-3 py-1.5 text-xs font-medium text-foreground/80 hover:bg-violet-100 sm:inline-flex border-border bg-muted text-foreground/80 dark:hover:bg-violet-900"
             >
               <span aria-hidden>#</span>
               <span className="max-w-[120px] truncate">
@@ -283,7 +283,7 @@ function DashboardHeader({
               rel="noopener noreferrer"
               title="Open Slack"
               aria-label="Open Slack channel"
-              className="inline-flex items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-violet-700 hover:bg-violet-100 sm:hidden dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200"
+              className="inline-flex items-center justify-center rounded-md border border-border bg-muted px-2 py-1.5 text-foreground/80 hover:bg-violet-100 sm:hidden border-border bg-muted text-foreground/80"
             >
               <span className="text-xs font-semibold leading-none" aria-hidden>
                 #
@@ -294,7 +294,7 @@ function DashboardHeader({
             <Link
               href="/client/account"
               title="My account — profile + change password"
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
             >
               <UserCircle2 className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">My account</span>
@@ -302,7 +302,7 @@ function DashboardHeader({
           )}
           <button
             onClick={() => signOut({ callbackUrl: '/signin/client' })}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
           >
             <LogOut className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Sign out</span>
@@ -315,7 +315,7 @@ function DashboardHeader({
 
 function FullPageState({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+    <div className="flex min-h-screen items-center justify-center bg-background">
       {children}
     </div>
   )
@@ -414,8 +414,8 @@ function PrePayPlanPicker({
         message="Pick a plan + tell us your business name to get started. Payment opens in a new tab — your account manager approves you once it lands."
       />
 
-      <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      <section className="space-y-3 rounded-xl border border-border bg-card p-5 border-border bg-card">
+        <div className="flex items-center gap-2 eyebrow text-muted-foreground">
           <Building2 className="h-3.5 w-3.5" />
           Step 1 — Your business
         </div>
@@ -425,12 +425,12 @@ function PrePayPlanPicker({
           onChange={(e) => setBusinessName(e.target.value)}
           placeholder="Your business name"
           autoFocus
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
         />
       </section>
 
-      <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      <section className="space-y-3 rounded-xl border border-border bg-card p-5 border-border bg-card">
+        <div className="flex items-center gap-2 eyebrow text-muted-foreground">
           <CreditCard className="h-3.5 w-3.5" />
           Step 2 — Pick a plan
         </div>
@@ -445,25 +445,25 @@ function PrePayPlanPicker({
                 setPicked(opt)
                 submit.mutate(opt)
               }}
-              className="group flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-blue-950/30"
+              className="group flex items-start gap-3 rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary/50 hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50 border-border bg-card hover:bg-primary-soft/30"
             >
               {alreadyPaid ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />
               ) : (
-                <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+                <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
               )}
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold">{opt.label}</div>
-                <div className="mt-0.5 text-xs text-zinc-500">{opt.sub}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{opt.sub}</div>
               </div>
               {submit.isPending && picked?.id === opt.id ? (
-                <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+                <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-primary" />
               ) : alreadyPaid ? (
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+                <span className="eyebrow text-success">
                   Submit
                 </span>
               ) : (
-                <ExternalLink className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400 transition group-hover:text-blue-600" />
+                <ExternalLink className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/70 transition group-hover:text-primary" />
               )}
             </button>
           ))}
@@ -474,14 +474,14 @@ function PrePayPlanPicker({
             invoice, etc.). Same plan choice flow, but skips the
             QuickBooks redirect and tags the Client row so admin
             verifies the existing payment before approving. */}
-        <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs dark:border-zinc-700 dark:bg-zinc-900/60">
+        <label className="flex items-start gap-2 rounded-lg border border-border bg-surface-muted p-3 text-xs border-border bg-card/60">
           <input
             type="checkbox"
             checked={alreadyPaid}
             onChange={(e) => setAlreadyPaid(e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 rounded border-zinc-300 accent-emerald-600"
+            className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-emerald-600"
           />
-          <span className="flex-1 leading-relaxed text-zinc-700 dark:text-zinc-300">
+          <span className="flex-1 leading-relaxed text-foreground/85">
             <span className="font-semibold">I have already paid for this plan.</span>{' '}
             Pick the plan you paid for above — we&apos;ll mark your account
             for verification by your account manager instead of sending you
@@ -489,13 +489,13 @@ function PrePayPlanPicker({
           </span>
         </label>
 
-        <p className="text-[11px] text-zinc-500">
+        <p className="text-[11px] text-muted-foreground">
           {alreadyPaid
             ? 'Picking a plan submits your selection for admin verification. No payment page will open.'
             : 'Clicking a plan saves your selection and opens the secure QuickBooks payment page in a new tab. After payment lands, your account manager approves your account.'}
         </p>
         {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
             {error}
           </div>
         )}
@@ -525,10 +525,10 @@ function PrePayAwaitingApproval({
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <section className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/40">
+      <section className="space-y-3 rounded-xl border border-primary/30 bg-primary-soft p-5 border-primary/30 bg-primary-soft">
         <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-blue-600" />
-          <h2 className="text-base font-semibold text-blue-900 dark:text-blue-200">
+          <Clock className="h-5 w-5 text-primary" />
+          <h2 className="text-base font-semibold text-primary">
             Awaiting approval
           </h2>
         </div>
@@ -542,8 +542,8 @@ function PrePayAwaitingApproval({
       </section>
 
       {matchingPaymentOption && (
-        <section className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <section className="space-y-3 rounded-xl border border-border bg-card p-5 border-border bg-card">
+          <div className="flex items-center gap-2 eyebrow text-muted-foreground">
             <CreditCard className="h-3.5 w-3.5" />
             Your payment link
           </div>
@@ -551,13 +551,13 @@ function PrePayAwaitingApproval({
             href={matchingPaymentOption.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition hover:bg-foreground/90"
           >
             <CreditCard className="h-4 w-4" />
             Open {matchingPaymentOption.label}
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
-          <p className="text-[11px] text-zinc-500">
+          <p className="text-[11px] text-muted-foreground">
             Opens QuickBooks in a new tab. If you&apos;ve already paid,
             you can ignore this — your account manager will approve you
             shortly.
@@ -565,7 +565,7 @@ function PrePayAwaitingApproval({
           <button
             type="button"
             onClick={onChangePlan}
-            className="text-[11px] text-zinc-500 hover:text-zinc-700 hover:underline dark:hover:text-zinc-300"
+            className="text-[11px] text-muted-foreground hover:text-foreground hover:underline hover:text-foreground"
           >
             Or change your plan →
           </button>
@@ -592,9 +592,9 @@ function TrackerPreview() {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <section className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      <section className="relative overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+        <div className="border-b border-border px-5 py-3 border-border">
+          <div className="flex items-center gap-2 eyebrow text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" />
             Preview — your dashboard once you&apos;re live
           </div>
@@ -607,9 +607,9 @@ function TrackerPreview() {
               <PreviewStat label="Showed" value="—" tone="green" />
               <PreviewStat label="No-show" value="—" tone="rose" />
             </div>
-            <div className="border-t border-zinc-100 dark:border-zinc-800">
+            <div className="border-t border-border">
               <table className="hidden w-full text-sm md:table">
-                <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+                <thead className="border-b border-border bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
                   <tr>
                     <th className="px-4 py-2 text-left font-semibold">Date</th>
                     <th className="px-4 py-2 text-left font-semibold">Customer</th>
@@ -620,12 +620,12 @@ function TrackerPreview() {
                 </thead>
                 <tbody>
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <tr key={i} className="border-b border-zinc-100 dark:border-zinc-800">
-                      <td className="px-4 py-2 text-zinc-400">———</td>
-                      <td className="px-4 py-2 text-zinc-400">———</td>
-                      <td className="px-4 py-2 text-zinc-400">———</td>
-                      <td className="px-4 py-2 text-zinc-400">———</td>
-                      <td className="px-4 py-2 text-zinc-400">———</td>
+                    <tr key={i} className="border-b border-border">
+                      <td className="px-4 py-2 text-muted-foreground/70">———</td>
+                      <td className="px-4 py-2 text-muted-foreground/70">———</td>
+                      <td className="px-4 py-2 text-muted-foreground/70">———</td>
+                      <td className="px-4 py-2 text-muted-foreground/70">———</td>
+                      <td className="px-4 py-2 text-muted-foreground/70">———</td>
                     </tr>
                   ))}
                 </tbody>
@@ -636,7 +636,7 @@ function TrackerPreview() {
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 hover:shadow-lg"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-4 py-2 text-xs font-semibold text-background transition hover:bg-foreground/90"
             >
               <Eye className="h-3.5 w-3.5" />
               Preview
@@ -770,16 +770,16 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
       aria-label="Live dashboard preview"
     >
       <div
-        className="relative w-full max-w-5xl rounded-2xl bg-white shadow-2xl dark:bg-zinc-900"
+        className="relative w-full max-w-5xl rounded-xl bg-card shadow-pop bg-card"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-2xl border-b border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-2xl border-b border-border bg-card px-5 py-4 border-border bg-card">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold sm:text-base">
               Your live dashboard — interactive preview
             </h2>
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[11px] text-muted-foreground">
               Sample data. This is exactly how the page will look once we
               start booking for you.
             </p>
@@ -788,7 +788,7 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
             type="button"
             onClick={onClose}
             aria-label="Close preview"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted"
           >
             <X className="h-4 w-4" />
           </button>
@@ -796,7 +796,7 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
 
         <div className="space-y-6 px-5 py-5 sm:px-6 sm:py-6">
           {/* Demo banner */}
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               All names, phone numbers, and appointments below are fake
@@ -822,36 +822,36 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
             <PreviewAnnotation
               text="When you have appointments coming up in the next 7 days, they're called out here so you can prep."
             />
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/50">
-              <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-blue-800 dark:text-blue-200">
+            <div className="rounded-xl border border-primary/30 bg-primary-soft p-3 text-xs border-primary/30 bg-primary-soft">
+              <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-primary">
                 <Calendar className="h-3.5 w-3.5" />
                 Coming up this week
               </div>
-              <ul className="space-y-1 text-blue-900 dark:text-blue-100">
+              <ul className="space-y-1 text-primary">
                 <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
                   <span className="font-medium">Tomorrow, 2:00 PM</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-primary">·</span>
                   <span>Sarah Johnson</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
-                  <span className="text-blue-700 dark:text-blue-300">
+                  <span className="text-primary">·</span>
+                  <span className="text-primary">
                     142 Oak Avenue
                   </span>
                 </li>
                 <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
                   <span className="font-medium">Thu, 10:30 AM</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-primary">·</span>
                   <span>Mike Chen</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
-                  <span className="text-blue-700 dark:text-blue-300">
+                  <span className="text-primary">·</span>
+                  <span className="text-primary">
                     88 Maple Street
                   </span>
                 </li>
                 <li className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
                   <span className="font-medium">Fri, 4:00 PM</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
+                  <span className="text-primary">·</span>
                   <span>Linda Rodriguez</span>
-                  <span className="text-blue-700 dark:text-blue-300">·</span>
-                  <span className="text-blue-700 dark:text-blue-300">
+                  <span className="text-primary">·</span>
+                  <span className="text-primary">
                     27 Cedar Lane
                   </span>
                 </li>
@@ -864,9 +864,9 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
             <PreviewAnnotation
               text="Every appointment we book for you lands here in real time. Showed-up appointments get a Won/Lost button so you can mark deal outcomes yourself — try it below."
             />
-            <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="rounded-xl border border-border bg-card border-border bg-card">
               <table className="hidden w-full text-sm md:table">
-                <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+                <thead className="border-b border-border bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
                   <tr>
                     <th className="px-4 py-2 text-left font-semibold">Date</th>
                     <th className="px-4 py-2 text-left font-semibold">Customer</th>
@@ -884,14 +884,14 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
                     return (
                       <tr
                         key={a.id}
-                        className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-950/50"
+                        className="border-b border-border-soft last:border-0 hover:bg-muted border-border dark:hover:bg-zinc-950/50"
                       >
                         <td className="px-4 py-2 tabular-nums">{a.date}</td>
                         <td className="px-4 py-2 font-medium">
                           {a.customerName}
                         </td>
                         <td className="px-4 py-2 tabular-nums">{a.phone}</td>
-                        <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
                           {a.address}
                         </td>
                         <td className="px-4 py-2 tabular-nums">{a.bill}</td>
@@ -913,7 +913,7 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
               </table>
 
               {/* Mobile card list — same as live TrackerView */}
-              <ul className="divide-y divide-zinc-100 md:hidden dark:divide-zinc-800">
+              <ul className="divide-y divide-border-soft md:hidden divide-border-soft">
                 {PREVIEW_APPOINTMENTS.map((a) => {
                   const status = statuses[a.id] ?? a.status
                   return (
@@ -923,7 +923,7 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
                           <p className="truncate text-sm font-semibold">
                             {a.customerName}
                           </p>
-                          <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+                          <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
                             {a.date}
                           </p>
                         </div>
@@ -931,26 +931,26 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
                       </div>
                       <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                         <div className="col-span-2">
-                          <dt className="text-zinc-400">Address</dt>
-                          <dd className="text-zinc-600 dark:text-zinc-300">
+                          <dt className="text-muted-foreground/70">Address</dt>
+                          <dd className="text-muted-foreground text-foreground/85">
                             {a.address}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-zinc-400">Phone</dt>
-                          <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                          <dt className="text-muted-foreground/70">Phone</dt>
+                          <dd className="tabular-nums text-muted-foreground text-foreground/85">
                             {a.phone}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-zinc-400">Bill</dt>
-                          <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                          <dt className="text-muted-foreground/70">Bill</dt>
+                          <dd className="tabular-nums text-muted-foreground text-foreground/85">
                             {a.bill}
                           </dd>
                         </div>
                         <div className="col-span-2">
-                          <dt className="text-zinc-400">Utility</dt>
-                          <dd className="text-zinc-600 dark:text-zinc-300">
+                          <dt className="text-muted-foreground/70">Utility</dt>
+                          <dd className="text-muted-foreground text-foreground/85">
                             {a.utility}
                           </dd>
                         </div>
@@ -974,21 +974,21 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* What you'll see when live — quick recap */}
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-950/50">
-            <div className="mb-2 flex items-center gap-1.5 font-semibold text-zinc-700 dark:text-zinc-300">
-              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+          <div className="rounded-xl border border-border bg-surface-muted p-4 text-xs border-border bg-background/50">
+            <div className="mb-2 flex items-center gap-1.5 font-semibold text-foreground/85">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
               What you&apos;ll see once we start booking
             </div>
-            <ul className="space-y-1.5 text-zinc-600 dark:text-zinc-400">
+            <ul className="space-y-1.5 text-muted-foreground">
               <li className="flex gap-2">
-                <span className="text-blue-600">·</span>
+                <span className="text-primary">·</span>
                 <span>
                   Appointments appear here in real time as soon as we
                   book them on a call.
                 </span>
               </li>
               <li className="flex gap-2">
-                <span className="text-blue-600">·</span>
+                <span className="text-primary">·</span>
                 <span>
                   Full customer details: name, phone, address, bill
                   amount, utility — everything you need to walk in
@@ -996,14 +996,14 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
                 </span>
               </li>
               <li className="flex gap-2">
-                <span className="text-blue-600">·</span>
+                <span className="text-primary">·</span>
                 <span>
                   Mark Won / Lost yourself after each appointment so your
                   show rate + outcomes stay accurate.
                 </span>
               </li>
               <li className="flex gap-2">
-                <span className="text-blue-600">·</span>
+                <span className="text-primary">·</span>
                 <span>
                   A private Slack channel with your account manager opens
                   the moment you go live — no support tickets, just chat.
@@ -1017,7 +1017,7 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:bg-foreground/90"
             >
               Got it
             </button>
@@ -1034,8 +1034,8 @@ function PreviewWalkthroughModal({ onClose }: { onClose: () => void }) {
  *  tour overlay. */
 function PreviewAnnotation({ text }: { text: string }) {
   return (
-    <div className="mb-2 flex items-start gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-      <Info className="mt-0.5 h-3 w-3 shrink-0 text-blue-500" />
+    <div className="mb-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+      <Info className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
       <span>{text}</span>
     </div>
   )
@@ -1052,13 +1052,13 @@ function PreviewStat({
 }) {
   const color =
     tone === 'green'
-      ? 'text-emerald-500/60'
+      ? 'text-success/60'
       : tone === 'rose'
-        ? 'text-rose-500/60'
-        : 'text-zinc-400'
+        ? 'text-destructive/60'
+        : 'text-muted-foreground/70'
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-400">
+    <div className="rounded-xl border border-border bg-card p-3 border-border bg-card">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
         {label}
       </p>
       <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
@@ -1082,14 +1082,14 @@ function WelcomeBanner({
   // where the post-active TrackerView shows their business name in
   // the header anyway.
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-blue-50 to-white p-5 dark:border-zinc-800 dark:from-blue-950/40 dark:to-zinc-900">
+    <section className="rounded-xl border border-border bg-gradient-to-br from-blue-50 to-white p-5 border-border dark:from-blue-950/40 dark:to-zinc-900">
       <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-blue-600" />
+        <Sparkles className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-semibold">
           Hello, Welcome to Lead Genisys
         </h2>
       </div>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{message}</p>
     </section>
   )
 }
@@ -1109,10 +1109,10 @@ function OnboardingFormView({
 }) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40">
+      <section className="rounded-xl border border-success/30 bg-success/15 p-5 border-success/30 bg-success/15">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-          <h2 className="text-base font-semibold text-emerald-900 dark:text-emerald-200">
+          <CheckCircle2 className="h-5 w-5 text-success" />
+          <h2 className="text-base font-semibold text-success">
             You&apos;re approved!
           </h2>
         </div>
@@ -1223,7 +1223,7 @@ function ClientOnboardingForm({
         setError(null)
         submit.mutate()
       }}
-      className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+      className="space-y-3 rounded-xl border border-border bg-card p-5 border-border bg-card"
     >
       <Field label="Business name" required>
         <input
@@ -1350,8 +1350,8 @@ function ClientOnboardingForm({
               onClick={() => setAppointmentTypes(opt.id)}
               className={`rounded-md border p-2.5 text-center text-xs font-semibold transition ${
                 appointmentTypes === opt.id
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-                  : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+                  ? 'border-primary bg-primary-soft'
+                  : 'border-border bg-card hover:bg-muted border-border bg-card hover:bg-muted'
               }`}
             >
               {opt.label}
@@ -1415,7 +1415,7 @@ function ClientOnboardingForm({
       </Field>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           {error}
         </div>
       )}
@@ -1423,7 +1423,7 @@ function ClientOnboardingForm({
       <button
         type="submit"
         disabled={!canSubmit}
-        className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+        className="w-full rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
       >
         {submit.isPending ? 'Submitting…' : 'Finish setup'}
       </button>
@@ -1470,8 +1470,8 @@ function YesNoToggle({
           onClick={() => onChange(opt)}
           className={`rounded-md border p-2.5 text-center text-xs font-semibold capitalize transition ${
             value === opt
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-              : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800'
+              ? 'border-primary bg-primary-soft'
+              : 'border-border bg-card hover:bg-muted border-border bg-card hover:bg-muted'
           }`}
         >
           {opt}
@@ -1494,13 +1494,13 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+      <label className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
         {label}
-        {required && <span className="text-rose-500">*</span>}
+        {required && <span className="text-destructive">*</span>}
       </label>
       {children}
       {hint && (
-        <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+        <p className="mt-1 text-[11px] text-muted-foreground/70">
           {hint}
         </p>
       )}
@@ -1722,7 +1722,7 @@ function TrackerView() {
   return (
     <>
       {data?.warning && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="mb-4 rounded-lg border border-warning/30 bg-warning/15 p-3 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           Heads up: your account isn&apos;t linked to a business yet.
           Reach out to your account manager and we&apos;ll get this sorted.
         </div>
@@ -1760,24 +1760,24 @@ function TrackerView() {
           books in the next 7 days — avoids visual clutter on quiet
           weeks. */}
       {stats.upcomingList.length > 0 && (
-        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950/50">
-          <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-blue-800 dark:text-blue-200">
+        <div className="mb-4 rounded-xl border border-primary/30 bg-primary-soft p-3 text-xs border-primary/30 bg-primary-soft">
+          <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-primary">
             <Calendar className="h-3.5 w-3.5" />
             Coming up this week
           </div>
-          <ul className="space-y-1 text-blue-900 dark:text-blue-100">
+          <ul className="space-y-1 text-primary">
             {stats.upcomingList.map((a) => (
               <li
                 key={a.id}
                 className="flex flex-wrap items-baseline gap-x-2 tabular-nums"
               >
                 <span className="font-medium">{formatDateTime(a.apptDateTime)}</span>
-                <span className="text-blue-700 dark:text-blue-300">·</span>
+                <span className="text-primary">·</span>
                 <span>{a.customerName}</span>
                 {a.address && (
                   <>
-                    <span className="text-blue-700 dark:text-blue-300">·</span>
-                    <span className="truncate text-blue-700 dark:text-blue-300">
+                    <span className="text-primary">·</span>
+                    <span className="truncate text-primary">
                       {a.address}
                     </span>
                   </>
@@ -1785,7 +1785,7 @@ function TrackerView() {
               </li>
             ))}
             {stats.upcomingNext7 > stats.upcomingList.length && (
-              <li className="text-blue-700 dark:text-blue-300">
+              <li className="text-primary">
                 + {stats.upcomingNext7 - stats.upcomingList.length} more this week
               </li>
             )}
@@ -1795,25 +1795,25 @@ function TrackerView() {
 
       <div className="mb-4 flex items-center gap-2">
         <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, address…"
-            className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
           />
         </div>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-xl border border-border bg-card border-border bg-card">
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-zinc-500">Loading…</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-red-600">
+          <div className="p-8 text-center text-sm text-destructive">
             {(error as Error).message}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-12 text-center text-sm text-zinc-500">
+          <div className="flex flex-col items-center justify-center gap-2 p-12 text-center text-sm text-muted-foreground">
             <Calendar className="h-6 w-6" />
             {search.trim()
               ? 'No appointments match that search.'
@@ -1822,7 +1822,7 @@ function TrackerView() {
         ) : (
           <>
             <table className="hidden w-full text-sm md:table">
-              <thead className="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+              <thead className="border-b border-border bg-surface-muted text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
                 <tr>
                   {/* Chevron column — no header label, just space for
                       the expand toggle. Matches the master-tracker
@@ -1846,10 +1846,10 @@ function TrackerView() {
                   <Fragment key={a.id}>
                   <tr
                     className={cn(
-                      'border-b border-zinc-100 transition-colors dark:border-zinc-800',
+                      'border-b border-border-soft transition-colors border-border',
                       isExpanded
-                        ? 'bg-blue-50/40 dark:bg-blue-950/20'
-                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-950/50',
+                        ? 'bg-primary-soft/40 bg-primary-soft/20'
+                        : 'hover:bg-muted dark:hover:bg-zinc-950/50',
                     )}
                   >
                     <td className="px-2 py-2 align-middle">
@@ -1863,7 +1863,7 @@ function TrackerView() {
                           setExpandedApptId(isExpanded ? null : a.id)
                         }
                         title={isExpanded ? 'Collapse details' : 'Show details'}
-                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
                       >
                         {isExpanded ? (
                           <ChevronDown className="h-3.5 w-3.5" />
@@ -1877,7 +1877,7 @@ function TrackerView() {
                     </td>
                     <td className="px-4 py-2 font-medium">{a.customerName}</td>
                     <td className="px-4 py-2 tabular-nums">{a.customerPhone}</td>
-                    <td className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    <td className="px-4 py-2 text-xs text-muted-foreground">
                       {a.address ?? '—'}
                     </td>
                     <td className="px-4 py-2 tabular-nums">
@@ -1895,13 +1895,13 @@ function TrackerView() {
                           href={a.recordingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary hover:bg-primary-soft"
                         >
                           <Play className="h-3 w-3" />
                           Listen
                         </a>
                       ) : (
-                        <span className="text-zinc-400">—</span>
+                        <span className="text-muted-foreground/70">—</span>
                       )}
                     </td>
                     <td className="px-4 py-2">
@@ -1920,13 +1920,13 @@ function TrackerView() {
                           <button
                             type="button"
                             onClick={() => setReportingAppointment(a)}
-                            className="inline-flex items-center gap-1 rounded-md border border-yellow-400 bg-yellow-50 px-2.5 py-1 text-[11px] font-medium text-yellow-800 transition hover:bg-yellow-100 dark:border-yellow-500 dark:bg-yellow-950 dark:text-yellow-300 dark:hover:bg-yellow-900"
+                            className="inline-flex items-center gap-1 rounded-md border border-warning bg-warning/15 px-2.5 py-1 text-[11px] font-medium text-warning transition hover:bg-warning/15 dark:border-yellow-500 bg-warning/15 text-warning hover:bg-warning/15"
                           >
                             Update status
                           </button>
                           {a.clientStatusUpdatedAt && (
                             <span
-                              className="text-[10px] text-zinc-400"
+                              className="text-[10px] text-muted-foreground/70"
                               title={new Date(a.clientStatusUpdatedAt).toLocaleString()}
                             >
                               Updated{' '}
@@ -1956,10 +1956,10 @@ function TrackerView() {
                       see the same kind of layout. colSpan covers the
                       chevron + 9 data columns = 10 total. */}
                   {isExpanded && (
-                    <tr className="bg-blue-50/20 dark:bg-blue-950/10">
+                    <tr className="bg-primary-soft/20 bg-primary-soft/10">
                       <td
                         colSpan={10}
-                        className="border-b border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
+                        className="border-b border-blue-200/40 px-6 py-4 border-primary/30"
                       >
                         <ClientApptDetail appointment={a} />
                       </td>
@@ -1971,7 +1971,7 @@ function TrackerView() {
               </tbody>
             </table>
 
-            <ul className="divide-y divide-zinc-100 md:hidden dark:divide-zinc-800">
+            <ul className="divide-y divide-border-soft md:hidden divide-border-soft">
               {filtered.map((a) => (
                 <li key={a.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
@@ -1979,7 +1979,7 @@ function TrackerView() {
                       <p className="truncate text-sm font-semibold">
                         {a.customerName}
                       </p>
-                      <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+                      <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
                         {formatDateTime(a.apptDateTime)}
                       </p>
                     </div>
@@ -1987,26 +1987,26 @@ function TrackerView() {
                   </div>
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                     <div className="col-span-2">
-                      <dt className="text-zinc-400">Address</dt>
-                      <dd className="text-zinc-600 dark:text-zinc-300">
+                      <dt className="text-muted-foreground/70">Address</dt>
+                      <dd className="text-muted-foreground text-foreground/85">
                         {a.address ?? '—'}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-400">Phone</dt>
-                      <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                      <dt className="text-muted-foreground/70">Phone</dt>
+                      <dd className="tabular-nums text-muted-foreground text-foreground/85">
                         {a.customerPhone}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-400">Bill</dt>
-                      <dd className="tabular-nums text-zinc-600 dark:text-zinc-300">
+                      <dt className="text-muted-foreground/70">Bill</dt>
+                      <dd className="tabular-nums text-muted-foreground text-foreground/85">
                         {a.monthlyBill ?? '—'}
                       </dd>
                     </div>
                     <div className="col-span-2">
-                      <dt className="text-zinc-400">Utility</dt>
-                      <dd className="text-zinc-600 dark:text-zinc-300">
+                      <dt className="text-muted-foreground/70">Utility</dt>
+                      <dd className="text-muted-foreground text-foreground/85">
                         {a.utilityProvider ?? '—'}
                       </dd>
                     </div>
@@ -2021,7 +2021,7 @@ function TrackerView() {
                         href={a.recordingUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                        className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary hover:bg-primary-soft"
                       >
                         <Play className="h-3 w-3" />
                         Listen to call
@@ -2040,7 +2040,7 @@ function TrackerView() {
                     <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                       {a.clientStatusUpdatedAt && (
                         <span
-                          className="text-[10px] text-zinc-400"
+                          className="text-[10px] text-muted-foreground/70"
                           title={new Date(a.clientStatusUpdatedAt).toLocaleString()}
                         >
                           Updated{' '}
@@ -2050,7 +2050,7 @@ function TrackerView() {
                       <button
                         type="button"
                         onClick={() => setReportingAppointment(a)}
-                        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-foreground/85 transition hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
                       >
                         Update status
                       </button>
@@ -2118,13 +2118,13 @@ function StatCard({
 }) {
   const valueColor =
     tone === 'green'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-success'
       : tone === 'rose'
-        ? 'text-rose-600 dark:text-rose-400'
-        : 'text-zinc-900 dark:text-zinc-50'
+        ? 'text-destructive'
+        : 'text-foreground'
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
       <p className={`mt-1 text-2xl font-bold tabular-nums ${valueColor}`}>
@@ -2140,20 +2140,20 @@ function PaceCard({ delivered, cap }: { delivered: number; cap: number }) {
   const pct = Math.min(100, Math.round((delivered / cap) * 100))
   const tone =
     pct >= 100
-      ? 'bg-emerald-500'
+      ? 'bg-success'
       : pct >= 75
-        ? 'bg-blue-500'
-        : 'bg-blue-400'
+        ? 'bg-primary'
+        : 'bg-primary'
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
         Pace this month
       </p>
-      <p className="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">
+      <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
         {delivered}
-        <span className="text-sm font-normal text-zinc-400"> / {cap}</span>
+        <span className="text-sm font-normal text-muted-foreground/70"> / {cap}</span>
       </p>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+      <div className="mt-2 h-1.5 overflow-hidden rounded-lg bg-surface-muted">
         <div
           className={`h-full rounded-full ${tone}`}
           style={{ width: `${pct}%` }}
@@ -2190,8 +2190,8 @@ function OutcomeActions({
         title={isWon ? 'Clear (mark as just showed)' : 'Mark as Won — deal closed'}
         className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-50 ${
           isWon
-            ? 'border-green-300 bg-green-100 text-green-800 hover:bg-green-200 dark:border-green-700 dark:bg-green-900 dark:text-green-100'
-            : 'border-zinc-200 bg-white text-zinc-600 hover:border-green-300 hover:bg-green-50 hover:text-green-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-green-950'
+            ? 'border-success/30 bg-success/15 text-success hover:bg-success/15 border-success/30 bg-success/15 text-success'
+            : 'border-border bg-card text-muted-foreground hover:border-green-300 hover:bg-success/15 hover:text-success border-border bg-card text-foreground/85 hover:bg-success/15'
         }`}
       >
         <Trophy className="h-3 w-3" />
@@ -2205,7 +2205,7 @@ function OutcomeActions({
         className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-50 ${
           isLost
             ? 'border-stone-300 bg-stone-100 text-stone-700 hover:bg-stone-200 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200'
-            : 'border-zinc-200 bg-white text-zinc-600 hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-stone-800'
+            : 'border-border bg-card text-muted-foreground hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700 border-border bg-card text-foreground/85 dark:hover:bg-stone-800'
         }`}
       >
         <XCircle className="h-3 w-3" />
@@ -2219,19 +2219,19 @@ function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     booked: {
       label: 'Booked',
-      cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-900',
+      cls: 'bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary border-primary/30',
     },
     rescheduled: {
       label: 'Rescheduled',
-      cls: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-900',
+      cls: 'bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning border-warning/30',
     },
     showed: {
       label: 'Showed',
-      cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-900',
+      cls: 'bg-success/15 text-success border-success/30 bg-success/15 text-success border-success/30',
     },
     won: {
       label: 'Won',
-      cls: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200 dark:border-green-700',
+      cls: 'bg-success/15 text-success border-success/30 bg-success/15 text-success border-success/30',
     },
     lost: {
       label: 'Lost',
@@ -2239,16 +2239,16 @@ function StatusBadge({ status }: { status: string }) {
     },
     no_show: {
       label: 'No-show',
-      cls: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-900',
+      cls: 'bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive border-destructive/30',
     },
     cancelled: {
       label: 'Cancelled',
-      cls: 'bg-zinc-100 text-zinc-600 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+      cls: 'bg-muted text-muted-foreground border-border bg-surface-muted text-foreground/85 border-border',
     },
   }
   const m = map[status] ?? {
     label: status,
-    cls: 'bg-zinc-100 text-zinc-600 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+    cls: 'bg-muted text-muted-foreground border-border bg-surface-muted text-foreground/85 border-border',
   }
   return (
     <span
@@ -2315,16 +2315,16 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
   return (
     <div className="grid gap-x-8 gap-y-3 text-xs md:grid-cols-3">
       <DetailItem label="Customer">
-        <div className="font-medium text-zinc-800 dark:text-zinc-100">
+        <div className="font-medium text-foreground">
           {appointment.customerName}
         </div>
-        <div className="font-mono text-zinc-500">
+        <div className="font-mono text-muted-foreground">
           {appointment.customerPhone}
         </div>
         {appointment.email && (
           <a
             href={`mailto:${appointment.email}`}
-            className="text-blue-600 hover:underline"
+            className="text-primary hover:underline"
           >
             {appointment.email}
           </a>
@@ -2332,39 +2332,39 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
       </DetailItem>
       <DetailItem label="Address">
         {appointment.address || (
-          <span className="text-zinc-400">Not provided</span>
+          <span className="text-muted-foreground/70">Not provided</span>
         )}
       </DetailItem>
       <DetailItem label="Property">
         <div>
-          <span className="text-zinc-400">Bill:</span>{' '}
+          <span className="text-muted-foreground/70">Bill:</span>{' '}
           {appointment.monthlyBill
             ? `$${appointment.monthlyBill}${appointment.monthlyBill.includes('/') ? '' : '/mo'}`
             : '—'}
         </div>
         <div>
-          <span className="text-zinc-400">Utility:</span>{' '}
+          <span className="text-muted-foreground/70">Utility:</span>{' '}
           {appointment.utilityProvider || '—'}
         </div>
         <div>
-          <span className="text-zinc-400">Roof:</span>{' '}
+          <span className="text-muted-foreground/70">Roof:</span>{' '}
           {appointment.roofType || '—'}
           {appointment.roofAge && ` · ${appointment.roofAge}`}
         </div>
         <div>
-          <span className="text-zinc-400">Deal value:</span>{' '}
+          <span className="text-muted-foreground/70">Deal value:</span>{' '}
           {appointment.estimatedDealValue
             ? `$${appointment.estimatedDealValue}`
             : '—'}
         </div>
         {appointment.bookedByName && (
           <div>
-            <span className="text-zinc-400">Booked by:</span>{' '}
+            <span className="text-muted-foreground/70">Booked by:</span>{' '}
             {appointment.bookedByName}
           </div>
         )}
         <div>
-          <span className="text-zinc-400">Logged:</span>{' '}
+          <span className="text-muted-foreground/70">Logged:</span>{' '}
           {new Date(appointment.createdAt).toLocaleString('en-US')}
         </div>
       </DetailItem>
@@ -2373,10 +2373,10 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
           time — utility, roof concerns, lead temperature, etc. */}
       {appointment.notes && (
         <div className="md:col-span-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          <p className="mb-1 eyebrow text-muted-foreground">
             Notes from the call
           </p>
-          <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+          <div className="whitespace-pre-wrap rounded-md border border-border bg-card p-3 text-foreground/85 border-border bg-card text-foreground">
             {appointment.notes}
           </div>
         </div>
@@ -2388,12 +2388,12 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
       {appointment.clientNotes && (
         <div className="md:col-span-3">
           <div className="mb-1 flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+            <p className="eyebrow text-success">
               Your notes
             </p>
             {appointment.clientStatusUpdatedAt && (
               <p
-                className="text-[10px] text-zinc-400"
+                className="text-[10px] text-muted-foreground/70"
                 title={new Date(appointment.clientStatusUpdatedAt).toLocaleString()}
               >
                 Updated{' '}
@@ -2404,7 +2404,7 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
               </p>
             )}
           </div>
-          <div className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <div className="whitespace-pre-wrap rounded-md border border-success/30 bg-success/15 p-3 text-success border-success/30 bg-success/15 text-success">
             {appointment.clientNotes}
           </div>
         </div>
@@ -2419,7 +2419,7 @@ function ClientApptDetail({ appointment }: { appointment: Appointment }) {
             href={appointment.recordingUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary-soft px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary hover:bg-primary-soft"
           >
             <Play className="h-3 w-3" />
             Play call recording
@@ -2439,10 +2439,10 @@ function DetailItem({
 }) {
   return (
     <div>
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+      <p className="mb-1 eyebrow text-muted-foreground">
         {label}
       </p>
-      <div className="space-y-0.5 text-zinc-700 dark:text-zinc-300">
+      <div className="space-y-0.5 text-foreground/85">
         {children}
       </div>
     </div>
@@ -2513,13 +2513,13 @@ function StatusReportModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+        className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-pop border-border bg-card"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-base font-semibold">Update appointment status</h2>
-            <p className="mt-0.5 truncate text-xs text-zinc-500">
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {appointment.customerName} ·{' '}
               {formatDateTime(appointment.apptDateTime)}
             </p>
@@ -2527,7 +2527,7 @@ function StatusReportModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -2536,7 +2536,7 @@ function StatusReportModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <fieldset>
-            <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <legend className="eyebrow text-muted-foreground">
               Did they show up?
             </legend>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -2546,8 +2546,8 @@ function StatusReportModal({
                 className={cn(
                   'rounded-lg border px-3 py-3 text-sm font-medium transition',
                   outcome === 'showed'
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                    : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                    ? 'border-success bg-success/15 text-success border-success/30 bg-success/15 text-success'
+                    : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground hover:bg-muted',
                 )}
               >
                 ✓ Showed up
@@ -2558,8 +2558,8 @@ function StatusReportModal({
                 className={cn(
                   'rounded-lg border px-3 py-3 text-sm font-medium transition',
                   outcome === 'no_show'
-                    ? 'border-rose-500 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                    : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                    ? 'border-destructive bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
+                    : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground hover:bg-muted',
                 )}
               >
                 ✗ Didn&apos;t show
@@ -2577,7 +2577,7 @@ function StatusReportModal({
               during the meeting. */}
           {outcome === 'showed' && (
             <fieldset>
-              <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <legend className="eyebrow text-muted-foreground">
                 Customer disqualified?
               </legend>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -2587,8 +2587,8 @@ function StatusReportModal({
                   className={cn(
                     'rounded-lg border px-3 py-2.5 text-sm font-medium transition',
                     disqualified === true
-                      ? 'border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-300'
-                      : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                      ? 'border-warning bg-warning/15 text-warning dark:border-amber-600 bg-warning/15 text-warning'
+                      : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground hover:bg-muted',
                   )}
                 >
                   Yes
@@ -2599,14 +2599,14 @@ function StatusReportModal({
                   className={cn(
                     'rounded-lg border px-3 py-2.5 text-sm font-medium transition',
                     disqualified === false
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                      : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800',
+                      ? 'border-success bg-success/15 text-success border-success/30 bg-success/15 text-success'
+                      : 'border-border text-foreground/85 hover:bg-muted border-border text-foreground hover:bg-muted',
                   )}
                 >
                   No
                 </button>
               </div>
-              <p className="mt-1 text-[10px] text-zinc-400">
+              <p className="mt-1 text-[10px] text-muted-foreground/70">
                 Pick &quot;Yes&quot; if the prospect washed (renter, can&apos;t
                 afford, wrong fit, etc.) so it doesn&apos;t count as
                 qualified pipeline.
@@ -2615,7 +2615,7 @@ function StatusReportModal({
           )}
 
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <label className="eyebrow text-muted-foreground">
               Notes (optional)
             </label>
             <textarea
@@ -2623,16 +2623,16 @@ function StatusReportModal({
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
               placeholder="Anything important — energy of the meeting, follow-up needed, why they didn't show, etc."
-              className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background text-foreground"
             />
-            <p className="mt-1 text-[10px] text-zinc-400">
+            <p className="mt-1 text-[10px] text-muted-foreground/70">
               Visible to your Genisys account manager. Doesn&apos;t
               overwrite their internal notes.
             </p>
           </div>
 
           {errorMessage && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               {errorMessage}
             </div>
           )}
@@ -2641,14 +2641,14 @@ function StatusReportModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!outcome || pending}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3.5 py-1.5 text-sm font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-50"
             >
               {pending ? 'Saving…' : 'Save update'}
             </button>

@@ -143,7 +143,7 @@ export function PhoneEntriesField({
             }
             disabled={disabled}
             className={cn(
-              'rounded-md border border-zinc-200 bg-white px-2 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900',
+              'rounded-md border border-border bg-card px-2 py-2 text-sm focus:border-primary/50 focus:outline-none disabled:opacity-50 border-border bg-card',
               'flex-shrink-0'
             )}
             aria-label="Phone label"
@@ -160,7 +160,7 @@ export function PhoneEntriesField({
               type="button"
               onClick={() => removeRow(idx)}
               disabled={disabled}
-              className="rounded-md p-2 text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-950/40"
+              className="rounded-md p-2 text-muted-foreground/70 transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 hover:bg-destructive/10"
               aria-label="Remove this phone number"
               title="Remove"
             >
@@ -173,13 +173,13 @@ export function PhoneEntriesField({
         type="button"
         onClick={addRow}
         disabled={disabled || rows.length >= 4}
-        className="inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-blue-950/30"
+        className="inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-primary/50 hover:bg-primary-soft hover:text-primary disabled:opacity-50 border-border text-muted-foreground hover:bg-primary-soft/30"
       >
         <Plus className="h-3 w-3" />
         Add another phone
       </button>
       {rows.length > 1 && (
-        <p className="text-[10px] text-zinc-500">
+        <p className="text-[10px] text-muted-foreground">
           The first <em>Mobile</em> entry (or the first number, if
           unlabeled) gets the SMS reminder. Other numbers are stored
           for reference only.

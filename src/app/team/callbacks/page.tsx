@@ -150,7 +150,7 @@ export default function TeamCallbacksPage() {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <Link
         href="/team"
-        className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to dashboard
@@ -159,21 +159,21 @@ export default function TeamCallbacksPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Callbacks</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Prospects who asked you to call them back. Overdue + due-today
             show up first.
           </p>
         </div>
         <Link
           href="/team/callbacks/new"
-          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
           New callback
         </Link>
       </div>
 
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border">
         {TABS.map((t) => {
           const active = tab === t.value
           const count = counts[t.value]
@@ -184,20 +184,20 @@ export default function TeamCallbacksPage() {
               className={cn(
                 'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-medium transition-colors',
                 active
-                  ? 'border-blue-600 text-blue-700 dark:text-blue-300'
-                  : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 dark:hover:text-zinc-200',
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:border-foreground/30 hover:text-foreground',
               )}
             >
               {t.label}
               {count > 0 && (
                 <span
                   className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                    'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
                     active
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-200'
+                      ? 'bg-primary-soft text-primary bg-primary-soft text-primary'
                       : t.value === 'overdue'
-                        ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+                        ? 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
+                        : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
                   )}
                 >
                   {count}
@@ -209,37 +209,37 @@ export default function TeamCallbacksPage() {
       </div>
 
       <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search name, phone, notes…"
-          className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
         />
       </div>
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <PhoneCall className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <PhoneCall className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <h3 className="mt-3 text-sm font-semibold">
             {callbacks.length === 0
               ? 'No callbacks yet'
               : 'Nothing in this bucket'}
           </h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             {callbacks.length === 0
               ? 'Click "New callback" to schedule your first follow-up.'
               : 'Try a different tab or clear your search.'}
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+          <div className="divide-y divide-border-soft">
             {visible.map((c) => (
               <CallbackRow
                 key={c.id}
@@ -274,27 +274,27 @@ function CallbackRow({
       className={cn(
         'group flex items-start gap-3 px-4 py-3 transition-colors',
         done
-          ? 'bg-zinc-50/50 dark:bg-zinc-950/30'
+          ? 'bg-surface-muted/50 bg-background/30'
           : isOverdue
-            ? 'bg-red-50/30 hover:bg-red-50/60 dark:bg-red-950/10 dark:hover:bg-red-950/20'
-            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+            ? 'bg-destructive/10 hover:bg-destructive/10 bg-destructive/10 hover:bg-destructive/10'
+            : 'hover:bg-muted hover:bg-muted/50',
       )}
     >
       <button
         type="button"
         onClick={() => onToggle(!done)}
         title={done ? 'Mark as not done' : 'Mark as done'}
-        className="mt-0.5 flex-shrink-0 rounded-full transition-transform hover:scale-110"
+        className="mt-0.5 flex-shrink-0 rounded-lg transition-transform hover:scale-110"
       >
         {done ? (
-          <CheckCircle2 className="h-5 w-5 text-green-500" />
+          <CheckCircle2 className="h-5 w-5 text-success" />
         ) : (
           <Circle
             className={cn(
               'h-5 w-5',
               isOverdue
-                ? 'text-red-400 hover:text-red-600'
-                : 'text-zinc-300 hover:text-blue-500 dark:text-zinc-600',
+                ? 'text-destructive hover:text-destructive'
+                : 'text-muted-foreground/50 hover:text-primary text-muted-foreground/50',
             )}
           />
         )}
@@ -308,26 +308,26 @@ function CallbackRow({
           <p
             className={cn(
               'truncate text-sm font-semibold',
-              done && 'text-zinc-400 line-through dark:text-zinc-500',
+              done && 'text-muted-foreground/70 line-through text-muted-foreground/70',
             )}
           >
             {callback.customerName}
           </p>
           {isOverdue && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
+            <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive bg-destructive/10 text-destructive">
               <AlertTriangle className="h-2.5 w-2.5" />
               Overdue
             </span>
           )}
           {isDueToday && !isOverdue && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            <span className="inline-flex items-center gap-1 rounded-md bg-primary-soft px-2 py-0.5 text-[10px] font-semibold text-primary bg-primary-soft text-primary">
               <Clock className="h-2.5 w-2.5" />
               Today
             </span>
           )}
         </div>
 
-        <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-zinc-500">
+        <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1 font-mono">
             <Phone className="h-3 w-3" />
             {callback.customerPhone}
@@ -345,7 +345,7 @@ function CallbackRow({
         </div>
 
         {callback.notes && (
-          <p className="mt-1 line-clamp-2 text-xs text-zinc-500">
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {callback.notes}
           </p>
         )}
@@ -356,7 +356,7 @@ function CallbackRow({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="mt-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+            className="mt-2 inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary"
           >
             <Play className="h-2.5 w-2.5" />
             Listen to call
@@ -368,7 +368,7 @@ function CallbackRow({
         <button
           onClick={() => onToggle(false)}
           title="Undo completion"
-          className="flex-shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          className="flex-shrink-0 rounded p-1 text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 hover:bg-muted hover:text-foreground"
         >
           <Undo2 className="h-3.5 w-3.5" />
         </button>

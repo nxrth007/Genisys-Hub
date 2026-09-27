@@ -66,7 +66,7 @@ export default function TeamEodListPage() {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <Link
         href="/team"
-        className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to dashboard
@@ -75,7 +75,7 @@ export default function TeamEodListPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My EOD Reports</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Submit a short recap at the end of each shift. Management reviews
             these daily to spot technical issues and unblock the team.
           </p>
@@ -83,14 +83,14 @@ export default function TeamEodListPage() {
         {todaysReport ? (
           <Link
             href={`/team/eod/${todaysReport.id}`}
-            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300"
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg border border-primary/30 bg-primary-soft px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary"
           >
             Edit today&apos;s report
           </Link>
         ) : (
           <Link
             href="/team/eod/new"
-            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90"
           >
             <Plus className="h-4 w-4" />
             Submit today&apos;s report
@@ -100,19 +100,19 @@ export default function TeamEodListPage() {
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : reports.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <ClipboardList className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <ClipboardList className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <h3 className="mt-3 text-sm font-semibold">No reports yet</h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Submit your first EOD report when your shift wraps up.
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+          <div className="divide-y divide-border-soft">
             {reports.map((r) => (
               <ReportRow key={r.id} report={r} />
             ))}
@@ -133,15 +133,15 @@ function ReportRow({ report }: { report: EodReport }) {
   return (
     <Link
       href={`/team/eod/${report.id}`}
-      className="block px-4 py-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      className="block px-4 py-4 transition-colors hover:bg-muted hover:bg-muted/50"
     >
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 text-center" style={{ minWidth: '4.5rem' }}>
-          <div className="text-xs font-medium uppercase text-zinc-400">
+          <div className="text-xs font-medium uppercase text-muted-foreground/70">
             {date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })}
           </div>
           <div className="text-xl font-bold">{date.getUTCDate()}</div>
-          <div className="text-[10px] text-zinc-400">
+          <div className="text-[10px] text-muted-foreground/70">
             {date.toLocaleDateString('en-US', {
               weekday: 'short',
               timeZone: 'UTC',
@@ -150,28 +150,28 @@ function ReportRow({ report }: { report: EodReport }) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-600 dark:text-zinc-300">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground text-foreground/85">
             <span className="inline-flex items-center gap-1">
-              <Phone className="h-3 w-3 text-zinc-400" />
+              <Phone className="h-3 w-3 text-muted-foreground/70" />
               <span className="font-semibold tabular-nums">{report.dialsMade}</span>
               dials
             </span>
             <span className="inline-flex items-center gap-1">
-              <MessageCircle className="h-3 w-3 text-zinc-400" />
+              <MessageCircle className="h-3 w-3 text-muted-foreground/70" />
               <span className="font-semibold tabular-nums">
                 {report.contactsReached}
               </span>
               contacts
             </span>
             <span className="inline-flex items-center gap-1">
-              <CalendarCheck className="h-3 w-3 text-zinc-400" />
+              <CalendarCheck className="h-3 w-3 text-muted-foreground/70" />
               <span className="font-semibold tabular-nums">
                 {report.appointmentsGenerated}
               </span>
               appts
             </span>
             {report.callbacksScheduled > 0 && (
-              <span className="text-zinc-500">
+              <span className="text-muted-foreground">
                 ·{' '}
                 <span className="font-semibold tabular-nums">
                   {report.callbacksScheduled}
@@ -186,7 +186,7 @@ function ReportRow({ report }: { report: EodReport }) {
               {report.technicalIssueTags.map((t) => (
                 <span
                   key={t}
-                  className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  className="rounded-md bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning bg-warning/15 text-warning"
                 >
                   {labelForTag(t)}
                 </span>
@@ -195,7 +195,7 @@ function ReportRow({ report }: { report: EodReport }) {
           )}
 
           {(report.technicalIssueNotes || report.organizationalIssues) && (
-            <p className="mt-1.5 line-clamp-2 text-xs text-zinc-500">
+            <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
               {report.technicalIssueNotes || report.organizationalIssues}
             </p>
           )}
@@ -203,7 +203,7 @@ function ReportRow({ report }: { report: EodReport }) {
 
         {hasIssues && (
           <TriangleAlert
-            className="h-4 w-4 flex-shrink-0 text-amber-500"
+            className="h-4 w-4 flex-shrink-0 text-warning"
             aria-label="Issues flagged"
           />
         )}

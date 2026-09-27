@@ -40,22 +40,22 @@ const TYPE_META: Record<
   negative_reply: {
     label: "Customer replied “N”",
     icon: PhoneOff,
-    tone: 'text-red-600 dark:text-red-400',
+    tone: 'text-destructive',
   },
   reschedule: {
     label: 'Wants to reschedule',
     icon: CalendarClock,
-    tone: 'text-amber-600 dark:text-amber-400',
+    tone: 'text-warning',
   },
   no_show: {
     label: 'No-show',
     icon: CalendarX,
-    tone: 'text-red-600 dark:text-red-400',
+    tone: 'text-destructive',
   },
   cancelled: {
     label: 'Cancelled',
     icon: XCircle,
-    tone: 'text-zinc-500 dark:text-zinc-400',
+    tone: 'text-muted-foreground',
   },
 }
 
@@ -93,15 +93,15 @@ export default function AgentAlertsPage() {
     <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <BellRing className="h-5 w-5 text-blue-600" />
+          <BellRing className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Alerts</h1>
           {unread > 0 && (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+            <span className="rounded-md bg-destructive px-2 py-0.5 text-xs font-semibold text-destructive-foreground">
               {unread}
             </span>
           )}
         </div>
-        <div className="flex gap-1 rounded-lg border border-zinc-200 p-0.5 text-xs dark:border-zinc-800">
+        <div className="flex gap-1 rounded-lg border border-border p-0.5 text-xs border-border">
           {(['unread', 'all'] as const).map((f) => (
             <button
               key={f}
@@ -109,8 +109,8 @@ export default function AgentAlertsPage() {
               onClick={() => setFilter(f)}
               className={`rounded-md px-3 py-1 font-medium capitalize transition ${
                 filter === f
-                  ? 'bg-blue-600 text-white'
-                  : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                  ? 'bg-foreground text-background'
+                  : 'text-muted-foreground hover:bg-muted text-foreground/85 hover:bg-muted'
               }`}
             >
               {f}
@@ -119,7 +119,7 @@ export default function AgentAlertsPage() {
         </div>
       </div>
 
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-muted-foreground">
         When a customer says they can&apos;t make it or wants to
         reschedule, or a client marks one of your appointments
         no-show / cancelled, it shows up here. Log a callback to
@@ -128,15 +128,15 @@ export default function AgentAlertsPage() {
 
       {query.isLoading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : alerts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-zinc-200 py-14 text-center dark:border-zinc-800">
-          <BellRing className="mx-auto h-9 w-9 text-zinc-300 dark:text-zinc-700" />
+        <div className="rounded-xl border border-dashed border-border py-14 text-center border-border">
+          <BellRing className="mx-auto h-9 w-9 text-muted-foreground/50 dark:text-zinc-700" />
           <p className="mt-3 text-sm font-medium">
             {filter === 'unread' ? 'No new alerts' : 'No alerts yet'}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             You&apos;re all caught up.
           </p>
         </div>
@@ -186,10 +186,10 @@ function AlertCard({
 
   return (
     <li
-      className={`rounded-2xl border p-4 transition ${
+      className={`rounded-xl border p-4 transition ${
         alert.status === 'unread'
-          ? 'border-blue-200 bg-blue-50/40 dark:border-blue-900 dark:bg-blue-950/20'
-          : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
+          ? 'border-primary/30 bg-primary-soft/40 border-primary/30 bg-primary-soft/20'
+          : 'border-border bg-card border-border bg-card'
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -200,7 +200,7 @@ function AlertCard({
               {meta.label}
             </span>
             {alert.status === 'actioned' && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <span className="rounded-md bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success bg-success/15 text-success">
                 Handled
               </span>
             )}
@@ -208,17 +208,17 @@ function AlertCard({
           <p className="mt-1.5 text-sm font-medium">
             {alert.customerName || 'Customer'}
             {alert.customerPhone && (
-              <span className="ml-2 font-normal text-zinc-500">
+              <span className="ml-2 font-normal text-muted-foreground">
                 {alert.customerPhone}
               </span>
             )}
           </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {alert.clientName && <>{alert.clientName} · </>}
             {apptStr ? `Appt ${apptStr}` : 'No appointment time'}
           </p>
           {alert.detail && (
-            <p className="mt-2 rounded-md bg-zinc-100 px-2.5 py-1.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            <p className="mt-2 rounded-md bg-muted px-2.5 py-1.5 text-xs text-foreground/85 bg-surface-muted text-foreground/85">
               {alert.detail}
             </p>
           )}
@@ -229,7 +229,7 @@ function AlertCard({
         <Link
           href={callbackHref}
           onClick={() => onMark('actioned')}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90"
         >
           <PhoneForwarded className="h-3 w-3" />
           Log callback
@@ -239,7 +239,7 @@ function AlertCard({
             type="button"
             disabled={marking}
             onClick={() => onMark('actioned')}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted disabled:opacity-50 border-border text-foreground/85 hover:bg-muted"
           >
             <Check className="h-3 w-3" />
             Mark handled
@@ -249,7 +249,7 @@ function AlertCard({
             type="button"
             disabled={marking}
             onClick={() => onMark('unread')}
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+            className="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted disabled:opacity-50 hover:bg-muted"
           >
             Reopen
           </button>

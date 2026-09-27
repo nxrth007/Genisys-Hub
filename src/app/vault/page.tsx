@@ -81,18 +81,18 @@ export default function VaultPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-              <Key className="h-6 w-6 text-blue-600" />
+            <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+              <Key className="h-6 w-6 text-primary" />
             </div>
             <h2 className="text-2xl font-bold tracking-tight">API Key Vault</h2>
           </div>
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-muted-foreground">
             Encrypted with XChaCha20-Poly1305. Every reveal, edit, and delete is logged.
           </p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
           Add entry
@@ -101,26 +101,26 @@ export default function VaultPage() {
 
       {/* Search */}
       <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
         <input
           type="text"
           placeholder="Search by name, description, or tag..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-800 dark:bg-zinc-900"
+          className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2 text-sm focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 border-border bg-card"
         />
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+      <div className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
         {isLoading ? (
-          <div className="p-12 text-center text-sm text-zinc-500">Loading…</div>
+          <div className="p-12 text-center text-sm text-muted-foreground">Loading…</div>
         ) : error ? (
-          <div className="p-12 text-center text-sm text-red-600">Failed to load vault.</div>
+          <div className="p-12 text-center text-sm text-destructive">Failed to load vault.</div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
-            <Key className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
-            <p className="text-sm text-zinc-500">
+            <Key className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+            <p className="text-sm text-muted-foreground">
               {entries.length === 0
                 ? 'No entries yet. Click "Add entry" to store your first API key.'
                 : 'No entries match your search.'}
@@ -128,7 +128,7 @@ export default function VaultPage() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-950/50 text-left text-xs uppercase tracking-wide text-zinc-500">
+            <thead className="bg-surface-muted bg-background/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Tags</th>
@@ -137,24 +137,24 @@ export default function VaultPage() {
                 <th className="px-4 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <tbody className="divide-y divide-border-soft">
               {filtered.map((entry) => (
-                <tr key={entry.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-950/50">
+                <tr key={entry.id} className="hover:bg-muted dark:hover:bg-zinc-950/50">
                   <td className="px-4 py-3">
                     <div className="font-medium">{entry.name}</div>
                     {entry.description && (
-                      <div className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{entry.description}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{entry.description}</div>
                     )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {entry.tags.length === 0 ? (
-                        <span className="text-xs text-zinc-400">—</span>
+                        <span className="text-xs text-muted-foreground/70">—</span>
                       ) : (
                         entry.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground/85 bg-surface-muted text-foreground/85"
                           >
                             {tag}
                           </span>
@@ -162,10 +162,10 @@ export default function VaultPage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                  <td className="px-4 py-3 text-muted-foreground">
                     {entry.createdBy.name || entry.createdBy.email}
                   </td>
-                  <td className="px-4 py-3 text-zinc-500">
+                  <td className="px-4 py-3 text-muted-foreground">
                     {entry.lastUsedAt ? formatRelative(entry.lastUsedAt) : 'Never'}
                   </td>
                   <td className="px-4 py-3">
@@ -271,8 +271,8 @@ function IconButton({
       className={cn(
         'rounded-md p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
         variant === 'danger'
-          ? 'text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950'
-          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+          ? 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:bg-destructive/10'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground'
       )}
     >
       {children}
@@ -296,7 +296,7 @@ function Modal({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div
         className={cn(
-          'relative w-full rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900',
+          'relative w-full rounded-xl bg-card p-6 shadow-pop bg-card',
           maxWidth
         )}
       >
@@ -304,7 +304,7 @@ function Modal({
           <h3 className="text-lg font-semibold">{title}</h3>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted"
           >
             <X className="h-5 w-5" />
           </button>
@@ -381,7 +381,7 @@ function EntryFormModal({
             onChange={(e) => setName(e.target.value)}
             placeholder='e.g. "GHL • Genisys"'
             required
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </Field>
 
@@ -391,7 +391,7 @@ function EntryFormModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Optional notes"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </Field>
 
@@ -401,7 +401,7 @@ function EntryFormModal({
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
             placeholder="ghl, client:acme"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
           />
         </Field>
 
@@ -417,12 +417,12 @@ function EntryFormModal({
               required={!isEdit}
               autoComplete="off"
               spellCheck={false}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 pr-10 text-sm font-mono focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 pr-10 text-sm font-mono focus:border-primary/50 focus:outline-none border-border bg-background"
             />
             <button
               type="button"
               onClick={() => setShowValue(!showValue)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-700"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground/70 hover:text-foreground"
               tabIndex={-1}
             >
               {showValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -430,20 +430,20 @@ function EntryFormModal({
           </div>
         </Field>
 
-        {err && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+        {err && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{err}</div>}
 
         <div className="flex items-center justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-md px-4 py-2 text-sm font-medium text-foreground/85 hover:bg-muted text-foreground/85 hover:bg-muted"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting || !name || (!isEdit && !value)}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Add entry'}
           </button>
@@ -477,21 +477,21 @@ function DeleteConfirmModal({
 
   return (
     <Modal title="Delete entry?" onClose={onClose}>
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="text-sm text-muted-foreground">
         This will permanently delete <span className="font-semibold">{entry.name}</span> and its entire
         audit history. This cannot be undone.
       </p>
       <div className="flex items-center justify-end gap-2 pt-6">
         <button
           onClick={onClose}
-          className="rounded-md px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-md px-4 py-2 text-sm font-medium text-foreground/85 hover:bg-muted text-foreground/85 hover:bg-muted"
         >
           Cancel
         </button>
         <button
           onClick={handleDelete}
           disabled={submitting}
-          className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
         >
           {submitting ? 'Deleting…' : 'Delete permanently'}
         </button>
@@ -513,23 +513,23 @@ function AuditLogModal({ entry, onClose }: { entry: VaultEntry; onClose: () => v
   return (
     <Modal title={`Audit log: ${entry.name}`} onClose={onClose} maxWidth="max-w-2xl">
       {isLoading ? (
-        <p className="text-sm text-zinc-500 py-8 text-center">Loading…</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
       ) : !data?.log?.length ? (
-        <p className="text-sm text-zinc-500 py-8 text-center">No access recorded yet.</p>
+        <p className="text-sm text-muted-foreground py-8 text-center">No access recorded yet.</p>
       ) : (
         <div className="max-h-96 overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-950/50 text-left text-xs uppercase tracking-wide text-zinc-500">
+            <thead className="bg-surface-muted bg-background/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 font-medium">When</th>
                 <th className="px-3 py-2 font-medium">Who</th>
                 <th className="px-3 py-2 font-medium">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <tbody className="divide-y divide-border-soft">
               {data.log.map((row) => (
                 <tr key={row.id}>
-                  <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                     {formatRelative(row.createdAt)}
                   </td>
                   <td className="px-3 py-2">{row.user.name || row.user.email}</td>
@@ -548,14 +548,14 @@ function AuditLogModal({ entry, onClose }: { entry: VaultEntry; onClose: () => v
 
 function ActionBadge({ action }: { action: AuditLogRow['action'] }) {
   const styles: Record<AuditLogRow['action'], string> = {
-    create: 'bg-green-100 text-green-800',
-    view: 'bg-blue-100 text-blue-800',
-    edit: 'bg-amber-100 text-amber-800',
-    delete: 'bg-red-100 text-red-800',
+    create: 'bg-success/15 text-success',
+    view: 'bg-primary-soft text-primary',
+    edit: 'bg-warning/15 text-warning',
+    delete: 'bg-destructive/10 text-destructive',
   }
   return (
     <span
-      className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', styles[action])}
+      className={cn('inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium', styles[action])}
     >
       {action}
     </span>
@@ -602,16 +602,16 @@ function RevealModal({
   return (
     <Modal title={`Reveal: ${entry.name}`} onClose={onClose}>
       <div className="space-y-4">
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="rounded-md border border-warning/30 bg-warning/15 p-3 text-sm text-warning border-warning/30 bg-warning/15 text-warning">
           This view auto-closes in <strong>{secondsLeft}s</strong>. Your reveal is recorded in the audit log.
         </div>
-        <div className="rounded-md bg-zinc-100 p-3 font-mono text-sm break-all dark:bg-zinc-950">
+        <div className="rounded-md bg-muted p-3 font-mono text-sm break-all bg-background">
           {entry.value}
         </div>
         <div className="flex items-center justify-end gap-2">
           <button
             onClick={copy}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
           >
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copied ? 'Copied' : 'Copy'}
@@ -633,9 +633,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <label className="mb-1.5 block text-sm font-medium text-foreground/85">
         {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+        {required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       {children}
     </div>

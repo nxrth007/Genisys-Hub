@@ -97,12 +97,12 @@ export default function InboxPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Inbox className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+            <Inbox className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Inbox</h2>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               {emailsQuery.isLoading
                 ? 'Loading…'
                 : `${emails.length} email${emails.length === 1 ? '' : 's'}${
@@ -115,7 +115,7 @@ export default function InboxPage() {
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || accounts.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 border-border hover:bg-muted"
           >
             <RefreshCw
               className={cn('h-4 w-4', syncMutation.isPending && 'animate-spin')}
@@ -126,8 +126,8 @@ export default function InboxPage() {
       </div>
 
       {accounts.length === 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
-          <div className="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-6 border-warning/30 bg-warning/15">
+          <div className="flex items-start gap-3 text-sm text-warning">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div>
               <div className="font-medium">No Gmail accounts connected yet</div>
@@ -159,32 +159,32 @@ export default function InboxPage() {
               ))}
             </div>
             <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
               <input
                 type="text"
                 placeholder="Search subject, sender, snippet…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-full rounded-lg border border-border bg-card pl-10 pr-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
               />
             </div>
           </div>
 
           {/* Email list */}
-          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+          <div className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
             {emailsQuery.isLoading ? (
-              <div className="px-6 py-12 text-center text-sm text-zinc-500">Loading…</div>
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">Loading…</div>
             ) : emails.length === 0 ? (
               <div className="px-6 py-12 text-center">
-                <Mail className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
-                <p className="text-sm text-zinc-500">
+                <Mail className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground">
                   {search
                     ? 'No emails match your search.'
                     : 'No emails in this view. Try clicking Sync.'}
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <div className="divide-y divide-border-soft">
                 {emails.map((email) => (
                   <EmailRowView
                     key={email.id}
@@ -197,7 +197,7 @@ export default function InboxPage() {
           </div>
 
           {syncMutation.isError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:border-red-900 dark:text-red-300">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive bg-destructive/10 border-destructive/30 text-destructive">
               Sync failed: {(syncMutation.error as Error).message}
             </div>
           )}
@@ -232,10 +232,10 @@ function AccountChip({
     <button
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all',
+        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-all',
         active
-          ? 'bg-blue-50 border-blue-300 text-blue-800 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-200'
-          : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700'
+          ? 'bg-primary-soft border-primary/30 text-primary bg-primary-soft border-primary/30 text-primary'
+          : 'border-border text-muted-foreground hover:border-foreground/30 border-border hover:border-foreground/30'
       )}
     >
       {label}
@@ -248,16 +248,16 @@ function EmailRowView({ email, onClick }: { email: EmailRow; onClick: () => void
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-start gap-4 px-5 py-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      className="flex w-full items-start gap-4 px-5 py-3 text-left transition-colors hover:bg-muted hover:bg-muted/50"
     >
       <div
         className={cn(
           'h-2 w-2 rounded-full flex-shrink-0 mt-2',
-          email.isRead ? 'bg-transparent' : 'bg-blue-500'
+          email.isRead ? 'bg-transparent' : 'bg-primary'
         )}
       />
-      <div className="rounded-full bg-zinc-100 p-2 flex-shrink-0 dark:bg-zinc-800">
-        <User className="h-4 w-4 text-zinc-500" />
+      <div className="rounded-full bg-muted p-2 flex-shrink-0 bg-surface-muted">
+        <User className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -269,14 +269,14 @@ function EmailRowView({ email, onClick }: { email: EmailRow; onClick: () => void
           >
             {email.fromName || email.from}
           </span>
-          <span className="text-[10px] text-zinc-400 uppercase tracking-wide">
+          <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">
             {email.account.email.split('@')[0]}
           </span>
         </div>
         <p className="text-sm truncate mt-0.5">{email.subject || '(no subject)'}</p>
-        <p className="text-xs text-zinc-500 truncate mt-0.5">{email.snippet}</p>
+        <p className="text-xs text-muted-foreground truncate mt-0.5">{email.snippet}</p>
       </div>
-      <span className="text-[11px] text-zinc-400 whitespace-nowrap flex-shrink-0">
+      <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap flex-shrink-0">
         {formatDate(email.date)}
       </span>
     </button>
@@ -348,18 +348,18 @@ function EmailDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-xl bg-white shadow-xl dark:bg-zinc-900">
-        <div className="flex items-start justify-between p-5 border-b border-zinc-200 dark:border-zinc-800">
+      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-xl bg-card shadow-pop bg-card">
+        <div className="flex items-start justify-between p-5 border-b border-border">
           <div className="min-w-0">
             {isLoading ? (
-              <div className="h-6 w-64 bg-zinc-100 dark:bg-zinc-800 rounded" />
+              <div className="h-6 w-64 bg-surface-muted rounded" />
             ) : data ? (
               <>
                 <h3 className="text-lg font-semibold truncate">
                   {data.email.subject || '(no subject)'}
                 </h3>
-                <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
-                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground/85">
                     {data.email.fromName || data.email.from}
                   </span>
                   {data.email.fromName && <span>&lt;{data.email.from}&gt;</span>}
@@ -368,7 +368,7 @@ function EmailDetailModal({
                   <span>·</span>
                   <span>{new Date(data.email.date).toLocaleString()}</span>
                 </div>
-                <div className="text-[10px] text-zinc-400 mt-0.5">
+                <div className="text-[10px] text-muted-foreground/70 mt-0.5">
                   received by {data.email.account.email}
                 </div>
               </>
@@ -376,7 +376,7 @@ function EmailDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted"
           >
             <X className="h-5 w-5" />
           </button>
@@ -384,9 +384,9 @@ function EmailDetailModal({
 
         <div className="flex-1 overflow-y-auto p-5">
           {isLoading ? (
-            <div className="text-sm text-zinc-500">Loading…</div>
+            <div className="text-sm text-muted-foreground">Loading…</div>
           ) : error ? (
-            <div className="text-sm text-red-600">Failed to load email.</div>
+            <div className="text-sm text-destructive">Failed to load email.</div>
           ) : data?.email.bodyHtml ? (
             <div
               className="prose prose-sm dark:prose-invert max-w-none"
@@ -395,15 +395,15 @@ function EmailDetailModal({
           ) : data?.email.bodyText ? (
             <pre className="whitespace-pre-wrap font-sans text-sm">{data.email.bodyText}</pre>
           ) : (
-            <p className="text-sm text-zinc-500">No body content.</p>
+            <p className="text-sm text-muted-foreground">No body content.</p>
           )}
         </div>
 
-        <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="border-t border-border p-4 border-border">
           {!replyOpen ? (
             <button
               onClick={() => setReplyOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
             >
               <Reply className="h-4 w-4" /> Reply
             </button>
@@ -420,20 +420,20 @@ function EmailDetailModal({
                     setReplyOpen(false)
                     setReplyBody('')
                   }}
-                  className="rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => sendMutation.mutate()}
                   disabled={sendMutation.isPending || !replyBody.trim() || replyBody === '<p></p>'}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
                 >
                   {sendMutation.isPending ? 'Sending…' : 'Send reply'}
                 </button>
               </div>
               {sendMutation.isError && (
-                <p className="text-xs text-red-600">
+                <p className="text-xs text-destructive">
                   {(sendMutation.error as Error).message}
                 </p>
               )}

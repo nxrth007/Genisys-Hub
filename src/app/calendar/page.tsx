@@ -53,10 +53,10 @@ type Filter = 'all' | 'upcoming' | 'past'
 // accent so it's not in this palette — we want sub-accounts visually
 // distinct from primary UI chrome.
 const COLORS = [
-  { bg: 'bg-sky-50', border: 'border-sky-300', text: 'text-sky-800', dot: 'bg-sky-500' },
-  { bg: 'bg-emerald-50', border: 'border-emerald-300', text: 'text-emerald-800', dot: 'bg-emerald-500' },
-  { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-800', dot: 'bg-amber-500' },
-  { bg: 'bg-rose-50', border: 'border-rose-300', text: 'text-rose-800', dot: 'bg-rose-500' },
+  { bg: 'bg-sky-50', border: 'border-sky-300', text: 'text-sky-800', dot: 'bg-primary' },
+  { bg: 'bg-success/15', border: 'border-success/30', text: 'text-success', dot: 'bg-success' },
+  { bg: 'bg-warning/15', border: 'border-warning/30', text: 'text-warning', dot: 'bg-warning' },
+  { bg: 'bg-destructive/10', border: 'border-destructive/30', text: 'text-destructive', dot: 'bg-destructive' },
   { bg: 'bg-pink-50', border: 'border-pink-300', text: 'text-pink-800', dot: 'bg-pink-500' },
   { bg: 'bg-cyan-50', border: 'border-cyan-300', text: 'text-cyan-800', dot: 'bg-cyan-500' },
 ]
@@ -83,29 +83,29 @@ function getStatusStyle(status: string | undefined) {
     case 'confirmed':
       return {
         icon: CheckCircle2,
-        color: 'text-green-600',
-        bg: 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800',
+        color: 'text-success',
+        bg: 'bg-success/15 border-success/30 bg-success/15 border-success/30',
         label: 'Confirmed',
       }
     case 'cancelled':
       return {
         icon: XCircle,
-        color: 'text-red-600',
-        bg: 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800',
+        color: 'text-destructive',
+        bg: 'bg-destructive/10 border-destructive/30 bg-destructive/10 border-destructive/30',
         label: 'Cancelled',
       }
     case 'showed':
       return {
         icon: CheckCircle2,
-        color: 'text-blue-600',
-        bg: 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800',
+        color: 'text-primary',
+        bg: 'bg-primary-soft border-primary/30 bg-primary-soft border-primary/30',
         label: 'Showed',
       }
     case 'won':
       return {
         icon: CheckCircle2,
-        color: 'text-green-700',
-        bg: 'bg-green-100 border-green-300 dark:bg-green-900 dark:border-green-700',
+        color: 'text-success',
+        bg: 'bg-success/15 border-success/30 bg-success/15 border-success/30',
         label: 'Won',
       }
     case 'lost':
@@ -119,15 +119,15 @@ function getStatusStyle(status: string | undefined) {
     case 'no_show':
       return {
         icon: XCircle,
-        color: 'text-orange-600',
-        bg: 'bg-orange-50 border-orange-200 dark:bg-orange-950 dark:border-orange-800',
+        color: 'text-warning',
+        bg: 'bg-warning/15 border-warning/30 bg-warning/15 border-warning/30',
         label: 'No Show',
       }
     default:
       return {
         icon: Clock3,
-        color: 'text-zinc-500',
-        bg: 'bg-zinc-50 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700',
+        color: 'text-muted-foreground',
+        bg: 'bg-surface-muted border-border bg-surface-muted border-border',
         label: status || 'Pending',
       }
   }
@@ -302,31 +302,31 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <CalendarIcon className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+            <CalendarIcon className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
-            <p className="text-sm text-zinc-500">Appointments from all GHL sub-accounts</p>
+            <p className="text-sm text-muted-foreground">Appointments from all GHL sub-accounts</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={prevMonth}
-            className="rounded-lg border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            className="rounded-lg border border-border p-2 hover:bg-muted border-border hover:bg-muted"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <span className="text-sm font-semibold min-w-[160px] text-center">{range.label}</span>
           <button
             onClick={nextMonth}
-            className="rounded-lg border border-zinc-200 p-2 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            className="rounded-lg border border-border p-2 hover:bg-muted border-border hover:bg-muted"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
           <button
             onClick={goToday}
-            className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            className="rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted border-border hover:bg-muted"
           >
             Today
           </button>
@@ -336,7 +336,7 @@ export default function CalendarPage() {
       {/* Stats */}
       {!isLoading && allEvents.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Total" value={stats.total} className="border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900" />
+          <StatCard label="Total" value={stats.total} className="border-border bg-card border-border bg-card" />
           {/* Monthly total — same source as Total today (allEvents is
               already filtered to the selected month server-side). Kept
               as a distinct card so we can split the meaning later: e.g.
@@ -346,17 +346,17 @@ export default function CalendarPage() {
           <StatCard
             label="Monthly Total"
             value={stats.total}
-            className="border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400"
+            className="border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary"
           />
           <StatCard
             label="Confirmed"
             value={stats.confirmed}
-            className="border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-400"
+            className="border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success"
           />
           <StatCard
             label="Cancelled / No Show"
             value={stats.cancelled}
-            className="border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-400"
+            className="border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive"
           />
         </div>
       )}
@@ -370,10 +370,10 @@ export default function CalendarPage() {
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                 filter === f
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400'
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-muted-foreground hover:bg-muted bg-surface-muted text-muted-foreground'
               )}
             >
               {f === 'all' ? 'All' : f === 'upcoming' ? 'Upcoming' : 'Past'}
@@ -392,10 +392,10 @@ export default function CalendarPage() {
                   key={sub.vaultName}
                   onClick={() => toggleSubFilter(sub.vaultName)}
                   className={cn(
-                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-all',
+                    'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-all',
                     active
                       ? `${color.bg} ${color.border} ${color.text}`
-                      : 'border-zinc-200 text-zinc-400 opacity-50 dark:border-zinc-800'
+                      : 'border-border text-muted-foreground/70 opacity-50 border-border'
                   )}
                 >
                   <span className={cn('h-2 w-2 rounded-full', color.dot)} />
@@ -408,20 +408,20 @@ export default function CalendarPage() {
       </div>
 
       {/* Events list */}
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+      <div className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/70" />
           </div>
         ) : error ? (
           <div className="px-6 py-12 text-center">
-            <AlertCircle className="mx-auto h-8 w-8 text-red-400 mb-3" />
-            <p className="text-sm font-medium text-red-700 dark:text-red-300">Could not load appointments</p>
-            <p className="text-xs text-zinc-500 mt-1">{(error as Error).message}</p>
+            <AlertCircle className="mx-auto h-8 w-8 text-destructive mb-3" />
+            <p className="text-sm font-medium text-destructive">Could not load appointments</p>
+            <p className="text-xs text-muted-foreground mt-1">{(error as Error).message}</p>
           </div>
         ) : events.length === 0 ? (
-          <div className="px-6 py-12 text-center text-zinc-500">
-            <CalendarIcon className="mx-auto h-10 w-10 mb-3 text-zinc-300" />
+          <div className="px-6 py-12 text-center text-muted-foreground">
+            <CalendarIcon className="mx-auto h-10 w-10 mb-3 text-muted-foreground/50" />
             <p className="font-medium">No appointments for {range.label}</p>
             <p className="text-sm mt-1">Try a different month or clear filters.</p>
           </div>
@@ -437,21 +437,21 @@ export default function CalendarPage() {
                     className={cn(
                       'sticky top-0 z-10 border-b px-6 py-2',
                       isToday
-                        ? 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
-                        : 'bg-zinc-50 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700'
+                        ? 'bg-primary-soft border-primary/30 bg-primary-soft border-primary/30'
+                        : 'bg-surface-muted border-border bg-surface-muted border-border'
                     )}
                   >
                     <p
                       className={cn(
-                        'text-xs font-semibold uppercase tracking-wide',
-                        isToday ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-500'
+                        'eyebrow',
+                        isToday ? 'text-primary' : 'text-muted-foreground'
                       )}
                     >
                       {isToday ? 'Today · ' : ''}
                       {group.key}
                     </p>
                   </div>
-                  <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  <div className="divide-y divide-border-soft">
                     {group.events.map((event) => (
                       <EventRow
                         key={event.id || event.startTime}
@@ -506,9 +506,9 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
         <div className="w-24 shrink-0">
           <p className="text-sm font-bold">{formatEventTime(event.startTime || '')}</p>
           {event.endTime && (
-            <p className="text-xs text-zinc-500">{formatEventTime(event.endTime)}</p>
+            <p className="text-xs text-muted-foreground">{formatEventTime(event.endTime)}</p>
           )}
-          {duration > 0 && <p className="text-[10px] text-zinc-400 mt-0.5">{duration} min</p>}
+          {duration > 0 && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{duration} min</p>}
         </div>
 
         {/* Status indicator */}
@@ -522,7 +522,7 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
             <p className="font-medium text-sm">{event.title || event.name || 'Appointment'}</p>
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-xs font-medium border',
+                'rounded-md px-2 py-0.5 text-xs font-medium border',
                 status.bg
               )}
             >
@@ -531,7 +531,7 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
             {event.subAccountName && (
               <span
                 className={cn(
-                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium',
                   color.bg,
                   color.border,
                   color.text
@@ -543,7 +543,7 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
             )}
           </div>
 
-          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {event.contactName && (
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" /> {event.contactName}
@@ -573,7 +573,7 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
                 href={event.address}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-xs font-medium text-success-foreground hover:bg-success/90 transition-colors"
               >
                 <Video className="h-3.5 w-3.5" />
                 Join Meeting
@@ -584,19 +584,19 @@ function EventRow({ event, nowMs }: { event: CalendarEvent; nowMs: number }) {
 
           {/* Physical address */}
           {event.address && !event.address.startsWith('http') && (
-            <p className="mt-1 text-xs text-zinc-500 flex items-center gap-1">
+            <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
               <MapPin className="h-3 w-3" /> {event.address}
             </p>
           )}
 
           {event.notes && (
-            <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
+            <p className="mt-1.5 text-xs text-muted-foreground whitespace-pre-wrap">
               {String(event.notes).replace(/<[^>]*>/g, ' ').trim()}
             </p>
           )}
         </div>
 
-        <Clock className="h-3 w-3 text-zinc-300 flex-shrink-0 mt-1" />
+        <Clock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0 mt-1" />
       </div>
     </div>
   )

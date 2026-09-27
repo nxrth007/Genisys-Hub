@@ -49,11 +49,11 @@ type AgentSummary = {
 }
 
 const STATUS_TONE: Record<string, string> = {
-  booked: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  showed: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
-  no_show: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-  cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  booked: 'bg-primary-soft text-primary bg-primary-soft text-primary',
+  rescheduled: 'bg-warning/15 text-warning bg-warning/15 text-warning',
+  showed: 'bg-success/15 text-success bg-success/15 text-success',
+  no_show: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
+  cancelled: 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85',
 }
 
 function parseMoney(raw: string | null): number {
@@ -245,7 +245,7 @@ export default function AgentDetailPage({
   if (agentsQuery.isLoading || apptsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     )
   }
@@ -255,12 +255,12 @@ export default function AgentDetailPage({
       <div className="mx-auto max-w-2xl space-y-4">
         <Link
           href="/call-center/agents"
-          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Agents
         </Link>
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           Agent not found.
         </div>
       </div>
@@ -271,7 +271,7 @@ export default function AgentDetailPage({
     <div className="max-w-6xl space-y-6">
       <Link
         href="/call-center/agents"
-        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Agents
@@ -279,14 +279,14 @@ export default function AgentDetailPage({
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-lg font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft text-lg font-bold text-primary bg-primary-soft text-primary">
             {(agent.name || agent.email).charAt(0).toUpperCase()}
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">
               {agent.name || '(unnamed)'}
             </h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>{agent.email}</span>
               {agent.approvedAt && (
                 <>
@@ -311,7 +311,7 @@ export default function AgentDetailPage({
         <button
           onClick={exportCsv}
           disabled={appointments.length === 0}
-          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground/85 hover:bg-muted disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-muted"
         >
           <Download className="h-3.5 w-3.5" />
           Export CSV
@@ -345,17 +345,17 @@ export default function AgentDetailPage({
       </div>
 
       {/* PIPELINE $ + TREND CHART */}
-      <section className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <section className="rounded-xl border border-border bg-card p-5 border-border bg-card">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold">Activity</h3>
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Bookings logged per day over the last {days} days
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="rounded-md bg-green-50 px-3 py-1.5 text-sm dark:bg-green-950/40">
-              <span className="font-semibold text-green-800 dark:text-green-300">
+            <div className="rounded-md bg-success/15 px-3 py-1.5 text-sm bg-success/15">
+              <span className="font-semibold text-success">
                 ${metrics.pipeline.toLocaleString()}
               </span>
               <span className="ml-1.5 text-xs text-green-700/80 dark:text-green-400/80">
@@ -365,7 +365,7 @@ export default function AgentDetailPage({
             <select
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+              className="rounded-md border border-border bg-card px-2 py-1.5 text-xs border-border bg-card"
             >
               <option value={7}>7 days</option>
               <option value={30}>30 days</option>
@@ -389,10 +389,10 @@ export default function AgentDetailPage({
                   key={s}
                   onClick={() => setStatus(s)}
                   className={cn(
-                    'flex-shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                    'flex-shrink-0 rounded-md border px-3 py-1 text-xs font-medium transition-colors',
                     status === s
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                      ? 'border-primary bg-foreground text-background'
+                      : 'border-border bg-card text-muted-foreground hover:bg-muted border-border bg-card text-foreground/85 hover:bg-muted'
                   )}
                 >
                   {s === 'all' ? 'All' : s.replace('_', '-')}
@@ -402,15 +402,15 @@ export default function AgentDetailPage({
           </div>
         </div>
         {appointments.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center text-sm text-zinc-500 dark:border-zinc-800">
+          <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground border-border">
             No appointments match.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
-                  <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="border-b border-border bg-surface-muted border-border bg-background/50">
+                  <tr className="text-left eyebrow text-muted-foreground">
                     <th className="px-3 py-2.5">Logged</th>
                     <th className="px-3 py-2.5">Appt</th>
                     <th className="px-3 py-2.5">Customer</th>
@@ -423,17 +423,17 @@ export default function AgentDetailPage({
                     <th className="px-3 py-2.5">Rec</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                <tbody className="divide-y divide-border-soft">
                   {appointments.map((a) => {
                     const when = new Date(a.apptDateTime)
                     const logged = new Date(a.createdAt)
                     return (
                       <tr
                         key={a.id}
-                        className="align-top hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                        className="align-top hover:bg-muted hover:bg-muted/40"
                       >
                         <td
-                          className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300"
+                          className="whitespace-nowrap px-3 py-2.5 text-muted-foreground text-foreground/85"
                           title={`Logged ${logged.toLocaleString()}`}
                         >
                           <div className="font-medium">
@@ -442,15 +442,15 @@ export default function AgentDetailPage({
                               day: 'numeric',
                             })}
                           </div>
-                          <div className="text-[10px] text-zinc-400">
+                          <div className="text-[10px] text-muted-foreground/70">
                             {loggedRelative(logged)}
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-600 dark:text-zinc-300">
+                        <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground text-foreground/85">
                           <div className="font-medium">
                             {when.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
-                          <div className="text-[10px] text-zinc-400">
+                          <div className="text-[10px] text-muted-foreground/70">
                             {when.toLocaleTimeString('en-US', {
                               hour: 'numeric',
                               minute: '2-digit',
@@ -462,7 +462,7 @@ export default function AgentDetailPage({
                           <div>{a.customerName}</div>
                           {a.client ? (
                             <span
-                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground bg-surface-muted text-foreground/85"
                               title={
                                 a.client.state
                                   ? `Booked for ${a.client.name} (${a.client.state})`
@@ -478,7 +478,7 @@ export default function AgentDetailPage({
                             </span>
                           ) : (
                             <span
-                              className="mt-0.5 inline-block text-[10px] text-zinc-400"
+                              className="mt-0.5 inline-block text-[10px] text-muted-foreground/70"
                               title="No client linked to this booking — usually a pre-Client-feature row or one whose routing was ambiguous."
                             >
                               no client
@@ -489,25 +489,25 @@ export default function AgentDetailPage({
                           {a.customerPhone}
                         </td>
                         <td
-                          className="max-w-[220px] truncate px-3 py-2.5 text-zinc-500"
+                          className="max-w-[220px] truncate px-3 py-2.5 text-muted-foreground"
                           title={a.address || ''}
                         >
                           {a.address || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
+                        <td className="px-3 py-2.5 text-muted-foreground">
                           {a.utilityProvider || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
+                        <td className="px-3 py-2.5 text-muted-foreground">
                           {a.monthlyBill ? `$${a.monthlyBill}` : '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-zinc-500">
+                        <td className="px-3 py-2.5 text-muted-foreground">
                           {a.estimatedDealValue ? `$${a.estimatedDealValue}` : '—'}
                         </td>
                         <td className="px-3 py-2.5">
                           <span
                             className={cn(
-                              'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                              STATUS_TONE[a.status] || 'bg-zinc-100 text-zinc-700'
+                              'rounded-md px-2 py-0.5 text-[10px] font-semibold',
+                              STATUS_TONE[a.status] || 'bg-muted text-foreground/85'
                             )}
                           >
                             {a.status}
@@ -520,13 +520,13 @@ export default function AgentDetailPage({
                               target="_blank"
                               rel="noopener noreferrer"
                               title={a.callRecordingLink}
-                              className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
                             >
                               <ExternalLink className="h-3 w-3" />
                               Play
                             </a>
                           ) : (
-                            <span className="text-zinc-300">—</span>
+                            <span className="text-muted-foreground/50">—</span>
                           )}
                         </td>
                       </tr>
@@ -585,19 +585,19 @@ function StatCard({
 }) {
   const toneClass =
     tone === 'good'
-      ? 'text-green-600'
+      ? 'text-success'
       : tone === 'warn'
-        ? 'text-amber-600'
+        ? 'text-warning'
         : tone === 'bad'
-          ? 'text-red-600'
+          ? 'text-destructive'
           : ''
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <p className="eyebrow text-muted-foreground">
           {label}
         </p>
-        <Icon className="h-4 w-4 text-zinc-300" />
+        <Icon className="h-4 w-4 text-muted-foreground/50" />
       </div>
       <p className={cn('mt-1 text-2xl font-bold tabular-nums', toneClass)}>
         {value}
@@ -630,17 +630,17 @@ function TrendChart({ buckets }: { buckets: Array<{ date: Date; count: number }>
               className={cn(
                 'w-full rounded-t transition-all',
                 b.count > 0
-                  ? 'bg-blue-500 group-hover:bg-blue-600'
-                  : 'bg-zinc-100 dark:bg-zinc-800'
+                  ? 'bg-primary group-hover:bg-primary/90'
+                  : 'bg-surface-muted'
               )}
             />
             {(isFirst || isLast || isMonthBoundary) && (
-              <span className="absolute -bottom-5 whitespace-nowrap text-[9px] text-zinc-400">
+              <span className="absolute -bottom-5 whitespace-nowrap text-[9px] text-muted-foreground/70">
                 {b.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
             )}
             {b.count > 0 && (
-              <span className="pointer-events-none absolute -top-6 rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-100 dark:text-zinc-900">
+              <span className="pointer-events-none absolute -top-6 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 bg-muted text-background">
                 {b.count}
               </span>
             )}

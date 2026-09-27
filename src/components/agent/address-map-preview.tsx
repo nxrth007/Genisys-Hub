@@ -87,19 +87,19 @@ export function AddressMapPreview({ address }: { address: string }) {
   if (status === 503) return null
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
-      <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+    <div className="mt-2 overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center gap-1.5 border-b border-border bg-surface-muted px-3 py-1.5 text-[11px] font-medium text-muted-foreground border-border bg-card">
         <MapPin className="h-3 w-3" />
         Verify on map
       </div>
-      <div className="relative aspect-[16/7] w-full bg-zinc-100 dark:bg-zinc-800">
+      <div className="relative aspect-[16/7] w-full bg-surface-muted">
         {query.isLoading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500">
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             Loading map…
           </div>
         ) : query.isError ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-1.5 px-4 text-center text-xs text-rose-600">
+          <div className="absolute inset-0 flex items-center justify-center gap-1.5 px-4 text-center text-xs text-destructive">
             <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
             <span>{(query.error as Error).message || 'Failed to load map'}</span>
           </div>

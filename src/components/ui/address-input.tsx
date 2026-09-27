@@ -312,7 +312,7 @@ export function AddressInput({
     <div ref={wrapRef} className="relative">
       {loading && (
         <div className="pointer-events-none absolute right-3 top-2.5 z-10">
-          <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/70" />
         </div>
       )}
       <input
@@ -339,44 +339,44 @@ export function AddressInput({
           suggestions returned an error) so a silent failure doesn't
           look like a UI bug. */}
       {open && draft.trim().length >= 3 && (
-        <div className="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute left-0 right-0 z-20 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-card shadow-pop border-border bg-card">
           {suggestions.map((s, i) => (
             <button
               key={s.key}
               type="button"
               onClick={() => void applySuggestion(s)}
               onMouseEnter={() => setActiveIndex(i)}
-              className={`flex w-full items-start gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 dark:border-zinc-800 ${
+              className={`flex w-full items-start gap-2 border-b border-border-soft px-3 py-2 text-left text-xs last:border-b-0 border-border ${
                 i === activeIndex
-                  ? 'bg-blue-50 dark:bg-blue-950'
-                  : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'
+                  ? 'bg-primary-soft'
+                  : 'hover:bg-muted'
               }`}
             >
-              <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0 text-zinc-400" />
+              <MapPin className="mt-0.5 h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
               <span className="leading-tight">{s.label}</span>
             </button>
           ))}
           {/* Empty / status states. Keep them inside the dropdown so
               the visual chrome is consistent regardless of outcome. */}
           {suggestions.length === 0 && status === 'searching' && (
-            <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="px-3 py-3 text-xs text-muted-foreground">
               Searching addresses…
             </p>
           )}
           {suggestions.length === 0 && status === 'noResults' && (
-            <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="px-3 py-3 text-xs text-muted-foreground">
               {biasCode
                 ? `No matches in ${biasCode} — double-check the street, or pick a client in a different state if needed.`
                 : 'No matches yet — keep typing your full address.'}
             </p>
           )}
           {suggestions.length === 0 && status === 'error' && (
-            <p className="px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
+            <p className="px-3 py-3 text-xs text-warning">
               Couldn&apos;t load suggestions right now. You can keep
               typing your address manually — we&apos;ll save it as-is.
             </p>
           )}
-          <p className="border-t border-zinc-100 px-3 py-1.5 text-[10px] text-zinc-400 dark:border-zinc-800">
+          <p className="border-t border-border-soft px-3 py-1.5 text-[10px] text-muted-foreground/70 border-border">
             {usingNominatim
               ? 'Suggestions via OpenStreetMap'
               : 'Suggestions via Google Maps'}
@@ -390,7 +390,7 @@ export function AddressInput({
 }
 
 const defaultInputCls =
-  'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950'
+  'w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none disabled:opacity-50 border-border bg-background'
 
 /**
  * Strip the trailing ", USA" / ", United States" tail that Google

@@ -98,7 +98,7 @@ function RangePickerSlot() {
  *  the real picker pill so the layout doesn't shift on hydration. */
 function DateRangePickerSkeleton() {
   return (
-    <div className="h-[38px] w-[268px] animate-pulse rounded-full border border-border bg-card shadow-soft" />
+    <div className="h-[38px] w-[268px] animate-pulse rounded-lg border border-border bg-card shadow-soft" />
   )
 }
 

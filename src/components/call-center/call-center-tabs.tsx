@@ -64,7 +64,7 @@ export function CallCenterTabs() {
             key={t.href}
             href={t.href}
             className={cn(
-              'relative inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold transition',
+              'relative inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition',
               active
                 ? 'bg-card text-primary shadow-soft'
                 : 'text-muted-foreground hover:text-foreground'
@@ -74,7 +74,7 @@ export function CallCenterTabs() {
             {t.label}
             {showBadge && (
               <span
-                className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white"
+                className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-lg bg-destructive px-1 text-[9px] font-bold text-destructive-foreground"
                 title={`${unreviewed} client status update${unreviewed === 1 ? '' : 's'} awaiting review`}
               >
                 {unreviewed > 99 ? '99+' : unreviewed}

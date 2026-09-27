@@ -51,19 +51,19 @@ type Appointment = {
 }
 
 const STATUS_LABELS: Record<string, { label: string; tone: string }> = {
-  booked: { label: 'Booked', tone: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  booked: { label: 'Booked', tone: 'bg-primary-soft text-primary bg-primary-soft text-primary' },
   rescheduled: {
     label: 'Rescheduled',
-    tone: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    tone: 'bg-warning/15 text-warning bg-warning/15 text-warning',
   },
   showed: {
     label: 'Showed',
-    tone: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+    tone: 'bg-success/15 text-success bg-success/15 text-success',
   },
-  no_show: { label: 'No-show', tone: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
+  no_show: { label: 'No-show', tone: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive' },
   cancelled: {
     label: 'Cancelled',
-    tone: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+    tone: 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85',
   },
 }
 
@@ -171,14 +171,14 @@ export default function AgentDashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Appointments</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Record your booked solar appointments here. Entries sync automatically to the
             shared Genisys master sheet.
           </p>
         </div>
         <Link
           href="/agent/appointments/new"
-          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+          className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
           New appointment
@@ -201,7 +201,7 @@ export default function AgentDashboardPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+        <span className="mr-1 eyebrow text-muted-foreground">
           Quick filter
         </span>
         <QuickFilterChip
@@ -226,7 +226,7 @@ export default function AgentDashboardPage() {
           <button
             type="button"
             onClick={() => setQuickFilter(null)}
-            className="ml-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="ml-1 text-[11px] text-muted-foreground hover:text-foreground"
           >
             Clear
           </button>
@@ -235,19 +235,19 @@ export default function AgentDashboardPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, address, email…"
-            className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+            className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+          className="rounded-md border border-border bg-card px-3 py-2 text-sm border-border bg-card"
         >
           <option value="all">All statuses</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => (
@@ -260,23 +260,23 @@ export default function AgentDashboardPage() {
 
       {query.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <CheckCircle2 className="mx-auto h-10 w-10 text-muted-foreground/50" />
           <h3 className="mt-3 text-sm font-semibold">
             {appointments.length === 0 ? 'No appointments yet' : 'No matches'}
           </h3>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             {appointments.length === 0
               ? 'Click "New appointment" to log your first booking.'
               : 'Try a different search or filter.'}
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+          <div className="divide-y divide-border-soft">
             {filtered.map((appt) => (
               <AppointmentRow key={appt.id} appt={appt} />
             ))}
@@ -289,8 +289,8 @@ export default function AgentDashboardPage() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+    <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
+      <p className="eyebrow text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
     </div>
   )
@@ -311,17 +311,17 @@ function QuickFilterChip({
 }) {
   const activeTone =
     tone === 'emerald'
-      ? 'border-emerald-400 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200'
-      : 'border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200'
+      ? 'border-success bg-success/15 text-success border-success/30 bg-success/15 text-success'
+      : 'border-primary bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary'
   const idleTone =
-    'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700'
+    'border-border bg-card text-muted-foreground hover:border-foreground/30 border-border bg-card text-foreground/85 hover:border-foreground/30'
   return (
     <button
       type="button"
       onClick={onClick}
       title={hint}
       className={cn(
-        'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+        'rounded-md border px-3 py-1 text-[11px] font-medium transition-colors',
         active ? activeTone : idleTone,
       )}
     >
@@ -333,7 +333,7 @@ function QuickFilterChip({
 function AppointmentRow({ appt }: { appt: Appointment }) {
   const statusInfo = STATUS_LABELS[appt.status] || {
     label: appt.status,
-    tone: 'bg-zinc-100 text-zinc-700',
+    tone: 'bg-muted text-foreground/85',
   }
   const when = new Date(appt.apptDateTime)
   // Render the date/time in the CUSTOMER's wall clock, not the
@@ -371,46 +371,46 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
   return (
     <Link
       href={editHref}
-      className="block px-4 py-4 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      className="block px-4 py-4 transition-colors hover:bg-muted hover:bg-muted/50"
     >
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 text-center" style={{ minWidth: '4.5rem' }}>
-          <div className="text-xs font-medium uppercase text-zinc-400">{monthLabel}</div>
+          <div className="text-xs font-medium uppercase text-muted-foreground/70">{monthLabel}</div>
           <div className="text-xl font-bold">{dayLabel}</div>
-          <div className="text-xs text-zinc-500">{timeLabel}</div>
+          <div className="text-xs text-muted-foreground">{timeLabel}</div>
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-semibold">{appt.customerName}</p>
             <span
-              className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', statusInfo.tone)}
+              className={cn('rounded-md px-2 py-0.5 text-[10px] font-semibold', statusInfo.tone)}
             >
               {statusInfo.label}
             </span>
             {appt.client ? (
               <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                className="rounded-md px-2 py-0.5 text-[10px] font-semibold text-white"
                 style={{ backgroundColor: appt.client.color }}
                 title={appt.client.state || undefined}
               >
                 {appt.client.name}
               </span>
             ) : (
-              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground bg-surface-muted text-muted-foreground">
                 No client
               </span>
             )}
             {isSheetOnly && (
               <span
-                className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                className="rounded-md bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning bg-warning/15 text-warning"
                 title="Typed straight into the master spreadsheet — edit it from the Master Tracker tab."
               >
                 Sheet entry
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-zinc-500">
+          <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Phone className="h-3 w-3" />
               {appt.customerPhone}
@@ -434,13 +434,13 @@ function AppointmentRow({ appt }: { appt: Appointment }) {
             )}
           </div>
           {appt.syncError && (
-            <p className="mt-1 text-xs text-amber-600">
+            <p className="mt-1 text-xs text-warning">
               Sync warning: {appt.syncError}
             </p>
           )}
         </div>
 
-        <div className="flex flex-shrink-0 items-center gap-2 text-xs text-zinc-400">
+        <div className="flex flex-shrink-0 items-center gap-2 text-xs text-muted-foreground/70">
           {appt.callRecordingLink && (
             <span
               className="inline-flex items-center gap-1"
@@ -486,22 +486,22 @@ function TeamManagerBanner() {
   return (
     <Link
       href="/team/manage"
-      className="group flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 transition hover:border-blue-300 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:hover:bg-blue-950"
+      className="group flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-soft p-4 transition hover:border-primary/50 hover:bg-primary-soft border-primary/30 bg-primary-soft hover:bg-primary-soft"
     >
       <div className="flex items-center gap-3">
-        <div className="rounded-lg bg-white p-2 dark:bg-blue-950">
-          <Users className="h-5 w-5 text-blue-600" />
+        <div className="rounded-lg bg-card p-2 bg-primary-soft">
+          <Users className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+          <p className="text-sm font-semibold text-primary">
             Manage Team #{teamNumber}
           </p>
-          <p className="text-[11px] text-blue-700 dark:text-blue-300">
+          <p className="text-[11px] text-primary">
             Approve new registrations and assign call-center numbers
           </p>
         </div>
       </div>
-      <ExternalLink className="h-4 w-4 text-blue-600 transition group-hover:translate-x-0.5" />
+      <ExternalLink className="h-4 w-4 text-primary transition group-hover:translate-x-0.5" />
     </Link>
   )
 }

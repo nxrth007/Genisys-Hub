@@ -84,31 +84,31 @@ export default function TeamRegisterPage() {
   if (lookupCode) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 border-border bg-card">
           <div className="mb-4 flex items-center justify-center">
-            <CheckCircle2 className="h-12 w-12 text-emerald-600" />
+            <CheckCircle2 className="h-12 w-12 text-success" />
           </div>
           <h1 className="text-center text-xl font-bold">
             Registration received
           </h1>
-          <p className="mt-3 text-center text-sm text-zinc-600 dark:text-zinc-300">
+          <p className="mt-3 text-center text-sm text-muted-foreground text-foreground/85">
             Your supervisor will approve you and give you your call-center
             number. Save this code — they may ask for it to find your
             account.
           </p>
 
-          <div className="mt-5 rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50 px-4 py-5 text-center dark:border-emerald-800 dark:bg-emerald-950/40">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+          <div className="mt-5 rounded-lg border-2 border-dashed border-success/30 bg-success/15 px-4 py-5 text-center border-success/30 bg-success/15">
+            <p className="eyebrow text-success">
               Your lookup code
             </p>
-            <p className="mt-1 select-all font-mono text-3xl font-bold tracking-[0.3em] text-emerald-900 dark:text-emerald-200">
+            <p className="mt-1 select-all font-mono text-3xl font-bold tracking-[0.3em] text-success">
               {lookupCode}
             </p>
           </div>
 
-          <div className="mt-6 space-y-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="mt-6 space-y-2 text-xs text-muted-foreground">
             <p>
-              <strong className="text-zinc-700 dark:text-zinc-200">
+              <strong className="text-foreground/85 text-foreground">
                 Next steps:
               </strong>
             </p>
@@ -126,7 +126,7 @@ export default function TeamRegisterPage() {
 
           <Link
             href="/signin/team"
-            className="mt-6 block w-full rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            className="mt-6 block w-full rounded-lg bg-foreground px-4 py-2.5 text-center text-sm font-medium text-background transition-colors hover:bg-foreground/90"
           >
             Go to sign in
           </Link>
@@ -137,23 +137,23 @@ export default function TeamRegisterPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 border-border bg-card">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Target className="h-7 w-7 text-blue-600" />
+          <Target className="h-7 w-7 text-primary" />
           <h1 className="text-xl font-bold">Genisys Hub</h1>
         </div>
-        <div className="mb-2 flex items-center justify-center gap-2 text-sm font-medium text-blue-600">
+        <div className="mb-2 flex items-center justify-center gap-2 text-sm font-medium text-primary">
           <Users className="h-4 w-4" />
           Team #1 registration
         </div>
-        <p className="mb-6 text-center text-xs text-zinc-500">
+        <p className="mb-6 text-center text-xs text-muted-foreground">
           After you register, your supervisor will give you a call-center
           number to sign in with. Use that number — not an email.
         </p>
 
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Name
             </label>
             <input
@@ -163,19 +163,19 @@ export default function TeamRegisterPage() {
               required
               autoFocus
               autoComplete="name"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Servicing state
             </label>
             <select
               value={servicingState}
               onChange={(e) => setServicingState(e.target.value)}
               required
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             >
               <option value="">— Choose a state —</option>
               {stateOptions.map(([code, fullName]) => (
@@ -184,13 +184,13 @@ export default function TeamRegisterPage() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[10px] text-zinc-400">
+            <p className="mt-1 text-[10px] text-muted-foreground/70">
               The state your calls are targeting. You can change this later.
             </p>
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Password
             </label>
             <input
@@ -200,14 +200,14 @@ export default function TeamRegisterPage() {
               required
               minLength={8}
               autoComplete="new-password"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
-            <p className="mt-1 text-[10px] text-zinc-400">
+            <p className="mt-1 text-[10px] text-muted-foreground/70">
               At least 8 characters.
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Confirm password
             </label>
             <input
@@ -217,12 +217,12 @@ export default function TeamRegisterPage() {
               required
               minLength={8}
               autoComplete="new-password"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
 
           {error && (
-            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
               {error}
             </div>
@@ -237,23 +237,23 @@ export default function TeamRegisterPage() {
               !password ||
               !confirmPassword
             }
-            className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90 disabled:opacity-50"
           >
             {submitting ? 'Submitting…' : 'Register'}
           </button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-zinc-500">
+        <p className="mt-4 text-center text-xs text-muted-foreground">
           Already have your call-center number?{' '}
           <Link
             href="/signin/team"
-            className="font-medium text-blue-600 hover:underline"
+            className="font-medium text-primary hover:underline"
           >
             Sign in
           </Link>
         </p>
 
-        <p className="mt-3 text-center text-xs text-zinc-400">
+        <p className="mt-3 text-center text-xs text-muted-foreground/70">
           <Link href="/signin" className="hover:underline">
             ← Back to main sign in
           </Link>

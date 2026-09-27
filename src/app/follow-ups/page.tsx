@@ -172,7 +172,7 @@ export default function FollowUpsPage() {
             type="button"
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending}
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
           >
             {refresh.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -186,9 +186,9 @@ export default function FollowUpsPage() {
 
       {/* Pitch line — what this view is. Helps Ethan understand the
           mental model on first open. */}
-      <div className="rounded-2xl border border-border bg-card p-4 text-sm shadow-soft">
+      <div className="rounded-xl border border-border bg-card p-4 text-sm shadow-soft">
         <div className="flex items-start gap-2">
-          <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+          <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
           <div>
             <p className="font-medium">Prospects who need a nudge</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -215,11 +215,11 @@ export default function FollowUpsPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name, email, subject, or preview…"
           aria-label="Search follow-ups"
-          className="w-full rounded-full border border-border bg-card py-2.5 pl-11 pr-28 text-sm shadow-soft transition focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full rounded-lg border border-border bg-card py-2.5 pl-11 pr-28 text-sm shadow-soft transition focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
         {search.trim() && (
           <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
               {visible.length} {visible.length === 1 ? 'match' : 'matches'}
             </span>
             <button
@@ -275,12 +275,12 @@ export default function FollowUpsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : query.isError ? (
-        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-destructive">
           {(query.error as Error).message}
         </div>
       ) : data && data.counts.total === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
-          <CheckCheck className="mx-auto h-10 w-10 text-emerald-500/60" />
+        <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
+          <CheckCheck className="mx-auto h-10 w-10 text-success/60" />
           <p className="mt-3 text-sm font-medium">All caught up</p>
           <p className="mt-1 text-xs text-muted-foreground">
             No prospects waiting on a reply, nothing stale, nothing
@@ -288,7 +288,7 @@ export default function FollowUpsPage() {
           </p>
         </div>
       ) : visible.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
           Nothing in this bucket right now.
         </div>
       ) : (
@@ -296,7 +296,7 @@ export default function FollowUpsPage() {
           <SourceSection
             label="Email follow-ups"
             sublabel="From alex@ + ethan@ Gmail"
-            icon={<Mail className="h-4 w-4 text-blue-500" />}
+            icon={<Mail className="h-4 w-4 text-primary" />}
             items={visibleEmail}
             onReply={(c) => setReplyTo(c)}
           />
@@ -304,7 +304,7 @@ export default function FollowUpsPage() {
             label="GHL conversations"
             sublabel="Genisys sub-account messages from registered clients"
             icon={
-              <MessageSquare className="h-4 w-4 text-violet-500" />
+              <MessageSquare className="h-4 w-4 text-foreground/80" />
             }
             items={visibleGhl}
             onReply={(c) => setReplyTo(c)}
@@ -466,7 +466,7 @@ function SourceSection({
           <h3 className="text-sm font-semibold tracking-tight">
             {label}
           </h3>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+          <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
             {items.length}
           </span>
         </div>
@@ -508,11 +508,11 @@ function BucketTab({
 }) {
   const toneCls =
     tone === 'rose'
-      ? 'text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-300 dark:bg-rose-950/40 dark:border-rose-900'
+      ? 'text-destructive bg-destructive/10 border-destructive/30 text-destructive bg-destructive/10 border-destructive/30'
       : tone === 'amber'
-        ? 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-900'
+        ? 'text-warning bg-warning/15 border-warning/30 text-warning bg-warning/15 border-warning/30'
         : tone === 'zinc'
-          ? 'text-zinc-600 bg-zinc-100 border-zinc-200 dark:text-zinc-300 dark:bg-zinc-900 dark:border-zinc-800'
+          ? 'text-muted-foreground bg-muted border-border text-foreground/85 bg-card border-border'
           : 'text-foreground bg-card border-border'
   const activeCls = active
     ? 'ring-2 ring-primary/30 border-primary/40'
@@ -525,7 +525,7 @@ function BucketTab({
     >
       {icon}
       <span>{label}</span>
-      <span className="rounded-full bg-white/60 px-1.5 text-[10px] font-semibold tabular-nums dark:bg-black/30">
+      <span className="rounded-lg bg-card/60 px-1.5 text-[10px] font-semibold tabular-nums dark:bg-black/30">
         {count}
       </span>
     </button>
@@ -581,13 +581,13 @@ function CandidateCard({
 
   return (
     <div
-      className={`flex flex-col gap-3 rounded-2xl border border-l-4 border-border bg-card p-4 shadow-soft transition hover:bg-muted/30 sm:flex-row sm:items-start ${bucketTone}`}
+      className={`flex flex-col gap-3 rounded-xl border border-l-4 border-border bg-card p-4 shadow-soft transition hover:bg-muted/30 sm:flex-row sm:items-start ${bucketTone}`}
     >
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold">{candidate.contactName}</p>
           {candidate.gmail?.matchedClientName && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <span className="inline-flex items-center gap-1 rounded-md border border-success/30 bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success border-success/30 bg-success/15 text-success">
               <Building2 className="h-3 w-3" />
               {candidate.gmail.matchedClientName}
             </span>
@@ -635,7 +635,7 @@ function CandidateCard({
           <button
             type="button"
             onClick={onReply}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90"
           >
             <Send className="h-3 w-3" />
             Reply
@@ -643,7 +643,7 @@ function CandidateCard({
         ) : (
           <Link
             href={`/crm/${encodeURIComponent(candidate.ghl?.subAccountVaultName ?? '')}/${candidate.ghl?.conversationId ?? ''}`}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90"
           >
             <ArrowRight className="h-3 w-3" />
             Open in CRM
@@ -689,13 +689,13 @@ function CandidateCard({
                 className="fixed inset-0 z-10"
                 onClick={() => setSnoozeMenuOpen(false)}
               />
-              <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-border bg-card text-xs shadow-lg">
+              <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-border bg-card text-xs shadow-pop">
                 <button
                   type="button"
                   onClick={() => dismiss.mutate(3)}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                 >
-                  <Clock className="h-3 w-3 text-amber-500" />
+                  <Clock className="h-3 w-3 text-warning" />
                   Snooze 3 days
                 </button>
                 <button
@@ -703,7 +703,7 @@ function CandidateCard({
                   onClick={() => dismiss.mutate(7)}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                 >
-                  <Clock className="h-3 w-3 text-amber-500" />
+                  <Clock className="h-3 w-3 text-warning" />
                   Snooze 1 week
                 </button>
                 <button
@@ -711,7 +711,7 @@ function CandidateCard({
                   onClick={() => dismiss.mutate(30)}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                 >
-                  <Clock className="h-3 w-3 text-amber-500" />
+                  <Clock className="h-3 w-3 text-warning" />
                   Snooze 1 month
                 </button>
                 <div className="border-t border-border" />
@@ -720,7 +720,7 @@ function CandidateCard({
                   onClick={() => dismiss.mutate(null)}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted"
                 >
-                  <CheckCheck className="h-3 w-3 text-emerald-500" />
+                  <CheckCheck className="h-3 w-3 text-success" />
                   Mark handled (permanent)
                 </button>
               </div>
@@ -823,7 +823,7 @@ function ReplyDrawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-xl rounded-t-2xl border border-border bg-card shadow-2xl sm:rounded-2xl"
+        className="w-full max-w-xl rounded-t-2xl border border-border bg-card shadow-pop sm:rounded-2xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0">
@@ -847,7 +847,7 @@ function ReplyDrawer({
 
         <div className="space-y-3 p-5">
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="mb-1 block eyebrow text-muted-foreground">
               Subject
             </label>
             <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-sm">
@@ -877,7 +877,7 @@ function ReplyDrawer({
               )
             ) : (
               <div className="rounded-md border border-border bg-muted/20">
-                <div className="flex items-center justify-between border-b border-border px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2 eyebrow text-muted-foreground">
                   <span>
                     Thread · last {thread.data.messages.length}{' '}
                     {thread.data.messages.length === 1
@@ -927,7 +927,7 @@ function ReplyDrawer({
           )}
 
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <label className="mb-1 block eyebrow text-muted-foreground">
               Your reply
             </label>
             <textarea
@@ -945,7 +945,7 @@ function ReplyDrawer({
           </div>
 
           {send.isError && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive border-destructive/30 bg-destructive/10 text-destructive">
               {(send.error as Error).message}
             </div>
           )}
@@ -962,7 +962,7 @@ function ReplyDrawer({
               type="button"
               onClick={() => send.mutate()}
               disabled={send.isPending || !message.trim()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-50"
             >
               {send.isPending ? (
                 <Loader2 className="h-3 w-3 animate-spin" />

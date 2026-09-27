@@ -75,8 +75,8 @@ export function RoofingClientsTab() {
           className={cn(
             'flex items-start gap-2 rounded-xl border p-3 text-sm',
             notice.tone === 'ok'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300',
+              ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
+              : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive',
           )}
         >
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -129,7 +129,7 @@ export function RoofingClientsTab() {
               active: true,
             })
           }
-          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90"
         >
           <Plus className="h-4 w-4" />
           Add client
@@ -211,7 +211,7 @@ function ClientCard({
   return (
     <div
       className={cn(
-        'rounded-2xl border bg-card p-4',
+        'rounded-xl border bg-card p-4',
         c.active ? 'border-border' : 'border-dashed border-border opacity-70',
       )}
     >
@@ -221,10 +221,10 @@ function ClientCard({
             <p className="font-semibold text-foreground">{c.clientName}</p>
             <span
               className={cn(
-                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                'rounded-lg px-2 py-0.5 eyebrow',
                 c.active
-                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                  : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+                  ? 'bg-success/15 text-success bg-success/15 text-success'
+                  : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
               )}
             >
               {c.active ? 'Active' : 'Paused'}
@@ -254,7 +254,7 @@ function ClientCard({
             {c.stripeCustomerId ? ` · ${c.stripeCustomerId}` : ''}
           </p>
           {!c.stripeCustomerId && (
-            <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning bg-warning/15 text-warning">
               <AlertCircle className="h-3 w-3" />
               No Stripe customer ID yet — leads will be held, not charged
             </p>
@@ -286,7 +286,7 @@ function ClientCard({
             type="button"
             disabled={busy}
             onClick={onDelete}
-            className="rounded-md border border-rose-200 px-2 py-1 text-rose-600 hover:bg-rose-50 disabled:opacity-40 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40"
+            className="rounded-md border border-destructive/30 px-2 py-1 text-destructive hover:bg-destructive/10 disabled:opacity-40 border-destructive/30 text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-3 w-3" />
           </button>
@@ -333,8 +333,8 @@ function ClientCard({
             className={cn(
               'font-medium tabular-nums',
               margin >= 0
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'text-rose-600 dark:text-rose-400',
+                ? 'text-success'
+                : 'text-destructive',
             )}
           >
             {cents(margin)}
@@ -358,15 +358,15 @@ function ClientCard({
         </div>
         {c.weeklyCapCents > 0 && (
           <>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-lg bg-muted">
               <div
                 className={cn(
-                  'h-full rounded-full transition-all',
+                  'h-full rounded-lg transition-all',
                   pct >= 100
-                    ? 'bg-rose-500'
+                    ? 'bg-destructive'
                     : pct >= 80
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-500',
+                      ? 'bg-warning'
+                      : 'bg-success',
                 )}
                 style={{ width: `${pct}%` }}
               />
@@ -461,7 +461,7 @@ function ClientForm({
   const valid = f.clientName.trim() && f.sourceKey.trim()
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
+    <div className="rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between">
         <h4 className="text-sm font-semibold text-foreground">
           {initial.id ? `Edit ${initial.clientName}` : 'New roofing client'}
@@ -471,7 +471,7 @@ function ClientForm({
         </button>
       </div>
 
-      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-3 eyebrow text-muted-foreground">
         Billing
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -516,7 +516,7 @@ function ClientForm({
         />
       </div>
 
-      <p className="mb-3 mt-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="mb-3 mt-4 eyebrow text-muted-foreground">
         Contact
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -582,7 +582,7 @@ function ClientForm({
               active: f.active,
             })
           }
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
+          className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-40"
         >
           Save client
         </button>

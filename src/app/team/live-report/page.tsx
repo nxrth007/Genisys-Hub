@@ -103,7 +103,7 @@ export default function LiveReportPage() {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <Link
         href="/team"
-        className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300"
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to dashboard
@@ -112,7 +112,7 @@ export default function LiveReportPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Live Report</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Mirror of the Vicidial admin dashboard. Refreshes every minute.
           </p>
         </div>
@@ -123,14 +123,14 @@ export default function LiveReportPage() {
       </header>
 
       {isStale && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="rounded-md border border-warning/30 bg-warning/15 px-3 py-2 text-xs text-warning border-warning/30 bg-warning/15 text-warning">
           ⚠ Data is more than 2 minutes old — the auto-refresh may have
           stalled. Try a hard refresh (Ctrl+Shift+R / Cmd+Shift+R).
         </div>
       )}
 
       {query.isLoading ? (
-        <div className="flex items-center justify-center py-16 text-zinc-500">
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Loading live data…
         </div>
@@ -181,12 +181,12 @@ function LiveContent({ stats }: { stats: Extract<StatsResponse, { ok: true }>['s
         />
       </div>
 
-      <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+      <section className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+        <h2 className="border-b border-border bg-surface-muted px-4 py-2 eyebrow text-muted-foreground border-border bg-background text-foreground/85">
           System summary
         </h2>
         <table className="w-full text-sm">
-          <thead className="border-b border-zinc-100 bg-zinc-50/50 text-[11px] uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+          <thead className="border-b border-border-soft bg-surface-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground border-border bg-background">
             <tr>
               <th className="px-4 py-2 text-left font-semibold">Records</th>
               <th className="px-4 py-2 text-right font-semibold">Active</th>
@@ -209,7 +209,7 @@ function LiveContent({ stats }: { stats: Extract<StatsResponse, { ok: true }>['s
         <TotalStatsCard title="Yesterday" row={stats.yesterday} />
       </div>
 
-      <p className="text-center text-[10px] text-zinc-400">
+      <p className="text-center text-[10px] text-muted-foreground/70">
         Display only. To make changes, sign in to Vicidial directly.
       </p>
     </div>
@@ -229,12 +229,12 @@ function BigStat({
 }) {
   const toneClass =
     tone === 'blue'
-      ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
+      ? 'border-primary/30 bg-primary-soft text-primary border-primary/30 bg-primary-soft text-primary'
       : tone === 'emerald'
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+        ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
         : tone === 'amber'
-          ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
-          : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+          ? 'border-warning/30 bg-warning/15 text-warning border-warning/30 bg-warning/15 text-warning'
+          : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive'
   return (
     <div
       className={cn(
@@ -243,26 +243,26 @@ function BigStat({
       )}
     >
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
+        <p className="eyebrow opacity-70">
           {label}
         </p>
         <p className="mt-1 text-3xl font-bold tabular-nums">
           {value === null ? '—' : value.toLocaleString()}
         </p>
       </div>
-      <div className="rounded-lg bg-white/60 p-2 dark:bg-black/20">{icon}</div>
+      <div className="rounded-lg bg-card/60 p-2 dark:bg-black/20">{icon}</div>
     </div>
   )
 }
 
 function SummaryTableRow({ label, row }: { label: string; row: SummaryRow }) {
   return (
-    <tr className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">
+    <tr className="border-b border-border-soft last:border-0 border-border">
       <td className="px-4 py-2.5 font-medium">{label}</td>
       <td className="px-4 py-2.5 text-right tabular-nums">
         {row.active === null ? '—' : row.active.toLocaleString()}
       </td>
-      <td className="px-4 py-2.5 text-right tabular-nums text-zinc-500">
+      <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
         {row.inactive === null ? '—' : row.inactive.toLocaleString()}
       </td>
       <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
@@ -280,8 +280,8 @@ function TotalStatsCard({
   row: TotalStatsRow
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <h3 className="border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+    <section className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
+      <h3 className="border-b border-border bg-surface-muted px-4 py-2 eyebrow text-muted-foreground border-border bg-background text-foreground/85">
         Total stats — {title}
       </h3>
       <div className="grid grid-cols-2 gap-4 p-4 text-sm">
@@ -297,7 +297,7 @@ function TotalStatsCard({
 function Stat({ label, value }: { label: string; value: number | null }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+      <p className="eyebrow text-muted-foreground">
         {label}
       </p>
       <p className="mt-0.5 text-xl font-semibold tabular-nums">
@@ -324,7 +324,7 @@ function RefreshIndicator({
 
   if (!fetchedAt) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
+      <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <RefreshCw className="h-3 w-3" />
         Connecting…
       </span>
@@ -335,7 +335,7 @@ function RefreshIndicator({
     Math.floor((Date.now() - Date.parse(fetchedAt)) / 1000),
   )
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
       {loading ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
@@ -348,17 +348,17 @@ function RefreshIndicator({
 
 function FailureBanner({ message }: { message: string }) {
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+    <div className="rounded-xl border border-warning/30 bg-warning/15 p-4 border-warning/30 bg-warning/15">
       <div className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
         <div>
-          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          <p className="text-sm font-semibold text-warning">
             Live data unavailable
           </p>
-          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+          <p className="mt-1 text-xs text-warning">
             {message}
           </p>
-          <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+          <p className="mt-2 text-[11px] text-warning">
             The page will keep retrying every minute. If this persists, check
             the Vicidial Admin credentials in the Hub vault.
           </p>

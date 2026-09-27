@@ -86,19 +86,19 @@ export default function OutboxPage() {
     <div className="space-y-4 max-w-6xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-blue-50 p-2.5 dark:bg-blue-950">
-            <Send className="h-6 w-6 text-blue-600" />
+          <div className="rounded-lg bg-primary-soft p-2.5 bg-primary-soft">
+            <Send className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Outbox</h2>
-            <p className="text-sm text-zinc-500">Sent emails across connected accounts.</p>
+            <p className="text-sm text-muted-foreground">Sent emails across connected accounts.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || accounts.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50 border-border hover:bg-muted"
           >
             <RefreshCw className={cn('h-4 w-4', syncMutation.isPending && 'animate-spin')} />
             Sync
@@ -106,7 +106,7 @@ export default function OutboxPage() {
           <button
             onClick={() => setComposeOpen(true)}
             disabled={accounts.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> New email
           </button>
@@ -114,8 +114,8 @@ export default function OutboxPage() {
       </div>
 
       {accounts.length === 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
-          <div className="flex items-start gap-3 text-sm text-amber-800 dark:text-amber-200">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-6 border-warning/30 bg-warning/15">
+          <div className="flex items-start gap-3 text-sm text-warning">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div>
               <div className="font-medium">No Gmail accounts connected yet</div>
@@ -144,45 +144,45 @@ export default function OutboxPage() {
               ))}
             </div>
             <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
               <input
                 type="text"
                 placeholder="Search sent emails…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 bg-white pl-10 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+                className="w-full rounded-lg border border-border bg-card pl-10 pr-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-card"
               />
             </div>
           </div>
 
-          <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+          <div className="rounded-xl border border-border bg-card border-border bg-card overflow-hidden">
             {emailsQuery.isLoading ? (
-              <div className="px-6 py-12 text-center text-sm text-zinc-500">Loading…</div>
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">Loading…</div>
             ) : emails.length === 0 ? (
               <div className="px-6 py-12 text-center">
-                <Mail className="mx-auto h-8 w-8 text-zinc-300 mb-3" />
-                <p className="text-sm text-zinc-500">
+                <Mail className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+                <p className="text-sm text-muted-foreground">
                   {search ? 'No matches.' : 'No sent emails yet. Click Sync or compose a new one.'}
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <div className="divide-y divide-border-soft">
                 {emails.map((email) => (
                   <div key={email.id} className="flex items-start gap-4 px-5 py-3">
-                    <div className="rounded-full bg-zinc-100 p-2 flex-shrink-0 dark:bg-zinc-800">
-                      <User className="h-4 w-4 text-zinc-500" />
+                    <div className="rounded-full bg-muted p-2 flex-shrink-0 bg-surface-muted">
+                      <User className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium truncate">to {email.to}</span>
-                        <span className="text-[10px] text-zinc-400 uppercase tracking-wide">
+                        <span className="text-[10px] text-muted-foreground/70 uppercase tracking-wide">
                           {email.account.email.split('@')[0]}
                         </span>
                       </div>
                       <p className="text-sm truncate mt-0.5">{email.subject || '(no subject)'}</p>
-                      <p className="text-xs text-zinc-500 truncate mt-0.5">{email.snippet}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{email.snippet}</p>
                     </div>
-                    <span className="text-[11px] text-zinc-400 whitespace-nowrap flex-shrink-0">
+                    <span className="text-[11px] text-muted-foreground/70 whitespace-nowrap flex-shrink-0">
                       {formatDate(email.date)}
                     </span>
                   </div>
@@ -221,10 +221,10 @@ function Chip({
     <button
       onClick={onClick}
       className={cn(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-all',
+        'rounded-md border px-3 py-1 text-xs font-medium transition-all',
         active
-          ? 'bg-blue-50 border-blue-300 text-blue-800 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-200'
-          : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700'
+          ? 'bg-primary-soft border-primary/30 text-primary bg-primary-soft border-primary/30 text-primary'
+          : 'border-border text-muted-foreground hover:border-foreground/30 border-border hover:border-foreground/30'
       )}
     >
       {label}
@@ -272,12 +272,12 @@ function ComposeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+      <div className="relative w-full max-w-2xl rounded-xl bg-card p-6 shadow-pop bg-card">
         <div className="flex items-start justify-between mb-4">
           <h3 className="text-lg font-semibold">New email</h3>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-muted-foreground/70 hover:bg-muted"
           >
             <X className="h-5 w-5" />
           </button>
@@ -288,7 +288,7 @@ function ComposeModal({
             <select
               value={fromAccount}
               onChange={(e) => setFromAccount(e.target.value)}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             >
               {accounts.map((a) => (
                 <option key={a.id} value={a.email}>
@@ -304,7 +304,7 @@ function ComposeModal({
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="recipient@example.com"
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
@@ -313,7 +313,7 @@ function ComposeModal({
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
@@ -325,14 +325,14 @@ function ComposeModal({
             />
           </div>
           {sendMutation.isError && (
-            <p className="text-xs text-red-600">
+            <p className="text-xs text-destructive">
               {(sendMutation.error as Error).message}
             </p>
           )}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               onClick={onClose}
-              className="rounded-md px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
             >
               Cancel
             </button>
@@ -341,7 +341,7 @@ function ComposeModal({
               disabled={
                 sendMutation.isPending || !fromAccount || !to || !subject || !body
               }
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
             >
               {sendMutation.isPending ? 'Sending…' : 'Send'}
             </button>

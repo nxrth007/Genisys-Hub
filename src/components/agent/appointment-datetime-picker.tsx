@@ -169,13 +169,13 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
   })()
 
   const selectCls =
-    'w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950'
+    'w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none disabled:opacity-50 border-border bg-background'
 
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          <label className="mb-1 block eyebrow text-muted-foreground">
             Date
           </label>
           {/* Quick-pick dropdown for "Today / Tomorrow / next 3 weeks". */}
@@ -210,7 +210,7 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
         </div>
 
         <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          <label className="mb-1 block eyebrow text-muted-foreground">
             Time
           </label>
           <select
@@ -241,7 +241,7 @@ export function AppointmentDateTimePicker({ value, onChange, disabled }: Props) 
       </div>
 
       {summary && (
-        <div className="inline-flex items-center gap-2 rounded-md bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+        <div className="inline-flex items-center gap-2 rounded-md bg-primary-soft px-3 py-1.5 text-xs font-medium text-primary bg-primary-soft text-primary">
           <Check className="h-3.5 w-3.5" />
           {summary}
         </div>

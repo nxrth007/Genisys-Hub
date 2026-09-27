@@ -191,17 +191,17 @@ const STATUSES = [
 ]
 
 const STATUS_TONE: Record<string, string> = {
-  booked: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  showed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  booked: 'bg-primary-soft text-primary bg-primary-soft text-primary',
+  rescheduled: 'bg-warning/15 text-warning bg-warning/15 text-warning',
+  showed: 'bg-success/15 text-success bg-success/15 text-success',
   // won/lost are outcomes ON TOP of showing up. won = bolder green
   // than showed (signals "they sat down AND closed"); lost = warm
   // neutral (sat down but didn't close — distinct from cancelled's
   // zinc which means "never sat down").
-  won: 'bg-green-200 text-green-900 dark:bg-green-900 dark:text-green-200',
+  won: 'bg-success/15 text-success bg-success/15 text-success',
   lost: 'bg-stone-200 text-stone-800 dark:bg-stone-800 dark:text-stone-300',
-  no_show: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
-  cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  no_show: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
+  cancelled: 'bg-muted text-foreground/85 bg-surface-muted text-foreground/85',
 }
 
 // Hub-only Dispatch Status — its own dropdown, separate from the
@@ -219,16 +219,16 @@ const DISPATCH_STATUSES = [
 
 const DISPATCH_TONE: Record<string, string> = {
   // Neutral grey = default; nothing has fired (appointment just put in).
-  not_dispatched: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+  not_dispatched: 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
   // Blue = dispatched marker — in progress, but NOT yet the trigger.
-  dispatched: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  dispatched: 'bg-primary-soft text-primary bg-primary-soft text-primary',
   // Green = confirmed: all set, automations fired (this is the gate).
-  confirmed: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  confirmed: 'bg-success/15 text-success bg-success/15 text-success',
   // Amber = customer asked to move it — needs action.
   reschedule_requested:
-    'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    'bg-warning/15 text-warning bg-warning/15 text-warning',
   // Rose = flagged for a human to look at.
-  needs_review: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+  needs_review: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
 }
 
 /**
@@ -1126,7 +1126,7 @@ export default function MasterTrackerPage() {
 
       {/* ---- Quick-filter chips ---- */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+        <span className="mr-1 eyebrow text-muted-foreground">
           Quick filter
         </span>
         <QuickFilterChip
@@ -1173,21 +1173,21 @@ export default function MasterTrackerPage() {
           <button
             type="button"
             onClick={() => setQuickFilter(null)}
-            className="ml-1 text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="ml-1 text-[11px] text-muted-foreground hover:text-foreground"
           >
             Clear
           </button>
         )}
       </div>
       {(quickFilter === 'set-today' || quickFilter === 'set-this-week') && (
-        <div className="-mt-3 space-y-0.5 text-[11px] text-zinc-500">
+        <div className="-mt-3 space-y-0.5 text-[11px] text-muted-foreground">
           <p>
             Counts rows by their{' '}
             <span className="font-medium">Logged At</span> column. Rows with
             a blank Logged At are excluded — fill that cell when typing into
             the sheet and they&apos;ll show up here.
           </p>
-          <p className="text-zinc-400">
+          <p className="text-muted-foreground/70">
             Diagnostic:{' '}
             <span className="font-mono">
               {loggedAtStats.withLoggedAt}
@@ -1210,7 +1210,7 @@ export default function MasterTrackerPage() {
       )}
 
       {/* ---- Filters + export ---- */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="rounded-xl border border-border bg-card p-4 border-border bg-card">
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -1219,24 +1219,24 @@ export default function MasterTrackerPage() {
           className="flex flex-wrap items-end gap-2"
         >
           <div className="relative min-w-[220px] flex-1">
-            <label className="mb-1 block text-xs font-medium text-zinc-500">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Search
             </label>
-            <Search className="pointer-events-none absolute left-3 top-[30px] h-4 w-4 text-zinc-400" />
+            <Search className="pointer-events-none absolute left-3 top-[30px] h-4 w-4 text-muted-foreground/70" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Name, phone, address, notes…"
-              className="w-full rounded-md border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">Status</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm border-border bg-background"
             >
               {STATUSES.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -1246,11 +1246,11 @@ export default function MasterTrackerPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">Agent</label>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Agent</label>
             <select
               value={agent}
               onChange={(e) => setAgent(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm border-border bg-background"
             >
               <option value="all">All agents</option>
               {agents.map((a) => (
@@ -1262,7 +1262,7 @@ export default function MasterTrackerPage() {
           </div>
           <div>
             <label
-              className="mb-1 block text-xs font-medium text-zinc-500"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
               title="Filters by the day each appointment was ADDED to the tracker (Logged At), not the appointment date."
             >
               Added from
@@ -1271,12 +1271,12 @@ export default function MasterTrackerPage() {
               type="date"
               value={since}
               onChange={(e) => setSince(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm border-border bg-background"
             />
           </div>
           <div>
             <label
-              className="mb-1 block text-xs font-medium text-zinc-500"
+              className="mb-1 block text-xs font-medium text-muted-foreground"
               title="Filters by the day each appointment was ADDED to the tracker (Logged At), not the appointment date."
             >
               Added to
@@ -1285,12 +1285,12 @@ export default function MasterTrackerPage() {
               type="date"
               value={until}
               onChange={(e) => setUntil(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm border-border bg-background"
             />
           </div>
           <button
             type="submit"
-            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:bg-foreground/90"
           >
             Apply
           </button>
@@ -1298,7 +1298,7 @@ export default function MasterTrackerPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="rounded-md px-3 py-2 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted"
             >
               Clear
             </button>
@@ -1310,7 +1310,7 @@ export default function MasterTrackerPage() {
               type="button"
               onClick={() => setExportMenuOpen((v) => !v)}
               disabled={allAppointments.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground/85 hover:bg-muted disabled:opacity-50 border-border bg-card text-foreground/85 hover:bg-muted"
             >
               <Download className="h-3.5 w-3.5" />
               Export
@@ -1323,7 +1323,7 @@ export default function MasterTrackerPage() {
                   className="fixed inset-0 z-40"
                   onClick={() => setExportMenuOpen(false)}
                 />
-                <div className="absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card shadow-pop border-border bg-card">
                   <ExportSection title="Current view">
                     <ExportItem
                       label="Export filtered appointments"
@@ -1374,7 +1374,7 @@ export default function MasterTrackerPage() {
             )}
           </div>
         </form>
-        <p className="mt-2 text-[11px] text-zinc-500">
+        <p className="mt-2 text-[11px] text-muted-foreground">
           <CalendarRange className="mr-1 inline-block h-3 w-3" />
           Date filter narrows the table + the &ldquo;Current view&rdquo; export.
           Per-client exports always include the full history for that client
@@ -1385,21 +1385,21 @@ export default function MasterTrackerPage() {
       {/* ---- Table ---- */}
       {apptsQuery.isLoading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center dark:border-zinc-800">
-          <PhoneCall className="mx-auto h-10 w-10 text-zinc-300 dark:text-zinc-600" />
-          <p className="mt-3 text-sm text-zinc-500">
+        <div className="rounded-xl border border-dashed border-border py-16 text-center border-border">
+          <PhoneCall className="mx-auto h-10 w-10 text-muted-foreground/50" />
+          <p className="mt-3 text-sm text-muted-foreground">
             No appointments match these filters.
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="overflow-hidden rounded-xl border border-border bg-card border-border bg-card">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/50">
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              <thead className="border-b border-border bg-surface-muted border-border bg-background/50">
+                <tr className="text-left eyebrow text-muted-foreground">
                   <th className="w-6 px-2 py-2.5"></th>
                   <th className="px-2 py-2.5">Appt</th>
                   <th className="px-2 py-2.5">Client</th>
@@ -1432,12 +1432,12 @@ export default function MasterTrackerPage() {
                   {/* Actions pinned to the right edge so Pause / Edit /
                       Delete are always reachable without scrolling the
                       wide table sideways. */}
-                  <th className="sticky right-0 z-20 bg-zinc-50 px-3 py-2.5 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] dark:bg-zinc-950/95">
+                  <th className="sticky right-0 z-20 bg-surface-muted px-3 py-2.5 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.15)] bg-background/95">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <tbody className="divide-y divide-border-soft">
                 {filtered.map((a) => {
                   const when = new Date(a.apptDateTime)
                   // Display the appointment in the CUSTOMER's local
@@ -1457,8 +1457,8 @@ export default function MasterTrackerPage() {
                         className={cn(
                           'align-top transition-colors',
                           isExpanded
-                            ? 'bg-blue-50/40 dark:bg-blue-950/20'
-                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                            ? 'bg-primary-soft/40 bg-primary-soft/20'
+                            : 'hover:bg-muted hover:bg-muted/40'
                         )}
                       >
                         <td className="px-2 py-2.5 align-middle">
@@ -1467,7 +1467,7 @@ export default function MasterTrackerPage() {
                               setExpandedId(isExpanded ? null : a.id)
                             }
                             title={isExpanded ? 'Collapse' : 'Show details'}
-                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                            className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
                           >
                             {isExpanded ? (
                               <ChevronDown className="h-3.5 w-3.5" />
@@ -1490,7 +1490,7 @@ export default function MasterTrackerPage() {
                               in Manila + Alex in NH + Ethan in LA all
                               now see the same string with the
                               customer's zone right next to it. */}
-                          <div className="text-[10px] text-zinc-400">
+                          <div className="text-[10px] text-muted-foreground/70">
                             {new Intl.DateTimeFormat('en-US', {
                               timeZone: apptTz,
                               hour: 'numeric',
@@ -1512,7 +1512,7 @@ export default function MasterTrackerPage() {
                             // explains the source so Ethan can spot rows
                             // that need their Client column filled upstream.
                             <span
-                              className="inline-flex items-start gap-1.5 whitespace-nowrap text-xs font-medium text-zinc-700 dark:text-zinc-200"
+                              className="inline-flex items-start gap-1.5 whitespace-nowrap text-xs font-medium text-foreground/85 text-foreground"
                               title={
                                 a.clientInferred
                                   ? `Inferred from address (${a.client.state || ''}) — Client column was blank in the sheet`
@@ -1540,7 +1540,7 @@ export default function MasterTrackerPage() {
                                       came from elsewhere" indicator. */}
                                   {a.source?.kind === 'secondary' && (
                                     <span
-                                      className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                                      className="rounded-lg bg-muted px-1.5 py-0.5 eyebrow text-foreground/80 bg-muted text-foreground/80"
                                       title={
                                         a.source.label ??
                                         `Imported from ${a.source.tabTitle}`
@@ -1551,24 +1551,24 @@ export default function MasterTrackerPage() {
                                   )}
                                 </span>
                                 {clientContactFirst(a.client.contactName) && (
-                                  <span className="mt-0.5 text-[10px] font-normal text-zinc-400 dark:text-zinc-500">
+                                  <span className="mt-0.5 text-[10px] font-normal text-muted-foreground/70">
                                     ({clientContactFirst(a.client.contactName)})
                                   </span>
                                 )}
                               </span>
                             </span>
                           ) : (
-                            <span className="text-[10px] text-zinc-400">—</span>
+                            <span className="text-[10px] text-muted-foreground/70">—</span>
                           )}
                         </td>
                         <td className="px-2 py-2.5">
                           <Link
                             href={`/call-center/agents/${a.agent.id}`}
-                            className="font-medium text-zinc-700 hover:text-blue-600 hover:underline dark:text-zinc-200"
+                            className="font-medium text-foreground/85 hover:text-primary hover:underline text-foreground"
                           >
                             {a.agent.name || '(unnamed)'}
                           </Link>
-                          <div className="truncate text-[10px] text-zinc-400">
+                          <div className="truncate text-[10px] text-muted-foreground/70">
                             {a.agent.email}
                           </div>
                         </td>
@@ -1578,7 +1578,7 @@ export default function MasterTrackerPage() {
                             {a.possibleDuplicateRowIds &&
                               a.possibleDuplicateRowIds.length > 0 && (
                                 <span
-                                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                                  className="inline-flex items-center gap-0.5 rounded-lg bg-warning/15 px-1.5 py-0.5 eyebrow text-warning bg-warning/15 text-warning"
                                   title={`Same phone + address as ${a.possibleDuplicateRowIds.length} other row${a.possibleDuplicateRowIds.length === 1 ? '' : 's'} on the sheet (row${a.possibleDuplicateRowIds.length === 1 ? '' : 's'} ${a.possibleDuplicateRowIds.join(', ')}). Likely a double-entry — keep the most complete one and delete the rest in Google Sheets.`}
                                 >
                                   <AlertCircle className="h-2.5 w-2.5" />
@@ -1591,7 +1591,7 @@ export default function MasterTrackerPage() {
                           <PhoneCell value={a.customerPhone} />
                         </td>
                         <td
-                          className="px-2 py-2.5 text-zinc-500"
+                          className="px-2 py-2.5 text-muted-foreground"
                           title={a.address || ''}
                           style={{ minWidth: '170px', maxWidth: '240px' }}
                         >
@@ -1601,13 +1601,13 @@ export default function MasterTrackerPage() {
                             '—'
                           )}
                         </td>
-                        <td className="w-px whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                        <td className="w-px whitespace-nowrap px-3 py-2.5 text-muted-foreground">
                           {a.county || '—'}
                         </td>
-                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
+                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-muted-foreground">
                           {a.utilityProvider || '—'}
                         </td>
-                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-zinc-500">
+                        <td className="w-px whitespace-nowrap px-2 py-2.5 text-center text-muted-foreground">
                           {formatMoney(a.monthlyBill)}
                         </td>
                         <td className="px-2 py-2.5">
@@ -1748,16 +1748,16 @@ export default function MasterTrackerPage() {
                                   ? 'Streams through the Hub — works from any IP.'
                                   : 'Direct vicitel link — requires your IP to be on their allowlist.'
                               }
-                              className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
                             >
                               <ExternalLink className="h-3 w-3" />
                               Play
                             </a>
                           ) : (
-                            <span className="text-zinc-300">—</span>
+                            <span className="text-muted-foreground/50">—</span>
                           )}
                         </td>
-                        <td className="sticky right-0 z-10 bg-white px-3 py-2.5 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] dark:bg-zinc-900">
+                        <td className="sticky right-0 z-10 bg-card px-3 py-2.5 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] bg-card">
                           <RowActions
                             isAdmin={isAdmin}
                             adminPending={
@@ -1792,10 +1792,10 @@ export default function MasterTrackerPage() {
                         </td>
                       </tr>
                       {isExpanded && (
-                        <tr className="bg-blue-50/20 dark:bg-blue-950/10">
+                        <tr className="bg-primary-soft/20 bg-primary-soft/10">
                           <td
                             colSpan={16}
-                            className="border-t border-blue-200/40 px-6 py-4 dark:border-blue-900/40"
+                            className="border-t border-blue-200/40 px-6 py-4 border-primary/30"
                           >
                             <RowDetail
                               appointment={a}
@@ -1818,7 +1818,7 @@ export default function MasterTrackerPage() {
       )}
 
       {apptsQuery.isError && (
-        <div className="flex items-center gap-2 rounded-md bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+        <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive bg-destructive/10 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           Failed to load appointments. Try refreshing.
         </div>
@@ -1861,16 +1861,16 @@ export default function MasterTrackerPage() {
           which column is the liar in one screenshot. */}
       {editVerifyToast && (
         <div
-          className="fixed bottom-6 right-6 z-50 max-w-md rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-pop dark:border-emerald-900 dark:bg-emerald-950/90"
+          className="fixed bottom-6 right-6 z-50 max-w-md rounded-xl border border-success/30 bg-success/15 p-4 shadow-pop border-success/30 bg-success/10"
           role="status"
         >
           <div className="flex items-start gap-2">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+              <p className="text-sm font-semibold text-success">
                 Saved row {editVerifyToast.rowNumber}
               </p>
-              <p className="mt-0.5 text-xs text-emerald-800 dark:text-emerald-200">
+              <p className="mt-0.5 text-xs text-success">
                 {editVerifyToast.apptDateCell &&
                 editVerifyToast.apptTimeCell ? (
                   <>
@@ -1887,7 +1887,7 @@ export default function MasterTrackerPage() {
               {/* Diagnostic block — exposes what's literally in each
                   sheet cell so a stale-cell / wrong-column bug is
                   obvious. */}
-              <div className="mt-2 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 font-mono text-[10px] text-emerald-900 dark:bg-black/30 dark:text-emerald-100">
+              <div className="mt-2 space-y-0.5 rounded-md bg-card/60 px-2 py-1.5 font-mono text-[10px] text-success dark:bg-black/30 text-success">
                 <p>
                   Date cell:{' '}
                   <span className="font-semibold">
@@ -1913,7 +1913,7 @@ export default function MasterTrackerPage() {
                   </span>
                 </p>
                 {editVerifyToast.writeSkipped.length > 0 && (
-                  <p className="mt-1 text-rose-700 dark:text-rose-300">
+                  <p className="mt-1 text-destructive">
                     Skipped (no column): {editVerifyToast.writeSkipped.join(', ')}
                   </p>
                 )}
@@ -1922,7 +1922,7 @@ export default function MasterTrackerPage() {
             <button
               type="button"
               onClick={() => setEditVerifyToast(null)}
-              className="rounded p-1 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900"
+              className="rounded p-1 text-success hover:bg-success/15 text-success hover:bg-success/15"
               aria-label="Dismiss"
             >
               <X className="h-3.5 w-3.5" />
@@ -1958,10 +1958,10 @@ function ClientPill({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-all',
+        'inline-flex items-center gap-2 rounded-lg border px-3.5 py-1.5 text-sm font-medium transition-all',
         active
-          ? 'border-transparent text-white shadow-sm'
-          : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800'
+          ? 'border-transparent text-white'
+          : 'border-border bg-card text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted'
       )}
       style={
         active && color
@@ -1984,7 +1984,7 @@ function ClientPill({
           <span
             className={cn(
               'text-[9px] font-normal',
-              active ? 'text-white/80' : 'text-zinc-400'
+              active ? 'text-white/80' : 'text-muted-foreground/70'
             )}
           >
             {sublabel}
@@ -1993,10 +1993,10 @@ function ClientPill({
       </span>
       <span
         className={cn(
-          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
           active
-            ? 'bg-white/25 text-white'
-            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+            ? 'bg-card/25 text-white'
+            : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
         )}
       >
         {count}
@@ -2025,26 +2025,26 @@ function QuickFilterChip({
 }) {
   const activeStyles =
     tone === 'emerald'
-      ? 'bg-emerald-600 text-white border-transparent shadow-sm'
-      : 'bg-blue-600 text-white border-transparent shadow-sm'
+      ? 'bg-success text-success-foreground border-transparent'
+      : 'bg-foreground text-background border-transparent'
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors',
         active
           ? activeStyles
-          : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800'
+          : 'border-border bg-card text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted'
       )}
     >
       {label}
       <span
         className={cn(
-          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+          'rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
           active
-            ? 'bg-white/25 text-white'
-            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+            ? 'bg-card/25 text-white'
+            : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
         )}
       >
         {count}
@@ -2061,8 +2061,8 @@ function ExportSection({
   children: React.ReactNode
 }) {
   return (
-    <div className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+    <div className="border-b border-border-soft last:border-b-0 border-border">
+      <p className="px-3 pb-1 pt-2 eyebrow text-muted-foreground">
         {title}
       </p>
       <div className="pb-1">{children}</div>
@@ -2091,8 +2091,8 @@ function ExportItem({
       className={cn(
         'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors',
         disabled
-          ? 'cursor-not-allowed text-zinc-400'
-          : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800'
+          ? 'cursor-not-allowed text-muted-foreground/70'
+          : 'text-foreground/85 hover:bg-muted text-foreground hover:bg-muted'
       )}
     >
       {color && (
@@ -2103,8 +2103,8 @@ function ExportItem({
         />
       )}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {hint && <span className="text-[10px] text-zinc-400">{hint}</span>}
-      <Download className="h-3 w-3 text-zinc-400" />
+      {hint && <span className="text-[10px] text-muted-foreground/70">{hint}</span>}
+      <Download className="h-3 w-3 text-muted-foreground/70" />
     </button>
   )
 }
@@ -2122,16 +2122,16 @@ function RowDetail({
   return (
     <div className="grid gap-x-8 gap-y-3 text-xs md:grid-cols-3">
       <DetailItem label="Customer">
-        <div className="font-medium text-zinc-800 dark:text-zinc-100">
+        <div className="font-medium text-foreground">
           {appointment.customerName}
         </div>
-        <div className="font-mono text-zinc-500">
+        <div className="font-mono text-muted-foreground">
           <PhoneCell value={appointment.customerPhone} />
         </div>
         {appointment.email && (
           <a
             href={`mailto:${appointment.email}`}
-            className="text-blue-600 hover:underline"
+            className="text-primary hover:underline"
           >
             {appointment.email}
           </a>
@@ -2139,30 +2139,30 @@ function RowDetail({
       </DetailItem>
       <DetailItem label="Address">
         {appointment.address || (
-          <span className="text-zinc-400">Not provided</span>
+          <span className="text-muted-foreground/70">Not provided</span>
         )}
       </DetailItem>
       <DetailItem label="Property">
         <div>
-          <span className="text-zinc-400">Bill:</span>{' '}
+          <span className="text-muted-foreground/70">Bill:</span>{' '}
           {formatMoney(appointment.monthlyBill)}
           {appointment.monthlyBill ? '/mo' : ''}
         </div>
         <div>
-          <span className="text-zinc-400">Utility:</span>{' '}
+          <span className="text-muted-foreground/70">Utility:</span>{' '}
           {appointment.utilityProvider || '—'}
         </div>
         <div>
-          <span className="text-zinc-400">Roof:</span>{' '}
+          <span className="text-muted-foreground/70">Roof:</span>{' '}
           {appointment.roofType || '—'}
           {appointment.roofAge && ` · ${appointment.roofAge}`}
         </div>
         <div>
-          <span className="text-zinc-400">Logged at:</span>{' '}
+          <span className="text-muted-foreground/70">Logged at:</span>{' '}
           {appointment.loggedAt ? (
             new Date(appointment.loggedAt).toLocaleString('en-US')
           ) : (
-            <span className="italic text-rose-500">
+            <span className="italic text-destructive">
               not set — Booked-today filter excludes this row
             </span>
           )}
@@ -2170,10 +2170,10 @@ function RowDetail({
       </DetailItem>
       {appointment.notes && (
         <div className="md:col-span-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          <p className="mb-1 eyebrow text-muted-foreground">
             Notes (Mary)
           </p>
-          <div className="whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+          <div className="whitespace-pre-wrap rounded-md border border-border bg-card p-3 text-foreground/85 border-border bg-card text-foreground">
             {appointment.notes}
           </div>
         </div>
@@ -2188,19 +2188,19 @@ function RowDetail({
       {appointment.clientNotes && (
         <div className="md:col-span-3">
           <div className="mb-1 flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+            <p className="eyebrow text-success">
               Notes (Client)
             </p>
             {appointment.clientStatusUpdatedAt && (
               <p
-                className="text-[10px] text-zinc-400"
+                className="text-[10px] text-muted-foreground/70"
                 title={new Date(appointment.clientStatusUpdatedAt).toLocaleString()}
               >
                 Updated {new Date(appointment.clientStatusUpdatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
               </p>
             )}
           </div>
-          <div className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <div className="whitespace-pre-wrap rounded-md border border-success/30 bg-success/15 p-3 text-success border-success/30 bg-success/15 text-success">
             {appointment.clientNotes}
           </div>
         </div>
@@ -2212,7 +2212,7 @@ function RowDetail({
               href={appointment.callRecordingLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary-soft px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft border-primary/30 bg-primary-soft text-primary"
             >
               <ExternalLink className="h-3 w-3" />
               Play call recording
@@ -2222,7 +2222,7 @@ function RowDetail({
             <button
               type="button"
               onClick={onEdit}
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground/85 hover:bg-muted border-border bg-card text-foreground hover:bg-muted"
               title="Edit this row's appointment details (date/time, customer, notes, etc.)"
             >
               <Pencil className="h-3 w-3" />
@@ -2269,7 +2269,7 @@ function PhoneCell({ value }: { value: string }) {
     return (
       <span className="whitespace-nowrap">
         {e.label && (
-          <span className="mr-1 text-[10px] uppercase tracking-wider text-zinc-400">
+          <span className="mr-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
             {e.label}:
           </span>
         )}
@@ -2284,7 +2284,7 @@ function PhoneCell({ value }: { value: string }) {
       {entries.map((e, i) => (
         <div key={i} className="whitespace-nowrap">
           {e.label && (
-            <span className="mr-1 text-[10px] uppercase tracking-wider text-zinc-400">
+            <span className="mr-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
               {e.label}:
             </span>
           )}
@@ -2318,8 +2318,8 @@ function StatusCell({
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
-          STATUS_TONE[status] || 'bg-zinc-100 text-zinc-700',
+          'appearance-none cursor-pointer rounded-md pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          STATUS_TONE[status] || 'bg-muted text-foreground/85',
           pending && 'opacity-60',
           errored && 'ring-2 ring-rose-400'
         )}
@@ -2357,8 +2357,8 @@ function DispatchStatusCell({
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
-          DISPATCH_TONE[value] || 'bg-zinc-100 text-zinc-700',
+          'appearance-none cursor-pointer rounded-md pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          DISPATCH_TONE[value] || 'bg-muted text-foreground/85',
           pending && 'opacity-60',
         )}
       >
@@ -2400,10 +2400,10 @@ function SentToClientCell({
 }) {
   const tone =
     value === 'yes'
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      ? 'bg-success/15 text-success bg-success/15 text-success'
       : value === 'no'
-        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+        ? 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive'
+        : 'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground'
   return (
     <div
       className="relative inline-block"
@@ -2420,7 +2420,7 @@ function SentToClientCell({
           onChange(e.target.value as 'yes' | 'no' | 'unassigned')
         }
         className={cn(
-          'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+          'appearance-none cursor-pointer rounded-md pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
           tone,
           pending && 'opacity-60',
           errored && 'ring-2 ring-rose-400'
@@ -2470,7 +2470,7 @@ function SlackDeliveryCell({
       type="button"
       onClick={onResetDelivery}
       disabled={pending}
-      className="inline-flex items-center rounded-md border border-zinc-200 px-1 py-0.5 text-[10px] text-zinc-500 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
+      className="inline-flex items-center rounded-md border border-border px-1 py-0.5 text-[10px] text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
       title="Reset: wipe this row's delivery ledger so the next cron tick re-evaluates from scratch."
     >
       {pending ? (
@@ -2488,7 +2488,7 @@ function SlackDeliveryCell({
   // accepts a post without it actually landing.
   if (status === 'delivered') {
     const tooltip = delivery?.deliveredAt
-      ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}.${staffMode ? ' Click to re-send if it never landed.' : ''}`
+      ? `Posted to Slack ${new Date(delivery.deliveredAt).toLocaleString()}.${staffMode ? 'Click to re-send if it never landed.' : ''}`
       : 'Posted to the client Slack channel'
     // Wrap the pill in a permalink anchor when we have one — admins
     // get a one-click verify path so they can confirm the post is
@@ -2502,7 +2502,7 @@ function SlackDeliveryCell({
       </>
     )
     const pillCls =
-      'inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-900'
+      'inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success transition hover:bg-success/15 text-success hover:bg-success/15'
     return (
       <div className="inline-flex items-center gap-1.5">
         {delivery?.permalink ? (
@@ -2526,7 +2526,7 @@ function SlackDeliveryCell({
             type="button"
             onClick={() => onDeliver(true)}
             disabled={pending}
-            className="inline-flex items-center rounded-md border border-zinc-200 px-1 py-0.5 text-[10px] text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="inline-flex items-center rounded-md border border-border px-1 py-0.5 text-[10px] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50 border-border text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Re-send this appointment to the channel (use only when the original post never landed)."
           >
             {pending ? (
@@ -2546,7 +2546,7 @@ function SlackDeliveryCell({
     return (
       <div className="inline-flex items-center gap-1.5">
         <span
-          className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+          className="rounded-md bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold text-destructive bg-destructive/10 text-destructive"
           title="Last delivery attempt failed — click Retry to send again."
         >
           Failed
@@ -2556,7 +2556,7 @@ function SlackDeliveryCell({
             type="button"
             onClick={() => onDeliver(false)}
             disabled={pending}
-            className="inline-flex items-center gap-0.5 rounded-md border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="inline-flex items-center gap-0.5 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition hover:bg-muted disabled:opacity-50 border-border text-foreground/85 hover:bg-muted"
           >
             {pending ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -2578,7 +2578,7 @@ function SlackDeliveryCell({
     return (
       <div className="inline-flex items-center gap-1.5">
         <span
-          className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+          className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground bg-surface-muted text-muted-foreground"
           title="Marked backfilled — won't auto-deliver. Click Deliver to send manually."
         >
           Backfilled
@@ -2588,7 +2588,7 @@ function SlackDeliveryCell({
             type="button"
             onClick={() => onDeliver(false)}
             disabled={pending}
-            className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+            className="inline-flex items-center gap-0.5 rounded-md border border-primary/30 bg-primary-soft px-1.5 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary-soft disabled:opacity-50 border-primary/30 bg-primary-soft text-primary"
           >
             {pending ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -2614,7 +2614,7 @@ function SlackDeliveryCell({
           type="button"
           onClick={() => onDeliver(false)}
           disabled={pending}
-          className="inline-flex items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 transition hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+          className="inline-flex items-center gap-0.5 rounded-md border border-primary/30 bg-primary-soft px-1.5 py-0.5 text-[10px] font-medium text-primary transition hover:bg-primary-soft disabled:opacity-50 border-primary/30 bg-primary-soft text-primary"
           title="Force this row to post to its client Slack channel now."
         >
           {pending ? (
@@ -2626,7 +2626,7 @@ function SlackDeliveryCell({
         </button>
       ) : (
         <span
-          className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+          className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground bg-surface-muted text-muted-foreground"
           title="Pending delivery — the next cron tick will post this to the client's Slack channel."
         >
           Pending
@@ -2666,7 +2666,7 @@ function RowActions({
           type="button"
           onClick={onEdit}
           disabled={adminPending}
-          className="grid h-6 w-6 place-items-center rounded-md border border-zinc-200 text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          className="grid h-6 w-6 place-items-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50 border-border text-muted-foreground hover:bg-muted hover:text-foreground"
           title="Edit this row"
           aria-label="Edit row"
         >
@@ -2678,7 +2678,7 @@ function RowActions({
           type="button"
           onClick={onDelete}
           disabled={adminPending}
-          className="grid h-6 w-6 place-items-center rounded-md border border-rose-200 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+          className="grid h-6 w-6 place-items-center rounded-md border border-destructive/30 text-destructive transition hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10"
           title="Delete this row from the master sheet"
           aria-label="Delete row"
         >
@@ -2845,13 +2845,13 @@ function AdminEditModal({
     // the form, releasing outside, would close the dialog mid-edit.
     // X-button + Cancel-button are the close affordances.
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-12">
-      <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-pop border-border bg-card">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3 border-border">
           <div>
             <h3 className="text-base font-semibold">
               Edit appointment
             </h3>
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Sheet row {appointment.id.replace(/^sheet:/, '')} ·{' '}
               {appointment.customerName}
             </p>
@@ -2859,7 +2859,7 @@ function AdminEditModal({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="rounded-md p-1 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground hover:bg-muted hover:text-foreground"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -2966,12 +2966,12 @@ function AdminEditModal({
               })()
               return (
                 <>
-                  <p className="mt-1 text-[11px] text-zinc-500">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     Time is read at the customer&apos;s clock —{' '}
-                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                    <span className="font-medium text-foreground/85">
                       {shortLabel}
                     </span>{' '}
-                    <span className="text-zinc-400">
+                    <span className="text-muted-foreground/70">
                       (
                       {tzFromExplicit
                         ? `from Timezone field`
@@ -2982,7 +2982,7 @@ function AdminEditModal({
                     </span>
                   </p>
                   {previewLabel && (
-                    <p className="mt-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                    <p className="mt-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-[11px] text-primary border-primary/30 bg-primary-soft text-primary">
                       Saving as: <span className="font-semibold">{previewLabel}</span>
                     </p>
                   )}
@@ -3007,13 +3007,13 @@ function AdminEditModal({
               registered client (legacy typos, churned clients, etc.)
               so saving doesn't accidentally clear it. */}
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <label className="eyebrow text-muted-foreground">
               Client
             </label>
             <select
               value={values.client}
               onChange={(e) => set('client', e.target.value)}
-              className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950"
+              className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
             >
               <option value="">— No client —</option>
               {[...clients]
@@ -3093,8 +3093,8 @@ function AdminEditModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <p className="text-[11px] text-zinc-500">
+        <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 border-border">
+          <p className="text-[11px] text-muted-foreground">
             {hasChanges
               ? `${Object.keys(diff).length} field${Object.keys(diff).length === 1 ? '' : 's'} will be updated.`
               : 'No changes yet.'}
@@ -3103,7 +3103,7 @@ function AdminEditModal({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-muted border-border text-foreground/85 hover:bg-muted"
             >
               Cancel
             </button>
@@ -3111,7 +3111,7 @@ function AdminEditModal({
               type="button"
               onClick={() => onSave(diff)}
               disabled={!hasChanges || submitting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:bg-foreground/90 disabled:opacity-50"
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save changes
@@ -3140,7 +3140,7 @@ function EditField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+      <span className="mb-1 block eyebrow text-muted-foreground">
         {label}
       </span>
       {multiline ? (
@@ -3149,7 +3149,7 @@ function EditField({
           onChange={(e) => onChange(e.target.value)}
           rows={3}
           placeholder={placeholder}
-          className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       ) : (
         <input
@@ -3157,7 +3157,7 @@ function EditField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+          className="w-full rounded-md border border-border bg-card px-2.5 py-1.5 text-sm focus:border-primary/50 focus:outline-none border-border bg-background"
         />
       )}
     </label>
@@ -3214,10 +3214,10 @@ function DetailItem({
 }) {
   return (
     <div>
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+      <p className="mb-1 eyebrow text-muted-foreground">
         {label}
       </p>
-      <div className="space-y-0.5 text-zinc-700 dark:text-zinc-300">
+      <div className="space-y-0.5 text-foreground/85">
         {children}
       </div>
     </div>

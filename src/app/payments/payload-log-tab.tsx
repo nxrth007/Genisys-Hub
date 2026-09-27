@@ -64,7 +64,7 @@ export function PayloadLogTab() {
 
   if (data.events.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
+      <div className="rounded-xl border border-dashed border-border bg-card p-12 text-center">
         <Inbox className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
         <p className="text-sm font-medium text-foreground">
           No webhook hits yet
@@ -89,7 +89,7 @@ export function PayloadLogTab() {
         return (
           <div
             key={e.id}
-            className="rounded-2xl border border-border bg-card p-4"
+            className="rounded-xl border border-border bg-card p-4"
           >
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-sm font-medium text-foreground">

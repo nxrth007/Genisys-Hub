@@ -40,12 +40,12 @@ const DISPATCH_STATUSES = [
 
 const DISPATCH_TONE: Record<string, string> = {
   not_dispatched:
-    'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
-  dispatched: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  confirmed: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+    'bg-muted text-muted-foreground bg-surface-muted text-muted-foreground',
+  dispatched: 'bg-primary-soft text-primary bg-primary-soft text-primary',
+  confirmed: 'bg-success/15 text-success bg-success/15 text-success',
   reschedule_requested:
-    'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  needs_review: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+    'bg-warning/15 text-warning bg-warning/15 text-warning',
+  needs_review: 'bg-destructive/10 text-destructive bg-destructive/10 text-destructive',
 }
 
 function fmtDateTime(iso: string, tz: string): string {
@@ -114,10 +114,10 @@ export default function AgentDispatchPage() {
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <Send className="h-5 w-5 text-blue-600" />
+          <Send className="h-5 w-5 text-primary" />
           Dispatch
           {dispatched.length > 0 && (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-sm font-semibold tabular-nums text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            <span className="rounded-lg bg-primary-soft px-2 py-0.5 text-sm font-semibold tabular-nums text-primary bg-primary-soft text-primary">
               {dispatched.length}
             </span>
           )}
@@ -126,7 +126,7 @@ export default function AgentDispatchPage() {
           Appointments set to{' '}
           <span className="font-semibold">Dispatched</span> — in progress, not
           yet confirmed. Move one to{' '}
-          <span className="font-semibold text-green-700 dark:text-green-300">
+          <span className="font-semibold text-success">
             Confirmed
           </span>{' '}
           to fire the client details + customer reminders.
@@ -134,7 +134,7 @@ export default function AgentDispatchPage() {
       </header>
 
       {isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive border-destructive/30 bg-destructive/10 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error instanceof Error ? error.message : 'Failed to load'}
         </div>
@@ -146,16 +146,16 @@ export default function AgentDispatchPage() {
           Loading…
         </div>
       ) : dispatched.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-          <Inbox className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
+        <div className="rounded-lg border border-dashed border-border bg-surface-muted p-8 text-center text-sm text-muted-foreground border-border bg-card text-muted-foreground">
+          <Inbox className="mx-auto mb-2 h-6 w-6 text-muted-foreground/70" />
           Nothing is dispatched right now. Rows you mark{' '}
           <span className="font-medium">Dispatched</span> on the Master Tracker
           show up here.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full text-xs">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950/50">
+            <thead className="border-b border-border bg-surface-muted text-left eyebrow text-muted-foreground border-border bg-background/50">
               <tr>
                 <th className="px-3 py-2.5">Appt</th>
                 <th className="px-3 py-2.5">Client</th>
@@ -166,7 +166,7 @@ export default function AgentDispatchPage() {
                 <th className="px-3 py-2.5">Dispatch</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <tbody className="divide-y divide-border-soft">
               {dispatched.map((a) => {
                 const match = a.id.match(/^sheet:(\d+)$/)
                 const rowNumber = match ? Number(match[1]) : null
@@ -176,7 +176,7 @@ export default function AgentDispatchPage() {
                 return (
                   <tr
                     key={a.id}
-                    className="bg-white transition hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-950/40"
+                    className="bg-card transition hover:bg-muted bg-card dark:hover:bg-zinc-950/40"
                   >
                     <td className="whitespace-nowrap px-3 py-2.5 font-medium">
                       {fmtDateTime(a.apptDateTime, a.resolvedTimezone)}
@@ -192,24 +192,24 @@ export default function AgentDispatchPage() {
                           <span className="font-medium">{a.client.name}</span>
                         </span>
                       ) : (
-                        <span className="text-zinc-400">—</span>
+                        <span className="text-muted-foreground/70">—</span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 font-medium">
                       {a.customerName}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-zinc-600 dark:text-zinc-300">
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted-foreground text-foreground/85">
                       {a.customerPhone}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">
                       {a.county || '—'}
                     </td>
-                    <td className="px-3 py-2.5 text-zinc-500 capitalize">
+                    <td className="px-3 py-2.5 text-muted-foreground capitalize">
                       {a.status.replace(/_/g, ' ')}
                     </td>
                     <td className="px-3 py-2.5">
                       {rowNumber === null ? (
-                        <span className="text-[10px] text-zinc-400">
+                        <span className="text-[10px] text-muted-foreground/70">
                           sheet-only
                         </span>
                       ) : (
@@ -224,9 +224,9 @@ export default function AgentDispatchPage() {
                               })
                             }
                             className={cn(
-                              'appearance-none cursor-pointer rounded-full pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
+                              'appearance-none cursor-pointer rounded-md pl-2 pr-5 py-0.5 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400/60',
                               DISPATCH_TONE[a.dispatchStatus] ||
-                                'bg-zinc-100 text-zinc-700',
+                                'bg-muted text-foreground/85',
                               pending && 'opacity-60',
                             )}
                           >

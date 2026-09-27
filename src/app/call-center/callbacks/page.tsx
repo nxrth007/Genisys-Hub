@@ -70,7 +70,7 @@ function CallbacksGrid() {
 
   return (
     <div className="mx-auto w-full max-w-[1280px] space-y-6">
-      <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+      <section className="rounded-xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px] font-semibold tracking-tight">
             Callbacks scheduled
@@ -171,7 +171,7 @@ function CallbackCard({
       className={cn(
         'flex flex-col gap-3 rounded-xl border p-4 shadow-soft transition',
         isOverdue
-          ? 'border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/20'
+          ? 'border-destructive/30 bg-destructive/10 border-destructive/30 bg-destructive/10'
           : 'border-border-soft bg-surface-muted hover:bg-muted'
       )}
     >
@@ -179,7 +179,7 @@ function CallbackCard({
         <p
           className={cn(
             'text-xs font-semibold',
-            isOverdue ? 'text-rose-600' : 'text-muted-foreground'
+            isOverdue ? 'text-destructive' : 'text-muted-foreground'
           )}
         >
           {isOverdue ? 'Overdue · ' : ''}
@@ -212,7 +212,7 @@ function CallbackCard({
             disabled={busy === 'done'}
             title="Mark done"
             aria-label="Mark callback done"
-            className="grid h-7 w-7 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 disabled:opacity-50 dark:hover:bg-emerald-950/40 dark:hover:border-emerald-900/40"
+            className="grid h-7 w-7 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-success/15 hover:text-success hover:border-emerald-200 disabled:opacity-50 hover:bg-success/10 dark:hover:border-emerald-900/40"
           >
             {busy === 'done' ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -222,7 +222,7 @@ function CallbackCard({
           </button>
           <a
             href={`tel:${phoneDigits}`}
-            className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-1 text-xs font-semibold text-primary-foreground hover:bg-foreground/90"
           >
             <Phone className="h-3 w-3" />
             Call back
@@ -270,7 +270,7 @@ void X
  *  useSearchParams hook in CallbacksGrid. */
 function CallbacksSkeleton() {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+    <div className="rounded-xl border border-border bg-card p-5 shadow-soft">
       <div className="h-6 w-48 animate-pulse rounded-md bg-muted" />
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (

@@ -62,7 +62,7 @@ function UserRow({
         <p className="truncate text-sm font-semibold">
           {u.name ?? '—'}
           {u.activeSessions > 0 && (
-            <span className="ml-2 text-[11px] font-normal text-emerald-600 dark:text-emerald-400">
+            <span className="ml-2 text-[11px] font-normal text-success">
               {u.activeSessions} active session
               {u.activeSessions === 1 ? '' : 's'}
             </span>
@@ -80,7 +80,7 @@ function UserRow({
             type="button"
             disabled={busy}
             onClick={() => onAction({ action: 'approve', id: u.id })}
-            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-50"
           >
             <Check className="h-3.5 w-3.5" />
             Approve
@@ -92,7 +92,7 @@ function UserRow({
             type="button"
             disabled={busy}
             onClick={() => onAction({ action: 'signOut', id: u.id })}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
           >
             <LogOut className="h-3.5 w-3.5" />
             Sign out
@@ -104,7 +104,7 @@ function UserRow({
             type="button"
             disabled={busy}
             onClick={() => onAction({ action: 'approve', id: u.id })}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
           >
             <ShieldCheck className="h-3.5 w-3.5" />
             Restore
@@ -122,7 +122,7 @@ function UserRow({
                 return
               onAction({ action: 'deny', id: u.id })
             }}
-            className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-50 border-destructive/30 bg-destructive/10 text-destructive"
           >
             <UserX className="h-3.5 w-3.5" />
             {u.role === 'crm_pending' ? 'Deny' : 'Revoke'}
@@ -148,7 +148,7 @@ function Section({
 }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="mb-2 eyebrow text-muted-foreground">
         {title} · {list.length}
       </p>
       {list.length === 0 ? (
@@ -197,11 +197,11 @@ function OwnerRow({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">
             {u.name ?? '—'}
-            <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            <span className="ml-2 rounded-lg bg-primary-soft px-2 py-0.5 eyebrow text-primary">
               {u.role}
             </span>
             {u.activeSessions > 0 && (
-              <span className="ml-2 text-[11px] font-normal text-emerald-600 dark:text-emerald-400">
+              <span className="ml-2 text-[11px] font-normal text-success">
                 {u.activeSessions} active session
                 {u.activeSessions === 1 ? '' : 's'}
               </span>
@@ -219,7 +219,7 @@ function OwnerRow({
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted"
           >
             <KeyRound className="h-3.5 w-3.5" />
             {u.hasPassword ? 'Change owner password' : 'Set owner password'}
@@ -229,7 +229,7 @@ function OwnerRow({
               type="button"
               disabled={busy}
               onClick={() => onAction({ action: 'signOut', id: u.id })}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition hover:bg-muted disabled:opacity-50"
             >
               <LogOut className="h-3.5 w-3.5" />
               Sign out
@@ -263,7 +263,7 @@ function OwnerRow({
               setPw('')
               setOpen(false)
             }}
-            className="rounded-full bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            className="rounded-lg bg-foreground px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-foreground/90 disabled:opacity-50"
           >
             Save password
           </button>
@@ -334,8 +334,8 @@ export function CrmAccessClient() {
           className={cn(
             'flex items-start gap-2 rounded-xl border p-3 text-sm',
             notice.tone === 'ok'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-              : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300',
+              ? 'border-success/30 bg-success/15 text-success border-success/30 bg-success/15 text-success'
+              : 'border-destructive/30 bg-destructive/10 text-destructive border-destructive/30 bg-destructive/10 text-destructive',
           )}
         >
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -347,14 +347,14 @@ export function CrmAccessClient() {
       )}
 
       {pending.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className="rounded-xl border border-warning/30 bg-warning/15 p-3 text-sm text-warning border-warning/30 bg-warning/15 text-warning">
           {pending.length} request{pending.length === 1 ? '' : 's'} waiting for
           approval. Nobody can sign in until you approve them.
         </div>
       )}
 
       <div>
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="mb-2 eyebrow text-muted-foreground">
           Owner accounts · {owners.length}
         </p>
         <p className="mb-2 text-xs text-muted-foreground">
