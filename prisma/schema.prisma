@@ -523,6 +523,9 @@ model Client {
   /// Archived clients fold into their own section on /clients and drop
   /// out of every picker. Null = on the roster.
   archivedAt   DateTime?
+  /// The website we built and put live for this client. Set from the
+  /// Clients page once the site ships; null until then.
+  siteUrl      String?
   sortOrder    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

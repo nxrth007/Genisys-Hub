@@ -217,6 +217,7 @@ export function normalizeClientPatch(
         appointmentTypes: AppointmentType | null
         bookWeekends: boolean | null
         website: string | null
+        siteUrl: string | null
         providesBatteryBackup: boolean | null
         qualificationCriteria: string | null
         onboardingNotes: string | null
@@ -250,6 +251,7 @@ export function normalizeClientPatch(
     appointmentTypes: AppointmentType | null
     bookWeekends: boolean | null
     website: string | null
+    siteUrl: string | null
     providesBatteryBackup: boolean | null
     qualificationCriteria: string | null
     onboardingNotes: string | null
@@ -283,6 +285,13 @@ export function normalizeClientPatch(
     // Mirror the legacy `active` flag so the GET endpoint's filter
     // (active=true) still hides churned clients from agent pickers.
     data.active = b.lifecycle === 'active' || b.lifecycle === 'onboarding'
+  }
+
+  // siteUrl — the site we shipped. Stored with a protocol so it is a
+  // working link wherever it is rendered; empty clears it.
+  if ('siteUrl' in b) {
+    const raw = trimOrNull(b.siteUrl)
+    data.siteUrl = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : null
   }
 
   // Free-text fields — empty string/null clears the column.

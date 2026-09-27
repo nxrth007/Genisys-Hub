@@ -9,8 +9,6 @@ import {
   Settings,
   HelpCircle,
   CheckSquare,
-  Phone,
-  PhoneCall,
   Building2,
   Globe,
   Inbox,
@@ -78,19 +76,9 @@ const FULL_VIEW_EMAILS = new Set(['alex@leadgenisys.com'])
 const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/home', label: 'Home', icon: Globe },
   { href: '/today', label: 'Tasks', icon: CheckSquare },
-  // Call Center → land on Master Tracker (the deliverable view) by
-  // default; `match: '/call-center'` keeps the nav item highlighted
-  // for any sub-tab (Appointments / Callbacks / Agents / etc.).
-  {
-    href: '/call-center/master-tracker',
-    match: '/call-center',
-    label: 'Call Center',
-    icon: Phone,
-  },
-  // Call Center 2 — empty scaffold for the contractor model. Sits
-  // directly under the original so the two are visibly a pair while
-  // the old one is being retired.
-  { href: '/call-center-2', label: 'Call Center 2', icon: PhoneCall },
+  // Call Center and Call Center 2 were retired 2026-09-26: appointment
+  // booking is no longer what the agency does. The routes still exist
+  // for history; they just aren't in the nav.
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
   // Documents — Ethan needs the pinned financials + Mary client
@@ -110,17 +98,7 @@ const FULL_NAV: NavItem[] = [
   { href: '/outbox', label: 'Outbox', icon: Send },
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/calendar', label: 'Calendar', icon: Calendar },
-  // Same Master-Tracker-by-default behavior in the full nav.
-  {
-    href: '/call-center/master-tracker',
-    match: '/call-center',
-    label: 'Call Center',
-    icon: Phone,
-  },
-  // Call Center 2 — empty scaffold for the contractor model. Sits
-  // directly under the original so the two are visibly a pair while
-  // the old one is being retired.
-  { href: '/call-center-2', label: 'Call Center 2', icon: PhoneCall },
+  // Call Center and Call Center 2 retired 2026-09-26 (see SIMPLIFIED_NAV).
   { href: '/clients', label: 'Clients', icon: Building2 },
   { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },

@@ -20,6 +20,7 @@ export const GET = withOwnerApi(async () => {
       contactRole: true,
       contactEmail: true,
       contactPhone: true,
+      siteUrl: true,
       createdAt: true,
       _count: { select: { appointments: true } },
     },
@@ -35,6 +36,7 @@ export const GET = withOwnerApi(async () => {
     contactRole: c.contactRole,
     contactEmail: c.contactEmail,
     contactPhone: c.contactPhone,
+    siteUrl: c.siteUrl,
     appointmentCount: c._count.appointments,
     createdAt: c.createdAt,
   }))

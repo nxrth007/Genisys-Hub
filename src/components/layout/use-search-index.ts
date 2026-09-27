@@ -29,9 +29,7 @@ type Agent = { id: string; name: string | null; email: string }
 const PAGES: SearchResult[] = [
   { type: 'Page', label: 'Home', href: '/home' },
   { type: 'Page', label: 'Tasks', href: '/today' },
-  { type: 'Page', label: 'Call Center', href: '/call-center' },
   { type: 'Page', label: 'Clients', href: '/clients' },
-  { type: 'Page', label: 'Master Tracker', href: '/call-center/master-tracker' },
   { type: 'Page', label: 'Notion', href: '/notion' },
   { type: 'Page', label: 'Inbox', href: '/inbox' },
   { type: 'Page', label: 'CRM', href: '/crm' },
