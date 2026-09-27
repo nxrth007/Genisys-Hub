@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { ensureClientGeo, GEO_RESET } from '@/lib/geocode'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
 import { backfillClientAlerts } from '@/lib/client-alert'
@@ -94,10 +95,14 @@ export async function PATCH(
   let priorChannelId: string | null = null
   let priorContactPhone: string | null = null
   let priorLifecycle: string | null = null
+  let priorSiteUrl: string | null = null
+  let priorAddress: string | null = null
   if (
     'slackChannelId' in parsed.data ||
     'contactPhone' in parsed.data ||
-    'lifecycle' in parsed.data
+    'lifecycle' in parsed.data ||
+    'siteUrl' in parsed.data ||
+    'address' in parsed.data
   ) {
     const prior = await prisma.client.findUnique({
       where: { id },
@@ -105,17 +110,42 @@ export async function PATCH(
         slackChannelId: true,
         contactPhone: true,
         lifecycle: true,
+        siteUrl: true,
+        address: true,
       },
     })
     priorChannelId = prior?.slackChannelId ?? null
     priorContactPhone = prior?.contactPhone ?? null
     priorLifecycle = prior?.lifecycle ?? null
+    priorSiteUrl = prior?.siteUrl ?? null
+    priorAddress = prior?.address ?? null
   }
+
+  // A changed address moves the client's dot on the Home globe: clear
+  // the stored point so it is geocoded again from the new address.
+  const addressChanged =
+    'address' in parsed.data && (parsed.data.address ?? null) !== priorAddress
+
+  // siteLiveAt marks the moment the site link first appears (the Home
+  // globe fires an arc for it) and clears with the link. Changing an
+  // existing link is not a new launch.
+  const siteLiveAt =
+    'siteUrl' in parsed.data
+      ? parsed.data.siteUrl
+        ? priorSiteUrl
+          ? undefined
+          : new Date()
+        : null
+      : undefined
 
   try {
     const client = await prisma.client.update({
       where: { id },
-      data: parsed.data,
+      data: {
+        ...parsed.data,
+        ...(siteLiveAt !== undefined ? { siteLiveAt } : {}),
+        ...(addressChanged ? GEO_RESET : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -238,6 +268,12 @@ export async function PATCH(
           console.error('[clients] alert-backfill failed:', err)
         }
       }
+    }
+
+    if (addressChanged) {
+      void ensureClientGeo(client.id).catch((err) =>
+        console.warn(`[clients] re-geocode failed for ${client.name}:`, err),
+      )
     }
 
     return NextResponse.json({ client })

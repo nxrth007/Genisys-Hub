@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { promoteIntakeToClient } from '@/lib/client-from-intake'
+import { ensureClientGeo } from '@/lib/geocode'
 
 /**
  * POST /api/webhooks/client-onboarding
@@ -180,6 +181,14 @@ export async function POST(req: NextRequest) {
     clientId = (await promoteIntakeToClient(intake.id))?.clientId ?? null
   } catch (err) {
     console.error(`[client-onboarding] client promotion failed for ${intake.id}:`, err)
+  }
+
+  // Put the new client on the Home globe now rather than on the next
+  // page load. Not awaited: a slow geocoder must not hold the sender.
+  if (clientId) {
+    void ensureClientGeo(clientId).catch((err) =>
+      console.warn(`[client-onboarding] geocode failed for ${clientId}:`, err),
+    )
   }
 
   return NextResponse.json({ ok: true, id: intake.id, clientId })

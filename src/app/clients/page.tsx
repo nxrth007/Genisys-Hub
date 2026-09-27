@@ -508,6 +508,8 @@ function SiteLink({ client, size = 'sm' }: { client: RosterClient; size?: 'sm' |
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients-roster'] })
       qc.invalidateQueries({ queryKey: ['clients'] })
+      // The Home globe fires an arc for a newly live site.
+      qc.invalidateQueries({ queryKey: ['home-globe'] })
       setEditing(false)
     },
   })

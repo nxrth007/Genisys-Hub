@@ -526,6 +526,22 @@ model Client {
   /// The website we built and put live for this client. Set from the
   /// Clients page once the site ships; null until then.
   siteUrl      String?
+  /// When siteUrl was first set -- the moment the site went live. Drives
+  /// the arc that fires on the Home globe.
+  siteLiveAt   DateTime?
+
+  /// Where the client is, for the Home globe. Geocoded once from their
+  /// address / first city (lib/geocode.ts). geoStatus is the last
+  /// outcome: placed | not-found | error | no-address. geoRetryAt is
+  /// when an unplaced client may be tried again (a week after a real
+  /// miss, an hour after a transient failure) and doubles as the claim
+  /// that stops two callers geocoding the same client at once.
+  geoLat       Float?
+  geoLng       Float?
+  geoLabel     String?
+  geoStatus    String?
+  geoRetryAt   DateTime?
+  geocodedAt   DateTime?
   sortOrder    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

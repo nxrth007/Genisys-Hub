@@ -322,6 +322,24 @@
   50%, 100% { opacity: 0; }
 }
 
+/* Marker pulse on the Home globe — a ring that grows and fades. The
+   globe shows and hides the ring's (un-animated) wrapper; the animation
+   lives on the ring itself so it can't override that. */
+@keyframes hud-pulse {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(2.6); opacity: 0; }
+}
+.hud-pulse-ring {
+  animation: hud-pulse 2.4s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-pulse-ring {
+    animation: none;
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 0.55;
+  }
+}
+
 /* Hide Next.js dev tools indicator */
 [data-nextjs-dialog-overlay],
 nextjs-portal {
