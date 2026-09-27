@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { listSubAccounts, friendlyNameFromVaultName, type SubAccount } from '@/lib/ghl'
 
 /**
  * GET /api/clients/roster
@@ -10,8 +11,38 @@ import { prisma } from '@/lib/prisma'
  * intake attached. No appointment counting, no sheet reads — those
  * belonged to the booking era and made /with-counts slow for nothing.
  *
+ * Each client is also matched to its GHL sub-account when the vault
+ * holds one: by an explicit `client=<name>` in the vault entry's
+ * description, else by the entry's friendly name / location name
+ * matching the client's name. Best-effort — a vault or GHL hiccup
+ * leaves the link empty rather than failing the page.
+ *
  * Staff-only (admin + member).
  */
+
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(llc|inc|co|corp|ltd|the|and)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+function subAccountFor(name: string, subs: SubAccount[]): SubAccount | null {
+  const n = norm(name)
+  if (!n) return null
+  return (
+    subs.find((s) => s.clientHint && norm(s.clientHint) === n) ??
+    subs.find(
+      (s) => norm(friendlyNameFromVaultName(s.vaultName)) === n || norm(s.locationName) === n,
+    ) ??
+    subs.find((s) => {
+      const f = norm(friendlyNameFromVaultName(s.vaultName))
+      return f.length >= 4 && (n.includes(f) || f.includes(n))
+    }) ??
+    null
+  )
+}
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) {
@@ -71,14 +102,25 @@ export async function GET() {
     },
   })
 
+  let clientSubs: SubAccount[] = []
+  try {
+    clientSubs = (await listSubAccounts({ kind: 'client' })).subaccounts
+  } catch (err) {
+    console.warn('[clients/roster] client sub-account lookup failed:', err)
+  }
+
   return NextResponse.json({
     clients: clients.map(({ intakes, ...c }) => {
       const i = intakes[0]
+      const sub = subAccountFor(c.name, clientSubs)
       return {
         ...c,
         createdAt: c.createdAt.toISOString(),
         archivedAt: c.archivedAt ? c.archivedAt.toISOString() : null,
         intake: i ? { ...i, receivedAt: i.receivedAt.toISOString() } : null,
+        ghlSubAccount: sub
+          ? { vaultName: sub.vaultName, locationId: sub.locationId, locationName: sub.locationName }
+          : null,
       }
     }),
   })

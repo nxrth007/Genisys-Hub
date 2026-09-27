@@ -84,9 +84,10 @@ function decodeJwtPayload(token: string): {
  * "GHL Spring Solar Token" → "Spring Solar"
  * "GHL Genisys Token"     → "Genisys"
  */
-function friendlyNameFromVaultName(vaultName: string): string {
+export function friendlyNameFromVaultName(vaultName: string): string {
   return vaultName
     .replace(/^GHL\s+/i, '')
+    .replace(/^clients?\s*[-–:]?\s*/i, '')
     .replace(/\s+Token$/i, '')
     .trim() || vaultName
 }
@@ -207,10 +208,39 @@ async function ghlFetch(
 // Sub-account discovery
 // -------------------------------------------------------------------------
 
+export type SubAccountKind = 'genisys' | 'client'
+
 export type SubAccount = {
   vaultName: string
   locationId: string
   locationName: string
+  /** Whose sub-account this is: one of the agency's own (staff reps,
+   *  teams) or a client's. Staff views only ever see 'genisys'. */
+  kind: SubAccountKind
+  /** Optional `client=<name>` from the vault entry's description, to pin
+   *  a client sub-account to a Client record when names don't match. */
+  clientHint: string | null
+}
+
+const CLIENT_TAGS = new Set(['client', 'clients', 'customer'])
+const GENISYS_TAGS = new Set(['genisys', 'internal', 'staff', 'team', 'primary', 'agency'])
+
+/**
+ * Which side a vault entry belongs to. Tags win; otherwise the name
+ * decides — anything with "client" in it is a client's sub-account,
+ * everything else is ours (the agency's entries predate client tokens
+ * and were never named for it).
+ */
+function classifyEntry(entry: { name: string; tags: string[]; description: string | null }): {
+  kind: SubAccountKind
+  clientHint: string | null
+} {
+  const tags = entry.tags.map((t) => t.trim().toLowerCase())
+  const hint = entry.description?.match(/client\s*[=:]\s*([^\n;]+)/i)?.[1]?.trim() ?? null
+  if (tags.some((t) => CLIENT_TAGS.has(t))) return { kind: 'client', clientHint: hint }
+  if (tags.some((t) => GENISYS_TAGS.has(t))) return { kind: 'genisys', clientHint: null }
+  if (/\bclients?\b/i.test(entry.name) || hint) return { kind: 'client', clientHint: hint }
+  return { kind: 'genisys', clientHint: null }
 }
 
 /**
@@ -219,21 +249,28 @@ export type SubAccount = {
  * (invalid token, etc.) are reported separately instead of hiding the
  * whole list — UI can display per-entry errors.
  */
-export async function listSubAccounts(): Promise<{
+/**
+ * `kind` defaults to 'genisys': every staff-facing consumer (Staff
+ * Bookings, calendar, CRM, opportunities) must only ever see the
+ * agency's own sub-accounts. A client's token in the same vault must
+ * never make a client look like a rep. Pass 'client' or 'all' on
+ * purpose where client accounts are the point.
+ */
+export async function listSubAccounts(
+  opts: { kind?: SubAccountKind | 'all' } = {},
+): Promise<{
   subaccounts: SubAccount[]
   errors: Array<{ vaultName: string; error: string }>
   discoveredEntries: number
 }> {
-  const rawEntries = await listEntriesByTag('ghl')
+  const wanted = opts.kind ?? 'genisys'
+  const rawEntries = (await listEntriesByTag('ghl'))
+    .map((e) => ({ ...e, ...classifyEntry(e) }))
+    .filter((e) => wanted === 'all' || e.kind === wanted)
 
-  // Sort so the agency's own sub-account (tagged "primary" or "Genisys", or
-  // simply not tagged "client") comes first, then clients alphabetically.
+  // Agency first, then clients, alphabetical within each.
   const entries = [...rawEntries].sort((a, b) => {
-    const tagsA = a.tags.map((t) => t.toLowerCase())
-    const tagsB = b.tags.map((t) => t.toLowerCase())
-    const isClientA = tagsA.includes('client')
-    const isClientB = tagsB.includes('client')
-    if (isClientA !== isClientB) return isClientA ? 1 : -1
+    if (a.kind !== b.kind) return a.kind === 'client' ? 1 : -1
     return a.name.localeCompare(b.name)
   })
 
@@ -253,7 +290,13 @@ export async function listSubAccounts(): Promise<{
         const { locationId, locationName } = await resolveToken(entry.name)
         return {
           ok: true as const,
-          value: { vaultName: entry.name, locationId, locationName },
+          value: {
+            vaultName: entry.name,
+            locationId,
+            locationName,
+            kind: entry.kind,
+            clientHint: entry.clientHint,
+          },
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

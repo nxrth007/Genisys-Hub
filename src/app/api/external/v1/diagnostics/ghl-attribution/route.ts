@@ -48,7 +48,9 @@ export const GET = withExternalApi(async (req, auth) => {
   const end = new Date()
   const start = new Date(end.getTime() - days * 86400_000)
 
-  const { subaccounts, errors } = await listSubAccounts()
+  // Every sub-account, agency and client alike — `kind` is how Alex checks
+  // the vault classified each token the way he meant.
+  const { subaccounts, errors } = await listSubAccounts({ kind: 'all' })
 
   // Sequential per sub-account. GHL rate-limits aggressively and this is a
   // one-shot diagnostic — being slow is fine, being throttled into a
@@ -60,6 +62,7 @@ export const GET = withExternalApi(async (req, auth) => {
       vaultName: sub.vaultName,
       locationName: sub.locationName,
       locationId: sub.locationId,
+      kind: sub.kind,
     }
 
     try {

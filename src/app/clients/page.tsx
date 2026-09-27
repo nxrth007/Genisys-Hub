@@ -88,6 +88,8 @@ type RosterClient = {
   createdAt: string
   archivedAt: string | null
   intake: Intake | null
+  /** The client's own GHL sub-account, when the vault holds its token. */
+  ghlSubAccount: { vaultName: string; locationId: string; locationName: string } | null
 }
 
 type StatusFilter = 'all' | 'onboarding' | 'active' | 'paused' | 'churned'
@@ -795,18 +797,30 @@ function ClientDetailDialog({
                 <span className="font-mono text-[13px]">{client.website ?? i?.website}</span>
               </Field>
             )}
-            {client.ghlSubaccountUrl && (
-              <Field label="GHL sub-account">
+            <Field label="GHL sub-account">
+              {client.ghlSubAccount ? (
+                <span className="flex flex-col">
+                  <span className="font-mono text-[13px]">{client.ghlSubAccount.locationName}</span>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {client.ghlSubAccount.vaultName}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-muted-foreground" title='Add the token to the Vault tagged "ghl" and "client"; name it after the business or put client=<name> in its description.'>
+                  Not linked
+                </span>
+              )}
+              {client.ghlSubaccountUrl && (
                 <a
                   href={client.ghlSubaccountUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
+                  className="ml-2 inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
                 >
                   Open <ExternalLink className="h-3 w-3" />
                 </a>
-              </Field>
-            )}
+              )}
+            </Field>
           </div>
         </Section>
 
