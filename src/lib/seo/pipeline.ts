@@ -78,11 +78,29 @@ export type Snapshot = {
   repo: RepoSnapshot | null
   sitePaths: string[]
   platform: SitePlatform
-  publish?: { mergeSha: string; deploymentId: string | null; requestedAt: string | null } | null
+  publish?: {
+    mergeSha: string
+    deploymentId: string | null
+    requestedAt: string | null
+    /** Polls spent waiting for Lovable to sync the merge. */
+    syncPolls?: number
+    /** The Lovable API route failed or never synced; a person publishes by hand. */
+    gaveUp?: boolean
+  } | null
+  /** Publish-poller checks (cheap, frequent). */
   liveChecks?: number
-  /** When the run started waiting for its build check. */
-  ciWaitSince?: string
+  /** stageVerify's own re-checks after "Mark as published". */
+  verifyChecks?: number
+  /** Which commit the build check wait is for, and since when. */
+  ciWait?: { sha: string; since: string }
+  /** The PR head a person approved. Only that commit (or the engine's own) may merge. */
+  approvedSha?: string
 }
+
+/** Stop looking for a manual Lovable publish after this long; the reviewer can still mark it. */
+export const PUBLISH_WATCH_MS = 7 * 24 * 3_600_000
+/** A build check that never registers stops blocking a human after this long. */
+export const CI_NO_SHOW_MS = 30 * 60_000
 
 export type StageOutcome = { stage: RunStage; status: RunStatus }
 
@@ -815,7 +833,13 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       }
       commitSha = res.commitSha
       ctx.log('commit', `Committed ${changes.length} file(s) to ${branch} (${commitSha.slice(0, 7)})`)
-      await ctx.save({ branch, commitSha, changes: json(changes), repoFullName: repo.fullName })
+      try {
+        await ctx.save({ branch, commitSha, changes: json(changes), repoFullName: repo.fullName })
+      } catch (err) {
+        // Canceled while committing: don't leave an untracked branch behind.
+        if (err instanceof LeaseLostError) await deleteBranch(repo.fullName, branch).catch(() => {})
+        throw err
+      }
     }
     const pr = await openPullRequest({
       fullName: repo.fullName,
@@ -825,7 +849,16 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       body: prBody(ctx, changes, drafts),
     })
     ctx.log('commit', `Opened PR #${pr.number}`)
-    await ctx.save({ prNumber: pr.number, prUrl: pr.url })
+    try {
+      await ctx.save({ prNumber: pr.number, prUrl: pr.url })
+    } catch (err) {
+      // Canceled while the PR was opening: close it rather than orphan it.
+      if (err instanceof LeaseLostError) {
+        await closePullRequest(repo.fullName, pr.number, 'Canceled from the Genisys Hub.').catch(() => {})
+        await deleteBranch(repo.fullName, branch).catch(() => {})
+      }
+      throw err
+    }
     if (ctx.run.kind === 'foundation') {
       await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { foundationStatus: 'proposed', foundationPrUrl: pr.url } })
     }
@@ -882,7 +915,8 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
   // A site archived, paused or taken off autopilot since this run started
   // must not merge on the run's own say-so.
   if (ctx.site.archivedAt) throw new FatalRunError('The site was archived — not merging.')
-  if (!ctx.run.reviewedBy && (ctx.site.mode !== 'autopilot' || !ctx.site.enabled)) {
+  const approvedSha = ctx.snapshot?.approvedSha ?? null
+  if (!approvedSha && (ctx.site.mode !== 'autopilot' || !ctx.site.enabled)) {
     ctx.log('ship', 'The site is no longer on autopilot — waiting for a reviewer.', 'warn')
     return { stage: 'ship', status: 'awaiting_review' }
   }
@@ -894,18 +928,17 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
     mergeSha = pr.mergeCommitSha ?? ctx.run.commitSha
   } else {
     if (pr.state === 'closed') throw new FatalRunError(`PR #${ctx.run.prNumber} was closed without merging.`)
-    // Only merge what was reviewed. Autopilot only ever merges the engine's
-    // own commit; a person who approved after the branch changed (e.g. they
-    // pushed a fix) approved the new head.
-    if (pr.headSha !== ctx.run.commitSha) {
-      if (!ctx.run.reviewedBy) {
-        ctx.log('ship', `The PR branch changed since the engine committed (${pr.headSha.slice(0, 7)}) — needs a reviewer.`, 'warn')
-        return { stage: 'ship', status: 'awaiting_review' }
-      }
-      ctx.log('ship', `Merging the reviewed head ${pr.headSha.slice(0, 7)} (the branch changed after the engine's commit)`)
+    // Only merge what was reviewed: the engine's own commit, or exactly the
+    // head a person approved. Anything pushed after that needs a new look.
+    if (pr.headSha !== ctx.run.commitSha && pr.headSha !== approvedSha) {
+      ctx.log('ship', `The PR branch changed (${pr.headSha.slice(0, 7)}) since it was ${approvedSha ? 'approved' : 'committed'} — needs a reviewer.`, 'warn')
+      await ctx.save({ snapshot: json({ ...ctx.snapshot, approvedSha: undefined }) })
+      return { stage: 'ship', status: 'awaiting_review' }
     }
+    if (pr.headSha !== ctx.run.commitSha) ctx.log('ship', `Merging the approved head ${pr.headSha.slice(0, 7)} (changed after the engine's commit)`)
     const ci = await ciState(fullName, pr.headSha)
-    await ctx.save({ ciStatus: ci.state })
+    const wait = ctx.snapshot?.ciWait?.sha === pr.headSha ? ctx.snapshot.ciWait : { sha: pr.headSha, since: new Date().toISOString() }
+    await ctx.save({ ciStatus: ci.state, snapshot: json({ ...ctx.snapshot, ciWait: wait }) })
     if (ci.state === 'pending') return { stage: 'ship', status: 'awaiting_ci' }
     if (ci.state === 'failure') {
       ctx.log('ship', `The build check failed${ci.url ? ` (${ci.url})` : ''} — not merging.`, 'error')
@@ -914,10 +947,9 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
     // The foundation PR adds the check itself, so it expects one too.
     const expectCi = ctx.run.kind === 'foundation' || !!ctx.snapshot?.repo?.hasCiWorkflow
     if (ci.state === 'none' && expectCi) {
-      const since = ctx.snapshot?.ciWaitSince ? Date.parse(ctx.snapshot.ciWaitSince) : NaN
       // A check that hasn't registered yet is pending; one that never shows up
-      // (Actions disabled, minutes exhausted) shouldn't block a human forever.
-      if (Number.isNaN(since) || Date.now() - since < 30 * 60_000) return { stage: 'ship', status: 'awaiting_ci' }
+      // for this commit (Actions disabled, minutes exhausted) shouldn't block a human forever.
+      if (Date.now() - Date.parse(wait.since) < CI_NO_SHOW_MS) return { stage: 'ship', status: 'awaiting_ci' }
       ctx.log('ship', 'No build check ever ran on this commit — merging on the reviewer’s approval.', 'warn')
     }
     if (await someoneEditingInLovable(ctx, fullName, repo.defaultBranch)) {
@@ -966,9 +998,17 @@ async function isLive(url: string, kind: 'sitemap' | 'page'): Promise<boolean> {
       cache: 'no-store',
       signal: AbortSignal.timeout(20_000),
     })
-    if (res.status !== 200) return false
-    // Read a bounded prefix: enough to see the root element.
-    const head = (await res.text()).slice(0, 4000)
+    if (res.status !== 200 || !res.body) return false
+    // Read a bounded prefix — enough to see the root element — then stop.
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let head = ''
+    while (head.length < 8000) {
+      const { done, value } = await reader.read()
+      if (done) break
+      head += decoder.decode(value, { stream: true })
+    }
+    await reader.cancel().catch(() => {})
     return /<(?:urlset|sitemapindex)[\s>]/i.test(head)
   } catch {
     return false
@@ -996,7 +1036,12 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
   const snap = ctx.snapshot
   const publish = snap?.publish
   const fullName = ctx.run.repoFullName ?? snap?.repo?.fullName ?? null
-  if (publish && ctx.site.lovableProjectId && (await lovableConfigured())) {
+  if (publish && !publish.gaveUp && ctx.site.lovableProjectId && (await lovableConfigured())) {
+    const giveUp = async (why: string) => {
+      ctx.log('verify', `${why} — publish it in Lovable by hand; the engine keeps watching for it`, 'error')
+      await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, gaveUp: true } }) })
+      await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${why}. Click *Publish* in Lovable. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+    }
     try {
       if (!publish.deploymentId) {
         const project = await getLovableProject(ctx.site.lovableProjectId)
@@ -1012,15 +1057,16 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
           const dep = await publishLovableProject(ctx.site.lovableProjectId)
           ctx.log('verify', `Asked Lovable to publish (deployment ${dep.deploymentId})`)
           await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, deploymentId: dep.deploymentId, requestedAt: new Date().toISOString() } }) })
+        } else {
+          const syncPolls = (publish.syncPolls ?? 0) + 1
+          // ~1 hour: Lovable missed GitHub's webhook (it never re-pulls on its own).
+          if (syncPolls >= 12) await giveUp('Lovable hasn\u2019t picked up the merge from GitHub after an hour')
+          else await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, syncPolls } }) })
         }
       } else {
         const dep = await getLovableDeployment(ctx.site.lovableProjectId, publish.deploymentId)
-        if (dep.errorClass) {
-          ctx.log('verify', `Lovable publish failed (${dep.errorClass}) — publish manually in Lovable`, 'error')
-          await ctx.save({ snapshot: json({ ...snap, publish: null }) })
-        } else if (dep.done) {
-          ctx.log('verify', `Lovable published${dep.url ? ` → ${dep.url}` : ''}`)
-        }
+        if (dep.errorClass) await giveUp(`Lovable\u2019s publish failed (${dep.errorClass})`)
+        else if (dep.done) ctx.log('verify', `Lovable published${dep.url ? ` → ${dep.url}` : ''}`)
       }
     } catch (err) {
       ctx.log('verify', `Lovable API: ${err instanceof Error ? err.message : String(err)}`, 'warn')
@@ -1036,12 +1082,14 @@ const MAX_LIVE_CHECKS = 12
 
 export async function stageVerify(ctx: RunContext): Promise<StageOutcome> {
   const { live, missing } = await liveCheck(ctx)
-  const checks = (ctx.snapshot?.liveChecks ?? 0) + 1
+  const checks = (ctx.snapshot?.verifyChecks ?? 0) + 1
+  // Only hand the run back while the publish poller still watches it.
+  const watched = !!ctx.run.mergedAt && Date.now() - ctx.run.mergedAt.getTime() < PUBLISH_WATCH_MS
   if (missing.length) {
-    if (checks < MAX_LIVE_CHECKS) {
+    if (checks < MAX_LIVE_CHECKS && watched) {
       // Marked published but the deploy may still be rolling out — keep watching.
       ctx.log('verify', `Not live yet: ${missing.join(', ')} — checking again in a few minutes`, 'warn')
-      await ctx.save({ snapshot: json({ ...ctx.snapshot, liveChecks: checks }) })
+      await ctx.save({ snapshot: json({ ...ctx.snapshot, verifyChecks: checks }) })
       return { stage: 'verify', status: 'awaiting_publish' }
     }
     ctx.log('verify', `Still not live after ${checks} checks: ${missing.join(', ')} — finishing; check the site's blog URLs`, 'warn')

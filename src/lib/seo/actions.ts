@@ -4,7 +4,7 @@ import type { CreateSiteBody, RunActionBody, UpdateSiteBody } from './api-types'
 import { ClaudeSession } from './claude'
 import { fetchPage } from './crawl'
 import { enqueueManualRun } from './engine'
-import { getPullRequest, getRepo } from './github'
+import { deleteBranch, getPullRequest, getRepo } from './github'
 import { ciState, cleanupStoppedRun, deriveFacts, type Snapshot } from './pipeline'
 import { FactsSchema } from './prompts'
 import { snapshotRepo } from './repo'
@@ -148,10 +148,11 @@ export async function archiveSite(id: string): Promise<void> {
   await prisma.seoSite.update({ where: { id }, data: { archivedAt: new Date(), enabled: false } })
   // Stop everything in flight: a worker mid-stage fails its next fenced
   // write, and open PRs are closed so nothing merges into an archived site.
-  const active = await prisma.seoRun.findMany({ where: { siteId: id, status: { in: ['queued', 'running', 'awaiting_ci', 'awaiting_review', 'awaiting_publish'] } }, select: { id: true } })
+  const stoppable = ['queued', 'running', 'awaiting_ci', 'awaiting_review', 'awaiting_publish', 'failed']
+  const active = await prisma.seoRun.findMany({ where: { siteId: id, status: { in: stoppable } }, select: { id: true } })
   for (const r of active) {
     const res = await prisma.seoRun.updateMany({
-      where: { id: r.id, status: { in: ['queued', 'running', 'awaiting_ci', 'awaiting_review', 'awaiting_publish'] } },
+      where: { id: r.id, status: { in: stoppable } },
       data: { status: 'canceled', finishedAt: new Date(), leaseUntil: null, error: 'Site archived.' },
     })
     if (!res.count) continue
@@ -201,22 +202,37 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
     case 'approve': {
       if (run.status !== 'awaiting_review') throw new SeoInputError('Only a run waiting for review can be approved.')
       if (site.archivedAt) throw new SeoInputError('This site is archived.')
-      if (run.ciStatus === 'failure') {
-        // The last check failed — but someone may have pushed a fix or re-run
-        // it since. Ask GitHub about the PR's current head before refusing.
-        const snap = run.snapshot as unknown as Snapshot | null
-        const fullName = run.repoFullName ?? snap?.repo?.fullName ?? site.repoFullName
-        if (fullName && run.prNumber) {
-          const pr = await getPullRequest(fullName, run.prNumber)
-          const ci = await ciState(fullName, pr.headSha)
-          if (ci.state === 'failure') {
-            throw new SeoInputError('The build check still fails on this branch, so merging would break the site. Fix the PR or reject it.')
-          }
+      // Approval is for the PR exactly as it stands now: record that head, so
+      // anything pushed afterwards needs another look before it can merge.
+      const snap = run.snapshot as unknown as Snapshot | null
+      const fullName = run.repoFullName ?? snap?.repo?.fullName ?? site.repoFullName
+      if (!fullName || !run.prNumber) throw new SeoInputError('This run has no pull request to approve.')
+      let pr: Awaited<ReturnType<typeof getPullRequest>>
+      try {
+        pr = await getPullRequest(fullName, run.prNumber)
+      } catch (err) {
+        throw new SeoInputError(`Couldn\u2019t check the pull request on GitHub: ${err instanceof Error ? err.message : 'unknown error'}`)
+      }
+      if (!pr.merged) {
+        if (pr.state === 'closed') throw new SeoInputError('The pull request was closed on GitHub. Reject this run and start a new one.')
+        // The last check may have failed, but someone may have pushed a fix or
+        // re-run it since — judge the current head.
+        const ci = await ciState(fullName, pr.headSha)
+        if (ci.state === 'failure') {
+          throw new SeoInputError('The build check fails on this branch, so merging would break the site. Fix the PR or reject it.')
         }
       }
       const res = await prisma.seoRun.updateMany({
         where: { id: runId, status: 'awaiting_review' },
-        data: { status: 'queued', stage: 'ship', reviewedBy: email, leaseUntil: null, error: null, ciStatus: null },
+        data: {
+          status: 'queued',
+          stage: 'ship',
+          reviewedBy: email,
+          leaseUntil: null,
+          error: null,
+          ciStatus: null,
+          snapshot: { ...(snap ?? {}), approvedSha: pr.headSha } as unknown as Prisma.InputJsonValue,
+        },
       })
       if (!res.count) throw new SeoInputError('Someone else just acted on this run — refresh.')
       return
@@ -264,6 +280,11 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
       // A foundation that never reached a PR is regenerated from scratch:
       // its whole-file rewrites were based on a repo that has since moved on.
       const restart = run.kind === 'foundation' && !run.prNumber
+      if (restart && run.branch) {
+        // The regenerated commit reuses this run's branch name; the stale one must go.
+        const fullName = run.repoFullName ?? (run.snapshot as unknown as Snapshot | null)?.repo?.fullName ?? site.repoFullName
+        if (fullName) await deleteBranch(fullName, run.branch).catch(() => {})
+      }
       const res = await prisma.seoRun.updateMany({
         where: { id: runId, status: 'failed' },
         data: {

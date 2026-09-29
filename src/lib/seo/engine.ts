@@ -1,15 +1,17 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { BudgetExceededError, FatalClaudeError, RefusalError, TruncatedError } from './claude'
-import { GitHubError } from './github'
+import { getPullRequest, GitHubError } from './github'
 import {
   advancePublish,
   ciState,
+  CI_NO_SHOW_MS,
   cleanupStoppedRun,
   DeferError,
   FatalRunError,
   LeaseLostError,
   loadRunContext,
+  PUBLISH_WATCH_MS,
   STAGES,
   type RunContext,
 } from './pipeline'
@@ -39,8 +41,6 @@ const LEASE_MS = 40 * 60_000
 const MAX_ATTEMPTS = 3
 const CI_POLL_MS = 2 * 60_000
 const PUBLISH_POLL_MS = 5 * 60_000
-/** Stop looking for a manual Lovable publish after this long; the reviewer can still mark it. */
-const PUBLISH_WATCH_MS = 7 * 24 * 3_600_000
 /** Consecutive polling errors before a waiting run is failed rather than retried forever. */
 const MAX_POLL_ERRORS = 12
 /** How long after the scheduled hour a missed weekly slot still fires (covers deploys). */
@@ -281,20 +281,49 @@ async function pollWaitingRuns(): Promise<void> {
       if (w.status === 'awaiting_ci') await pollCi(w.id)
       else await pollPublish(w.id)
     } catch (err) {
+      // Someone acted on the run mid-check (reject, cancel, mark published): not an error.
+      if (err instanceof LeaseLostError) continue
       console.error(`[seo] polling run ${w.id} failed:`, err)
       const message = err instanceof Error ? err.message : String(err)
       const attempts = w.attempts + 1
+      // Guarded on the status it was polled in, so a human's action always wins.
       if (attempts >= MAX_POLL_ERRORS) {
-        await prisma.seoRun
-          .update({ where: { id: w.id }, data: { status: 'failed', error: `Stopped after ${attempts} failed checks: ${message}`, finishedAt: new Date(), leaseUntil: null } })
-          .catch(() => {})
-        const run = await prisma.seoRun.findUnique({ where: { id: w.id }, select: { site: { select: { name: true } } } }).catch(() => null)
-        await seoAlert(`:warning: *SEO* — ${run?.site.name ?? 'a site'}: gave up waiting on a run after repeated errors: ${message}`)
+        const res = await prisma.seoRun
+          .updateMany({
+            where: { id: w.id, status: w.status },
+            data: { status: 'failed', error: `Stopped after ${attempts} failed checks: ${message}`, finishedAt: new Date(), leaseUntil: null },
+          })
+          .catch(() => ({ count: 0 }))
+        if (res.count) {
+          const run = await prisma.seoRun.findUnique({ where: { id: w.id }, select: { site: { select: { name: true } } } }).catch(() => null)
+          await seoAlert(`:warning: *SEO* — ${run?.site.name ?? 'a site'}: gave up waiting on a run after repeated errors: ${message}`)
+        }
       } else {
         // Count the failure and touch updatedAt so a broken run doesn't starve the others.
-        await prisma.seoRun.update({ where: { id: w.id }, data: { attempts, error: `Check failed (${attempts}/${MAX_POLL_ERRORS}): ${message}` } }).catch(() => {})
+        await prisma.seoRun
+          .updateMany({ where: { id: w.id, status: w.status }, data: { attempts, error: `Check failed (${attempts}/${MAX_POLL_ERRORS}): ${message}` } })
+          .catch(() => {})
       }
     }
+  }
+  await retireStalePublishes()
+}
+
+/**
+ * A merge nobody published within the watch window: stop waiting and
+ * finish the run (it reports what's still missing) instead of leaving it
+ * in awaiting_publish forever.
+ */
+async function retireStalePublishes(): Promise<void> {
+  const stale = await prisma.seoRun.findMany({
+    where: { status: 'awaiting_publish', mergedAt: { lte: new Date(Date.now() - PUBLISH_WATCH_MS) }, OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }] },
+    select: { id: true },
+    take: 5,
+  })
+  for (const s of stale) {
+    await prisma.seoRun
+      .updateMany({ where: { id: s.id, status: 'awaiting_publish' }, data: { status: 'queued', stage: 'report', leaseUntil: null, error: 'Never saw the new pages go live within 7 days of the merge.' } })
+      .catch(() => {})
   }
 }
 
@@ -321,21 +350,34 @@ async function withLease<T>(runId: string, status: RunStatus, fn: (ctx: RunConte
 async function pollCi(runId: string): Promise<void> {
   await withLease(runId, 'awaiting_ci', async (ctx) => {
     const fullName = ctx.run.repoFullName ?? ctx.snapshot?.repo?.fullName
-    if (!fullName || !ctx.run.commitSha) return
-    if (ctx.site.archivedAt || (!ctx.run.reviewedBy && (ctx.site.mode !== 'autopilot' || !ctx.site.enabled))) {
+    if (!fullName || !ctx.run.commitSha || !ctx.run.prNumber) return
+    const approvedSha = ctx.snapshot?.approvedSha ?? null
+    if (ctx.site.archivedAt || (!approvedSha && (ctx.site.mode !== 'autopilot' || !ctx.site.enabled))) {
       ctx.log('ship', 'The site is no longer on autopilot — handing to a reviewer', 'warn')
       await ctx.save({ status: 'awaiting_review', attempts: 0 })
       return
     }
-    const ci = await ciState(fullName, ctx.run.commitSha)
+    // Check the PR as it is now, not the commit the engine first made.
+    const pr = await getPullRequest(fullName, ctx.run.prNumber)
+    if (pr.merged || pr.state === 'closed') {
+      // Merged or closed on GitHub directly — let the ship stage sort it out.
+      await ctx.save({ status: 'queued', stage: 'ship', attempts: 0 })
+      return
+    }
+    if (pr.headSha !== ctx.run.commitSha && pr.headSha !== approvedSha) {
+      ctx.log('ship', `The PR branch changed (${pr.headSha.slice(0, 7)}) — needs a reviewer`, 'warn')
+      await ctx.save({ status: 'awaiting_review', attempts: 0 })
+      return
+    }
+    const ci = await ciState(fullName, pr.headSha)
     if (ci.state === 'pending' || ci.state === 'none') {
-      // A repo whose check never starts shouldn't wait forever.
-      const since = ctx.snapshot?.ciWaitSince ? Date.parse(ctx.snapshot.ciWaitSince) : NaN
-      if (Number.isNaN(since)) {
-        await ctx.save({ ciStatus: ci.state, attempts: 0, snapshot: json({ ...ctx.snapshot, ciWaitSince: new Date().toISOString() }) })
+      // A repo whose check never starts shouldn't wait forever — per commit.
+      const wait = ctx.snapshot?.ciWait
+      if (wait?.sha !== pr.headSha) {
+        await ctx.save({ ciStatus: ci.state, attempts: 0, snapshot: json({ ...ctx.snapshot, ciWait: { sha: pr.headSha, since: new Date().toISOString() } }) })
         return
       }
-      if (ci.state === 'none' && Date.now() - since > 30 * 60_000) {
+      if (ci.state === 'none' && Date.now() - Date.parse(wait.since) > CI_NO_SHOW_MS) {
         ctx.log('ship', 'No build check ran for this commit — handing to a reviewer', 'warn')
         await ctx.save({ status: 'awaiting_review', ciStatus: 'none', attempts: 0 })
       } else {
