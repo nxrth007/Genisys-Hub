@@ -22,6 +22,8 @@ type Spec = {
   contains: string[]
   /** Does the decrypted value look like this kind of secret? */
   looksRight: (value: string) => boolean
+  /** Names that match but should lose to any other candidate. */
+  demote?: RegExp
   env?: string
 }
 
@@ -41,8 +43,13 @@ const SPECS = {
   },
   googleApiKey: {
     label: 'Google API key (PageSpeed)',
-    exact: ['Google API Key', 'PageSpeed API Key', 'Google PageSpeed Key', 'Google Maps Key'],
-    contains: ['pagespeed', 'google api', 'google maps'],
+    // The Maps key is the last resort: Maps keys are usually restricted to
+    // Maps, and a purpose-made key should always win over it.
+    exact: ['Google API Key', 'Google Cloud API Key', 'PageSpeed API Key', 'Google PageSpeed Key', 'Google Maps Key'],
+    demote: /maps/i,
+    // Any "google…" entry is a candidate, but only a value shaped like an API
+    // key (AIza…) counts, so OAuth secrets and service accounts are skipped.
+    contains: ['pagespeed', 'google'],
     looksRight: (v) => v.startsWith('AIza'),
   },
   gscServiceAccount: {
@@ -97,6 +104,7 @@ async function resolve(kind: SecretKind): Promise<ResolvedSecret | null> {
   })
 
   const rank = (name: string) => {
+    if (spec.demote?.test(name)) return spec.exact.length + 1
     const i = spec.exact.findIndex((e) => e.toLowerCase() === name.toLowerCase())
     return i === -1 ? spec.exact.length : i
   }
