@@ -38,6 +38,7 @@ import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-r
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSweep } from './nct-billing'
+import { runSeoTick } from './seo/engine'
 
 let initialized = false
 
@@ -368,6 +369,18 @@ export function initScheduler() {
     } catch (err) {
       console.error('[scheduler] nct sweep failed:', err)
     }
+
+    // SEO engine (Hub -> SEO). Every tick: enqueue the week's runs once the
+    // schedule is due (off by default, set in the Hub), poll runs waiting on
+    // a build or a publish, and advance one run. Fire-and-forget; the engine
+    // shares one in-flight tick per process and leases each run in the DB.
+    void runSeoTick()
+      .then((r) => {
+        if (r.enqueued || r.failed) {
+          console.log(`[scheduler] seo: ${r.enqueued} enqueued, ${r.advanced} advanced, ${r.failed} failed`)
+        }
+      })
+      .catch((err) => console.error('[scheduler] seo tick failed:', err))
 
     // County backfill (fire-and-forget) — drains existing appointments
     // missing a county a batch at a time. Concurrent with the rest of

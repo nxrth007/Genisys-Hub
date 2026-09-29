@@ -21,6 +21,7 @@ import {
   Key,
   Headphones,
   Wallet,
+  TrendingUp,
   CheckCircle2,
   Search,
   PanelLeftClose,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canAccessPayments } from '@/lib/payments-access'
+import { canAccessSeo } from '@/lib/seo/access'
 import { Avatar } from '../ui/avatar'
 import { SearchDialog } from './search-dialog'
 import { useGraphite } from './theme-toggle'
@@ -160,12 +162,14 @@ export function Sidebar() {
   const role = session?.user?.role
   const fullView = FULL_VIEW_EMAILS.has(email)
   const baseNav = fullView ? FULL_NAV : SIMPLIFIED_NAV
-  // Payments — tight email allowlist (owner + Ethan), NOT role=admin, so
-  // Mary/Hannah (admins) don't get it. Appended to whichever base nav the
-  // viewer sees.
-  const nav = canAccessPayments(email)
-    ? [...baseNav, { href: '/payments', label: 'Payments', icon: Wallet }]
-    : baseNav
+  // SEO and Payments — tight email allowlists (owner + Ethan), NOT
+  // role=admin, so Mary/Hannah (admins) don't get them. Appended to
+  // whichever base nav the viewer sees, SEO just before Payments.
+  const nav: NavItem[] = [
+    ...baseNav,
+    ...(canAccessSeo(email) ? [{ href: '/seo', label: 'SEO', icon: TrendingUp }] : []),
+    ...(canAccessPayments(email) ? [{ href: '/payments', label: 'Payments', icon: Wallet }] : []),
+  ]
 
   // ⌘K (or Ctrl+K) toggles the global search anywhere in the Hub.
   useEffect(() => {

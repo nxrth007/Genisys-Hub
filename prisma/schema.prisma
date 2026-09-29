@@ -720,6 +720,7 @@ model Client {
   users             User[]                @relation("ClientUsers")
   invoices          Invoice[]
   intakes           ClientIntake[]        @relation("ClientIntakes")
+  seoSite           SeoSite?
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
@@ -2033,4 +2034,124 @@ model ClientIntake {
   @@index([receivedAt])
   @@index([status])
   @@index([leadEmail])
+}
+
+// -----------------------------------------------------------------------------
+// SEO engine (Hub → SEO). Weekly per client site: crawl, audit, Claude plans
+// and writes, commit to the site's GitHub repo, publish, verify.
+// -----------------------------------------------------------------------------
+
+/// One client website the SEO engine works on.
+model SeoSite {
+  id               String    @id @default(cuid())
+  clientId         String?   @unique
+  client           Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  name             String
+  liveUrl          String?
+  /// "owner/repo" on GitHub (nxrth007/*). Null = audit-only (e.g. GHL sites).
+  repoFullName     String?
+  defaultBranch    String?
+  /// lovable-tanstack | lovable-spa | ghl | other | unknown — detected, not chosen.
+  platform         String    @default("unknown")
+  /// audit | review | autopilot — how far the engine may go on its own.
+  mode             String    @default("review")
+  enabled          Boolean   @default(true)
+  /// BusinessFacts JSON — the source of truth for NAP, schema and content.
+  facts            Json?
+  gscProperty      String?
+  lovableProjectId String?
+  indexNowKey      String?
+  /// none | proposed | installed
+  foundationStatus String    @default("none")
+  foundationPrUrl  String?
+  lastScore        Int?
+  lastRunAt        DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  runs  SeoRun[]
+  posts SeoPost[]
+
+  @@index([archivedAt])
+}
+
+/// One engine run for a site. Stages are persisted as they finish so a
+/// deploy or crash resumes from the last completed stage (lease-based).
+model SeoRun {
+  id          String    @id @default(cuid())
+  siteId      String
+  site        SeoSite   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  /// weekly | foundation
+  kind        String    @default("weekly")
+  /// ISO week ("2026-W40") for scheduled runs; unique per site+kind. Manual
+  /// runs append a suffix so they never collide with the scheduled one.
+  weekOf      String
+  /// schedule | manual
+  trigger     String    @default("manual")
+  /// queued | running | awaiting_review | awaiting_ci | awaiting_publish | done | failed | canceled
+  status      String    @default("queued")
+  /// collect | research | plan | write | commit | ship | verify | report | done
+  stage       String    @default("collect")
+  /// Fencing token: only the holder of this exact lease may write progress.
+  leaseUntil  DateTime?
+  attempts    Int       @default(0)
+  error       String?   @db.Text
+  score       Int?
+  /// Denormalised for list views, so summaries never load the heavy JSON.
+  headline    String?
+  findingCounts Json?
+  draftCount  Int       @default(0)
+  /// The repo this run committed to — PR clean-up must use this, not the
+  /// site's current repo, which can change after the run.
+  repoFullName String?
+  /// Collected inputs: { crawl, psi, gsc, repo } (trimmed).
+  snapshot    Json?
+  audit       Json?
+  research    Json?
+  plan        Json?
+  drafts      Json?
+  /// ChangeFile[] — exactly what is/was committed.
+  changes     Json?
+  branch      String?
+  commitSha   String?
+  prNumber    Int?
+  prUrl       String?
+  ciStatus    String?
+  mergedAt    DateTime?
+  publishedAt DateTime?
+  costUsd     Float     @default(0)
+  usage       Json?
+  log         Json?
+  reviewedBy  String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([siteId, kind, weekOf])
+  @@index([status])
+  @@index([siteId, createdAt])
+}
+
+/// Every post the engine has drafted for a site — the ledger that stops it
+/// repeating topics week to week.
+model SeoPost {
+  id             String   @id @default(cuid())
+  siteId         String
+  site           SeoSite  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  runId          String?
+  slug           String
+  title          String
+  primaryKeyword String
+  /// draft | committed | live | rejected
+  status         String   @default("draft")
+  url            String?
+  path           String?
+  body           Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([siteId, slug])
+  @@index([siteId, status])
 }

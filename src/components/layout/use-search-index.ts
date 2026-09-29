@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { canAccessSeo } from '@/lib/seo/access'
 
 /**
  * The Hub's search index — pages, registered clients and agents — shared
@@ -42,6 +43,9 @@ const PAGES: SearchResult[] = [
   { type: 'Page', label: 'Settings', href: '/settings' },
 ]
 
+/** Only for the SEO allowlist (owner + Ethan) — slotted in after Clients. */
+const SEO_PAGE: SearchResult = { type: 'Page', label: 'SEO', href: '/seo', hint: 'Audits, posts and rankings' }
+
 export function useSearchIndex({
   enabled,
   query,
@@ -52,6 +56,17 @@ export function useSearchIndex({
   /** Results to return; when the query is empty, returns the first few pages. */
   limit: number
 }): { results: SearchResult[]; isLoading: boolean } {
+  // Same cache entry as the sidebar's session query, so this is free.
+  const sessionQuery = useQuery<{ user?: { email?: string | null } }>({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/session')
+      if (!res.ok) return {}
+      return res.json()
+    },
+  })
+  const seoAllowed = canAccessSeo(sessionQuery.data?.user?.email)
+
   // Fetched once enabled; cached via React Query and shared app-wide.
   const clientsQuery = useQuery<{ clients: Client[] }>({
     queryKey: ['clients'],
@@ -77,7 +92,10 @@ export function useSearchIndex({
   })
 
   const results = useMemo<SearchResult[]>(() => {
-    const all: SearchResult[] = [...PAGES]
+    const clientsAt = PAGES.findIndex((p) => p.href === '/clients') + 1
+    const all: SearchResult[] = seoAllowed
+      ? [...PAGES.slice(0, clientsAt), SEO_PAGE, ...PAGES.slice(clientsAt)]
+      : [...PAGES]
     for (const c of clientsQuery.data?.clients ?? []) {
       all.push({
         type: 'Client',
@@ -103,7 +121,7 @@ export function useSearchIndex({
           r.hint?.toLowerCase().includes(needle),
       )
       .slice(0, limit)
-  }, [query, limit, clientsQuery.data, agentsQuery.data])
+  }, [query, limit, clientsQuery.data, agentsQuery.data, seoAllowed])
 
   return {
     results,
