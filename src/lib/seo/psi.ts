@@ -150,3 +150,71 @@ export async function runPsi(url: string): Promise<PsiResult> {
     field,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Key check for the setup checklist
+// ---------------------------------------------------------------------------
+
+export type PsiKeyState = 'ok' | 'missing' | 'invalid' | 'disabled' | 'restricted' | 'quota' | 'unknown'
+export type PsiKeyCheck = { state: PsiKeyState; detail: string }
+
+let keyCheck: { at: number; value: PsiKeyCheck } | null = null
+
+/**
+ * Does the Vault's Google key actually work for PageSpeed? A key existing
+ * proves nothing — the Hub finds whatever Google key is there (often the
+ * Maps one), and Maps keys usually don't have PageSpeed enabled.
+ *
+ * Google checks the key before the request itself, so asking for a
+ * deliberately invalid URL answers in under a second without running
+ * Lighthouse: "key not valid", "API disabled for this project", "key
+ * restricted to other APIs" — or, when the key is fine, a complaint about
+ * the URL. Cached for ten minutes.
+ */
+export async function checkPsiKey(): Promise<PsiKeyCheck> {
+  if (keyCheck && Date.now() - keyCheck.at < 10 * 60_000) return keyCheck.value
+  const key = await getSecret('googleApiKey').catch(() => null)
+  let value: PsiKeyCheck
+  if (!key) {
+    value = { state: 'missing', detail: 'No Google API key in the Vault.' }
+  } else {
+    try {
+      const res = await fetch(`${ENDPOINT}?url=not-a-url&key=${encodeURIComponent(key)}`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(10_000),
+      })
+      const body = obj(await res.json().catch(() => ({})))
+      const err = obj(body.error)
+      const message = str(err.message) ?? `HTTP ${res.status}`
+      const details = Array.isArray(err.details) ? err.details.map(obj) : []
+      const reasons = details.map((d) => str(d.reason) ?? '')
+      const activation = details.map((d) => str(obj(d.metadata).activationUrl)).find(Boolean) ?? null
+      if (res.ok || (res.status === 400 && !reasons.includes('API_KEY_INVALID'))) {
+        // The key got through; only the probe's fake URL was refused.
+        value = { state: 'ok', detail: 'Google accepted the key for PageSpeed Insights.' }
+      } else if (reasons.includes('API_KEY_INVALID')) {
+        value = { state: 'invalid', detail: 'Google says this key isn’t valid (deleted or mistyped).' }
+      } else if (reasons.includes('SERVICE_DISABLED') || /has not been used|is disabled/i.test(message)) {
+        value = {
+          state: 'disabled',
+          detail: `The PageSpeed Insights API isn’t enabled in this key’s Google Cloud project.${activation ? ` Enable it: ${activation}` : ''}`,
+        }
+      } else if (reasons.some((r) => r.startsWith('API_KEY_') && r.endsWith('_BLOCKED')) || /blocked/i.test(message)) {
+        value = {
+          state: 'restricted',
+          detail: reasons.includes('API_KEY_HTTP_REFERRER_BLOCKED')
+            ? 'The key only works from certain websites (HTTP-referrer restriction), so the Hub’s server calls are refused.'
+            : 'The key is restricted to other APIs (typical for a Maps key) — PageSpeed Insights isn’t on its allowed list.',
+        }
+      } else if (res.status === 429) {
+        value = { state: 'quota', detail: 'The key’s daily PageSpeed quota is used up.' }
+      } else {
+        value = { state: 'unknown', detail: `Google answered ${res.status}: ${message.slice(0, 200)}` }
+      }
+    } catch (e) {
+      value = { state: 'unknown', detail: `Couldn’t reach Google to check the key: ${e instanceof Error ? e.message : 'network error'}` }
+    }
+  }
+  keyCheck = { at: Date.now(), value }
+  return value
+}

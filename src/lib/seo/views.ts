@@ -11,6 +11,7 @@ import type {
 } from './api-types'
 import { githubViewer } from './github'
 import { gscConfigured } from './gsc'
+import { checkPsiKey } from './psi'
 import type { Snapshot } from './pipeline'
 import { describeSecret, preferredEntryName } from './secrets'
 import { getSeoSettings, nextScheduledRun } from './settings'
@@ -219,12 +220,13 @@ async function githubStatus(present: boolean): Promise<{ login: string | null; e
 }
 
 export async function integrations(): Promise<SeoIntegrations> {
-  const [anthropic, github, google, lovable, gsc] = await Promise.all([
+  const [anthropic, github, google, lovable, gsc, psiKey] = await Promise.all([
     describeSecret('anthropic'),
     describeSecret('github'),
     describeSecret('googleApiKey'),
     describeSecret('lovable'),
     gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
+    checkPsiKey(),
   ])
   const gh = await githubStatus(github.present)
   return {
@@ -245,10 +247,13 @@ export async function integrations(): Promise<SeoIntegrations> {
           : `The token in "${github.entryName}" didn't work: ${gh.error ?? 'unknown error'}`,
     },
     pagespeed: {
-      ok: google.present,
-      detail: google.present
-        ? `Using "${google.entryName}" — the PageSpeed Insights API must be enabled for that key in Google Cloud.`
-        : 'Optional, but speed scores need it: Google no longer serves PageSpeed without a key. Add a Vault entry "Google API Key" (Google Cloud → Credentials, with the PageSpeed Insights API enabled).',
+      ok: psiKey.state === 'ok',
+      detail:
+        psiKey.state === 'ok'
+          ? `Working — using "${google.entryName}".`
+          : psiKey.state === 'missing'
+            ? 'Optional, but speed scores need it: Google no longer serves PageSpeed without a key. Add a Vault entry "Google API Key" (Google Cloud → Credentials) with the PageSpeed Insights API enabled.'
+            : `Found "${google.entryName}", but it doesn't work for PageSpeed: ${psiKey.detail} Either fix that key, or add a separate Vault entry "Google API Key" restricted to the PageSpeed Insights API — the Hub prefers that name. Runs still work; they just skip speed scores.`,
     },
     searchConsole: {
       ok: gsc.ok,
