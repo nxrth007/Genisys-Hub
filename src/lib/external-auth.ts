@@ -54,10 +54,7 @@ export function passwordProblem(password: string): string | null {
 
 async function notifyAdmin(text: string) {
   try {
-    const settings = await prisma.nctBillingSettings.findUnique({
-      where: { id: 'singleton' },
-    })
-    const raw = (settings?.alertChannel ?? 'genisys-alerts').trim()
+    const raw = (process.env.CRM_ALERT_CHANNEL ?? 'genisys-alerts').trim()
     const channelId = raw.startsWith('C')
       ? raw
       : await resolveChannelIdByName(raw)

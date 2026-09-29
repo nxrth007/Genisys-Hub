@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CreditCard,
   Landmark,
-  ScrollText,
   Loader2,
   AlertCircle,
   ArrowDownLeft,
@@ -17,13 +16,10 @@ import {
   ExternalLink,
   Users,
   FileText,
-  FileJson,
   ShoppingBag,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { PayloadLogTab } from './payload-log-tab'
-import { AutomationsTab } from './automations-tab'
 import { WhopTab } from './whop-tab'
 import {
   cents,
@@ -506,8 +502,7 @@ function StripeTab() {
                     {c.email}
                   </p>
                 )}
-                {/* The cus_ id is what the Roofing Clients form wants —
-                    surface it here so nobody has to dig in Stripe for it. */}
+                {/* Surface the cus_ id so nobody has to dig in Stripe for it. */}
                 <div className="mt-1.5 flex items-center gap-1.5">
                   <code className="truncate font-mono text-[11px] text-muted-foreground">
                     {c.id}
@@ -907,8 +902,6 @@ const TABS = [
   { key: 'stripe', label: 'Stripe', icon: CreditCard },
   { key: 'mercury', label: 'Mercury', icon: Landmark },
   { key: 'whop', label: 'Whop', icon: ShoppingBag },
-  { key: 'payloads', label: 'Payload Log', icon: FileJson },
-  { key: 'log', label: 'Automations', icon: ScrollText },
 ] as const
 
 export function PaymentsTabs() {
@@ -942,8 +935,6 @@ export function PaymentsTabs() {
       {tab === 'stripe' && <StripeTab />}
       {tab === 'mercury' && <MercuryTab />}
       {tab === 'whop' && <WhopTab />}
-      {tab === 'payloads' && <PayloadLogTab />}
-      {tab === 'log' && <AutomationsTab />}
     </div>
   )
 }
