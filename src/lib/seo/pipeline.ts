@@ -456,6 +456,7 @@ export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
   if (repo) {
     siteUpdate.defaultBranch = repo.defaultBranch
     if (repo.foundationInstalled && site.foundationStatus !== 'installed') siteUpdate.foundationStatus = 'installed'
+    siteUpdate.ciWorkflow = repo.hasCiWorkflow
   }
   if (audit && ctx.run.kind === 'weekly') {
     siteUpdate.lastScore = audit.score
@@ -560,7 +561,7 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
       system: PLAN_SYSTEM,
       context: dossier(ctx, facts, audit, await historyFor(ctx)),
       task: [
-        `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.`,
+        `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.${postsAllowed > 3 ? ' That is a ceiling, not a target: each brief must stand on distinct, real facts and real local demand; return fewer when they would otherwise overlap or run thin.' : ''}`,
         canCommit
           ? 'The engine will write and commit the content briefs you choose; everything else is for people.'
           : repo
@@ -665,6 +666,9 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
   const session = await ctx.session()
   try {
     for (const brief of briefs) {
+      // Several posts can outlast one lease; renew before each so no other
+      // worker can take the run over mid-write.
+      await ctx.renewLease(40 * 60_000)
       const before = session.spentUsd
       const raw = await session.structured({
         label: `write:${brief.slug}`,

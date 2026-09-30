@@ -8,6 +8,8 @@ import {
   Archive,
   ArrowUpRight,
   Building2,
+  CheckCircle2,
+  Circle,
   FolderGit2,
   GitPullRequest,
   Globe,
@@ -253,6 +255,7 @@ export function SiteView({ siteId }: { siteId: string }) {
           }}
           onOpenSettings={() => setTab('settings')}
         />
+        <ReadinessCard site={site} onNotice={setNotice} />
         <RunsCard runs={runs} now={now} />
         <PostsCard posts={posts} now={now} />
       </div>
@@ -587,6 +590,95 @@ function FoundationCard({
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * The road to hands-off publishing. Required steps gate Autopilot; the
+ * rest make it better. The button appears only once the site is ready.
+ */
+function ReadinessCard({ site, onNotice }: { site: SeoSiteDetail; onNotice: (n: NoticeState) => void }) {
+  const update = useUpdateSite(site.id)
+  const r = site.readiness
+  if (!r) return null
+  const required = r.steps.filter((s) => s.required)
+  const optional = r.steps.filter((s) => !s.required)
+  const done = required.filter((s) => s.ok).length
+  const canOffer = r.ready && site.mode !== 'autopilot'
+
+  function goAutopilot() {
+    if (
+      !window.confirm(
+        `Autopilot merges and publishes ${site.name}’s weekly changes without anyone approving them, whenever every content check and the build pass.
+
+Turn Autopilot on?`,
+      )
+    ) {
+      return
+    }
+    onNotice(null)
+    update.mutate(
+      { mode: 'autopilot' },
+      {
+        onSuccess: () => onNotice({ tone: 'ok', text: `${site.name} is now on Autopilot.` }),
+        onError: (e) => onNotice({ tone: 'err', text: e.message }),
+      },
+    )
+  }
+
+  const Step = ({ s }: { s: (typeof r.steps)[number] }) => (
+    <li className="flex items-start gap-2.5 py-1.5">
+      {s.ok ? (
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+      ) : (
+        <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+      )}
+      <div className="min-w-0">
+        <p className={cn('text-[13px] font-medium', !s.ok && 'text-foreground/85')}>{s.label}</p>
+        <p className="text-[12px] leading-snug text-muted-foreground">{s.detail}</p>
+      </div>
+    </li>
+  )
+
+  return (
+    <Card
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          Automation
+          <span className={cn('eyebrow rounded-md px-2 py-0.5', r.ready ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground')}>
+            {site.mode === 'autopilot' ? 'Autopilot' : r.ready ? 'Ready for autopilot' : `${done} of ${required.length} required`}
+          </span>
+        </span>
+      }
+      hint="What it takes for this site to publish every week with nobody clicking."
+      actions={
+        canOffer && (
+          <button type="button" onClick={goAutopilot} disabled={update.isPending} className={btnPrimary}>
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Switch to Autopilot
+          </button>
+        )
+      }
+    >
+      <div className="grid gap-x-8 md:grid-cols-2">
+        <div>
+          <p className="eyebrow mb-1 text-muted-foreground">Required</p>
+          <ul className="divide-y divide-border-soft">
+            {required.map((s) => (
+              <Step key={s.id} s={s} />
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="eyebrow mb-1 text-muted-foreground">Makes it better</p>
+          <ul className="divide-y divide-border-soft">
+            {optional.map((s) => (
+              <Step key={s.id} s={s} />
+            ))}
+          </ul>
+        </div>
+      </div>
+    </Card>
   )
 }
 

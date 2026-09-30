@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import type {
+  ReadinessStep,
   SeoIntegrations,
   SeoOverviewResponse,
   SeoPostView,
@@ -8,6 +9,7 @@ import type {
   SeoRunSummary,
   SeoSiteDetail,
   SeoSiteSummary,
+  SiteReadiness,
 } from './api-types'
 import { githubViewer } from './github'
 import { gscConfigured } from './gsc'
@@ -132,14 +134,45 @@ async function postCounts(siteIds: string[]): Promise<Map<string, { total: numbe
   return out
 }
 
+/**
+ * The road to hands-off publishing, as a checklist. "Required" steps are
+ * the ones Autopilot can't ship without; the rest make it better or fully
+ * unattended (a Lovable key removes the last human click).
+ */
+function readinessFor(
+  s: SiteRow,
+  env: { reviewedShips: number; lovableKey: boolean; gscOk: boolean; scheduleOn: boolean },
+): SiteReadiness {
+  const step = (id: ReadinessStep['id'], label: string, ok: boolean, required: boolean, detail: string): ReadinessStep => ({ id, label, ok, required, detail })
+  const steps: ReadinessStep[] = [
+    step('repo', 'GitHub repo linked', !!s.repoFullName, true, s.repoFullName ? s.repoFullName : 'Link the site’s repo in Settings. GoHighLevel sites have none — they stay in Audit mode.'),
+    step('facts', 'Business facts recorded', !!s.facts, true, s.facts ? 'Every post is written from these — keep them current.' : 'Recorded automatically on the first run; check them on the Business facts tab.'),
+    step('foundation', 'SEO foundation installed', s.foundationStatus === 'installed', true, s.foundationStatus === 'installed' ? 'Posts, sitemap and llms.txt are wired in.' : s.foundationStatus === 'proposed' ? 'The foundation PR is open — approve it on its run page, then publish in Lovable.' : 'One reviewed pull request; the button is above.'),
+    step('ci', 'Build check in the repo', s.ciWorkflow, true, s.ciWorkflow ? 'Every engine branch is built before it can merge.' : 'Comes with the foundation; Autopilot won’t merge without it.'),
+    step('reviewed', 'A weekly run approved by a person', env.reviewedShips > 0, false, env.reviewedShips > 0 ? `${env.reviewedShips} shipped after review.` : 'Run a week in Review mode first so you’ve seen what the engine writes for this site.'),
+    step('publish', 'Publishing without a click', !!s.lovableProjectId && env.lovableKey, false, !!s.lovableProjectId && env.lovableKey ? 'Lovable publishes each merge through its API.' : env.lovableKey ? 'Add the Lovable project id in Settings.' : 'Without a Lovable API key (Business plan), someone clicks Publish in Lovable after each merge — the engine notices and verifies.'),
+    step('gsc', 'Search Console connected', !!s.gscProperty && env.gscOk, false, !!s.gscProperty && env.gscOk ? s.gscProperty! : 'Optional, and the best source of keyword data: add the service account to the property, then set it in Settings.'),
+    step('schedule', 'Weekly schedule on', env.scheduleOn && s.enabled, false, env.scheduleOn ? (s.enabled ? 'Runs every week.' : 'This site is skipped by the schedule — flip it on in the Engine card.') : 'Turn the weekly schedule on from the SEO dashboard.'),
+    step('mode', 'Autopilot on', s.mode === 'autopilot', false, s.mode === 'autopilot' ? 'Merges on its own when every check passes.' : s.mode === 'review' ? 'A person approves each week’s PR.' : 'Audit mode: plans and drafts only.'),
+  ]
+  return { ready: steps.filter((x) => x.required).every((x) => x.ok), steps }
+}
+
 export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> {
   const s = await prisma.seoSite.findUnique({ where: { id: siteId }, include: { client: { select: { id: true, name: true } } } })
   if (!s) return null
-  const latest = await prisma.seoRun.findFirst({ where: { siteId }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT })
-  const counts = (await postCounts([siteId])).get(siteId) ?? { total: 0, live: 0 }
-  const scores = (await recentScores([siteId])).get(siteId) ?? []
+  const [latest, counts, scores, reviewedShips, lovable, gsc, settings] = await Promise.all([
+    prisma.seoRun.findFirst({ where: { siteId }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT }),
+    postCounts([siteId]).then((m) => m.get(siteId) ?? { total: 0, live: 0 }),
+    recentScores([siteId]).then((m) => m.get(siteId) ?? []),
+    prisma.seoRun.count({ where: { siteId, kind: 'weekly', reviewedBy: { not: null }, mergedAt: { not: null } } }),
+    describeSecret('lovable'),
+    gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
+    getSeoSettings(),
+  ])
   return {
     ...siteSummary(s, latest, counts, scores),
+    readiness: readinessFor(s, { reviewedShips, lovableKey: lovable.present, gscOk: gsc.ok, scheduleOn: settings.enabled }),
     defaultBranch: s.defaultBranch,
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
     gscProperty: s.gscProperty,

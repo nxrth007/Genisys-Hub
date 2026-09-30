@@ -677,11 +677,15 @@ function EngineCard({
             ))}
           </select>
         </Field>
-        <Field label="New posts per site / week" group hint="0 keeps runs to audits, fixes and plans.">
+        <Field
+          label="New posts per site / week"
+          group
+          hint="0 keeps runs to audits, fixes and plans. Around $0.40 a post. Above 3, the engine only writes as many as the business's real facts (projects, prices, services) can back — it hands back fewer rather than pad, since Google demotes sites that mass-publish thin AI pages."
+        >
           <Segmented
             value={s.postsPerWeek}
             disabled={busy}
-            options={[0, 1, 2].map((n) => ({ value: n, label: String(n) }))}
+            options={[0, 1, 2, 3, 4, 5, 6, 8].map((n) => ({ value: n, label: String(n) }))}
             onChange={(n) => save.mutate({ postsPerWeek: n })}
           />
         </Field>

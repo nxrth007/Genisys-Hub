@@ -2064,6 +2064,8 @@ model SeoSite {
   /// none | proposed | installed
   foundationStatus String    @default("none")
   foundationPrUrl  String?
+  /// .github/workflows/seo-verify.yml seen in the repo on the last collect.
+  ciWorkflow       Boolean   @default(false)
   lastScore        Int?
   lastRunAt        DateTime?
   archivedAt       DateTime?

@@ -49,7 +49,7 @@ export type SeoSettings = {
   hour: number
   timeZone: string
   model: string
-  /** New posts per site per week (0–2). */
+  /** New posts per site per week (0–8). The engine writes fewer when the business's facts can't support more. */
   postsPerWeek: number
   /** A run stops calling Claude once it has spent this much. */
   maxCostPerRunUsd: number
@@ -75,6 +75,21 @@ export type SeoRunSummary = {
   startedAt: string | null
   finishedAt: string | null
   createdAt: string
+}
+
+export type ReadinessStep = {
+  id: 'repo' | 'facts' | 'foundation' | 'ci' | 'reviewed' | 'publish' | 'gsc' | 'schedule' | 'mode'
+  label: string
+  ok: boolean
+  /** Required for Autopilot to be able to ship on its own. */
+  required: boolean
+  detail: string
+}
+
+export type SiteReadiness = {
+  /** Every required step is done — Autopilot can run hands-off. */
+  ready: boolean
+  steps: ReadinessStep[]
 }
 
 export type SeoSiteSummary = {
@@ -108,6 +123,8 @@ export type SeoOverviewResponse = {
 }
 
 export type SeoSiteDetail = SeoSiteSummary & {
+  /** What stands between this site and hands-off weekly publishing. */
+  readiness: SiteReadiness
   defaultBranch: string | null
   facts: BusinessFacts | null
   gscProperty: string | null
