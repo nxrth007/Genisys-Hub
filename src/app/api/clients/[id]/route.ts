@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { syncSeoSiteLiveUrl } from '@/lib/seo/link-client'
 import { ensureClientGeo, GEO_RESET } from '@/lib/geocode'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
@@ -167,6 +168,11 @@ export async function PATCH(
         slackChannelName: true,
       },
     })
+
+    // The site we built moved or went live: the SEO site audits the new address.
+    if ('siteUrl' in parsed.data && parsed.data.siteUrl && parsed.data.siteUrl !== priorSiteUrl) {
+      void syncSeoSiteLiveUrl(id, parsed.data.siteUrl).catch((err) => console.warn('[clients] seo site url sync failed:', err))
+    }
 
     // Sync linked User roles when lifecycle changes. Without this, a
     // self-onboarded client whose lifecycle gets edited from `pending`

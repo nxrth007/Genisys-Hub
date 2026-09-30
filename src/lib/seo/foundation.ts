@@ -1,4 +1,5 @@
 import type { ClaudeSession } from './claude'
+import { PAGES_OVERLAY } from './content'
 import { FOUNDATION_SYSTEM, FoundationSchema } from './prompts'
 import type { ChangeFile, RepoSnapshot } from './types'
 
@@ -73,6 +74,8 @@ Allow: /
 
 Sitemap: ${o.siteUrl}/sitemap.xml
 7. AGENTS.md: keep the <!-- LOVABLE:BEGIN --> … <!-- LOVABLE:END --> block untouched and append a short "## Genisys SEO engine" section saying src/content/** is written weekly by the Genisys SEO engine through GitHub; don't delete, rename or reformat those files or change the post JSON shape/loader without telling Genisys.
+8. Page title/description overrides: the engine fixes titles and meta descriptions weekly through src/content/seo/pages.json (created by Genisys alongside this change; treat it as existing), shaped { "<site path>": { "title"?: string, "description"?: string } } with keys like "/", "/services/concrete-patios", "/blog". Load it with import.meta.glob("/src/content/seo/pages.json", { eager: true, import: "default" }) (same pattern as the posts — no resolveJsonModule needed) into a typed helper in ${template ? 'src/lib/seo.ts' : 'the SEO helper'}: export function pageOverride(path: string): { title?: string; description?: string } — normalise the path (strip a trailing slash, "" → "/") and return the entry or {}. Apply it INSIDE meta(title, description, url): use pageOverride(url).title ?? title and pageOverride(url).description ?? description for the <title>, the description meta, og:title and og:description — so every existing route picks overrides up with no route edits. If the homepage's title/description are written directly in __root.tsx or index.tsx rather than through meta(), route those through pageOverride("/") too.
+9. Service pages (src/routes/services.$slug.tsx or equivalent): add a "Guides" section listing up to 3 posts whose serviceSlug matches this service — title linking to /blog/<slug> and the description — placed above the closing call-to-action, using the existing card/link classes. Render nothing when no post matches. (Posts link to their service page already; this closes the loop.)
 
 Rules:
 - Do not touch package.json, lockfiles, vite config, src/router.tsx, src/server.ts, src/start.ts, src/routeTree.gen.ts, .lovable/ or .github/. No new dependencies.
@@ -138,6 +141,14 @@ export async function generateFoundation(o: {
   }
 
   // Deterministic files the Hub owns outright.
+  if (!seen.has(PAGES_OVERLAY)) {
+    files.push({
+      path: PAGES_OVERLAY,
+      content: '{}\n',
+      reason: 'Empty title/description overlay — the engine fills it in weekly',
+      existed: existing.has(PAGES_OVERLAY),
+    })
+  }
   files.push({
     path: FOUNDATION_MARKER,
     content:

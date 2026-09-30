@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
+import { OnboardingHealth } from '@/components/clients/onboarding-health'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
 import {
@@ -244,6 +245,8 @@ function ClientsPage() {
           </a>
         }
       />
+
+      <OnboardingHealth />
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

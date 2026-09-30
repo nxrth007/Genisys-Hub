@@ -374,6 +374,14 @@ export type Draft = {
   costUsd: number
 }
 
+/** A title/meta-description override the engine applies through src/content/seo/pages.json. */
+export type OnPageChange = {
+  path: string
+  title: string | null
+  description: string | null
+  reason: string
+}
+
 /** A file the engine will create or overwrite in the site repo. Never deletes. */
 export type ChangeFile = {
   path: string

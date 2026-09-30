@@ -1,5 +1,5 @@
 import type { PostDraft } from './prompts'
-import type { BusinessFacts, ChangeFile, Draft, GateResult, SeoPostFile } from './types'
+import type { BusinessFacts, ChangeFile, Draft, GateResult, OnPageChange, SeoPostFile } from './types'
 
 /**
  * Turning Claude's post into something safe to publish.
@@ -13,6 +13,10 @@ import type { BusinessFacts, ChangeFile, Draft, GateResult, SeoPostFile } from '
  */
 
 export const CONTENT_DIR = 'src/content/blog'
+/** Title/description overrides the foundation's meta() helper reads. */
+export const PAGES_OVERLAY = 'src/content/seo/pages.json'
+/** On-page changes per week — enough to matter, few enough to attribute. */
+export const MAX_ONPAGE_PER_WEEK = 5
 
 const WORDS_PER_MINUTE = 230
 
@@ -303,4 +307,115 @@ export function renderPlainText(p: SeoPostFile): string {
   }
   if (p.sources.length) lines.push('Sources', ...p.sources.map((s) => `- ${s.title}: ${s.url}`))
   return lines.join('\n').trim()
+}
+
+// ---------------------------------------------------------------------------
+// On-page overrides (titles + meta descriptions)
+// ---------------------------------------------------------------------------
+
+export type PagesOverlay = Record<string, { title?: string; description?: string }>
+
+export function parsePagesOverlay(raw: string | null): PagesOverlay {
+  if (!raw) return {}
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+    const out: PagesOverlay = {}
+    for (const [k, e] of Object.entries(v as Record<string, unknown>)) {
+      if (!e || typeof e !== 'object') continue
+      const o = e as { title?: unknown; description?: unknown }
+      const entry = {
+        ...(typeof o.title === 'string' ? { title: o.title } : {}),
+        ...(typeof o.description === 'string' ? { description: o.description } : {}),
+      }
+      if (Object.keys(entry).length) out[k] = entry
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+const SELF_RANKING = /\b(best|top|#\s?1|number one|no\.\s?1)\b[^.\n]{0,40}\b(in|near)\b/i
+
+/**
+ * Apply the engine's proposed title/description changes on top of the
+ * overlay already in the repo, keeping only the ones a person would
+ * accept: real pages, sane lengths, actually different, no self-ranking
+ * claims, and at most MAX_ONPAGE_PER_WEEK of them.
+ */
+export function buildOnPageChanges(
+  proposed: OnPageChange[],
+  ctx: {
+    current: PagesOverlay
+    /** Live pages: path → what's on the page now. */
+    pages: Map<string, { title: string | null; description: string | null }>
+    brand: string
+  },
+): { applied: OnPageChange[]; skipped: { path: string; why: string }[]; overlay: PagesOverlay } {
+  const applied: OnPageChange[] = []
+  const skipped: { path: string; why: string }[] = []
+  const overlay: PagesOverlay = { ...ctx.current }
+  const titlesInUse = new Set(
+    [...ctx.pages.entries()].map(([p, v]) => (overlay[p]?.title ?? v.title ?? '').trim().toLowerCase()).filter(Boolean),
+  )
+  const seen = new Set<string>()
+
+  for (const c of proposed) {
+    const path = normalizePath(c.path.trim() || '/')
+    if (seen.has(path)) continue
+    seen.add(path)
+    if (applied.length >= MAX_ONPAGE_PER_WEEK) {
+      skipped.push({ path, why: `more than ${MAX_ONPAGE_PER_WEEK} changes this week` })
+      continue
+    }
+    const live = ctx.pages.get(path)
+    if (!live) {
+      skipped.push({ path, why: 'not a page on the site' })
+      continue
+    }
+    const title = c.title?.trim() || null
+    const description = c.description?.trim() || null
+    const currentTitle = (overlay[path]?.title ?? live.title ?? '').trim()
+    const currentDesc = (overlay[path]?.description ?? live.description ?? '').trim()
+    const entry: { title?: string; description?: string } = { ...overlay[path] }
+    let changed = false
+
+    if (title && title !== currentTitle) {
+      if (title.length < 20 || title.length > 65) skipped.push({ path, why: `title is ${title.length} characters` })
+      else if (SELF_RANKING.test(title)) skipped.push({ path, why: 'title makes a self-ranking claim' })
+      else if (titlesInUse.has(title.toLowerCase()) && title.toLowerCase() !== currentTitle.toLowerCase()) skipped.push({ path, why: 'title already used by another page' })
+      else {
+        titlesInUse.delete(currentTitle.toLowerCase())
+        titlesInUse.add(title.toLowerCase())
+        entry.title = title
+        changed = true
+      }
+    }
+    if (description && description !== currentDesc) {
+      if (description.length < 70 || description.length > 170) skipped.push({ path, why: `description is ${description.length} characters` })
+      else if (SELF_RANKING.test(description)) skipped.push({ path, why: 'description makes a self-ranking claim' })
+      else {
+        entry.description = description
+        changed = true
+      }
+    }
+    if (!changed) {
+      if (!skipped.some((s) => s.path === path)) skipped.push({ path, why: 'nothing would change' })
+      continue
+    }
+    overlay[path] = entry
+    applied.push({ path, title: entry.title === title ? title : null, description: entry.description === description ? description : null, reason: c.reason.trim() })
+  }
+  return { applied, skipped, overlay }
+}
+
+export function overlayChangeFile(overlay: PagesOverlay, applied: OnPageChange[], existed: boolean): ChangeFile {
+  const sorted = Object.fromEntries(Object.entries(overlay).sort(([a], [b]) => a.localeCompare(b)))
+  return {
+    path: PAGES_OVERLAY,
+    content: JSON.stringify(sorted, null, 2) + '\n',
+    reason: `Title/description fixes on ${applied.length} page${applied.length === 1 ? '' : 's'}: ${applied.map((a) => a.path).join(', ')}`,
+    existed,
+  }
 }

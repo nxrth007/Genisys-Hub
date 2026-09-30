@@ -53,7 +53,7 @@ Turn the dossier and research notes into this week's plan for one client site.
 - summary: 3–5 sentences in plain English for the agency owner (no jargon without explanation).
 - scorecard: 2–4 sentences on where the site stands (audit score, key metrics or lack of data, trend vs last week if known).
 - quickWins: 3–8 items, highest score first, P0 defects first. Each must name the exact change, the target URL when there is one, the evidence (audit finding id, query data, or research source), and the owner:
-  - "engine" only for new blog content the engine itself writes this week (it cannot yet edit pages, routes or templates);
+  - "engine" for new blog content the engine writes this week, and — only when the task says the SEO foundation is installed — for title and meta-description fixes on this site's existing pages (category "on_page", targetUrl = that page, the exact new title/description stated in "action"). The engine cannot edit page copy, routes or templates;
   - "genisys" for site changes a person at the agency makes in Lovable — for these, write lovablePrompt: a precise, ready-to-paste instruction for Lovable's AI editor (which files/sections to change, the exact new text for titles/meta/headings where relevant, and "do not change anything else");
   - "client" for things only the business can do or provide.
   Use null for lovablePrompt when owner isn't "genisys". Use null for targetUrl when not page-specific.
@@ -77,6 +77,16 @@ Write the post described by the brief for the client's website. It is published 
 - metaTitle: ≤ 60 characters, primary keyword and city near the front, brand at the end when it fits. description: 140–160 characters, specific, includes the city.
 - eyebrow: 1–3 words naming the service or topic. imageKey: pick the most fitting key from the allowed image keys (their names describe the real project photos), or null. imageAlt: a short, literal description implied by the key and the business — e.g. key "driveway" → "Concrete driveway by <business name>". You cannot see the photo, so never describe details, colors, settings or people.
 - serviceSlug: the matching service slug from the allowed list, or null.`
+
+export const ONPAGE_SYSTEM = `${PLAYBOOK}
+
+## Your job right now: title and meta-description fixes
+You are given this site's pages with their current title and meta description, the business facts, and the approved fixes from this week's plan. Return the exact new values.
+- path: the page's site path exactly as listed (e.g. "/services/concrete-patios"). Only paths from the list.
+- title: ≤ 60 characters. Primary service (or the page's topic) and the city near the front, the business name at the end when it fits ("Concrete Patios in Fort Worth | Junior Concrete"). null to keep the current title.
+- description: 140–160 characters, plain and specific: what the page offers, the city or service area, one concrete reason to choose them from the facts, and an invitation ("Call for a free estimate"). No keyword lists, no exclamation marks. null to keep the current one.
+- reason: one sentence tying the change to the plan item or audit finding.
+Never change the business name. Every title must be unique across the site. Skip a page rather than write something generic.`
 
 export const FACTS_SYSTEM = `You extract a contractor's business facts for an SEO engine from their onboarding answers and their website's source. Record only what the sources state — never guess or embellish. Leave a field null (or an empty list) when the sources don't say. Normalize the phone as it appears publicly, e.g. "(817) 210-5188". state is the two-letter code. schemaType is the most specific schema.org HomeAndConstructionBusiness subtype that fits (RoofingContractor, GeneralContractor, HVACBusiness, Plumber, Electrician, HousePainter, Locksmith, MovingCompany), otherwise "HomeAndConstructionBusiness" (fence, concrete and masonry have no specific subtype). services: one entry per distinct service the site or intake lists, with the site's slug when there is one. projects: only real described projects. profiles: public profile URLs (Google Business Profile, Yelp, BBB, Facebook, Instagram, Angi…) — skip placeholders like a bare https://www.facebook.com/. avoid: claims the sources say not to make, plus any obviously unverifiable superlatives found in the site copy.`
 
@@ -151,6 +161,17 @@ export const PostDraftSchema = z.object({
   sources: z.array(z.object({ title: z.string(), url: z.string() })),
 })
 export type PostDraft = z.infer<typeof PostDraftSchema>
+
+export const OnPageSchema = z.object({
+  changes: z.array(
+    z.object({
+      path: z.string(),
+      title: z.string().nullable(),
+      description: z.string().nullable(),
+      reason: z.string(),
+    }),
+  ),
+})
 
 export const FactsSchema = z.object({
   businessName: z.string(),

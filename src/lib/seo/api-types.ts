@@ -157,6 +157,7 @@ export type CrawlView = Omit<CrawlResult, 'pages'> & {
     url: string
     status: number
     title: string | null
+    description: string | null
     h1: string | null
     wordCount: number
     ms: number

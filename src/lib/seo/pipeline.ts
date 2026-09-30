@@ -2,7 +2,18 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@/generated/prisma/client'
 import { auditSite } from './audit'
 import { ClaudeSession } from './claude'
-import { buildDraft, CONTENT_DIR, draftBlocked, postChangeFile, postText, slugify } from './content'
+import {
+  buildDraft,
+  buildOnPageChanges,
+  CONTENT_DIR,
+  draftBlocked,
+  overlayChangeFile,
+  PAGES_OVERLAY,
+  parsePagesOverlay,
+  postChangeFile,
+  postText,
+  slugify,
+} from './content'
 import { crawlSite, fetchPage } from './crawl'
 import { generateFoundation } from './foundation'
 import {
@@ -15,13 +26,14 @@ import {
   getPullRequest,
   mergePullRequest,
   openPullRequest,
+  readFile,
   recentCommits,
   workflowRunsForSha,
 } from './github'
 import { gscConfigured, gscSubmitSitemap, gscSummary } from './gsc'
 import { newIndexNowKey, pingIndexNow } from './indexnow'
 import { getLovableDeployment, getLovableProject, lovableConfigured, publishLovableProject } from './lovable'
-import { FACTS_SYSTEM, FactsSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
+import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { runPsi } from './psi'
 import { snapshotRepo } from './repo'
 import { getSeoSettings, zonedParts } from './settings'
@@ -34,6 +46,7 @@ import type {
   ClaudeUsage,
   CrawlResult,
   Draft,
+  OnPageChange,
   GscSummary,
   PsiResult,
   RepoSnapshot,
@@ -202,6 +215,7 @@ function crawlView(c: CrawlResult): CrawlView {
       url: p.url,
       status: p.status,
       title: p.title,
+      description: p.metaDescription,
       h1: p.h1[0] ?? null,
       wordCount: p.wordCount,
       ms: p.ms,
@@ -563,7 +577,7 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
       task: [
         `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.${postsAllowed > 3 ? ' That is a ceiling, not a target: each brief must stand on distinct, real facts and real local demand; return fewer when they would otherwise overlap or run thin.' : ''}`,
         canCommit
-          ? 'The engine will write and commit the content briefs you choose; everything else is for people.'
+          ? 'The SEO foundation is installed: the engine will write and commit the content briefs you choose, and it can apply title and meta-description fixes to existing pages itself (owner "engine", category "on_page", targetUrl = the page, exact new title/description in `action`). Page copy, routes and templates are still for people.'
           : repo
             ? 'The engine will draft the content but cannot commit yet: the SEO foundation is not installed on this repo. Include a P1 quick win (owner "genisys") to install it — it is one button on the site page in the Genisys Hub → SEO, which opens a reviewed pull request.'
             : 'This site has no code repo the engine can commit to (e.g. a GoHighLevel site). The engine drafts content for a person to paste into the site builder; site changes are for people.',
@@ -713,11 +727,78 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
       ctx.log('write', `Drafted "${draft.post.title}"${blocked.length ? ` — needs a look: ${blocked.map((g) => g.id).join(', ')}` : ''}`, blocked.length ? 'warn' : 'info')
       await ctx.saveUsage(session, { drafts: json(drafts), draftCount: drafts.length })
     }
+    await writeOnPage(ctx, session, drafts)
   } catch (err) {
     await ctx.saveUsage(session)
     throw err
   }
   return { stage: 'commit', status: 'running' }
+}
+
+/**
+ * Title and meta-description fixes the plan assigned to the engine, applied
+ * through the foundation's pages.json overlay. Stores the run's full
+ * change set (posts + overlay) so the commit stage ships both.
+ */
+async function writeOnPage(ctx: RunContext, session: ClaudeSession, drafts: Draft[]): Promise<void> {
+  const plan = (ctx.run.plan as unknown as SeoPlan | null) ?? null
+  const snap = ctx.snapshot
+  const repo = snap?.repo ?? null
+  const paths = new Set(repo?.paths ?? [])
+  const postFiles = () => drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`)))
+
+  const wins = (plan?.quickWins ?? []).filter((w) => w.owner === 'engine' && w.category === 'on_page' && w.targetUrl)
+  const canApply = !!repo && ctx.site.mode !== 'audit' && (repo.foundationInstalled || ctx.site.foundationStatus === 'installed') && paths.has(PAGES_OVERLAY)
+  if (!wins.length || !canApply) {
+    if (wins.length && repo && !paths.has(PAGES_OVERLAY)) {
+      ctx.log('write', `${wins.length} title/description fix(es) were planned, but the site has no ${PAGES_OVERLAY} yet — install (or re-run) the SEO foundation.`, 'warn')
+    }
+    await ctx.save({ changes: json(postFiles()) })
+    return
+  }
+
+  const origin = originOf(ctx.site.liveUrl)
+  const pages = new Map<string, { title: string | null; description: string | null }>()
+  for (const p of snap?.crawl?.pages ?? []) {
+    try {
+      const u = new URL(p.url)
+      if (origin && u.origin !== origin) continue
+      if (p.status >= 400) continue
+      pages.set(u.pathname.replace(/\/+$/, '') || '/', { title: p.title, description: p.description })
+    } catch {
+      /* skip */
+    }
+  }
+  const facts = (ctx.site.facts as unknown as BusinessFacts | null) ?? null
+  const current = parsePagesOverlay(await readFile(repo.fullName, PAGES_OVERLAY, repo.headSha).catch(() => null))
+
+  const out = await session.structured({
+    label: 'on-page',
+    system: ONPAGE_SYSTEM,
+    context: [
+      `# ${facts?.businessName ?? ctx.site.name}`,
+      '## Business facts',
+      facts ? JSON.stringify(facts, null, 2) : '(none recorded)',
+      '',
+      '## Pages (path | current title | current description)',
+      ...[...pages.entries()].map(([path, v]) => `- ${path} | ${current[path]?.title ?? v.title ?? '—'} | ${current[path]?.description ?? v.description ?? '—'}`),
+    ].join('\n'),
+    task: `Apply these approved fixes:\n${wins.map((w) => `- ${w.targetUrl}: ${w.title} — ${w.action}${w.evidence ? ` (evidence: ${w.evidence})` : ''}`).join('\n')}`,
+    schema: OnPageSchema,
+    effort: 'medium',
+    maxTokens: 8_000,
+  })
+  const proposed: OnPageChange[] = out.changes
+  const { applied, skipped, overlay } = buildOnPageChanges(proposed, { current, pages, brand: facts?.businessName ?? ctx.site.name })
+  for (const s of skipped) ctx.log('write', `Skipped title/description change for ${s.path}: ${s.why}`, 'warn')
+  const changes: ChangeFile[] = postFiles()
+  if (applied.length) {
+    changes.push(overlayChangeFile(overlay, applied, true))
+    ctx.log('write', `Title/description fixes ready for ${applied.length} page(s): ${applied.map((a) => a.path).join(', ')}`)
+  } else {
+    ctx.log('write', 'No title/description change passed the checks this week.')
+  }
+  await ctx.saveUsage(session, { changes: json(changes) })
 }
 
 async function writeFoundation(ctx: RunContext): Promise<StageOutcome> {
@@ -786,21 +867,24 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
     changes = Array.isArray(ctx.run.changes) ? (ctx.run.changes as unknown as ChangeFile[]) : []
   } else {
     const committable = !!repo && ctx.site.mode !== 'audit' && (repo.foundationInstalled || ctx.site.foundationStatus === 'installed')
-    if (!committable || !drafts.length) {
+    // The write stage stores the full change set (posts + title/description
+    // overlay); older runs only have drafts.
+    const stored: ChangeFile[] = Array.isArray(ctx.run.changes) ? (ctx.run.changes as unknown as ChangeFile[]) : []
+    const paths = new Set(repo?.paths ?? [])
+    changes = stored.length ? stored : drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`)))
+    if (!committable || !changes.length) {
       ctx.log(
         'commit',
         !repo
           ? 'No repo linked — drafts are ready to copy into the site builder.'
           : ctx.site.mode === 'audit'
             ? 'Audit mode — nothing committed.'
-            : !drafts.length
-              ? 'No new content this week — nothing to commit.'
+            : !changes.length
+              ? 'No new content or fixes this week — nothing to commit.'
               : 'SEO foundation not installed — drafts kept in the Hub. Install the foundation to let the engine publish.',
       )
       return { stage: 'report', status: 'running' }
     }
-    const paths = new Set(repo.paths)
-    changes = drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`)))
   }
   if (!changes.length || !repo) {
     ctx.log('commit', 'Nothing to commit.')
@@ -1134,10 +1218,16 @@ export async function stageReport(ctx: RunContext): Promise<StageOutcome> {
   })
   if (ctx.run.kind === 'weekly') {
     const delta = ctx.run.score != null && prev?.score != null ? ctx.run.score - prev.score : null
+    const changes: ChangeFile[] = Array.isArray(ctx.run.changes) ? (ctx.run.changes as unknown as ChangeFile[]) : []
+    const fixes = changes.find((c) => c.path === PAGES_OVERLAY)?.reason ?? null
+    const topWins = (plan?.quickWins ?? []).slice(0, 3)
+    const owner = (o: string) => (o === 'engine' ? 'engine' : o === 'genisys' ? 'Genisys' : 'client')
     const lines = [
       `:bar_chart: *SEO weekly — ${ctx.site.name}* (${ctx.run.weekOf})`,
-      `Score ${ctx.run.score ?? '—'}${delta != null ? ` (${delta >= 0 ? '+' : ''}${delta})` : ''} · ${drafts.length} post${drafts.length === 1 ? '' : 's'} · $${ctx.run.costUsd.toFixed(2)}`,
+      `Score ${ctx.run.score ?? '—'}${delta != null ? ` (${delta >= 0 ? '+' : ''}${delta})` : ''} · ${drafts.length} post${drafts.length === 1 ? '' : 's'}${fixes ? ` · ${fixes.split(':')[0].toLowerCase()}` : ''} · $${ctx.run.costUsd.toFixed(2)}`,
       plan?.headline ? `> ${plan.headline}` : '',
+      topWins.length ? `Top wins: ${topWins.map((w, i) => `${i + 1}) ${w.title} _(${owner(w.owner)})_`).join('  ')}` : '',
+      drafts.length ? `Posts: ${drafts.map((d) => `“${d.post.title}”`).join(', ')}` : '',
       ctx.run.publishedAt ? 'New content is live.' : ctx.run.prUrl ? `PR: ${ctx.run.prUrl}` : drafts.length ? 'Drafts are in the Hub, ready to copy.' : '',
       hubUrl(`/seo/runs/${ctx.run.id}`),
     ].filter(Boolean)

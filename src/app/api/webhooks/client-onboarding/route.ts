@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
+import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
+import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 
 /**
  * POST /api/webhooks/client-onboarding
@@ -84,7 +86,31 @@ export async function POST(req: NextRequest) {
     req.nextUrl.searchParams.get('secret') ??
     ''
 
+  // The body is read before the secret is checked so a rejected request
+  // that clearly came from the form (it carries onboarding answers) can
+  // be reported — a submission the Hub turns away is a client nobody
+  // hears about. Random scanners send neither a secret nor answers and
+  // are ignored quietly.
+  const rawText = await req.text().catch(() => '')
+  let parsedBody: Record<string, unknown> | null = null
+  try {
+    const v: unknown = JSON.parse(rawText)
+    if (isRecord(v)) parsedBody = v
+  } catch {
+    parsedBody = null
+  }
+  const looksLikeSubmission =
+    !!parsedBody &&
+    (isRecord(parsedBody.answers) || FIELDS.some((key) => str(parsedBody?.[key]) !== null))
+
   if (!provided || !secretMatches(provided, expected)) {
+    if (looksLikeSubmission || provided) {
+      await hubAlertThrottled(
+        'onboarding:invalid_secret',
+        30 * 60_000,
+        `:rotating_light: *Onboarding webhook rejected a submission* — the secret it sent doesn't match the Vault entry "${SECRET_ENTRY}". ${looksLikeSubmission ? `It looked like a real form entry${str(parsedBody?.businessName ?? (isRecord(parsedBody?.answers) ? parsedBody.answers.businessName : null)) ? ` for *${str(parsedBody?.businessName ?? (parsedBody?.answers as Record<string, unknown>).businessName)}*` : ''}. ` : ''}Check the webhook secret in the onboarding funnel; the answers were NOT stored.`,
+      )
+    }
     // Deliberately distinct from middleware's generic "unauthorized", so
     // a wrong secret is distinguishable from never reaching the handler.
     return NextResponse.json(
@@ -96,16 +122,18 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const rawText = await req.text().catch(() => '')
-  let body: Record<string, unknown>
-  try {
-    body = JSON.parse(rawText) as Record<string, unknown>
-  } catch {
+  if (!parsedBody) {
+    await hubAlertThrottled(
+      'onboarding:invalid_json',
+      30 * 60_000,
+      ':rotating_light: *Onboarding webhook rejected a submission* — the body was not valid JSON. The funnel\u2019s webhook payload format may have changed; the answers were NOT stored.',
+    )
     return NextResponse.json(
       { error: 'invalid_json', message: 'Body was not valid JSON.' },
       { status: 400 },
     )
   }
+  const body = parsedBody
 
   // The funnel wraps answers in an envelope ({ event, submittedAt, source,
   // answers, labels, files }); imports and the earlier form send them
@@ -116,6 +144,11 @@ export async function POST(req: NextRequest) {
   // liveness probe, not a submission. Storing it would put a blank row
   // in front of whoever reads the intakes next.
   if (!FIELDS.some((key) => str(answers[key]) !== null)) {
+    await hubAlertThrottled(
+      'onboarding:empty_payload',
+      30 * 60_000,
+      ':rotating_light: *Onboarding webhook received a submission with no answers in it* — the funnel\u2019s field mapping may have changed. Nothing was stored.',
+    )
     return NextResponse.json(
       { error: 'empty_payload', message: 'No onboarding fields were present.' },
       { status: 400 },
@@ -177,10 +210,28 @@ export async function POST(req: NextRequest) {
   // carrying this business name). Best-effort: a failure here must not
   // turn a stored intake into a 500 for the sender.
   let clientId: string | null = null
+  let created = false
   try {
-    clientId = (await promoteIntakeToClient(intake.id))?.clientId ?? null
+    const promoted = await promoteIntakeToClient(intake.id)
+    clientId = promoted?.clientId ?? null
+    created = promoted?.created ?? false
   } catch (err) {
     console.error(`[client-onboarding] client promotion failed for ${intake.id}:`, err)
+  }
+
+  // Every submission gets announced, so a missing one is noticed.
+  const who = intake.businessName ?? 'an unnamed business'
+  const city = str(answers.cities)?.split(/[,\n;]/)[0]?.trim()
+  if (clientId) {
+    await hubAlert(
+      `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : ' — linked to the client already on file'}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
+    )
+    // Give them a seat in SEO now (audit mode; it waits for a live URL).
+    void ensureSeoSiteForClient(clientId).catch((err) => console.warn(`[client-onboarding] seo site for ${clientId}:`, err))
+  } else {
+    await hubAlert(
+      `:warning: *Onboarding submission stored but no client was created* — ${who}. Usually the business name was blank. Review it under Clients → Onboarding answers: <${hubLink('/clients/onboarding')}|open>`,
+    )
   }
 
   // Put the new client on the Home globe now rather than on the next
