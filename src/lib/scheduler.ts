@@ -38,6 +38,7 @@ import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-r
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSeoTick } from './seo/engine'
+import { reconcileOnboardingSheet } from './onboarding-sheet'
 
 let initialized = false
 
@@ -152,6 +153,14 @@ const VICIDIAL_SNAPSHOT_HOUR_UTC = 10
 // overlap. ONLY writes Appointment.county — never touches reminders,
 // client alerts, or dispatch.
 let countyBackfillInFlight = false
+
+// Onboarding sheet reconcile — the form writes every submission to its
+// Google Sheet before it tries the Hub's webhook, and the webhook step is
+// skipped silently when the form's forwarding address isn't set. Reading
+// the sheet on a schedule means a client is never missed either way.
+const ONBOARDING_SHEET_INTERVAL_MS = 10 * 60 * 1000
+let lastOnboardingSheetAt = 0
+let onboardingSheetInFlight = false
 const COUNTY_BACKFILL_BATCH = 20
 
 /**
@@ -327,6 +336,27 @@ export function initScheduler() {
             sheetImportInFlight = false
           }
         }
+      }
+    }
+
+    // Onboarding sheet -> Hub (fire-and-forget; never throws).
+    {
+      const now = Date.now()
+      if (now - lastOnboardingSheetAt >= ONBOARDING_SHEET_INTERVAL_MS && !onboardingSheetInFlight) {
+        lastOnboardingSheetAt = now
+        onboardingSheetInFlight = true
+        void reconcileOnboardingSheet()
+          .then((r) => {
+            if (r.imported.length) {
+              console.log(`[scheduler] onboarding sheet: recovered ${r.imported.length} submission(s) the webhook never delivered`)
+            } else if (r.error) {
+              console.warn(`[scheduler] onboarding sheet: ${r.error}`)
+            }
+          })
+          .catch((err) => console.error('[scheduler] onboarding sheet reconcile failed:', err))
+          .finally(() => {
+            onboardingSheetInFlight = false
+          })
       }
     }
 
