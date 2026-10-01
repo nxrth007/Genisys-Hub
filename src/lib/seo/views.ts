@@ -14,6 +14,8 @@ import type {
 import { githubViewer } from './github'
 import { gscConfigured } from './gsc'
 import { checkPsiKey } from './psi'
+import { lovableChannel } from './lovable'
+import { lovableMcpStatus } from './lovable-mcp'
 import type { Snapshot } from './pipeline'
 import { describeSecret, preferredEntryName } from './secrets'
 import { getSeoSettings, nextScheduledRun } from './settings'
@@ -150,7 +152,7 @@ function readinessFor(
     step('foundation', 'SEO foundation installed', s.foundationStatus === 'installed', true, s.foundationStatus === 'installed' ? 'Posts, sitemap and llms.txt are wired in.' : s.foundationStatus === 'proposed' ? 'The foundation PR is open — approve it on its run page, then publish in Lovable.' : 'One reviewed pull request; the button is above.'),
     step('ci', 'Build check in the repo', s.ciWorkflow, true, s.ciWorkflow ? 'Every engine branch is built before it can merge.' : 'Comes with the foundation; Autopilot won’t merge without it.'),
     step('reviewed', 'A weekly run approved by a person', env.reviewedShips > 0, false, env.reviewedShips > 0 ? `${env.reviewedShips} shipped after review.` : 'Run a week in Review mode first so you’ve seen what the engine writes for this site.'),
-    step('publish', 'Publishing without a click', !!s.lovableProjectId && env.lovableKey, false, !!s.lovableProjectId && env.lovableKey ? 'Lovable publishes each merge through its API.' : env.lovableKey ? 'Add the Lovable project id in Settings.' : 'Without a Lovable API key (Business plan), someone clicks Publish in Lovable after each merge — the engine notices and verifies.'),
+    step('publish', 'Publishing without a click', env.lovableKey, false, env.lovableKey ? (s.lovableProjectId ? 'The Hub publishes each merge in Lovable itself.' : 'Lovable is connected; this site\u2019s project is found automatically on its next run.') : 'Connect Lovable on the SEO dashboard (free, one-time sign-in). Until then someone clicks Publish in Lovable after each merge — the engine notices and verifies.'),
     step('gsc', 'Search Console connected', !!s.gscProperty && env.gscOk, false, !!s.gscProperty && env.gscOk ? s.gscProperty! : 'Optional, and the best source of keyword data: add the service account to the property, then set it in Settings.'),
     step('schedule', 'Weekly schedule on', env.scheduleOn && s.enabled, false, env.scheduleOn ? (s.enabled ? 'Runs every week.' : 'This site is skipped by the schedule — flip it on in the Engine card.') : 'Turn the weekly schedule on from the SEO dashboard.'),
     step('mode', 'Autopilot on', s.mode === 'autopilot', false, s.mode === 'autopilot' ? 'Merges on its own when every check passes.' : s.mode === 'review' ? 'A person approves each week’s PR.' : 'Audit mode: plans and drafts only.'),
@@ -166,13 +168,13 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     postCounts([siteId]).then((m) => m.get(siteId) ?? { total: 0, live: 0 }),
     recentScores([siteId]).then((m) => m.get(siteId) ?? []),
     prisma.seoRun.count({ where: { siteId, kind: 'weekly', reviewedBy: { not: null }, mergedAt: { not: null } } }),
-    describeSecret('lovable'),
+    lovableChannel(),
     gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
     getSeoSettings(),
   ])
   return {
     ...siteSummary(s, latest, counts, scores),
-    readiness: readinessFor(s, { reviewedShips, lovableKey: lovable.present, gscOk: gsc.ok, scheduleOn: settings.enabled }),
+    readiness: readinessFor(s, { reviewedShips, lovableKey: lovable !== null, gscOk: gsc.ok, scheduleOn: settings.enabled }),
     defaultBranch: s.defaultBranch,
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
     gscProperty: s.gscProperty,
@@ -253,13 +255,14 @@ async function githubStatus(present: boolean): Promise<{ login: string | null; e
 }
 
 export async function integrations(): Promise<SeoIntegrations> {
-  const [anthropic, github, google, lovable, gsc, psiKey] = await Promise.all([
+  const [anthropic, github, google, lovable, gsc, psiKey, mcp] = await Promise.all([
     describeSecret('anthropic'),
     describeSecret('github'),
     describeSecret('googleApiKey'),
     describeSecret('lovable'),
     gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
     checkPsiKey(),
+    lovableMcpStatus(),
   ])
   const gh = await githubStatus(github.present)
   return {
@@ -296,10 +299,17 @@ export async function integrations(): Promise<SeoIntegrations> {
         : `Optional, and the best source of keyword data. Add a Vault entry named "${preferredEntryName('gscServiceAccount')}" holding the service account's JSON key.`,
     },
     lovable: {
-      ok: lovable.present,
+      ok: lovable.present || mcp.connected,
+      channel: lovable.present ? 'api' : mcp.connected ? 'mcp' : null,
+      account: mcp.account,
+      broken: lovable.present ? null : mcp.broken,
       detail: lovable.present
-        ? 'Auto-publish is on for sites with a Lovable project id.'
-        : 'Optional. Without it, someone clicks Publish in Lovable after a merge (the engine watches for it). A Lovable API key (Business plan) makes publishing automatic.',
+        ? 'Publishing through the Lovable API key in the Vault.'
+        : mcp.connected
+          ? `Signed in to Lovable${mcp.account ? ` as ${mcp.account}` : ''} — merges publish themselves a few minutes after they land.`
+          : mcp.broken
+            ? `The Lovable sign-in stopped working (${mcp.broken}). Connect again below.`
+            : 'Optional. Connect Lovable below (free, one-time sign-in) and merges publish themselves. Until then someone clicks Publish in Lovable after each merge; the engine watches for it.',
     },
     slackChannel: SEO_ALERT_CHANNEL,
   }

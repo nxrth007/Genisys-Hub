@@ -34,8 +34,17 @@ export type SeoIntegrations = {
   pagespeed: IntegrationState
   /** Search Console service account — optional, unlocks query data. */
   searchConsole: IntegrationState & { serviceAccountEmail: string | null }
-  /** Lovable API key — optional, unlocks auto-publish (Business plan). */
-  lovable: IntegrationState
+  /**
+   * Publishing in Lovable without a click — optional. Either the Hub's own
+   * Lovable sign-in ("mcp", any plan) or a Business-plan API key ("api").
+   */
+  lovable: IntegrationState & {
+    channel: 'api' | 'mcp' | null
+    /** Who the Hub is signed in to Lovable as. */
+    account: string | null
+    /** The sign-in stopped working and needs redoing. */
+    broken: string | null
+  }
   /** Slack channel the weekly summary goes to. */
   slackChannel: string
 }

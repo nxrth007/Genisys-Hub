@@ -20,6 +20,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LovableConnect } from './lovable-connect'
 import { PageHeader } from '@/components/ui/page-header'
 import type {
   CreateSiteBody,
@@ -831,7 +832,13 @@ function SetupCard({ integrations, className }: { integrations: SeoIntegrations 
         </span>
       ) : null,
     },
-    { key: 'lovable', label: 'Lovable API key', required: false, state: i?.lovable },
+    {
+      key: 'lovable',
+      label: 'Lovable publishing',
+      required: false,
+      state: i?.lovable,
+      extra: i?.lovable?.account ? <Meta>{i.lovable.account}</Meta> : null,
+    },
   ]
   const connected = rows.filter((r) => r.state?.ok).length
   const requiredOk = rows.every((r) => !r.required || r.state?.ok)
@@ -898,6 +905,7 @@ function SetupCard({ integrations, className }: { integrations: SeoIntegrations 
           ))}
         </ul>
       )}
+      <LovableConnect state={i?.lovable} />
       {channel && (
         <p className="mt-4 border-t border-border-soft pt-3 text-[12.5px] text-muted-foreground">
           Weekly summaries post to <span className="font-mono text-foreground/85">#{channel}</span> in Slack.

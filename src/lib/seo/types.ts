@@ -261,6 +261,8 @@ export type RepoSnapshot = {
   lastCommit: { sha: string; author: string; date: string; message: string; byLovable: boolean } | null
   /** .github/workflows/seo-verify.yml exists. */
   hasCiWorkflow: boolean
+  /** The Lovable project this repo belongs to, read from one of its *.asset.json files. */
+  lovableProjectId?: string | null
 }
 
 // ---------------------------------------------------------------------------

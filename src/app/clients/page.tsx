@@ -669,7 +669,7 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients-roster'] })
-      qc.invalidateQueries({ queryKey: ['seo'] })
+      qc.invalidateQueries({ queryKey: ['seo-overview'] })
     },
   })
 

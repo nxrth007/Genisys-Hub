@@ -1,4 +1,5 @@
 import { getSecret } from './secrets'
+import { lovableMcpStatus } from './lovable-mcp'
 
 /**
  * Lovable — publishes client sites after the engine's commit reaches `main`.
@@ -61,6 +62,22 @@ export async function lovableConfigured(): Promise<boolean> {
     return !!(await apiKey())
   } catch {
     return false
+  }
+}
+
+/**
+ * How the Hub can publish in Lovable, if at all: the REST API when a
+ * (Business-plan) key is in the Vault, otherwise the MCP sign-in from
+ * lovable-mcp.ts, which works on every plan.
+ */
+export type LovableChannel = 'api' | 'mcp' | null
+
+export async function lovableChannel(): Promise<LovableChannel> {
+  if (await lovableConfigured()) return 'api'
+  try {
+    return (await lovableMcpStatus()).connected ? 'mcp' : null
+  } catch {
+    return null
   }
 }
 

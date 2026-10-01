@@ -32,10 +32,11 @@ import {
 } from './github'
 import { gscConfigured, gscSubmitSitemap, gscSummary } from './gsc'
 import { newIndexNowKey, pingIndexNow } from './indexnow'
-import { getLovableDeployment, getLovableProject, lovableConfigured, publishLovableProject } from './lovable'
+import { getLovableDeployment, getLovableProject, lovableChannel, lovableConfigured, publishLovableProject } from './lovable'
+import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { runPsi } from './psi'
-import { snapshotRepo } from './repo'
+import { detectLovableProjectId, snapshotRepo } from './repo'
 import { getSeoSettings, zonedParts } from './settings'
 import { seoAlert } from './slack'
 import type { CrawlView, SeoSettings } from './api-types'
@@ -99,6 +100,8 @@ export type Snapshot = {
     syncPolls?: number
     /** The Lovable API route failed or never synced; a person publishes by hand. */
     gaveUp?: boolean
+    /** Publishes requested through the Lovable sign-in (MCP) for this merge. */
+    mcpAttempts?: number
   } | null
   /** Publish-poller checks (cheap, frequent). */
   liveChecks?: number
@@ -471,6 +474,7 @@ export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
     siteUpdate.defaultBranch = repo.defaultBranch
     if (repo.foundationInstalled && site.foundationStatus !== 'installed') siteUpdate.foundationStatus = 'installed'
     siteUpdate.ciWorkflow = repo.hasCiWorkflow
+    if (repo.lovableProjectId && !site.lovableProjectId) siteUpdate.lovableProjectId = repo.lovableProjectId
   }
   if (audit && ctx.run.kind === 'weekly') {
     siteUpdate.lastScore = audit.score
@@ -1056,14 +1060,37 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
 
   const snap = ctx.snapshot
   await ctx.save({ snapshot: json({ ...snap, publish: { mergeSha, deploymentId: null, requestedAt: null }, liveChecks: 0 }) })
-  if (ctx.site.lovableProjectId && (await lovableConfigured())) {
-    ctx.log('ship', 'Waiting for Lovable to sync the merge, then publishing through the Lovable API')
+  const channel = await lovableChannel()
+  if (channel && (await ensureLovableProjectId(ctx))) {
+    ctx.log('ship', 'Merged. The Hub publishes it in Lovable once Lovable has picked the merge up (a few minutes), then checks it is live.')
   } else {
     ctx.log('ship', 'Merged. The live site updates when someone clicks Publish in Lovable — the engine will notice and verify.')
     await seoAlert(`:rocket: *SEO* — ${ctx.site.name}: merged. Click *Publish* in Lovable to put it live. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
   }
   return { stage: 'verify', status: 'awaiting_publish' }
 }
+
+/**
+ * The Lovable project to publish for this site: set by hand in Settings,
+ * found at collect time, or looked up now from the repo's *.asset.json.
+ */
+async function ensureLovableProjectId(ctx: RunContext): Promise<string | null> {
+  if (ctx.site.lovableProjectId) return ctx.site.lovableProjectId
+  const fullName = ctx.run.repoFullName ?? ctx.snapshot?.repo?.fullName ?? ctx.site.repoFullName
+  if (!fullName) return null
+  const id = ctx.snapshot?.repo?.lovableProjectId ?? (await detectLovableProjectId(fullName).catch(() => null))
+  if (!id) return null
+  await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { lovableProjectId: id } })
+  ctx.site = { ...ctx.site, lovableProjectId: id }
+  ctx.log('verify', `Found this repo's Lovable project (${id.slice(0, 8)}…)`)
+  return id
+}
+
+/** How long Lovable gets to pull a merge from GitHub before the Hub asks it to publish. */
+const LOVABLE_SYNC_GRACE_MS = 3 * 60_000
+/** Publishes through the sign-in are retried — the first may have run before Lovable synced. */
+const MCP_PUBLISH_ATTEMPTS = 4
+const MCP_RETRY_MS = 10 * 60_000
 
 /** URLs that must be live for this run to count as published. */
 function expectedLiveUrls(ctx: RunContext): string[] {
@@ -1116,23 +1143,55 @@ export async function liveCheck(ctx: RunContext): Promise<{ live: string[]; miss
 }
 
 /**
- * Advance an awaiting_publish run: drive the Lovable API when configured,
- * and always look for the new pages — a person may publish by hand at any
+ * Advance an awaiting_publish run: publish in Lovable when the Hub can
+ * (its own Lovable sign-in, or an API key), and always look for the new pages — a person may publish by hand at any
  * time. Returns true when everything is live.
  */
 export async function advancePublish(ctx: RunContext): Promise<boolean> {
   const snap = ctx.snapshot
   const publish = snap?.publish
   const fullName = ctx.run.repoFullName ?? snap?.repo?.fullName ?? null
-  if (publish && !publish.gaveUp && ctx.site.lovableProjectId && (await lovableConfigured())) {
-    const giveUp = async (why: string) => {
-      ctx.log('verify', `${why} — publish it in Lovable by hand; the engine keeps watching for it`, 'error')
-      await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, gaveUp: true } }) })
-      await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${why}. Click *Publish* in Lovable. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+  const channel = publish && !publish.gaveUp ? await lovableChannel() : null
+  const projectId = channel ? await ensureLovableProjectId(ctx) : null
+  const giveUp = async (why: string) => {
+    const current = ctx.snapshot?.publish ?? publish
+    if (!current) return
+    ctx.log('verify', `${why} — publish it in Lovable by hand; the engine keeps watching for it`, 'error')
+    await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...current, gaveUp: true } }) })
+    await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${why}. Click *Publish* in Lovable. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+  }
+  /** A live check already made this pass, when nothing was published after it. */
+  let checked: { missing: string[] } | null = null
+
+  if (publish && channel === 'mcp' && projectId) {
+    // Through the Lovable sign-in: no way to ask whether Lovable has synced
+    // the merge, so give it a few minutes, publish, look, and try again if
+    // the pages aren't there yet.
+    const attempts = publish.mcpAttempts ?? 0
+    const sinceMerge = ctx.run.mergedAt ? Date.now() - ctx.run.mergedAt.getTime() : LOVABLE_SYNC_GRACE_MS
+    const sinceLast = publish.requestedAt ? Date.now() - Date.parse(publish.requestedAt) : Number.POSITIVE_INFINITY
+    checked = await liveCheck(ctx)
+    if (checked.missing.length && sinceMerge >= LOVABLE_SYNC_GRACE_MS && sinceLast >= MCP_RETRY_MS) {
+      if (attempts >= MCP_PUBLISH_ATTEMPTS) {
+        await giveUp(`Lovable was asked to publish ${attempts} times and the new pages still aren’t live`)
+      } else {
+        // Counted before the call, so a publish that hangs or outlives this
+        // poller's lease can't be asked for again and again.
+        await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, requestedAt: new Date().toISOString(), mcpAttempts: attempts + 1 } }) })
+        try {
+          const dep = await lovableMcpDeploy(projectId)
+          ctx.log('verify', `Published in Lovable${dep.url ? ` → ${dep.url}` : ''} (attempt ${attempts + 1} of ${MCP_PUBLISH_ATTEMPTS})`)
+          checked = null
+        } catch (err) {
+          if (err instanceof LovableMcpError && err.reconnect) await giveUp('The Hub’s Lovable sign-in needs reconnecting (SEO → Setup)')
+          else ctx.log('verify', `Lovable publish didn’t go through: ${err instanceof Error ? err.message : String(err)}`, 'warn')
+        }
+      }
     }
+  } else if (publish && channel === 'api' && projectId) {
     try {
       if (!publish.deploymentId) {
-        const project = await getLovableProject(ctx.site.lovableProjectId)
+        const project = await getLovableProject(projectId)
         const latest = project.latestCommitSha
         let synced = !!latest && (latest.startsWith(publish.mergeSha) || publish.mergeSha.startsWith(latest))
         if (!synced && latest && fullName) {
@@ -1142,7 +1201,7 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
           synced = cmp?.status === 'identical' || cmp?.status === 'ahead'
         }
         if (synced) {
-          const dep = await publishLovableProject(ctx.site.lovableProjectId)
+          const dep = await publishLovableProject(projectId)
           ctx.log('verify', `Asked Lovable to publish (deployment ${dep.deploymentId})`)
           await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, deploymentId: dep.deploymentId, requestedAt: new Date().toISOString() } }) })
         } else {
@@ -1152,7 +1211,7 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
           else await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, syncPolls } }) })
         }
       } else {
-        const dep = await getLovableDeployment(ctx.site.lovableProjectId, publish.deploymentId)
+        const dep = await getLovableDeployment(projectId, publish.deploymentId)
         if (dep.errorClass) await giveUp(`Lovable\u2019s publish failed (${dep.errorClass})`)
         else if (dep.done) ctx.log('verify', `Lovable published${dep.url ? ` → ${dep.url}` : ''}`)
       }
@@ -1160,7 +1219,7 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
       ctx.log('verify', `Lovable API: ${err instanceof Error ? err.message : String(err)}`, 'warn')
     }
   }
-  const { missing } = await liveCheck(ctx)
+  const { missing } = checked ?? (await liveCheck(ctx))
   await ctx.save({ snapshot: json({ ...ctx.snapshot, liveChecks: (ctx.snapshot?.liveChecks ?? 0) + 1 }) })
   return missing.length === 0
 }

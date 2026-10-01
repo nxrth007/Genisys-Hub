@@ -60,6 +60,32 @@ const SEO_ROUTE_RE = /^src\/routes\/(?:.*\/)?(?:sitemap|llms)[^/]*$/i
 /** index.html is the SPA shell (older Lovable apps); the public/ files are static fallbacks worth auditing. */
 const EXTRA_FILES = ['index.html', 'public/sitemap.xml', 'public/llms.txt']
 const CONTENT_POST_RE = /^src\/content\/blog\/[^/]+\.json$/i
+/** Lovable stores each uploaded image as <name>.asset.json, which names the project it belongs to. */
+const ASSET_JSON_RE = /\.asset\.json$/i
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function projectIdFromAsset(text: string | null | undefined): string | null {
+  if (!text) return null
+  try {
+    const id = (JSON.parse(text) as { project_id?: unknown }).project_id
+    return typeof id === 'string' && UUID_RE.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The Lovable project id for a repo, without a full snapshot — so a run
+ * that is already past its collect stage can still find out where to
+ * publish. Null when the repo has no Lovable-managed images.
+ */
+export async function detectLovableProjectId(fullName: string): Promise<string | null> {
+  const repo = await getRepo(fullName)
+  const head = await getBranchHead(repo.fullName, repo.defaultBranch)
+  const tree = await getTree(repo.fullName, head.treeSha)
+  const asset = tree.entries.find((e) => e.type === 'blob' && ASSET_JSON_RE.test(e.path) && (e.size ?? 0) < 20_000)
+  return asset ? projectIdFromAsset(await readBlob(repo.fullName, asset.sha)) : null
+}
 const ROUTE_FILE_RE = /\.(?:tsx|ts|jsx|js)$/i
 
 export async function snapshotRepo(fullName: string): Promise<RepoSnapshot> {
@@ -79,6 +105,7 @@ export async function snapshotRepo(fullName: string): Promise<RepoSnapshot> {
     .slice(0, MAX_PATHS)
 
   const contentPostPaths = allPaths.filter((p) => CONTENT_POST_RE.test(p))
+  const assetJsonPath = allPaths.find((p) => ASSET_JSON_RE.test(p) && (blobs.get(p)?.size ?? 0) < 20_000) ?? null
   const keyPaths = unique([
     ...KEY_FILES.filter(has),
     ...allPaths.filter((p) => SEO_ROUTE_RE.test(p)),
@@ -88,7 +115,7 @@ export async function snapshotRepo(fullName: string): Promise<RepoSnapshot> {
 
   // Blobs by sha, not paths by ref: everything comes from the same tree.
   const texts = new Map<string, string | null>()
-  await mapLimit(unique([...keyPaths, ...contentPostPaths]), READ_CONCURRENCY, async (p) => {
+  await mapLimit(unique([...keyPaths, ...contentPostPaths, ...(assetJsonPath ? [assetJsonPath] : [])]), READ_CONCURRENCY, async (p) => {
     const b = blobs.get(p)
     texts.set(p, !b || (b.size ?? 0) > MAX_READ_BYTES ? null : await readBlob(name, b.sha))
   })
@@ -164,6 +191,7 @@ export async function snapshotRepo(fullName: string): Promise<RepoSnapshot> {
       ? { sha: last.sha, author: last.author, date: last.date, message: last.message, byLovable: last.byLovable }
       : null,
     hasCiWorkflow: has('.github/workflows/seo-verify.yml'),
+    lovableProjectId: assetJsonPath ? projectIdFromAsset(texts.get(assetJsonPath)) : null,
   }
 }
 
