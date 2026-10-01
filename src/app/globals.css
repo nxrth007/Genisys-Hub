@@ -188,6 +188,18 @@
     background-color: oklch(0.8 0.1 235 / 28%);
   }
 
+  /* Native dropdown lists. The browser paints the open list itself and
+     falls back to white when the select's own background is transparent,
+     which leaves the theme's light text unreadable. Pin both, everywhere. */
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  select option:disabled {
+    color: var(--muted-foreground);
+  }
+
   /* Thin, quiet scrollbars — the fat default ones break the instrument feel. */
   * {
     scrollbar-width: thin;
