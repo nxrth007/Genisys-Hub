@@ -13,11 +13,13 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  FolderGit2,
   Globe,
   Loader2,
   Pencil,
   Search,
   Trash2,
+  TrendingUp,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -91,6 +93,8 @@ type RosterClient = {
   intake: Intake | null
   /** The client's own GHL sub-account, when the vault holds its token. */
   ghlSubAccount: { vaultName: string; locationId: string; locationName: string } | null
+  /** The GitHub repo the client's site lives in, via their SEO site. */
+  seo: { siteId: string; repoFullName: string | null } | null
 }
 
 type StatusFilter = 'all' | 'onboarding' | 'active' | 'paused' | 'churned'
@@ -182,6 +186,12 @@ function ClientsPage() {
     },
   })
   const clients = useMemo(() => query.data?.clients ?? [], [query.data])
+  // Which client holds which repo, so the Repo dropdown can grey out taken ones.
+  const repoOwners = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of clients) if (c.seo?.repoFullName) m.set(c.seo.repoFullName.toLowerCase(), c.name)
+    return m
+  }, [clients])
 
   // ?focus=<id> (from the ⌘K palette) opens that client on arrival. It
   // is derived from the URL rather than copied into state; closing the
@@ -324,6 +334,7 @@ function ClientsPage() {
                   <th className="px-3 py-2.5">Time zone</th>
                   <th className="px-3 py-2.5">Domain</th>
                   <th className="px-3 py-2.5">Site</th>
+                  <th className="px-3 py-2.5">Repo</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Onboarded</th>
                 </tr>
@@ -331,12 +342,12 @@ function ClientsPage() {
               <tbody>
                 {roster.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                       Everything matching is archived.
                     </td>
                   </tr>
                 ) : (
-                  roster.map((c) => <ClientRow key={c.id} client={c} onOpen={setActive} />)
+                  roster.map((c) => <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} />)
                 )}
               </tbody>
             </table>
@@ -362,7 +373,7 @@ function ClientsPage() {
                   <table className="w-full min-w-[64rem] text-[13px]">
                     <tbody>
                       {archived.map((c) => (
-                        <ClientRow key={c.id} client={c} onOpen={setActive} />
+                        <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} />
                       ))}
                     </tbody>
                   </table>
@@ -428,9 +439,11 @@ function Stat({ label, value, sub }: { label: string; value: number; sub: string
 function ClientRow({
   client,
   onOpen,
+  repoOwners,
 }: {
   client: RosterClient
   onOpen: (c: RosterClient) => void
+  repoOwners: Map<string, string>
 }) {
   const i = client.intake
   return (
@@ -472,6 +485,9 @@ function ClientRow({
       </td>
       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
         <SiteLink client={client} />
+      </td>
+      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+        <RepoSelect client={client} repoOwners={repoOwners} />
       </td>
       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
         <InlineStatus client={client} />
@@ -609,6 +625,127 @@ function SiteLink({ client, size = 'sm' }: { client: RosterClient; size?: 'sm' |
     >
       <Globe className="h-3.5 w-3.5" /> Add site link
     </button>
+  )
+}
+
+type GithubRepo = { fullName: string; private: boolean; pushedAt: string | null }
+
+/**
+ * The GitHub repo the client's website lives in — a dropdown of the repos
+ * on the agency's GitHub account, styled like the Site chip. Picking one
+ * links the client's SEO site to it (and moves it from Audit to Review, so
+ * the engine can open pull requests that a person approves).
+ *
+ * A native <select> on purpose: the table scrolls sideways, and a custom
+ * popup would be clipped by that scroll area. Only people who can use SEO
+ * can load the repo list; everyone else sees the repo as plain text.
+ */
+function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: Map<string, string> }) {
+  const qc = useQueryClient()
+  const current = client.seo?.repoFullName ?? ''
+
+  const repos = useQuery<{ repos: GithubRepo[] }>({
+    queryKey: ['seo-github-repos'],
+    queryFn: async () => {
+      const res = await fetch('/api/seo/github/repos')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Could not load repos (${res.status})`)
+      return data
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+
+  const assign = useMutation({
+    mutationFn: async (repoFullName: string) => {
+      const res = await fetch(`/api/clients/${client.id}/repo`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repoFullName: repoFullName || null }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      return data as { siteId: string; repoFullName: string | null }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients-roster'] })
+      qc.invalidateQueries({ queryKey: ['seo'] })
+    },
+  })
+
+  const short = (full: string) => full.split('/').pop() ?? full
+
+  // Not allowed to manage repos (or GitHub isn't connected): show, don't edit.
+  if (repos.isError || client.archivedAt) {
+    return current ? (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px]" title={current}>
+        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
+        {short(current)}
+      </span>
+    ) : (
+      <span className="text-muted-foreground/50">—</span>
+    )
+  }
+
+  const list = repos.data?.repos ?? []
+  // Keep the current repo selectable even if the list hasn't loaded or no longer has it.
+  const options =
+    current && !list.some((r) => r.fullName.toLowerCase() === current.toLowerCase())
+      ? [{ fullName: current, private: true, pushedAt: null }, ...list]
+      : list
+  const busy = assign.isPending || repos.isLoading
+
+  return (
+    <span className="group inline-flex items-center gap-1.5">
+      <span
+        className={cn(
+          'relative inline-flex items-center rounded-md border font-mono text-[12px] transition focus-within:border-foreground/30 hover:border-foreground/30',
+          current ? 'border-border bg-surface text-foreground' : 'border-dashed border-border text-muted-foreground hover:text-foreground',
+          busy && 'opacity-60',
+        )}
+        title={current || 'Pick the GitHub repo this client’s site lives in'}
+      >
+        {assign.isPending ? (
+          <Loader2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <FolderGit2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-muted-foreground" />
+        )}
+        <select
+          value={current}
+          disabled={busy}
+          onChange={(e) => {
+            const next = e.target.value
+            if (next === current) return
+            if (!next && !window.confirm(`Unlink ${short(current)} from ${client.name}? The SEO engine goes back to audit-only for this client.`)) return
+            assign.mutate(next)
+          }}
+          className="max-w-[11rem] cursor-pointer appearance-none truncate bg-transparent py-1 pl-7 pr-6 focus:outline-none"
+        >
+          <option value="">{current ? 'No repo' : 'Assign repo'}</option>
+          {options.map((r) => {
+            const owner = repoOwners.get(r.fullName.toLowerCase())
+            const taken = !!owner && owner !== client.name
+            return (
+              <option key={r.fullName} value={r.fullName} disabled={taken}>
+                {short(r.fullName)}
+                {taken ? ` — ${owner}` : ''}
+              </option>
+            )
+          })}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-1.5 h-3 w-3 text-muted-foreground" />
+      </span>
+      {current && client.seo?.siteId && (
+        <a
+          href={`/seo/${client.seo.siteId}`}
+          className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          title="Open this client in SEO"
+        >
+          <TrendingUp className="h-3 w-3" />
+        </a>
+      )}
+      {assign.isError && <span className="text-xs text-destructive">{(assign.error as Error).message}</span>}
+    </span>
   )
 }
 

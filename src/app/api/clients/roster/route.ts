@@ -70,6 +70,7 @@ export async function GET() {
       ghlSubaccountUrl: true,
       createdAt: true,
       archivedAt: true,
+      seoSite: { select: { id: true, repoFullName: true, archivedAt: true } },
       intakes: {
         orderBy: { receivedAt: 'desc' },
         take: 1,
@@ -110,11 +111,13 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    clients: clients.map(({ intakes, ...c }) => {
+    clients: clients.map(({ intakes, seoSite, ...c }) => {
       const i = intakes[0]
       const sub = subAccountFor(c.name, clientSubs)
       return {
         ...c,
+        // The GitHub repo the client's site lives in (held by their SEO site).
+        seo: seoSite && !seoSite.archivedAt ? { siteId: seoSite.id, repoFullName: seoSite.repoFullName } : null,
         createdAt: c.createdAt.toISOString(),
         archivedAt: c.archivedAt ? c.archivedAt.toISOString() : null,
         intake: i ? { ...i, receivedAt: i.receivedAt.toISOString() } : null,

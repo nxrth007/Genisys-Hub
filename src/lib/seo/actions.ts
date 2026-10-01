@@ -142,6 +142,46 @@ export async function updateSite(id: string, body: UpdateSiteBody): Promise<void
   await prisma.seoSite.update({ where: { id }, data })
 }
 
+/**
+ * Point a client at the GitHub repo its site lives in (or clear it).
+ *
+ * The client's SEO site is created on demand and brought back if it was
+ * archived. Linking a repo moves an Audit-mode site to Review — the engine
+ * may now open pull requests, and a person approves each one. Clearing the
+ * repo drops it back to Audit.
+ */
+export async function assignClientRepo(clientId: string, repoFullName: string | null): Promise<{ siteId: string; repoFullName: string | null; mode: SeoMode }> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, name: true, siteUrl: true, archivedAt: true, seoSite: { select: { id: true, mode: true, archivedAt: true, repoFullName: true } } },
+  })
+  if (!client) throw new SeoInputError('That client no longer exists.')
+  if (client.archivedAt) throw new SeoInputError('Unarchive the client first.')
+
+  const repo = normalizeRepo(repoFullName)
+  if (repo) {
+    const taken = await prisma.seoSite.findFirst({
+      where: { repoFullName: { equals: repo, mode: 'insensitive' }, archivedAt: null, NOT: { clientId } },
+      select: { name: true },
+    })
+    if (taken) throw new SeoInputError(`${repo} is already linked to ${taken.name}.`)
+  }
+
+  let siteId = client.seoSite?.id ?? null
+  if (!siteId) {
+    siteId = (await prisma.seoSite.create({ data: { clientId, name: client.name, liveUrl: client.siteUrl, mode: 'audit', enabled: true }, select: { id: true } })).id
+  } else if (client.seoSite?.archivedAt) {
+    await prisma.seoSite.update({ where: { id: siteId }, data: { archivedAt: null, enabled: true } })
+  }
+
+  const current = (client.seoSite?.mode as SeoMode | undefined) ?? 'audit'
+  const mode: SeoMode = repo ? (current === 'audit' ? 'review' : current) : 'audit'
+  if (repo !== (client.seoSite?.repoFullName ?? null) || mode !== current) {
+    await updateSite(siteId, { repoFullName: repo, mode })
+  }
+  return { siteId, repoFullName: repo, mode }
+}
+
 export async function archiveSite(id: string): Promise<void> {
   const site = await prisma.seoSite.findUnique({ where: { id }, select: { id: true, repoFullName: true } })
   if (!site) throw new SeoInputError('Site not found.')
