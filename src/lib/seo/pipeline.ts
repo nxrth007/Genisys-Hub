@@ -226,7 +226,7 @@ function crawlView(c: CrawlResult): CrawlView {
 
 /** Repo snapshots can be large; keep what later stages read. */
 function trimRepo(r: RepoSnapshot): RepoSnapshot {
-  let budget = 150_000
+  let budget = 260_000
   const files = r.files.map((f) => {
     const take = Math.max(0, Math.min(f.content.length, budget))
     budget -= take

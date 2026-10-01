@@ -46,7 +46,15 @@ const KEY_FILES = [
   'src/routes/services.$slug.tsx',
   'src/routes/index.tsx',
   'src/content/seo.config.json',
+  'tsconfig.json',
 ]
+/**
+ * Every page route, after the key files. The first foundation only saw
+ * four routes and so could only make four canonicals absolute; a change
+ * that applies to "every route" needs every route in front of it.
+ */
+const PAGE_ROUTE_RE = /^src\/routes\/[^/]+\.tsx$/
+const MAX_PAGE_ROUTES = 40
 /** sitemap[.]xml.ts, llms[.]txt.ts and friends, wherever they sit under src/routes. */
 const SEO_ROUTE_RE = /^src\/routes\/(?:.*\/)?(?:sitemap|llms)[^/]*$/i
 /** index.html is the SPA shell (older Lovable apps); the public/ files are static fallbacks worth auditing. */
@@ -75,6 +83,7 @@ export async function snapshotRepo(fullName: string): Promise<RepoSnapshot> {
     ...KEY_FILES.filter(has),
     ...allPaths.filter((p) => SEO_ROUTE_RE.test(p)),
     ...EXTRA_FILES.filter(has),
+    ...allPaths.filter((p) => PAGE_ROUTE_RE.test(p)).sort().slice(0, MAX_PAGE_ROUTES),
   ])
 
   // Blobs by sha, not paths by ref: everything comes from the same tree.
