@@ -23,6 +23,7 @@ import {
   compareCommits,
   deleteBranch,
   getBranchHead,
+  GitHubError,
   getPullRequest,
   mergePullRequest,
   openPullRequest,
@@ -32,7 +33,7 @@ import {
 } from './github'
 import { gscConfigured, gscSubmitSitemap, gscSummary } from './gsc'
 import { newIndexNowKey, pingIndexNow } from './indexnow'
-import { getLovableDeployment, getLovableProject, lovableChannel, lovableConfigured, publishLovableProject } from './lovable'
+import { getLovableDeployment, lovableChannel, lovableProjectInfo, publishLovableProject } from './lovable'
 import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { runPsi } from './psi'
@@ -105,6 +106,8 @@ export type Snapshot = {
   } | null
   /** Publish-poller checks (cheap, frequent). */
   liveChecks?: number
+  /** A project id from the repo's image metadata that Lovable said isn't this site's — not asked about again. */
+  lovableProjectRejected?: string
   /** stageVerify's own re-checks after "Mark as published". */
   verifyChecks?: number
   /** Which commit the build check wait is for, and since when. */
@@ -474,7 +477,6 @@ export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
     siteUpdate.defaultBranch = repo.defaultBranch
     if (repo.foundationInstalled && site.foundationStatus !== 'installed') siteUpdate.foundationStatus = 'installed'
     siteUpdate.ciWorkflow = repo.hasCiWorkflow
-    if (repo.lovableProjectId && !site.lovableProjectId) siteUpdate.lovableProjectId = repo.lovableProjectId
   }
   if (audit && ctx.run.kind === 'weekly') {
     siteUpdate.lastScore = audit.score
@@ -992,8 +994,8 @@ const LOVABLE_QUIET_MS = 30 * 60_000
 async function someoneEditingInLovable(ctx: RunContext, fullName: string, branch: string): Promise<boolean> {
   const [last] = await recentCommits(fullName, branch, 1)
   if (last?.byLovable && Date.now() - Date.parse(last.date) < LOVABLE_QUIET_MS) return true
-  if (ctx.site.lovableProjectId && (await lovableConfigured())) {
-    const project = await getLovableProject(ctx.site.lovableProjectId).catch(() => null)
+  if (ctx.site.lovableProjectId && (await lovableChannel())) {
+    const project = await lovableProjectInfo(ctx.site.lovableProjectId).catch(() => null)
     if (project?.lastEditedAt && Date.now() - Date.parse(project.lastEditedAt) < LOVABLE_QUIET_MS) return true
   }
   return false
@@ -1071,24 +1073,70 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
 }
 
 /**
- * The Lovable project to publish for this site: set by hand in Settings,
- * found at collect time, or looked up now from the repo's *.asset.json.
+ * The Lovable project to publish for this site: set by hand in Settings, or
+ * read from the repo's *.asset.json and checked against Lovable. A site
+ * remixed from a template carries the template's image metadata, so that
+ * id can name another project: it is kept only once Lovable shows the
+ * project's latest commit is in this repo.
  */
 async function ensureLovableProjectId(ctx: RunContext): Promise<string | null> {
   if (ctx.site.lovableProjectId) return ctx.site.lovableProjectId
   const fullName = ctx.run.repoFullName ?? ctx.snapshot?.repo?.fullName ?? ctx.site.repoFullName
   if (!fullName) return null
   const id = ctx.snapshot?.repo?.lovableProjectId ?? (await detectLovableProjectId(fullName).catch(() => null))
-  if (!id) return null
+  if (!id || ctx.snapshot?.lovableProjectRejected === id) return null
+
+  const verdict = await lovableProjectBelongsToRepo(id, fullName, ctx.site.defaultBranch || 'main')
+  if (verdict === 'unknown') return null
+  if (verdict === 'no') {
+    ctx.log(
+      'verify',
+      `The repo's image metadata names Lovable project ${id.slice(0, 8)}…, but the connected Lovable account has no such project for this repo — it may belong to another Lovable account, or to the template this site was remixed from. Set the project id in this site's Settings (or connect the right account) and the Hub will publish.`,
+      'warn',
+    )
+    await ctx.save({ snapshot: json({ ...ctx.snapshot, lovableProjectRejected: id }) })
+    return null
+  }
   await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { lovableProjectId: id } })
   ctx.site = { ...ctx.site, lovableProjectId: id }
-  ctx.log('verify', `Found this repo's Lovable project (${id.slice(0, 8)}…)`)
+  ctx.log('verify', `Found this repo's Lovable project (${id.slice(0, 8)}…) and checked it against the repo`)
   return id
 }
 
-/** How long Lovable gets to pull a merge from GitHub before the Hub asks it to publish. */
-const LOVABLE_SYNC_GRACE_MS = 3 * 60_000
-/** Publishes through the sign-in are retried — the first may have run before Lovable synced. */
+async function lovableProjectBelongsToRepo(projectId: string, fullName: string, branch: string): Promise<'yes' | 'no' | 'unknown'> {
+  let info: Awaited<ReturnType<typeof lovableProjectInfo>>
+  try {
+    info = await lovableProjectInfo(projectId)
+  } catch {
+    return 'unknown'
+  }
+  if (!info) return 'no'
+  if (!info.latestCommitSha) return 'unknown'
+  // GitHub answers 404 for a commit this repo has never had.
+  try {
+    await compareCommits(fullName, branch, info.latestCommitSha)
+    return 'yes'
+  } catch (err) {
+    return err instanceof GitHubError && err.status === 404 ? 'no' : 'unknown'
+  }
+}
+
+/**
+ * Has Lovable pulled the merge from GitHub? Its latest commit is the merge
+ * itself, or has it as an ancestor (Lovable may commit on top, e.g. a
+ * regenerated route tree). Publishing before this would ship the old site.
+ */
+async function lovableHasMerge(fullName: string | null, mergeSha: string, latest: string | null): Promise<boolean> {
+  if (!latest) return false
+  if (latest.startsWith(mergeSha) || mergeSha.startsWith(latest)) return true
+  if (!fullName) return false
+  const cmp = await compareCommits(fullName, mergeSha, latest).catch(() => null)
+  return cmp?.status === 'identical' || cmp?.status === 'ahead'
+}
+
+/** ~1 hour of 5-minute polls: Lovable missed GitHub's webhook (it never re-pulls on its own). */
+const LOVABLE_SYNC_POLLS = 12
+/** Publishes through the sign-in are retried — a publish can finish before the CDN shows the new pages. */
 const MCP_PUBLISH_ATTEMPTS = 4
 const MCP_RETRY_MS = 10 * 60_000
 
@@ -1163,52 +1211,55 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
   /** A live check already made this pass, when nothing was published after it. */
   let checked: { missing: string[] } | null = null
 
+  /** Lovable hasn't pulled the merge yet: count the poll, give up after an hour. */
+  const notSyncedYet = async () => {
+    const syncPolls = (publish?.syncPolls ?? 0) + 1
+    if (syncPolls >= LOVABLE_SYNC_POLLS) await giveUp('Lovable hasn’t picked up the merge from GitHub after an hour')
+    else await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, syncPolls } }) })
+  }
+
   if (publish && channel === 'mcp' && projectId) {
-    // Through the Lovable sign-in: no way to ask whether Lovable has synced
-    // the merge, so give it a few minutes, publish, look, and try again if
-    // the pages aren't there yet.
+    // Through the sign-in there is no deployment to watch: wait until
+    // Lovable shows the merge as its latest commit, publish, look for the
+    // pages, and publish again if they still aren't there after a while.
     const attempts = publish.mcpAttempts ?? 0
-    const sinceMerge = ctx.run.mergedAt ? Date.now() - ctx.run.mergedAt.getTime() : LOVABLE_SYNC_GRACE_MS
     const sinceLast = publish.requestedAt ? Date.now() - Date.parse(publish.requestedAt) : Number.POSITIVE_INFINITY
     checked = await liveCheck(ctx)
-    if (checked.missing.length && sinceMerge >= LOVABLE_SYNC_GRACE_MS && sinceLast >= MCP_RETRY_MS) {
+    if (checked.missing.length && sinceLast >= MCP_RETRY_MS) {
       if (attempts >= MCP_PUBLISH_ATTEMPTS) {
         await giveUp(`Lovable was asked to publish ${attempts} times and the new pages still aren’t live`)
       } else {
-        // Counted before the call, so a publish that hangs or outlives this
-        // poller's lease can't be asked for again and again.
-        await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, requestedAt: new Date().toISOString(), mcpAttempts: attempts + 1 } }) })
         try {
-          const dep = await lovableMcpDeploy(projectId)
-          ctx.log('verify', `Published in Lovable${dep.url ? ` → ${dep.url}` : ''} (attempt ${attempts + 1} of ${MCP_PUBLISH_ATTEMPTS})`)
-          checked = null
+          const project = attempts ? null : await lovableProjectInfo(projectId)
+          const synced = attempts > 0 || (await lovableHasMerge(fullName, publish.mergeSha, project?.latestCommitSha ?? null))
+          if (!attempts && !project) {
+            await giveUp('The connected Lovable account can’t see this site’s project — check the project id in Settings, or connect the account that owns the site')
+          } else if (!synced) {
+            await notSyncedYet()
+          } else {
+            // Counted before the call, so a publish that hangs or outlives
+            // this poller's lease can't be asked for again and again.
+            await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...publish, requestedAt: new Date().toISOString(), mcpAttempts: attempts + 1 } }) })
+            const dep = await lovableMcpDeploy(projectId)
+            ctx.log('verify', `Published in Lovable${dep.url ? ` → ${dep.url}` : ''} (attempt ${attempts + 1} of ${MCP_PUBLISH_ATTEMPTS})`)
+            checked = null
+          }
         } catch (err) {
           if (err instanceof LovableMcpError && err.reconnect) await giveUp('The Hub’s Lovable sign-in needs reconnecting (SEO → Setup)')
-          else ctx.log('verify', `Lovable publish didn’t go through: ${err instanceof Error ? err.message : String(err)}`, 'warn')
+          else ctx.log('verify', `Lovable: ${err instanceof Error ? err.message : String(err)}`, 'warn')
         }
       }
     }
   } else if (publish && channel === 'api' && projectId) {
     try {
       if (!publish.deploymentId) {
-        const project = await getLovableProject(projectId)
-        const latest = project.latestCommitSha
-        let synced = !!latest && (latest.startsWith(publish.mergeSha) || publish.mergeSha.startsWith(latest))
-        if (!synced && latest && fullName) {
-          // Lovable may have committed on top of the merge (e.g. a regenerated
-          // route tree); the merge is in if it's an ancestor of Lovable's head.
-          const cmp = await compareCommits(fullName, publish.mergeSha, latest).catch(() => null)
-          synced = cmp?.status === 'identical' || cmp?.status === 'ahead'
-        }
-        if (synced) {
+        const project = await lovableProjectInfo(projectId)
+        if (await lovableHasMerge(fullName, publish.mergeSha, project?.latestCommitSha ?? null)) {
           const dep = await publishLovableProject(projectId)
           ctx.log('verify', `Asked Lovable to publish (deployment ${dep.deploymentId})`)
           await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, deploymentId: dep.deploymentId, requestedAt: new Date().toISOString() } }) })
         } else {
-          const syncPolls = (publish.syncPolls ?? 0) + 1
-          // ~1 hour: Lovable missed GitHub's webhook (it never re-pulls on its own).
-          if (syncPolls >= 12) await giveUp('Lovable hasn\u2019t picked up the merge from GitHub after an hour')
-          else await ctx.save({ snapshot: json({ ...snap, publish: { ...publish, syncPolls } }) })
+          await notSyncedYet()
         }
       } else {
         const dep = await getLovableDeployment(projectId, publish.deploymentId)

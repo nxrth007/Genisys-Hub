@@ -1,5 +1,5 @@
 import { getSecret } from './secrets'
-import { lovableMcpStatus } from './lovable-mcp'
+import { lovableMcpGetProject, lovableMcpStatus } from './lovable-mcp'
 
 /**
  * Lovable — publishes client sites after the engine's commit reaches `main`.
@@ -78,6 +78,26 @@ export async function lovableChannel(): Promise<LovableChannel> {
     return (await lovableMcpStatus()).connected ? 'mcp' : null
   } catch {
     return null
+  }
+}
+
+export type LovableProjectInfo = { latestCommitSha: string | null; lastEditedAt: string | null; isPublished: boolean | null }
+
+/**
+ * A project's details over whichever channel is set up. Null when Lovable
+ * has no such project for the connected account; throws when Lovable can't
+ * be reached, or when nothing is connected at all.
+ */
+export async function lovableProjectInfo(projectId: string): Promise<LovableProjectInfo | null> {
+  const channel = await lovableChannel()
+  if (channel === 'mcp') return lovableMcpGetProject(projectId)
+  if (channel !== 'api') throw new LovableError('Lovable isn\u2019t connected.', { status: 0, type: 'not_configured' })
+  try {
+    const p = await getLovableProject(projectId)
+    return { latestCommitSha: p.latestCommitSha, lastEditedAt: p.lastEditedAt, isPublished: p.isPublished }
+  } catch (err) {
+    if (err instanceof LovableError && (err.status === 404 || err.type === 'project_not_found')) return null
+    throw err
   }
 }
 

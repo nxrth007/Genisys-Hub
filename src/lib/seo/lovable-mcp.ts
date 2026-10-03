@@ -388,11 +388,16 @@ export async function lovableMcpCall(tool: string, args: Record<string, unknown>
   if (result.isError) throw new LovableMcpError(`${tool} failed: ${text.slice(0, 300) || 'Lovable reported an error.'}`)
   let structured: Record<string, unknown> | null =
     result.structuredContent && typeof result.structuredContent === 'object' ? (result.structuredContent as Record<string, unknown>) : null
-  if (!structured && text.startsWith('{')) {
-    try {
-      structured = JSON.parse(text) as Record<string, unknown>
-    } catch {
-      structured = null
+  if (!structured) {
+    // Lovable's tools answer with a JSON text block (get_project adds a screenshot block before it).
+    for (const c of result.content ?? []) {
+      if (c.type !== 'text' || typeof c.text !== 'string' || !c.text.trimStart().startsWith('{')) continue
+      try {
+        structured = JSON.parse(c.text) as Record<string, unknown>
+        break
+      } catch {
+        /* not this block */
+      }
     }
   }
   return { text, structured }
@@ -410,6 +415,36 @@ function accountFrom(me: McpToolResult): string | null {
 /** Check the connection end to end; returns who the Hub is signed in as. */
 export async function testLovableConnection(): Promise<{ account: string | null }> {
   return { account: accountFrom(await lovableMcpCall('get_me', {}, 30_000)) }
+}
+
+export type LovableMcpProject = {
+  name: string | null
+  latestCommitSha: string | null
+  lastEditedAt: string | null
+  isPublished: boolean | null
+}
+
+/**
+ * A project's details through the sign-in. Null when Lovable says there is
+ * no such project — which is also its answer for a project the signed-in
+ * account can't see.
+ */
+export async function lovableMcpGetProject(projectId: string): Promise<LovableMcpProject | null> {
+  let res: McpToolResult
+  try {
+    res = await lovableMcpCall('get_project', { project_id: projectId }, 30_000)
+  } catch (err) {
+    if (err instanceof LovableMcpError && !err.reconnect && /not[_ ]found|\b404\b/i.test(err.message)) return null
+    throw err
+  }
+  const s = res.structured ?? {}
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
+  return {
+    name: str(s.name),
+    latestCommitSha: str(s.latest_commit_sha),
+    lastEditedAt: str(s.last_edited_at),
+    isPublished: typeof s.is_published === 'boolean' ? s.is_published : null,
+  }
 }
 
 /** Publish a project to production — the same as clicking Publish in Lovable. */
