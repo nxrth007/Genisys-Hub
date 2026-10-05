@@ -1133,7 +1133,7 @@ async function ensureLovableProjectId(ctx: RunContext): Promise<string | { missi
  * itself, or has it as an ancestor (Lovable may commit on top, e.g. a
  * regenerated route tree). Publishing before this would ship the old site.
  */
-async function lovableHasMerge(fullName: string | null, mergeSha: string, latest: string | null): Promise<boolean> {
+export async function lovableHasMerge(fullName: string | null, mergeSha: string, latest: string | null): Promise<boolean> {
   if (!latest) return false
   if (latest.startsWith(mergeSha) || mergeSha.startsWith(latest)) return true
   if (!fullName) return false

@@ -1,33 +1,49 @@
 import { createSign } from 'node:crypto'
+import { prisma } from '@/lib/prisma'
+import { getGoogleAccessToken } from '@/lib/drive'
 import type { GscRow, GscSummary } from './types'
 import { getSecret } from './secrets'
 
 /**
- * Google Search Console, through a service account.
+ * Google Search Console.
  *
- * The JSON key lives in the Vault; each client property adds the account's
- * client_email as a user (Full is enough for performance data and sitemap
- * submission). Tokens are minted with a self-signed JWT over node:crypto —
- * no googleapis client in the SEO path — and kept for ~50 minutes.
+ * Two ways in, the first preferred:
+ *  - A person's Google account, connected once from SEO → Setup (the Hub's
+ *    own Google sign-in, with the Search Console and Site Verification
+ *    scopes added). The Hub then verifies each client site with Google
+ *    itself, so the properties sit in that person's Search Console.
+ *  - A service account JSON key in the Vault, added by hand as a user on
+ *    each property. Tokens are minted with a self-signed JWT over
+ *    node:crypto and kept for ~50 minutes.
  *
  * Performance data is final ~2–3 days behind and in Pacific time, so the
  * 28-day window ends three days before "today" in Los Angeles.
  */
 
-const SCOPE = 'https://www.googleapis.com/auth/webmasters'
+const SA_SCOPE = 'https://www.googleapis.com/auth/webmasters https://www.googleapis.com/auth/siteverification'
+/** What "Connect Search Console" asks Google for, on top of the Hub's Drive scopes. */
+export const GSC_OAUTH_SCOPES = ['https://www.googleapis.com/auth/webmasters', 'https://www.googleapis.com/auth/siteverification']
+/** The OAuth `state` that tells the shared Google callback this sign-in was for Search Console. */
+export const GSC_OAUTH_STATE = 'seo-gsc'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const API = 'https://www.googleapis.com/webmasters/v3'
+const VERIFY_API = 'https://www.googleapis.com/siteVerification/v1'
 const TIMEOUT_MS = 30_000
 const TOKEN_TTL_MS = 50 * 60_000
 const PAGE_ROWS = 25_000
 const MAX_PAIR_ROWS = 50_000
+/** AppSetting: the Google account connected for Search Console. */
+const ACCOUNT_KEY = 'seo.gsc.account'
 
 export class GscError extends Error {
   status: number | null
-  constructor(message: string, status: number | null) {
+  /** Google says an API is switched off for the Hub's Cloud project; this is where to switch it on. */
+  enableUrl: string | null
+  constructor(message: string, status: number | null, enableUrl: string | null = null) {
     super(message)
     this.name = 'GscError'
     this.status = status
+    this.enableUrl = enableUrl
   }
 }
 
@@ -48,12 +64,12 @@ async function serviceAccount(): Promise<ServiceAccount | null> {
 
 let cachedToken: { email: string; token: string; expiresAt: number } | null = null
 
-async function accessToken(sa: ServiceAccount): Promise<string> {
+async function serviceAccountToken(sa: ServiceAccount): Promise<string> {
   if (cachedToken && cachedToken.email === sa.email && Date.now() < cachedToken.expiresAt) return cachedToken.token
 
   const b64 = (v: object) => Buffer.from(JSON.stringify(v)).toString('base64url')
   const iat = Math.floor(Date.now() / 1000)
-  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: sa.email, scope: SCOPE, aud: TOKEN_URL, iat, exp: iat + 3600 })}`
+  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: sa.email, scope: SA_SCOPE, aud: TOKEN_URL, iat, exp: iat + 3600 })}`
   let signature: string
   try {
     signature = createSign('RSA-SHA256').update(unsigned).sign(sa.privateKey, 'base64url')
@@ -83,15 +99,62 @@ async function accessToken(sa: ServiceAccount): Promise<string> {
   return body.access_token
 }
 
-async function gsc<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+/** The Google account connected for Search Console, if any. */
+export async function gscConnectedAccount(): Promise<string | null> {
+  const row = await prisma.appSetting.findUnique({ where: { key: ACCOUNT_KEY } }).catch(() => null)
+  return row?.value?.trim() || null
+}
+
+export async function setGscConnectedAccount(email: string | null): Promise<void> {
+  if (!email) {
+    await prisma.appSetting.deleteMany({ where: { key: ACCOUNT_KEY } })
+    return
+  }
+  await prisma.appSetting.upsert({ where: { key: ACCOUNT_KEY }, create: { key: ACCOUNT_KEY, value: email }, update: { value: email } })
+}
+
+type Auth = { kind: 'oauth' | 'serviceAccount'; email: string; token: (fresh?: boolean) => Promise<string> }
+
+async function gscAuth(): Promise<Auth | null> {
+  const email = await gscConnectedAccount()
+  if (email) {
+    return {
+      kind: 'oauth',
+      email,
+      token: async () => {
+        try {
+          return await getGoogleAccessToken(email)
+        } catch (err) {
+          throw new GscError(
+            `Google wouldn’t refresh ${email}’s sign-in (${err instanceof Error ? err.message : String(err)}). Connect Search Console again from SEO → Setup.`,
+            401,
+          )
+        }
+      },
+    }
+  }
   const sa = await serviceAccount()
-  if (!sa) throw new GscError('Search Console is not configured — add the service account JSON key to the Vault.', null)
+  if (!sa) return null
+  return {
+    kind: 'serviceAccount',
+    email: sa.email,
+    token: (fresh) => {
+      if (fresh) cachedToken = null
+      return serviceAccountToken(sa)
+    },
+  }
+}
+
+/** One Google API call with whichever sign-in is set up. */
+async function googleCall<T>(url: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const a = await gscAuth()
+  if (!a) throw new GscError('Search Console isn’t connected — SEO → Setup → Connect Search Console.', null)
 
   for (let attempt = 0; ; attempt++) {
-    const token = await accessToken(sa)
+    const token = await a.token(attempt > 0)
     let res: Response
     try {
-      res = await fetch(`${API}${path}`, {
+      res = await fetch(url, {
         method: init.method ?? 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -103,46 +166,99 @@ async function gsc<T>(path: string, init: { method?: string; body?: unknown } = 
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
     } catch (err) {
-      throw new GscError(`Search Console request failed: ${err instanceof Error ? err.message : String(err)}`, null)
+      throw new GscError(`Google request failed: ${err instanceof Error ? err.message : String(err)}`, null)
     }
     // A token revoked early (key rotated) — mint a fresh one once.
-    if (res.status === 401 && attempt === 0) {
-      cachedToken = null
-      continue
-    }
+    if (res.status === 401 && attempt === 0 && a.kind === 'serviceAccount') continue
     const text = await res.text()
     if (!res.ok) {
       let message = text.slice(0, 300)
+      let enableUrl: string | null = null
       try {
-        const j = JSON.parse(text) as { error?: { message?: unknown } }
+        const j = JSON.parse(text) as { error?: { message?: unknown; details?: { reason?: string; metadata?: { activationUrl?: string } }[] } }
         if (typeof j.error?.message === 'string') message = j.error.message
+        const disabled = j.error?.details?.find((d) => d.reason === 'SERVICE_DISABLED' || d.reason === 'accessNotConfigured')
+        enableUrl = disabled?.metadata?.activationUrl ?? message.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/\S+/)?.[0]?.replace(/[.)]+$/, '') ?? null
       } catch {
         /* keep the raw text */
       }
-      if (res.status === 403) message += ` — add ${sa.email} as a user on this Search Console property.`
-      throw new GscError(`Search Console HTTP ${res.status}: ${message}`, res.status)
+      if (enableUrl) {
+        throw new GscError(`An API the Hub needs is switched off in Google Cloud. Switch it on here, then wait a minute: ${enableUrl}`, res.status, enableUrl)
+      }
+      if (res.status === 401 && a.kind === 'oauth') {
+        message += ` — connect Search Console again from SEO → Setup.`
+      } else if (res.status === 403 && /insufficient.*scope|scope/i.test(message) && a.kind === 'oauth') {
+        message += ` — connect Search Console again and tick both Search Console boxes on Google’s screen.`
+      } else if (res.status === 403 && url.startsWith(API)) {
+        message += a.kind === 'serviceAccount' ? ` — add ${a.email} as a user on this Search Console property.` : ` — ${a.email} has no access to this property.`
+      }
+      throw new GscError(`Google HTTP ${res.status}: ${message}`, res.status)
     }
     return (text ? JSON.parse(text) : {}) as T
   }
 }
 
-/** Is a service account configured, and does Google accept it? Never throws. */
-export async function gscConfigured(): Promise<{ ok: boolean; serviceAccountEmail: string | null }> {
+function gsc<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  return googleCall<T>(`${API}${path}`, init)
+}
+
+/** Is Search Console set up, and does Google accept the sign-in? Never throws. */
+export async function gscConfigured(): Promise<{ ok: boolean; serviceAccountEmail: string | null; account: string | null; error: string | null }> {
   try {
-    const sa = await serviceAccount()
-    if (!sa) return { ok: false, serviceAccountEmail: null }
+    const a = await gscAuth()
+    if (!a) return { ok: false, serviceAccountEmail: null, account: null, error: null }
+    const ids = a.kind === 'oauth' ? { serviceAccountEmail: null, account: a.email } : { serviceAccountEmail: a.email, account: null }
     try {
-      await accessToken(sa)
-      return { ok: true, serviceAccountEmail: sa.email }
-    } catch {
-      return { ok: false, serviceAccountEmail: sa.email }
+      await a.token()
+      return { ok: true, ...ids, error: null }
+    } catch (err) {
+      return { ok: false, ...ids, error: err instanceof Error ? err.message : String(err) }
     }
   } catch {
-    return { ok: false, serviceAccountEmail: null }
+    return { ok: false, serviceAccountEmail: null, account: null, error: null }
   }
 }
 
-/** Properties the service account has been added to. */
+/** Add a property to the connected account's Search Console (it must already be verified for that account). */
+export async function gscAddSite(property: string): Promise<void> {
+  await gsc(`/sites/${encodeURIComponent(property)}`, { method: 'PUT' })
+}
+
+/** The file Google wants served at the site's root to prove ownership: its name, which is also what goes inside it. */
+export async function siteVerificationFileToken(siteUrl: string): Promise<string> {
+  const r = await googleCall<{ token?: unknown }>(`${VERIFY_API}/token`, {
+    method: 'POST',
+    body: { site: { type: 'SITE', identifier: siteUrl }, verificationMethod: 'FILE' },
+  })
+  const token = typeof r.token === 'string' ? r.token.trim() : ''
+  if (!/^google[0-9a-z]+\.html$/i.test(token)) throw new GscError(`Google returned an unexpected verification file name: "${token.slice(0, 80)}".`, null)
+  return token
+}
+
+/** Ask Google to check the file now. Returns the verified resource's id and its owners. */
+export async function siteVerificationVerify(siteUrl: string): Promise<{ id: string; owners: string[] }> {
+  const r = await googleCall<{ id?: unknown; owners?: unknown }>(`${VERIFY_API}/webResource?verificationMethod=FILE`, {
+    method: 'POST',
+    body: { site: { type: 'SITE', identifier: siteUrl } },
+  })
+  return {
+    id: typeof r.id === 'string' ? r.id : encodeURIComponent(siteUrl),
+    owners: Array.isArray(r.owners) ? r.owners.filter((o): o is string => typeof o === 'string') : [],
+  }
+}
+
+/** Make more people verified owners of a site the Hub verified (they see it in their own Search Console). */
+export async function siteVerificationAddOwners(siteUrl: string, resource: { id: string; owners: string[] }, emails: string[]): Promise<string[]> {
+  const owners = [...new Set([...resource.owners, ...emails].map((e) => e.toLowerCase()))]
+  if (owners.length === resource.owners.length) return resource.owners
+  const r = await googleCall<{ owners?: unknown }>(`${VERIFY_API}/webResource/${encodeURIComponent(resource.id)}`, {
+    method: 'PUT',
+    body: { site: { type: 'SITE', identifier: siteUrl }, owners },
+  })
+  return Array.isArray(r.owners) ? r.owners.filter((o): o is string => typeof o === 'string') : owners
+}
+
+/** Properties the connected account (or service account) can see. */
 export async function gscListSites(): Promise<{ siteUrl: string; permissionLevel: string }[]> {
   const r = await gsc<{ siteEntry?: { siteUrl?: unknown; permissionLevel?: unknown }[] }>('/sites')
   return (r.siteEntry ?? [])

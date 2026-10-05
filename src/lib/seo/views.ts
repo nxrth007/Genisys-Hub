@@ -13,6 +13,7 @@ import type {
 } from './api-types'
 import { githubViewer } from './github'
 import { gscConfigured } from './gsc'
+import { gscConnectStates, type GscConnectState } from './gsc-connect'
 import { checkPsiKey } from './psi'
 import { lovableChannel } from './lovable'
 import { lovableMcpStatus } from './lovable-mcp'
@@ -151,7 +152,7 @@ async function postCounts(siteIds: string[]): Promise<Map<string, { total: numbe
  */
 function readinessFor(
   s: SiteRow,
-  env: { reviewedShips: number; lovableKey: boolean; gscOk: boolean; scheduleOn: boolean },
+  env: { reviewedShips: number; lovableKey: boolean; gscOk: boolean; scheduleOn: boolean; gscState?: GscConnectState | null },
 ): SiteReadiness {
   const step = (id: ReadinessStep['id'], label: string, ok: boolean, required: boolean, detail: string): ReadinessStep => ({ id, label, ok, required, detail })
   const steps: ReadinessStep[] = [
@@ -161,7 +162,21 @@ function readinessFor(
     step('ci', 'Build check in the repo', s.ciWorkflow, true, s.ciWorkflow ? 'Every engine branch is built before it can merge.' : 'Comes with the foundation; Autopilot won’t merge without it.'),
     step('reviewed', 'A weekly run approved by a person', env.reviewedShips > 0, false, env.reviewedShips > 0 ? `${env.reviewedShips} shipped after review.` : 'Run a week in Review mode first so you’ve seen what the engine writes for this site.'),
     step('publish', 'Publishing without a click', env.lovableKey, false, env.lovableKey ? (s.lovableProjectId ? 'The Hub publishes each merge in Lovable itself.' : 'Lovable is connected; this site\u2019s project is found automatically on its next run.') : 'Connect Lovable on the SEO dashboard (free, one-time sign-in). Until then someone clicks Publish in Lovable after each merge — the engine notices and verifies.'),
-    step('gsc', 'Search Console connected', !!s.gscProperty && env.gscOk, false, !!s.gscProperty && env.gscOk ? s.gscProperty! : 'Optional, and the best source of keyword data: add the service account to the property, then set it in Settings.'),
+    step(
+      'gsc',
+      'Search Console connected',
+      !!s.gscProperty && env.gscOk,
+      false,
+      !!s.gscProperty && env.gscOk
+        ? s.gscProperty!
+        : s.gscProperty
+          ? `${s.gscProperty} \u2014 but the Hub\u2019s Search Console sign-in isn\u2019t working; reconnect it on the SEO dashboard.`
+          : env.gscState
+            ? env.gscState.detail
+            : env.gscOk
+              ? 'The Hub verifies the site with Google and connects it on its own within a few minutes.'
+              : 'Connect Search Console on the SEO dashboard (one click) \u2014 the Hub then verifies and connects every site itself.',
+    ),
     step('schedule', 'Weekly schedule on', env.scheduleOn && s.enabled, false, env.scheduleOn ? (s.enabled ? 'Runs every week.' : 'This site is skipped by the schedule — flip it on in the Engine card.') : 'Turn the weekly schedule on from the SEO dashboard.'),
     step('mode', 'Autopilot on', s.mode === 'autopilot', false, s.mode === 'autopilot' ? 'Merges on its own when every check passes.' : s.mode === 'review' ? 'A person approves each week’s PR.' : 'Audit mode: plans and drafts only.'),
   ]
@@ -171,7 +186,7 @@ function readinessFor(
 export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> {
   const s = await prisma.seoSite.findUnique({ where: { id: siteId }, include: { client: { select: { id: true, name: true } } } })
   if (!s) return null
-  const [latest, counts, scores, reviewedShips, lovable, gsc, settings] = await Promise.all([
+  const [latest, counts, scores, reviewedShips, lovable, gsc, settings, gscStates] = await Promise.all([
     prisma.seoRun.findFirst({ where: { siteId }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT }),
     postCounts([siteId]).then((m) => m.get(siteId) ?? { total: 0, live: 0 }),
     recentScores([siteId]).then((m) => m.get(siteId) ?? []),
@@ -179,10 +194,17 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     lovableChannel(),
     gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
     getSeoSettings(),
+    gscConnectStates(),
   ])
   return {
     ...siteSummary(s, latest, counts, scores, lovable !== null),
-    readiness: readinessFor(s, { reviewedShips, lovableKey: lovable !== null, gscOk: gsc.ok, scheduleOn: settings.enabled }),
+    readiness: readinessFor(s, {
+      reviewedShips,
+      lovableKey: lovable !== null,
+      gscOk: gsc.ok,
+      scheduleOn: settings.enabled,
+      gscState: gscStates[siteId] ?? null,
+    }),
     defaultBranch: s.defaultBranch,
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
     gscProperty: s.gscProperty,
@@ -279,14 +301,16 @@ async function githubStatus(present: boolean): Promise<{ login: string | null; e
 }
 
 export async function integrations(): Promise<SeoIntegrations> {
-  const [anthropic, github, google, lovable, gsc, psiKey, mcp] = await Promise.all([
+  const [anthropic, github, google, lovable, gsc, psiKey, mcp, gscStates, gscSites] = await Promise.all([
     describeSecret('anthropic'),
     describeSecret('github'),
     describeSecret('googleApiKey'),
     describeSecret('lovable'),
-    gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
+    gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null, account: null, error: null })),
     checkPsiKey(),
     lovableMcpStatus(),
+    gscConnectStates(),
+    prisma.seoSite.findMany({ where: { archivedAt: null }, select: { id: true, name: true, gscProperty: true, liveUrl: true }, orderBy: { name: 'asc' } }),
   ])
   const gh = await githubStatus(github.present)
   return {
@@ -318,9 +342,25 @@ export async function integrations(): Promise<SeoIntegrations> {
     searchConsole: {
       ok: gsc.ok,
       serviceAccountEmail: gsc.serviceAccountEmail,
+      account: gsc.account,
+      googleProject: /^(\d{6,})-/.exec(process.env.AUTH_GOOGLE_ID ?? '')?.[1] ?? null,
+      sites: gscSites.map((s) => {
+        const st = gscStates[s.id]
+        return {
+          siteId: s.id,
+          name: s.name,
+          property: s.gscProperty,
+          status: s.gscProperty ? 'connected' : st && st.status !== 'connected' ? st.status : 'waiting',
+          detail: s.gscProperty ? s.gscProperty : st ? st.detail : s.liveUrl ? 'Queued \u2014 the Hub gets to it within a few minutes.' : 'No site URL yet.',
+        }
+      }),
       detail: gsc.ok
-        ? `Service account ${gsc.serviceAccountEmail} — add it as a user on each site's Search Console property, then set the property on the site page.`
-        : `Optional, and the best source of keyword data. Add a Vault entry named "${preferredEntryName('gscServiceAccount')}" holding the service account's JSON key.`,
+        ? gsc.account
+          ? `Connected as ${gsc.account}. The Hub verifies each site with Google and adds it to this account\u2019s Search Console on its own.`
+          : `Service account ${gsc.serviceAccountEmail} \u2014 add it as a user on each site's Search Console property, then set the property on the site page. Connecting a Google account below does all of that automatically.`
+        : gsc.account
+          ? `${gsc.account} is connected, but Google rejected it: ${gsc.error ?? 'unknown error'}. Connect again below.`
+          : 'Optional, and the best source of keyword data. Connect it below once \u2014 the Hub then connects every site by itself.',
     },
     lovable: {
       ok: lovable.present || mcp.connected,

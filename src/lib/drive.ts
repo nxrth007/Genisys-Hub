@@ -74,13 +74,21 @@ function getOAuth2Client(baseUrl?: string) {
   )
 }
 
-export function getAuthUrl(baseUrl?: string, state?: string) {
+/**
+ * `extraScopes` add to the Drive set (SEO's "Connect Search Console" asks
+ * for Search Console + Site Verification on the same Google account).
+ * include_granted_scopes keeps every scope granted before, so reconnecting
+ * Drive never drops Search Console, or the other way round.
+ */
+export function getAuthUrl(baseUrl?: string, state?: string, extraScopes: string[] = []) {
   const oauth2Client = getOAuth2Client(baseUrl)
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     // Force consent so we always get a refresh_token on re-connects.
     prompt: 'consent',
+    include_granted_scopes: true,
     scope: [
+      ...extraScopes,
       // Full Drive access — required for create/rename/trash/upload operations
       // and for Sheets API read/write on arbitrary existing files. Previously
       // drive.readonly; anyone who connected before this change must reconnect
@@ -121,7 +129,37 @@ export async function exchangeCode(code: string, baseUrl?: string) {
     },
   })
 
-  return account
+  return Object.assign(account, { grantedScopes: tokens.scope ?? '' })
+}
+
+/**
+ * A fresh access token for a connected Google account, for Google APIs the
+ * Hub calls without googleapis' typed clients (Search Console, Site
+ * Verification). Refreshed tokens are saved like the Drive client's.
+ */
+export async function getGoogleAccessToken(accountEmail: string): Promise<string> {
+  const account = await prisma.driveAccount.findUnique({ where: { email: accountEmail } })
+  if (!account) throw new Error(`No Google account connected for ${accountEmail}`)
+  const oauth2Client = getOAuth2Client()
+  oauth2Client.setCredentials({
+    access_token: account.accessToken,
+    refresh_token: account.refreshToken,
+    expiry_date: account.tokenExpiry.getTime(),
+  })
+  const { token } = await oauth2Client.getAccessToken()
+  if (!token) throw new Error('Google returned no access token')
+  const creds = oauth2Client.credentials
+  if (creds.access_token && creds.access_token !== account.accessToken) {
+    await prisma.driveAccount.update({
+      where: { email: accountEmail },
+      data: {
+        accessToken: creds.access_token,
+        ...(creds.refresh_token ? { refreshToken: creds.refresh_token } : {}),
+        tokenExpiry: creds.expiry_date ? new Date(creds.expiry_date) : account.tokenExpiry,
+      },
+    })
+  }
+  return token
 }
 
 export async function getAuthenticatedClient(accountEmail: string) {

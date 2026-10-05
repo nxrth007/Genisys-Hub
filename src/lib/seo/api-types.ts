@@ -32,8 +32,20 @@ export type SeoIntegrations = {
   github: IntegrationState & { login: string | null }
   /** Google API key for PageSpeed Insights — optional (keyless works, throttled). */
   pagespeed: IntegrationState
-  /** Search Console service account — optional, unlocks query data. */
-  searchConsole: IntegrationState & { serviceAccountEmail: string | null }
+  /**
+   * Search Console — optional, unlocks query data. Either a Google account
+   * connected from Setup (the Hub then verifies and adds every site
+   * itself) or a service account added to each property by hand.
+   */
+  searchConsole: IntegrationState & {
+    serviceAccountEmail: string | null
+    /** The Google account connected for Search Console. */
+    account: string | null
+    /** The Hub's Google Cloud project number, for the "switch these APIs on" links. */
+    googleProject: string | null
+    /** Each site's progress towards a Search Console property. */
+    sites: GscSiteState[]
+  }
   /**
    * Publishing in Lovable without a click — optional. Either the Hub's own
    * Lovable sign-in ("mcp", any plan) or a Business-plan API key ("api").
@@ -89,6 +101,14 @@ export type SeoRunSummary = {
    * connected and it hasn't handed the run back) — nothing for a person to do.
    */
   hubPublishing: boolean
+}
+
+export type GscSiteState = {
+  siteId: string
+  name: string
+  status: 'connected' | 'working' | 'needs_person' | 'waiting'
+  detail: string
+  property: string | null
 }
 
 export type ReadinessStep = {

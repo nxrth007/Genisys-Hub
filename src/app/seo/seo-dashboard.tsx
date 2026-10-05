@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LovableConnect } from './lovable-connect'
+import { SearchConsoleConnect, type GscNotice } from './search-console-connect'
 import { PageHeader } from '@/components/ui/page-header'
 import type {
   CreateSiteBody,
@@ -108,7 +109,7 @@ function initials(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
-export function SeoDashboard() {
+export function SeoDashboard({ gscNotice }: { gscNotice?: GscNotice }) {
   const router = useRouter()
   const now = useNow()
   const [adding, setAdding] = useState(false)
@@ -159,7 +160,7 @@ export function SeoDashboard() {
         requiredOk={requiredOk}
         now={now}
       />
-      <SetupCard className="lg:col-span-2" integrations={data.integrations} />
+      <SetupCard className="lg:col-span-2" integrations={data.integrations} gscNotice={gscNotice} />
     </div>
   )
 
@@ -799,7 +800,15 @@ function Meta({ children }: { children: React.ReactNode }) {
   return <span className="font-mono text-[11.5px] font-normal text-muted-foreground">{children}</span>
 }
 
-function SetupCard({ integrations, className }: { integrations: SeoIntegrations | undefined; className?: string }) {
+function SetupCard({
+  integrations,
+  className,
+  gscNotice,
+}: {
+  integrations: SeoIntegrations | undefined
+  className?: string
+  gscNotice?: GscNotice
+}) {
   const i = integrations
   const gscEmail = i?.searchConsole?.serviceAccountEmail ?? null
   const rows: SetupRow[] = [
@@ -906,6 +915,7 @@ function SetupCard({ integrations, className }: { integrations: SeoIntegrations 
         </ul>
       )}
       <LovableConnect state={i?.lovable} />
+      <SearchConsoleConnect state={i?.searchConsole} notice={gscNotice} />
       {channel && (
         <p className="mt-4 border-t border-border-soft pt-3 text-[12.5px] text-muted-foreground">
           Weekly summaries post to <span className="font-mono text-foreground/85">#{channel}</span> in Slack.
