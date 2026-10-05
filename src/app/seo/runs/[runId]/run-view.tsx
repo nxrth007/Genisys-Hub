@@ -255,7 +255,10 @@ function statusSentence(run: SeoRunDetail, now: number): string {
     case 'awaiting_ci':
       return 'Waiting for the site’s build check on GitHub.'
     case 'awaiting_publish':
-      return 'Merged. Waiting for someone to publish the site in Lovable.'
+      if (run.hubPublishing) return 'Merged. The Hub is publishing it in Lovable and checking the live site.'
+      return run.publishing?.channel
+        ? 'Merged. The Hub stopped publishing on its own — see why below.'
+        : 'Merged. Waiting for someone to publish the site in Lovable.'
     case 'done': {
       const took = elapsed(run.startedAt, run.finishedAt, now)
       return `Finished ${timeAgo(run.finishedAt, now)}${took ? ` · took ${took}` : ''}.`
@@ -409,7 +412,7 @@ function StatusBanner({
       <div className="flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="min-w-0 flex-1 basis-[20rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <RunStatusPill status={run.status} />
+            <RunStatusPill status={run.status} hubPublishing={run.hubPublishing} />
             <span className="text-[13px] text-muted-foreground">{statusSentence(run, now)}</span>
           </div>
           {run.headline && (
@@ -449,22 +452,36 @@ function StatusBanner({
       {run.status === 'awaiting_publish' && (
         <div className="mx-5 mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-[12.5px] text-muted-foreground">
           <Upload className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 flex-1">
-            Lovable doesn’t publish on its own. Open the project, click <span className="text-foreground">Publish</span> →{' '}
-            <span className="text-foreground">Update</span>, then, once Lovable says it’s live, mark it published here so
-            the engine checks the live site.
-            {!site?.lovableProjectId && ' Set the Lovable project in the site’s settings to get a direct link.'}
-          </span>
+          <span className="min-w-0 flex-1">{publishNote(run, site, now)}</span>
         </div>
       )}
     </section>
   )
 }
 
+/** What the publish step is doing, in a sentence or two. */
+function publishNote(run: SeoRunDetail, site: SeoSiteDetail | null, now: number): string {
+  const p = run.publishing
+  const waiting = p?.waitingFor.length ? ` It\u2019s looking for ${p.waitingFor.join(', ')}.` : ''
+  if (run.hubPublishing) {
+    const asked = p?.attempts
+      ? `Published in Lovable ${p.attempts === 1 ? 'once' : `${p.attempts} times`}${p.lastRequestedAt ? `, last ${timeAgo(p.lastRequestedAt, now)}` : ''}.`
+      : 'Waiting for Lovable to pick the merge up from GitHub, then publishing.'
+    return `Nothing to do here: the Hub publishes this in Lovable and checks the live site every few minutes. ${asked}${waiting}`
+  }
+  if (p?.channel) {
+    return `The Hub handed this back (the reason is above). Fix that, then use Publish now \u2014 or publish in Lovable yourself and mark it published.${waiting}`
+  }
+  return `Lovable isn\u2019t connected, so someone publishes this by hand: open the project, click Publish \u2192 Update, then mark it published here. Connect Lovable on the SEO dashboard to skip this step.${
+    site?.lovableProjectId ? '' : ' Set the Lovable project in the site\u2019s settings to get a direct link.'
+  }`
+}
+
 const DONE_TEXT: Record<RunActionBody['action'], string> = {
   approve: 'Approved. The engine merges and ships it next — this page follows along.',
   reject: 'Rejected. Nothing from this run ships.',
   mark_published: 'Marked as published. The engine now checks the live site.',
+  publish_now: 'Published in Lovable. The engine checks the live site within a few minutes.',
   cancel: 'Run canceled.',
   retry: 'Retrying from where it stopped.',
 }
@@ -603,6 +620,7 @@ function RunActions({
   }
 
   if (run.status === 'awaiting_publish') {
+    const connected = !!run.publishing?.channel
     return (
       <div className="flex flex-wrap items-center gap-2">
         {site?.lovableProjectId && (
@@ -610,6 +628,23 @@ function RunActions({
             <Heart className="h-4 w-4" /> Open in Lovable
           </a>
         )}
+        {connected && (
+          <button
+            type="button"
+            onClick={() =>
+              go(
+                { action: 'publish_now' },
+                `Publish ${site?.name ?? 'this site'} in Lovable now?\n\nWhatever is in the Lovable project goes live — including edits made in Lovable since its last publish.`,
+              )
+            }
+            disabled={busy}
+            className={run.hubPublishing ? btnSecondary : btnPrimary}
+          >
+            {spin('publish_now') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Publish now
+          </button>
+        )}
+        {!run.hubPublishing && (
         <button
           type="button"
           onClick={() =>
@@ -619,11 +654,12 @@ function RunActions({
             )
           }
           disabled={busy}
-          className={btnPrimary}
+          className={connected ? btnSecondary : btnPrimary}
         >
           {spin('mark_published') ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Mark as published
         </button>
+        )}
       </div>
     )
   }

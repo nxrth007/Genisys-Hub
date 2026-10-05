@@ -15,6 +15,7 @@ import {
   slugify,
 } from './content'
 import { crawlSite, fetchPage } from './crawl'
+import { bareHost } from './html'
 import { generateFoundation } from './foundation'
 import {
   branchExists,
@@ -23,7 +24,6 @@ import {
   compareCommits,
   deleteBranch,
   getBranchHead,
-  GitHubError,
   getPullRequest,
   mergePullRequest,
   openPullRequest,
@@ -33,7 +33,7 @@ import {
 } from './github'
 import { gscConfigured, gscSubmitSitemap, gscSummary } from './gsc'
 import { newIndexNowKey, pingIndexNow } from './indexnow'
-import { getLovableDeployment, lovableChannel, lovableProjectInfo, publishLovableProject } from './lovable'
+import { getLovableDeployment, lovableChannel, lovableProjectInfo, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { runPsi } from './psi'
@@ -108,6 +108,8 @@ export type Snapshot = {
   liveChecks?: number
   /** A project id from the repo's image metadata that Lovable said isn't this site's — not asked about again. */
   lovableProjectRejected?: string
+  /** Where Lovable says it published the site (its own URL, after redirects). */
+  lovableServedUrl?: string
   /** stageVerify's own re-checks after "Mark as published". */
   verifyChecks?: number
   /** Which commit the build check wait is for, and since when. */
@@ -820,6 +822,23 @@ async function writeFoundation(ctx: RunContext): Promise<StageOutcome> {
   }
   const siteUrl = originOf(ctx.site.liveUrl)
   if (!siteUrl) throw new FatalRunError('Set the site’s live URL (its real domain) before installing the foundation.')
+  // Every canonical link, the sitemap and robots.txt will name this domain.
+  // A typo, a domain that was never connected, or the client's old site
+  // would point Google somewhere else for every page, so check it first.
+  const home = await fetchPage(siteUrl, { timeoutMs: 20_000 })
+  const wrongDomain =
+    home.status !== 200 || home.error
+      ? `${siteUrl} doesn\u2019t load (${home.error ?? `HTTP ${home.status}`})`
+      : bareHost(new URL(home.url).hostname) !== bareHost(new URL(siteUrl).hostname)
+        ? `${siteUrl} redirects to ${originOf(home.url)}`
+        : home.hosting && home.hosting !== 'lovable'
+          ? `${siteUrl} is still a ${home.hosting === 'wix' ? 'Wix' : 'Squarespace'} site, not this Lovable build`
+          : null
+  if (wrongDomain) {
+    throw new FatalRunError(
+      `${wrongDomain}. The foundation writes the site\u2019s URL into every page\u2019s canonical link, the sitemap and robots.txt, so it has to be the domain this Lovable site is published on. Fix the site\u2019s URL (Clients \u2192 Site), then retry.`,
+    )
+  }
   const shadowing = ['public/sitemap.xml', 'public/llms.txt'].filter((f) => repo.paths.includes(f))
   if (shadowing.length) {
     // A static file wins over the new server route, and the engine never deletes files.
@@ -1063,7 +1082,7 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
   const snap = ctx.snapshot
   await ctx.save({ snapshot: json({ ...snap, publish: { mergeSha, deploymentId: null, requestedAt: null }, liveChecks: 0 }) })
   const channel = await lovableChannel()
-  if (channel && (await ensureLovableProjectId(ctx))) {
+  if (channel && typeof (await ensureLovableProjectId(ctx)) === 'string') {
     ctx.log('ship', 'Merged. The Hub publishes it in Lovable once Lovable has picked the merge up (a few minutes), then checks it is live.')
   } else {
     ctx.log('ship', 'Merged. The live site updates when someone clicks Publish in Lovable — the engine will notice and verify.')
@@ -1079,46 +1098,34 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
  * id can name another project: it is kept only once Lovable shows the
  * project's latest commit is in this repo.
  */
-async function ensureLovableProjectId(ctx: RunContext): Promise<string | null> {
+async function ensureLovableProjectId(ctx: RunContext): Promise<string | { missing: string } | null> {
   if (ctx.site.lovableProjectId) return ctx.site.lovableProjectId
   const fullName = ctx.run.repoFullName ?? ctx.snapshot?.repo?.fullName ?? ctx.site.repoFullName
-  if (!fullName) return null
-  const id = ctx.snapshot?.repo?.lovableProjectId ?? (await detectLovableProjectId(fullName).catch(() => null))
-  if (!id || ctx.snapshot?.lovableProjectRejected === id) return null
+  const unknownProject = 'The Hub can\u2019t tell which Lovable project this site is \u2014 paste the project\u2019s link in the site\u2019s Settings'
+  if (!fullName) return { missing: unknownProject }
+  const detected = ctx.snapshot?.repo?.lovableProjectId ?? (await detectLovableProjectId(fullName).catch(() => undefined))
+  if (detected === undefined) return null // GitHub hiccup — try again next poll
+  if (!detected) return { missing: unknownProject }
+  const id = detected
+  if (ctx.snapshot?.lovableProjectRejected === id) {
+    return { missing: 'The connected Lovable account doesn\u2019t have this site\u2019s project \u2014 connect the account that owns it, or set the project in the site\u2019s Settings' }
+  }
 
-  const verdict = await lovableProjectBelongsToRepo(id, fullName, ctx.site.defaultBranch || 'main')
+  const verdict = await lovableProjectMatchesRepo(id, fullName, ctx.site.defaultBranch || 'main')
   if (verdict === 'unknown') return null
   if (verdict === 'no') {
     ctx.log(
       'verify',
-      `The repo's image metadata names Lovable project ${id.slice(0, 8)}…, but the connected Lovable account has no such project for this repo — it may belong to another Lovable account, or to the template this site was remixed from. Set the project id in this site's Settings (or connect the right account) and the Hub will publish.`,
+      `The repo's image metadata names Lovable project ${id.slice(0, 8)}…, but the connected Lovable account has no such project for this repo — it may belong to another Lovable account, or to the template this site was remixed from.`,
       'warn',
     )
     await ctx.save({ snapshot: json({ ...ctx.snapshot, lovableProjectRejected: id }) })
-    return null
+    return { missing: 'The connected Lovable account doesn\u2019t have this site\u2019s project \u2014 connect the account that owns it, or set the project in the site\u2019s Settings' }
   }
   await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { lovableProjectId: id } })
   ctx.site = { ...ctx.site, lovableProjectId: id }
   ctx.log('verify', `Found this repo's Lovable project (${id.slice(0, 8)}…) and checked it against the repo`)
   return id
-}
-
-async function lovableProjectBelongsToRepo(projectId: string, fullName: string, branch: string): Promise<'yes' | 'no' | 'unknown'> {
-  let info: Awaited<ReturnType<typeof lovableProjectInfo>>
-  try {
-    info = await lovableProjectInfo(projectId)
-  } catch {
-    return 'unknown'
-  }
-  if (!info) return 'no'
-  if (!info.latestCommitSha) return 'unknown'
-  // GitHub answers 404 for a commit this repo has never had.
-  try {
-    await compareCommits(fullName, branch, info.latestCommitSha)
-    return 'yes'
-  } catch (err) {
-    return err instanceof GitHubError && err.status === 404 ? 'no' : 'unknown'
-  }
 }
 
 /**
@@ -1142,10 +1149,15 @@ const MCP_RETRY_MS = 10 * 60_000
 
 /** URLs that must be live for this run to count as published. */
 function expectedLiveUrls(ctx: RunContext): string[] {
-  const origin = originOf(ctx.site.liveUrl)
-  if (!origin) return []
-  if (ctx.run.kind === 'foundation') return [`${origin}/sitemap.xml`]
   const drafts: Draft[] = Array.isArray(ctx.run.drafts) ? (ctx.run.drafts as unknown as Draft[]) : []
+  return liveUrlsFor(ctx.run.kind, ctx.site.liveUrl, drafts)
+}
+
+/** The same, from plain values — the run page shows what it's waiting for. */
+export function liveUrlsFor(kind: string, liveUrl: string | null, drafts: Draft[]): string[] {
+  const origin = originOf(liveUrl)
+  if (!origin) return []
+  if (kind === 'foundation') return [`${origin}/sitemap.xml`]
   return drafts.map((d) => `${origin}/blog/${d.post.slug}`)
 }
 
@@ -1200,14 +1212,17 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
   const publish = snap?.publish
   const fullName = ctx.run.repoFullName ?? snap?.repo?.fullName ?? null
   const channel = publish && !publish.gaveUp ? await lovableChannel() : null
-  const projectId = channel ? await ensureLovableProjectId(ctx) : null
+  const project = channel ? await ensureLovableProjectId(ctx) : null
+  const projectId = typeof project === 'string' ? project : null
+  /** Hand the run back to a person: the reason shows on the run and in Slack, and it counts as waiting on you again. */
   const giveUp = async (why: string) => {
     const current = ctx.snapshot?.publish ?? publish
     if (!current) return
-    ctx.log('verify', `${why} — publish it in Lovable by hand; the engine keeps watching for it`, 'error')
-    await ctx.save({ snapshot: json({ ...ctx.snapshot, publish: { ...current, gaveUp: true } }) })
-    await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${why}. Click *Publish* in Lovable. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+    ctx.log('verify', `${why} — the engine keeps watching the live site`, 'error')
+    await ctx.save({ error: why, snapshot: json({ ...ctx.snapshot, publish: { ...current, gaveUp: true } }) })
+    await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${why}. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
   }
+  if (project && typeof project === 'object') await giveUp(project.missing)
   /** A live check already made this pass, when nothing was published after it. */
   let checked: { missing: string[] } | null = null
 
@@ -1243,6 +1258,24 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
             const dep = await lovableMcpDeploy(projectId)
             ctx.log('verify', `Published in Lovable${dep.url ? ` → ${dep.url}` : ''} (attempt ${attempts + 1} of ${MCP_PUBLISH_ATTEMPTS})`)
             checked = null
+            // Lovable's URL redirects to the custom domain it really serves.
+            const served = dep.url ? await fetchPage(dep.url, { timeoutMs: 20_000 }).catch(() => null) : null
+            if (served?.status === 200 && !served.error) {
+              await ctx.save({ snapshot: json({ ...ctx.snapshot, lovableServedUrl: originOf(served.url) ?? undefined }) })
+            }
+            // Published, but the address the Hub checks doesn't even load: no
+            // amount of re-publishing fixes that, so say what's wrong now.
+            const origin = originOf(ctx.site.liveUrl)
+            if (origin) {
+              const home = await fetchPage(origin, { timeoutMs: 20_000 })
+              if (home.status !== 200 || home.error) {
+                const servedAt = ctx.snapshot?.lovableServedUrl
+                const elsewhere = servedAt && bareHost(new URL(servedAt).hostname) !== bareHost(new URL(origin).hostname)
+                await giveUp(
+                  `Published in Lovable, but the site\u2019s URL in the Hub (${origin}) doesn\u2019t load${elsewhere ? ` \u2014 Lovable serves this site at ${servedAt}` : ''}. Fix the URL on the Clients page and the engine finds the pages`,
+                )
+              }
+            }
           }
         } catch (err) {
           if (err instanceof LovableMcpError && err.reconnect) await giveUp('The Hub’s Lovable sign-in needs reconnecting (SEO → Setup)')

@@ -271,12 +271,22 @@ function looksLikeHtml(contentType: string | null, buf: Buffer | null): boolean 
 // Pages
 // ---------------------------------------------------------------------------
 
+/** Lovable hosting stamps every response with x-deployment-id: psr…; Wix and Squarespace sign theirs too. */
+function hostingFrom(h: Headers | null): PageData['hosting'] {
+  if (!h) return null
+  if (/^psr/i.test(h.get('x-deployment-id') ?? '')) return 'lovable'
+  if (h.get('x-wix-request-id') || /pepyaka/i.test(h.get('server') ?? '')) return 'wix'
+  if (/squarespace/i.test(`${h.get('server') ?? ''} ${h.get('x-servedby') ?? ''}`)) return 'squarespace'
+  return null
+}
+
 function blankPage(requestedUrl: string, r: Fetched): PageData {
   return {
     requestedUrl,
     url: r.url,
     status: r.status ?? 0,
     redirects: r.redirects,
+    hosting: hostingFrom(r.headers),
     ms: r.ms,
     bytes: r.body?.byteLength ?? 0,
     contentType: r.headers?.get('content-type') ?? null,

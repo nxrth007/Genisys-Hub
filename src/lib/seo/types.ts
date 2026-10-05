@@ -105,6 +105,8 @@ export type PageData = {
   status: number
   /** Redirect hops followed to reach `url` (0 = none). */
   redirects: number
+  /** Who serves the page, read from its response headers — our Lovable build, or a client's old site elsewhere. */
+  hosting?: 'lovable' | 'wix' | 'squarespace' | null
   ms: number
   bytes: number
   contentType: string | null

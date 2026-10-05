@@ -16,7 +16,7 @@ import { gscConfigured } from './gsc'
 import { checkPsiKey } from './psi'
 import { lovableChannel } from './lovable'
 import { lovableMcpStatus } from './lovable-mcp'
-import type { Snapshot } from './pipeline'
+import { liveUrlsFor, type Snapshot } from './pipeline'
 import { describeSecret, preferredEntryName } from './secrets'
 import { getSeoSettings, nextScheduledRun } from './settings'
 import { SEO_ALERT_CHANNEL } from './slack'
@@ -65,7 +65,8 @@ type SiteRow = Prisma.SeoSiteGetPayload<{ include: { client: { select: { id: tru
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null)
 
-export function runSummary(r: RunSummaryRow): SeoRunSummary {
+/** `lovableOn`: the Hub can publish in Lovable itself (a sign-in or an API key). */
+export function runSummary(r: RunSummaryRow, lovableOn = false): SeoRunSummary {
   return {
     id: r.id,
     siteId: r.siteId,
@@ -84,6 +85,7 @@ export function runSummary(r: RunSummaryRow): SeoRunSummary {
     startedAt: iso(r.startedAt),
     finishedAt: iso(r.finishedAt),
     createdAt: r.createdAt.toISOString(),
+    hubPublishing: r.status === 'awaiting_publish' && lovableOn && !r.error,
   }
 }
 
@@ -104,7 +106,13 @@ async function recentScores(siteIds: string[]): Promise<Map<string, number[]>> {
   return out
 }
 
-function siteSummary(s: SiteRow, latest: RunSummaryRow | null, posts: { total: number; live: number }, scores: number[] = []): SeoSiteSummary {
+function siteSummary(
+  s: SiteRow,
+  latest: RunSummaryRow | null,
+  posts: { total: number; live: number },
+  scores: number[] = [],
+  lovableOn = false,
+): SeoSiteSummary {
   return {
     id: s.id,
     name: s.name,
@@ -119,7 +127,7 @@ function siteSummary(s: SiteRow, latest: RunSummaryRow | null, posts: { total: n
     lastScore: s.lastScore,
     previousScore: scores[1] ?? null,
     lastRunAt: iso(s.lastRunAt),
-    latestRun: latest ? runSummary(latest) : null,
+    latestRun: latest ? runSummary(latest, lovableOn) : null,
     posts,
   }
 }
@@ -173,7 +181,7 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     getSeoSettings(),
   ])
   return {
-    ...siteSummary(s, latest, counts, scores),
+    ...siteSummary(s, latest, counts, scores, lovable !== null),
     readiness: readinessFor(s, { reviewedShips, lovableKey: lovable !== null, gscOk: gsc.ok, scheduleOn: settings.enabled }),
     defaultBranch: s.defaultBranch,
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
@@ -186,8 +194,11 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
 }
 
 export async function siteRuns(siteId: string): Promise<SeoRunSummary[]> {
-  const runs = await prisma.seoRun.findMany({ where: { siteId }, orderBy: { createdAt: 'desc' }, take: 30, select: SUMMARY_SELECT })
-  return runs.map(runSummary)
+  const [runs, channel] = await Promise.all([
+    prisma.seoRun.findMany({ where: { siteId }, orderBy: { createdAt: 'desc' }, take: 30, select: SUMMARY_SELECT }),
+    lovableChannel(),
+  ])
+  return runs.map((r) => runSummary(r, channel !== null))
 }
 
 export async function sitePosts(siteId: string): Promise<SeoPostView[]> {
@@ -207,9 +218,12 @@ export async function sitePosts(siteId: string): Promise<SeoPostView[]> {
 export async function runDetail(runId: string): Promise<SeoRunDetail | null> {
   const r = await prisma.seoRun.findUnique({ where: { id: runId } })
   if (!r) return null
-  const site = await prisma.seoSite.findUnique({ where: { id: r.siteId }, select: { name: true, repoFullName: true } })
+  const [site, channel] = await Promise.all([
+    prisma.seoSite.findUnique({ where: { id: r.siteId }, select: { name: true, repoFullName: true, liveUrl: true } }),
+    lovableChannel(),
+  ])
   const snap = r.snapshot as unknown as Snapshot | null
-  const { drafts: _count, ...summary } = runSummary(r)
+  const { drafts: _count, ...summary } = runSummary(r, channel !== null)
   void _count
   return {
     ...summary,
@@ -233,6 +247,16 @@ export async function runDetail(runId: string): Promise<SeoRunDetail | null> {
     usage: (r.usage as unknown as ClaudeUsage | null) ?? null,
     log: Array.isArray(r.log) ? (r.log as unknown as RunLogEntry[]) : [],
     reviewedBy: r.reviewedBy,
+    publishing: snap?.publish
+      ? {
+          channel,
+          attempts: snap.publish.mcpAttempts ?? (snap.publish.deploymentId ? 1 : 0),
+          lastRequestedAt: snap.publish.requestedAt ?? null,
+          gaveUp: !!snap.publish.gaveUp,
+          waitingFor: liveUrlsFor(r.kind, site?.liveUrl ?? null, Array.isArray(r.drafts) ? (r.drafts as unknown as Draft[]) : []),
+          servedUrl: snap.lovableServedUrl ?? null,
+        }
+      : null,
   }
 }
 
@@ -350,7 +374,9 @@ export async function overview(): Promise<SeoOverviewResponse> {
     integrations: integ,
     settings,
     nextRunAt: nextScheduledRun(settings, new Date()),
-    sites: sites.map((s) => siteSummary(s, latestBySite.get(s.id) ?? null, counts.get(s.id) ?? { total: 0, live: 0 }, scores.get(s.id) ?? [])),
+    sites: sites.map((s) =>
+      siteSummary(s, latestBySite.get(s.id) ?? null, counts.get(s.id) ?? { total: 0, live: 0 }, scores.get(s.id) ?? [], integ.lovable.channel !== null),
+    ),
     clients,
     spend: { last30DaysUsd: Math.round((spend._sum.costUsd ?? 0) * 100) / 100, runsLast30Days: spend._count._all },
   }

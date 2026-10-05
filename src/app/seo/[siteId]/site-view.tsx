@@ -24,6 +24,7 @@ import {
   Sparkles,
   Trash2,
   Undo2,
+  Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -322,14 +323,14 @@ function SiteLinks({ site }: { site: SeoSiteDetail }) {
  * dashboard (which only looks at the latest run) has already moved on.
  */
 function waitingOnYou(r: SeoRunSummary, runs: SeoRunSummary[]): boolean {
-  if (!needsYou(r.status)) return false
+  if (!needsYou(r)) return false
   if (r.status !== 'failed') return true
   return !runs.some((o) => o.id !== r.id && o.kind === r.kind && o.createdAt > r.createdAt)
 }
 
 /** Runs parked on a person, or moving right now, with a direct link. */
 function RunsNeedingYou({ runs, now }: { runs: SeoRunSummary[]; now: number }) {
-  const rows = runs.filter((r) => waitingOnYou(r, runs) || isMoving(r.status)).slice(0, 4)
+  const rows = runs.filter((r) => waitingOnYou(r, runs) || isMoving(r.status) || r.hubPublishing).slice(0, 4)
   if (rows.length === 0) return null
   return (
     <div className="flex flex-col divide-y divide-border-soft rounded-xl border border-border bg-card">
@@ -339,7 +340,7 @@ function RunsNeedingYou({ runs, now }: { runs: SeoRunSummary[]; now: number }) {
           href={`/seo/runs/${r.id}`}
           className="group flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition hover:bg-surface-muted"
         >
-          <RunStatusPill status={r.status} />
+          <RunStatusPill status={r.status} hubPublishing={r.hubPublishing} />
           <span className="text-[13px] font-medium">
             {r.kind === 'foundation' ? 'Foundation install' : weekLabel(r.weekOf)}
           </span>
@@ -439,7 +440,19 @@ function SiteControls({
   onNotice: (n: NoticeState) => void
 }) {
   const update = useUpdateSite(site.id)
+  const qc = useQueryClient()
   const blurb = MODES.find((m) => m.value === site.mode)?.blurb
+  const lovableOn = !!site.readiness.steps.find((s) => s.id === 'publish')?.ok
+  const publish = useMutation({
+    mutationFn: () => seoFetch<{ url: string | null }>(`/api/seo/sites/${enc(site.id)}/publish`, { method: 'POST' }),
+    onMutate: () => onNotice(null),
+    onSuccess: ({ url }) => {
+      onNotice({ tone: 'ok', text: `Published ${site.name} in Lovable${url ? ` — ${url}` : ''}. Give it a minute to reach the live site.` })
+      qc.invalidateQueries({ queryKey: seoKeys.site(site.id) })
+      qc.invalidateQueries({ queryKey: seoKeys.overview })
+    },
+    onError: (e: Error) => onNotice({ tone: 'err', text: e.message }),
+  })
 
   function patch(body: UpdateSiteBody, ok: string) {
     onNotice(null)
@@ -495,6 +508,27 @@ function SiteControls({
             onChange={(v) => patch({ enabled: v }, v ? 'Back in the weekly schedule.' : 'Taken out of the weekly schedule.')}
           />
         </div>
+        {lovableOn && site.repoFullName && (
+          <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-4">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium">Publish in Lovable</p>
+              <p className="text-[12px] text-muted-foreground">The Hub publishes after every merge on its own. This is for a fix that landed another way.</p>
+            </div>
+            <button
+              type="button"
+              className={btnSmall}
+              disabled={publish.isPending}
+              onClick={() => {
+                if (window.confirm(`Publish ${site.name} in Lovable now?\n\nWhatever is in the Lovable project goes live — including edits made in Lovable since its last publish.`)) {
+                  publish.mutate()
+                }
+              }}
+            >
+              {publish.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+              Publish now
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-2 border-t border-border-soft pt-4 text-center">
           <MiniStat label="Live" value={live} />
           <MiniStat label="Committed" value={committed} />
@@ -745,7 +779,7 @@ function RunsCard({ runs, now }: { runs: SeoRunSummary[]; now: number }) {
                 </p>
               </td>
               <td className={tdClass}>
-                <RunStatusPill status={r.status} />
+                <RunStatusPill status={r.status} hubPublishing={r.hubPublishing} />
               </td>
               <td className={cn(tdClass, 'text-[12px] text-muted-foreground')}>
                 {r.status === 'done' ? '—' : (STAGE_LABEL[r.stage] ?? r.stage)}

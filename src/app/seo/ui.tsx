@@ -98,8 +98,9 @@ export function isMoving(status: string | null | undefined): boolean {
   return !!status && MOVING.has(status)
 }
 
-export function needsYou(status: string | null | undefined): boolean {
-  return !!status && NEEDS_YOU.has(status)
+/** Parked on a person. A merge the Hub is publishing in Lovable itself isn't. */
+export function needsYou(run: { status: string; hubPublishing?: boolean } | null | undefined): boolean {
+  return !!run && NEEDS_YOU.has(run.status) && !run.hubPublishing
 }
 
 /**
@@ -892,8 +893,10 @@ export function runStatusLabel(status: string | null | undefined): string {
   return RUN_STATUS[status as RunStatus]?.label ?? status.replace(/_/g, ' ')
 }
 
-export function RunStatusPill({ status }: { status: string | null | undefined }) {
+/** `hubPublishing`: merged, and the Hub is publishing it in Lovable — not waiting on anyone. */
+export function RunStatusPill({ status, hubPublishing }: { status: string | null | undefined; hubPublishing?: boolean }) {
   if (!status) return <span className="text-muted-foreground">—</span>
+  if (status === 'awaiting_publish' && hubPublishing) return <DotPill label="Publishing" tone="active" pulse />
   const s = RUN_STATUS[status as RunStatus]
   return <DotPill label={s?.label ?? status.replace(/_/g, ' ')} tone={s?.tone ?? 'muted'} pulse={s?.pulse} />
 }

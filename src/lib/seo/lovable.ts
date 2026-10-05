@@ -1,3 +1,4 @@
+import { compareCommits, GitHubError } from './github'
 import { getSecret } from './secrets'
 import { lovableMcpGetProject, lovableMcpStatus } from './lovable-mcp'
 
@@ -98,6 +99,30 @@ export async function lovableProjectInfo(projectId: string): Promise<LovableProj
   } catch (err) {
     if (err instanceof LovableError && (err.status === 404 || err.type === 'project_not_found')) return null
     throw err
+  }
+}
+
+/**
+ * Is this Lovable project the one behind this repo? 'yes' when Lovable's
+ * latest commit for it is a commit of the repo. A site remixed from a
+ * template carries the template's image metadata, so the id read from the
+ * repo can name another project; this is the check before trusting it.
+ */
+export async function lovableProjectMatchesRepo(projectId: string, fullName: string, branch: string): Promise<'yes' | 'no' | 'unknown'> {
+  let info: LovableProjectInfo | null
+  try {
+    info = await lovableProjectInfo(projectId)
+  } catch {
+    return 'unknown'
+  }
+  if (!info) return 'no'
+  if (!info.latestCommitSha) return 'unknown'
+  // GitHub answers 404 for a commit this repo has never had.
+  try {
+    await compareCommits(fullName, branch, info.latestCommitSha)
+    return 'yes'
+  } catch (err) {
+    return err instanceof GitHubError && err.status === 404 ? 'no' : 'unknown'
   }
 }
 

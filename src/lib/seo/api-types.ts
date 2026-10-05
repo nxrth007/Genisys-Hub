@@ -84,6 +84,11 @@ export type SeoRunSummary = {
   startedAt: string | null
   finishedAt: string | null
   createdAt: string
+  /**
+   * Merged, and the Hub is publishing it in Lovable itself (Lovable is
+   * connected and it hasn't handed the run back) — nothing for a person to do.
+   */
+  hubPublishing: boolean
 }
 
 export type ReadinessStep = {
@@ -195,6 +200,22 @@ export type SeoRunDetail = Omit<SeoRunSummary, 'drafts'> & {
   usage: ClaudeUsage | null
   log: RunLogEntry[]
   reviewedBy: string | null
+  /** How this merge reaches the live site; null before the merge. */
+  publishing: RunPublishing | null
+}
+
+export type RunPublishing = {
+  /** How the Hub publishes in Lovable; null = someone clicks Publish there. */
+  channel: 'api' | 'mcp' | null
+  /** Times the Hub has asked Lovable to publish this merge. */
+  attempts: number
+  lastRequestedAt: string | null
+  /** The Hub stopped and handed it back; the reason is the run's `error`. */
+  gaveUp: boolean
+  /** The pages the engine is waiting to see live. */
+  waitingFor: string[]
+  /** Where Lovable says it served the site, when that's known. */
+  servedUrl: string | null
 }
 
 export type SeoRunDetailResponse = { run: SeoRunDetail }
@@ -227,5 +248,6 @@ export type RunActionBody =
   | { action: 'approve' }
   | { action: 'reject'; reason?: string }
   | { action: 'mark_published' }
+  | { action: 'publish_now' }
   | { action: 'cancel' }
   | { action: 'retry' }

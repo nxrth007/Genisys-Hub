@@ -232,7 +232,7 @@ function StatsRow({ sites, spend }: { sites: SeoSiteSummary[]; spend: SeoOvervie
     ? Math.round(scored.reduce((a, s) => a + (s.lastScore as number), 0) / scored.length)
     : null
   const modes = (m: SeoMode) => sites.filter((s) => s.mode === m).length
-  const waiting = sites.filter((s) => needsYou(s.latestRun?.status)).length
+  const waiting = sites.filter((s) => needsYou(s.latestRun)).length
   const live = sites.reduce((a, s) => a + (s.posts?.live ?? 0), 0)
   const total = sites.reduce((a, s) => a + (s.posts?.total ?? 0), 0)
 
@@ -257,7 +257,7 @@ function StatsRow({ sites, spend }: { sites: SeoSiteSummary[]; spend: SeoOvervie
 
 /** Runs that are parked until a person does something. */
 function Attention({ sites, now }: { sites: SeoSiteSummary[]; now: number }) {
-  const rows = sites.filter((s) => s.latestRun && needsYou(s.latestRun.status))
+  const rows = sites.filter((s) => needsYou(s.latestRun))
   if (rows.length === 0) return null
   const order = { awaiting_review: 0, awaiting_publish: 1, failed: 2 } as Record<string, number>
   const sorted = [...rows].sort((a, b) => (order[a.latestRun!.status] ?? 9) - (order[b.latestRun!.status] ?? 9))
@@ -274,7 +274,7 @@ function Attention({ sites, now }: { sites: SeoSiteSummary[]; now: number }) {
               : run.headline || (run.kind === 'foundation' ? 'SEO foundation install' : `Weekly run · ${run.drafts} draft${run.drafts === 1 ? '' : 's'}`)
           return (
             <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
-              <RunStatusPill status={run.status} />
+              <RunStatusPill status={run.status} hubPublishing={run.hubPublishing} />
               <Link href={`/seo/${s.id}`} className="text-[13px] font-medium hover:underline">
                 {s.name}
               </Link>
@@ -467,7 +467,7 @@ function SiteRow({
             onClick={(e) => e.stopPropagation()}
             className="group inline-flex flex-col gap-1"
           >
-            <RunStatusPill status={run.status} />
+            <RunStatusPill status={run.status} hubPublishing={run.hubPublishing} />
             <span className="font-mono text-[11px] text-muted-foreground group-hover:text-foreground">
               {run.status === 'running' ? `${STAGE_LABEL[run.stage] ?? run.stage} · ` : ''}
               {timeAgo(run.finishedAt ?? run.startedAt ?? run.createdAt, now)}

@@ -5,11 +5,13 @@ import { ClaudeSession } from './claude'
 import { fetchPage } from './crawl'
 import { enqueueManualRun } from './engine'
 import { deleteBranch, getPullRequest, getRepo } from './github'
+import { lovableChannel, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
+import { lovableMcpDeploy } from './lovable-mcp'
 import { ciState, cleanupStoppedRun, deriveFacts, type Snapshot } from './pipeline'
 import { FactsSchema } from './prompts'
-import { snapshotRepo } from './repo'
+import { detectLovableProjectId, snapshotRepo } from './repo'
 import { getSeoSettings } from './settings'
-import type { RunStatus, SeoMode } from './types'
+import type { RunLogEntry, RunStatus, SeoMode } from './types'
 
 /**
  * Writes behind /api/seo/*. Every function validates its own input and
@@ -310,9 +312,14 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
     case 'mark_published': {
       const res = await prisma.seoRun.updateMany({
         where: { id: runId, status: 'awaiting_publish' },
-        data: { status: 'queued', stage: 'verify', reviewedBy: email, leaseUntil: null },
+        data: { status: 'queued', stage: 'verify', reviewedBy: email, leaseUntil: null, error: null },
       })
       if (!res.count) throw new SeoInputError('This run isn’t waiting to be published.')
+      return
+    }
+    case 'publish_now': {
+      if (run.status !== 'awaiting_publish') throw new SeoInputError('This run isn’t waiting to be published.')
+      await publishSiteNow(run.siteId, email)
       return
     }
     case 'retry': {
@@ -342,4 +349,61 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
     default:
       throw new SeoInputError('Unknown action.')
   }
+}
+
+/**
+ * Publish a site in Lovable right now through the Hub's connection — for a
+ * fix that landed outside a run, or a run the Hub handed back. Any run of
+ * the site waiting to be published starts its publish checks over.
+ */
+export async function publishSiteNow(siteId: string, email: string): Promise<{ url: string | null }> {
+  const site = await prisma.seoSite.findUnique({ where: { id: siteId } })
+  if (!site) throw new SeoInputError('Site not found.')
+  const channel = await lovableChannel()
+  if (!channel) throw new SeoInputError('Connect Lovable first: SEO → Setup → Connect Lovable.')
+
+  let projectId = site.lovableProjectId
+  if (!projectId) {
+    const detected = site.repoFullName ? await detectLovableProjectId(site.repoFullName).catch(() => null) : null
+    const verdict = detected && site.repoFullName ? await lovableProjectMatchesRepo(detected, site.repoFullName, site.defaultBranch || 'main') : 'no'
+    if (!detected || verdict !== 'yes') {
+      throw new SeoInputError('The Hub can’t confirm which Lovable project this site is. Paste the project’s link in the site’s Settings, then try again.')
+    }
+    projectId = detected
+    await prisma.seoSite.update({ where: { id: siteId }, data: { lovableProjectId: projectId } })
+  }
+
+  let url: string | null = null
+  let deploymentId: string | null = null
+  try {
+    if (channel === 'mcp') url = (await lovableMcpDeploy(projectId)).url
+    else deploymentId = (await publishLovableProject(projectId)).deploymentId
+  } catch (err) {
+    throw new SeoInputError(`Lovable didn’t publish: ${err instanceof Error ? err.message : 'unknown error'}`)
+  }
+
+  const now = new Date()
+  const waiting = await prisma.seoRun.findMany({ where: { siteId, status: 'awaiting_publish' }, select: { id: true, snapshot: true, log: true } })
+  for (const r of waiting) {
+    const snap = (r.snapshot ?? {}) as unknown as Snapshot
+    const log = [
+      ...(Array.isArray(r.log) ? (r.log as unknown as RunLogEntry[]) : []),
+      { at: now.toISOString(), stage: 'verify', level: 'info', msg: `${email} published it in Lovable from the Hub${url ? ` → ${url}` : ''}` } satisfies RunLogEntry,
+    ]
+    // Skip a run a poller holds right now; it reads the live site anyway.
+    await prisma.seoRun.updateMany({
+      where: { id: r.id, status: 'awaiting_publish', OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }] },
+      data: {
+        error: null,
+        log: log as unknown as Prisma.InputJsonValue,
+        snapshot: {
+          ...snap,
+          publish: snap.publish
+            ? { ...snap.publish, gaveUp: false, syncPolls: 0, mcpAttempts: channel === 'mcp' ? 1 : 0, deploymentId: deploymentId ?? snap.publish.deploymentId, requestedAt: now.toISOString() }
+            : null,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    })
+  }
+  return { url }
 }
