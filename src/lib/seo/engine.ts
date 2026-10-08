@@ -9,6 +9,7 @@ import {
   cleanupStoppedRun,
   DeferError,
   FatalRunError,
+  hubUrl,
   LeaseLostError,
   loadRunContext,
   PUBLISH_WATCH_MS,
@@ -100,14 +101,50 @@ export async function enqueueWeeklyIfDue(now: Date): Promise<number> {
   const weekOf = isoWeekLabel(now, settings.timeZone)
   const sites = await prisma.seoSite.findMany({
     where: { enabled: true, archivedAt: null },
-    select: { id: true },
+    select: { id: true, name: true },
   })
   if (!sites.length) return 0
+  // A site whose earlier week hasn't shipped sits this week out: a new run
+  // would be planned without those posts and could write the same topics
+  // again. The skip is recorded as this week's run, so it shows on the site
+  // page and (being this week's row) is never re-decided by later ticks.
+  const open = await prisma.seoRun.findMany({
+    where: {
+      siteId: { in: sites.map((s) => s.id) },
+      kind: 'weekly',
+      weekOf: { not: weekOf },
+      status: { in: ['queued', 'running', 'awaiting_ci', 'awaiting_review'] },
+    },
+    select: { siteId: true, weekOf: true },
+  })
+  const waiting = new Map(open.map((o) => [o.siteId, o.weekOf]))
   // Unique (siteId, kind, weekOf) makes this idempotent across ticks and instances.
   const res = await prisma.seoRun.createMany({
-    data: sites.map((s) => ({ siteId: s.id, kind: 'weekly', weekOf, trigger: 'schedule', status: 'queued', stage: 'collect' })),
+    data: sites
+      .filter((s) => !waiting.has(s.id))
+      .map((s) => ({ siteId: s.id, kind: 'weekly', weekOf, trigger: 'schedule', status: 'queued', stage: 'collect' })),
     skipDuplicates: true,
   })
+  const skippedSites = sites.filter((s) => waiting.has(s.id))
+  if (skippedSites.length) {
+    const skipped = await prisma.seoRun.createMany({
+      data: skippedSites.map((s) => ({
+        siteId: s.id,
+        kind: 'weekly',
+        weekOf,
+        trigger: 'schedule',
+        status: 'canceled',
+        stage: 'collect',
+        finishedAt: now,
+        error: `Skipped this week: the ${waiting.get(s.id)} run is still waiting for review. Approve or reject it, then use Run weekly now.`,
+      })),
+      skipDuplicates: true,
+    })
+    if (skipped.count) {
+      const names = skippedSites.map((s) => s.name).join(', ')
+      await seoAlert(`:hourglass: *SEO* — skipped ${weekOf} for ${names}: last week’s run is still waiting for review. ${hubUrl('/seo')}`)
+    }
+  }
   if (res.count) console.log(`[seo] enqueued ${res.count} weekly run(s) for ${weekOf}`)
   return res.count
 }
