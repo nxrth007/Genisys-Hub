@@ -26,6 +26,7 @@ type ColumnId =
   | 'customerPhone' | 'areaCode' | 'timeZone' | 'leadEmail' | 'cities' | 'website'
   | 'aboutBusiness' | 'mainServices' | 'promotions' | 'socialLinks' | 'whyChooseYou'
   | 'brandColors' | 'faqs' | 'files' | 'bringingOwnDomain' | 'domainName'
+  | 'hasGoogleProfile' | 'googleProfileLink' | 'yearStarted' | 'licenseInfo' | 'reviewLinks'
 
 /** The order the form writes columns in — the fallback when a header isn't recognised. */
 const COLUMN_ORDER: ColumnId[] = [
@@ -33,6 +34,7 @@ const COLUMN_ORDER: ColumnId[] = [
   'customerPhone', 'areaCode', 'timeZone', 'leadEmail', 'cities', 'website',
   'aboutBusiness', 'mainServices', 'promotions', 'socialLinks', 'whyChooseYou',
   'brandColors', 'faqs', 'files', 'bringingOwnDomain', 'domainName',
+  'hasGoogleProfile', 'googleProfileLink', 'yearStarted', 'licenseInfo', 'reviewLinks',
 ]
 
 /** Header wording changes ("Business Name" became "Legal Business Name"); match on what stays. */
@@ -59,6 +61,11 @@ const HEADER_HINTS: [RegExp, ColumnId][] = [
   [/marketing content/i, 'files'],
   [/bringing your own domain/i, 'bringingOwnDomain'],
   [/what is your domain/i, 'domainName'],
+  [/do you have a google business profile/i, 'hasGoogleProfile'],
+  [/link to your google business profile/i, 'googleProfileLink'],
+  [/year did your business start/i, 'yearStarted'],
+  [/license/i, 'licenseInfo'],
+  [/review sites/i, 'reviewLinks'],
 ]
 
 export type SheetSyncStatus = {

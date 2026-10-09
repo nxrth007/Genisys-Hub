@@ -21,6 +21,7 @@ export const INTAKE_FIELDS = [
   'customerPhone', 'areaCode', 'timeZone', 'leadEmail', 'cities', 'website',
   'aboutBusiness', 'mainServices', 'promotions', 'socialLinks', 'whyChooseYou',
   'brandColors', 'faqs', 'bringingOwnDomain', 'domainName',
+  'hasGoogleProfile', 'googleProfileLink', 'yearStarted', 'licenseInfo', 'reviewLinks',
 ] as const
 
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -84,6 +85,12 @@ export function intakeDataFromBody(body: Record<string, unknown>) {
     // The form leaves domainName empty on "No", but a stale value from
     // a toggled answer shouldn't be stored as if it were theirs.
     domainName: ownDomain ? str(answers.domainName) : null,
+    hasGoogleProfile: str(answers.hasGoogleProfile),
+    // Same as the domain: a link left behind after switching to "No" isn't theirs.
+    googleProfileLink: /^no$/i.test(str(answers.hasGoogleProfile) ?? '') ? null : str(answers.googleProfileLink),
+    yearStarted: str(answers.yearStarted),
+    licenseInfo: str(answers.licenseInfo),
+    reviewLinks: str(answers.reviewLinks),
     files,
     raw: body as object,
   }

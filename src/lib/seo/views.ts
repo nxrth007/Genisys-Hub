@@ -200,7 +200,7 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
   ])
   const facts = (s.facts as unknown as BusinessFacts | null) ?? null
   const meta = readMeta(s.factsMeta)
-  const gaps = factGaps(facts)
+  const gaps = factGaps(facts, intake)
   return {
     ...siteSummary(s, latest, counts, scores, lovable !== null),
     readiness: readinessFor(s, {
@@ -240,7 +240,12 @@ const INTAKE_LABELS: [keyof IntakeAnswers, string][] = [
   ['whyChooseYou', 'Why customers should choose them'],
   ['promotions', 'Current promotions / offers'],
   ['faqs', 'FAQs + answers'],
-  ['socialLinks', 'Social / online profile links'],
+  ['socialLinks', 'Social media pages'],
+  ['hasGoogleProfile', 'Has a Google Business Profile'],
+  ['googleProfileLink', 'Google Business Profile link'],
+  ['reviewLinks', 'Review sites they’re on'],
+  ['yearStarted', 'Year the business started'],
+  ['licenseInfo', 'License'],
   ['website', 'Website they had'],
   ['domainName', 'Domain they’re bringing'],
   ['timeZone', 'Time zone'],

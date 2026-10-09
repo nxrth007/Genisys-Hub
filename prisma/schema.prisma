@@ -2014,6 +2014,14 @@ model ClientIntake {
   /// Only meaningful when bringingOwnDomain is "Yes".
   domainName        String?
 
+  /// "Help us get you found on Google" (added 2026-10-09).
+  /// "Yes" | "No" | "Not sure".
+  hasGoogleProfile  String?
+  googleProfileLink String?
+  yearStarted       String?
+  licenseInfo       String?
+  reviewLinks       String? @db.Text
+
   /// Uploaded marketing content and documents (signed URLs), from the
   /// envelope's files list.
   files String[] @default([])

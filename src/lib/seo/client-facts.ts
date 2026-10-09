@@ -48,6 +48,11 @@ export type IntakeAnswers = {
   faqs: string | null
   domainName: string | null
   timeZone: string | null
+  hasGoogleProfile: string | null
+  googleProfileLink: string | null
+  yearStarted: string | null
+  licenseInfo: string | null
+  reviewLinks: string | null
 }
 
 const INTAKE_SELECT = {
@@ -67,6 +72,11 @@ const INTAKE_SELECT = {
   faqs: true,
   domainName: true,
   timeZone: true,
+  hasGoogleProfile: true,
+  googleProfileLink: true,
+  yearStarted: true,
+  licenseInfo: true,
+  reviewLinks: true,
 } as const
 
 /** The client's newest onboarding submission. */
@@ -145,7 +155,7 @@ export function parseItems(text: string | null, max: number): string[] {
 }
 
 const PROFILE_HOSTS: [RegExp, string][] = [
-  [/(^|\.)google\.[a-z.]+$|(^|\.)g\.page$|^maps\.app\.goo\.gl$|^goo\.gl$|^g\.co$|(^|\.)business\.site$/, 'Google Business Profile'],
+  [/(^|\.)google\.[a-z.]+$|(^|\.)g\.page$|^maps\.app\.goo\.gl$|^goo\.gl$|^g\.co$|^share\.google$|(^|\.)business\.site$/, 'Google Business Profile'],
   [/(^|\.)facebook\.com$|^fb\.com$|^m\.facebook\.com$/, 'Facebook'],
   [/(^|\.)instagram\.com$/, 'Instagram'],
   [/(^|\.)yelp\.[a-z.]+$/, 'Yelp'],
@@ -195,7 +205,7 @@ export function parseProfiles(text: string | null): { label: string; url: string
       // A Maps place, a share link (maps.app.goo.gl, g.page, g.co/kgs) or a knowledge-panel id — not a plain search.
       const place =
         /^\/maps/.test(path) ||
-        /^(maps\.app\.goo\.gl|goo\.gl|g\.page|g\.co)$/.test(host) ||
+        /^(maps\.app\.goo\.gl|goo\.gl|g\.page|g\.co|share\.google)$/.test(host) ||
         host.endsWith('business.site') ||
         ['cid', 'kgmid', 'ludocid'].some((k) => u.searchParams.has(k))
       if (!place) continue
@@ -267,7 +277,7 @@ export function applyIntake(facts: BusinessFacts, metaIn: FactsMeta, intake: Int
     mark('serviceAreas', `Added ${newCities.join(', ')} from the onboarding form`)
   }
 
-  const profiles = parseProfiles([intake.socialLinks, intake.aboutBusiness].filter(Boolean).join('\n'))
+  const profiles = parseProfiles([intake.googleProfileLink, intake.reviewLinks, intake.socialLinks, intake.aboutBusiness].filter(Boolean).join('\n'))
   const newProfiles = profiles.filter((p) => !next.profiles.some((x) => profileKey(x.url) === profileKey(p.url)))
   // A placeholder (bare facebook.com) already in the facts is replaced by the real link of the same kind.
   const kept = next.profiles.filter((x) => {
@@ -304,7 +314,26 @@ export function applyIntake(facts: BusinessFacts, metaIn: FactsMeta, intake: Int
     mark('owner', `Owner set to ${intake.fullName} (who filled in the onboarding form)`)
   }
 
-  const year = parseEstablished(text)
+  // The form now asks outright; an explicit answer beats what was read off the site.
+  const stated = /\b(1[89]\d\d|20\d\d)\b/.exec(intake.yearStarted ?? '')
+  const statedYear = stated && Number(stated[1]) <= now.getFullYear() ? Number(stated[1]) : null
+  if (statedYear && next.established !== statedYear) {
+    if (byTeam('established')) conflict('established', String(statedYear), String(next.established ?? '—'))
+    else {
+      next.established = statedYear
+      mark('established', `Established ${statedYear}, from the onboarding form`)
+    }
+  }
+  const statedLicense = (intake.licenseInfo ?? '').trim()
+  if (statedLicense && !/^(not required|none|n\/?a|no)\b/i.test(statedLicense) && next.license !== statedLicense) {
+    if (byTeam('license')) conflict('license', statedLicense.slice(0, 160), next.license ?? '—')
+    else {
+      next.license = statedLicense.slice(0, 160)
+      mark('license', `License: ${statedLicense.slice(0, 80)}, from the onboarding form`)
+    }
+  }
+
+  const year = statedYear ? null : parseEstablished(text)
   if (year && next.established !== year) {
     if (next.established == null) {
       next.established = year
@@ -315,7 +344,7 @@ export function applyIntake(facts: BusinessFacts, metaIn: FactsMeta, intake: Int
     }
   }
 
-  const license = parseLicense(text)
+  const license = statedLicense ? null : parseLicense(text)
   if (license && next.license !== license) {
     if (!next.license || (!byTeam('license') && !/\d/.test(next.license))) {
       next.license = license
@@ -444,11 +473,13 @@ const hasProfile = (f: BusinessFacts, labels: string[]) =>
   f.profiles.some((p) => labels.includes(p.label) || labels.some((l) => (profileKey(p.url) ?? '').includes(l.toLowerCase().replace(/\s+/g, ''))))
 
 /** The facts that most help a contractor show up in Google and AI answers, and that we don't have yet. */
-export function factGaps(f: BusinessFacts | null): FactGap[] {
+export function factGaps(f: BusinessFacts | null, intake?: Pick<IntakeAnswers, 'hasGoogleProfile'> | null): FactGap[] {
   if (!f) return []
   const gaps: FactGap[] = []
-  const googleProfile = f.profiles.some((p) => p.label === 'Google Business Profile' || /google\.|g\.page|goo\.gl|business\.site/.test(p.url))
-  if (!googleProfile) {
+  const googleProfile = f.profiles.some((p) => p.label === 'Google Business Profile' || /google\.|g\.page|goo\.gl|share\.google|business\.site/.test(p.url))
+  if (!googleProfile && /^no$/i.test(intake?.hasGoogleProfile ?? '')) {
+    gaps.push({ key: 'gbp', label: 'Google Business Profile — they don’t have one', why: 'The client said so on the form. Setting one up is the biggest local win available; it needs their verification (postcard, call or video).', ask: 'We’d like to set up your Google Business Profile — can you do a quick call so we can verify it together?' })
+  } else if (!googleProfile) {
     gaps.push({ key: 'gbp', label: 'Google Business Profile link', why: 'The single biggest local-ranking factor; also where Google and AI assistants read reviews and hours.', ask: 'The link to your Google Business Profile (search your business on Google Maps → Share → Copy link). If you don’t have one, tell us and we’ll help set it up.' })
   }
   if (!hasProfile(f, ['Yelp', 'Angi', 'HomeAdvisor', 'BBB', 'Thumbtack', 'Houzz', 'Nextdoor', 'Porch'])) {
@@ -479,6 +510,11 @@ export function clientRequestMessage(f: BusinessFacts | null, gaps: FactGap[], b
 }
 
 const ANSWER_LABELS: [keyof IntakeAnswers, string][] = [
+  ['googleProfileLink', 'Google Business Profile link'],
+  ['hasGoogleProfile', 'Has a Google Business Profile'],
+  ['yearStarted', 'Year the business started'],
+  ['licenseInfo', 'License'],
+  ['reviewLinks', 'Review sites they are on'],
   ['aboutBusiness', 'About the business'],
   ['mainServices', 'Main services they want promoted'],
   ['cities', 'Cities they serve'],

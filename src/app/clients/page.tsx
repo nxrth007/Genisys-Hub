@@ -72,6 +72,11 @@ type Intake = {
   faqs: string | null
   bringingOwnDomain: string | null
   domainName: string | null
+  hasGoogleProfile: string | null
+  googleProfileLink: string | null
+  yearStarted: string | null
+  licenseInfo: string | null
+  reviewLinks: string | null
   files: string[]
 }
 
@@ -991,6 +996,14 @@ function ClientDetailDialog({
               <Row label="Promotions" value={i.promotions} />
               <Row label="Brand colours" value={i.brandColors} />
               <Row label="Social" value={i.socialLinks} span />
+              <Row
+                label="Google Business Profile"
+                value={i.googleProfileLink ?? (i.hasGoogleProfile ? `${i.hasGoogleProfile} — no link given` : null)}
+                span
+              />
+              <Row label="Review sites" value={i.reviewLinks} span />
+              <Row label="Started" value={i.yearStarted} />
+              <Row label="License" value={i.licenseInfo} />
               <Row label="FAQs" value={i.faqs} span />
             </dl>
           ) : (

@@ -362,7 +362,7 @@ export async function deriveFacts(o: {
 /** The client's own onboarding answers and the facts still missing, for the dossier and the writer. */
 async function clientContext(ctx: RunContext, facts: BusinessFacts | null, withGaps = true): Promise<string> {
   const intake = await latestIntakeFor(ctx.site.clientId).catch(() => null)
-  return clientWords(intake, withGaps ? factGaps(facts) : [])
+  return clientWords(intake, withGaps ? factGaps(facts, intake) : [])
 }
 
 function dossier(ctx: RunContext, facts: BusinessFacts | null, audit: AuditResult | null, history: string, client = ''): string {
