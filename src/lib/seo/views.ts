@@ -14,6 +14,7 @@ import type {
 import { githubViewer } from './github'
 import { gscConfigured } from './gsc'
 import { gscConnectStates, type GscConnectState } from './gsc-connect'
+import { clientRequestMessage, factGaps, latestIntakeFor, readMeta, type IntakeAnswers } from './client-facts'
 import { checkPsiKey } from './psi'
 import { lovableChannel } from './lovable'
 import { lovableMcpStatus } from './lovable-mcp'
@@ -186,7 +187,7 @@ function readinessFor(
 export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> {
   const s = await prisma.seoSite.findUnique({ where: { id: siteId }, include: { client: { select: { id: true, name: true } } } })
   if (!s) return null
-  const [latest, counts, scores, reviewedShips, lovable, gsc, settings, gscStates] = await Promise.all([
+  const [latest, counts, scores, reviewedShips, lovable, gsc, settings, gscStates, intake] = await Promise.all([
     prisma.seoRun.findFirst({ where: { siteId }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT }),
     postCounts([siteId]).then((m) => m.get(siteId) ?? { total: 0, live: 0 }),
     recentScores([siteId]).then((m) => m.get(siteId) ?? []),
@@ -195,7 +196,11 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     gscConfigured().catch(() => ({ ok: false, serviceAccountEmail: null })),
     getSeoSettings(),
     gscConnectStates(),
+    latestIntakeFor(s.clientId).catch(() => null),
   ])
+  const facts = (s.facts as unknown as BusinessFacts | null) ?? null
+  const meta = readMeta(s.factsMeta)
+  const gaps = factGaps(facts)
   return {
     ...siteSummary(s, latest, counts, scores, lovable !== null),
     readiness: readinessFor(s, {
@@ -209,10 +214,43 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
     gscProperty: s.gscProperty,
     lovableProjectId: s.lovableProjectId,
+    client: {
+      intake: intake ? { id: intake.id, submittedAt: intake.receivedAt.toISOString(), answers: intakeAnswers(intake) } : null,
+      sources: meta.sources,
+      changes: meta.changes.slice(0, 15),
+      conflicts: meta.conflicts,
+      gaps,
+      request: clientRequestMessage(facts, gaps, facts?.businessName || s.name),
+      synced: !intake || meta.intakeId === intake.id,
+    },
     indexNowKey: s.indexNowKey,
     foundationPrUrl: s.foundationPrUrl,
     createdAt: s.createdAt.toISOString(),
   }
+}
+
+const INTAKE_LABELS: [keyof IntakeAnswers, string][] = [
+  ['businessName', 'Legal business name'],
+  ['fullName', 'Filled in by'],
+  ['customerPhone', 'Their own phone (the site shows the tracking number)'],
+  ['businessAddress', 'Address (never shown for service-area businesses)'],
+  ['cities', 'Cities they serve'],
+  ['mainServices', 'Main services to promote'],
+  ['aboutBusiness', 'About the business'],
+  ['whyChooseYou', 'Why customers should choose them'],
+  ['promotions', 'Current promotions / offers'],
+  ['faqs', 'FAQs + answers'],
+  ['socialLinks', 'Social / online profile links'],
+  ['website', 'Website they had'],
+  ['domainName', 'Domain they’re bringing'],
+  ['timeZone', 'Time zone'],
+]
+
+function intakeAnswers(i: IntakeAnswers): { label: string; value: string }[] {
+  return INTAKE_LABELS.flatMap(([k, label]) => {
+    const v = i[k]
+    return typeof v === 'string' && v.trim() ? [{ label, value: v.trim() }] : []
+  })
 }
 
 export async function siteRuns(siteId: string): Promise<SeoRunSummary[]> {

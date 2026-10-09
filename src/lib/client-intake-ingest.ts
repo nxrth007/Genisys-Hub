@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
+import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 
 /**
@@ -145,7 +146,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
     )
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
-    void ensureSeoSiteForClient(clientId).catch((err) => console.warn(`[client-onboarding] seo site for ${clientId}:`, err))
+    // An existing site's business facts pick up what the client just told us.
+    void ensureSeoSiteForClient(clientId)
+      .then((siteId) => (siteId ? syncClientFacts(siteId, { announce: !created }) : null))
+      .catch((err) => console.warn(`[client-onboarding] seo site for ${clientId}:`, err))
     // Put the new client on the Home globe now rather than on the next
     // page load. A new submission may carry the address an earlier one
     // lacked, so an unplaced client's backoff is lifted first.

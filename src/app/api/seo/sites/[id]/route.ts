@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
   try {
-    await updateSite(id, body)
+    await updateSite(id, body, guard.email)
     return NextResponse.json({ site: await siteDetail(id) })
   } catch (err) {
     return seoError(err, 'update site')

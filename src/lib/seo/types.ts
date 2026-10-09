@@ -84,6 +84,29 @@ export type BusinessFacts = {
   notes: string | null
 }
 
+export type FactKey = keyof BusinessFacts
+
+/**
+ * Where a business fact came from. Fields with no entry were read
+ * automatically (Claude, from the site and the form) and are the weakest.
+ */
+export type FactSource = 'client' | 'team'
+
+export type FactChange = { at: string; field: FactKey; source: FactSource; by: string | null; summary: string }
+
+/** The client's form says one thing, a team edit says another — a person settles it. */
+export type FactConflict = { field: FactKey; client: string; current: string; at: string }
+
+export type FactsMeta = {
+  sources: Partial<Record<FactKey, { source: FactSource; at: string; by: string | null }>>
+  /** The newest onboarding submission already folded into the facts. */
+  intakeId: string | null
+  intakeAt: string | null
+  /** Newest first, capped. */
+  changes: FactChange[]
+  conflicts: FactConflict[]
+}
+
 // ---------------------------------------------------------------------------
 // Crawl + audit
 // ---------------------------------------------------------------------------

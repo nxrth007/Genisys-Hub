@@ -2058,6 +2058,9 @@ model SeoSite {
   enabled          Boolean   @default(true)
   /// BusinessFacts JSON — the source of truth for NAP, schema and content.
   facts            Json?
+  /// Provenance for `facts`: which fields the client form or the team set, the onboarding
+  /// submission last applied, recent changes, open conflicts (src/lib/seo/client-facts.ts).
+  factsMeta        Json?
   gscProperty      String?
   lovableProjectId String?
   indexNowKey      String?

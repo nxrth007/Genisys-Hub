@@ -94,6 +94,7 @@ import {
   useStartRun,
   weekLabel,
 } from '../ui'
+import { ClientAnswersCard, SourceChip } from './client-answers'
 
 /**
  * SEO → one site.
@@ -261,7 +262,8 @@ export function SiteView({ siteId }: { siteId: string }) {
         <PostsCard posts={posts} now={now} />
       </div>
 
-      <div className={cn(tab !== 'facts' && 'hidden')}>
+      <div className={cn('flex flex-col gap-4', tab !== 'facts' && 'hidden')}>
+        <ClientAnswersCard site={site} now={now} />
         <FactsSection site={site} />
       </div>
 
@@ -1175,6 +1177,8 @@ function FactsForm({
   onReseed: (dirty: boolean) => void
 }) {
   const fallbackName = site.clientName ?? site.name
+  /** Where a fact came from (client form / team), shown beside its label. */
+  const from = (k: keyof BusinessFacts) => <SourceChip source={site.client.sources[k]} />
   const [draft, setDraft] = useState<FactsDraft>(() => toDraft(site.facts, fallbackName))
   // What the form opened on, and what's stored now — they differ once the
   // stored facts move underneath an open form.
@@ -1286,16 +1290,16 @@ function FactsForm({
           <fieldset disabled={reseeding || saving} className="flex min-w-0 flex-col gap-7 disabled:opacity-60">
             <FormSection title="Business">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="Business name">{text('businessName')}</Field>
+                <Field label="Business name" badge={from('businessName')}>{text('businessName')}</Field>
                 <Field label="Trade" hint="Plain English, e.g. “Concrete contractor”.">
                   {text('trade', { placeholder: 'Fence contractor' })}
                 </Field>
                 <Field label="Schema type" hint="The schema.org type the structured data uses.">
                   {text('schemaType', { list: 'seo-schema-types', placeholder: 'HomeAndConstructionBusiness', spellCheck: false })}
                 </Field>
-                <Field label="Owner">{text('owner')}</Field>
-                <Field label="Established">{text('established', { inputMode: 'numeric', placeholder: '2011' })}</Field>
-                <Field label="License">{text('license', { placeholder: 'License # or “Licensed in TX”' })}</Field>
+                <Field label="Owner" badge={from('owner')}>{text('owner')}</Field>
+                <Field label="Established" badge={from('established')}>{text('established', { inputMode: 'numeric', placeholder: '2011' })}</Field>
+                <Field label="License" badge={from('license')}>{text('license', { placeholder: 'License # or “Licensed in TX”' })}</Field>
               </div>
               <datalist id="seo-schema-types">
                 {SCHEMA_TYPES.map((t) => (
@@ -1326,7 +1330,7 @@ function FactsForm({
                   </span>
                 </span>
               </label>
-              <Field label="Service areas" hint="One city or area per line.">
+              <Field label="Service areas" hint="One city or area per line." badge={from('serviceAreas')}>
                 {area('serviceAreas', 4, 'Austin\nRound Rock\nCedar Park')}
               </Field>
             </FormSection>
@@ -1337,11 +1341,11 @@ function FactsForm({
                   {text('phone', { inputMode: 'tel', placeholder: '(512) 555-0123' })}
                 </Field>
                 <Field label="Email">{text('email', { inputMode: 'email', spellCheck: false })}</Field>
-                <Field label="Hours">{text('hours', { placeholder: 'Mon–Fri 7am–6pm, Sat 8am–2pm' })}</Field>
+                <Field label="Hours" badge={from('hours')}>{text('hours', { placeholder: 'Mon–Fri 7am–6pm, Sat 8am–2pm' })}</Field>
               </div>
             </FormSection>
 
-            <FormSection title="Services" hint="The slug matches the site’s /services/<slug> page when there is one.">
+            <FormSection title="Services" hint="The slug matches the site’s /services/<slug> page when there is one." badge={from('services')}>
               <Repeater<ServiceRow>
                 items={draft.services}
                 onChange={(v) => set('services', v)}
@@ -1373,12 +1377,12 @@ function FactsForm({
 
             <FormSection title="Trust & pricing">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Insurance">{text('insurance', { placeholder: 'Fully insured, $2M general liability' })}</Field>
-                <Field label="Warranty">{text('warranty', { placeholder: '5-year workmanship warranty' })}</Field>
-                <Field label="Pricing notes" hint="First-party price bands only. Posts may not invent prices beyond these or a cited source.">
+                <Field label="Insurance" badge={from('insurance')}>{text('insurance', { placeholder: 'Fully insured, $2M general liability' })}</Field>
+                <Field label="Warranty" badge={from('warranty')}>{text('warranty', { placeholder: '5-year workmanship warranty' })}</Field>
+                <Field label="Pricing notes" badge={from('pricingNotes')} hint="First-party price bands only. Posts may not invent prices beyond these or a cited source.">
                   {area('pricingNotes', 3)}
                 </Field>
-                <Field label="Differentiators" hint="One per line — why customers pick them.">
+                <Field label="Differentiators" hint="One per line — why customers pick them." badge={from('differentiators')}>
                   {area('differentiators', 3)}
                 </Field>
               </div>
@@ -1420,7 +1424,7 @@ function FactsForm({
               </Repeater>
             </FormSection>
 
-            <FormSection title="Profiles" hint="Google Business Profile, Yelp, BBB, Facebook, Angi — used for the schema’s sameAs.">
+            <FormSection title="Profiles" hint="Google Business Profile, Yelp, BBB, Facebook, Angi — used for the schema’s sameAs." badge={from('profiles')}>
               <Repeater<ProfileRow>
                 items={draft.profiles}
                 onChange={(v) => set('profiles', v)}
@@ -1485,11 +1489,12 @@ function FactsForm({
   )
 }
 
-function FormSection({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function FormSection({ title, hint, badge, children }: { title: string; hint?: string; badge?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border-soft pb-2">
         <h3 className="text-[13px] font-semibold">{title}</h3>
+        {badge}
         {hint && <p className="text-[12px] text-muted-foreground">{hint}</p>}
       </div>
       {children}

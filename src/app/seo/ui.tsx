@@ -691,17 +691,23 @@ export function Field({
   children,
   className,
   group,
+  badge,
 }: {
   label: string
   hint?: React.ReactNode
   children: React.ReactNode
   className?: string
   group?: boolean
+  /** Shown beside the label — e.g. where a business fact came from. */
+  badge?: React.ReactNode
 }) {
   const Tag = group ? 'div' : 'label'
   return (
     <Tag className={cn('flex min-w-0 flex-col gap-1.5', className)}>
-      <span className="eyebrow text-muted-foreground">{label}</span>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="eyebrow text-muted-foreground">{label}</span>
+        {badge}
+      </span>
       {children}
       {hint && <span className="text-[11.5px] leading-snug text-muted-foreground/80">{hint}</span>}
     </Tag>

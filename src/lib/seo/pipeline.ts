@@ -37,6 +37,7 @@ import { getLovableDeployment, lovableChannel, lovableProjectInfo, lovableProjec
 import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { runPsi } from './psi'
+import { clientWords, factGaps, latestIntakeFor, syncClientFacts } from './client-facts'
 import { detectLovableProjectId, snapshotRepo } from './repo'
 import { getSeoSettings, zonedParts } from './settings'
 import { seoAlert } from './slack'
@@ -358,7 +359,13 @@ export async function deriveFacts(o: {
 // Dossier — the shared, cacheable context for research, plan and writing
 // ---------------------------------------------------------------------------
 
-function dossier(ctx: RunContext, facts: BusinessFacts | null, audit: AuditResult | null, history: string): string {
+/** The client's own onboarding answers and the facts still missing, for the dossier and the writer. */
+async function clientContext(ctx: RunContext, facts: BusinessFacts | null, withGaps = true): Promise<string> {
+  const intake = await latestIntakeFor(ctx.site.clientId).catch(() => null)
+  return clientWords(intake, withGaps ? factGaps(facts) : [])
+}
+
+function dossier(ctx: RunContext, facts: BusinessFacts | null, audit: AuditResult | null, history: string, client = ''): string {
   const s = ctx.snapshot
   const site = ctx.site
   const lines: string[] = [
@@ -369,6 +376,7 @@ function dossier(ctx: RunContext, facts: BusinessFacts | null, audit: AuditResul
     '## Business facts (the only first-party facts you may use)',
     facts ? JSON.stringify(facts, null, 2) : '(not recorded yet)',
   ]
+  if (client) lines.push('', client)
   if (audit) {
     lines.push('', `## Technical audit — score ${audit.score}/100 (P0 ${audit.counts.P0}, P1 ${audit.counts.P1}, P2 ${audit.counts.P2}, passing ${audit.counts.pass})`)
     for (const f of audit.findings.filter((x) => x.status !== 'pass')) {
@@ -511,6 +519,13 @@ export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
         : 'Business facts were saved by hand while collecting — kept those',
     )
   }
+  // Fold in an onboarding submission the facts haven't seen yet (a no-op most weeks).
+  try {
+    const changed = await syncClientFacts(site.id, { announce: !derivedFacts })
+    if (changed.length) ctx.log('collect', `Updated the business facts from the client\u2019s onboarding answers: ${changed.map((c) => c.summary).join('; ')}`)
+  } catch (err) {
+    ctx.log('collect', `Couldn\u2019t check the onboarding answers: ${err instanceof Error ? err.message : String(err)}`, 'warn')
+  }
   ctx.site = (await prisma.seoSite.findUnique({ where: { id: site.id }, include: { client: { select: { id: true, name: true } } } })) ?? ctx.site
 
   const weekly = ctx.run.kind === 'weekly'
@@ -533,7 +548,7 @@ export async function stageResearch(ctx: RunContext): Promise<StageOutcome> {
     const research = await session.research({
       label: 'research',
       system: RESEARCH_SYSTEM,
-      context: dossier(ctx, facts, audit, await historyFor(ctx)),
+      context: dossier(ctx, facts, audit, await historyFor(ctx), await clientContext(ctx, facts)),
       task: `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. The live site is ${ctx.site.liveUrl ?? '(not live yet)'}${ctx.site.liveUrl ? ` — you may fetch ${ctx.site.liveUrl} and its pages` : ''}. Research this week's biggest opportunities as described.`,
       location: {
         city: facts?.primaryCity || null,
@@ -581,7 +596,7 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
     const raw = await session.structured({
       label: 'plan',
       system: PLAN_SYSTEM,
-      context: dossier(ctx, facts, audit, await historyFor(ctx)),
+      context: dossier(ctx, facts, audit, await historyFor(ctx), await clientContext(ctx, facts)),
       task: [
         `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.${postsAllowed > 3 ? ' That is a ceiling, not a target: each brief must stand on distinct, real facts and real local demand; return fewer when they would otherwise overlap or run thin.' : ''}`,
         canCommit
@@ -669,10 +684,13 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
   const author = facts?.owner || facts?.businessName || ctx.site.name
   const brand = facts?.businessName || ctx.site.name
 
+  const clientWordsForWriter = await clientContext(ctx, facts, false)
   const writerContext = [
     `# Writing for ${brand}${ctx.site.liveUrl ? ` (${ctx.site.liveUrl})` : ''}`,
     '## Business facts (the only first-party facts you may use)',
     facts ? JSON.stringify(facts, null, 2) : '(not recorded — write only from cited sources and general, clearly non-specific guidance)',
+    '',
+    clientWordsForWriter,
     '',
     `## Pages that exist on the site (use only these for internal links)\n${(snap?.sitePaths ?? ['/']).join('\n')}`,
     '',

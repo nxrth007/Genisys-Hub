@@ -10,6 +10,10 @@ import type {
   ClaudeUsage,
   CrawlResult,
   Draft,
+  FactChange,
+  FactConflict,
+  FactKey,
+  FactSource,
   FoundationStatus,
   GscSummary,
   PsiResult,
@@ -103,6 +107,22 @@ export type SeoRunSummary = {
   hubPublishing: boolean
 }
 
+/** What the client told us on the onboarding form, and how it reached the business facts. */
+export type SeoClientFacts = {
+  /** The newest onboarding submission, as the client answered it. */
+  intake: { id: string; submittedAt: string; answers: { label: string; value: string }[] } | null
+  /** Who set each fact; a field with no entry was read automatically from the site and form. */
+  sources: Partial<Record<FactKey, { source: FactSource; at: string; by: string | null }>>
+  changes: FactChange[]
+  conflicts: FactConflict[]
+  /** Facts that help most in Google and AI answers and that we don't have yet. */
+  gaps: { key: string; label: string; why: string; ask: string }[]
+  /** A ready-to-send message asking the client for the gaps. */
+  request: string
+  /** The newest submission has been folded into the facts. */
+  synced: boolean
+}
+
 export type GscSiteState = {
   siteId: string
   name: string
@@ -159,6 +179,7 @@ export type SeoOverviewResponse = {
 export type SeoSiteDetail = SeoSiteSummary & {
   /** What stands between this site and hands-off weekly publishing. */
   readiness: SiteReadiness
+  client: SeoClientFacts
   defaultBranch: string | null
   facts: BusinessFacts | null
   gscProperty: string | null

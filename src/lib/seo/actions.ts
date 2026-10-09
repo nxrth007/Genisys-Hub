@@ -8,10 +8,11 @@ import { deleteBranch, getPullRequest, getRepo } from './github'
 import { lovableChannel, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
 import { ciState, cleanupStoppedRun, deriveFacts, type Snapshot } from './pipeline'
+import { emptyMeta, markTeamEdits, readMeta, syncClientFacts } from './client-facts'
 import { FactsSchema } from './prompts'
 import { detectLovableProjectId, snapshotRepo } from './repo'
 import { getSeoSettings } from './settings'
-import type { RunLogEntry, RunStatus, SeoMode } from './types'
+import type { BusinessFacts, FactKey, RunLogEntry, RunStatus, SeoMode } from './types'
 
 /**
  * Writes behind /api/seo/*. Every function validates its own input and
@@ -92,8 +93,8 @@ export async function createSite(body: CreateSiteBody): Promise<string> {
   return site.id
 }
 
-export async function updateSite(id: string, body: UpdateSiteBody): Promise<void> {
-  const site = await prisma.seoSite.findUnique({ where: { id }, select: { id: true, repoFullName: true, mode: true } })
+export async function updateSite(id: string, body: UpdateSiteBody, by: string | null = null): Promise<void> {
+  const site = await prisma.seoSite.findUnique({ where: { id }, select: { id: true, repoFullName: true, mode: true, facts: true, factsMeta: true } })
   if (!site) throw new SeoInputError('Site not found.')
   const data: Prisma.SeoSiteUpdateInput = {}
 
@@ -131,6 +132,13 @@ export async function updateSite(id: string, body: UpdateSiteBody): Promise<void
       throw new SeoInputError(`Business facts: ${i.path.join('.') || 'value'} — ${i.message}`)
     }
     data.facts = parsed.data as unknown as Prisma.InputJsonValue
+    // Remember which fields a person set, so the client's form never overwrites them.
+    data.factsMeta = markTeamEdits(
+      (site.facts as unknown as BusinessFacts | null) ?? null,
+      parsed.data,
+      readMeta(site.factsMeta),
+      by,
+    ) as unknown as Prisma.InputJsonValue
   }
   if (body.gscProperty !== undefined) {
     const g = body.gscProperty?.trim() || null
@@ -229,7 +237,13 @@ export async function reseedFacts(siteId: string): Promise<void> {
   ])
   const session = await ClaudeSession.open({ model: settings.model, budgetUsd: 2 })
   const facts = await deriveFacts({ site, session, repo, homepageText: home?.textSample ?? null })
-  await prisma.seoSite.update({ where: { id: siteId }, data: { facts: facts as unknown as Prisma.InputJsonValue } })
+  // A fresh read starts the provenance over, then the client's answers are folded in on top.
+  const meta = { ...emptyMeta(), changes: readMeta(site.factsMeta).changes }
+  await prisma.seoSite.update({
+    where: { id: siteId },
+    data: { facts: facts as unknown as Prisma.InputJsonValue, factsMeta: meta as unknown as Prisma.InputJsonValue },
+  })
+  await syncClientFacts(siteId, { force: true })
 }
 
 const ACTIVE: RunStatus[] = ['queued', 'running', 'awaiting_ci', 'awaiting_review', 'awaiting_publish']
@@ -407,3 +421,39 @@ export async function publishSiteNow(siteId: string, email: string): Promise<{ u
   }
   return { url }
 }
+
+/**
+ * Settle a disagreement between the client's form and the facts:
+ * 'client' takes the form's value, 'current' keeps what's there. Either
+ * way the field is marked as decided by the team, so the form won't raise
+ * it again.
+ */
+export async function resolveFactConflict(siteId: string, field: FactKey, choice: 'client' | 'current', by: string | null): Promise<void> {
+  const site = await prisma.seoSite.findUnique({ where: { id: siteId }, select: { facts: true, factsMeta: true } })
+  if (!site?.facts) throw new SeoInputError('This site has no business facts yet.')
+  const meta = readMeta(site.factsMeta)
+  const conflict = meta.conflicts.find((c) => c.field === field)
+  if (!conflict) throw new SeoInputError('That disagreement was already settled — refresh.')
+  const prev = site.facts as unknown as BusinessFacts
+  const next: BusinessFacts = { ...prev }
+  if (choice === 'client') {
+    if (field === 'established') {
+      const year = Number(conflict.client)
+      if (!Number.isInteger(year)) throw new SeoInputError('The form’s value isn’t a year.')
+      next.established = year
+    } else if (field === 'license' || field === 'insurance' || field === 'owner') {
+      next[field] = conflict.client
+    } else {
+      throw new SeoInputError('Edit this one in the form below.')
+    }
+  }
+  const nextMeta = markTeamEdits(prev, next, meta, by)
+  // Keeping the current value changes nothing, so record the decision by hand.
+  nextMeta.sources[field] = { source: 'team', at: new Date().toISOString(), by }
+  nextMeta.conflicts = nextMeta.conflicts.filter((c) => c.field !== field)
+  await prisma.seoSite.update({
+    where: { id: siteId },
+    data: { facts: next as unknown as Prisma.InputJsonValue, factsMeta: nextMeta as unknown as Prisma.InputJsonValue },
+  })
+}
+

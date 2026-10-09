@@ -17,6 +17,7 @@ import {
   type RunContext,
 } from './pipeline'
 import { getSeoSettings, isoWeekLabel, zonedParts } from './settings'
+import { syncAllClientFacts } from './client-facts'
 import { advanceSearchConsole } from './gsc-connect'
 import { seoAlert } from './slack'
 import type { RunStage, RunStatus } from './types'
@@ -74,6 +75,8 @@ async function tickSeoEngine(): Promise<TickResult> {
   await pollWaitingRuns()
   // Cheap, and never throws: connecting sites to Search Console happens between runs.
   await advanceSearchConsole()
+  // New onboarding answers reach the business facts even between runs.
+  await syncAllClientFacts()
   const outcome = await processNextRun()
   if (outcome === 'advanced') result.advanced = 1
   if (outcome === 'failed') result.failed = 1
