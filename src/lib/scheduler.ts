@@ -168,19 +168,16 @@ const COUNTY_BACKFILL_BATCH = 20
  * import, every client-alert channel, the Slack message alerts, and the
  * Vicidial snapshots.
  *
- * Genisys stopped selling solar appointment-setting, so these now scan
+ * Genisys stopped selling solar appointment-setting, so these scanned
  * sheets and hit Slack every minute to deliver nothing — and their
- * output buries anything real in the Render logs. Set
- * LEGACY_SOLAR_JOBS=off to stop them.
+ * output buried anything real in the Render logs. Off by default; set
+ * LEGACY_SOLAR_JOBS=on to bring them back.
  *
- * Set it to off / false / 0 / no / disabled — case and surrounding
+ * Set it to on / true / 1 / yes / enabled — case and surrounding
  * whitespace don't matter. An exact-match check would have meant typing
- * "Off" left everything running with no indication why.
- *
- * Defaults to ON so deploying this changes nothing until the variable is
- * set.
+ * "On" left everything stopped with no indication why.
  */
-const LEGACY_SOLAR_JOBS = !['off', 'false', '0', 'no', 'disabled'].includes(
+const LEGACY_SOLAR_JOBS = ['on', 'true', '1', 'yes', 'enabled'].includes(
   (process.env.LEGACY_SOLAR_JOBS ?? '').trim().toLowerCase(),
 )
 
