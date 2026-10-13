@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { archiveSite } from '@/lib/seo/actions'
 import { syncSeoSiteLiveUrl } from '@/lib/seo/link-client'
 import { ensureClientGeo, GEO_RESET } from '@/lib/geocode'
 import { normalizeClientPatch } from '@/lib/clients'
@@ -397,15 +398,19 @@ export async function DELETE(
   // contract is to surface it explicitly).
   const existing = await prisma.client.findUnique({
     where: { id },
-    select: { id: true, name: true },
+    select: { id: true, name: true, seoSite: { select: { id: true, archivedAt: true } } },
   })
   if (!existing) {
     return NextResponse.json({ error: 'client not found' }, { status: 404 })
   }
 
   await prisma.client.delete({ where: { id } })
+  // The schema only unlinks the SEO site, which would leave it listed in SEO as "No client linked".
+  if (existing.seoSite && !existing.seoSite.archivedAt) {
+    await archiveSite(existing.seoSite.id).catch((err) => console.error(`[clients DELETE] archiving SEO site for ${id} failed:`, err))
+  }
   console.log(
     `[clients DELETE] ${sessionEmail} deleted client "${existing.name}" (${id})`,
   )
-  return NextResponse.json({ ok: true, deleted: existing })
+  return NextResponse.json({ ok: true, deleted: { id: existing.id, name: existing.name } })
 }

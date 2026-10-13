@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, getPublicOrigin } from '@/lib/gmail'
 import { provisionClientWorkspace } from '@/lib/client-workspace'
+import { archiveSite } from '@/lib/seo/actions'
 
 /**
  * POST /api/clients/[id]/onboarding-decision
@@ -65,6 +66,7 @@ export async function POST(
       contactName: true,
       contactEmail: true,
       package: true,
+      seoSite: { select: { id: true, archivedAt: true } },
     },
   })
   if (!client) {
@@ -90,6 +92,10 @@ export async function POST(
       where: { clientId: client.id, role: { startsWith: 'client_' } },
     })
     await prisma.client.delete({ where: { id: client.id } })
+    // The schema only unlinks the SEO site, which would leave it listed in SEO as "No client linked".
+    if (client.seoSite && !client.seoSite.archivedAt) {
+      await archiveSite(client.seoSite.id).catch((err) => console.error(`[clients/onboarding-decision] archiving SEO site for ${client.id} failed:`, err))
+    }
     console.log(
       `[clients/onboarding-decision] admin ${session.user.id} deleted pending client "${client.name}" (${client.id}) — cascade dropped ${linkedUserCount} linked user(s)`,
     )
