@@ -1103,7 +1103,7 @@ function ContentTab({ run, drafts, base }: { run: SeoRunDetail; drafts: Draft[];
           ? 'Drafts show up once the run reaches the write stage.'
           : run.kind === 'foundation'
             ? 'Foundation installs don’t write posts — see Changes.'
-            : 'No drafts this run. Posts per week may be set to 0, or the plan had no new content.'}
+            : 'No drafts this run. Posts per week may be set to 0, or the plan had no new content or refreshes.'}
       </Empty>
     )
   }
@@ -1133,6 +1133,12 @@ function DraftCard({ draft, defaultOpen, base }: { draft: Draft; defaultOpen: bo
             /blog/{p.slug ?? '—'}
             {p.primaryKeyword ? ` · ${p.primaryKeyword}` : ''}
           </p>
+          {draft.refresh && (
+            <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
+              <span className="font-medium text-foreground">Refresh of a live post</span> — {draft.refresh.reason}
+              {draft.refresh.previousTitle && draft.refresh.previousTitle !== p.title ? ` · was “${draft.refresh.previousTitle}”` : ''}
+            </p>
+          )}
         </div>
         {blocking > 0 ? (
           <DotPill tone="bad" label={`${blocking} blocking`} />

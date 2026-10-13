@@ -2081,6 +2081,11 @@ model SeoSite {
   /// submission last applied, recent changes, open conflicts (src/lib/seo/client-facts.ts).
   factsMeta        Json?
   gscProperty      String?
+  // New posts per weekly run for this site. postsPerWeek replaces the
+  // global setting (null = use it); postsNextRun applies to the next
+  // weekly run only and is cleared once that run has planned.
+  postsPerWeek     Int?
+  postsNextRun     Int?
   lovableProjectId String?
   indexNowKey      String?
   /// none | proposed | installed

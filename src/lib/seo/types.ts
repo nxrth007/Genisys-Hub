@@ -253,7 +253,20 @@ export type GscSummary = {
   topPages: GscRow[]
   /** Striking-distance query×page pairs (avg position 4–20), best opportunity first. */
   striking: (GscRow & { opportunity: number })[]
+  /** Pages this window vs the window before, for spotting decline. Missing on older runs. */
+  pageTrends?: PageTrend[]
   error: string | null
+}
+
+export type PageTrend = {
+  page: string
+  clicks: number
+  priorClicks: number
+  impressions: number
+  priorImpressions: number
+  /** 0 when the page had no impressions in that window. */
+  position: number
+  priorPosition: number
 }
 
 // ---------------------------------------------------------------------------
@@ -342,12 +355,24 @@ export type ContentBrief = {
   whyNow: string
 }
 
+export type RefreshCandidate = {
+  slug: string
+  title: string
+  url: string
+  /** Plain English, e.g. "clicks fell from 42 to 18 (28 days vs the 28 before)". */
+  reason: string
+  /** Searches the post already appears for, best first — what the rewrite should answer. */
+  queries: string[]
+}
+
 export type SeoPlan = {
   headline: string
   summary: string
   scorecard: string
   quickWins: PlanItem[]
   content: ContentBrief[]
+  /** Live posts the engine rewrites this week because Search Console shows them slipping. */
+  refreshes?: RefreshCandidate[]
   humanTasks: { title: string; detail: string; category: 'gbp' | 'reviews' | 'citations' | 'links' | 'site' | 'other' }[]
   clientInputs: string[]
 }
@@ -393,6 +418,8 @@ export type Draft = {
   post: SeoPostFile
   /** The plan brief's slug this draft answers — resume tracking survives a renamed post slug. */
   briefSlug?: string
+  /** Set when this rewrites a post that's already live, rather than adding a new one. */
+  refresh?: { reason: string; previousTitle: string }
   gates: GateResult[]
   /** Markdown/HTML-free plain text rendering, for copy-paste into GHL. */
   plainText: string

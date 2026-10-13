@@ -12,6 +12,9 @@ import type { SeoSettings } from './api-types'
 
 const KEY = 'seo.settings'
 
+/** Most new posts one weekly run may write for a site. */
+export const MAX_POSTS_PER_RUN = 8
+
 export const SEO_DEFAULTS: SeoSettings = {
   enabled: false,
   weekday: 1, // Monday
@@ -46,7 +49,7 @@ function normalize(raw: Partial<SeoSettings>): SeoSettings {
     hour: clamp(raw.hour, 0, 23, SEO_DEFAULTS.hour),
     timeZone: validTimeZone(raw.timeZone) ? raw.timeZone : SEO_DEFAULTS.timeZone,
     model: typeof raw.model === 'string' && /^claude-[a-z0-9-]+$/.test(raw.model) ? raw.model : SEO_DEFAULTS.model,
-    postsPerWeek: clamp(raw.postsPerWeek, 0, 8, SEO_DEFAULTS.postsPerWeek),
+    postsPerWeek: clamp(raw.postsPerWeek, 0, MAX_POSTS_PER_RUN, SEO_DEFAULTS.postsPerWeek),
     maxCostPerRunUsd:
       typeof raw.maxCostPerRunUsd === 'number' && raw.maxCostPerRunUsd > 0
         ? Math.min(50, Math.round(raw.maxCostPerRunUsd * 100) / 100)

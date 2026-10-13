@@ -213,6 +213,9 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     defaultBranch: s.defaultBranch,
     facts: (s.facts as unknown as BusinessFacts | null) ?? null,
     gscProperty: s.gscProperty,
+    postsPerWeek: s.postsPerWeek,
+    postsNextRun: s.postsNextRun,
+    globalPostsPerWeek: settings.postsPerWeek,
     lovableProjectId: s.lovableProjectId,
     client: {
       intake: intake ? { id: intake.id, submittedAt: intake.receivedAt.toISOString(), answers: intakeAnswers(intake) } : null,

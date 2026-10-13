@@ -11,7 +11,7 @@ import { ciState, cleanupStoppedRun, deriveFacts, type Snapshot } from './pipeli
 import { emptyMeta, markTeamEdits, readMeta, syncClientFacts } from './client-facts'
 import { FactsSchema } from './prompts'
 import { detectLovableProjectId, snapshotRepo } from './repo'
-import { getSeoSettings } from './settings'
+import { getSeoSettings, MAX_POSTS_PER_RUN } from './settings'
 import type { BusinessFacts, FactKey, RunLogEntry, RunStatus, SeoMode } from './types'
 
 /**
@@ -93,6 +93,15 @@ export async function createSite(body: CreateSiteBody): Promise<string> {
   return site.id
 }
 
+/** null clears it (back to the default); otherwise a whole number of posts, 0–8. */
+function postCount(v: unknown, label: string): number | null {
+  if (v === null) return null
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > MAX_POSTS_PER_RUN) {
+    throw new SeoInputError(`${label} is a whole number from 0 to ${MAX_POSTS_PER_RUN}.`)
+  }
+  return v
+}
+
 export async function updateSite(id: string, body: UpdateSiteBody, by: string | null = null): Promise<void> {
   const site = await prisma.seoSite.findUnique({ where: { id }, select: { id: true, repoFullName: true, mode: true, facts: true, factsMeta: true } })
   if (!site) throw new SeoInputError('Site not found.')
@@ -148,6 +157,8 @@ export async function updateSite(id: string, body: UpdateSiteBody, by: string | 
     data.gscProperty = g
   }
   if (body.lovableProjectId !== undefined) data.lovableProjectId = body.lovableProjectId?.trim() || null
+  if (body.postsPerWeek !== undefined) data.postsPerWeek = postCount(body.postsPerWeek, 'Posts per week')
+  if (body.postsNextRun !== undefined) data.postsNextRun = postCount(body.postsNextRun, 'Posts on the next run')
 
   await prisma.seoSite.update({ where: { id }, data })
 }

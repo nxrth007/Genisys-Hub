@@ -249,11 +249,11 @@ export function draftBlocked(d: Draft): boolean {
   return d.gates.some((g) => g.blocking && !g.ok)
 }
 
-export function postChangeFile(post: SeoPostFile, existed: boolean): ChangeFile {
+export function postChangeFile(post: SeoPostFile, existed: boolean, refreshReason?: string): ChangeFile {
   return {
     path: `${CONTENT_DIR}/${post.slug}.json`,
     content: JSON.stringify(post, null, 2) + '\n',
-    reason: `New post: ${post.title}`,
+    reason: refreshReason ? `Refreshed post: ${post.title} — ${refreshReason}` : `New post: ${post.title}`,
     existed,
   }
 }

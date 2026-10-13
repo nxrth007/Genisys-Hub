@@ -1,7 +1,7 @@
 import { createSign } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { getGoogleAccessToken } from '@/lib/drive'
-import type { GscRow, GscSummary } from './types'
+import type { GscRow, GscSummary, PageTrend } from './types'
 import { getSecret } from './secrets'
 
 /**
@@ -267,6 +267,96 @@ export async function gscListSites(): Promise<{ siteUrl: string; permissionLevel
     .sort((a, b) => a.siteUrl.localeCompare(b.siteUrl))
 }
 
+/** Which Google permissions the Search Console sign-in actually carries (null when Google won't say). */
+export async function gscGrantedScopes(): Promise<{ kind: 'oauth' | 'serviceAccount'; email: string; scopes: string[] | null } | null> {
+  const a = await gscAuth()
+  if (!a) return null
+  const token = await a.token()
+  try {
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    const body = (await res.json().catch(() => ({}))) as { scope?: unknown }
+    return { kind: a.kind, email: a.email, scopes: typeof body.scope === 'string' ? body.scope.split(/\s+/).filter(Boolean) : null }
+  } catch {
+    return { kind: a.kind, email: a.email, scopes: null }
+  }
+}
+
+export type GscSitemap = {
+  path: string
+  lastSubmitted: string | null
+  lastDownloaded: string | null
+  isPending: boolean
+  errors: number
+  warnings: number
+  submittedUrls: number | null
+}
+
+/** Sitemaps Google has for a property, and how reading them went. */
+export async function gscListSitemaps(property: string): Promise<GscSitemap[]> {
+  type Raw = {
+    path?: unknown; lastSubmitted?: unknown; lastDownloaded?: unknown; isPending?: unknown
+    errors?: unknown; warnings?: unknown; contents?: { submitted?: unknown }[]
+  }
+  const r = await gsc<{ sitemap?: Raw[] }>(`/sites/${encodeURIComponent(property)}/sitemaps`)
+  const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : 0)
+  const strOrNull = (v: unknown) => (typeof v === 'string' && v ? v : null)
+  return (r.sitemap ?? [])
+    .filter((s) => typeof s.path === 'string')
+    .map((s) => ({
+      path: s.path as string,
+      lastSubmitted: strOrNull(s.lastSubmitted),
+      lastDownloaded: strOrNull(s.lastDownloaded),
+      isPending: s.isPending === true,
+      errors: num(s.errors),
+      warnings: num(s.warnings),
+      submittedUrls: Array.isArray(s.contents) ? s.contents.reduce((n, c) => n + num(c.submitted), 0) : null,
+    }))
+}
+
+export type GscInspection = {
+  url: string
+  /** PASS (on Google), NEUTRAL (excluded), FAIL (error), or VERDICT_UNSPECIFIED. */
+  verdict: string
+  /** Google's own words, e.g. "Submitted and indexed", "Discovered - currently not indexed". */
+  coverageState: string | null
+  lastCrawlTime: string | null
+  googleCanonical: string | null
+  userCanonical: string | null
+}
+
+/** Ask Google whether one URL is indexed (URL Inspection API; ~2,000 a day per property). */
+export async function gscInspectUrl(property: string, url: string): Promise<GscInspection> {
+  type Raw = {
+    inspectionResult?: {
+      indexStatusResult?: {
+        verdict?: unknown; coverageState?: unknown; lastCrawlTime?: unknown; googleCanonical?: unknown; userCanonical?: unknown
+      }
+    }
+  }
+  const r = await googleCall<Raw>('https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', {
+    method: 'POST',
+    body: { inspectionUrl: url, siteUrl: property, languageCode: 'en-US' },
+  })
+  const s = r.inspectionResult?.indexStatusResult ?? {}
+  const strOrNull = (v: unknown) => (typeof v === 'string' && v ? v : null)
+  return {
+    url,
+    verdict: strOrNull(s.verdict) ?? 'VERDICT_UNSPECIFIED',
+    coverageState: strOrNull(s.coverageState),
+    lastCrawlTime: strOrNull(s.lastCrawlTime),
+    googleCanonical: strOrNull(s.googleCanonical),
+    userCanonical: strOrNull(s.userCanonical),
+  }
+}
+
+/** Clicks and impressions over the last 28 days of final data. */
+export async function gscTotals(property: string, now: Date): Promise<GscSummary['totals']> {
+  return totalsOf(await query(property, gscWindows(now).range, []))
+}
+
 /** Tell Google about the sitemap (needs Full or Owner on the property). */
 export async function gscSubmitSitemap(property: string, sitemapUrl: string): Promise<void> {
   await gsc(`/sites/${encodeURIComponent(property)}/sitemaps/${encodeURIComponent(sitemapUrl)}`, { method: 'PUT' })
@@ -428,6 +518,25 @@ export function strikingDistance(rows: GscRow[], opts: { minImpressions?: number
   return out.sort((a, b) => b.opportunity - a.opportunity || b.impressions - a.impressions).slice(0, opts.limit ?? 30)
 }
 
+/** Each page's numbers this window next to the window before, biggest pages first (capped for storage). */
+export function pageTrends(current: GscRow[], prior: GscRow[], limit = 150): PageTrend[] {
+  const byPage = new Map<string, PageTrend>()
+  const row = (page: string) =>
+    byPage.get(page) ??
+    byPage.set(page, { page, clicks: 0, priorClicks: 0, impressions: 0, priorImpressions: 0, position: 0, priorPosition: 0 }).get(page)!
+  for (const r of current) {
+    if (!r.page) continue
+    Object.assign(row(r.page), { clicks: r.clicks, impressions: r.impressions, position: r.position })
+  }
+  for (const r of prior) {
+    if (!r.page) continue
+    Object.assign(row(r.page), { priorClicks: r.clicks, priorImpressions: r.impressions, priorPosition: r.position })
+  }
+  return [...byPage.values()]
+    .sort((a, b) => Math.max(b.clicks, b.priorClicks) - Math.max(a.clicks, a.priorClicks) || b.priorImpressions - a.priorImpressions)
+    .slice(0, limit)
+}
+
 /** Never throws — a failure comes back in `error` with empty data. */
 export async function gscSummary(property: string, now: Date): Promise<GscSummary> {
   const { range, priorRange } = gscWindows(now)
@@ -443,11 +552,12 @@ export async function gscSummary(property: string, now: Date): Promise<GscSummar
     error: null,
   }
   try {
-    const [current, previous, queries, pages, pairs] = await Promise.all([
+    const [current, previous, queries, pages, priorPages, pairs] = await Promise.all([
       query(property, range, []),
       query(property, priorRange, []),
       query(property, range, ['query'], { rowLimit: 500 }),
       query(property, range, ['page'], { rowLimit: 500 }),
+      query(property, priorRange, ['page'], { rowLimit: 500 }),
       queryAllPairs(property, range),
     ])
     const totals = totalsOf(current)
@@ -468,6 +578,7 @@ export async function gscSummary(property: string, now: Date): Promise<GscSummar
       topQueries: queries.sort(byClicks).slice(0, 25),
       topPages: pages.sort(byClicks).slice(0, 25),
       striking: strikingDistance(strikingRows, { minImpressions: floor, limit: 30 }),
+      pageTrends: pageTrends(pages, priorPages),
     }
   } catch (err) {
     return { ...empty, error: err instanceof Error ? err.message : String(err) }

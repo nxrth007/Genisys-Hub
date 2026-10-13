@@ -510,6 +510,7 @@ function SiteControls({
             onChange={(v) => patch({ enabled: v }, v ? 'Back in the weekly schedule.' : 'Taken out of the weekly schedule.')}
           />
         </div>
+        <PostsPerRun site={site} busy={update.isPending} patch={patch} />
         {lovableOn && site.repoFullName && (
           <div className="flex items-center justify-between gap-3 border-t border-border-soft pt-4">
             <div className="min-w-0">
@@ -538,6 +539,69 @@ function SiteControls({
         </div>
       </div>
     </Card>
+  )
+}
+
+const POST_COUNTS = [0, 1, 2, 3, 4, 5, 6, 8]
+
+/** How many new posts this site's weekly runs write: a standing number, and a one-off for the next run. */
+function PostsPerRun({
+  site,
+  busy,
+  patch,
+}: {
+  site: SeoSiteDetail
+  busy: boolean
+  patch: (body: UpdateSiteBody, ok: string) => void
+}) {
+  const standing = site.postsPerWeek ?? site.globalPostsPerWeek
+  const next = site.postsNextRun ?? standing
+  const plural = (n: number) => `${n} post${n === 1 ? '' : 's'}`
+  return (
+    <div className="flex flex-col gap-3 border-t border-border-soft pt-4">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[13px] font-medium">Posts per weekly run</p>
+        <Segmented<number | 'default'>
+          size="sm"
+          value={site.postsPerWeek ?? 'default'}
+          disabled={busy}
+          options={[
+            { value: 'default', label: `Default (${site.globalPostsPerWeek})`, title: 'Follow the SEO dashboard’s posts-per-week setting' },
+            ...POST_COUNTS.map((n) => ({ value: n, label: String(n) })),
+          ]}
+          onChange={(v) =>
+            patch(
+              { postsPerWeek: v === 'default' ? null : v },
+              v === 'default' ? `${site.name} follows the default (${plural(site.globalPostsPerWeek)} a week).` : `${site.name}: ${plural(v)} every week.`,
+            )
+          }
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[13px] font-medium">Next run only</p>
+        <Segmented<number | 'none'>
+          size="sm"
+          value={site.postsNextRun ?? 'none'}
+          disabled={busy}
+          options={[
+            { value: 'none', label: 'Same as weekly' },
+            ...POST_COUNTS.map((n) => ({ value: n, label: String(n) })),
+          ]}
+          onChange={(v) =>
+            patch(
+              { postsNextRun: v === 'none' ? null : v },
+              v === 'none' ? 'The next run writes the usual number of posts.' : `The next run writes up to ${plural(v)}, then it’s back to ${standing}.`,
+            )
+          }
+        />
+        <p className="text-[12px] leading-snug text-muted-foreground">
+          Next run: up to {plural(next)}
+          {site.postsNextRun !== null ? `, then back to ${standing} a week` : ''}. Applies to the next weekly run, scheduled or
+          “Run weekly now”. Above 3, the engine writes fewer when the business’s real facts can’t back more. Separately, it may
+          rewrite up to 2 older posts that Search Console shows slipping, at the same address so they keep their rankings.
+        </p>
+      </div>
+    </div>
   )
 }
 

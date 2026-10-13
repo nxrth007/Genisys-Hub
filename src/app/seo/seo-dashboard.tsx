@@ -682,7 +682,7 @@ function EngineCard({
         <Field
           label="New posts per site / week"
           group
-          hint="0 keeps runs to audits, fixes and plans. Around $0.40 a post. Above 3, the engine only writes as many as the business's real facts (projects, prices, services) can back — it hands back fewer rather than pad, since Google demotes sites that mass-publish thin AI pages."
+          hint="The default for every site — each site can set its own number, or a one-off for its next run, on its page. 0 keeps runs to audits, fixes and plans. Around $0.40 a post. Above 3, the engine only writes as many as the business's real facts (projects, prices, services) can back — it hands back fewer rather than pad, since Google demotes sites that mass-publish thin AI pages."
         >
           <Segmented
             value={s.postsPerWeek}

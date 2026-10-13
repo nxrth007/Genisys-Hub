@@ -183,6 +183,12 @@ export type SeoSiteDetail = SeoSiteSummary & {
   defaultBranch: string | null
   facts: BusinessFacts | null
   gscProperty: string | null
+  /** This site's posts per weekly run; null = the global setting. */
+  postsPerWeek: number | null
+  /** The next weekly run only; null = no one-off. */
+  postsNextRun: number | null
+  /** The global posts-per-week setting, which applies when postsPerWeek is null. */
+  globalPostsPerWeek: number
   lovableProjectId: string | null
   indexNowKey: string | null
   foundationPrUrl: string | null
@@ -281,6 +287,8 @@ export type UpdateSiteBody = Partial<{
   enabled: boolean
   facts: BusinessFacts
   gscProperty: string | null
+  postsPerWeek: number | null
+  postsNextRun: number | null
   lovableProjectId: string | null
 }>
 

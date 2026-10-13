@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Loader2, Search, Unplug } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ExternalLink, Loader2, RefreshCw, Search, Unplug } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SeoIntegrations } from '@/lib/seo/api-types'
+import type { GscHealth, GscHealthLevel } from '@/lib/seo/gsc-health'
 import { btnPrimary, btnSmall, seoFetch, seoKeys } from './ui'
 
 /**
@@ -104,7 +105,102 @@ export function SearchConsoleConnect({ state, notice }: { state: State; notice?:
         </ul>
       )}
 
+      {connected && <HealthCheck />}
+
       {note && <p className={cn('mt-2 text-[12.5px]', note.tone === 'ok' ? 'text-foreground/85' : 'text-destructive')}>{note.text}</p>}
+    </div>
+  )
+}
+
+const LEVEL_DOT: Record<GscHealthLevel, string> = {
+  ok: 'bg-emerald-400',
+  warn: 'bg-amber-400',
+  fail: 'bg-destructive',
+}
+const LEVEL_TEXT: Record<GscHealthLevel, string> = {
+  ok: 'text-muted-foreground',
+  warn: 'text-amber-300/90',
+  fail: 'text-destructive',
+}
+
+/** The connection dot only proves the sign-in refreshes; this checks what the weekly runs actually need. */
+function HealthCheck() {
+  const qc = useQueryClient()
+  const key = ['seo', 'gsc-health']
+  const last = useQuery({
+    queryKey: key,
+    queryFn: () => seoFetch<{ health: GscHealth | null }>('/api/seo/gsc/health'),
+  })
+  const run = useMutation({
+    mutationFn: () => seoFetch<{ health: GscHealth }>('/api/seo/gsc/health', { method: 'POST' }),
+    onSuccess: (data) => qc.setQueryData(key, data),
+  })
+  const health = last.data?.health ?? null
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-3 border-t border-border-soft pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-[12.5px] font-medium">
+          {health && <span className={cn('h-1.5 w-1.5 rounded-full', LEVEL_DOT[health.level])} />}
+          Health check
+          <span className="font-normal text-muted-foreground">
+            {health
+              ? `${health.level === 'ok' ? 'all good' : health.level === 'warn' ? 'needs a look' : 'problems found'} · ${new Date(health.checkedAt).toLocaleString()}`
+              : 'not run yet'}
+          </span>
+        </p>
+        <button type="button" className={btnSmall} disabled={run.isPending} onClick={() => run.mutate()}>
+          {run.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          {run.isPending ? 'Checking…' : 'Run health check'}
+        </button>
+      </div>
+      <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
+        Read-only. Per site: the property is still in the account, Google is reading the sitemap, the homepage and newest posts
+        are indexed, and search data comes back.
+      </p>
+      {run.isError && <p className="mt-1.5 text-[12px] text-destructive">{(run.error as Error).message}</p>}
+
+      {health && (
+        <div className="mt-2 flex flex-col gap-2">
+          {health.account.findings.map((f, i) => (
+            <p key={i} className={cn('flex items-start gap-2 text-[12px] leading-snug', LEVEL_TEXT[f.level])}>
+              <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', LEVEL_DOT[f.level])} />
+              {f.text}
+            </p>
+          ))}
+          {health.notConnected.length > 0 && (
+            <p className="text-[12px] text-muted-foreground">Not connected yet: {health.notConnected.join(', ')}.</p>
+          )}
+          {health.sites.length > 0 && (
+            <button type="button" className="w-fit text-[12px] text-foreground/80 underline underline-offset-2" onClick={() => setOpen(!open)}>
+              {open ? 'Hide' : 'Show'} {health.sites.length} site{health.sites.length === 1 ? '' : 's'}
+              {' '}({health.sites.filter((s) => s.level === 'ok').length} all good)
+            </button>
+          )}
+          {open && (
+            <ul className="flex flex-col gap-2.5">
+              {health.sites.map((s) => (
+                <li key={s.siteId} className="text-[12px] leading-snug">
+                  <p className="flex items-center gap-2 font-medium text-foreground/90">
+                    <span className={cn('h-1.5 w-1.5 rounded-full', LEVEL_DOT[s.level])} />
+                    {s.name}
+                    <span className="font-normal text-muted-foreground">
+                      {s.property}
+                      {s.last28 ? ` · ${s.last28.clicks} clicks, ${s.last28.impressions} impressions (28 days)` : ''}
+                    </span>
+                  </p>
+                  <ul className="ml-3.5 mt-0.5 flex flex-col gap-0.5">
+                    {s.findings.map((f, i) => (
+                      <li key={i} className={LEVEL_TEXT[f.level]}>{f.text}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

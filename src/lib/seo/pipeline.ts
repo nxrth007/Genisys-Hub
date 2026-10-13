@@ -36,6 +36,7 @@ import { newIndexNowKey, pingIndexNow } from './indexnow'
 import { getLovableDeployment, lovableChannel, lovableProjectInfo, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
+import { daysSinceUpdated, MAX_REFRESHES_PER_RUN, pickRefreshes, REFRESH_MIN_AGE_DAYS } from './refresh'
 import { runPsi } from './psi'
 import { clientWords, factGaps, latestIntakeFor, syncClientFacts } from './client-facts'
 import { detectLovableProjectId, snapshotRepo } from './repo'
@@ -49,15 +50,18 @@ import type {
   ClaudeUsage,
   CrawlResult,
   Draft,
+  GateResult,
   OnPageChange,
   GscSummary,
   PsiResult,
+  RefreshCandidate,
   RepoSnapshot,
   ResearchResult,
   RunLogEntry,
   RunStage,
   RunStatus,
   SeoPlan,
+  SeoPostFile,
   SitePlatform,
 } from './types'
 
@@ -449,6 +453,17 @@ async function historyFor(ctx: RunContext): Promise<string> {
 // Stages
 // ---------------------------------------------------------------------------
 
+const gscAlertedAt = new Map<string, number>()
+
+/** One Slack note per problem every 6 hours — a broken sign-in would otherwise post once per site. */
+async function gscBlindAlert(text: string): Promise<void> {
+  const key = text.slice(0, 120)
+  const last = gscAlertedAt.get(key) ?? 0
+  if (Date.now() - last < 6 * 3_600_000) return
+  gscAlertedAt.set(key, Date.now())
+  await seoAlert(`:warning: *SEO* — ${text}`)
+}
+
 export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
   const site = ctx.site
   if (!site.liveUrl && !site.repoFullName) throw new FatalRunError('This site has neither a live URL nor a repo to work from.')
@@ -461,7 +476,17 @@ export async function stageCollect(ctx: RunContext): Promise<StageOutcome> {
     (async () => {
       if (!site.gscProperty || ctx.run.kind !== 'weekly') return null
       const g = await gscConfigured()
-      return g.ok ? gscSummary(site.gscProperty, new Date()) : null
+      if (!g.ok) {
+        const why = g.error ?? 'Search Console isn’t connected.'
+        ctx.log('collect', `Search Console skipped — the Hub’s sign-in isn’t working: ${why}`, 'warn')
+        await gscBlindAlert(`the Hub’s Search Console sign-in isn’t working (${why}) — every site’s weekly run is planning without search data. Reconnect it on the SEO dashboard.`)
+        return null
+      }
+      const summary = await gscSummary(site.gscProperty, new Date())
+      if (summary.error) {
+        await gscBlindAlert(`${site.name}’s weekly run couldn’t read Search Console (${summary.error}), so it planned without search data. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+      }
+      return summary
     })(),
   ])
 
@@ -583,13 +608,72 @@ function clampNum(n: number, lo: number, hi: number): number {
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo
 }
 
+/**
+ * The live posts worth rewriting this week (see refresh.ts), skipping any
+ * written or refreshed in the last REFRESH_MIN_AGE_DAYS — and any already
+ * in a run that hasn't shipped, so two runs never rewrite the same file.
+ */
+async function chooseRefreshes(ctx: RunContext, repo: RepoSnapshot): Promise<RefreshCandidate[]> {
+  const gsc = ctx.snapshot?.gsc
+  if (!gsc || gsc.error || !gsc.pageTrends?.length) return []
+  const content = repo.blogPosts.filter((b) => b.source === 'content')
+  const picked = pickRefreshes({
+    trends: gsc.pageTrends,
+    striking: gsc.striking,
+    contentSlugs: new Set(content.map((b) => b.slug)),
+    titles: new Map(content.map((b) => [b.slug, b.title])),
+  })
+  if (!picked.length) return []
+
+  // Skip posts another open run is writing, and refreshes a reviewer recently turned down.
+  const others = await prisma.seoRun.findMany({
+    where: {
+      siteId: ctx.site.id,
+      id: { not: ctx.run.id },
+      OR: [
+        { status: { in: ['running', 'awaiting_review', 'awaiting_ci', 'awaiting_publish'] } },
+        { status: 'canceled', updatedAt: { gte: new Date(Date.now() - REFRESH_MIN_AGE_DAYS * 86_400_000) } },
+      ],
+    },
+    select: { status: true, drafts: true },
+  })
+  const inFlight = new Set(
+    others.flatMap((r) =>
+      (Array.isArray(r.drafts) ? (r.drafts as unknown as Draft[]) : [])
+        .filter((d) => r.status !== 'canceled' || !!d.refresh)
+        .map((d) => d.post?.slug)
+        .filter(Boolean),
+    ),
+  )
+
+  const out: RefreshCandidate[] = []
+  for (const c of picked) {
+    if (out.length >= MAX_REFRESHES_PER_RUN) break
+    if (inFlight.has(c.slug)) continue
+    const raw = await readFile(repo.fullName, `${CONTENT_DIR}/${c.slug}.json`, repo.headSha).catch(() => null)
+    if (!raw) continue
+    let post: SeoPostFile
+    try {
+      post = JSON.parse(raw) as SeoPostFile
+    } catch {
+      continue
+    }
+    const age = daysSinceUpdated(post, new Date())
+    if (age < REFRESH_MIN_AGE_DAYS) continue
+    out.push({ ...c, title: post.title || c.title })
+  }
+  return out
+}
+
 export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
   const facts = (ctx.site.facts as unknown as BusinessFacts | null) ?? null
   const audit = (ctx.run.audit as unknown as AuditResult | null) ?? null
   const research = (ctx.run.research as unknown as ResearchResult | null) ?? null
   const repo = ctx.snapshot?.repo ?? null
   const canCommit = !!repo && ctx.site.mode !== 'audit' && ctx.site.foundationStatus === 'installed'
-  const postsAllowed = ctx.settings.postsPerWeek
+  const oneOff = ctx.site.postsNextRun
+  const postsAllowed = oneOff ?? ctx.site.postsPerWeek ?? ctx.settings.postsPerWeek
+  const refreshes = canCommit && repo ? await chooseRefreshes(ctx, repo) : []
 
   const session = await ctx.session()
   try {
@@ -605,6 +689,11 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
             ? 'The engine will draft the content but cannot commit yet: the SEO foundation is not installed on this repo. Include a P1 quick win (owner "genisys") to install it — it is one button on the site page in the Genisys Hub → SEO, which opens a reviewed pull request.'
             : 'This site has no code repo the engine can commit to (e.g. a GoHighLevel site). The engine drafts content for a person to paste into the site builder; site changes are for people.',
         `Service slugs you may use: ${(repo?.serviceSlugs ?? []).join(', ') || '(none)'}.`,
+        ...(refreshes.length
+          ? [
+              `The engine is also rewriting these existing posts this week because Search Console shows them slipping — don't brief new posts on the same topics or keywords: ${refreshes.map((r) => `/blog/${r.slug} ("${r.title}": ${r.reason})`).join('; ')}.`,
+            ]
+          : []),
         '',
         '## Research notes (with sources)',
         research?.digest || '(research unavailable this week)',
@@ -644,16 +733,92 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
         }
       }),
       content,
+      refreshes,
       humanTasks: raw.humanTasks.slice(0, 6),
       clientInputs: raw.clientInputs.slice(0, 8),
     }
-    ctx.log('plan', `Plan: ${plan.quickWins.length} quick wins, ${plan.content.length} post brief(s) — ${plan.headline}`)
+    ctx.log(
+      'plan',
+      `Plan: ${plan.quickWins.length} quick wins, ${plan.content.length} of ${postsAllowed} allowed post brief(s)${oneOff !== null ? ' (this site’s one-off count for this run)' : ''}${refreshes.length ? `, ${refreshes.length} refresh(es): ${refreshes.map((r) => r.slug).join(', ')}` : ''} — ${plan.headline}`,
+    )
     await ctx.saveUsage(session, { plan: json(plan), headline: plan.headline.slice(0, 500) })
+    // Used up. Only clear the value this run read, in case someone set a new one meanwhile.
+    if (oneOff !== null) {
+      await prisma.seoSite.updateMany({ where: { id: ctx.site.id, postsNextRun: oneOff }, data: { postsNextRun: null } })
+    }
   } catch (err) {
     await ctx.saveUsage(session)
     throw err
   }
   return { stage: 'write', status: 'running' }
+}
+
+const refreshKey = (slug: string) => `refresh:${slug}`
+
+function refreshTask(r: RefreshCandidate, current: SeoPostFile): string {
+  const { readTime: _readTime, ...live } = current
+  void _readTime
+  return [
+    `Refresh an existing post that is already live at ${r.url}. Search Console shows: ${r.reason}.`,
+    r.queries.length
+      ? `Searches it already shows up for — answer each one directly, with a section or FAQ for any the post doesn't answer well: ${r.queries.map((q) => `"${q}"`).join(', ')}.`
+      : 'There is no query data for it — strengthen it for its primary keyword.',
+    'Write the better version of the same post:',
+    '- Keep the slug, the core topic and the primary keyword (change the keyword only if the searches above show people use different words). Keep everything that is still accurate and specific to this business.',
+    '- Bring it up to date: years, regulations and any cost figures from cited sources — check the research notes and re-cite. Use first-hand business facts the old version missed.',
+    '- Sharpen the answer box, title and meta description for the searches above.',
+    '- Links follow the usual rules; keep the old version\u2019s links where they still fit.',
+    '- Better, not longer: cut filler and repetition. Never invent anything.',
+    `Use the slug "${r.slug}".`,
+    '',
+    'The post as it is live now (JSON):',
+    JSON.stringify(live, null, 2).slice(0, 40_000),
+  ].join('\n')
+}
+
+export type StrikingTarget = { path: string; query: string; position: number; impressions: number }
+
+/**
+ * The site's own pages sitting just off page one, best opportunity first,
+ * one entry per page — what a new post's internal link should help most.
+ */
+export function strikingTargets(snap: Pick<Snapshot, 'gsc' | 'sitePaths'> | null, limit = 8): StrikingTarget[] {
+  const rows = snap?.gsc?.striking ?? []
+  const paths = new Set((snap?.sitePaths ?? []).map((p) => p.replace(/\/+$/, '') || '/'))
+  const out: StrikingTarget[] = []
+  const seen = new Set<string>()
+  for (const r of rows) {
+    if (!r.page || !r.query) continue
+    let path: string
+    try {
+      path = new URL(r.page).pathname.replace(/\/+$/, '') || '/'
+    } catch {
+      continue
+    }
+    if (path === '/' || !paths.has(path) || seen.has(path)) continue
+    seen.add(path)
+    out.push({ path, query: r.query, position: r.position, impressions: r.impressions })
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Informational: did the post link to a page that's close to page one? */
+export function strikingGate(post: SeoPostFile, targets: StrikingTarget[]): GateResult {
+  const linked = new Set<string>()
+  const texts = [post.answer, ...post.sections.flatMap((s) => s.paragraphs), ...post.faqs.map((f) => f.a)]
+  for (const t of texts) {
+    for (const m of t.matchAll(/\]\((\/[^)\s#?]*)/g)) linked.add(m[1].replace(/\/+$/, '') || '/')
+  }
+  const hits = targets.filter((t) => linked.has(t.path))
+  return {
+    id: 'striking-link',
+    ok: hits.length > 0,
+    blocking: false,
+    detail: hits.length
+      ? `Links to ${hits.map((h) => `${h.path} (“${h.query}”, position ${h.position.toFixed(1)})`).join(', ')}, which is close to page one.`
+      : `Doesn’t link to any page close to page one (${targets.slice(0, 3).map((t) => t.path).join(', ')}) — fine when none fit the topic.`,
+  }
 }
 
 export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
@@ -666,7 +831,10 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
   const repo = snap?.repo ?? null
   const drafts: Draft[] = Array.isArray(ctx.run.drafts) ? (ctx.run.drafts as unknown as Draft[]) : []
   const briefs = (plan?.content ?? []).filter((b) => !drafts.some((d) => (d.briefSlug ?? d.post.slug) === slugify(b.slug)))
-  if (!briefs.length) return { stage: 'commit', status: 'running' }
+  const refreshes = (plan?.refreshes ?? []).filter((r) => !drafts.some((d) => d.briefSlug === refreshKey(r.slug)))
+  // Resumed after everything was written and the change set stored. A run
+  // with no new posts still goes on to the title/description fixes.
+  if (!briefs.length && !refreshes.length && ctx.run.changes != null) return { stage: 'commit', status: 'running' }
 
   // This run's own rows (from an interrupted attempt) aren't "existing" posts.
   const ledger = (
@@ -685,6 +853,7 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
   const brand = facts?.businessName || ctx.site.name
 
   const clientWordsForWriter = await clientContext(ctx, facts, false)
+  const striking = strikingTargets(snap)
   const writerContext = [
     `# Writing for ${brand}${ctx.site.liveUrl ? ` (${ctx.site.liveUrl})` : ''}`,
     '## Business facts (the only first-party facts you may use)',
@@ -694,6 +863,14 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
     '',
     `## Pages that exist on the site (use only these for internal links)\n${(snap?.sitePaths ?? ['/']).join('\n')}`,
     '',
+    ...(striking.length
+      ? [
+          '## Pages close to page one on Google (average position 4–20 in Search Console)',
+          'A link from new, relevant content is one of the surest ways to lift these. When one fits this post naturally, use it for the "another page on the site" link, with an anchor that uses or paraphrases its search query. Link at most two of them, and never force one that is off-topic.',
+          ...striking.map((t) => `- ${t.path} — "${t.query}" (position ${t.position.toFixed(1)}, ${t.impressions} impressions in 28 days)`),
+          '',
+        ]
+      : []),
     `## Allowed image keys (real project photos)\n${repo?.imageKeys.join(', ') || '(none — use null)'}`,
     `## Service slugs\n${repo?.serviceSlugs.join(', ') || '(none — use null)'}`,
     '',
@@ -734,6 +911,7 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
         Math.round((session.spentUsd - before) * 100) / 100,
       )
       draft.briefSlug = slugify(brief.slug)
+      if (striking.length) draft.gates.push(strikingGate(draft.post, striking))
       drafts.push(draft)
       existing.push({ slug: draft.post.slug, title: draft.post.title, text: postText(draft.post) })
       await prisma.seoPost.upsert({
@@ -751,6 +929,69 @@ export async function stageWrite(ctx: RunContext): Promise<StageOutcome> {
       })
       const blocked = draft.gates.filter((g) => g.blocking && !g.ok)
       ctx.log('write', `Drafted "${draft.post.title}"${blocked.length ? ` — needs a look: ${blocked.map((g) => g.id).join(', ')}` : ''}`, blocked.length ? 'warn' : 'info')
+      await ctx.saveUsage(session, { drafts: json(drafts), draftCount: drafts.length })
+    }
+
+    for (const r of refreshes) {
+      await ctx.renewLease(40 * 60_000)
+      const path = `${CONTENT_DIR}/${r.slug}.json`
+      const raw = repo ? await readFile(repo.fullName, path, repo.headSha).catch(() => null) : null
+      let current: SeoPostFile | null = null
+      try {
+        current = raw ? (JSON.parse(raw) as SeoPostFile) : null
+      } catch {
+        current = null
+      }
+      if (!current?.slug) {
+        ctx.log('write', `Skipped refreshing ${r.slug}: couldn’t read ${path}`, 'warn')
+        continue
+      }
+      const before = session.spentUsd
+      const out = await session.structured({
+        label: `refresh:${r.slug}`,
+        system: WRITER_SYSTEM,
+        context: writerContext,
+        task: refreshTask(r, current),
+        schema: PostDraftSchema,
+        effort: 'medium',
+        maxTokens: 32_000,
+      })
+      const others = existing.filter((e) => e.slug !== r.slug)
+      const draft = buildDraft(
+        { ...out, slug: r.slug },
+        {
+          date,
+          author: current.author || author,
+          imageKeys: repo?.imageKeys ?? [],
+          serviceSlugs: repo?.serviceSlugs ?? [],
+          sitePaths: snap?.sitePaths ?? [],
+          existing: others,
+          facts,
+          brand,
+        },
+        Math.round((session.spentUsd - before) * 100) / 100,
+      )
+      // Same post, same address: keep when it was first published, and the photo unless a better one was chosen.
+      draft.post.date = current.date || date
+      if (!draft.post.imageKey && current.imageKey && (repo?.imageKeys ?? []).includes(current.imageKey)) {
+        draft.post.imageKey = current.imageKey
+        draft.post.imageAlt = draft.post.imageAlt || current.imageAlt
+      }
+      draft.gates = draft.gates.map((g) =>
+        g.id === 'slug-unique' ? { ...g, ok: true, detail: `Rewrites the live post at /blog/${r.slug} — same address, so its rankings carry over.` } : g,
+      )
+      if (striking.length) draft.gates.push(strikingGate(draft.post, striking))
+      draft.briefSlug = refreshKey(r.slug)
+      draft.refresh = { reason: r.reason, previousTitle: current.title }
+      drafts.push(draft)
+      const mine = existing.find((e) => e.slug === r.slug)
+      if (mine) mine.text = postText(draft.post)
+      const blocked = draft.gates.filter((g) => g.blocking && !g.ok)
+      ctx.log(
+        'write',
+        `Refreshed "${draft.post.title}" (${r.reason})${blocked.length ? ` — needs a look: ${blocked.map((g) => g.id).join(', ')}` : ''}`,
+        blocked.length ? 'warn' : 'info',
+      )
       await ctx.saveUsage(session, { drafts: json(drafts), draftCount: drafts.length })
     }
     await writeOnPage(ctx, session, drafts)
@@ -771,7 +1012,7 @@ async function writeOnPage(ctx: RunContext, session: ClaudeSession, drafts: Draf
   const snap = ctx.snapshot
   const repo = snap?.repo ?? null
   const paths = new Set(repo?.paths ?? [])
-  const postFiles = () => drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`)))
+  const postFiles = () => drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`), d.refresh?.reason))
 
   const wins = (plan?.quickWins ?? []).filter((w) => w.owner === 'engine' && w.category === 'on_page' && w.targetUrl)
   const canApply = !!repo && ctx.site.mode !== 'audit' && (repo.foundationInstalled || ctx.site.foundationStatus === 'installed') && paths.has(PAGES_OVERLAY)
@@ -880,6 +1121,15 @@ async function writeFoundation(ctx: RunContext): Promise<StageOutcome> {
   return { stage: 'commit', status: 'running' }
 }
 
+/** "2 new posts, 1 refreshed post" */
+function postCountLabel(drafts: Draft[]): string {
+  const fresh = drafts.filter((d) => !d.refresh).length
+  const redone = drafts.length - fresh
+  const parts = [`${fresh} new post${fresh === 1 ? '' : 's'}`]
+  if (redone) parts.push(`${redone} refreshed post${redone === 1 ? '' : 's'}`)
+  return parts.join(', ')
+}
+
 function prBody(ctx: RunContext, changes: ChangeFile[], drafts: Draft[]): string {
   const plan = (ctx.run.plan as unknown as SeoPlan | null) ?? null
   const lines = [
@@ -893,7 +1143,7 @@ function prBody(ctx: RunContext, changes: ChangeFile[], drafts: Draft[]): string
   if (drafts.length) {
     lines.push('', '### Content checks')
     for (const d of drafts) {
-      lines.push(`**${d.post.title}**`)
+      lines.push(d.refresh ? `**${d.post.title}** _(refresh of a live post: ${d.refresh.reason})_` : `**${d.post.title}**`)
       for (const g of d.gates) lines.push(`- ${g.ok ? '✅' : g.blocking ? '⛔' : '⚠️'} ${g.id}: ${g.detail}`)
     }
   }
@@ -914,7 +1164,7 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
     // overlay); older runs only have drafts.
     const stored: ChangeFile[] = Array.isArray(ctx.run.changes) ? (ctx.run.changes as unknown as ChangeFile[]) : []
     const paths = new Set(repo?.paths ?? [])
-    changes = stored.length ? stored : drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`)))
+    changes = stored.length ? stored : drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`), d.refresh?.reason))
     if (!committable || !changes.length) {
       ctx.log(
         'commit',
@@ -976,7 +1226,7 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       fullName: repo.fullName,
       head: branch,
       base: repo.defaultBranch,
-      title: ctx.run.kind === 'foundation' ? 'SEO foundation — Genisys SEO engine' : `SEO ${ctx.run.weekOf} — ${drafts.length} new post${drafts.length === 1 ? '' : 's'}`,
+      title: ctx.run.kind === 'foundation' ? 'SEO foundation — Genisys SEO engine' : `SEO ${ctx.run.weekOf} — ${postCountLabel(drafts)}`,
       body: prBody(ctx, changes, drafts),
     })
     ctx.log('commit', `Opened PR #${pr.number}`)
@@ -993,7 +1243,8 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
     if (ctx.run.kind === 'foundation') {
       await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { foundationStatus: 'proposed', foundationPrUrl: pr.url } })
     }
-    for (const d of drafts) {
+    // A refreshed post stays "live" in the ledger: the old version is still what's on the site.
+    for (const d of drafts.filter((x) => !x.refresh)) {
       await prisma.seoPost.updateMany({
         where: { siteId: ctx.site.id, slug: d.post.slug },
         data: { status: 'committed', path: `${CONTENT_DIR}/${d.post.slug}.json` },
@@ -1180,10 +1431,14 @@ export function liveUrlsFor(kind: string, liveUrl: string | null, drafts: Draft[
 }
 
 /** Is this URL serving what the run expects? Sitemaps are XML, posts are HTML. */
-async function isLive(url: string, kind: 'sitemap' | 'page'): Promise<boolean> {
+async function isLive(url: string, kind: 'sitemap' | 'page', expectTitle: string | null = null): Promise<boolean> {
   if (kind === 'page') {
     const page = await fetchPage(url, { timeoutMs: 20_000 })
-    return page.status === 200 && !page.error
+    if (page.status !== 200 || page.error) return false
+    if (!expectTitle) return true
+    const loose = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    const want = loose(expectTitle)
+    return [page.title, ...(page.h1 ?? [])].some((t) => !!t && loose(t).includes(want))
   }
   try {
     const res = await fetch(url, {
@@ -1211,10 +1466,14 @@ async function isLive(url: string, kind: 'sitemap' | 'page'): Promise<boolean> {
 /** Are the run's new URLs live? Cheap enough to call from the poller. */
 export async function liveCheck(ctx: RunContext): Promise<{ live: string[]; missing: string[] }> {
   const urls = expectedLiveUrls(ctx)
+  const drafts: Draft[] = Array.isArray(ctx.run.drafts) ? (ctx.run.drafts as unknown as Draft[]) : []
   const live: string[] = []
   const missing: string[] = []
   for (const u of urls) {
-    if (await isLive(u, ctx.run.kind === 'foundation' ? 'sitemap' : 'page')) live.push(u)
+    // A refreshed post's old version is already live; wait for the new title when it changed.
+    const d = drafts.find((x) => u.endsWith(`/blog/${x.post.slug}`))
+    const expectTitle = d?.refresh && d.refresh.previousTitle !== d.post.title ? d.post.title : null
+    if (await isLive(u, ctx.run.kind === 'foundation' ? 'sitemap' : 'page', expectTitle)) live.push(u)
     else missing.push(u)
   }
   return { live, missing }
@@ -1349,7 +1608,14 @@ export async function stageVerify(ctx: RunContext): Promise<StageOutcome> {
     const drafts: Draft[] = Array.isArray(ctx.run.drafts) ? (ctx.run.drafts as unknown as Draft[]) : []
     for (const d of drafts) {
       const url = live.find((u) => u.endsWith(`/blog/${d.post.slug}`))
-      if (url) await prisma.seoPost.updateMany({ where: { siteId: ctx.site.id, slug: d.post.slug }, data: { status: 'live', url } })
+      if (!url) continue
+      await prisma.seoPost.updateMany({
+        where: { siteId: ctx.site.id, slug: d.post.slug },
+        // The ledger now holds the refreshed version, so the next dedupe compares against it.
+        data: d.refresh
+          ? { status: 'live', url, runId: ctx.run.id, title: d.post.title, primaryKeyword: d.post.primaryKeyword, body: json(d.post) }
+          : { status: 'live', url },
+      })
     }
     const origin = originOf(ctx.site.liveUrl)
     if (origin && ctx.site.indexNowKey) {
