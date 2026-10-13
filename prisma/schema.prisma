@@ -560,6 +560,17 @@ model Client {
   intakeFormUrl   String?
   ghlSubaccountUrl String?
 
+  // The GHL sub-account made for them automatically after a new onboarding
+  // submission (src/lib/ghl-subaccount-provisioning.ts). Status is null
+  // when it was never attempted (e.g. clients from before the automation),
+  // otherwise creating | created | linked | failed. ghlSnapshotStatus is
+  // GHL's last reported progress loading the snapshot.
+  ghlLocationId       String?   @unique
+  ghlProvisionStatus  String?
+  ghlProvisionError   String?   @db.Text
+  ghlProvisionedAt    DateTime?
+  ghlSnapshotStatus   String?
+
   // Free-text list of zipcodes the client services / wants leads from.
   // Captured during the self-onboarding form. Stored as a comma- or
   // whitespace-separated string for now — JSON later if we ever need

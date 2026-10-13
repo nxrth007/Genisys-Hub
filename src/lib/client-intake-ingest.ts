@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
+import { provisionGhlSubAccountForNewClient } from '@/lib/ghl-subaccount-provisioning'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
@@ -165,6 +166,13 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       .updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } })
       .then(() => ensureClientGeo(id))
       .catch((err) => console.warn(`[client-onboarding] geocode failed for ${id}:`, err))
+    // Only a client this submission created gets a sub-account; one that
+    // linked to a client on file already has (or deliberately lacks) one.
+    if (created) {
+      void provisionGhlSubAccountForNewClient(id, intake.receivedAt).then((r) => {
+        if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
+      })
+    }
   } else {
     await hubAlert(
       `:warning: *Onboarding submission stored but no client was created* — ${who}${via}. Usually the business name was blank. Review it under Clients → Onboarding answers: <${hubLink('/clients/onboarding')}|open>`,

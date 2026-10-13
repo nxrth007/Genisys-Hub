@@ -10,8 +10,11 @@
  */
 import { getSecretByName, listEntriesByTag } from './vault-service'
 
-const BASE_URL = 'https://services.leadconnectorhq.com'
-const API_VERSION = '2021-07-28'
+export const BASE_URL = 'https://services.leadconnectorhq.com'
+export const API_VERSION = '2021-07-28'
+
+/** The agency-level key (creates sub-accounts) — see src/lib/ghl-agency.ts. */
+export const GHL_AGENCY_KEY_VAULT_NAME = 'GHL Agency Key'
 
 // In-memory cache: vault entry name → resolved token + location info
 type TokenInfo = {
@@ -29,7 +32,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000
  * between token types — we try the known variants. Returns both the found
  * locationId and the payload structure (keys only, for diagnostics).
  */
-function decodeJwtPayload(token: string): {
+export function decodeJwtPayload(token: string): {
   locationId: string | null
   keys: string[]
   companyId: string | null
@@ -265,6 +268,8 @@ export async function listSubAccounts(
 }> {
   const wanted = opts.kind ?? 'genisys'
   const rawEntries = (await listEntriesByTag('ghl'))
+    // The agency key manages sub-accounts rather than being one.
+    .filter((e) => e.name.trim().toLowerCase() !== GHL_AGENCY_KEY_VAULT_NAME.toLowerCase())
     .map((e) => ({ ...e, ...classifyEntry(e) }))
     .filter((e) => wanted === 'all' || e.kind === wanted)
 
