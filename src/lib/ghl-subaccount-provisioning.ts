@@ -67,7 +67,7 @@ function parseSettings(value: string | null | undefined): Partial<GhlSubaccountS
  * (or was deliberately given no) sub-account, and their submissions are
  * already stored, so nothing older is ever treated as new.
  */
-const AUTOMATION_LIVE_AT = '2026-10-11T00:00:00.000Z'
+const AUTOMATION_LIVE_AT = '2026-10-13T15:30:00.000Z'
 
 export async function getGhlSubaccountSettings(): Promise<GhlSubaccountSettings> {
   const row = await prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } })
@@ -284,12 +284,29 @@ function describe(err: unknown): string {
 export async function provisionGhlSubAccountForNewClient(
   clientId: string,
   receivedAt: Date,
+  opts: { timeKnown: boolean },
 ): Promise<ProvisionResult> {
   try {
     const settings = await getGhlSubaccountSettings()
     if (!settings.enabled) return { ok: false, status: 'skipped', reason: 'automation is off' }
     if (receivedAt.getTime() < Date.parse(settings.since)) {
       return { ok: false, status: 'skipped', reason: 'submission is from before the automation was switched on' }
+    }
+    // A sheet row without a readable timestamp is stamped "now" on import,
+    // so it could be an old submission. Leave it for the team to decide.
+    if (!opts.timeKnown) {
+      const reason =
+        "the onboarding sheet row had no readable submission time, so it may be an old submission — press Retry if it's a new client"
+      const held = await prisma.client.updateMany({
+        where: { id: clientId, ghlLocationId: null, ghlProvisionStatus: null },
+        data: { ghlProvisionStatus: 'failed', ghlProvisionError: reason, ghlProvisionedAt: new Date() },
+      })
+      if (held.count > 0) {
+        await hubAlert(
+          `:hourglass: *GHL sub-account not created yet* — ${reason}. <${hubLink('/settings')}|Settings → GHL sub-accounts>`,
+        )
+      }
+      return { ok: false, status: 'skipped', reason }
     }
     return await provisionGhlSubAccount(clientId, { manual: false, snapshotId: settings.snapshotId })
   } catch (err) {

@@ -169,7 +169,8 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.
     if (created) {
-      void provisionGhlSubAccountForNewClient(id, intake.receivedAt).then((r) => {
+      const timeKnown = !!data.receivedAt || source === 'webhook'
+      void provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
         if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
       })
     }
