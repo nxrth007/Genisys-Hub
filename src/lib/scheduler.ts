@@ -38,6 +38,7 @@ import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-r
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSeoTick } from './seo/engine'
+import { maybeRunLovableGitWatch } from './seo/lovable-git-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
 
 let initialized = false
@@ -368,6 +369,18 @@ export function initScheduler() {
         }
       })
       .catch((err) => console.error('[scheduler] seo tick failed:', err))
+
+    // New Lovable projects -> GitHub: once a day from 13:00 UTC, flag the ones
+    // not connected yet and link the repos of the ones that are. Fire-and-forget.
+    void maybeRunLovableGitWatch()
+      .then((r) => {
+        if (r) {
+          console.log(
+            `[scheduler] lovable git watch: ${r.error ? `failed: ${r.error}` : r.started ? 'baseline taken' : `${r.newProjects} new, ${r.needsGithub} need GitHub, ${r.connected} connected, ${r.attached} linked`}`,
+          )
+        }
+      })
+      .catch((err) => console.error('[scheduler] lovable git watch failed:', err))
 
     // County backfill (fire-and-forget) — drains existing appointments
     // missing a county a batch at a time. Concurrent with the rest of

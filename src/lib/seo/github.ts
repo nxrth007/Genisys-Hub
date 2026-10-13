@@ -336,6 +336,7 @@ type RawRepo = {
   private: boolean
   default_branch: string
   pushed_at: string | null
+  created_at?: string | null
   html_url: string
 }
 
@@ -380,6 +381,7 @@ function shapeRepo(r: RawRepo) {
     private: r.private,
     defaultBranch: r.default_branch,
     pushedAt: r.pushed_at ?? null,
+    createdAt: r.created_at ?? null,
     htmlUrl: r.html_url,
   }
 }
@@ -414,7 +416,7 @@ export async function githubViewer(): Promise<{ login: string }> {
 
 /** Repos the token's user owns, most recently pushed first (capped at 300). */
 export async function listOwnedRepos(): Promise<
-  { fullName: string; private: boolean; defaultBranch: string; pushedAt: string | null; htmlUrl: string }[]
+  { fullName: string; private: boolean; defaultBranch: string; pushedAt: string | null; createdAt: string | null; htmlUrl: string }[]
 > {
   const out: ReturnType<typeof shapeRepo>[] = []
   let next: string | null = '/user/repos?affiliation=owner&per_page=100&sort=pushed'

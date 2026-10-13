@@ -35,8 +35,8 @@ const OAUTH = {
 }
 /** A loopback address: Lovable accepts these for self-registered clients. Nothing needs to listen on it. */
 const REDIRECT_URI = 'http://127.0.0.1:53682/callback'
-/** Keep the sign-in (offline) and act on projects. Nothing about workspaces, nothing that creates. */
-const SCOPE = 'offline projects:read projects:write'
+/** Keep the sign-in (offline), act on projects, and read workspaces to list their projects. Nothing that creates. */
+const SCOPE = 'offline projects:read projects:write workspaces:read'
 const PROTOCOL = '2025-06-18'
 
 const CONNECTION_KEY = 'seo.lovable.connection'

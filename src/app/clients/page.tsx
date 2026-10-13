@@ -27,6 +27,7 @@ import {
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { OnboardingHealth } from '@/components/clients/onboarding-health'
+import { LovableGitWatch } from '@/components/clients/lovable-git-watch'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
 import {
@@ -269,6 +270,7 @@ function ClientsPage() {
       />
 
       <OnboardingHealth />
+      <LovableGitWatch />
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
