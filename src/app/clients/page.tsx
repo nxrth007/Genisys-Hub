@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,6 +17,7 @@ import {
   FolderGit2,
   Globe,
   Loader2,
+  MessageSquareText,
   Pencil,
   Search,
   Trash2,
@@ -912,6 +914,13 @@ function ClientDetailDialog({
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
+            <Link
+              href={`/clients/${client.id}/a2p`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+              title="Copy-and-paste board for this client's A2P 10DLC registration in GHL"
+            >
+              <MessageSquareText className="h-3.5 w-3.5" /> A2P
+            </Link>
             <button
               type="button"
               disabled={archive.isPending}
