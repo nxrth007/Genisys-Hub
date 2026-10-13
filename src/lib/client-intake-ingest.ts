@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { promoteIntakeToClient } from '@/lib/client-from-intake'
+import { looksLikePhoneNumber, promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
 import { provisionGhlSubAccountForNewClient } from '@/lib/ghl-subaccount-provisioning'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
@@ -140,8 +140,8 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
   })
   console.log(`[client-onboarding] stored intake ${intake.id} for "${intake.businessName ?? 'unnamed'}" via ${source}`)
 
-  // Every submission becomes a Client (or links to the one already
-  // carrying this business name). Best-effort: a failure here must not
+  // Every submission becomes a Client (or links to the one already on
+  // file for this business, see client-dedupe.ts). Best-effort: a failure here must not
   // lose the stored intake.
   let clientId: string | null = null
   let created = false
@@ -185,8 +185,12 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       })
     }
   } else {
+    const why =
+      intake.businessName && looksLikePhoneNumber(intake.businessName.trim())
+        ? `The business name was a phone number (${intake.businessName.trim()}), so add the client by hand under the real name`
+        : 'Usually the business name was blank'
     await hubAlert(
-      `:warning: *Onboarding submission stored but no client was created* — ${who}${via}. Usually the business name was blank. Review it under Clients → Onboarding answers: <${hubLink('/clients/onboarding')}|open>`,
+      `:warning: *Onboarding submission stored but no client was created* — ${who}${via}. ${why}. Review it under Clients → Onboarding answers: <${hubLink('/clients/onboarding')}|open>`,
     )
   }
 

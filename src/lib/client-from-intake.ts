@@ -52,6 +52,11 @@ export function intakeNotes(i: ClientIntake): string {
     .join('\n')
 }
 
+/** "8302379649", "(830) 237-9649", "+1 830-237-9649": a phone number typed into the business-name box. */
+export function looksLikePhoneNumber(name: string): boolean {
+  return /^[\d\s().+-]+$/.test(name) && name.replace(/\D/g, '').length >= 7
+}
+
 export async function promoteIntakeToClient(
   intakeId: string,
 ): Promise<{ clientId: string; created: boolean; matched?: { name: string; why: string } } | null> {
@@ -60,7 +65,9 @@ export async function promoteIntakeToClient(
   if (intake.clientId) return { clientId: intake.clientId, created: false }
 
   const name = intake.businessName?.trim()
-  if (!name) return null
+  // A client named after a phone number gets an SEO site and a GHL
+  // sub-account under that name; a person should pick the real one.
+  if (!name || looksLikePhoneNumber(name)) return null
 
   // Client.name is unique; match case-insensitively so "Smith Plumbing"
   // and "smith plumbing" don't become two clients.
