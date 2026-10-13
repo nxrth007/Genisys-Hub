@@ -122,6 +122,11 @@ const dateFmt = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   year: 'numeric',
 })
+const timeFmt = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+})
 
 function initials(name: string): string {
   const words = name.split(/\s+/).filter(Boolean)
@@ -816,6 +821,17 @@ function InlineStatus({ client }: { client: RosterClient }) {
 
 /* -------------------------------------------------------------------------- */
 
+/** When the onboarding form came in; clients added before the form show when they were added instead. */
+function SubmittedAt({ client }: { client: RosterClient }) {
+  const at = new Date(client.intake?.receivedAt ?? client.createdAt)
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground/85">{client.intake ? 'Submitted:' : 'Added:'}</span>{' '}
+      {dateFmt.format(at)} at {timeFmt.format(at)}
+    </p>
+  )
+}
+
 function ClientDetailDialog({
   client,
   onClose,
@@ -885,6 +901,7 @@ function ClientDetailDialog({
                 <Chip>{LIFECYCLE_LABEL[client.lifecycle] ?? client.lifecycle}</Chip>
                 {client.archivedAt && <Chip>Archived</Chip>}
               </p>
+              <SubmittedAt client={client} />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
