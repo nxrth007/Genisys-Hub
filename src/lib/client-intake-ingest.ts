@@ -145,10 +145,12 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
   // lose the stored intake.
   let clientId: string | null = null
   let created = false
+  let matched: { name: string; why: string } | undefined
   try {
     const promoted = await promoteIntakeToClient(intake.id)
     clientId = promoted?.clientId ?? null
     created = promoted?.created ?? false
+    matched = promoted?.matched
   } catch (err) {
     console.error(`[client-onboarding] client promotion failed for ${intake.id}:`, err)
   }
@@ -159,7 +161,7 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
   const via = source === 'sheet' ? ' _(recovered from the onboarding sheet — the form’s webhook didn’t deliver it)_' : ''
   if (clientId) {
     await hubAlert(
-      `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
+      `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : matched ? ` — linked to *${matched.name}* already on file (${matched.why}). If they're really two businesses, say so and we'll split them` : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
     )
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
     // An existing site's business facts pick up what the client just told us.

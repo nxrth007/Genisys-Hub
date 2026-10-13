@@ -1,5 +1,6 @@
 import type { ClientIntake } from '@/generated/prisma/client'
 import { prisma } from './prisma'
+import { findClientForIntake } from './client-dedupe'
 
 /**
  * Onboarding intake → Client.
@@ -53,7 +54,7 @@ export function intakeNotes(i: ClientIntake): string {
 
 export async function promoteIntakeToClient(
   intakeId: string,
-): Promise<{ clientId: string; created: boolean } | null> {
+): Promise<{ clientId: string; created: boolean; matched?: { name: string; why: string } } | null> {
   const intake = await prisma.clientIntake.findUnique({ where: { id: intakeId } })
   if (!intake) return null
   if (intake.clientId) return { clientId: intake.clientId, created: false }
@@ -67,12 +68,16 @@ export async function promoteIntakeToClient(
     where: { name: { equals: name, mode: 'insensitive' } },
     select: { id: true },
   })
-  if (existing) {
+  // Then the same business under another spelling ("Aplus" / "A Plus",
+  // with or without LLC), or the same EIN, email, website or phone.
+  const same = existing ? null : await findClientForIntake(intake)
+  const linkTo = existing?.id ?? same?.id
+  if (linkTo) {
     await prisma.clientIntake.update({
       where: { id: intakeId },
-      data: { clientId: existing.id },
+      data: { clientId: linkTo },
     })
-    return { clientId: existing.id, created: false }
+    return { clientId: linkTo, created: false, ...(same ? { matched: { name: same.name, why: same.why } } : {}) }
   }
 
   // The form's "business contact" is free text; only treat it as an

@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { OnboardingHealth } from '@/components/clients/onboarding-health'
 import { LovableGitWatch } from '@/components/clients/lovable-git-watch'
+import { DuplicateClients } from '@/components/clients/duplicate-clients'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
 import {
@@ -270,6 +271,7 @@ function ClientsPage() {
       />
 
       <OnboardingHealth />
+      <DuplicateClients />
       <LovableGitWatch />
 
       {/* Stats */}
