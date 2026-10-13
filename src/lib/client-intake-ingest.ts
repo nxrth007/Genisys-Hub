@@ -116,10 +116,18 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
   const data = intakeDataFromBody(body)
 
   if (data.receivedAt) {
+    // Who it's from, as well as when: two clients can submit in the same second.
+    const who = data.businessName
+      ? { businessName: { equals: data.businessName, mode: 'insensitive' as const } }
+      : data.leadEmail
+        ? { businessName: null, leadEmail: { equals: data.leadEmail, mode: 'insensitive' as const } }
+        : data.fullName
+          ? { businessName: null, leadEmail: null, fullName: { equals: data.fullName, mode: 'insensitive' as const } }
+          : {}
     const near = await prisma.clientIntake.findFirst({
       where: {
         receivedAt: { gte: new Date(data.receivedAt.getTime() - 2000), lte: new Date(data.receivedAt.getTime() + 2000) },
-        ...(data.businessName ? { businessName: { equals: data.businessName, mode: 'insensitive' } } : {}),
+        ...who,
       },
       select: { id: true, clientId: true },
     })

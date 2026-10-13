@@ -81,23 +81,37 @@ export async function promoteIntakeToClient(
     intake.leadEmail ??
     (intake.businessContact?.includes('@') ? intake.businessContact : null)
 
-  const client = await prisma.client.create({
-    data: {
-      name,
-      // In setup, not yet receiving bookings — admin flips to active.
-      lifecycle: 'onboarding',
-      package: 'custom',
-      contactName: intake.fullName,
-      contactEmail,
-      contactPhone: intake.customerPhone,
-      address: intake.businessAddress,
-      website: intake.website,
-      onboardingNotes: intakeNotes(intake),
-      // The relationship started when they submitted, not when this ran.
-      createdAt: intake.receivedAt,
-    },
-    select: { id: true },
-  })
+  let client: { id: string }
+  try {
+    client = await prisma.client.create({
+      data: {
+        name,
+        // In setup, not yet receiving bookings — admin flips to active.
+        lifecycle: 'onboarding',
+        package: 'custom',
+        contactName: intake.fullName,
+        contactEmail,
+        contactPhone: intake.customerPhone,
+        address: intake.businessAddress,
+        website: intake.website,
+        onboardingNotes: intakeNotes(intake),
+        // The relationship started when they submitted, not when this ran.
+        createdAt: intake.receivedAt,
+      },
+      select: { id: true },
+    })
+  } catch (err) {
+    // A second submission from the same business, seconds behind the first,
+    // loses the race to create the client — link it to the winner instead.
+    if ((err as { code?: string }).code !== 'P2002') throw err
+    const winner = await prisma.client.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    })
+    if (!winner) throw err
+    await prisma.clientIntake.update({ where: { id: intakeId }, data: { clientId: winner.id } })
+    return { clientId: winner.id, created: false }
+  }
   await prisma.clientIntake.update({
     where: { id: intakeId },
     data: { clientId: client.id },

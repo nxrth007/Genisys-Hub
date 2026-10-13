@@ -199,11 +199,13 @@ export async function reconcileOnboardingSheet(): Promise<SheetSyncStatus> {
       const email = norm(row.answers.leadEmail)
       const already = existing.some((e) => {
         const dt = row.at ? Math.abs(e.receivedAt.getTime() - row.at.getTime()) : null
-        if (dt !== null && dt <= 90_000) return true
         // Timestamps can be re-formatted by the sheet; the same business
         // (or lead email) within a day and a half is the same submission.
         const sameWho = (business && norm(e.businessName) === business) || (email && norm(e.leadEmail) === email)
-        return !!sameWho && (dt === null || dt <= 36 * 3_600_000)
+        if (sameWho) return dt === null || dt <= 36 * 3_600_000
+        // Time alone only decides when the row has nothing else to go on —
+        // two clients can submit within the same minute.
+        return !business && !email && dt !== null && dt <= 90_000
       })
       if (already) continue
 
