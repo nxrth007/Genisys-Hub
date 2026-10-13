@@ -26,6 +26,7 @@ const STATUS_STYLES: Record<string, string> = {
   linked: 'bg-primary-soft text-primary',
   creating: 'bg-muted text-foreground/80',
   failed: 'bg-destructive/10 text-destructive',
+  'not started': 'bg-warning/15 text-warning',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -225,7 +226,11 @@ export function GhlSubaccountsSection() {
                     {r.at ? new Date(r.at).toLocaleString() : ''}
                     {r.snapshotStatus ? ` · snapshot: ${r.snapshotStatus}` : ''}
                   </p>
-                  {r.error && <p className="mt-0.5 break-words text-xs text-destructive">{r.error}</p>}
+                  {r.error && (
+                    <p className={cn('mt-0.5 break-words text-xs', r.status === 'not started' ? 'text-muted-foreground' : 'text-destructive')}>
+                      {r.error}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {r.url && (
@@ -238,14 +243,16 @@ export function GhlSubaccountsSection() {
                       GHL <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
-                  {(r.status === 'failed' || r.status === 'creating') && (
+                  {(r.status === 'failed' || r.status === 'creating' || r.status === 'not started') && (
                     <button
                       type="button"
                       disabled={retry.isPending}
-                      onClick={() => retry.mutate(r.clientId)}
+                      onClick={() => {
+                        if (r.status !== 'not started' || window.confirm(`Create a GHL sub-account for ${r.clientName} and load the onboarding snapshot?`)) retry.mutate(r.clientId)
+                      }}
                       className="rounded-md border border-border px-2 py-1 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                     >
-                      {retry.isPending && retry.variables === r.clientId ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Retry'}
+                      {retry.isPending && retry.variables === r.clientId ? <Loader2 className="h-3 w-3 animate-spin" /> : r.status === 'not started' ? 'Create' : 'Retry'}
                     </button>
                   )}
                 </div>

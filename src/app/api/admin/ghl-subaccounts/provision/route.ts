@@ -5,7 +5,8 @@ import { provisionGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 /**
  * POST /api/admin/ghl-subaccounts/provision
  *
- * Retry a client's sub-account after a failed (or stuck) attempt.
+ * Retry a client's sub-account after a failed (or stuck) attempt, or
+ * create one the automation skipped.
  * Links a sub-account with the same name instead of creating a second.
  *
  * Body: { clientId: string }

@@ -572,7 +572,7 @@ export async function recentGhlProvisioning(limit = 20): Promise<GhlProvisionRow
   const refreshed = new Map<string, string | null>()
   await Promise.all(needsRefresh.map(async (r) => refreshed.set(r.id, await refreshSnapshotStatus(r.id))))
 
-  return rows.map((r) => ({
+  const attempted: GhlProvisionRow[] = rows.map((r) => ({
     clientId: r.id,
     clientName: r.name,
     status: r.ghlProvisionStatus ?? 'unknown',
@@ -582,4 +582,55 @@ export async function recentGhlProvisioning(limit = 20): Promise<GhlProvisionRow
     snapshotStatus: refreshed.get(r.id) ?? r.ghlSnapshotStatus,
     at: r.ghlProvisionedAt?.toISOString() ?? null,
   }))
+  return [...(await recentClientsNeverProvisioned()), ...attempted]
+}
+
+const NEVER_PROVISIONED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Recent onboarding clients the automation skipped without recording an
+ * attempt, so they would otherwise never show up here or get a button.
+ */
+async function recentClientsNeverProvisioned(): Promise<GhlProvisionRow[]> {
+  const [settings, clients] = await Promise.all([
+    getGhlSubaccountSettings(),
+    prisma.client.findMany({
+      where: {
+        archivedAt: null,
+        ghlLocationId: null,
+        ghlProvisionStatus: null,
+        ghlSubaccountUrl: null,
+        intakes: { some: { receivedAt: { gte: new Date(Date.now() - NEVER_PROVISIONED_WINDOW_MS) } } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true, name: true, createdAt: true,
+        intakes: { orderBy: { receivedAt: 'asc' }, take: 1, select: { receivedAt: true } },
+      },
+    }),
+  ])
+  const since = Date.parse(settings.since)
+  return clients.map((c) => {
+    const first = c.intakes[0]?.receivedAt ?? c.createdAt
+    // A client created from its submission is stamped with the submission's time.
+    const onFileFirst = c.createdAt.getTime() < first.getTime() - 60_000
+    const why = onFileFirst
+      ? 'Not created: the submission was linked to a client already on file, and only new clients get one automatically.'
+      : first.getTime() < since
+        ? `Not created: submitted ${first.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET, before the automation went live.`
+        : !settings.enabled
+          ? 'Not created: the automation is switched off.'
+          : 'Not created automatically.'
+    return {
+      clientId: c.id,
+      clientName: c.name,
+      status: 'not started',
+      error: `${why} Press Create to make it now.`,
+      locationId: null,
+      url: null,
+      snapshotStatus: null,
+      at: first.toISOString(),
+    }
+  })
 }
