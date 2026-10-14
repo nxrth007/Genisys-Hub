@@ -70,6 +70,8 @@ export function LovableConnect({ state }: { state: State }) {
   // A Business-plan API key in the Vault already covers publishing.
   if (state.channel === 'api') return null
   const connected = state.channel === 'mcp'
+  // Connected, but with an older sign-in that lacks a permission a newer feature needs.
+  const stale = connected && state.missingScopes.length > 0
   const busy = start.isPending || finish.isPending || test.isPending || disconnect.isPending
 
   return (
@@ -77,11 +79,16 @@ export function LovableConnect({ state }: { state: State }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-[13px] font-medium">
           <Plug className="h-3.5 w-3.5 text-muted-foreground" />
-          {connected ? 'Lovable is connected' : state.broken ? 'Lovable needs reconnecting' : 'Publish without clicking in Lovable'}
+          {stale ? 'Lovable needs a quick reconnect' : connected ? 'Lovable is connected' : state.broken ? 'Lovable needs reconnecting' : 'Publish without clicking in Lovable'}
         </p>
         <div className="flex items-center gap-2">
           {connected ? (
             <>
+              {stale && step === 'idle' && (
+                <button type="button" className={btnPrimary} disabled={busy} onClick={() => start.mutate()}>
+                  {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />} Reconnect Lovable
+                </button>
+              )}
               <button type="button" className={btnSmall} disabled={busy} onClick={() => test.mutate()}>
                 {test.isPending && <Loader2 className="h-3 w-3 animate-spin" />} Test
               </button>
@@ -114,7 +121,15 @@ export function LovableConnect({ state }: { state: State }) {
         </p>
       )}
 
-      {!connected && step === 'waiting' && (
+      {stale && step === 'idle' && (
+        <p className="mt-1.5 text-[12px] leading-snug text-amber-300/90">
+          Connected{state.account ? ` as ${state.account}` : ''}, but that sign-in was made before the Hub asked to read workspaces, which the
+          Lovable &rarr; GitHub watch on the Clients page needs. Reconnect and sign in with the same Genisys Lovable account &mdash; publishing
+          keeps working meanwhile.
+        </p>
+      )}
+
+      {step === 'waiting' && (
         <div className="mt-2 flex flex-col gap-2 text-[12.5px] text-muted-foreground">
           <ol className="list-decimal space-y-1 pl-4 leading-snug">
             <li>In the tab that just opened, sign in to Lovable and approve the Genisys Hub.</li>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, ExternalLink, GitBranch, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -66,8 +67,10 @@ export function LovableGitWatch() {
 
   const problem = !v.connected
     ? 'Lovable isn’t connected to the Hub — connect it on the SEO page.'
-    : v.lastError
-      ? v.lastError
+    : v.needsReconnect
+      ? v.needsReconnect
+      : v.lastError
+        ? v.lastError
       : pending.length
         ? `${pending.length} new project${pending.length === 1 ? '' : 's'} need${pending.length === 1 ? 's' : ''} GitHub.`
         : unlinked.length
@@ -93,7 +96,14 @@ export function LovableGitWatch() {
           {v.startedAt
             ? `Watching projects created since ${day(v.startedAt)}${v.lastRunAt ? `, checked ${ago(v.lastRunAt)}` : ''}`
             : 'Starts watching on its first check — projects that exist then are left alone.'}
+          {v.account ? ` · as ${v.account}` : ''}
+          {v.workspaces.length ? ` · ${v.workspaces.map((w) => w.name).join(', ')}` : ''}
         </span>
+        {(!v.connected || v.needsReconnect) && (
+          <Link href="/seo" className="font-medium underline underline-offset-2">
+            Open the SEO page
+          </Link>
+        )}
         <span className="ml-auto">
           <button
             type="button"

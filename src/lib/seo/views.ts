@@ -413,10 +413,13 @@ export async function integrations(): Promise<SeoIntegrations> {
       channel: lovable.present ? 'api' : mcp.connected ? 'mcp' : null,
       account: mcp.account,
       broken: lovable.present ? null : mcp.broken,
+      missingScopes: lovable.present ? [] : mcp.missingScopes,
       detail: lovable.present
         ? 'Publishing through the Lovable API key in the Vault.'
-        : mcp.connected
-          ? `Signed in to Lovable${mcp.account ? ` as ${mcp.account}` : ''} — merges publish themselves a few minutes after they land.`
+        : mcp.connected && mcp.missingScopes.length
+          ? `Signed in to Lovable${mcp.account ? ` as ${mcp.account}` : ''}. That sign-in predates workspace access, which the Lovable \u2192 GitHub watch on the Clients page needs \u2014 reconnect below. Publishing is unaffected.`
+          : mcp.connected
+            ? `Signed in to Lovable${mcp.account ? ` as ${mcp.account}` : ''} — merges publish themselves a few minutes after they land.`
           : mcp.broken
             ? `The Lovable sign-in stopped working (${mcp.broken}). Connect again below.`
             : 'Optional. Connect Lovable below (free, one-time sign-in) and merges publish themselves. Until then someone clicks Publish in Lovable after each merge; the engine watches for it.',

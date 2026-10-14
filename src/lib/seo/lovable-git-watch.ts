@@ -59,12 +59,19 @@ type State = {
   /** The last scheduled (Slack) run, so a manual check doesn't skip the day's digest. */
   lastDailyAt: string | null
   lastError: string | null
+  /** The Lovable workspaces the last run looked through — so it's clear whose projects are watched. */
+  workspaces: { id: string; name: string }[]
 }
 
-const EMPTY: State = { startedAt: null, baseline: [], projects: [], lastRunAt: null, lastDailyAt: null, lastError: null }
+const EMPTY: State = { startedAt: null, baseline: [], projects: [], lastRunAt: null, lastDailyAt: null, lastError: null, workspaces: [] }
 
 export type GitWatchView = {
   connected: boolean
+  /** Who the Hub is signed in to Lovable as. */
+  account: string | null
+  /** The sign-in lacks a permission this needs; the text says what to do. */
+  needsReconnect: string | null
+  workspaces: { id: string; name: string }[]
   startedAt: string | null
   lastRunAt: string | null
   lastError: string | null
@@ -119,29 +126,33 @@ function nextCursor(s: Rec | null): string | null {
   return str(p.next_cursor) ?? str(p.nextCursor) ?? null
 }
 
-async function workspaceIds(): Promise<string[]> {
+const RECONNECT_FOR_WORKSPACES =
+  'The Hub\u2019s Lovable sign-in was made before it asked to read workspaces. Reconnect Lovable on the SEO page (Setup card \u2192 Reconnect), signing in with the same Genisys account \u2014 publishing keeps working meanwhile.'
+
+type Workspace = { id: string; name: string }
+
+async function workspaceList(): Promise<Workspace[]> {
   const fromMe = await lovableMcpCall('get_me', {}, 30_000).catch(() => null)
   let list = listIn(fromMe?.structured ?? null, ['workspaces', 'data', 'items'])
   if (!list.length) {
     const res = await lovableMcpCall('list_workspaces', { limit: 100 }, 30_000)
     list = listIn(res.structured, ['data', 'workspaces', 'items', 'results'])
   }
-  const ids = list
-    .map((w) => str(w.id) ?? str(w.workspace_id) ?? (isRec(w.workspace) ? str(w.workspace.id) : null))
-    .filter((x): x is string => !!x)
-  if (!ids.length) {
-    throw new LovableMcpError(
-      'Lovable didn’t list any workspaces for the Hub’s sign-in. Disconnect and connect Lovable again on the SEO page — the Hub now asks for permission to read workspaces.',
-    )
+  const seen = new Map<string, Workspace>()
+  for (const w of list) {
+    const inner = isRec(w.workspace) ? w.workspace : w
+    const id = str(inner.id) ?? str(w.workspace_id)
+    if (id && !seen.has(id)) seen.set(id, { id, name: str(inner.name) ?? str(inner.display_name) ?? id })
   }
-  return [...new Set(ids)]
+  if (!seen.size) throw new LovableMcpError(RECONNECT_FOR_WORKSPACES)
+  return [...seen.values()]
 }
 
 type ListedProject = { id: string; name: string; createdAt: string | null; latestCommitSha: string | null; url: string }
 
-async function listAllProjects(): Promise<ListedProject[]> {
+async function listAllProjects(workspaces: Workspace[]): Promise<ListedProject[]> {
   const out = new Map<string, ListedProject>()
-  for (const ws of await workspaceIds()) {
+  for (const ws of workspaces.map((w) => w.id)) {
     let cursor: string | null = null
     for (let page = 0; page < MAX_PAGES; page++) {
       const res = await lovableMcpCall('list_projects', { workspace_id: ws, limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) }, 60_000)
@@ -269,12 +280,15 @@ async function runOnce(opts: { alert: boolean }): Promise<GitWatchRunResult> {
   const stamp = { lastRunAt: now.toISOString(), ...(opts.alert ? { lastDailyAt: now.toISOString() } : {}) }
   const result: GitWatchRunResult = { started: false, newProjects: 0, needsGithub: 0, connected: 0, attached: 0, error: null }
   try {
-    if (!(await lovableMcpStatus()).connected) throw new LovableMcpError('Lovable isn’t connected — connect it on the SEO page.')
-    const listed = await listAllProjects()
+    const status = await lovableMcpStatus()
+    if (!status.connected) throw new LovableMcpError('Lovable isn’t connected — connect it on the SEO page.')
+    if (status.missingScopes.includes('workspaces:read')) throw new LovableMcpError(RECONNECT_FOR_WORKSPACES)
+    const workspaces = await workspaceList()
+    const listed = await listAllProjects(workspaces)
 
     if (!prev.startedAt) {
       // First run: everything that exists now is the baseline, never flagged.
-      await writeState({ ...prev, ...stamp, startedAt: now.toISOString(), baseline: listed.map((p) => p.id), lastError: null })
+      await writeState({ ...prev, ...stamp, workspaces, startedAt: now.toISOString(), baseline: listed.map((p) => p.id), lastError: null })
       return { ...result, started: true }
     }
 
@@ -345,7 +359,7 @@ async function runOnce(opts: { alert: boolean }): Promise<GitWatchRunResult> {
     }
 
     result.needsGithub = projects.filter((p) => p.status === 'needs_github').length
-    const next: State = { ...prev, ...stamp, projects, lastError: null }
+    const next: State = { ...prev, ...stamp, workspaces, projects, lastError: null }
     await writeState(next)
     if (opts.alert) await postDigest(next, prev)
     return result
@@ -411,6 +425,9 @@ export async function gitWatchView(): Promise<GitWatchView> {
   const [s, status, clients] = await Promise.all([readState(), lovableMcpStatus(), clientRows()])
   return {
     connected: status.connected,
+    account: status.account,
+    needsReconnect: status.connected && status.missingScopes.includes('workspaces:read') ? RECONNECT_FOR_WORKSPACES : null,
+    workspaces: s?.workspaces ?? [],
     startedAt: s?.startedAt ?? null,
     lastRunAt: s?.lastRunAt ?? null,
     lastError: s?.lastError ?? null,

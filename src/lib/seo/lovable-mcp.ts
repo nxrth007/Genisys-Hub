@@ -37,6 +37,10 @@ const OAUTH = {
 const REDIRECT_URI = 'http://127.0.0.1:53682/callback'
 /** Keep the sign-in (offline), act on projects, and read workspaces to list their projects. Nothing that creates. */
 const SCOPE = 'offline projects:read projects:write workspaces:read'
+/** What the first connections asked for, before the Lovable → GitHub watch needed workspaces. */
+const LEGACY_SCOPE = 'offline projects:read projects:write'
+/** Permissions the Hub's features need; a sign-in missing one shows "reconnect" rather than failing later. */
+export const REQUIRED_SCOPES = ['projects:read', 'projects:write', 'workspaces:read']
 const PROTOCOL = '2025-06-18'
 
 const CONNECTION_KEY = 'seo.lovable.connection'
@@ -60,6 +64,8 @@ type Connection = {
   /** Epoch ms. */
   expiresAt: number
   scope: string | null
+  /** The scope the Hub asked for at sign-in; absent on connections made before this was recorded. */
+  requestedScope?: string
   account: string | null
   connectedBy: string
   connectedAt: string
@@ -202,6 +208,7 @@ export async function finishLovableConnect(pasted: string, by: string): Promise<
     refreshToken: typeof tok.data.refresh_token === 'string' ? tok.data.refresh_token : null,
     expiresAt: Date.now() + (typeof tok.data.expires_in === 'number' ? tok.data.expires_in : 3600) * 1000,
     scope: typeof tok.data.scope === 'string' ? tok.data.scope : null,
+    requestedScope: SCOPE,
     account: null,
     connectedBy: by,
     connectedAt: new Date().toISOString(),
@@ -236,16 +243,26 @@ export type LovableMcpStatus = {
   connectedBy: string | null
   /** Why the sign-in stopped working, when it did. */
   broken: string | null
+  /** Permissions the Hub needs that this sign-in doesn't carry — a reconnect grants them. */
+  missingScopes: string[]
+}
+
+/** The permissions a stored connection actually carries. */
+function grantedScopes(conn: Connection): string[] {
+  const s = conn.scope?.trim() || conn.requestedScope?.trim() || LEGACY_SCOPE
+  return s.split(/\s+/)
 }
 
 export async function lovableMcpStatus(): Promise<LovableMcpStatus> {
   const conn = await readSecret<Connection>(CONNECTION_KEY).catch(() => null)
+  const granted = conn ? grantedScopes(conn) : []
   return {
     connected: !!conn && !conn.broken,
     account: conn?.account ?? null,
     connectedAt: conn?.connectedAt ?? null,
     connectedBy: conn?.connectedBy ?? null,
     broken: conn?.broken ?? null,
+    missingScopes: conn ? REQUIRED_SCOPES.filter((s) => !granted.includes(s)) : [],
   }
 }
 
@@ -363,6 +380,13 @@ async function rpc(
 
 export type McpToolResult = { text: string; structured: Record<string, unknown> | null }
 
+/** Lovable's "scope X is required" answers tell people to fix it in ChatGPT; say what to do in the Hub instead. */
+function scopeHint(text: string): string | null {
+  const m = /scope '([^']+)' is required/i.exec(text)
+  if (!m) return null
+  return `The Hub\u2019s Lovable sign-in was made before it asked for "${m[1]}" access. Reconnect Lovable on the SEO page (Setup card \u2192 Reconnect), signing in with the same Genisys account \u2014 publishing keeps working meanwhile.`
+}
+
 /** Call one Lovable MCP tool: initialize a session, then tools/call. */
 export async function lovableMcpCall(tool: string, args: Record<string, unknown>, timeoutMs = 120_000): Promise<McpToolResult> {
   const token = await accessToken()
@@ -378,14 +402,17 @@ export async function lovableMcpCall(tool: string, args: Record<string, unknown>
 
   const call = await rpc(token, init.session, { id: 2, method: 'tools/call', params: { name: tool, arguments: args } }, timeoutMs)
   if (!call.reply) throw new LovableMcpError(`Lovable’s MCP server gave no answer to ${tool}.`)
-  if (call.reply.error) throw new LovableMcpError(`${tool} failed: ${call.reply.error.message ?? 'unknown error'}`)
+  if (call.reply.error) {
+    const hint = scopeHint(call.reply.error.message ?? '')
+    throw new LovableMcpError(hint ?? `${tool} failed: ${call.reply.error.message ?? 'unknown error'}`)
+  }
   const result = (call.reply.result ?? {}) as { content?: { type?: string; text?: string }[]; structuredContent?: unknown; isError?: boolean }
   const text = (result.content ?? [])
     .filter((c) => c.type === 'text' && typeof c.text === 'string')
     .map((c) => c.text)
     .join('\n')
     .trim()
-  if (result.isError) throw new LovableMcpError(`${tool} failed: ${text.slice(0, 300) || 'Lovable reported an error.'}`)
+  if (result.isError) throw new LovableMcpError(scopeHint(text) ?? `${tool} failed: ${text.slice(0, 300) || 'Lovable reported an error.'}`)
   let structured: Record<string, unknown> | null =
     result.structuredContent && typeof result.structuredContent === 'object' ? (result.structuredContent as Record<string, unknown>) : null
   if (!structured) {

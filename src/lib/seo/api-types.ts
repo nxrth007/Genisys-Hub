@@ -60,6 +60,8 @@ export type SeoIntegrations = {
     account: string | null
     /** The sign-in stopped working and needs redoing. */
     broken: string | null
+    /** Permissions a reconnect would add (the sign-in predates a feature that needs them). */
+    missingScopes: string[]
   }
   /** Slack channel the weekly summary goes to. */
   slackChannel: string
