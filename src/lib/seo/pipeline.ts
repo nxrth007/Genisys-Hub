@@ -121,6 +121,8 @@ export type Snapshot = {
   ciWait?: { sha: string; since: string }
   /** The PR head a person approved. Only that commit (or the engine's own) may merge. */
   approvedSha?: string
+  /** The default branch's head when the reviewer approved: a merge onto a branch that moved since needs another look. */
+  approvedBaseSha?: string
 }
 
 /** Stop looking for a manual Lovable publish after this long; the reviewer can still mark it. */
@@ -1289,6 +1291,35 @@ async function someoneEditingInLovable(ctx: RunContext, fullName: string, branch
   return false
 }
 
+/**
+ * Is the repo still this client's site? A PR is written against the repo
+ * as it was; the merge lands on the repo as it is. On 2026-10-12 one
+ * client's site was rebuilt inside another client's connected Lovable
+ * project, which pushed that work into the other client's repo, and two
+ * days later the Hub merged the original client's SEO posts on top. So:
+ * if the default branch moved since the run (or since approval), the
+ * business name in src/data/site.ts must still be this site's, and in
+ * Review mode a person looks again before anything merges.
+ */
+async function repoStillThisSite(
+  ctx: RunContext,
+  fullName: string,
+  repo: RepoSnapshot,
+): Promise<{ moved: false } | { moved: true; headSha: string; identity: 'same' | 'different' | 'unknown'; found: string | null }> {
+  const head = await getBranchHead(fullName, repo.defaultBranch)
+  const known = ctx.snapshot?.approvedBaseSha ?? repo.headSha
+  if (head.sha === known) return { moved: false }
+  const siteTs = await readFile(fullName, 'src/data/site.ts', head.sha).catch(() => null)
+  const found = siteTs ? /^\s*name:\s*["'`]([^"'`]+)["'`]/m.exec(siteTs)?.[1]?.trim() ?? null : null
+  if (!found) return { moved: true, headSha: head.sha, identity: 'unknown', found: null }
+  const facts = (ctx.site.facts as unknown as BusinessFacts | null) ?? null
+  const norm = (s: string) => s.toLowerCase().replace(/\b(llc|inc|co|corp|ltd)\b\.?/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const ours = [facts?.businessName, ctx.site.name, ctx.site.client?.name].filter((s): s is string => !!s).map(norm)
+  const theirs = norm(found)
+  const same = ours.some((o) => o && (o === theirs || o.includes(theirs) || theirs.includes(o)))
+  return { moved: true, headSha: head.sha, identity: same ? 'same' : 'different', found }
+}
+
 export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
   const repo = ctx.snapshot?.repo
   const fullName = ctx.run.repoFullName ?? repo?.fullName
@@ -1318,6 +1349,29 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
       return { stage: 'ship', status: 'awaiting_review' }
     }
     if (pr.headSha !== ctx.run.commitSha) ctx.log('ship', `Merging the approved head ${pr.headSha.slice(0, 7)} (changed after the engine's commit)`)
+
+    const base = await repoStillThisSite(ctx, fullName, repo)
+    if (base.moved && base.identity === 'different') {
+      const why = `${repo.defaultBranch} on ${fullName} now says the business is "${base.found}", not ${ctx.site.name} — another site has been pushed into this repo. Not merging; PR #${ctx.run.prNumber} closed. Check which Lovable project is connected to ${fullName}.`
+      ctx.log('ship', why, 'error')
+      await closePullRequest(fullName, ctx.run.prNumber, `Closed by the Genisys SEO engine: ${why}`).catch(() => {})
+      await seoAlert(`:rotating_light: *SEO* — ${ctx.site.name}: ${why} ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+      throw new FatalRunError(why)
+    }
+    if (base.moved && ctx.site.mode !== 'autopilot') {
+      // Review mode: the approval was for the diff against the branch as it
+      // was. Someone looks again at what it lands on now.
+      const note =
+        base.identity === 'unknown'
+          ? `${repo.defaultBranch} moved to ${base.headSha.slice(0, 7)} since this was approved and the Hub couldn\u2019t read the business name there`
+          : `${repo.defaultBranch} moved to ${base.headSha.slice(0, 7)} since this was approved (still "${base.found}")`
+      ctx.log('ship', `${note} — check the pull request against the current site, then approve again.`, 'warn')
+      await ctx.save({ snapshot: json({ ...ctx.snapshot, approvedSha: undefined, approvedBaseSha: undefined }) })
+      await seoAlert(`:eyes: *SEO* — ${ctx.site.name}: ${note}. Look at PR #${ctx.run.prNumber} again before it merges. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+      return { stage: 'ship', status: 'awaiting_review' }
+    }
+    if (base.moved) ctx.log('ship', `${repo.defaultBranch} moved to ${base.headSha.slice(0, 7)} since the run; it still identifies as "${base.found}" — carrying on (Autopilot).`)
+
     const ci = await ciState(fullName, pr.headSha)
     const wait = ctx.snapshot?.ciWait?.sha === pr.headSha ? ctx.snapshot.ciWait : { sha: pr.headSha, since: new Date().toISOString() }
     await ctx.save({ ciStatus: ci.state, snapshot: json({ ...ctx.snapshot, ciWait: wait }) })

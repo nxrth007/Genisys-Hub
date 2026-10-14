@@ -4,7 +4,7 @@ import type { CreateSiteBody, RunActionBody, UpdateSiteBody } from './api-types'
 import { ClaudeSession } from './claude'
 import { fetchPage } from './crawl'
 import { enqueueManualRun } from './engine'
-import { deleteBranch, getPullRequest, getRepo } from './github'
+import { deleteBranch, getBranchHead, getPullRequest, getRepo } from './github'
 import { lovableChannel, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
 import { ciState, cleanupStoppedRun, deriveFacts, type Snapshot } from './pipeline'
@@ -289,6 +289,8 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
           throw new SeoInputError('The build check fails on this branch, so merging would break the site. Fix the PR or reject it.')
         }
       }
+      // The approval is also for the branch it lands on, as it is right now.
+      const baseHead = await getBranchHead(fullName, pr.baseRef).catch(() => null)
       const res = await prisma.seoRun.updateMany({
         where: { id: runId, status: 'awaiting_review' },
         data: {
@@ -298,7 +300,7 @@ export async function runAction(runId: string, body: RunActionBody, email: strin
           leaseUntil: null,
           error: null,
           ciStatus: null,
-          snapshot: { ...(snap ?? {}), approvedSha: pr.headSha } as unknown as Prisma.InputJsonValue,
+          snapshot: { ...(snap ?? {}), approvedSha: pr.headSha, ...(baseHead ? { approvedBaseSha: baseHead.sha } : {}) } as unknown as Prisma.InputJsonValue,
         },
       })
       if (!res.count) throw new SeoInputError('Someone else just acted on this run — refresh.')
