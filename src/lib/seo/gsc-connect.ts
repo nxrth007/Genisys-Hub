@@ -81,6 +81,25 @@ type Site = {
   repoFullName: string | null
   defaultBranch: string | null
   lovableProjectId: string | null
+  facts: unknown
+}
+
+/**
+ * Does the repo still name this client's business? A client's site was
+ * once pushed into another client's repo from Lovable; the Hub must not
+ * commit to, or publish, a repo that has become someone else's site.
+ * Returns the other business's name when it has, null when it's fine or
+ * can't be told.
+ */
+async function repoNamesAnotherBusiness(site: Site, fullName: string, branch: string): Promise<string | null> {
+  const siteTs = await readFile(fullName, 'src/data/site.ts', branch).catch(() => null)
+  const found = siteTs ? /^\s*name:\s*["'`]([^"'`]+)["'`]/m.exec(siteTs)?.[1]?.trim() ?? null : null
+  if (!found) return null
+  const norm = (s: string) => s.toLowerCase().replace(/\b(llc|inc|co|corp|ltd)\b\.?/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+  const facts = site.facts && typeof site.facts === 'object' ? (site.facts as { businessName?: unknown }) : null
+  const ours = [typeof facts?.businessName === 'string' ? facts.businessName : null, site.name].filter((s): s is string => !!s).map(norm)
+  const theirs = norm(found)
+  return ours.some((o) => o && (o === theirs || o.includes(theirs) || theirs.includes(o))) ? null : found
 }
 
 export async function gscConnectStates(): Promise<StateMap> {
@@ -123,7 +142,7 @@ export async function advanceSearchConsole(now = Date.now()): Promise<void> {
     if (!g.ok) return
     const sites: Site[] = await prisma.seoSite.findMany({
       where: { archivedAt: null, gscProperty: null, liveUrl: { not: null } },
-      select: { id: true, name: true, liveUrl: true, repoFullName: true, defaultBranch: true, lovableProjectId: true },
+      select: { id: true, name: true, liveUrl: true, repoFullName: true, defaultBranch: true, lovableProjectId: true, facts: true },
       orderBy: { createdAt: 'asc' },
     })
     if (!sites.length) return
@@ -213,6 +232,15 @@ async function stepSite(site: Site, st: GscConnectState | undefined, listed: { s
 
   const fullName = site.repoFullName
   const branch = site.defaultBranch || 'main'
+  const other = await repoNamesAnotherBusiness(site, fullName, branch)
+  if (other) {
+    return needsPerson(
+      st,
+      now,
+      `${fullName} now says the business is \u201c${other}\u201d, not ${site.name} \u2014 another site has been pushed into this repo. Not touching it. Check which Lovable project is connected to ${fullName}.`,
+      60 * 60_000,
+    )
+  }
   const path = `public/${token}`
   const inRepo = await readFile(fullName, path, branch)
   if (inRepo == null) {
