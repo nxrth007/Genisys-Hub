@@ -1328,6 +1328,16 @@ export async function stageShip(ctx: RunContext): Promise<StageOutcome> {
   // A site archived, paused or taken off autopilot since this run started
   // must not merge on the run's own say-so.
   if (ctx.site.archivedAt) throw new FatalRunError('The site was archived — not merging.')
+  // The run remembers the repo it was written for; the site may have been
+  // moved to another repo since. Merging into the old one would land this
+  // site's changes on whoever has that repo now.
+  if (ctx.site.repoFullName && ctx.site.repoFullName.toLowerCase() !== fullName.toLowerCase()) {
+    const why = `This run was written for ${fullName}, but the site is now linked to ${ctx.site.repoFullName} — not merging into the old repo. PR #${ctx.run.prNumber} closed; run the week again.`
+    ctx.log('ship', why, 'error')
+    await closePullRequest(fullName, ctx.run.prNumber, `Closed by the Genisys SEO engine: ${why}`).catch(() => {})
+    await seoAlert(`:rotating_light: *SEO* — ${ctx.site.name}: ${why} ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+    throw new FatalRunError(why)
+  }
   const approvedSha = ctx.snapshot?.approvedSha ?? null
   if (!approvedSha && (ctx.site.mode !== 'autopilot' || !ctx.site.enabled)) {
     ctx.log('ship', 'The site is no longer on autopilot — waiting for a reviewer.', 'warn')
@@ -1544,7 +1554,20 @@ export async function advancePublish(ctx: RunContext): Promise<boolean> {
   const fullName = ctx.run.repoFullName ?? snap?.repo?.fullName ?? null
   const channel = publish && !publish.gaveUp ? await lovableChannel() : null
   const project = channel ? await ensureLovableProjectId(ctx) : null
-  const projectId = typeof project === 'string' ? project : null
+  let projectId = typeof project === 'string' ? project : null
+  // Publishing puts whatever the project holds onto the client's domain. If
+  // the repo behind it now names a different business, that is someone
+  // else's site — don't publish it, say so, and leave it to a person.
+  if (projectId && fullName && snap?.repo) {
+    const base = await repoStillThisSite(ctx, fullName, snap.repo).catch(() => null)
+    if (base?.moved && base.identity === 'different') {
+      const why = `${snap.repo.defaultBranch} on ${fullName} now says the business is "${base.found}", not ${ctx.site.name} — not publishing this Lovable project onto ${ctx.site.liveUrl ?? 'its domain'}. Check which Lovable project is connected to ${fullName}.`
+      ctx.log('verify', why, 'error')
+      await ctx.save({ error: why, snapshot: json({ ...ctx.snapshot, publish: { ...publish!, gaveUp: true } }) })
+      await seoAlert(`:rotating_light: *SEO* — ${ctx.site.name}: ${why} ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
+      projectId = null
+    }
+  }
   /** Hand the run back to a person: the reason shows on the run and in Slack, and it counts as waiting on you again. */
   const giveUp = async (why: string) => {
     const current = ctx.snapshot?.publish ?? publish
