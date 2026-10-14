@@ -17,7 +17,7 @@
 import { prisma } from './prisma'
 import { hubAlert, hubLink } from './hub-alerts'
 import { STATE_CODE_TO_NAME } from './address'
-import { parseUsAddress } from './address-resolve'
+import { parseUsAddress } from './address-parse'
 import { looksLikePhoneNumber } from './client-from-intake'
 import { parseTimezoneInput, stateCodeFromAddress, timezoneForAddress } from './timezone'
 import {

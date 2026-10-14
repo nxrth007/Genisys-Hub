@@ -1,4 +1,4 @@
-import { parseUsAddress } from './address-resolve'
+import { parseUsAddress } from './address-parse'
 /**
  * A2P 10DLC registration copy for a client, from the GHL A2P master
  * template (built from real rejections and approvals across A Plus
