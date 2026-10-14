@@ -17,6 +17,7 @@
 import { prisma } from './prisma'
 import { hubAlert, hubLink } from './hub-alerts'
 import { parseAddress, STATE_CODE_TO_NAME } from './address'
+import { looksLikePhoneNumber } from './client-from-intake'
 import { parseTimezoneInput, stateCodeFromAddress, timezoneForAddress } from './timezone'
 import {
   createLocation,
@@ -795,5 +796,158 @@ export async function linkGhlSubAccount(clientId: string, opts: { locationId?: s
   } catch (err) {
     return { ok: false, status: 'failed', reason: describe(err), expectedName }
   }
+}
+
+// -------------------------------------------------------------------------
+// The browser extension (tools/ghl-subaccount-extension)
+// -------------------------------------------------------------------------
+
+/**
+ * Creating a sub-account by API is refused on the agency's plan, so a
+ * Chrome extension in a signed-in browser does what a person would: it
+ * asks the Hub which new clients still need one, fills GHL's create form
+ * for each, and reports back. The Hub then links the sub-account to the
+ * client (by the pasted id, or by the exact name) exactly as the by-hand
+ * route does. Same eligibility as the automatic path: only clients from
+ * submissions after the automation went live, never a client that already
+ * has a sub-account.
+ */
+export type ExtensionJob = {
+  clientId: string
+  clientName: string
+  attempts: number
+  fields: Record<string, string>
+  owner: { firstName: string; lastName: string; email: string }
+  snapshot: { id: string; name: string | null }
+}
+
+type ExtensionState = Record<string, { status: 'created' | 'failed' | 'skipped'; at: string; attempts: number; detail: string | null }>
+
+const EXTENSION_STATE_KEY = 'ghlSubaccounts.extension'
+const EXTENSION_MAX_ATTEMPTS = 3
+/** A failed client is offered again after this long (someone may have fixed the form or the client). */
+const EXTENSION_RETRY_MS = 6 * 60 * 60 * 1000
+
+async function extensionState(): Promise<ExtensionState> {
+  const row = await prisma.appSetting.findUnique({ where: { key: EXTENSION_STATE_KEY } })
+  try {
+    const v = row ? (JSON.parse(row.value) as unknown) : {}
+    return v && typeof v === 'object' ? (v as ExtensionState) : {}
+  } catch {
+    return {}
+  }
+}
+
+async function saveExtensionState(state: ExtensionState): Promise<void> {
+  const value = JSON.stringify(state)
+  await prisma.appSetting.upsert({ where: { key: EXTENSION_STATE_KEY }, create: { key: EXTENSION_STATE_KEY, value }, update: { value } })
+}
+
+/** Clients the extension should create a sub-account for, oldest submission first. */
+export async function extensionQueue(limit = 5): Promise<ExtensionJob[]> {
+  const settings = await getGhlSubaccountSettings()
+  const since = new Date(settings.since)
+  const [clients, state] = await Promise.all([
+    prisma.client.findMany({
+      where: {
+        archivedAt: null,
+        ghlLocationId: null,
+        ghlSubaccountUrl: null,
+        ghlProvisionStatus: { not: 'creating' },
+        intakes: { some: { receivedAt: { gte: since } } },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 50,
+      select: {
+        id: true, name: true, contactName: true, contactEmail: true, contactPhone: true, address: true, website: true, createdAt: true,
+        intakes: {
+          orderBy: { receivedAt: 'desc' },
+          take: 1,
+          select: { fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, website: true, timeZone: true, receivedAt: true },
+        },
+      },
+    }),
+    extensionState(),
+  ])
+
+  let snapshotName: string | null = null
+  try {
+    const ctx = await getAgencyContext()
+    snapshotName = (await listSnapshots(ctx)).find((s) => s.id === settings.snapshotId)?.name ?? null
+  } catch {
+    // The extension picks the snapshot by id if the name isn't known.
+  }
+
+  const jobs: ExtensionJob[] = []
+  for (const c of clients) {
+    if (looksLikePhoneNumber(c.name.trim())) continue
+    const intake = c.intakes[0] ?? null
+    // A submission linked to a client already on file isn't a new client.
+    if (intake && c.createdAt.getTime() < intake.receivedAt.getTime() - 60_000) continue
+    const st = state[c.id]
+    if (st?.status === 'created') continue
+    if (st?.status === 'failed' && (st.attempts >= EXTENSION_MAX_ATTEMPTS || Date.now() - Date.parse(st.at) < EXTENSION_RETRY_MS)) continue
+    const input = buildLocationInput(c, intake, settings.snapshotId)
+    const fields: Record<string, string> = {}
+    for (const [key, v] of Object.entries(input)) if (typeof v === 'string') fields[key] = v
+    jobs.push({
+      clientId: c.id,
+      clientName: c.name,
+      attempts: st?.attempts ?? 0,
+      fields,
+      owner: {
+        firstName: input.prospectInfo?.firstName ?? firstNameOf(c.contactName ?? intake?.fullName) ?? '',
+        lastName: input.prospectInfo?.lastName ?? lastNameOf(c.contactName ?? intake?.fullName) ?? '',
+        email: c.contactEmail ?? intake?.leadEmail ?? '',
+      },
+      snapshot: { id: settings.snapshotId, name: snapshotName },
+    })
+    if (jobs.length >= limit) break
+  }
+  return jobs
+}
+
+export type ExtensionOutcome = {
+  status: 'created' | 'failed' | 'skipped'
+  /** The new sub-account's id or GHL link, when the extension could read it. */
+  locationId?: string | null
+  detail?: string | null
+}
+
+/** What the extension did for one client; links the sub-account when it was created. */
+export async function recordExtensionOutcome(clientId: string, outcome: ExtensionOutcome): Promise<LinkResult | { ok: true; status: 'recorded' }> {
+  const state = await extensionState()
+  const prev = state[clientId]
+  const detail = outcome.detail?.slice(0, 500) ?? null
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, name: true } })
+  if (!client) return { ok: false, status: 'failed', reason: 'client not found' }
+
+  if (outcome.status === 'created') {
+    const linked = await linkGhlSubAccount(clientId, { locationId: outcome.locationId ?? null })
+    if (linked.ok) {
+      state[clientId] = { status: 'created', at: new Date().toISOString(), attempts: (prev?.attempts ?? 0) + 1, detail }
+      await saveExtensionState(state)
+      return linked
+    }
+    // Created in GHL but the Hub can't see it yet (name differs, or GHL is slow to list it): say so, try again next poll.
+    const reason = `The extension created it, but the Hub couldn't link it: ${linked.reason}`
+    state[clientId] = { status: 'failed', at: new Date().toISOString(), attempts: (prev?.attempts ?? 0) + 1, detail: reason }
+    await saveExtensionState(state)
+    await prisma.client.update({ where: { id: clientId }, data: { ghlProvisionStatus: 'failed', ghlProvisionError: reason } }).catch(() => {})
+    await hubAlert(`:warning: *GHL sub-account created but not linked* for *${client.name}* — ${linked.reason} Link it from the client's Sub-account board. <${hubLink(`/clients/${clientId}/ghl`)}|Open board>`)
+    return linked
+  }
+
+  state[clientId] = { status: outcome.status, at: new Date().toISOString(), attempts: (prev?.attempts ?? 0) + (outcome.status === 'failed' ? 1 : 0), detail }
+  await saveExtensionState(state)
+  if (outcome.status === 'failed') {
+    const attempts = state[clientId].attempts
+    const reason = `Browser extension couldn't create it (attempt ${attempts}): ${detail ?? 'no detail'}`
+    await prisma.client.update({ where: { id: clientId }, data: { ghlProvisionStatus: 'failed', ghlProvisionError: reason } }).catch(() => {})
+    await hubAlert(
+      `:warning: *GHL sub-account extension failed* for *${client.name}* (attempt ${attempts}${attempts >= EXTENSION_MAX_ATTEMPTS ? ', giving up' : ''}) — ${detail ?? 'no detail'}. <${hubLink(`/clients/${clientId}/ghl`)}|Create it by hand>`,
+    )
+  }
+  return { ok: true, status: 'recorded' }
 }
 

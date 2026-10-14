@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Genisys — GHL sub-accounts</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 24px; max-width: 640px; color: #111827; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    p.sub { color: #6b7280; margin: 0 0 20px; }
+    label { display: block; margin: 14px 0 4px; font-weight: 600; font-size: 13px; }
+    input[type=text], input[type=password], input[type=number], select, textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font: inherit; }
+    textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 120px; }
+    .hint { color: #6b7280; font-size: 12px; margin-top: 4px; }
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
+    button { padding: 8px 14px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; font: inherit; cursor: pointer; }
+    button.primary { background: #111827; color: #fff; border-color: #111827; }
+    #status { font-size: 13px; }
+    .ok { color: #047857; } .err { color: #b91c1c; }
+    .toggle { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Genisys Hub — GHL sub-accounts</h1>
+  <p class="sub">Creates each new client's GHL sub-account from this browser's signed-in GHL tab.</p>
+
+  <label class="toggle"><input type="checkbox" id="enabled" /> Switched on (checks the Hub on a schedule)</label>
+
+  <label for="hubUrl">Hub URL</label>
+  <input type="text" id="hubUrl" placeholder="https://genisys-hub.onrender.com" />
+
+  <label for="token">Hub API token</label>
+  <input type="password" id="token" placeholder="ghub_…" />
+  <p class="hint">Hub → Settings → API tokens → New token, made while signed in as an admin. Stored only in this browser.</p>
+
+  <label for="ghlUrl">GHL URL</label>
+  <input type="text" id="ghlUrl" placeholder="https://app.gohighlevel.com" />
+  <p class="hint">Your white-label address if you use one. You must be signed in to the agency there.</p>
+
+  <label for="mode">What to do with the form</label>
+  <select id="mode">
+    <option value="fill">Fill it in and stop — a person presses Create</option>
+    <option value="create">Fill it in and press Create</option>
+  </select>
+
+  <label for="pollMinutes">Check the Hub every (minutes)</label>
+  <input type="number" id="pollMinutes" min="1" max="60" />
+
+  <label for="labels">Form wording overrides (JSON, optional)</label>
+  <textarea id="labels" placeholder='{"createButton": ["Create Sub-Account"], "snapshot": ["Snapshot"]}'></textarea>
+  <p class="hint">If GHL renames a button or field, put the new words here instead of waiting for an update. Keys: subAccountsNav, createButton, addBusiness, name, email, phone, address, city, state, postalCode, country, timezone, website, snapshot, firstName, lastName, submit.</p>
+
+  <div class="row">
+    <button class="primary" id="save">Save</button>
+    <button id="test">Test connection</button>
+    <span id="status"></span>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

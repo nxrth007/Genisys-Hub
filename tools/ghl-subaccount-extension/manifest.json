@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Genisys Hub — GHL sub-accounts",
+  "version": "0.1.0",
+  "description": "Creates the GHL sub-account for each new Genisys client from your signed-in GHL tab, the way the Hub would if the API allowed it.",
+  "permissions": ["storage", "alarms", "tabs", "scripting", "notifications"],
+  "host_permissions": ["https://genisys-hub.onrender.com/*", "https://app.gohighlevel.com/*", "https://*.leadconnectorhq.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Genisys — GHL sub-accounts" },
+  "options_page": "options.html",
+  "icons": {}
+}
