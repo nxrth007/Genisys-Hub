@@ -97,6 +97,10 @@ type RosterClient = {
   notes: string | null
   onboardingNotes: string | null
   ghlSubaccountUrl: string | null
+  ghlLocationId: string | null
+  /** null (never attempted) | creating | created | linked | failed */
+  ghlProvisionStatus: string | null
+  ghlProvisionError: string | null
   createdAt: string
   archivedAt: string | null
   intake: Intake | null
@@ -982,12 +986,24 @@ function ClientDetailDialog({
                     {client.ghlSubAccount.vaultName}
                   </span>
                 </span>
-              ) : (
-                <span className="text-muted-foreground" title='Add the token to the Vault tagged "ghl" and "client"; name it after the business or put client=<name> in its description.'>
-                  Not linked
+              ) : client.ghlSubaccountUrl ? (
+                <span className="flex flex-col items-start">
+                  <a
+                    href={client.ghlSubaccountUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
+                  >
+                    Open in GHL <ExternalLink className="h-3 w-3" />
+                  </a>
+                  <span className="text-[11px] text-muted-foreground" title='Add the token to the Vault tagged "ghl" and "client"; name it after the business or put client=<name> in its description.'>
+                    token not in the Vault
+                  </span>
                 </span>
+              ) : (
+                <CreateGhlSubAccount client={client} />
               )}
-              {client.ghlSubaccountUrl && (
+              {client.ghlSubAccount && client.ghlSubaccountUrl && (
                 <a
                   href={client.ghlSubaccountUrl}
                   target="_blank"
@@ -1076,6 +1092,69 @@ function ClientDetailDialog({
         )}
       </div>
     </div>
+  )
+}
+
+type ProvisionResponse =
+  | { ok: true; status: 'created' | 'linked'; locationId: string; name: string }
+  | { ok: false; status: 'skipped' | 'failed'; reason: string; error?: string }
+
+/** Create (or link) the client's GHL sub-account from its card. Admin-only on the server. */
+function CreateGhlSubAccount({ client }: { client: RosterClient }) {
+  const qc = useQueryClient()
+  const create = useMutation({
+    mutationFn: async (): Promise<ProvisionResponse> => {
+      const res = await fetch('/api/admin/ghl-subaccounts/provision', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      })
+      if (res.status === 403) throw new Error('Only admins can create sub-accounts.')
+      const data = (await res.json().catch(() => ({}))) as ProvisionResponse
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clients-roster'] }),
+  })
+
+  const result = create.data
+  const locationId = result?.ok ? result.locationId : client.ghlLocationId
+  if (locationId) {
+    return (
+      <a
+        href={`https://app.gohighlevel.com/v2/location/${locationId}/dashboard`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
+      >
+        {result?.ok && result.status === 'linked' ? 'Linked existing' : 'Open in GHL'} <ExternalLink className="h-3 w-3" />
+      </a>
+    )
+  }
+
+  const creating = create.isPending || (!result && client.ghlProvisionStatus === 'creating')
+  const error = create.error
+    ? (create.error as Error).message
+    : result && !result.ok
+      ? result.reason || result.error || 'Couldn’t create it.'
+      : client.ghlProvisionStatus === 'failed'
+        ? client.ghlProvisionError
+        : null
+
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <button
+        type="button"
+        disabled={create.isPending}
+        onClick={() => {
+          if (window.confirm(`Create a GHL sub-account for ${client.name} and load the onboarding snapshot?`)) create.mutate()
+        }}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+      >
+        {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
+        {creating ? 'Creating…' : client.ghlProvisionStatus === 'failed' ? 'Retry sub-account' : 'Create sub-account'}
+      </button>
+      {error && <span className="max-w-xs break-words text-[11px] text-destructive">{error}</span>}
+    </span>
   )
 }
 
