@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { A2P_CHECKLIST, A2P_INPUT_KEYS, a2pPrefill, type A2pInputs } from '@/lib/a2p'
+import { resolveAddress } from '@/lib/address-resolve'
 
 /**
  * GET /api/clients/:id/a2p — the A2P board: what the onboarding answers
@@ -79,9 +80,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const intake = intakes[0] ?? null
   const row = await prisma.appSetting.findUnique({ where: { key: keyFor(id) } })
 
+  const prefill = a2pPrefill({ ...c, intake })
+  // The form only asks for a business address; when the text alone doesn't
+  // give a city and state, the geocoder does (looked up once per address).
+  if (!prefill.city || !prefill.state) {
+    const r = await resolveAddress(intake?.businessAddress || c.address)
+    if (r.city && !prefill.city) prefill.city = r.city
+    if (r.stateName && !prefill.state) prefill.state = r.stateName
+    if (!prefill.primaryCities && prefill.city) prefill.primaryCities = prefill.city
+  }
+
   return NextResponse.json({
     client: { id: c.id, name: c.name, siteUrl: c.siteUrl, hasIntake: !!intake },
-    prefill: a2pPrefill({ ...c, intake }),
+    prefill,
     mainServices: intake?.mainServices ?? null,
     saved: parseSaved(row?.value),
   })

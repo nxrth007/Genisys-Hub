@@ -16,7 +16,8 @@
  */
 import { prisma } from './prisma'
 import { hubAlert, hubLink } from './hub-alerts'
-import { parseAddress, STATE_CODE_TO_NAME } from './address'
+import { STATE_CODE_TO_NAME } from './address'
+import { parseUsAddress } from './address-resolve'
 import { looksLikePhoneNumber } from './client-from-intake'
 import { parseTimezoneInput, stateCodeFromAddress, timezoneForAddress } from './timezone'
 import {
@@ -162,15 +163,14 @@ function timezoneFor(answer: string | null | undefined, address: string | null |
 
 function addressFields(raw: string | null | undefined): Pick<CreateLocationInput, 'address' | 'city' | 'state' | 'postalCode'> {
   if (!raw?.trim()) return {}
-  const parts = parseAddress(raw)
-  const code = (parts.state || stateCodeFromAddress(raw) || '').toUpperCase()
+  const p = parseUsAddress(raw)
+  const code = (p.state || stateCodeFromAddress(raw) || '').toUpperCase()
   const state = STATE_CODE_TO_NAME[code] ?? undefined
-  const postalCode = parts.zip || raw.trim().match(/\b(\d{5}(?:-\d{4})?)\s*(?:,?\s*(?:USA?|United States))?$/i)?.[1] || undefined
-  // A clean "Street, City, ST 12345" splits; anything looser goes in whole.
-  const clean = parts.street && parts.city && parts.state && !/\d{5}/.test(parts.city)
-  return clean
-    ? { address: parts.street, city: parts.city, state, postalCode }
-    : { address: raw.trim().replace(/\s*\n\s*/g, ', '), state, postalCode }
+  const postalCode = p.zip || undefined
+  // Street, city and state apart when the text gives them; otherwise the whole thing as the street.
+  return p.city && p.street
+    ? { address: p.street, city: p.city, state, postalCode }
+    : { address: raw.trim().replace(/\s*\n\s*/g, ', '), ...(p.city ? { city: p.city } : {}), state, postalCode }
 }
 
 type ClientForGhl = {

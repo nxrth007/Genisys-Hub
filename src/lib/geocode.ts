@@ -178,6 +178,71 @@ async function viaNominatim(query: string): Promise<Attempt> {
   }
 }
 
+export type AddressComponents = { street: string | null; city: string | null; state: string | null; zip: string | null }
+
+/**
+ * The parts of an address as the geocoder reads it — for filling in a
+ * city or state a client didn't type. Google first (the same key as the
+ * globe), Nominatim otherwise; null when neither recognises the place.
+ */
+export async function geocodeComponents(query: string): Promise<AddressComponents | null> {
+  const q = query.trim()
+  if (!q) return null
+  let key: string | null = null
+  try {
+    key = await getSecretByName(GOOGLE_KEY_ENTRY)
+  } catch {
+    key = null
+  }
+  if (key) {
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+      url.searchParams.set('address', q)
+      url.searchParams.set('region', 'us')
+      url.searchParams.set('key', key)
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS) })
+      const data = res.ok ? ((await res.json()) as { status?: string; results?: GoogleResult[] }) : null
+      const hit = data?.status === 'OK' ? data.results?.find((r) => (r.types ?? []).some((t) => t !== 'country' && t !== 'political')) : null
+      if (hit) {
+        const part = (type: string) => hit.address_components?.find((c) => c.types.includes(type))
+        const number = part('street_number')?.long_name
+        const route = part('route')?.long_name
+        return {
+          street: [number, route].filter(Boolean).join(' ') || null,
+          city: part('locality')?.long_name ?? part('postal_town')?.long_name ?? part('sublocality')?.long_name ?? null,
+          state: part('administrative_area_level_1')?.short_name ?? null,
+          zip: part('postal_code')?.long_name ?? null,
+        }
+      }
+      if (data?.status === 'ZERO_RESULTS') return null
+    } catch {
+      // Fall through to Nominatim.
+    }
+  }
+  await nominatimTurn()
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search')
+    url.searchParams.set('q', q)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', '1')
+    url.searchParams.set('countrycodes', 'us')
+    url.searchParams.set('addressdetails', '1')
+    const res = await fetch(url, { headers: { 'User-Agent': NOMINATIM_UA, Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS) })
+    if (!res.ok) return null
+    const hit = ((await res.json()) as Array<NominatimHit & { address?: { house_number?: string; road?: string; postcode?: string } }>)[0]
+    if (!hit) return null
+    const a = hit.address ?? {}
+    return {
+      street: [a.house_number, a.road].filter(Boolean).join(' ') || null,
+      city: a.city ?? a.town ?? a.village ?? a.hamlet ?? null,
+      state: stateCode(a.state) ?? null,
+      zip: a.postcode ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** A miss is definitive only if every geocoder that was asked said "no such place". */
 export async function geocode(query: string): Promise<Attempt> {
   const q = query.trim()

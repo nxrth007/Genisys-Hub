@@ -1,3 +1,4 @@
+import { parseUsAddress } from './address-resolve'
 /**
  * A2P 10DLC registration copy for a client, from the GHL A2P master
  * template (built from real rejections and approvals across A Plus
@@ -95,20 +96,10 @@ export function hostOnly(url: string | null | undefined): string {
   }
 }
 
-/** "1626 Sun Spur Dr, New Braunfels, TX 78130" → city and full state name. */
+/** City and full state name from however the client wrote the address (see address-resolve.ts). */
 export function cityState(address: string): { city: string; state: string } {
-  const m =
-    address.match(/,\s*([^,]+?)\s*,\s*([A-Za-z]{2})\.?(?:\s+\d{5}(?:-\d{4})?)?\s*(?:,\s*(?:USA?|United States))?\s*$/i) ??
-    address.match(/,\s*([^,]+?)\s+([A-Za-z]{2})\.?\s+\d{5}(?:-\d{4})?\s*$/i)
-  if (m) {
-    const abbr = m[2].toUpperCase()
-    return { city: clean(m[1]), state: STATES[abbr] ?? abbr }
-  }
-  const full = address.match(/,\s*([^,]+?)\s*,\s*([A-Za-z ]+?)(?:\s+\d{5}(?:-\d{4})?)?\s*$/)
-  if (full && Object.values(STATES).some((s) => s.toLowerCase() === full[2].trim().toLowerCase())) {
-    return { city: clean(full[1]), state: clean(full[2]) }
-  }
-  return { city: '', state: '' }
+  const p = parseUsAddress(address)
+  return { city: p.city, state: p.stateName || (p.state ? (STATES[p.state] ?? p.state) : '') }
 }
 
 /** "(830) 555-0123" for a US number; anything else as typed. */
