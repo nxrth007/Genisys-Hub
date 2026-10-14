@@ -77,6 +77,8 @@ async function tickSeoEngine(): Promise<TickResult> {
   await advanceSearchConsole()
   // New onboarding answers reach the business facts even between runs.
   await syncAllClientFacts()
+  // Loaded here rather than at the top: hygiene → actions → this module.
+  await (await import('./hygiene')).archiveStraySeoSites()
   const outcome = await processNextRun()
   if (outcome === 'advanced') result.advanced = 1
   if (outcome === 'failed') result.failed = 1

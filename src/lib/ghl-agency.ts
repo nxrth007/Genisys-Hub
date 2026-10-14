@@ -209,12 +209,38 @@ export type CreateLocationInput = {
   prospectInfo?: { firstName: string; lastName: string; email: string }
 }
 
+/**
+ * What a refusal from "create sub-account" means. GHL gates this one call
+ * two ways the rest of the agency API isn't: the agency must be on the
+ * Agency Pro ($497/mo) plan, and the key must be an agency-level Private
+ * Integration with the "locations.write" scope. Listing snapshots and
+ * sub-accounts works without either, so a 401/403 only here points at
+ * one of these.
+ */
+export function explainCreateRefusal(err: GhlAgencyError): string {
+  const planGate =
+    'GHL only lets sub-accounts be created by API on the Agency Pro ($497/mo) plan — on Agency Unlimited ($297) this call is refused even with a valid key.'
+  const keyGate =
+    `The "${GHL_AGENCY_KEY_VAULT_NAME}" Vault entry must be an agency-level Private Integration (Agency Settings → Private Integrations, not one made inside a sub-account) with the "locations.write" scope ticked.`
+  if (err.status === 403) return `${err.message}. ${planGate} ${keyGate}`
+  if (err.status === 401) return `${err.message}. ${keyGate}`
+  return err.message
+}
+
 /** Create a sub-account in the agency, loading `snapshotId` into it. */
 export async function createLocation(ctx: AgencyContext, input: CreateLocationInput): Promise<AgencyLocation> {
-  const res = await agencyFetch<Record<string, unknown>>(ctx.token, '/locations/', {
-    method: 'POST',
-    body: { ...input, companyId: ctx.companyId },
-  })
+  let res: Record<string, unknown>
+  try {
+    res = await agencyFetch<Record<string, unknown>>(ctx.token, '/locations/', {
+      method: 'POST',
+      body: { ...input, companyId: ctx.companyId },
+    })
+  } catch (err) {
+    if (err instanceof GhlAgencyError && (err.status === 401 || err.status === 403)) {
+      throw new GhlAgencyError(explainCreateRefusal(err), err.status)
+    }
+    throw err
+  }
   const created = toLocations([isRecordWithId(res.location) ? res.location : res])[0]
   if (!created) throw new GhlAgencyError('GHL created the sub-account but its response had no id', null)
   return { id: created.id, name: created.name || input.name }
