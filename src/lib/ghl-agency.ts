@@ -246,6 +246,22 @@ export async function createLocation(ctx: AgencyContext, input: CreateLocationIn
   return { id: created.id, name: created.name || input.name }
 }
 
+/** One sub-account by id; null when GHL has no such location or it isn't this agency's. */
+export async function getLocation(ctx: AgencyContext, locationId: string): Promise<(AgencyLocation & { companyId: string | null }) | null> {
+  let res: { location?: Record<string, unknown> }
+  try {
+    res = await agencyFetch<{ location?: Record<string, unknown> }>(ctx.token, `/locations/${encodeURIComponent(locationId)}`)
+  } catch (err) {
+    if (err instanceof GhlAgencyError && (err.status === 404 || err.status === 403 || err.status === 422)) return null
+    throw err
+  }
+  const loc = res.location
+  if (!isRecordWithId(loc)) return null
+  const companyId = typeof loc.companyId === 'string' ? loc.companyId : null
+  if (companyId && companyId !== ctx.companyId) return null
+  return { id: loc.id as string, name: typeof loc.name === 'string' ? loc.name : '', companyId }
+}
+
 function isRecordWithId(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && typeof (v as Record<string, unknown>).id === 'string'
 }

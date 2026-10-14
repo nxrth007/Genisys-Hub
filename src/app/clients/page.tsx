@@ -929,6 +929,13 @@ function ClientDetailDialog({
             >
               <MessageSquareText className="h-3.5 w-3.5" /> A2P
             </Link>
+            <Link
+              href={`/clients/${client.id}/ghl`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+              title="Copy-and-paste board to create this client's GHL sub-account by hand, then link it"
+            >
+              <Building2 className="h-3.5 w-3.5" /> Sub-account
+            </Link>
             <button
               type="button"
               disabled={archive.isPending}
@@ -1154,6 +1161,9 @@ function CreateGhlSubAccount({ client }: { client: RosterClient }) {
         {creating ? 'Creating…' : client.ghlProvisionStatus === 'failed' ? 'Retry sub-account' : 'Create sub-account'}
       </button>
       {error && <span className="max-w-xs break-words text-[11px] text-destructive">{error}</span>}
+      <Link href={`/clients/${client.id}/ghl`} className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        Create it in GHL by hand instead →
+      </Link>
     </span>
   )
 }

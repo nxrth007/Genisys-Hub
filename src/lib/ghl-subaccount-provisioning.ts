@@ -21,6 +21,7 @@ import { parseTimezoneInput, stateCodeFromAddress, timezoneForAddress } from './
 import {
   createLocation,
   getAgencyContext,
+  getLocation,
   getSnapshotPushStatus,
   GhlAgencyError,
   listAllLocations,
@@ -634,3 +635,165 @@ async function recentClientsNeverProvisioned(): Promise<GhlProvisionRow[]> {
     }
   })
 }
+
+// -------------------------------------------------------------------------
+// By hand: the copy-and-paste board, and linking what a person created
+// -------------------------------------------------------------------------
+
+/**
+ * GHL only lets sub-accounts be created by API on the Agency Pro plan, so
+ * on Agency Unlimited a person creates it in GHL. The board shows them
+ * exactly what the automation would have sent (same name, same fields,
+ * same snapshot); once it exists, the Hub finds it by that name and links
+ * it, or links a sub-account they paste the link of.
+ */
+export type GhlBoardField = { key: string; label: string; value: string; note?: string }
+
+export type GhlSubAccountBoard = {
+  client: { id: string; name: string; hasIntake: boolean }
+  status: {
+    locationId: string | null
+    url: string | null
+    provisionStatus: string | null
+    provisionError: string | null
+    snapshotStatus: string | null
+  }
+  /** In the order GHL's "create sub-account" form asks for them. */
+  fields: GhlBoardField[]
+  owner: GhlBoardField[]
+  snapshot: { id: string; name: string | null; listed: boolean | null }
+}
+
+const BOARD_FIELDS: Array<[keyof CreateLocationInput, string, string?]> = [
+  ['name', 'Sub-account name', 'Exactly this — the Hub links it by this name.'],
+  ['phone', 'Business phone'],
+  ['address', 'Street address'],
+  ['city', 'City'],
+  ['state', 'State'],
+  ['postalCode', 'Postal code'],
+  ['country', 'Country'],
+  ['timezone', 'Time zone'],
+  ['website', 'Website'],
+]
+
+export async function ghlSubAccountBoard(clientId: string): Promise<GhlSubAccountBoard | null> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      id: true, name: true, contactName: true, contactEmail: true, contactPhone: true, address: true, website: true,
+      ghlLocationId: true, ghlSubaccountUrl: true, ghlProvisionStatus: true, ghlProvisionError: true, ghlSnapshotStatus: true,
+      intakes: {
+        orderBy: { receivedAt: 'desc' },
+        take: 1,
+        select: { fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, website: true, timeZone: true },
+      },
+    },
+  })
+  if (!client) return null
+  const intake = client.intakes[0] ?? null
+  const settings = await getGhlSubaccountSettings()
+  const input = buildLocationInput(client, intake, settings.snapshotId)
+
+  let snapshotName: string | null = null
+  let listed: boolean | null = null
+  try {
+    const ctx = await getAgencyContext()
+    const match = (await listSnapshots(ctx)).find((s) => s.id === settings.snapshotId)
+    listed = !!match
+    snapshotName = match?.name ?? null
+  } catch {
+    // The board still works without the agency key; the snapshot id is shown either way.
+  }
+
+  const email = client.contactEmail ?? intake?.leadEmail ?? ''
+  return {
+    client: { id: client.id, name: client.name, hasIntake: !!intake },
+    status: {
+      locationId: client.ghlLocationId,
+      url: client.ghlLocationId ? ghlLocationUrl(client.ghlLocationId) : client.ghlSubaccountUrl,
+      provisionStatus: client.ghlProvisionStatus,
+      provisionError: client.ghlProvisionError,
+      snapshotStatus: client.ghlSnapshotStatus,
+    },
+    fields: BOARD_FIELDS.map(([key, label, note]) => {
+      const v = input[key]
+      return { key, label, value: typeof v === 'string' ? v : '', ...(note ? { note } : {}) }
+    }),
+    owner: [
+      { key: 'firstName', label: 'First name', value: input.prospectInfo?.firstName ?? firstNameOf(client.contactName ?? intake?.fullName) ?? '' },
+      { key: 'lastName', label: 'Last name', value: input.prospectInfo?.lastName ?? lastNameOf(client.contactName ?? intake?.fullName) ?? '' },
+      { key: 'email', label: 'Email', value: email },
+    ],
+    snapshot: { id: settings.snapshotId, name: snapshotName, listed },
+  }
+}
+
+export type LinkResult =
+  | { ok: true; status: 'linked' | 'already'; locationId: string; name: string }
+  | { ok: false; status: 'not_found' | 'failed'; reason: string; expectedName?: string }
+
+/** The id in a GHL sub-account link (…/v2/location/<id>/… or …/location/<id>), or the bare id. */
+export function parseLocationId(raw: string): string | null {
+  const s = raw.trim()
+  if (!s) return null
+  const fromUrl = /\/location\/([A-Za-z0-9]{10,})/.exec(s)?.[1]
+  if (fromUrl) return fromUrl
+  return /^[A-Za-z0-9]{10,}$/.test(s) ? s : null
+}
+
+/**
+ * Link a sub-account a person created in GHL: by the exact name the
+ * board showed, or by a pasted link/id. Never creates anything.
+ */
+export async function linkGhlSubAccount(clientId: string, opts: { locationId?: string | null } = {}): Promise<LinkResult> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      id: true, name: true, contactName: true, ghlLocationId: true, ghlSubaccountUrl: true,
+      intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { fullName: true } },
+    },
+  })
+  if (!client) return { ok: false, status: 'failed', reason: 'client not found' }
+  if (client.ghlLocationId) return { ok: true, status: 'already', locationId: client.ghlLocationId, name: client.name }
+
+  const expectedName = subAccountName(client.contactName ?? client.intakes[0]?.fullName ?? null, client.name)
+  try {
+    const ctx = await getAgencyContext()
+    let found: { id: string; name: string } | undefined
+    if (opts.locationId) {
+      const id = parseLocationId(opts.locationId)
+      if (!id) return { ok: false, status: 'failed', reason: 'That doesn’t look like a GHL sub-account link or id.', expectedName }
+      const loc = await getLocation(ctx, id)
+      if (!loc) return { ok: false, status: 'not_found', reason: `GHL has no sub-account ${id} in this agency.`, expectedName }
+      found = loc
+    } else {
+      const { locations } = await listAllLocations(ctx)
+      found = locations.find((l) => normalizeName(l.name) === normalizeName(expectedName))
+      if (!found) {
+        return {
+          ok: false,
+          status: 'not_found',
+          reason: `No sub-account named “${expectedName}” yet. Create it in GHL with that exact name, or paste its link.`,
+          expectedName,
+        }
+      }
+    }
+    await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        ghlLocationId: found.id,
+        ghlProvisionStatus: 'linked',
+        ghlProvisionError: null,
+        ghlProvisionedAt: new Date(),
+        ...(client.ghlSubaccountUrl ? {} : { ghlSubaccountUrl: ghlLocationUrl(found.id) }),
+      },
+    })
+    await hubAlert(
+      `:link: *GHL sub-account linked* — *${found.name || expectedName}* was created in GHL by hand and is now on the client. <${ghlLocationUrl(found.id)}|Open in GHL> · <${hubLink(`/clients?focus=${client.id}`)}|Open client>`,
+    )
+    return { ok: true, status: 'linked', locationId: found.id, name: found.name || expectedName }
+  } catch (err) {
+    return { ok: false, status: 'failed', reason: describe(err), expectedName }
+  }
+}
+
