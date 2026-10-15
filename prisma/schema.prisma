@@ -722,6 +722,7 @@ model Client {
   appointmentReminders AppointmentReminder[]
   slackDeliveries   SheetSlackDelivery[]
   clientAlerts      ClientAlertDelivery[]
+  leadAlerts        LeadAlert[]
   emailAlerts       ClientEmailDelivery[]
   messageAlerts     ClientMessageAlert[]
   vicidialListLinks VicidialListLink[]
@@ -1105,7 +1106,46 @@ model ClientAlertsConfig {
   /// Optional E.164 sender override (e.g. "+16038034828"). Null
   /// falls back to the GHL location's default phone.
   senderPhone     String?
+  /// Lead texts for No EIN clients (see LeadAlert). Independent of
+  /// `enabled`, which only governs appointment alerts.
+  leadAlertsEnabled Boolean @default(true)
   updatedAt       DateTime @updatedAt @default(now())
+}
+
+/// Lead texts for clients without an EIN. Their own sub-account can't
+/// send SMS until A2P is registered, so a workflow in it posts each form
+/// or chat-widget lead to /api/webhooks/ghl-lead, and the Hub texts the
+/// client's contactPhone from the Lead Genisys sub-account instead. Every
+/// post is logged, including ones for clients that have an EIN, so the
+/// Settings page can show which sub-accounts have the workflow installed.
+model LeadAlert {
+  id             String    @id @default(cuid())
+  /// `${locationId}:${contact}:${10-minute bucket}` — a GHL retry, or the
+  /// same lead hitting both the form and the chat widget, texts once.
+  dedupKey       String    @unique
+  locationId     String
+  contactId      String?
+  clientId       String?
+  client         Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  leadName       String?
+  leadPhone      String?
+  leadEmail      String?
+  source         String?
+  recipientPhone String?
+  // status: delivered | failed | skipped (client has an EIN, or alerts off)
+  //         | unrouted (no Client has this ghlLocationId)
+  status         String
+  reason         String?
+  messageId      String?
+  errorMessage   String?   @db.Text
+  payload        Json
+  deliveredAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([clientId, createdAt])
+  @@index([locationId, contactId, createdAt])
+  @@index([createdAt])
 }
 
 /// Idempotency ledger for Client Alert SMS — parallel to

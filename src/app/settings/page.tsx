@@ -35,6 +35,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GhlSubaccountsSection } from './ghl-subaccounts-section'
+import { LeadAlertsSection } from './lead-alerts-section'
 // Importing from the client-safe constants module — pulling from
 // `lib/reminders` would drag Prisma + Drive helpers into the browser
 // bundle.
@@ -127,6 +128,8 @@ export default function SettingsPage() {
       <GhlSubaccountsSection />
 
       <ClientAlertsSection />
+
+      <LeadAlertsSection />
 
       <ClientEmailAlertsSection />
 

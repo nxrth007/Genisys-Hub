@@ -16,6 +16,7 @@
 import Link from 'next/link'
 import { ArrowLeft, Phone as PhoneIcon } from 'lucide-react'
 import { ClientAlertsSection } from '../page'
+import { LeadAlertsSection } from '../lead-alerts-section'
 
 export default function ClientAlertsFocusedPage() {
   return (
@@ -53,6 +54,8 @@ export default function ClientAlertsFocusedPage() {
       </div>
 
       <ClientAlertsSection />
+
+      <LeadAlertsSection />
     </div>
   )
 }
