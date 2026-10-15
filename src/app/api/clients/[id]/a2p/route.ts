@@ -57,6 +57,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       website: true,
       ein: true,
       einStatus: true,
+      seoSite: { select: { facts: true } },
       intakes: {
         orderBy: { receivedAt: 'desc' },
         take: 1,
@@ -72,17 +73,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           yearStarted: true,
           ein: true,
           mainServices: true,
+          aboutBusiness: true,
         },
       },
     },
   })
   if (!client) return NextResponse.json({ error: 'client not found' }, { status: 404 })
 
-  const { intakes, ...c } = client
+  const { intakes, seoSite, ...c } = client
   const intake = intakes[0] ?? null
+  const facts = seoSite?.facts && typeof seoSite.facts === 'object' ? (seoSite.facts as { trade?: unknown }) : null
+  const factsTrade = typeof facts?.trade === 'string' ? facts.trade : null
   const row = await prisma.appSetting.findUnique({ where: { key: keyFor(id) } })
 
-  const prefill = a2pPrefill({ ...c, intake })
+  const prefill = a2pPrefill({ ...c, intake, factsTrade })
   // The form only asks for a business address; when the text alone doesn't
   // give a city and state, the geocoder does (looked up once per address).
   if (!prefill.city || !prefill.state) {

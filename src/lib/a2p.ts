@@ -1,3 +1,4 @@
+import { inferTrade } from './trade'
 import { parseUsAddress } from './address-parse'
 /**
  * A2P 10DLC registration copy for a client, from the GHL A2P master
@@ -70,7 +71,11 @@ export type A2pSource = {
     domainName: string | null
     yearStarted: string | null
     ein: string | null
+    mainServices?: string | null
+    aboutBusiness?: string | null
   } | null
+  /** The SEO engine's read of the trade, when the client has an SEO site with recorded facts. */
+  factsTrade?: string | null
 }
 
 const STATES: Record<string, string> = {
@@ -138,6 +143,20 @@ function seasonLabel(now: Date): string {
   return 'Fall special'
 }
 
+/**
+ * The trade for "[Business] is a … in [City]": the SEO engine's recorded
+ * trade when there is one (a person has usually checked it), else what
+ * the business name, services and about-paragraph say (lib/trade.ts).
+ */
+function tradeFor(src: A2pSource): string {
+  const recorded = clean(src.factsTrade)
+  if (recorded) {
+    // "Fence contractor" / "Painter" → "fence contractor" / "painter"; already a noun phrase.
+    return recorded.charAt(0).toLowerCase() + recorded.slice(1)
+  }
+  return inferTrade({ businessName: src.intake?.businessName || src.name, mainServices: src.intake?.mainServices, aboutBusiness: src.intake?.aboutBusiness }).trade
+}
+
 /** Everything the onboarding answers can fill in. */
 export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
   const i = src.intake
@@ -163,7 +182,7 @@ export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
     ein: clean(src.ein) || clean(i?.ein),
     contactEmail: clean(i?.leadEmail) || clean(src.contactEmail),
     ownerFirstName,
-    trade: '',
+    trade: tradeFor(src),
     city,
     state,
     ownership,

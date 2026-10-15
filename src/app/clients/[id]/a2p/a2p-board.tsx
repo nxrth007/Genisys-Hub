@@ -29,7 +29,7 @@ type BoardData = {
 
 const INPUTS: { key: keyof A2pInputs; label: string; placeholder?: string; hint?: string; long?: boolean }[] = [
   { key: 'businessName', label: 'Business name', hint: 'Exactly as the website and form show it.' },
-  { key: 'trade', label: 'Trade', placeholder: 'fence and deck contractor', hint: 'Reads “[Business] is a … in [City]”.' },
+  { key: 'trade', label: 'Trade', placeholder: 'fence and deck contractor', hint: 'Read off the business name and services; change it if it’s off. Reads “[Business] is a … in [City]”.' },
   { key: 'ownerFirstName', label: 'Owner first name', placeholder: 'Todd', hint: 'Signs the promotional sample.' },
   { key: 'ownership', label: 'Ownership line', placeholder: 'owned and operated by Todd Smith for 25 years', hint: 'Or “family-owned and operated”. Leave empty to skip.' },
   { key: 'city', label: 'City' },
