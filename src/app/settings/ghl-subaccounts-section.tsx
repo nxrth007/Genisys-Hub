@@ -143,7 +143,7 @@ export function GhlSubaccountsSection() {
             {settings
               ? enabled
                 ? `On for submissions received after ${new Date(settings.since).toLocaleString()}.`
-                : 'Off — new clients don’t get a sub-account. Turning it back on only applies to submissions from then on.'
+                : 'Off — GHL only allows creating sub-accounts by API on Agency Pro ($497/mo). Make them by hand and link them from the client card. Turning this on only applies to submissions from then on.'
               : 'Loading…'}
           </p>
         </div>
@@ -243,7 +243,7 @@ export function GhlSubaccountsSection() {
                       GHL <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
-                  {(r.status === 'failed' || r.status === 'creating' || r.status === 'not started') && (
+                  {enabled && (r.status === 'failed' || r.status === 'creating' || r.status === 'not started') && (
                     <button
                       type="button"
                       disabled={retry.isPending}

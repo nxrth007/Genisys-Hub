@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, Copy, ExternalLink, Link2, Loader2, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
+import { GhlSubAccountPicker } from '@/components/clients/ghl-subaccount-picker'
 import type { GhlBoardField, GhlSubAccountBoard, LinkResult } from '@/lib/ghl-subaccount-provisioning'
 
 /**
@@ -115,6 +116,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
               <p className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                 <Check className="h-4 w-4" /> Linked to this client
               </p>
+              <GhlSubAccountPicker clientId={clientId} locationId={board.status.locationId} />
               {board.status.url && (
                 <a href={board.status.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                   Open in GHL <ExternalLink className="h-3 w-3" />
@@ -125,8 +127,10 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           ) : (
             <div className="flex flex-col gap-3 text-[13px]">
               <p className="text-muted-foreground">
-                Not linked yet. Once you&rsquo;ve created it in GHL, the Hub finds it by the name on this board.
+                Not linked yet. Already in GHL? Pick it from the list. Just created it? The Hub can also find it by
+                the name on this board.
               </p>
+              <GhlSubAccountPicker clientId={clientId} locationId={null} />
               <button
                 type="button"
                 disabled={link.isPending}

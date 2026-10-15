@@ -284,8 +284,8 @@ export async function PATCH(
       )
     }
 
-    if (parsed.data.einStatus === 'none') {
-      void installLeadAlertWorkflow(client.id).catch((err) =>
+    if (parsed.data.einStatus === 'none' || 'ghlSubaccountUrl' in parsed.data) {
+      void installLeadAlertWorkflow(client.id, { relink: 'ghlSubaccountUrl' in parsed.data }).catch((err) =>
         console.warn(`[clients] lead-alert install failed for ${client.name}:`, err),
       )
     }

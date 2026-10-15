@@ -329,7 +329,8 @@ export function LeadAlertsSection() {
             <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
               {data.noEinClients.map((c) => {
                 const blocker = !c.linked
-                  ? 'No GHL sub-account linked — link it on the client card.'
+                  ? c.installError ??
+                    'Looking for their GHL sub-account — by the link on the card, or the name “First name: Business”.'
                   : !c.contactPhone
                     ? 'No contact phone on the client card — nothing to text.'
                     : null
@@ -358,7 +359,7 @@ export function LeadAlertsSection() {
                         {c.lastLeadAt ? `Last lead ${when(c.lastLeadAt)}` : ''}
                         {c.lastStatus && c.lastStatus !== 'delivered' ? ` · ${c.lastStatus}` : ''}
                       </p>
-                      {c.linked && data.snapshotId && c.installStatus !== 'installing' && (
+                      {data.snapshotId && c.installStatus !== 'installing' && (
                         <button
                           type="button"
                           disabled={install.isPending}
@@ -376,8 +377,10 @@ export function LeadAlertsSection() {
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : c.installStatus === 'installed' ? (
                             'Reinstall'
-                          ) : (
+                          ) : c.linked ? (
                             'Install now'
+                          ) : (
+                            'Find & install'
                           )}
                         </button>
                       )}

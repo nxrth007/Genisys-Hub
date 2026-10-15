@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { ghlSubAccountBoard, linkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
+import { ghlSubAccountBoard, linkGhlSubAccount, unlinkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 
 /**
  * The by-hand sub-account board (src/lib/ghl-subaccount-provisioning.ts).
@@ -9,7 +9,9 @@ import { ghlSubAccountBoard, linkGhlSubAccount } from '@/lib/ghl-subaccount-prov
  *   GET  → the board: the exact name and fields to type into GHL, the
  *          snapshot, where the client stands, and the steps ticked so far
  *   POST → link what was created: { locationId?: string } (a GHL link or
- *          id); without it, the Hub looks for the board's exact name
+ *          id); without it, the Hub looks for the board's exact name.
+ *          `replace: true` swaps out a sub-account linked before.
+ *   DELETE → unlink the sub-account (GHL itself is untouched)
  *   PUT  → save the ticked steps: { checks: string[] }
  *
  * Staff (admin + member), like the A2P board.
@@ -41,9 +43,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const denied = await requireStaff()
   if (denied) return denied
   const { id } = await params
-  const body = (await req.json().catch(() => ({}))) as { locationId?: unknown }
-  const result = await linkGhlSubAccount(id, { locationId: typeof body.locationId === 'string' ? body.locationId : null })
+  const body = (await req.json().catch(() => ({}))) as { locationId?: unknown; replace?: unknown }
+  const result = await linkGhlSubAccount(id, {
+    locationId: typeof body.locationId === 'string' ? body.locationId : null,
+    replace: body.replace === true,
+  })
   return NextResponse.json(result, { status: result.ok || result.status === 'not_found' ? 200 : 502 })
+}
+
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+  const { id } = await params
+  const result = await unlinkGhlSubAccount(id)
+  return NextResponse.json(result, { status: result.ok ? 200 : 404 })
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {

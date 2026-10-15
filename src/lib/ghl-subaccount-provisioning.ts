@@ -76,7 +76,8 @@ export async function getGhlSubaccountSettings(): Promise<GhlSubaccountSettings>
   const row = await prisma.appSetting.findUnique({ where: { key: SETTINGS_KEY } })
   const stored = parseSettings(row?.value)
   return {
-    enabled: stored.enabled ?? true,
+    // Off unless switched on: GHL refuses API creation below Agency Pro.
+    enabled: stored.enabled ?? false,
     snapshotId: stored.snapshotId ?? DEFAULT_SNAPSHOT_ID,
     since: stored.since ?? AUTOMATION_LIVE_AT,
   }
@@ -447,6 +448,15 @@ export async function provisionGhlSubAccount(
 
     return { ok: true, status: 'created', locationId: id, name: input.name }
   } catch (err) {
+    // The plan or the key refuses creation, so every later attempt would
+    // be refused too: switch the automation off rather than keep asking.
+    if (err instanceof GhlAgencyError && (err.status === 401 || err.status === 403)) {
+      const settings = await getGhlSubaccountSettings()
+      if (settings.enabled) await updateGhlSubaccountSettings({ enabled: false })
+      return await fail(
+        `${describe(err)}${settings.enabled ? '\n*Automatic sub-account creation is now switched off* so it stops trying. Link the sub-account from the client card once it’s made by hand.' : ''}`,
+      )
+    }
     const unsure = !(err instanceof GhlAgencyError) || err.status === null || err.status >= 500
     return await fail(
       `${describe(err)}${unsure ? ' — GHL may still have created it; check GHL before retrying (a retry links a sub-account with the same name instead of duplicating it).' : ''}`,
@@ -628,7 +638,7 @@ async function recentClientsNeverProvisioned(): Promise<GhlProvisionRow[]> {
       clientId: c.id,
       clientName: c.name,
       status: 'not started',
-      error: `${why} Press Create to make it now.`,
+      error: `${why} ${settings.enabled ? 'Press Create to make it now.' : 'Make it in GHL, then link it from the client card.'}`,
       locationId: null,
       url: null,
       snapshotStatus: null,
@@ -729,6 +739,55 @@ export async function ghlSubAccountBoard(clientId: string): Promise<GhlSubAccoun
   }
 }
 
+/** What was installed into the old sub-account doesn't carry over to a new one. */
+const LEAD_ALERT_RESET = {
+  leadAlertInstallStatus: null,
+  leadAlertInstallError: null,
+  leadAlertInstallAt: null,
+  leadAlertSnapshotId: null,
+}
+
+/** Take the sub-account off the client. Nothing in GHL changes. */
+export async function unlinkGhlSubAccount(clientId: string): Promise<{ ok: boolean; reason?: string }> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { name: true, ghlLocationId: true, ghlSubaccountUrl: true },
+  })
+  if (!client) return { ok: false, reason: 'client not found' }
+  if (!client.ghlLocationId) return { ok: true }
+  await prisma.client.update({
+    where: { id: clientId },
+    data: {
+      ghlLocationId: null,
+      ghlProvisionStatus: null,
+      ghlProvisionError: null,
+      ghlProvisionedAt: null,
+      ghlSnapshotStatus: null,
+      ...(client.ghlSubaccountUrl?.includes(client.ghlLocationId) ? { ghlSubaccountUrl: null } : {}),
+      ...LEAD_ALERT_RESET,
+    },
+  })
+  return { ok: true }
+}
+
+export type SubAccountOption = { id: string; name: string; client: { id: string; name: string } | null }
+
+/** Every sub-account in the agency, with the client each is linked to — for the link picker. */
+export async function subAccountOptions(): Promise<{ locations: SubAccountOption[]; truncated: boolean }> {
+  const ctx = await getAgencyContext()
+  const [{ locations, truncated }, linked] = await Promise.all([
+    listAllLocations(ctx),
+    prisma.client.findMany({ where: { ghlLocationId: { not: null } }, select: { id: true, name: true, ghlLocationId: true } }),
+  ])
+  const byLocation = new Map(linked.map((c) => [c.ghlLocationId as string, { id: c.id, name: c.name }]))
+  return {
+    locations: locations
+      .map((l) => ({ id: l.id, name: l.name, client: byLocation.get(l.id) ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    truncated,
+  }
+}
+
 export type LinkResult =
   | { ok: true; status: 'linked' | 'already'; locationId: string; name: string }
   | { ok: false; status: 'not_found' | 'failed'; reason: string; expectedName?: string }
@@ -746,7 +805,10 @@ export function parseLocationId(raw: string): string | null {
  * Link a sub-account a person created in GHL: by the exact name the
  * board showed, or by a pasted link/id. Never creates anything.
  */
-export async function linkGhlSubAccount(clientId: string, opts: { locationId?: string | null } = {}): Promise<LinkResult> {
+export async function linkGhlSubAccount(
+  clientId: string,
+  opts: { locationId?: string | null; replace?: boolean } = {},
+): Promise<LinkResult> {
   const client = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
@@ -755,7 +817,14 @@ export async function linkGhlSubAccount(clientId: string, opts: { locationId?: s
     },
   })
   if (!client) return { ok: false, status: 'failed', reason: 'client not found' }
-  if (client.ghlLocationId) return { ok: true, status: 'already', locationId: client.ghlLocationId, name: client.name }
+  const wanted = opts.locationId ? parseLocationId(opts.locationId) : null
+  if (client.ghlLocationId && (!opts.replace || !wanted || wanted === client.ghlLocationId)) {
+    return { ok: true, status: 'already', locationId: client.ghlLocationId, name: client.name }
+  }
+  if (wanted) {
+    const owner = await prisma.client.findFirst({ where: { ghlLocationId: wanted, id: { not: clientId } }, select: { name: true } })
+    if (owner) return { ok: false, status: 'failed', reason: `That sub-account is already linked to ${owner.name}. Unlink it there first.` }
+  }
 
   const expectedName = subAccountName(client.contactName ?? client.intakes[0]?.fullName ?? null, client.name)
   try {
@@ -779,6 +848,8 @@ export async function linkGhlSubAccount(clientId: string, opts: { locationId?: s
         }
       }
     }
+    // A link that pointed at the old sub-account (or none) follows the new one.
+    const keepUrl = client.ghlSubaccountUrl && !(client.ghlLocationId && client.ghlSubaccountUrl.includes(client.ghlLocationId))
     await prisma.client.update({
       where: { id: client.id },
       data: {
@@ -786,11 +857,12 @@ export async function linkGhlSubAccount(clientId: string, opts: { locationId?: s
         ghlProvisionStatus: 'linked',
         ghlProvisionError: null,
         ghlProvisionedAt: new Date(),
-        ...(client.ghlSubaccountUrl ? {} : { ghlSubaccountUrl: ghlLocationUrl(found.id) }),
+        ...(keepUrl ? {} : { ghlSubaccountUrl: ghlLocationUrl(found.id) }),
+        ...(client.ghlLocationId ? LEAD_ALERT_RESET : {}),
       },
     })
     await hubAlert(
-      `:link: *GHL sub-account linked* — *${found.name || expectedName}* was created in GHL by hand and is now on the client. <${ghlLocationUrl(found.id)}|Open in GHL> · <${hubLink(`/clients?focus=${client.id}`)}|Open client>`,
+      `:link: *GHL sub-account linked* — *${found.name || expectedName}* is now ${client.name}'s${client.ghlLocationId ? ' (replacing the one linked before)' : ''}. <${ghlLocationUrl(found.id)}|Open in GHL> · <${hubLink(`/clients?focus=${client.id}`)}|Open client>`,
     )
     return { ok: true, status: 'linked', locationId: found.id, name: found.name || expectedName }
   } catch (err) {

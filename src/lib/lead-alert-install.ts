@@ -2,17 +2,18 @@
  * Puts the "Lead alert → Hub" workflow into No EIN clients' sub-accounts
  * without anyone opening GHL: the workflow lives in a small snapshot
  * (chosen once in Settings), and the Hub loads that snapshot into the
- * sub-account through the agency key as soon as a client is No EIN and
- * has a sub-account linked. Loading never overrides what the sub-account
- * already has.
+ * sub-account through the agency key as soon as a client is No EIN. A
+ * sub-account made by hand is linked first, from the card's link or by
+ * name. Loading never overrides what the sub-account already has.
  *
- * Runs from the client PATCH (EIN status changed) and from a 5-minute
- * sweep, which also catches clients whose sub-account was linked later,
- * a newly chosen snapshot, and retries failures every few hours.
+ * Runs from the client PATCH (EIN status or sub-account link changed)
+ * and from a 5-minute sweep, which also catches sub-accounts that appear
+ * later, a newly chosen snapshot, and retries failures every few hours.
  */
 import { prisma } from '@/lib/prisma'
 import { getAgencyContext, getSnapshotPushStatus, loadSnapshotIntoLocation, GhlAgencyError } from '@/lib/ghl-agency'
 import { hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
+import { linkGhlSubAccount, parseLocationId } from '@/lib/ghl-subaccount-provisioning'
 
 const IN_FLIGHT_MS = 10 * 60_000
 const FAILED_RETRY_MS = 6 * 60 * 60_000
@@ -24,7 +25,44 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export async function installLeadAlertWorkflow(clientId: string, opts: { force?: boolean } = {}): Promise<InstallResult> {
+// Finding a sub-account by name lists the whole agency, so a client that
+// isn't found is only looked for again after a while.
+const LINK_RETRY_MS = 60 * 60_000
+const lastLinkAttempt = new Map<string, number>()
+
+/**
+ * Sub-accounts made by hand never got their id stored. Link one from the
+ * card's GHL sub-account link, or by the "First name: Business" name.
+ */
+async function findSubAccount(
+  clientId: string,
+  url: string | null,
+  force: boolean,
+): Promise<{ ok: true; locationId: string } | { ok: false; reason: string; throttled?: boolean }> {
+  const last = lastLinkAttempt.get(clientId) ?? 0
+  if (!force && Date.now() - last < LINK_RETRY_MS) {
+    return { ok: false, reason: 'No GHL sub-account found for this client yet.', throttled: true }
+  }
+  lastLinkAttempt.set(clientId, Date.now())
+  const fromUrl = url ? parseLocationId(url) : null
+  const r = await linkGhlSubAccount(clientId, fromUrl ? { locationId: fromUrl } : {})
+  if (r.ok) return { ok: true, locationId: r.locationId }
+  return {
+    ok: false,
+    reason: fromUrl
+      ? r.reason
+      : `${r.reason} Or paste the sub-account's link into the client card's GHL sub-account field.`,
+  }
+}
+
+/**
+ * `force` loads it again even when it's installed; `relink` looks for the
+ * sub-account straight away (the card's link just changed).
+ */
+export async function installLeadAlertWorkflow(
+  clientId: string,
+  opts: { force?: boolean; relink?: boolean } = {},
+): Promise<InstallResult> {
   const [client, config] = await Promise.all([
     prisma.client.findUnique({
       where: { id: clientId },
@@ -33,6 +71,7 @@ export async function installLeadAlertWorkflow(clientId: string, opts: { force?:
         einStatus: true,
         active: true,
         ghlLocationId: true,
+        ghlSubaccountUrl: true,
         leadAlertInstallStatus: true,
         leadAlertInstallAt: true,
         leadAlertSnapshotId: true,
@@ -43,9 +82,18 @@ export async function installLeadAlertWorkflow(clientId: string, opts: { force?:
   if (!client) return { status: 'skipped', reason: 'Client not found.' }
   if (client.einStatus !== 'none') return { status: 'skipped', reason: 'Client isn’t marked No EIN.' }
   if (!client.active) return { status: 'skipped', reason: 'Client is inactive.' }
-  if (!client.ghlLocationId) return { status: 'skipped', reason: 'No GHL sub-account is linked yet.' }
   const snapshotId = config.leadAlertSnapshotId
   if (!snapshotId) return { status: 'skipped', reason: 'No lead-alert snapshot is chosen in Settings yet.' }
+  if (!client.ghlLocationId) {
+    const linked = await findSubAccount(clientId, client.ghlSubaccountUrl, !!(opts.force || opts.relink))
+    if (!linked.ok) {
+      if (!linked.throttled) {
+        await prisma.client.update({ where: { id: clientId }, data: { leadAlertInstallError: linked.reason.slice(0, 2000) } })
+      }
+      return { status: 'skipped', reason: linked.reason }
+    }
+    client.ghlLocationId = linked.locationId
+  }
 
   const current = client.leadAlertSnapshotId === snapshotId ? client.leadAlertInstallStatus : null
   const since = client.leadAlertInstallAt ? Date.now() - client.leadAlertInstallAt.getTime() : Infinity
@@ -143,7 +191,6 @@ export async function sweepLeadAlertInstalls(): Promise<{ attempted: number; ins
     where: {
       einStatus: 'none',
       active: true,
-      ghlLocationId: { not: null },
       OR: [
         { leadAlertInstallStatus: null },
         { leadAlertSnapshotId: null },
