@@ -526,6 +526,11 @@ model Client {
   /// The website we built and put live for this client. Set from the
   /// Clients page once the site ships; null until then.
   siteUrl      String?
+  /// EIN as the team recorded it (overrides the onboarding answer), and
+  /// where it stands: on_file | none (the business has no EIN) | pending
+  /// (they'll send it). Null = not set; an onboarding EIN counts as on file.
+  ein          String?
+  einStatus    String?
   /// When siteUrl was first set -- the moment the site went live. Drives
   /// the arc that fires on the Home globe.
   siteLiveAt   DateTime?

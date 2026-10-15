@@ -29,6 +29,7 @@ export type ClientEditValues = {
   address: string
   website: string
   siteUrl: string
+  ein: string
   notes: string
 }
 
@@ -45,6 +46,7 @@ const FIELDS: Array<{
   { key: 'address', label: 'Address' },
   { key: 'website', label: 'Their existing website', placeholder: 'as given on the form' },
   { key: 'siteUrl', label: 'Site we built (live URL)', placeholder: 'https://…' },
+  { key: 'ein', label: 'EIN', placeholder: '12-3456789 — leave empty if they have none' },
 ]
 
 export function ClientEditDialog({
@@ -83,6 +85,7 @@ export function ClientEditDialog({
           address: v.address,
           website: v.website,
           siteUrl: v.siteUrl,
+          ein: v.ein,
           notes: v.notes,
         }),
       })

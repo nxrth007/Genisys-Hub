@@ -51,6 +51,7 @@ export const A2P_INPUT_KEYS = [
 ] as const satisfies readonly (keyof A2pInputs)[]
 
 export type A2pSource = {
+  ein?: string | null
   name: string
   contactName: string | null
   contactEmail: string | null
@@ -159,7 +160,7 @@ export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
   return {
     businessName,
     legalName: businessName,
-    ein: clean(i?.ein),
+    ein: clean(src.ein) || clean(i?.ein),
     contactEmail: clean(i?.leadEmail) || clean(src.contactEmail),
     ownerFirstName,
     trade: '',

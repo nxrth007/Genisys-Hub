@@ -21,7 +21,7 @@ import {
 
 type Saved = { values: Partial<A2pInputs>; checks: string[]; updatedAt: string | null }
 type BoardData = {
-  client: { id: string; name: string; siteUrl: string | null; hasIntake: boolean }
+  client: { id: string; name: string; siteUrl: string | null; hasIntake: boolean; einStatus: string | null }
   prefill: A2pInputs
   mainServices: string | null
   saved: Saved
@@ -224,6 +224,22 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             </span>
           </p>
         ) : null}
+
+        {data.client.einStatus === 'none' && (
+          <p className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <span>
+              <span className="font-semibold">No EIN on file for this client.</span> Register the A2P brand as a{' '}
+              <span className="font-semibold">Sole Proprietor</span> (no EIN needed; one campaign and a lower daily message cap). Leave the
+              EIN box empty and use the owner&rsquo;s name and address.
+            </span>
+          </p>
+        )}
+        {data.client.einStatus === 'pending' && (
+          <p className="rounded-xl border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
+            The client hasn&rsquo;t sent their EIN yet. Brand registration needs it, so this waits unless they go Sole Proprietor.
+          </p>
+        )}
 
         <Checklist site={site} checks={checks} setChecks={setChecks} />
 

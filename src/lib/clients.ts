@@ -218,6 +218,8 @@ export function normalizeClientPatch(
         bookWeekends: boolean | null
         website: string | null
         siteUrl: string | null
+        ein: string | null
+        einStatus: string | null
         providesBatteryBackup: boolean | null
         qualificationCriteria: string | null
         onboardingNotes: string | null
@@ -252,12 +254,29 @@ export function normalizeClientPatch(
     bookWeekends: boolean | null
     website: string | null
     siteUrl: string | null
+    ein: string | null
+    einStatus: string | null
     providesBatteryBackup: boolean | null
     qualificationCriteria: string | null
     onboardingNotes: string | null
     slackChannelId: string | null
     slackChannelName: string | null
   }> = {}
+
+  // EIN — digits (with or without the dash); empty clears it. Its status
+  // is one of on_file / none / pending, or null to go back to "not set".
+  if ('ein' in b) {
+    const raw = trimOrNull(b.ein)
+    if (raw && !/^\d{2}-?\d{7}$/.test(raw)) return { ok: false, error: 'EIN should look like 12-3456789' }
+    data.ein = raw ? raw.replace(/^(\d{2})-?(\d{7})$/, '$1-$2') : null
+  }
+  if ('einStatus' in b) {
+    const s = b.einStatus
+    if (s !== null && s !== '' && s !== 'on_file' && s !== 'none' && s !== 'pending') {
+      return { ok: false, error: 'einStatus must be on_file, none or pending' }
+    }
+    data.einStatus = s ? (s as string) : null
+  }
 
   // Name — required if present, can't be cleared.
   if ('name' in b) {

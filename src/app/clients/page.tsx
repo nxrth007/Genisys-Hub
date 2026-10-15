@@ -94,6 +94,8 @@ type RosterClient = {
   address: string | null
   website: string | null
   siteUrl: string | null
+  ein: string | null
+  einStatus: string | null
   notes: string | null
   onboardingNotes: string | null
   ghlSubaccountUrl: string | null
@@ -419,6 +421,7 @@ function ClientsPage() {
             address: c.address ?? '',
             website: c.website ?? '',
             siteUrl: c.siteUrl ?? '',
+            ein: c.ein ?? '',
             notes: c.notes ?? '',
           })
         }}
@@ -909,6 +912,8 @@ function ClientDetailDialog({
                 <span>{client.contactName ?? i?.fullName ?? 'No contact name'}</span>
                 <span>·</span>
                 <Chip>{LIFECYCLE_LABEL[client.lifecycle] ?? client.lifecycle}</Chip>
+                {client.einStatus === 'none' && <Chip tone="amber">No EIN</Chip>}
+                {client.einStatus === 'pending' && <Chip>EIN pending</Chip>}
                 {client.archivedAt && <Chip>Archived</Chip>}
               </p>
               <SubmittedAt client={client} />
@@ -1034,7 +1039,7 @@ function ClientDetailDialog({
             <Row label="Address" value={client.address ?? i?.businessAddress} span />
             <Row label="Area code" value={i?.areaCode} mono />
             <Row label="Time zone" value={i?.timeZone} />
-            <Row label="EIN" value={i?.ein} mono />
+            <EinField client={client} />
           </dl>
         </Section>
 
@@ -1193,6 +1198,99 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="flex flex-col gap-1.5">
       <span className="eyebrow text-muted-foreground/80">{label}</span>
       <span>{children}</span>
+    </div>
+  )
+}
+
+const EIN_OPTIONS = [
+  { id: 'on_file', label: 'EIN on file' },
+  { id: 'none', label: 'No EIN' },
+  { id: 'pending', label: 'EIN pending — client will send it' },
+] as const
+
+/**
+ * The EIN and where it stands. Some clients have no EIN (sole proprietors)
+ * or can't give it yet; "No EIN" has to stand out because A2P registration
+ * and the GHL setup go a different route without one.
+ */
+function EinField({ client }: { client: RosterClient }) {
+  const qc = useQueryClient()
+  const fromForm = client.intake?.ein ?? null
+  const number = client.ein ?? fromForm
+  const status = client.einStatus ?? (number ? 'on_file' : '')
+  const [draft, setDraft] = useState('')
+  const save = useMutation({
+    mutationFn: async (body: { einStatus?: string | null; ein?: string | null }) => {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to save')
+      }
+    },
+    onSuccess: () => {
+      setDraft('')
+      qc.invalidateQueries({ queryKey: ['clients-roster'] })
+      qc.invalidateQueries({ queryKey: ['clients'] })
+    },
+  })
+
+  return (
+    <div>
+      <dt className="eyebrow text-muted-foreground/80">EIN</dt>
+      <dd className="mt-0.5 flex flex-wrap items-center gap-2 text-sm">
+        <select
+          value={status}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate({ einStatus: e.target.value || null })}
+          title="Where the EIN stands"
+          className={cn(
+            'eyebrow cursor-pointer appearance-none rounded-md border px-2 py-1 focus:outline-none focus:ring-1 focus:ring-foreground/30',
+            status === 'none'
+              ? 'border-amber-500/50 bg-amber-500/15 text-amber-300'
+              : status === 'on_file'
+                ? 'border-border bg-surface text-foreground'
+                : 'border-transparent bg-muted text-muted-foreground',
+            save.isPending && 'opacity-60',
+          )}
+        >
+          <option value="">Set EIN status…</option>
+          {EIN_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {status === 'on_file' &&
+          (number ? (
+            <span className="font-mono text-[13px]" title={client.ein ? 'Entered in the Hub' : 'From the onboarding form'}>
+              {number}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="12-3456789"
+                className="h-7 w-32 rounded-md border border-border bg-surface px-2 font-mono text-[12.5px] outline-none focus:border-foreground/40"
+              />
+              <button
+                type="button"
+                disabled={!draft.trim() || save.isPending}
+                onClick={() => save.mutate({ ein: draft.trim(), einStatus: 'on_file' })}
+                className="rounded-md border border-border px-2 py-1 text-[11.5px] font-medium hover:bg-muted disabled:opacity-50"
+              >
+                Save
+              </button>
+            </span>
+          ))}
+        {status === 'none' && <span className="text-[12px] text-amber-300/90">A2P goes the Sole Proprietor route</span>}
+        {status === 'pending' && fromForm && <span className="font-mono text-[12px] text-muted-foreground/70">form said {fromForm}</span>}
+        {save.isError && <span className="text-[11.5px] text-destructive">{(save.error as Error).message}</span>}
+      </dd>
     </div>
   )
 }

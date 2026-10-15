@@ -65,6 +65,8 @@ export async function GET() {
       address: true,
       website: true,
       siteUrl: true,
+      ein: true,
+      einStatus: true,
       notes: true,
       onboardingNotes: true,
       ghlSubaccountUrl: true,

@@ -55,6 +55,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       address: true,
       siteUrl: true,
       website: true,
+      ein: true,
+      einStatus: true,
       intakes: {
         orderBy: { receivedAt: 'desc' },
         take: 1,
@@ -91,7 +93,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   }
 
   return NextResponse.json({
-    client: { id: c.id, name: c.name, siteUrl: c.siteUrl, hasIntake: !!intake },
+    client: { id: c.id, name: c.name, siteUrl: c.siteUrl, hasIntake: !!intake, einStatus: c.einStatus },
     prefill,
     mainServices: intake?.mainServices ?? null,
     saved: parseSaved(row?.value),
