@@ -40,8 +40,14 @@ import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSeoTick } from './seo/engine'
 import { maybeRunLovableGitWatch } from './seo/lovable-git-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
+import { sweepLeadAlertInstalls } from './lead-alert-install'
 
 let initialized = false
+
+// Loads the lead-alert snapshot into No EIN clients' sub-accounts.
+const LEAD_ALERT_INSTALL_INTERVAL_MS = 5 * 60 * 1000
+let lastLeadAlertInstallAt = 0
+let leadAlertInstallInFlight = false
 
 // Sync the sheet less aggressively than we dispatch — reading every
 // minute hammers the Drive API for no benefit. 5-minute cadence still
@@ -354,6 +360,25 @@ export function initScheduler() {
           .catch((err) => console.error('[scheduler] onboarding sheet reconcile failed:', err))
           .finally(() => {
             onboardingSheetInFlight = false
+          })
+      }
+    }
+
+    // Lead-alert snapshot -> No EIN sub-accounts (fire-and-forget).
+    {
+      const now = Date.now()
+      if (now - lastLeadAlertInstallAt >= LEAD_ALERT_INSTALL_INTERVAL_MS && !leadAlertInstallInFlight) {
+        lastLeadAlertInstallAt = now
+        leadAlertInstallInFlight = true
+        void sweepLeadAlertInstalls()
+          .then((r) => {
+            if (r.attempted) {
+              console.log(`[scheduler] lead-alert install: ${r.installed} installed, ${r.failed} failed (of ${r.attempted})`)
+            }
+          })
+          .catch((err) => console.error('[scheduler] lead-alert install failed:', err))
+          .finally(() => {
+            leadAlertInstallInFlight = false
           })
       }
     }

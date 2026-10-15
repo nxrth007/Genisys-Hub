@@ -35,7 +35,7 @@ const FILL_FIELDS = [
  * group is set: taken whole when the kept client lacks it and the other has it.
  */
 const GROUPS: [string, string[]][] = [
-  ['ghlLocationId', ['ghlLocationId', 'ghlProvisionStatus', 'ghlProvisionError', 'ghlProvisionedAt', 'ghlSnapshotStatus']],
+  ['ghlLocationId', ['ghlLocationId', 'ghlProvisionStatus', 'ghlProvisionError', 'ghlProvisionedAt', 'ghlSnapshotStatus', 'leadAlertInstallStatus', 'leadAlertInstallError', 'leadAlertInstallAt', 'leadAlertSnapshotId']],
   ['slackChannelId', ['slackChannelId', 'slackChannelName', 'slackInviteSentAt']],
   ['geoLat', ['geoLat', 'geoLng', 'geoLabel', 'geoStatus', 'geoRetryAt', 'geocodedAt']],
 ]

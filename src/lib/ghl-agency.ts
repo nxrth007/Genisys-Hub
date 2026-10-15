@@ -246,6 +246,27 @@ export async function createLocation(ctx: AgencyContext, input: CreateLocationIn
   return { id: created.id, name: created.name || input.name }
 }
 
+/**
+ * Load `snapshotId` into an existing sub-account. With override off, GHL
+ * only adds what the sub-account doesn't already have.
+ */
+export async function loadSnapshotIntoLocation(ctx: AgencyContext, locationId: string, snapshotId: string): Promise<void> {
+  try {
+    await agencyFetch(ctx.token, `/locations/${encodeURIComponent(locationId)}`, {
+      method: 'PUT',
+      body: { companyId: ctx.companyId, snapshot: { id: snapshotId, override: false } },
+    })
+  } catch (err) {
+    if (err instanceof GhlAgencyError && (err.status === 401 || err.status === 403)) {
+      throw new GhlAgencyError(
+        `${err.message}. The "${GHL_AGENCY_KEY_VAULT_NAME}" Vault entry must be an agency-level Private Integration with the "locations.write" scope, and GHL may only allow this on the Agency Pro plan, as it does for creating sub-accounts.`,
+        err.status,
+      )
+    }
+    throw err
+  }
+}
+
 /** One sub-account by id; null when GHL has no such location or it isn't this agency's. */
 export async function getLocation(ctx: AgencyContext, locationId: string): Promise<(AgencyLocation & { companyId: string | null }) | null> {
   let res: { location?: Record<string, unknown> }

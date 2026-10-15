@@ -7,6 +7,7 @@ import { ensureClientGeo, GEO_RESET } from '@/lib/geocode'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
 import { backfillClientAlerts } from '@/lib/client-alert'
+import { installLeadAlertWorkflow } from '@/lib/lead-alert-install'
 import { getSecretByName } from '@/lib/vault-service'
 
 /**
@@ -280,6 +281,12 @@ export async function PATCH(
     if (addressChanged) {
       void ensureClientGeo(client.id).catch((err) =>
         console.warn(`[clients] re-geocode failed for ${client.name}:`, err),
+      )
+    }
+
+    if (parsed.data.einStatus === 'none') {
+      void installLeadAlertWorkflow(client.id).catch((err) =>
+        console.warn(`[clients] lead-alert install failed for ${client.name}:`, err),
       )
     }
 

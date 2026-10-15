@@ -14,6 +14,7 @@ import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
 import { formatPhoneDisplay } from '@/lib/phone'
 import { hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
+import { markLeadAlertInstalled } from '@/lib/lead-alert-install'
 import type { Prisma } from '@/generated/prisma/client'
 
 export const LEAD_WEBHOOK_SECRET_ENTRY = 'GHL Lead Webhook Secret'
@@ -226,6 +227,8 @@ export async function handleGhlLead(body: Record<string, unknown>): Promise<Lead
     if ((err as { code?: string }).code === 'P2002') return { status: 'duplicate' }
     throw err
   }
+  const clientId = d.send ? d.client.id : d.clientId
+  if (clientId) await markLeadAlertInstalled(clientId)
 
   if (!d.send) {
     if (d.status === 'unrouted') {
@@ -341,12 +344,16 @@ export type NoEinClientRow = {
   linked: boolean
   lastLeadAt: string | null
   lastStatus: string | null
+  installStatus: string | null
+  installError: string | null
+  installAt: string | null
 }
 
 export async function leadAlertsOverview(limit = 30): Promise<{
   enabled: boolean
   senderPhone: string | null
   vaultEntryName: string
+  snapshotId: string | null
   recent: LeadAlertRow[]
   noEinClients: NoEinClientRow[]
   /** Sub-accounts that posted at least once in 30 days — i.e. have the workflow. */
@@ -368,6 +375,10 @@ export async function leadAlertsOverview(limit = 30): Promise<{
         name: true,
         contactPhone: true,
         ghlLocationId: true,
+        leadAlertInstallStatus: true,
+        leadAlertInstallError: true,
+        leadAlertInstallAt: true,
+        leadAlertSnapshotId: true,
         leadAlerts: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true, status: true } },
       },
     }),
@@ -381,6 +392,7 @@ export async function leadAlertsOverview(limit = 30): Promise<{
     enabled: config.leadAlertsEnabled,
     senderPhone: config.senderPhone,
     vaultEntryName: config.vaultEntryName,
+    snapshotId: config.leadAlertSnapshotId,
     recent: rows.map((r) => ({
       id: r.id,
       status: r.status,
@@ -404,6 +416,10 @@ export async function leadAlertsOverview(limit = 30): Promise<{
       linked: !!c.ghlLocationId,
       lastLeadAt: c.leadAlerts[0]?.createdAt.toISOString() ?? null,
       lastStatus: c.leadAlerts[0]?.status ?? null,
+      // An install of an earlier snapshot is reported as not installed.
+      installStatus: c.leadAlertSnapshotId === config.leadAlertSnapshotId ? c.leadAlertInstallStatus : null,
+      installError: c.leadAlertInstallError,
+      installAt: c.leadAlertInstallAt?.toISOString() ?? null,
     })),
     reportingSubAccounts30d: reporting.length,
   }

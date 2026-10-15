@@ -571,6 +571,14 @@ model Client {
   // otherwise creating | created | linked | failed. ghlSnapshotStatus is
   // GHL's last reported progress loading the snapshot.
   ghlLocationId       String?   @unique
+  // The lead-alert snapshot (see LeadAlert), loaded into the sub-account
+  // automatically once the client is No EIN: installing | installed |
+  // failed, null = never tried. leadAlertSnapshotId is what was loaded,
+  // so choosing a different snapshot in Settings loads that one too.
+  leadAlertInstallStatus String?
+  leadAlertInstallError  String?   @db.Text
+  leadAlertInstallAt     DateTime?
+  leadAlertSnapshotId    String?
   ghlProvisionStatus  String?
   ghlProvisionError   String?   @db.Text
   ghlProvisionedAt    DateTime?
@@ -1109,6 +1117,9 @@ model ClientAlertsConfig {
   /// Lead texts for No EIN clients (see LeadAlert). Independent of
   /// `enabled`, which only governs appointment alerts.
   leadAlertsEnabled Boolean @default(true)
+  /// Snapshot holding only the "Lead alert → Hub" workflow. Loaded into
+  /// every No EIN client's sub-account; null = nothing is installed.
+  leadAlertSnapshotId String?
   updatedAt       DateTime @updatedAt @default(now())
 }
 
