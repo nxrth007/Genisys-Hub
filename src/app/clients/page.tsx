@@ -260,7 +260,7 @@ function ClientsPage() {
   const sitesLive = live.filter((c) => c.siteUrl).length
 
   return (
-    <div className="mx-auto flex max-w-[1320px] flex-col gap-6">
+    <div className="mx-auto flex max-w-[1760px] flex-col gap-6">
       <PageHeader
         title="Clients"
         subtitle="Onboarded through the client onboarding form."
@@ -348,24 +348,22 @@ function ClientsPage() {
       ) : (
         <div className="flex flex-col gap-8">
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full min-w-[64rem] text-[13px]">
+            <table className="w-full min-w-[60rem] text-[13px]">
               <thead className="eyebrow bg-surface-muted text-left text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5">Client</th>
-                  <th className="px-3 py-2.5">Contact</th>
-                  <th className="px-3 py-2.5">Cities</th>
-                  <th className="px-3 py-2.5">Time zone</th>
-                  <th className="px-3 py-2.5">Domain</th>
-                  <th className="px-3 py-2.5">Site</th>
-                  <th className="px-3 py-2.5">Repo</th>
-                  <th className="px-3 py-2.5">Status</th>
-                  <th className="px-3 py-2.5">Onboarded</th>
+                  <th className="px-5 py-2.5">Client</th>
+                  <th className="px-4 py-2.5">Contact</th>
+                  <th className="px-4 py-2.5">Domain</th>
+                  <th className="px-4 py-2.5">Site</th>
+                  <th className="px-4 py-2.5">Repo</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-5 py-2.5 text-right">Onboarded</th>
                 </tr>
               </thead>
               <tbody>
                 {roster.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       Everything matching is archived.
                     </td>
                   </tr>
@@ -393,7 +391,7 @@ function ClientsPage() {
               </button>
               {archivedOpen && (
                 <div className="overflow-x-auto rounded-xl border border-border opacity-60">
-                  <table className="w-full min-w-[64rem] text-[13px]">
+                  <table className="w-full min-w-[60rem] text-[13px]">
                     <tbody>
                       {archived.map((c) => (
                         <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} />
@@ -475,28 +473,24 @@ function ClientRow({
       onClick={() => onOpen(client)}
       className="cursor-pointer border-t border-border-soft transition hover:bg-surface-muted"
     >
-      <td className="px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-3">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-surface font-mono text-[12px] font-semibold">
             {initials(client.name)}
           </span>
-          <div className="min-w-0">
-            <p className="truncate font-medium">{client.name}</p>
-            <p className="truncate text-xs text-muted-foreground">
+          <div>
+            <p className="font-medium">{client.name}</p>
+            <p className="text-xs text-muted-foreground">
               {client.contactName ?? i?.fullName ?? '—'}
             </p>
           </div>
         </div>
       </td>
-      <td className="px-3 py-3 font-mono text-[12px]">
-        <p className="whitespace-nowrap">{client.contactPhone ?? i?.customerPhone ?? '—'}</p>
-        <p className="truncate text-muted-foreground">{client.contactEmail ?? i?.leadEmail ?? ''}</p>
+      <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px]">
+        <p>{client.contactPhone ?? i?.customerPhone ?? '—'}</p>
+        <p className="text-muted-foreground">{client.contactEmail ?? i?.leadEmail ?? ''}</p>
       </td>
-      <td className="max-w-[16rem] px-3 py-3">
-        <span className="line-clamp-2 text-muted-foreground">{i?.cities ?? '—'}</span>
-      </td>
-      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{i?.timeZone ?? '—'}</td>
-      <td className="whitespace-nowrap px-3 py-3 font-mono text-[12px]">
+      <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px]">
         {i ? (
           ownsDomain(i) ? (
             <span>{i.domainName ?? 'Own domain'}</span>
@@ -507,16 +501,16 @@ function ClientRow({
           <span className="text-muted-foreground/50">—</span>
         )}
       </td>
-      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+      <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <SiteLink client={client} />
       </td>
-      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+      <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <RepoSelect client={client} repoOwners={repoOwners} />
       </td>
-      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <InlineStatus client={client} />
       </td>
-      <td className="whitespace-nowrap px-3 py-3 font-mono text-[12px] text-muted-foreground">
+      <td className="whitespace-nowrap px-5 py-3 text-right font-mono text-[12px] text-muted-foreground">
         {dateFmt.format(new Date(client.intake?.receivedAt ?? client.createdAt))}
       </td>
     </tr>
@@ -743,7 +737,7 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
             if (!next && !window.confirm(`Unlink ${short(current)} from ${client.name}? The SEO engine goes back to audit-only for this client.`)) return
             assign.mutate(next)
           }}
-          className="max-w-[11rem] cursor-pointer appearance-none truncate bg-transparent py-1 pl-7 pr-6 focus:outline-none"
+          className="max-w-[18rem] cursor-pointer appearance-none truncate bg-transparent py-1 pl-7 pr-6 focus:outline-none"
         >
           <option value="">{current ? 'No repo' : 'Assign repo'}</option>
           {options.map((r) => {
