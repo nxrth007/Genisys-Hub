@@ -1075,9 +1075,20 @@ async function writeFoundation(ctx: RunContext): Promise<StageOutcome> {
   const repo = ctx.snapshot?.repo
   if (!repo) throw new FatalRunError('The foundation needs a linked repo.')
   if (repo.foundationInstalled) {
-    ctx.log('write', 'The SEO foundation is already installed on this repo — nothing to do.')
     await prisma.seoSite.update({ where: { id: ctx.site.id }, data: { foundationStatus: 'installed' } })
-    return { stage: 'report', status: 'running' }
+    // Often copied in with the site template, still naming the template's
+    // domain and IndexNow key: point them at this site instead.
+    const sync = await domainSync({ siteId: ctx.site.id, liveUrl: ctx.site.liveUrl, indexNowKey: ctx.site.indexNowKey, repo })
+    for (const w of sync.warnings) ctx.log('write', w, 'warn')
+    if (!sync.changes.length) {
+      ctx.log('write', 'The SEO foundation is already installed on this repo, naming this site’s domain — nothing to do.')
+      return { stage: 'report', status: 'running' }
+    }
+    for (const n of sync.notes) ctx.log('write', n)
+    ctx.log('write', `The SEO foundation came with the site template — pointing it at this site: ${sync.changes.map((c) => c.path).join(', ')}`)
+    ctx.site = { ...ctx.site, indexNowKey: (await prisma.seoSite.findUnique({ where: { id: ctx.site.id }, select: { indexNowKey: true } }))?.indexNowKey ?? ctx.site.indexNowKey }
+    await ctx.save({ changes: json(sync.changes) })
+    return { stage: 'commit', status: 'running' }
   }
   if (repo.platform !== 'lovable-tanstack') {
     throw new FatalRunError(`The SEO foundation supports Lovable TanStack Start sites; this repo looks like "${repo.platform}".`)
@@ -1137,7 +1148,9 @@ function prBody(ctx: RunContext, changes: ChangeFile[], drafts: Draft[]): string
   const plan = (ctx.run.plan as unknown as SeoPlan | null) ?? null
   const lines = [
     ctx.run.kind === 'foundation'
-      ? '## SEO foundation\n\nOne-time change so the Genisys SEO engine can publish weekly posts as data files, and so search engines and AI crawlers get a sitemap, llms.txt, absolute canonicals and richer article schema.'
+      ? ctx.snapshot?.repo?.foundationInstalled
+        ? `## SEO foundation — point it at this site\n\nThis repo came with the SEO foundation from the site template, still naming another domain or IndexNow key. This points the canonical links, sitemap and robots.txt at ${originOf(ctx.site.liveUrl) ?? 'the Site domain'} and gives the site its own IndexNow key.`
+        : '## SEO foundation\n\nOne-time change so the Genisys SEO engine can publish weekly posts as data files, and so search engines and AI crawlers get a sitemap, llms.txt, absolute canonicals and richer article schema.'
       : `## ${plan?.headline ?? 'Weekly SEO update'}\n\n${plan?.summary ?? ''}`,
     '',
     '### Files',
