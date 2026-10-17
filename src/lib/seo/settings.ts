@@ -23,7 +23,7 @@ export const SEO_DEFAULTS: SeoSettings = {
   // The claude-api reference's default model. Change here (or in the stored
   // setting) — every call reads it per run.
   model: 'claude-opus-5',
-  postsPerWeek: 1,
+  postsPerWeek: 6,
   maxCostPerRunUsd: 8,
 }
 

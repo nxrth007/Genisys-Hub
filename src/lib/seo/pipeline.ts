@@ -438,7 +438,7 @@ async function historyFor(ctx: RunContext): Promise<string> {
   const posts = await prisma.seoPost.findMany({
     where: { siteId: ctx.site.id },
     orderBy: { createdAt: 'desc' },
-    take: 20,
+    take: 80,
     select: { slug: true, title: true, primaryKeyword: true, status: true, createdAt: true },
   })
   const lines = runs.map((r) => {
@@ -668,6 +668,10 @@ async function chooseRefreshes(ctx: RunContext, repo: RepoSnapshot): Promise<Ref
   return out
 }
 
+/** Most new posts one week may write of a single content type, and for a single service (more when the site has few services). */
+const MAX_BRIEFS_PER_TYPE = 2
+const MAX_BRIEFS_PER_SERVICE = 2
+
 export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
   const facts = (ctx.site.facts as unknown as BusinessFacts | null) ?? null
   const audit = (ctx.run.audit as unknown as AuditResult | null) ?? null
@@ -677,6 +681,13 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
   const oneOff = ctx.site.postsNextRun
   const postsAllowed = oneOff ?? ctx.site.postsPerWeek ?? ctx.settings.postsPerWeek
   const refreshes = canCommit && repo ? await chooseRefreshes(ctx, repo) : []
+  const ledger = await prisma.seoPost.findMany({ where: { siteId: ctx.site.id }, select: { slug: true, primaryKeyword: true, status: true, body: true } })
+  const coverage = new Map((repo?.serviceSlugs ?? []).map((s) => [s, 0]))
+  for (const p of ledger) {
+    const s = p.status === 'rejected' ? null : (p.body as { serviceSlug?: unknown } | null)?.serviceSlug
+    if (typeof s === 'string' && coverage.has(s)) coverage.set(s, coverage.get(s)! + 1)
+  }
+  const serviceCap = Math.max(MAX_BRIEFS_PER_SERVICE, Math.ceil(postsAllowed / Math.max(1, coverage.size)))
 
   const session = await ctx.session()
   try {
@@ -685,7 +696,13 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
       system: PLAN_SYSTEM,
       context: dossier(ctx, facts, audit, await historyFor(ctx), await clientContext(ctx, facts)),
       task: [
-        `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.${postsAllowed > 3 ? ' That is a ceiling, not a target: each brief must stand on distinct, real facts and real local demand; return fewer when they would otherwise overlap or run thin.' : ''}`,
+        `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.`,
+        ...(postsAllowed > 1
+          ? [
+              `Aim to use them all, each a genuinely different post: no two briefs share a primary keyword or answer the same question, at most ${serviceCap} are for any one service (favor services with few or no posts yet), and at most ${MAX_BRIEFS_PER_TYPE} share a content type — mix cost guides, permit guides, comparisons, how-to-choose, seasonal and case studies. Never pad: when the real facts or local demand for another distinct post aren't there, return fewer and ask for the facts in clientInputs.`,
+            ]
+          : []),
+        ...(coverage.size ? [`Engine posts so far per service: ${[...coverage].map(([s, n]) => `${s} ${n}`).join(', ')}.`] : []),
         canCommit
           ? 'The SEO foundation is installed: the engine will write and commit the content briefs you choose, and it can apply title and meta-description fixes to existing pages itself (owner "engine", category "on_page", targetUrl = the page, exact new title/description in `action`). Page copy, routes and templates are still for people.'
           : repo
@@ -708,15 +725,34 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
 
     // Structured outputs can't express ranges; enforce them here.
     const taken = new Set([...(repo?.blogPosts.map((b) => b.slug) ?? [])])
-    const ledger = await prisma.seoPost.findMany({ where: { siteId: ctx.site.id }, select: { slug: true } })
     for (const p of ledger) taken.add(p.slug)
+    const keyword = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    const keywords = new Set(ledger.filter((p) => p.status !== 'rejected').map((p) => keyword(p.primaryKeyword)))
+    const perService = new Map<string, number>()
+    const perType = new Map<string, number>()
     const content = []
     for (const b of raw.content) {
       if (content.length >= postsAllowed) break
+      const kw = keyword(b.primaryKeyword)
+      const why =
+        kw && keywords.has(kw)
+          ? `"${b.primaryKeyword}" is already another post's keyword`
+          : b.serviceSlug && (perService.get(b.serviceSlug) ?? 0) >= serviceCap
+            ? `already ${serviceCap} posts for ${b.serviceSlug} this week`
+            : b.contentType !== 'other' && (perType.get(b.contentType) ?? 0) >= MAX_BRIEFS_PER_TYPE
+              ? `already ${MAX_BRIEFS_PER_TYPE} ${b.contentType.replace(/_/g, ' ')} posts this week`
+              : null
+      if (why) {
+        ctx.log('plan', `Dropped the brief "${b.title}": ${why}`, 'warn')
+        continue
+      }
       let slug = slugify(b.slug || b.title)
       if (!slug || taken.has(slug)) slug = slugify(`${b.slug || b.title}-${zonedParts(new Date(), ctx.settings.timeZone).ymd.slice(0, 4)}`)
       if (!slug || taken.has(slug)) continue
       taken.add(slug)
+      if (kw) keywords.add(kw)
+      if (b.serviceSlug) perService.set(b.serviceSlug, (perService.get(b.serviceSlug) ?? 0) + 1)
+      perType.set(b.contentType, (perType.get(b.contentType) ?? 0) + 1)
       content.push({ ...b, slug })
     }
     const ids = new Set<string>()
