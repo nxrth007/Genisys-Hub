@@ -82,7 +82,7 @@ function originOf(url: string | null): string | null {
 }
 
 /** A URL-prefix property only covers URLs under it; a domain property covers the whole domain. */
-function covers(property: string, url: string): boolean {
+export function covers(property: string, url: string): boolean {
   if (property.startsWith('sc-domain:')) {
     const domain = property.slice('sc-domain:'.length).toLowerCase()
     try {

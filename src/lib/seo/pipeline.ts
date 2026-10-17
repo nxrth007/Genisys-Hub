@@ -15,6 +15,7 @@ import {
   slugify,
 } from './content'
 import { crawlSite, fetchPage } from './crawl'
+import { domainSync, SEO_LIB } from './domain-sync'
 import { bareHost } from './html'
 import { generateFoundation } from './foundation'
 import {
@@ -1167,6 +1168,16 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
     const stored: ChangeFile[] = Array.isArray(ctx.run.changes) ? (ctx.run.changes as unknown as ChangeFile[]) : []
     const paths = new Set(repo?.paths ?? [])
     changes = stored.length ? stored : drafts.map((d) => postChangeFile(d.post, paths.has(`${CONTENT_DIR}/${d.post.slug}.json`), d.refresh?.reason))
+    if (committable && repo && !ctx.run.prNumber) {
+      const sync = await domainSync({ siteId: ctx.site.id, liveUrl: ctx.site.liveUrl, indexNowKey: ctx.site.indexNowKey, repo })
+      for (const w of sync.warnings) ctx.log('commit', w, 'warn')
+      for (const n of sync.notes) ctx.log('commit', n)
+      if (sync.changes.length) {
+        const fixed = new Set(sync.changes.map((c) => c.path))
+        changes = [...changes.filter((c) => !fixed.has(c.path)), ...sync.changes]
+        if (!ctx.site.indexNowKey) ctx.site = { ...ctx.site, indexNowKey: (await prisma.seoSite.findUnique({ where: { id: ctx.site.id }, select: { indexNowKey: true } }))?.indexNowKey ?? null }
+      }
+    }
     if (!committable || !changes.length) {
       ctx.log(
         'commit',
@@ -1198,7 +1209,10 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       await ctx.save({ branch, commitSha, changes: json(changes), repoFullName: repo.fullName })
     }
     if (!commitSha) {
-      const title = ctx.run.kind === 'foundation' ? 'SEO foundation (Genisys SEO engine)' : `SEO ${ctx.run.weekOf}: ${drafts.map((d) => d.post.title).join('; ').slice(0, 180)}`
+      const title =
+        ctx.run.kind === 'foundation'
+          ? 'SEO foundation (Genisys SEO engine)'
+          : `SEO ${ctx.run.weekOf}: ${(drafts.length ? drafts.map((d) => d.post.title).join('; ') : 'site domain and sitemap fixes').slice(0, 180)}`
       const res = await commitToNewBranch({
         fullName: repo.fullName,
         baseBranch: repo.defaultBranch,
@@ -1228,7 +1242,10 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       fullName: repo.fullName,
       head: branch,
       base: repo.defaultBranch,
-      title: ctx.run.kind === 'foundation' ? 'SEO foundation — Genisys SEO engine' : `SEO ${ctx.run.weekOf} — ${postCountLabel(drafts)}`,
+      title:
+        ctx.run.kind === 'foundation'
+          ? 'SEO foundation — Genisys SEO engine'
+          : `SEO ${ctx.run.weekOf} — ${postCountLabel(drafts)}${changes.some((c) => c.path === SEO_LIB) ? ', domain fix' : ''}`,
       body: prBody(ctx, changes, drafts),
     })
     ctx.log('commit', `Opened PR #${pr.number}`)
@@ -1255,13 +1272,23 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
   }
 
   const blocked = drafts.some(draftBlocked)
-  const autopilot = ctx.run.kind === 'weekly' && ctx.site.mode === 'autopilot' && !blocked && !!repo.hasCiWorkflow
+  // Moving every canonical to another domain is a person's call, even on autopilot.
+  const movesDomain = changes.some((c) => c.path === SEO_LIB)
+  const autopilot = ctx.run.kind === 'weekly' && ctx.site.mode === 'autopilot' && !blocked && !movesDomain && !!repo.hasCiWorkflow
   if (autopilot) {
     ctx.log('commit', 'Autopilot: waiting for the build check before merging')
     return { stage: 'ship', status: 'awaiting_ci' }
   }
   if (ctx.site.mode === 'autopilot' && ctx.run.kind === 'weekly') {
-    ctx.log('commit', blocked ? 'Autopilot paused: a content check needs a human.' : 'Autopilot paused: the repo has no build check yet (install the SEO foundation).', 'warn')
+    ctx.log(
+      'commit',
+      blocked
+        ? 'Autopilot paused: a content check needs a human.'
+        : movesDomain
+          ? 'Autopilot paused: this pull request changes the site’s domain — a person should look first.'
+          : 'Autopilot paused: the repo has no build check yet (install the SEO foundation).',
+      'warn',
+    )
   }
   await seoAlert(`:mag: *SEO* — ${ctx.site.name}: ${ctx.run.kind === 'foundation' ? 'SEO foundation' : `week ${ctx.run.weekOf}`} is ready for review. ${hubUrl(`/seo/runs/${ctx.run.id}`)}`)
   return { stage: 'ship', status: 'awaiting_review' }
@@ -1483,19 +1510,34 @@ const MCP_RETRY_MS = 10 * 60_000
 /** URLs that must be live for this run to count as published. */
 function expectedLiveUrls(ctx: RunContext): string[] {
   const drafts: Draft[] = Array.isArray(ctx.run.drafts) ? (ctx.run.drafts as unknown as Draft[]) : []
-  return liveUrlsFor(ctx.run.kind, ctx.site.liveUrl, drafts)
+  return liveUrlsFor(ctx.run.kind, ctx.site.liveUrl, drafts, ctx.site.indexNowKey)
 }
 
-/** The same, from plain values — the run page shows what it's waiting for. */
-export function liveUrlsFor(kind: string, liveUrl: string | null, drafts: Draft[]): string[] {
+/**
+ * The same, from plain values — the run page shows what it's waiting for.
+ * A site often had a sitemap before its foundation, so the foundation also
+ * waits for the IndexNow key file it adds: that one only exists once this
+ * merge is really published.
+ */
+export function liveUrlsFor(kind: string, liveUrl: string | null, drafts: Draft[], indexNowKey: string | null = null): string[] {
   const origin = originOf(liveUrl)
   if (!origin) return []
-  if (kind === 'foundation') return [`${origin}/sitemap.xml`]
+  if (kind === 'foundation') return [`${origin}/sitemap.xml`, ...(indexNowKey ? [indexNowKeyUrl(origin, indexNowKey)] : [])]
   return drafts.map((d) => `${origin}/blog/${d.post.slug}`)
 }
 
-/** Is this URL serving what the run expects? Sitemaps are XML, posts are HTML. */
-async function isLive(url: string, kind: 'sitemap' | 'page', expectTitle: string | null = null): Promise<boolean> {
+const indexNowKeyUrl = (origin: string, key: string) => `${origin}/${key}.txt`
+
+/** Is this URL serving what the run expects? Sitemaps are XML, posts are HTML, a key file is the key. */
+async function isLive(url: string, kind: 'sitemap' | 'page' | 'key', expectTitle: string | null = null): Promise<boolean> {
+  if (kind === 'key') {
+    try {
+      const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20_000) })
+      return res.status === 200 && (await res.text()).trim() === expectTitle
+    } catch {
+      return false
+    }
+  }
   if (kind === 'page') {
     const page = await fetchPage(url, { timeoutMs: 20_000 })
     if (page.status !== 200 || page.error) return false
@@ -1537,7 +1579,14 @@ export async function liveCheck(ctx: RunContext): Promise<{ live: string[]; miss
     // A refreshed post's old version is already live; wait for the new title when it changed.
     const d = drafts.find((x) => u.endsWith(`/blog/${x.post.slug}`))
     const expectTitle = d?.refresh && d.refresh.previousTitle !== d.post.title ? d.post.title : null
-    if (await isLive(u, ctx.run.kind === 'foundation' ? 'sitemap' : 'page', expectTitle)) live.push(u)
+    const key = ctx.site.indexNowKey
+    const ok =
+      ctx.run.kind !== 'foundation'
+        ? await isLive(u, 'page', expectTitle)
+        : key && u.endsWith(`/${key}.txt`)
+          ? await isLive(u, 'key', key)
+          : await isLive(u, 'sitemap')
+    if (ok) live.push(u)
     else missing.push(u)
   }
   return { live, missing }
@@ -1697,7 +1746,8 @@ export async function stageVerify(ctx: RunContext): Promise<StageOutcome> {
     const origin = originOf(ctx.site.liveUrl)
     if (origin && ctx.site.indexNowKey) {
       const host = new URL(origin).host
-      const res = await pingIndexNow({ host, key: ctx.site.indexNowKey, urls: [...live, `${origin}/sitemap.xml`] })
+      const keyUrl = indexNowKeyUrl(origin, ctx.site.indexNowKey)
+      const res = await pingIndexNow({ host, key: ctx.site.indexNowKey, urls: [...live.filter((u) => u !== keyUrl), `${origin}/sitemap.xml`] })
       ctx.log('verify', `IndexNow: ${res.ok ? 'accepted' : 'not accepted'} — ${res.detail}`, res.ok ? 'info' : 'warn')
     }
     if (origin && ctx.site.gscProperty && (await gscConfigured()).ok) {

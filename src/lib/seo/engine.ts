@@ -104,8 +104,14 @@ export async function enqueueWeeklyIfDue(now: Date): Promise<number> {
   if (settings.armedAt && Date.parse(settings.armedAt) > slotStart.getTime()) return 0
 
   const weekOf = isoWeekLabel(now, settings.timeZone)
+  // Ready for SEO = the site we built is live (Clients → Site) and its repo
+  // is picked. Until both are set the weekly run has nothing real to work on.
   const sites = await prisma.seoSite.findMany({
-    where: { enabled: true, archivedAt: null },
+    where: {
+      enabled: true,
+      archivedAt: null,
+      AND: [{ liveUrl: { not: null } }, { liveUrl: { not: '' } }, { repoFullName: { not: null } }, { repoFullName: { not: '' } }],
+    },
     select: { id: true, name: true },
   })
   if (!sites.length) return 0

@@ -287,7 +287,7 @@ export async function runDetail(runId: string): Promise<SeoRunDetail | null> {
   const r = await prisma.seoRun.findUnique({ where: { id: runId } })
   if (!r) return null
   const [site, channel] = await Promise.all([
-    prisma.seoSite.findUnique({ where: { id: r.siteId }, select: { name: true, repoFullName: true, liveUrl: true } }),
+    prisma.seoSite.findUnique({ where: { id: r.siteId }, select: { name: true, repoFullName: true, liveUrl: true, indexNowKey: true } }),
     lovableChannel(),
   ])
   const snap = r.snapshot as unknown as Snapshot | null
@@ -321,7 +321,7 @@ export async function runDetail(runId: string): Promise<SeoRunDetail | null> {
           attempts: snap.publish.mcpAttempts ?? (snap.publish.deploymentId ? 1 : 0),
           lastRequestedAt: snap.publish.requestedAt ?? null,
           gaveUp: !!snap.publish.gaveUp,
-          waitingFor: liveUrlsFor(r.kind, site?.liveUrl ?? null, Array.isArray(r.drafts) ? (r.drafts as unknown as Draft[]) : []),
+          waitingFor: liveUrlsFor(r.kind, site?.liveUrl ?? null, Array.isArray(r.drafts) ? (r.drafts as unknown as Draft[]) : [], site?.indexNowKey ?? null),
           servedUrl: snap.lovableServedUrl ?? null,
         }
       : null,

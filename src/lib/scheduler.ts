@@ -39,6 +39,7 @@ import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSeoTick } from './seo/engine'
 import { maybeRunLovableGitWatch } from './seo/lovable-git-watch'
+import { maybeCheckStalePublishes, maybeRunSeoWatch } from './seo/site-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 
@@ -406,6 +407,20 @@ export function initScheduler() {
         }
       })
       .catch((err) => console.error('[scheduler] lovable git watch failed:', err))
+
+    // SEO site watch: once a day from 14:00 UTC, re-check every live site and
+    // its posts from the outside plus Search Console, and post one digest.
+    // Every half hour, alert once per merged run that still isn't live a day later.
+    void maybeRunSeoWatch()
+      .then((r) => {
+        if (r) console.log(`[scheduler] seo watch: ${r.sites} sites, ${r.problems.length} problems (${r.newCount} new)`)
+      })
+      .catch((err) => console.error('[scheduler] seo watch failed:', err))
+    void maybeCheckStalePublishes()
+      .then((n) => {
+        if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)
+      })
+      .catch((err) => console.error('[scheduler] seo publish check failed:', err))
 
     // County backfill (fire-and-forget) — drains existing appointments
     // missing a county a batch at a time. Concurrent with the rest of
