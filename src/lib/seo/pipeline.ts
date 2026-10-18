@@ -15,6 +15,7 @@ import {
   slugify,
 } from './content'
 import { crawlSite, fetchPage } from './crawl'
+import { blogLinkSync, NAV_FILE } from './blog-link'
 import { domainSync, SEO_LIB } from './domain-sync'
 import { bareHost } from './html'
 import { generateFoundation } from './foundation'
@@ -1116,14 +1117,17 @@ async function writeFoundation(ctx: RunContext): Promise<StageOutcome> {
     // domain and IndexNow key: point them at this site instead.
     const sync = await domainSync({ siteId: ctx.site.id, liveUrl: ctx.site.liveUrl, indexNowKey: ctx.site.indexNowKey, repo })
     for (const w of sync.warnings) ctx.log('write', w, 'warn')
-    if (!sync.changes.length) {
+    const menu = await blogLinkSync(repo)
+    if (menu.warning) ctx.log('write', menu.warning, 'warn')
+    const changes = [...sync.changes, ...(menu.change ? [menu.change] : [])]
+    if (!changes.length) {
       ctx.log('write', 'The SEO foundation is already installed on this repo, naming this site’s domain — nothing to do.')
       return { stage: 'report', status: 'running' }
     }
-    for (const n of sync.notes) ctx.log('write', n)
-    ctx.log('write', `The SEO foundation came with the site template — pointing it at this site: ${sync.changes.map((c) => c.path).join(', ')}`)
+    for (const n of [...sync.notes, ...(menu.note ? [menu.note] : [])]) ctx.log('write', n)
+    ctx.log('write', `The SEO foundation came with the site template — pointing it at this site: ${changes.map((c) => c.path).join(', ')}`)
     ctx.site = { ...ctx.site, indexNowKey: (await prisma.seoSite.findUnique({ where: { id: ctx.site.id }, select: { indexNowKey: true } }))?.indexNowKey ?? ctx.site.indexNowKey }
-    await ctx.save({ changes: json(sync.changes) })
+    await ctx.save({ changes: json(changes) })
     return { stage: 'commit', status: 'running' }
   }
   if (repo.platform !== 'lovable-tanstack') {
@@ -1185,7 +1189,7 @@ function prBody(ctx: RunContext, changes: ChangeFile[], drafts: Draft[]): string
   const lines = [
     ctx.run.kind === 'foundation'
       ? ctx.snapshot?.repo?.foundationInstalled
-        ? `## SEO foundation — point it at this site\n\nThis repo came with the SEO foundation from the site template, still naming another domain or IndexNow key. This points the canonical links, sitemap and robots.txt at ${originOf(ctx.site.liveUrl) ?? 'the Site domain'} and gives the site its own IndexNow key.`
+        ? `## SEO foundation — point it at this site\n\nThis repo came with the SEO foundation from the site template, still naming another domain or IndexNow key. This points the canonical links, sitemap and robots.txt at ${originOf(ctx.site.liveUrl) ?? 'the Site domain'}, gives the site its own IndexNow key, and links the blog from the menu if nothing did.`
         : '## SEO foundation\n\nOne-time change so the Genisys SEO engine can publish weekly posts as data files, and so search engines and AI crawlers get a sitemap, llms.txt, absolute canonicals and richer article schema.'
       : `## ${plan?.headline ?? 'Weekly SEO update'}\n\n${plan?.summary ?? ''}`,
     '',
@@ -1225,6 +1229,12 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
         const fixed = new Set(sync.changes.map((c) => c.path))
         changes = [...changes.filter((c) => !fixed.has(c.path)), ...sync.changes]
         if (!ctx.site.indexNowKey) ctx.site = { ...ctx.site, indexNowKey: (await prisma.seoSite.findUnique({ where: { id: ctx.site.id }, select: { indexNowKey: true } }))?.indexNowKey ?? null }
+      }
+      const menu = await blogLinkSync(repo)
+      if (menu.warning) ctx.log('commit', menu.warning, 'warn')
+      if (menu.change) {
+        if (menu.note) ctx.log('commit', menu.note)
+        changes = [...changes.filter((c) => c.path !== NAV_FILE), menu.change]
       }
     }
     if (!committable || !changes.length) {
@@ -1294,7 +1304,7 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
       title:
         ctx.run.kind === 'foundation'
           ? 'SEO foundation — Genisys SEO engine'
-          : `SEO ${ctx.run.weekOf} — ${postCountLabel(drafts)}${changes.some((c) => c.path === SEO_LIB) ? ', domain fix' : ''}`,
+          : `SEO ${ctx.run.weekOf} — ${postCountLabel(drafts)}${changes.some((c) => c.path === SEO_LIB) ? ', domain fix' : ''}${changes.some((c) => c.path === NAV_FILE) ? ', blog in menu' : ''}`,
       body: prBody(ctx, changes, drafts),
     })
     ctx.log('commit', `Opened PR #${pr.number}`)
@@ -1323,7 +1333,9 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
   const blocked = drafts.some(draftBlocked)
   // Moving every canonical to another domain is a person's call, even on autopilot.
   const movesDomain = changes.some((c) => c.path === SEO_LIB)
-  const autopilot = ctx.run.kind === 'weekly' && ctx.site.mode === 'autopilot' && !blocked && !movesDomain && !!repo.hasCiWorkflow
+  // So is changing the menu every visitor sees.
+  const changesMenu = changes.some((c) => c.path === NAV_FILE)
+  const autopilot = ctx.run.kind === 'weekly' && ctx.site.mode === 'autopilot' && !blocked && !movesDomain && !changesMenu && !!repo.hasCiWorkflow
   if (autopilot) {
     ctx.log('commit', 'Autopilot: waiting for the build check before merging')
     return { stage: 'ship', status: 'awaiting_ci' }
@@ -1335,7 +1347,9 @@ export async function stageCommit(ctx: RunContext): Promise<StageOutcome> {
         ? 'Autopilot paused: a content check needs a human.'
         : movesDomain
           ? 'Autopilot paused: this pull request changes the site’s domain — a person should look first.'
-          : 'Autopilot paused: the repo has no build check yet (install the SEO foundation).',
+          : changesMenu
+            ? 'Autopilot paused: this pull request adds Blog to the site’s menu — a person should look first.'
+            : 'Autopilot paused: the repo has no build check yet (install the SEO foundation).',
       'warn',
     )
   }

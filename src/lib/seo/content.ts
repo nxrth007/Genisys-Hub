@@ -192,7 +192,11 @@ export function buildDraft(raw: PostDraft, ctx: BuildContext, costUsd: number): 
     detail: clash ? `"${post.primaryKeyword}" already appears in the title of "${clash.slug}" — check for cannibalization.` : 'Primary keyword not used by an existing post title.',
   })
 
-  const selfRanking = /\b(best|top|#\s?1|number one|no\.\s?1)\b[^.\n]{0,40}\b(in|near)\b/i.test(post.title + ' ' + post.metaTitle)
+  // "Best time to paint in East Texas" and "Top 5 roof problems in Tyler" rank nothing; "Best roofer in Tyler" does.
+  const selfRanking =
+    /(?:\b(?:best|top|number one|no\.\s?1)|#\s?1)\b(?!\s+(?:\d+\b|times?|ways?|seasons?|months?|weeks?|days?|options?|practices?|materials?|choices?|questions?|tips?|signs?|reasons?|mistakes?|time of year)\b)[^.\n]{0,40}\b(in|near)\b/i.test(
+      post.title + ' ' + post.metaTitle,
+    )
   const hype = /(guaranteed lowest|cheapest in|lowest prices? in|#1 rated)/i.test(text)
   gates.push({
     id: 'no-self-ranking',
