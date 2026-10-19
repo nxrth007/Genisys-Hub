@@ -12,6 +12,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
   ExternalLink,
   FileText,
   FolderGit2,
@@ -156,6 +157,82 @@ function hostOf(url: string): string {
   } catch {
     return url
   }
+}
+
+/** One CSV cell: quote when needed, double embedded quotes, keep newlines inside the quotes. */
+function csvCell(value: string | null | undefined): string {
+  const CR = String.fromCharCode(13)
+  const LF = String.fromCharCode(10)
+  const s = (value ?? '').toString().trim()
+  if (s === '') return ''
+  const needsQuote = s.includes('"') || s.includes(',') || s.includes(LF) || s.includes(CR)
+  return needsQuote ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** A safe, readable filename stem from the business name, e.g. "junior-concrete". */
+function slugForFile(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'client'
+  )
+}
+
+/**
+ * Build a clean two-column (Question, Answer) CSV of a client's onboarding
+ * answers and download it. Pulls from the linked intake, falling back to the
+ * managed Client fields where an intake value is missing, so the export is
+ * complete even for clients edited by hand after submission. Empty answers
+ * are kept (as blank rows) so the column of questions is always the same.
+ */
+function exportOnboardingCsv(client: RosterClient): void {
+  const i = client.intake
+  const rows: Array<[string, string | null | undefined]> = [
+    ['Business name', i?.businessName ?? client.name],
+    ['Contact name', client.contactName ?? i?.fullName],
+    ['Business contact', i?.businessContact],
+    ['Email', client.contactEmail ?? i?.leadEmail],
+    ['Phone', client.contactPhone ?? i?.customerPhone],
+    ['Business address', client.address ?? i?.businessAddress],
+    ['Area code', i?.areaCode],
+    ['Time zone', i?.timeZone],
+    ['EIN', client.ein ?? i?.ein],
+    ['Cities served', i?.cities],
+    ['Main services', i?.mainServices],
+    ['About the business', i?.aboutBusiness],
+    ['Why choose them', i?.whyChooseYou],
+    ['Promotions', i?.promotions],
+    ['Brand colours', i?.brandColors],
+    ['Social links', i?.socialLinks],
+    ['Bringing own domain', i?.bringingOwnDomain],
+    ['Domain name', i?.domainName],
+    ['Their existing site', client.website ?? i?.website],
+    ['Has Google Business Profile', i?.hasGoogleProfile],
+    ['Google Business Profile link', i?.googleProfileLink],
+    ['Review sites', i?.reviewLinks],
+    ['Year started', i?.yearStarted],
+    ['License info', i?.licenseInfo],
+    ['FAQs', i?.faqs],
+    ['Uploaded files', i?.files.join('\n')],
+    ['Submitted', i ? dateFmt.format(new Date(i.receivedAt)) : ''],
+  ]
+  const CRLF = String.fromCharCode(13) + String.fromCharCode(10)
+  const csv =
+    [['Question', 'Answer'], ...rows]
+      .map(([q, a]) => `${csvCell(q)},${csvCell(a)}`)
+      .join(CRLF) + CRLF
+  // BOM so Excel reads UTF-8 (accents, £, etc.) correctly.
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${slugForFile(i?.businessName ?? client.name)}-onboarding.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 function fileLabel(url: string, index: number): string {
@@ -936,6 +1013,14 @@ function ClientDetailDialog({
             >
               <Building2 className="h-3.5 w-3.5" /> Sub-account
             </Link>
+            <button
+              type="button"
+              onClick={() => exportOnboardingCsv(client)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+              title="Download this client's onboarding answers as a CSV"
+            >
+              <Download className="h-3.5 w-3.5" /> Export Onboarding Answers
+            </button>
             <button
               type="button"
               disabled={archive.isPending}
