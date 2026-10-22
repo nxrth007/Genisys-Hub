@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { API_VERSION, BASE_URL, listSubAccounts } from '@/lib/ghl'
+import { API_VERSION, BASE_URL, GHL_AGENCY_KEY_VAULT_NAME, decodeJwtPayload } from '@/lib/ghl'
 import { getAgencyContext } from '@/lib/ghl-agency'
 import { getSecretByName } from '@/lib/vault-service'
 import { AUTOMATION_VALUE_DEFS, type AutomationInputs } from '@/lib/automation-copy'
@@ -105,6 +105,14 @@ async function call<T = Record<string, unknown>>(token: string, path: string, in
 
 const reason = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+/** GHL's "not authorized for this scope", in words that say what to do. */
+function scopeHint(a: Access, msg: string, permissions: string): string {
+  if (!/not authorized for this scope/i.test(msg)) return msg
+  return a.source === 'agency key'
+    ? `${msg} (agency keys can't be given this permission; a key from the sub-account is needed)`
+    : `${msg} Tick ${permissions} on this key in GHL (sub-account → Settings → Private Integrations → the key → Edit).`
+}
+
 type RawValue = { id: string; name: string; fieldKey: string; value: string }
 
 async function readValues(a: Access, locationId: string): Promise<RawValue[]> {
@@ -124,21 +132,69 @@ async function readWorkflows(a: Access, locationId: string): Promise<{ name: str
     .sort((x, y) => x.name.localeCompare(y.name))
 }
 
-/** The client's own sub-account key (if one is in the Vault), then the agency key. */
-async function accessFor(locationId: string): Promise<{ keys: Access[]; problems: string[] }> {
+/** Words in a business name that don't identify it ("Luxama Services" → luxama). */
+const GENERIC_WORDS = new Set(
+  'the and of a llc inc co company services service construction contracting contractors contractor solutions pros pro group home homes ghl token key sub account subaccount genisys'.split(' '),
+)
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((w) => w.length >= 3 && !GENERIC_WORDS.has(w))
+
+const locationIn = (description: string | null) => description?.match(/location[_-]?id\s*[=:]\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null
+
+/**
+ * The client's own sub-account key, then the agency key.
+ *
+ * A Vault entry counts as this client's key when its description names
+ * this sub-account (locationId=…), its key is a JWT for it, or (with no
+ * location given) its name or client=… hint names this client. The `ghl`
+ * tag isn't required here: the match is what matters, and every entry
+ * looked at is reported so a near miss is visible on the board.
+ */
+async function accessFor(locationId: string, clientNames: string[]): Promise<{ keys: Access[]; problems: string[] }> {
   const keys: Access[] = []
   const problems: string[] = []
+  const wanted = new Set(clientNames.flatMap(words))
   try {
-    const { subaccounts } = await listSubAccounts({ kind: 'all' })
-    for (const s of subaccounts.filter((x) => x.locationId === locationId)) {
-      keys.push({ source: 'sub-account key', label: s.vaultName, token: (await getSecretByName(s.vaultName)).trim() })
+    const entries = await prisma.vaultEntry.findMany({ select: { name: true, description: true, tags: true }, orderBy: { name: 'asc' } })
+    for (const e of entries) {
+      if (e.name.trim().toLowerCase() === GHL_AGENCY_KEY_VAULT_NAME.toLowerCase()) continue
+      const tagged = e.tags.some((t) => t.trim().toLowerCase() === 'ghl')
+      const hint = e.description?.match(/client\s*[=:]\s*([^\n;]+)/i)?.[1] ?? ''
+      const named = [...words(e.name), ...words(hint)].some((w) => wanted.has(w))
+      const looksGhl = tagged || /\b(ghl|highlevel|high level|go high level|leadconnector)\b/i.test(e.name)
+      const declared = locationIn(e.description)
+      if (declared && declared !== locationId) continue
+      if (!declared && !(named && looksGhl) && !tagged) continue
+      let token: string
+      try {
+        token = (await getSecretByName(e.name)).trim()
+      } catch (err) {
+        if (declared || named) problems.push(`Couldn't read the Vault entry "${e.name}": ${reason(err)}`)
+        continue
+      }
+      const jwtLocation = decodeJwtPayload(token).locationId
+      if (jwtLocation && jwtLocation !== locationId) continue
+      const matched = declared === locationId || jwtLocation === locationId
+      if (!matched && !named) continue
+      keys.push({ source: 'sub-account key', label: e.name, token })
+      if (!matched) problems.push(`"${e.name}" has no locationId in its Vault description; used because its name matches this client.`)
+      if (!tagged) problems.push(`"${e.name}" isn't tagged ghl in the Vault; used because it matches this sub-account. Tag it ghl and client so the rest of the Hub sees it.`)
+    }
+    if (!keys.length) {
+      problems.push(
+        `No Vault entry matched this sub-account. Give the key's entry the description "locationId=${locationId}", or name it after the business.`,
+      )
     }
   } catch (err) {
-    problems.push(`Couldn't read the Vault's GHL keys: ${reason(err)}`)
+    problems.push(`Couldn't read the Vault: ${reason(err)}`)
   }
   try {
     const ctx = await getAgencyContext()
-    keys.push({ source: 'agency key', label: 'GHL Agency Key', token: ctx.token })
+    keys.push({ source: 'agency key', label: GHL_AGENCY_KEY_VAULT_NAME, token: ctx.token })
   } catch (err) {
     problems.push(`Agency key unavailable: ${reason(err)}`)
   }
@@ -168,7 +224,7 @@ export async function ghlAutomationStatus(clientId: string, inputs: AutomationIn
   if (!client.ghlLocationId) return { linked: false, reason: 'This client isn’t linked to a GHL sub-account in the Hub yet.' }
   const locationId = client.ghlLocationId
 
-  const { keys, problems } = await accessFor(locationId)
+  const { keys, problems } = await accessFor(locationId, [client.name])
   const access: AccessReport[] = []
   let using: Access | null = null
   let existing: RawValue[] | null = null
@@ -189,14 +245,14 @@ export async function ghlAutomationStatus(clientId: string, inputs: AutomationIn
         existing = vals
       }
     } catch (err) {
-      report.customValues = { ok: false, detail: reason(err) }
+      report.customValues = { ok: false, detail: scopeHint(a, reason(err), 'View Custom Values and Edit Custom Values') }
     }
     try {
       const wf = await readWorkflows(a, locationId)
       report.workflows = { ok: true, detail: `${wf.length} workflow${wf.length === 1 ? '' : 's'}` }
       workflows ??= wf
     } catch (err) {
-      report.workflows = { ok: false, detail: reason(err) }
+      report.workflows = { ok: false, detail: scopeHint(a, reason(err), 'View Workflows') }
     }
     access.push(report)
   }
@@ -252,7 +308,7 @@ export async function pushAutomationValues(clientId: string, inputs: AutomationI
     return { ok: false, error: 'This client isn’t linked to a GHL sub-account in the Hub yet.', results: [], status }
   }
   const locationId = client.ghlLocationId
-  const { keys } = await accessFor(locationId)
+  const { keys } = await accessFor(locationId, [client.name])
   let access: Access | null = null
   let existing: RawValue[] = []
   for (const a of keys) {
