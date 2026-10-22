@@ -20,7 +20,7 @@ import { AUTOMATION_VALUE_DEFS, type AutomationInputs } from '@/lib/automation-c
  * not steps, but it shows which base automations a sub-account has.
  */
 
-type Access = {
+export type Access = {
   source: 'sub-account key' | 'agency key'
   /** The Vault entry the key came from. */
   label: string
@@ -113,9 +113,9 @@ function scopeHint(a: Access, msg: string, permissions: string): string {
     : `${msg} Tick ${permissions} on this key in GHL (sub-account → Settings → Private Integrations → the key → Edit).`
 }
 
-type RawValue = { id: string; name: string; fieldKey: string; value: string }
+export type RawValue = { id: string; name: string; fieldKey: string; value: string }
 
-async function readValues(a: Access, locationId: string): Promise<RawValue[]> {
+export async function readValues(a: Access, locationId: string): Promise<RawValue[]> {
   const res = await call<{ customValues?: Array<Record<string, unknown>> }>(a.token, `/locations/${locationId}/customValues`)
   return (res.customValues ?? []).map((v) => ({
     id: String(v.id ?? ''),
@@ -134,9 +134,16 @@ async function readWorkflows(a: Access, locationId: string): Promise<{ name: str
 
 /** Words in a business name that don't identify it ("Luxama Services" → luxama). */
 const GENERIC_WORDS = new Set(
-  'the and of a llc inc co company services service construction contracting contractors contractor solutions pros pro group home homes ghl token key sub account subaccount genisys'.split(' '),
+  [
+    'the and of a llc inc co company services service construction contracting contractors contractor solutions pros pro group',
+    'home homes ghl token key sub account subaccount genisys api private integration',
+    // Trade words two clients can share ("Junior Concrete", "C&J Concrete Coatings").
+    'concrete coatings coating roofing roof painting paint lawn care pest fence fencing driveway cleaning masonry brick',
+  ]
+    .join(' ')
+    .split(' '),
 )
-const words = (s: string) =>
+export const nameWords = (s: string) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
@@ -154,21 +161,22 @@ const locationIn = (description: string | null) => description?.match(/location[
  * tag isn't required here: the match is what matters, and every entry
  * looked at is reported so a near miss is visible on the board.
  */
-async function accessFor(locationId: string, clientNames: string[]): Promise<{ keys: Access[]; problems: string[] }> {
+export async function subAccountKeys(locationId: string, clientNames: string[]): Promise<{ keys: Access[]; problems: string[] }> {
   const keys: Access[] = []
   const problems: string[] = []
-  const wanted = new Set(clientNames.flatMap(words))
+  const wanted = new Set(clientNames.flatMap(nameWords))
   try {
     const entries = await prisma.vaultEntry.findMany({ select: { name: true, description: true, tags: true }, orderBy: { name: 'asc' } })
     for (const e of entries) {
       if (e.name.trim().toLowerCase() === GHL_AGENCY_KEY_VAULT_NAME.toLowerCase()) continue
       const tagged = e.tags.some((t) => t.trim().toLowerCase() === 'ghl')
       const hint = e.description?.match(/client\s*[=:]\s*([^\n;]+)/i)?.[1] ?? ''
-      const named = [...words(e.name), ...words(hint)].some((w) => wanted.has(w))
+      const named = [...nameWords(e.name), ...nameWords(hint)].some((w) => wanted.has(w))
       const looksGhl = tagged || /\b(ghl|highlevel|high level|go high level|leadconnector)\b/i.test(e.name)
       const declared = locationIn(e.description)
       if (declared && declared !== locationId) continue
-      if (!declared && !(named && looksGhl) && !tagged) continue
+      // Only open entries that point at this sub-account or name this client: every read is logged in the Vault.
+      if (declared !== locationId && !(named && looksGhl)) continue
       let token: string
       try {
         token = (await getSecretByName(e.name)).trim()
@@ -192,6 +200,11 @@ async function accessFor(locationId: string, clientNames: string[]): Promise<{ k
   } catch (err) {
     problems.push(`Couldn't read the Vault: ${reason(err)}`)
   }
+  return { keys, problems }
+}
+
+async function accessFor(locationId: string, clientNames: string[]): Promise<{ keys: Access[]; problems: string[] }> {
+  const { keys, problems } = await subAccountKeys(locationId, clientNames)
   try {
     const ctx = await getAgencyContext()
     keys.push({ source: 'agency key', label: GHL_AGENCY_KEY_VAULT_NAME, token: ctx.token })
