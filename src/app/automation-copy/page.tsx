@@ -7,6 +7,7 @@ import { Check, ChevronRight, Link2, Loader2, RefreshCw, Search, Send, X } from 
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import type { ClientGhlOverview, GhlOverview } from '@/lib/ghl-automation-overview'
+import type { KeyMatchResult } from '@/lib/ghl-key-matching'
 
 type Row = { id: string; name: string; siteUrl: string | null; hasIntake: boolean; done: number }
 type Busy = Record<string, 'link' | 'send' | undefined>
@@ -18,6 +19,7 @@ export default function AutomationCopyPage() {
   const [busy, setBusy] = useState<Busy>({})
   const [messages, setMessages] = useState<Record<string, string>>({})
   const [bulk, setBulk] = useState<string | null>(null)
+  const [keyMatch, setKeyMatch] = useState<KeyMatchResult | null>(null)
 
   const q = useQuery({
     queryKey: ['automation-copy'],
@@ -88,6 +90,27 @@ export default function AutomationCopyPage() {
     }
   }
 
+  async function matchKeys() {
+    setBulk('Matching Vault keys…')
+    try {
+      const res = await fetch('/api/automation-copy/match-keys', { method: 'POST' })
+      const data = (await res.json().catch(() => ({}))) as KeyMatchResult & { error?: string }
+      setKeyMatch(res.ok ? data : { matched: [], unmatched: [], alreadySet: [], error: data.error || 'Couldn’t match keys' })
+    } finally {
+      setBulk(null)
+      await ghl.refetch()
+    }
+  }
+
+  async function linkAll() {
+    const list = (ghl.data?.clients ?? []).filter((c) => !c.linked && c.proposal)
+    for (let i = 0; i < list.length; i++) {
+      setBulk(`Linking ${i + 1} of ${list.length}…`)
+      await link(list[i])
+    }
+    setBulk(null)
+  }
+
   async function sendAll() {
     const list = ready.map((c) => c.id)
     for (let i = 0; i < list.length; i++) {
@@ -127,6 +150,24 @@ export default function AutomationCopyPage() {
           </button>
           <button
             type="button"
+            onClick={linkAll}
+            disabled={!!bulk || !(ghl.data?.clients ?? []).some((c) => !c.linked && c.proposal)}
+            title="Links every unlinked client to the GHL sub-account whose name matches it"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+          >
+            <Link2 className="h-3.5 w-3.5" /> Link all suggested
+          </button>
+          <button
+            type="button"
+            onClick={matchKeys}
+            disabled={!!bulk}
+            title="Asks GHL which client sub-account each unplaced key in the Vault belongs to, and records it on the Vault entry"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+          >
+            <Check className="h-3.5 w-3.5" /> Match Vault keys
+          </button>
+          <button
+            type="button"
             onClick={sendAll}
             disabled={!ready.length || !!bulk}
             title="Sends the board’s details to every client whose key works and whose values are missing or out of date"
@@ -137,6 +178,34 @@ export default function AutomationCopyPage() {
           </button>
         </div>
       </div>
+      {keyMatch && (
+        <div className="rounded-xl border border-border-soft bg-surface px-4 py-3 text-[12.5px]">
+          {keyMatch.error ? (
+            <p className="text-destructive">{keyMatch.error}</p>
+          ) : (
+            <>
+              <p className="mb-1 font-medium">
+                Matched {keyMatch.matched.length} key{keyMatch.matched.length === 1 ? '' : 's'}
+                {keyMatch.alreadySet.length ? `; ${keyMatch.alreadySet.length} already pointed at a sub-account` : ''}
+                {keyMatch.unmatched.length ? `; ${keyMatch.unmatched.length} couldn’t be placed` : ''}.
+              </p>
+              <ul className="flex flex-col gap-0.5 text-muted-foreground">
+                {keyMatch.matched.map((m) => (
+                  <li key={m.entry}>
+                    “{m.entry}” → {m.location}
+                    {m.client ? '' : ' (no client linked to it yet)'}
+                  </li>
+                ))}
+                {keyMatch.unmatched.map((m) => (
+                  <li key={m.entry} className="text-amber-700 dark:text-amber-300">
+                    “{m.entry}”: {m.reason}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
       {ghl.data?.agencyError && <p className="text-[12.5px] text-destructive">Couldn’t list the agency’s sub-accounts: {ghl.data.agencyError}</p>}
       {ghl.error && <p className="text-[12.5px] text-destructive">{(ghl.error as Error).message}</p>}
 
