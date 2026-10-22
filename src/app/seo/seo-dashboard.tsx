@@ -336,10 +336,10 @@ function SitesTable({
     )
   }
 
-  // Sites in the schedule first, then alphabetical — stable while runs poll.
-  const sorted = [...sites].sort(
-    (a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name),
-  )
+  // Most recently run first (a run in progress counts; a skipped week doesn't); sites never run go last, alphabetical.
+  const ranAt = (s: (typeof sites)[number]) =>
+    Math.max(s.latestRun?.startedAt ? Date.parse(s.latestRun.startedAt) : 0, s.lastRunAt ? Date.parse(s.lastRunAt) : 0) || 0
+  const sorted = [...sites].sort((a, b) => ranAt(b) - ranAt(a) || a.name.localeCompare(b.name))
 
   return (
     <section className="flex flex-col gap-3">
