@@ -10,6 +10,7 @@ import {
   HelpCircle,
   CheckSquare,
   Building2,
+  ClipboardCopy,
   Globe,
   Inbox,
   Send,
@@ -83,6 +84,7 @@ const SIMPLIFIED_NAV: NavItem[] = [
   // for history; they just aren't in the nav.
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
+  { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
   // Documents — Ethan needs the pinned financials + Mary client
   // sheets at the top of the page just like Alex does. There's
   // no path-level admin gate on /documents, so just exposing the
@@ -102,6 +104,7 @@ const FULL_NAV: NavItem[] = [
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   // Call Center and Call Center 2 retired 2026-09-26 (see SIMPLIFIED_NAV).
   { href: '/clients', label: 'Clients', icon: Building2 },
+  { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
   { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/documents', label: 'Documents', icon: FolderOpen },

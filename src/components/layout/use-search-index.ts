@@ -31,6 +31,7 @@ const PAGES: SearchResult[] = [
   { type: 'Page', label: 'Home', href: '/home' },
   { type: 'Page', label: 'Tasks', href: '/today' },
   { type: 'Page', label: 'Clients', href: '/clients' },
+  { type: 'Page', label: 'Automation Copy', href: '/automation-copy', hint: 'GHL automation text per client' },
   { type: 'Page', label: 'Notion', href: '/notion' },
   { type: 'Page', label: 'Inbox', href: '/inbox' },
   { type: 'Page', label: 'CRM', href: '/crm' },
