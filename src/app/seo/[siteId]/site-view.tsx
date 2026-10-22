@@ -554,25 +554,42 @@ function PostsPerRun({
   busy: boolean
   patch: (body: UpdateSiteBody, ok: string) => void
 }) {
-  const standing = site.postsPerWeek ?? site.globalPostsPerWeek
+  const c = site.cadence
+  // Following the default, the weekly number moves with ramp-then-taper.
+  const standing = site.postsPerWeek ?? (c && (c.phase === 'ramp' || c.phase === 'steady') ? c.postsAllowed : site.globalPostsPerWeek)
   const next = site.postsNextRun ?? standing
   const plural = (n: number) => `${n} post${n === 1 ? '' : 's'}`
   return (
     <div className="flex flex-col gap-3 border-t border-border-soft pt-4">
       <div className="flex flex-col gap-1.5">
         <p className="text-[13px] font-medium">Posts per weekly run</p>
+        {c && site.postsPerWeek === null && (c.phase === 'ramp' || c.phase === 'steady') && (
+          <p className="text-[12px] leading-snug text-muted-foreground">
+            {c.phase === 'ramp' ? (
+              <>
+                Building the base: <span className="font-mono text-foreground/85">{c.have}</span> of{' '}
+                <span className="font-mono text-foreground/85">{c.target}</span> posts, up to {plural(c.postsAllowed)} a week.
+              </>
+            ) : (
+              <>
+                Base built (<span className="font-mono text-foreground/85">{c.have}</span> posts): up to {plural(c.postsAllowed)} a week, only
+                where Search Console or the research shows a gap.
+              </>
+            )}
+          </p>
+        )}
         <Segmented<number | 'default'>
           size="sm"
           value={site.postsPerWeek ?? 'default'}
           disabled={busy}
           options={[
-            { value: 'default', label: `Default (${site.globalPostsPerWeek})`, title: 'Follow the SEO dashboard’s posts-per-week setting' },
+            { value: 'default', label: 'Default', title: 'Build a base of posts at the dashboard’s pace, then a couple a week where searches show a gap' },
             ...POST_COUNTS.map((n) => ({ value: n, label: String(n) })),
           ]}
           onChange={(v) =>
             patch(
               { postsPerWeek: v === 'default' ? null : v },
-              v === 'default' ? `${site.name} follows the default (${plural(site.globalPostsPerWeek)} a week).` : `${site.name}: ${plural(v)} every week.`,
+              v === 'default' ? `${site.name} follows the default: build a base of posts, then taper.` : `${site.name}: ${plural(v)} every week.`,
             )
           }
         />

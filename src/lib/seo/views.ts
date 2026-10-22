@@ -21,6 +21,7 @@ import { lovableMcpStatus } from './lovable-mcp'
 import { liveUrlsFor, type Snapshot } from './pipeline'
 import { describeSecret, preferredEntryName } from './secrets'
 import { getSeoSettings, nextScheduledRun } from './settings'
+import { postCadence, postCount, type Cadence } from './cadence'
 import { SEO_ALERT_CHANNEL } from './slack'
 import type {
   AuditResult,
@@ -184,6 +185,30 @@ function readinessFor(
   return { ready: steps.filter((x) => x.required).every((x) => x.ok), steps }
 }
 
+/** Ramp-then-taper for the site page, from the repo as the last run saw it plus the engine's posts since. */
+async function siteCadence(
+  s: { id: string; postsPerWeek: number | null; postsNextRun: number | null },
+  settings: { postsPerWeek: number; rampTargetPosts: number; steadyPostsPerWeek: number },
+): Promise<Cadence | null> {
+  const [runs, ledger] = await Promise.all([
+    prisma.seoRun.findMany({ where: { siteId: s.id }, orderBy: { createdAt: 'desc' }, take: 3, select: { snapshot: true } }),
+    prisma.seoPost.findMany({ where: { siteId: s.id }, select: { slug: true, status: true } }),
+  ])
+  const repo = runs
+    .map((r) => (r.snapshot as { repo?: { blogPosts?: { slug: string }[]; serviceSlugs?: string[] } } | null)?.repo)
+    .find((r) => Array.isArray(r?.blogPosts))
+  if (!repo) return null
+  return postCadence({
+    postsNextRun: s.postsNextRun,
+    sitePostsPerWeek: s.postsPerWeek,
+    rampPostsPerWeek: settings.postsPerWeek,
+    rampTargetPosts: settings.rampTargetPosts,
+    steadyPostsPerWeek: settings.steadyPostsPerWeek,
+    have: postCount((repo.blogPosts ?? []).map((b) => b.slug), ledger),
+    serviceCount: repo.serviceSlugs?.length ?? 0,
+  })
+}
+
 export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> {
   const s = await prisma.seoSite.findUnique({ where: { id: siteId }, include: { client: { select: { id: true, name: true } } } })
   if (!s) return null
@@ -216,6 +241,7 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     postsPerWeek: s.postsPerWeek,
     postsNextRun: s.postsNextRun,
     globalPostsPerWeek: settings.postsPerWeek,
+    cadence: await siteCadence(s, settings),
     lovableProjectId: s.lovableProjectId,
     client: {
       intake: intake ? { id: intake.id, submittedAt: intake.receivedAt.toISOString(), answers: intakeAnswers(intake) } : null,

@@ -680,15 +680,39 @@ function EngineCard({
           </select>
         </Field>
         <Field
-          label="New posts per site / week"
+          label="New posts per site / week, while building"
           group
-          hint="The default for every site — each site can set its own number, or a one-off for its next run, on its page. 0 keeps runs to audits, fixes and plans. Around $0.40 a post. Each week's posts are all different — their own keyword, spread across the site's services, mixing cost, permit, comparison and case-study posts. The engine writes fewer rather than pad when the business's real facts can't back another distinct post, since Google demotes sites that mass-publish thin AI pages."
+          hint="Each site writes this many a week until it has its base of posts (next setting). A site's own page can set its own number, or a one-off for its next run. 0 keeps runs to audits, fixes and plans. Around $0.40 a post. Each week's posts are all different — their own keyword, spread across the site's services. The engine writes fewer rather than pad when the business's real facts can't back another distinct post."
         >
           <Segmented
             value={s.postsPerWeek}
             disabled={busy}
             options={[0, 1, 2, 3, 4, 5, 6, 8].map((n) => ({ value: n, label: String(n) }))}
             onChange={(n) => save.mutate({ postsPerWeek: n })}
+          />
+        </Field>
+        <Field
+          label="Base of posts"
+          group
+          hint="A site builds until it has this many posts, counting the ones it already had. Sites with many services aim for 3 per service, up to 15. A contractor only has so many real questions customers search for; past this, more posts are padding, and Google demotes sites that mass-publish pages written to rank."
+        >
+          <Segmented
+            value={s.rampTargetPosts}
+            disabled={busy}
+            options={[0, 8, 10, 12, 15, 20].map((n) => ({ value: n, label: String(n) }))}
+            onChange={(n) => save.mutate({ rampTargetPosts: n })}
+          />
+        </Field>
+        <Field
+          label="Then, posts / week"
+          group
+          hint="Once a site has its base, up to this many a week, and only for a search Search Console shows the site appearing for with no page that answers it, or a clear seasonal need. Weeks with no such gap write none. Rewrites of posts that are slipping in Search Console carry on either way."
+        >
+          <Segmented
+            value={s.steadyPostsPerWeek}
+            disabled={busy}
+            options={[0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))}
+            onChange={(n) => save.mutate({ steadyPostsPerWeek: n })}
           />
         </Field>
         <Field label="Cost cap per run" hint="A run stops calling Claude once it has spent this. Up to $50.">

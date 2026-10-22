@@ -24,6 +24,8 @@ export const SEO_DEFAULTS: SeoSettings = {
   // setting) — every call reads it per run.
   model: 'claude-opus-5',
   postsPerWeek: 6,
+  rampTargetPosts: 12,
+  steadyPostsPerWeek: 2,
   maxCostPerRunUsd: 8,
 }
 
@@ -50,6 +52,8 @@ function normalize(raw: Partial<SeoSettings>): SeoSettings {
     timeZone: validTimeZone(raw.timeZone) ? raw.timeZone : SEO_DEFAULTS.timeZone,
     model: typeof raw.model === 'string' && /^claude-[a-z0-9-]+$/.test(raw.model) ? raw.model : SEO_DEFAULTS.model,
     postsPerWeek: clamp(raw.postsPerWeek, 0, MAX_POSTS_PER_RUN, SEO_DEFAULTS.postsPerWeek),
+    rampTargetPosts: clamp(raw.rampTargetPosts, 0, 60, SEO_DEFAULTS.rampTargetPosts),
+    steadyPostsPerWeek: clamp(raw.steadyPostsPerWeek, 0, MAX_POSTS_PER_RUN, SEO_DEFAULTS.steadyPostsPerWeek),
     maxCostPerRunUsd:
       typeof raw.maxCostPerRunUsd === 'number' && raw.maxCostPerRunUsd > 0
         ? Math.min(50, Math.round(raw.maxCostPerRunUsd * 100) / 100)

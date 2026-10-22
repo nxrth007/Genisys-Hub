@@ -40,6 +40,7 @@ import { LovableMcpError, lovableMcpDeploy } from './lovable-mcp'
 import { FACTS_SYSTEM, FactsSchema, ONPAGE_SYSTEM, OnPageSchema, PLAN_SYSTEM, PlanSchema, PostDraftSchema, RESEARCH_SYSTEM, WRITER_SYSTEM } from './prompts'
 import { daysSinceUpdated, MAX_REFRESHES_PER_RUN, pickRefreshes, REFRESH_MIN_AGE_DAYS } from './refresh'
 import { runPsi } from './psi'
+import { postCadence, postCount } from './cadence'
 import { clientWords, factGaps, latestIntakeFor, syncClientFacts } from './client-facts'
 import { detectLovableProjectId, snapshotRepo } from './repo'
 import { getSeoSettings, zonedParts } from './settings'
@@ -679,10 +680,22 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
   const research = (ctx.run.research as unknown as ResearchResult | null) ?? null
   const repo = ctx.snapshot?.repo ?? null
   const canCommit = !!repo && ctx.site.mode !== 'audit' && ctx.site.foundationStatus === 'installed'
-  const oneOff = ctx.site.postsNextRun
-  const postsAllowed = oneOff ?? ctx.site.postsPerWeek ?? ctx.settings.postsPerWeek
   const refreshes = canCommit && repo ? await chooseRefreshes(ctx, repo) : []
   const ledger = await prisma.seoPost.findMany({ where: { siteId: ctx.site.id }, select: { slug: true, primaryKeyword: true, status: true, body: true } })
+  const oneOff = ctx.site.postsNextRun
+  // Ramp, then taper (src/lib/seo/cadence.ts): a base of posts fast, then a couple a week where searches show a gap.
+  const cadence = postCadence({
+    postsNextRun: ctx.site.postsNextRun,
+    sitePostsPerWeek: ctx.site.postsPerWeek,
+    rampPostsPerWeek: ctx.settings.postsPerWeek,
+    rampTargetPosts: ctx.settings.rampTargetPosts,
+    steadyPostsPerWeek: ctx.settings.steadyPostsPerWeek,
+    have: postCount(repo?.blogPosts.map((b) => b.slug) ?? [], ledger),
+    serviceCount: repo?.serviceSlugs.length ?? 0,
+  })
+  const postsAllowed = cadence.postsAllowed
+  const steady = cadence.phase === 'steady'
+  ctx.log('plan', cadence.summary)
   const coverage = new Map((repo?.serviceSlugs ?? []).map((s) => [s, 0]))
   for (const p of ledger) {
     const s = p.status === 'rejected' ? null : (p.body as { serviceSlug?: unknown } | null)?.serviceSlug
@@ -698,7 +711,12 @@ export async function stagePlan(ctx: RunContext): Promise<StageOutcome> {
       context: dossier(ctx, facts, audit, await historyFor(ctx), await clientContext(ctx, facts)),
       task: [
         `Run date ${zonedParts(new Date(), ctx.settings.timeZone).ymd}. New posts allowed this week: ${postsAllowed}.`,
-        ...(postsAllowed > 1
+        ...(steady && postsAllowed > 0
+          ? [
+              `This site already has its base of ${cadence.have} posts, so new posts are now the exception: brief one only for (a) a search Search Console shows the site appearing for with no page that really answers it — check the top queries and striking-distance rows against the existing posts and pages — or (b) a clear seasonal or local need in the research notes that no existing post covers. Returning zero new posts is the right answer when neither applies; the week's work is then the refreshes, title and description fixes and quick wins. Never pad to reach the number.`,
+            ]
+          : []),
+        ...(postsAllowed > 1 && !steady
           ? [
               `Aim to use them all, each a genuinely different post: no two briefs share a primary keyword or answer the same question, at most ${serviceCap} are for any one service (favor services with few or no posts yet), and at most ${MAX_BRIEFS_PER_TYPE} share a content type — mix cost guides, permit guides, comparisons, how-to-choose, seasonal and case studies. Never pad: when the real facts or local demand for another distinct post aren't there, return fewer and ask for the facts in clientInputs.`,
             ]

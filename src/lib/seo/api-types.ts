@@ -76,8 +76,12 @@ export type SeoSettings = {
   hour: number
   timeZone: string
   model: string
-  /** New posts per site per week (0–8). The engine writes fewer when the business's facts can't support more. */
+  /** New posts per site per week while a site builds its base (0–8). The engine writes fewer when the business's facts can't support more. */
   postsPerWeek: number
+  /** A site builds its base until it has this many posts (raised to 3 per service, up to 15, for sites with more services). */
+  rampTargetPosts: number
+  /** New posts per week once the base is built — only where Search Console or the research shows a gap. */
+  steadyPostsPerWeek: number
   /** A run stops calling Claude once it has spent this much. */
   maxCostPerRunUsd: number
   /** When the schedule was last turned on or moved; a slot that began before this doesn't fire. */
@@ -191,6 +195,8 @@ export type SeoSiteDetail = SeoSiteSummary & {
   postsNextRun: number | null
   /** The global posts-per-week setting, which applies when postsPerWeek is null. */
   globalPostsPerWeek: number
+  /** Where the site stands on ramp-then-taper (src/lib/seo/cadence.ts); null before its first run. */
+  cadence: { phase: 'ramp' | 'steady' | 'site' | 'one_off'; postsAllowed: number; have: number; target: number; summary: string } | null
   lovableProjectId: string | null
   indexNowKey: string | null
   foundationPrUrl: string | null
