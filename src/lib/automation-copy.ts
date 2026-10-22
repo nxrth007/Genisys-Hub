@@ -281,7 +281,7 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
         id: `${a.id}-ai-prompt`,
         label: a.name,
         kind: 'prompt' as const,
-        text: workflowAiPrompt(a, email, full),
+        text: workflowAiPrompt(a, email, phone),
         note: 'Open this workflow in the client’s sub-account, open Workflow AI, paste this, and check each step it changed before saving.',
       })),
     },
@@ -293,11 +293,17 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
  * workflow: it names each action, gives the exact new message, and fences
  * everything else off (triggers, waits, other steps, merge fields).
  */
-export function workflowAiPrompt(a: Automation, notifyEmail: string, ownerName: string): string {
+export function workflowAiPrompt(a: Automation, notifyEmail: string, notifyPhone: string): string {
   const messages = a.pieces.filter((p) => p.action)
-  const hasOwnerNotes = messages.some((p) => p.action!.type.startsWith('Internal notification'))
+  /** Internal notifications go to the client: their email for email notifications, their number for SMS ones (from the onboarding form). */
+  const recipient = (type: string): string | null =>
+    type === 'Internal notification (email)'
+      ? `Send it to the email address ${notifyEmail}. Set the recipient to that email address directly, replacing any user or email selected now.`
+      : type === 'Internal notification (SMS)'
+        ? `Send it to the phone number ${notifyPhone}. Set the recipient to that phone number directly, replacing any user or number selected now.`
+        : null
   return [
-    `Update the "${a.name}" workflow. Change only the message text of the ${messages.length} action${messages.length === 1 ? '' : 's'} listed below, and change nothing else.`,
+    `Update the "${a.name}" workflow. Change only the message text of the ${messages.length} action${messages.length === 1 ? '' : 's'} listed below, plus the recipient of the internal notifications, and change nothing else.`,
     '',
     'Rules:',
     '- Replace each message completely with the text between the lines, exactly as written, keeping its line breaks and punctuation.',
@@ -305,20 +311,11 @@ export function workflowAiPrompt(a: Automation, notifyEmail: string, ownerName: 
     '- Do not change the trigger, waits, tags, opportunities, conditions, action names, or any action not listed here. Do not add or remove actions.',
     '- If an action listed here is missing or named differently, tell me instead of creating one.',
     '',
-    ...messages.flatMap((p, i) => [
-      `${i + 1}. Action "${p.action!.name}" (${p.action!.type}). New message:`,
-      '---',
-      p.text,
-      '---',
-      '',
-    ]),
-    ...(hasOwnerNotes
-      ? [
-          `For the internal notification actions: if no user is selected, set them to send to the user ${ownerName} (${notifyEmail}) if that user exists in this sub-account. If not, leave the recipients as they are and tell me.`,
-          '',
-        ]
-      : []),
-    'When you are done, list each action you changed.',
+    ...messages.flatMap((p, i) => {
+      const to = recipient(p.action!.type)
+      return [`${i + 1}. Action "${p.action!.name}" (${p.action!.type}).`, ...(to ? [to] : []), 'New message:', '---', p.text, '---', '']
+    }),
+    'When you are done, list each action you changed, and the recipient each internal notification now sends to.',
   ].join('\n')
 }
 

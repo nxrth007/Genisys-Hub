@@ -29,9 +29,9 @@ const INPUTS: { key: keyof AutomationInputs; label: string; placeholder: string;
   { key: 'businessName', label: 'Business name', placeholder: 'A Plus Fence & Construction', hint: 'Signs every text. Shorten it if the client goes by a shorter name.' },
   { key: 'ownerFirstName', label: 'Owner first name', placeholder: 'Todd', hint: 'Signs the missed-call text and opens the internal notification.' },
   { key: 'ownerFullName', label: 'Owner full name', placeholder: 'Todd Robinson', hint: 'Signs the texts to new leads.' },
-  { key: 'phone', label: 'Business phone', placeholder: '(830) 307-5740', hint: 'The number leads are told to call.' },
+  { key: 'phone', label: 'Business phone', placeholder: '(830) 307-5740', hint: 'The number leads are told to call. The owner notification texts go here too.' },
   { key: 'quoteLink', label: 'Website link', placeholder: 'https://aplusconstruction.org/', hint: 'The free-quote link in the missed-call text.' },
-  { key: 'notifyEmail', label: 'Notification email', placeholder: 'owner@example.com', hint: 'From the onboarding form. Internal notifications go here.' },
+  { key: 'notifyEmail', label: 'Notification email', placeholder: 'owner@example.com', hint: 'From the onboarding form. The owner notification emails go here.' },
 ]
 
 export function AutomationCopyBoard({ clientId }: { clientId: string }) {
@@ -195,6 +195,23 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             </span>
           </p>
         )}
+        {folders.some((f) => f.prompts.length > 0) && (
+          <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+            <div>
+              <h2 className="text-[14px] font-semibold">GHL Workflow AI prompts</h2>
+              <p className="text-[12px] text-muted-foreground">
+                One prompt per automation with this client’s corrected copy, and their email and number for the owner notifications. Open the
+                workflow in the client’s sub-account, open Workflow AI, and paste the matching prompt. Check what it changed before you save.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              {folders.flatMap((f) => f.prompts).map((p) => (
+                <PieceCard key={p.id} piece={p} />
+              ))}
+            </div>
+          </section>
+        )}
+
         <p className="text-[12px] leading-snug text-muted-foreground">
           <MergeChip text="{{contact.first_name}}" /> and the like are GHL merge fields. Leave them as they are; GHL fills them in for each lead.
         </p>
@@ -217,22 +234,6 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                 {folder.automations.map((a) => (
                   <AutomationCard key={a.id} automation={a} done={done.includes(a.id)} onToggle={() => toggleDone(a.id)} />
                 ))}
-                {folder.prompts.length > 0 && (
-                  <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-                    <div>
-                      <h2 className="text-[14px] font-semibold">GHL Workflow AI prompts</h2>
-                      <p className="text-[12px] text-muted-foreground">
-                        The same corrections as above, one prompt per automation. Open the workflow in the client’s sub-account, open Workflow AI, and
-                        paste the matching prompt. Check what it changed before you save.
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      {folder.prompts.map((p) => (
-                        <PieceCard key={p.id} piece={p} />
-                      ))}
-                    </div>
-                  </section>
-                )}
               </div>
             </details>
           )
