@@ -191,38 +191,50 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
         {
           id: 'missed-call',
           name: 'Auto Missed Call Text-Back',
-          where: 'Automation → Workflows → Auto Missed Call Text-Back → the SMS action',
+          where: 'Automation → Workflows → Client Workflows → Incoming Lead Workflows → Auto Missed Call Text-Back',
           pieces: [
             {
               id: 'missed-call-sms',
-              label: 'SMS to the caller',
+              label: 'Text to the caller ("Text Back the Caller")',
               kind: 'sms',
               text: `Hey, sorry I missed your call! I'll get back to you asap.\n\nIf you want to give me a few details about the job that would be great. You can click this link for a free quote ${link}\n\n- ${first} from ${B}`,
+            },
+            {
+              id: 'missed-call-owner-email',
+              label: 'Email to the owner ("Push Notification to Assigned User")',
+              kind: 'email',
+              text: `Hey, ${first}!\n\nYou just missed a call from\n\n{{contact.phone}} ( {{contact.name}} ).\n\nPlease get back to them ASAP before lead gets cold.`,
+            },
+            {
+              id: 'missed-call-owner-sms',
+              label: 'Text to the owner ("Internal SMS to Assigned User")',
+              kind: 'email',
+              text: `Hey, ${first}!\n\nYou just missed a call from\n\n{{contact.phone}} ({{contact.full_name}}). Please get back to them ASAP before lead gets cold.`,
             },
           ],
         },
         {
           id: 'chat-widget',
           name: 'Website Chat Widget Form Submitted',
-          where: 'Automation → Workflows → Website Chat Widget Form Submitted',
+          where: 'Automation → Workflows → Client Workflows → Incoming Lead Workflows → Website Chat Widget Form Submitted',
           pieces: [
             {
               id: 'chat-notify-to',
               label: 'Internal notification: send to',
               kind: 'value',
               text: email,
-              note: 'The email the client gave on the onboarding form. Paste it into the notification action’s recipient field.',
+              note: 'The email the client gave on the onboarding form. The owner notifications in all three workflows go to a "Particular user" that is blank in the snapshot: pick the client’s user there, or paste this where the action takes an email.',
             },
             {
               id: 'chat-notify-body',
-              label: 'Internal notification: message',
+              label: 'Email to the owner ("Send email to staff")',
               kind: 'email',
               text: `Hey ${first},\n\nSomeone requested a quote for service:\n\nHere's their info:\nName: {{contact.name}}\nEmail: {{contact.email}}\nPhone: {{contact.phone}}\nProject Details: {{project details}}\n\nWe've let them know you'll be in touch.\nCall them back ASAP to book their quote!`,
               note: '{{project details}} must match the merge field of the chat widget’s project-details question in this sub-account. Pick it from the merge-field menu in the action if it shows up blank.',
             },
             {
               id: 'chat-customer-sms',
-              label: 'SMS to the lead',
+              label: 'Text to the lead ("Chat Widget Submission Confirmation SMS")',
               kind: 'sms',
               text: customerSms('chat submission'),
             },
@@ -231,11 +243,17 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
         {
           id: 'quote-form',
           name: 'Website Quote Form Submitted',
-          where: 'Automation → Workflows → Website Quote Form Submitted → the SMS action',
+          where: 'Automation → Workflows → Client Workflows → Incoming Lead Workflows → Website Quote Form Submitted',
           pieces: [
             {
+              id: 'quote-notify-body',
+              label: 'Email to the owner ("Send Email To Staff")',
+              kind: 'email',
+              text: `Hey ${first},\n\nSomeone requested a quote for service:\n\nHere's their info:\nName: {{contact.name}}\nEmail: {{contact.email}}\nPhone: {{contact.phone}}\nService Needed: {{service needed}}\nProject Details: {{project details}}\n\nCall them back ASAP to book their quote!`,
+            },
+            {
               id: 'quote-customer-sms',
-              label: 'SMS to the lead',
+              label: 'Text to the lead ("Quote Form Confirmation SMS")',
               kind: 'sms',
               text: customerSms('quote form'),
             },
