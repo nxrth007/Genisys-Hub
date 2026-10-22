@@ -16,6 +16,7 @@ import {
   type AutomationInputs,
   type CopyPiece,
 } from '@/lib/automation-copy'
+import { GhlPanel } from './ghl-panel'
 
 type Saved = { values: Partial<AutomationInputs>; done: string[]; updatedAt: string | null }
 type BoardData = {
@@ -197,6 +198,8 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
         <p className="text-[12px] leading-snug text-muted-foreground">
           <MergeChip text="{{contact.first_name}}" /> and the like are GHL merge fields. Leave them as they are; GHL fills them in for each lead.
         </p>
+
+        <GhlPanel clientId={clientId} values={values} />
 
         {folders.map((folder) => {
           const doneHere = folder.automations.filter((a) => done.includes(a.id)).length

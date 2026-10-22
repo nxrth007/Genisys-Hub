@@ -40,6 +40,20 @@ export const AUTOMATION_INPUT_KEYS = [
   'notifyEmail',
 ] as const satisfies readonly (keyof AutomationInputs)[]
 
+/**
+ * The board's details as GHL custom values, so the snapshot's workflows can
+ * use {{custom_values.<key>}} instead of typed names. GHL derives the key
+ * from the name; the Hub matches existing values by name.
+ */
+export const AUTOMATION_VALUE_DEFS: { key: string; name: string; input: keyof AutomationInputs }[] = [
+  { key: 'owner_first_name', name: 'Owner First Name', input: 'ownerFirstName' },
+  { key: 'owner_full_name', name: 'Owner Full Name', input: 'ownerFullName' },
+  { key: 'business_name', name: 'Business Name', input: 'businessName' },
+  { key: 'business_phone', name: 'Business Phone', input: 'phone' },
+  { key: 'website_link', name: 'Website Link', input: 'quoteLink' },
+  { key: 'notification_email', name: 'Notification Email', input: 'notifyEmail' },
+]
+
 export type AutomationSource = {
   name: string
   contactName: string | null
