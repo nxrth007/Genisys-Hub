@@ -188,6 +188,9 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
   const link = v(x.quoteLink, 'WEBSITE LINK')
   const email = v(x.notifyEmail, 'NOTIFICATION EMAIL')
 
+  /** The snapshot's "Send text to staff" message (chat widget and quote form): no names, only its recipient is per client. */
+  const staffSms = `New lead from website!\n\nInfo:\n- Name: {{contact.full_name}}\n- Email: {{contact.email}}\n- Phone: {{contact.phone}}\n\nWe've let them know you'll be in touch soon!`
+
   const customerSms = (what: string) =>
     `Hey {{contact.first_name}}! Just got your ${what}.\n\nI'll be in touch with you shortly. Please feel free to reach out to us directly at ${phone}\n\n- ${full} at ${B}`
 
@@ -230,7 +233,7 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               label: 'Internal notification: send to',
               kind: 'value',
               text: email,
-              note: 'The email the client gave on the onboarding form. The owner notifications in all three workflows go to a "Particular user" that is blank in the snapshot: pick the client’s user there, or paste this where the action takes an email.',
+              note: 'The email the client gave on the onboarding form. By hand: the owner notification emails in all three workflows go to this address, and the owner texts go to the business phone. The Workflow AI prompts set both.',
             },
             {
               id: 'chat-notify-body',
@@ -239,6 +242,14 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               action: { name: 'Send email to staff', type: 'Internal notification (email)' },
               text: `Hey ${first},\n\nSomeone requested a quote for service:\n\nHere's their info:\nName: {{contact.name}}\nEmail: {{contact.email}}\nPhone: {{contact.phone}}\nProject Details: {{project details}}\n\nWe've let them know you'll be in touch.\nCall them back ASAP to book their quote!`,
               note: '{{project details}} must match the merge field of the chat widget’s project-details question in this sub-account. Pick it from the merge-field menu in the action if it shows up blank.',
+            },
+            {
+              id: 'chat-staff-sms',
+              label: 'Text to the owner ("Send text to staff")',
+              kind: 'email',
+              action: { name: 'Send text to staff', type: 'Internal notification (SMS)' },
+              text: staffSms,
+              note: 'No name in this one: only its recipient changes, to the business phone.',
             },
             {
               id: 'chat-customer-sms',
@@ -254,6 +265,14 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
           name: 'Website Quote Form Submitted',
           where: 'Automation → Workflows → Client Workflows → Incoming Lead Workflows → Website Quote Form Submitted',
           pieces: [
+            {
+              id: 'quote-staff-sms',
+              label: 'Text to the owner ("Send text to staff")',
+              kind: 'email',
+              action: { name: 'Send text to staff', type: 'Internal notification (SMS)' },
+              text: staffSms,
+              note: 'No name in this one: only its recipient changes, to the business phone.',
+            },
             {
               id: 'quote-notify-body',
               label: 'Email to the owner ("Send Email To Staff")',
