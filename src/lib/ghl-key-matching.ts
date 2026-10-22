@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { API_VERSION, BASE_URL, GHL_AGENCY_KEY_VAULT_NAME, decodeJwtPayload } from '@/lib/ghl'
 import { getAgencyContext, listAllLocations } from '@/lib/ghl-agency'
 import { getSecretByName, updateEntry } from '@/lib/vault-service'
-import { nameWords } from '@/lib/ghl-automation-values'
+import { locationIn, nameWords } from '@/lib/ghl-automation-values'
 
 /**
  * Work out which client sub-account each GHL key in the Vault belongs to.
@@ -26,7 +26,6 @@ export type KeyMatchResult = {
   error: string | null
 }
 
-const locationIn = (description: string | null) => description?.match(/location[_-]?id\s*[=:]\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null
 const businessPart = (n: string) => (n.includes(':') ? n.slice(n.indexOf(':') + 1) : n).trim()
 
 /** Does GHL accept this key for this sub-account? 'scope' = the key reached GHL but lacks the permission to tell. */
@@ -57,14 +56,13 @@ export async function matchVaultKeys(userId: string): Promise<KeyMatchResult> {
   try {
     locations = (await listAllLocations(await getAgencyContext())).locations
       .map((l) => ({ id: l.id, name: l.name }))
-      // Client sub-accounts are named "First: Business"; the agency's own aren't.
-      .filter((l) => l.name.includes(':'))
+      // Client sub-accounts are named "First: Business"; the agency's own ("Lead Genisys: SMS Sub Acc") never count.
+      .filter((l) => l.name.includes(':') && !/genisys/i.test(l.name))
   } catch (err) {
     return { ...result, error: `Couldn't list the agency's sub-accounts: ${err instanceof Error ? err.message : String(err)}` }
   }
   const clients = await prisma.client.findMany({ where: { ghlLocationId: { not: null } }, select: { name: true, ghlLocationId: true } })
   const clientAt = new Map(clients.map((c) => [c.ghlLocationId!, c.name]))
-  const clientLocations = new Set(locations.map((l) => l.id))
 
   const entries = await prisma.vaultEntry.findMany({
     where: { tags: { has: 'ghl' } },
@@ -78,9 +76,9 @@ export async function matchVaultKeys(userId: string): Promise<KeyMatchResult> {
     const declared = locationIn(e.description)
     const tagged = e.tags.some((t) => ['client', 'clients', 'customer'].includes(t.trim().toLowerCase()))
     if (declared) {
-      // Points at a client sub-account but isn't tagged as one: tag it.
-      if (clientLocations.has(declared) && !tagged) await updateEntry(e.id, userId, { tags: [...e.tags, 'client'] })
-      if (clientLocations.has(declared)) result.alreadySet.push(e.name)
+      // Points at a sub-account a client is linked to, but isn't tagged as a client's key: tag it.
+      if (clientAt.has(declared) && !tagged) await updateEntry(e.id, userId, { tags: [...e.tags, 'client'] })
+      if (clientAt.has(declared)) result.alreadySet.push(e.name)
       continue
     }
     let token: string

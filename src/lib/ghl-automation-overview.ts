@@ -23,7 +23,13 @@ export type ClientGhlOverview = {
 
 export type GhlOverview = { clients: ClientGhlOverview[]; agencyError: string | null }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+/** Lower-case words, without a trailing LLC / Inc / Co ("C&J Concrete Coatings LLC" = "C&J CONCRETE COATINGS"). */
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+(llc|inc|co|corp|ltd)$/, '')
 /** "Winy: Luxama Services" → "Luxama Services". */
 const businessPart = (locationName: string) => (locationName.includes(':') ? locationName.slice(locationName.indexOf(':') + 1) : locationName).trim()
 
@@ -73,7 +79,7 @@ export async function ghlAutomationOverview(): Promise<GhlOverview> {
   const nameOf = new Map(locations.map((l) => [l.id, l.name]))
   const taken = new Set(clients.map((c) => c.ghlLocationId).filter((x): x is string => !!x))
   // Client sub-accounts look like "First: Business"; the agency's own don't.
-  const free = locations.filter((l) => !taken.has(l.id) && l.name.includes(':'))
+  const free = locations.filter((l) => !taken.has(l.id) && l.name.includes(':') && !/genisys/i.test(l.name))
 
   const rows = await pool(clients, 4, async (c): Promise<ClientGhlOverview> => {
     const base = { id: c.id, name: c.name }

@@ -150,7 +150,11 @@ export const nameWords = (s: string) =>
     .split(' ')
     .filter((w) => w.length >= 3 && !GENERIC_WORDS.has(w))
 
-const locationIn = (description: string | null) => description?.match(/location[_-]?id\s*[=:]\s*([A-Za-z0-9_-]+)/i)?.[1] ?? null
+/** "locationId=abc…", or (like resolveToken in ghl.ts) a description that is just the id. */
+export const locationIn = (description: string | null): string | null => {
+  const d = description?.trim() ?? ''
+  return d.match(/location[_-]?id\s*[=:]\s*([A-Za-z0-9_-]+)/i)?.[1] ?? (/^[A-Za-z0-9_-]{15,40}$/.test(d) ? d : null)
+}
 
 /**
  * The client's own sub-account key, then the agency key.
