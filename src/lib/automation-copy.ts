@@ -156,10 +156,12 @@ export function smsSegments(text: string): { chars: number; segments: number; un
 export type CopyPiece = {
   id: string
   label: string
-  /** sms = a text to the lead; email = an internal email; value = a single field (an address to paste). */
-  kind: 'sms' | 'email' | 'value'
+  /** sms = a text to the lead; email = an internal message; value = a single field (an address to paste); prompt = for GHL's Workflow AI. */
+  kind: 'sms' | 'email' | 'value' | 'prompt'
   text: string
   note?: string
+  /** The GHL action this message goes into, by its name in the workflow, and what kind of action it is. */
+  action?: { name: string; type: string }
 }
 
 export type Automation = {
@@ -170,7 +172,13 @@ export type Automation = {
   pieces: CopyPiece[]
 }
 
-export type AutomationFolder = { id: string; name: string; automations: Automation[] }
+export type AutomationFolder = {
+  id: string
+  name: string
+  automations: Automation[]
+  /** One prompt per automation for GHL's Workflow AI, carrying this client's copy. */
+  prompts: CopyPiece[]
+}
 
 export function automationFolders(x: AutomationInputs): AutomationFolder[] {
   const B = v(x.businessName, 'BUSINESS NAME')
@@ -183,11 +191,7 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
   const customerSms = (what: string) =>
     `Hey {{contact.first_name}}! Just got your ${what}.\n\nI'll be in touch with you shortly. Please feel free to reach out to us directly at ${phone}\n\n- ${full} at ${B}`
 
-  return [
-    {
-      id: 'incoming-leads',
-      name: 'Incoming Lead Workflows',
-      automations: [
+  const incoming: Automation[] = [
         {
           id: 'missed-call',
           name: 'Auto Missed Call Text-Back',
@@ -197,18 +201,21 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               id: 'missed-call-sms',
               label: 'Text to the caller ("Text Back the Caller")',
               kind: 'sms',
+              action: { name: 'Text Back the Caller', type: 'SMS' },
               text: `Hey, sorry I missed your call! I'll get back to you asap.\n\nIf you want to give me a few details about the job that would be great. You can click this link for a free quote ${link}\n\n- ${first} from ${B}`,
             },
             {
               id: 'missed-call-owner-email',
               label: 'Email to the owner ("Push Notification to Assigned User")',
               kind: 'email',
+              action: { name: 'Push Notification to Assigned User', type: 'Internal notification (email)' },
               text: `Hey, ${first}!\n\nYou just missed a call from\n\n{{contact.phone}} ( {{contact.name}} ).\n\nPlease get back to them ASAP before lead gets cold.`,
             },
             {
               id: 'missed-call-owner-sms',
               label: 'Text to the owner ("Internal SMS to Assigned User")',
               kind: 'email',
+              action: { name: 'Internal SMS to Assigned User', type: 'Internal notification (SMS)' },
               text: `Hey, ${first}!\n\nYou just missed a call from\n\n{{contact.phone}} ({{contact.full_name}}). Please get back to them ASAP before lead gets cold.`,
             },
           ],
@@ -229,6 +236,7 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               id: 'chat-notify-body',
               label: 'Email to the owner ("Send email to staff")',
               kind: 'email',
+              action: { name: 'Send email to staff', type: 'Internal notification (email)' },
               text: `Hey ${first},\n\nSomeone requested a quote for service:\n\nHere's their info:\nName: {{contact.name}}\nEmail: {{contact.email}}\nPhone: {{contact.phone}}\nProject Details: {{project details}}\n\nWe've let them know you'll be in touch.\nCall them back ASAP to book their quote!`,
               note: '{{project details}} must match the merge field of the chat widget’s project-details question in this sub-account. Pick it from the merge-field menu in the action if it shows up blank.',
             },
@@ -236,6 +244,7 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               id: 'chat-customer-sms',
               label: 'Text to the lead ("Chat Widget Submission Confirmation SMS")',
               kind: 'sms',
+              action: { name: 'Chat Widget Submission Confirmation SMS (To Customer)', type: 'SMS' },
               text: customerSms('chat submission'),
             },
           ],
@@ -249,19 +258,68 @@ export function automationFolders(x: AutomationInputs): AutomationFolder[] {
               id: 'quote-notify-body',
               label: 'Email to the owner ("Send Email To Staff")',
               kind: 'email',
+              action: { name: 'Send Email To Staff', type: 'Internal notification (email)' },
               text: `Hey ${first},\n\nSomeone requested a quote for service:\n\nHere's their info:\nName: {{contact.name}}\nEmail: {{contact.email}}\nPhone: {{contact.phone}}\nService Needed: {{service needed}}\nProject Details: {{project details}}\n\nCall them back ASAP to book their quote!`,
             },
             {
               id: 'quote-customer-sms',
               label: 'Text to the lead ("Quote Form Confirmation SMS")',
               kind: 'sms',
+              action: { name: 'Quote Form Confirmation SMS (To Customer)', type: 'SMS' },
               text: customerSms('quote form'),
             },
           ],
         },
-      ],
+  ]
+
+  return [
+    {
+      id: 'incoming-leads',
+      name: 'Incoming Lead Workflows',
+      automations: incoming,
+      prompts: incoming.map((a) => ({
+        id: `${a.id}-ai-prompt`,
+        label: a.name,
+        kind: 'prompt' as const,
+        text: workflowAiPrompt(a, email, full),
+        note: 'Open this workflow in the client’s sub-account, open Workflow AI, paste this, and check each step it changed before saving.',
+      })),
     },
   ]
+}
+
+/**
+ * A prompt for GHL's Workflow AI that puts this client's copy into one
+ * workflow: it names each action, gives the exact new message, and fences
+ * everything else off (triggers, waits, other steps, merge fields).
+ */
+export function workflowAiPrompt(a: Automation, notifyEmail: string, ownerName: string): string {
+  const messages = a.pieces.filter((p) => p.action)
+  const hasOwnerNotes = messages.some((p) => p.action!.type.startsWith('Internal notification'))
+  return [
+    `Update the "${a.name}" workflow. Change only the message text of the ${messages.length} action${messages.length === 1 ? '' : 's'} listed below, and change nothing else.`,
+    '',
+    'Rules:',
+    '- Replace each message completely with the text between the lines, exactly as written, keeping its line breaks and punctuation.',
+    '- Keep every merge field in double curly braces, such as {{contact.first_name}}, exactly as written. Do not rename, reformat or remove them.',
+    '- Do not change the trigger, waits, tags, opportunities, conditions, action names, or any action not listed here. Do not add or remove actions.',
+    '- If an action listed here is missing or named differently, tell me instead of creating one.',
+    '',
+    ...messages.flatMap((p, i) => [
+      `${i + 1}. Action "${p.action!.name}" (${p.action!.type}). New message:`,
+      '---',
+      p.text,
+      '---',
+      '',
+    ]),
+    ...(hasOwnerNotes
+      ? [
+          `For the internal notification actions: if no user is selected, set them to send to the user ${ownerName} (${notifyEmail}) if that user exists in this sub-account. If not, leave the recipients as they are and tell me.`,
+          '',
+        ]
+      : []),
+    'When you are done, list each action you changed.',
+  ].join('\n')
 }
 
 export const AUTOMATION_IDS: string[] = automationFolders({

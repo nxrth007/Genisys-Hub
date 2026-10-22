@@ -217,6 +217,22 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                 {folder.automations.map((a) => (
                   <AutomationCard key={a.id} automation={a} done={done.includes(a.id)} onToggle={() => toggleDone(a.id)} />
                 ))}
+                {folder.prompts.length > 0 && (
+                  <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+                    <div>
+                      <h2 className="text-[14px] font-semibold">GHL Workflow AI prompts</h2>
+                      <p className="text-[12px] text-muted-foreground">
+                        The same corrections as above, one prompt per automation. Open the workflow in the client’s sub-account, open Workflow AI, and
+                        paste the matching prompt. Check what it changed before you save.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {folder.prompts.map((p) => (
+                        <PieceCard key={p.id} piece={p} />
+                      ))}
+                    </div>
+                  </section>
+                )}
               </div>
             </details>
           )
@@ -274,7 +290,9 @@ function PieceCard({ piece }: { piece: CopyPiece }) {
               ? `~${sms.chars} characters · ${sms.segments} SMS segment${sms.segments === 1 ? '' : 's'}${sms.unicode ? ' (Unicode)' : ''}`
               : piece.kind === 'email'
                 ? 'Internal notification'
-                : 'Paste as is'}
+                : piece.kind === 'prompt'
+                  ? 'Paste into GHL Workflow AI'
+                  : 'Paste as is'}
             {blanks.length ? ` · ${blanks.length} blank${blanks.length === 1 ? '' : 's'}` : ''}
           </p>
         </div>
