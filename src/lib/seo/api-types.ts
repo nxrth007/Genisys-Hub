@@ -163,6 +163,8 @@ export type SeoSiteSummary = {
   mode: SeoMode
   enabled: boolean
   foundationStatus: FoundationStatus
+  /** false = the foundation merged on GitHub but its run hasn't seen it live yet (Lovable hasn't pulled or published); null = no foundation run to go by. */
+  foundationLive: boolean | null
   lastScore: number | null
   /** Score from the run before the latest scored one, for the week-over-week delta. */
   previousScore: number | null

@@ -946,7 +946,9 @@ export function ModeChip({ mode }: { mode: string }) {
   )
 }
 
-export function FoundationBadge({ status }: { status: FoundationStatus | string }) {
+export function FoundationBadge({ status, live = null }: { status: FoundationStatus | string; live?: boolean | null }) {
+  // Merged on GitHub, but the site doesn't serve it yet (Lovable hasn't pulled or published).
+  if (status === 'installed' && live === false) return <DotPill label="Merged, not live yet" tone="attention" />
   if (status === 'installed') {
     return (
       <span className="inline-flex items-center gap-1 text-[12px] text-foreground/85">

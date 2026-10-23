@@ -115,6 +115,7 @@ function siteSummary(
   posts: { total: number; live: number },
   scores: number[] = [],
   lovableOn = false,
+  foundationLive: boolean | null = null,
 ): SeoSiteSummary {
   return {
     id: s.id,
@@ -127,12 +128,28 @@ function siteSummary(
     mode: s.mode as SeoMode,
     enabled: s.enabled,
     foundationStatus: s.foundationStatus as FoundationStatus,
+    foundationLive,
     lastScore: s.lastScore,
     previousScore: scores[1] ?? null,
     lastRunAt: iso(s.lastRunAt),
     latestRun: latest ? runSummary(latest, lovableOn) : null,
     posts,
   }
+}
+
+/**
+ * Is each site's foundation live? The site row says "installed" from the
+ * moment the PR merges; the foundation run only finishes once its files are
+ * live on the site. A merged run that hasn't finished = not live yet.
+ */
+async function foundationLiveBySite(siteIds: string[]): Promise<Map<string, boolean>> {
+  const runs = await prisma.seoRun.findMany({
+    where: { siteId: { in: siteIds }, kind: 'foundation', mergedAt: { not: null } },
+    orderBy: { createdAt: 'desc' },
+    distinct: ['siteId'],
+    select: { siteId: true, status: true, publishedAt: true },
+  })
+  return new Map(runs.map((r) => [r.siteId, r.status === 'done' || !!r.publishedAt]))
 }
 
 async function postCounts(siteIds: string[]): Promise<Map<string, { total: number; live: number }>> {
@@ -154,13 +171,13 @@ async function postCounts(siteIds: string[]): Promise<Map<string, { total: numbe
  */
 function readinessFor(
   s: SiteRow,
-  env: { reviewedShips: number; lovableKey: boolean; gscOk: boolean; scheduleOn: boolean; gscState?: GscConnectState | null },
+  env: { reviewedShips: number; lovableKey: boolean; gscOk: boolean; scheduleOn: boolean; gscState?: GscConnectState | null; foundationLive?: boolean | null },
 ): SiteReadiness {
   const step = (id: ReadinessStep['id'], label: string, ok: boolean, required: boolean, detail: string): ReadinessStep => ({ id, label, ok, required, detail })
   const steps: ReadinessStep[] = [
     step('repo', 'GitHub repo linked', !!s.repoFullName, true, s.repoFullName ? s.repoFullName : 'Link the site’s repo in Settings. GoHighLevel sites have none — they stay in Audit mode.'),
     step('facts', 'Business facts recorded', !!s.facts, true, s.facts ? 'Every post is written from these — keep them current.' : 'Recorded automatically on the first run; check them on the Business facts tab.'),
-    step('foundation', 'SEO foundation installed', s.foundationStatus === 'installed', true, s.foundationStatus === 'installed' ? 'Posts, sitemap and llms.txt are wired in.' : s.foundationStatus === 'proposed' ? 'The foundation PR is open — approve it on its run page, then publish in Lovable.' : 'One reviewed pull request; the button is above.'),
+    step('foundation', 'SEO foundation installed', s.foundationStatus === 'installed' && env.foundationLive !== false, true, s.foundationStatus === 'installed' && env.foundationLive === false ? 'Merged on GitHub but not live on the site yet: Lovable hasn’t pulled it or it isn’t published. The Hub nudges Lovable and publishes on its own; open the foundation run to see where it’s stuck.' : s.foundationStatus === 'installed' ? 'Posts, sitemap and llms.txt are wired in and live.' : s.foundationStatus === 'proposed' ? 'The foundation PR is open — approve it on its run page, then publish in Lovable.' : 'One reviewed pull request; the button is above.'),
     step('ci', 'Build check in the repo', s.ciWorkflow, true, s.ciWorkflow ? 'Every engine branch is built before it can merge.' : 'Comes with the foundation; Autopilot won’t merge without it.'),
     step('reviewed', 'A weekly run approved by a person', env.reviewedShips > 0, false, env.reviewedShips > 0 ? `${env.reviewedShips} shipped after review.` : 'Run a week in Review mode first so you’ve seen what the engine writes for this site.'),
     step('publish', 'Publishing without a click', env.lovableKey, false, env.lovableKey ? (s.lovableProjectId ? 'The Hub publishes each merge in Lovable itself.' : 'Lovable is connected; this site\u2019s project is found automatically on its next run.') : 'Connect Lovable on the SEO dashboard (free, one-time sign-in). Until then someone clicks Publish in Lovable after each merge — the engine notices and verifies.'),
@@ -212,7 +229,7 @@ async function siteCadence(
 export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> {
   const s = await prisma.seoSite.findUnique({ where: { id: siteId }, include: { client: { select: { id: true, name: true } } } })
   if (!s) return null
-  const [latest, counts, scores, reviewedShips, lovable, gsc, settings, gscStates, intake] = await Promise.all([
+  const [latest, counts, scores, reviewedShips, lovable, gsc, settings, gscStates, intake, foundationLive] = await Promise.all([
     prisma.seoRun.findFirst({ where: { siteId }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT }),
     postCounts([siteId]).then((m) => m.get(siteId) ?? { total: 0, live: 0 }),
     recentScores([siteId]).then((m) => m.get(siteId) ?? []),
@@ -222,13 +239,15 @@ export async function siteDetail(siteId: string): Promise<SeoSiteDetail | null> 
     getSeoSettings(),
     gscConnectStates(),
     latestIntakeFor(s.clientId).catch(() => null),
+    foundationLiveBySite([siteId]).then((m) => m.get(siteId) ?? null),
   ])
   const facts = (s.facts as unknown as BusinessFacts | null) ?? null
   const meta = readMeta(s.factsMeta)
   const gaps = factGaps(facts, intake)
   return {
-    ...siteSummary(s, latest, counts, scores, lovable !== null),
+    ...siteSummary(s, latest, counts, scores, lovable !== null, foundationLive),
     readiness: readinessFor(s, {
+      foundationLive,
       reviewedShips,
       lovableKey: lovable !== null,
       gscOk: gsc.ok,
@@ -471,7 +490,7 @@ export async function overview(): Promise<SeoOverviewResponse> {
     integrations(),
   ])
   const ids = sites.map((s) => s.id)
-  const [latestRuns, counts, scores, spend] = await Promise.all([
+  const [latestRuns, counts, scores, spend, liveFoundations] = await Promise.all([
     // One light query per site: `distinct` would still read every run's row.
     Promise.all(ids.map((id) => prisma.seoRun.findFirst({ where: { siteId: id }, orderBy: { createdAt: 'desc' }, select: SUMMARY_SELECT }))).then((rows) =>
       rows.filter((r): r is RunSummaryRow => !!r),
@@ -483,6 +502,7 @@ export async function overview(): Promise<SeoOverviewResponse> {
       _sum: { costUsd: true },
       _count: { _all: true },
     }),
+    foundationLiveBySite(ids),
   ])
   const latestBySite = new Map(latestRuns.map((r) => [r.siteId, r]))
   return {
@@ -490,7 +510,7 @@ export async function overview(): Promise<SeoOverviewResponse> {
     settings,
     nextRunAt: nextScheduledRun(settings, new Date()),
     sites: sites.map((s) =>
-      siteSummary(s, latestBySite.get(s.id) ?? null, counts.get(s.id) ?? { total: 0, live: 0 }, scores.get(s.id) ?? [], integ.lovable.channel !== null),
+      siteSummary(s, latestBySite.get(s.id) ?? null, counts.get(s.id) ?? { total: 0, live: 0 }, scores.get(s.id) ?? [], integ.lovable.channel !== null, liveFoundations.get(s.id) ?? null),
     ),
     clients,
     spend: { last30DaysUsd: Math.round((spend._sum.costUsd ?? 0) * 100) / 100, runsLast30Days: spend._count._all },

@@ -450,7 +450,7 @@ function SiteRow({
       <td className={tdClass}>
         <div className="flex flex-col items-start gap-1.5">
           <ModeChip mode={site.mode} />
-          {site.repoFullName && <FoundationBadge status={site.foundationStatus} />}
+          {site.repoFullName && <FoundationBadge status={site.foundationStatus} live={site.foundationLive} />}
         </div>
       </td>
       <td className={cn(tdClass, 'text-right')}>

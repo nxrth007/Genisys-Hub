@@ -660,7 +660,7 @@ function FoundationCard({
           </span>
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 text-[14px] font-semibold">
-              SEO foundation <FoundationBadge status={site.foundationStatus} />
+              SEO foundation <FoundationBadge status={site.foundationStatus} live={site.foundationLive} />
             </p>
             <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-muted-foreground">
               Weekly runs only ever add post files under <code className="font-mono text-[12px] text-foreground/85">src/content/blog</code>.
@@ -1846,7 +1846,7 @@ function SettingsForm({
 function DetailsCard({ site }: { site: SeoSiteDetail }) {
   const rows: [string, React.ReactNode][] = [
     ['Platform', platformLabel(site.platform)],
-    ['Foundation', <FoundationBadge key="f" status={site.foundationStatus} />],
+    ['Foundation', <FoundationBadge key="f" status={site.foundationStatus} live={site.foundationLive} />],
     ['Default branch', site.defaultBranch ? <span className="font-mono">{site.defaultBranch}</span> : '—'],
     [
       'IndexNow key',
