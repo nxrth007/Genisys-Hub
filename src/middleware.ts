@@ -52,6 +52,10 @@ const PUBLIC_PATHS = [
   // Retired NCT Media lead webhook — answers 410 Gone so NCT's sender
   // gets a clear "stop" instead of a login redirect.
   '/api/webhooks/nct-leads',
+  // A client's Google Business Profile setup page and its "done" post: no Hub
+  // account; the secret token in the URL is the access (src/lib/gbp-setup.ts).
+  '/gbp-setup',
+  '/api/public/gbp',
   // Client onboarding intake form posts here with a shared secret.
   '/api/webhooks/client-onboarding',
   // Client sub-account workflows post form / chat leads here (?secret=).

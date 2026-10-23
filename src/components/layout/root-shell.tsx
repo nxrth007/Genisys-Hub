@@ -26,6 +26,11 @@ export function RootShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
+  if (pathname.startsWith('/gbp-setup/')) {
+    // A client's public Google Business Profile setup page: no Hub chrome.
+    return <>{children}</>
+  }
+
   if (pathname === '/agent' || pathname.startsWith('/agent/')) {
     return <AgentShell>{children}</AgentShell>
   }

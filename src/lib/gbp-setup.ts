@@ -6,7 +6,15 @@ import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { getSecretByName } from '@/lib/vault-service'
 import { markTeamEdits, readMeta } from '@/lib/seo/client-facts'
 import type { BusinessFacts } from '@/lib/seo/types'
+import { randomBytes } from 'node:crypto'
+import { getWriterAccountEmail } from '@/lib/drive'
+import { sendEmail } from '@/lib/gmail'
+import { textTeam } from '@/lib/team-sms'
 import {
+  gbpFields,
+  instructionsEmail,
+  instructionsText,
+  type GbpField,
   GBP_INPUT_KEYS,
   GBP_STATUSES,
   gbpPrefill,
@@ -61,6 +69,10 @@ export type GbpState = {
   texts: { at: string; kind: 'checklist' | 'reminder'; to: string; ok: boolean; detail: string | null }[]
   remind: boolean
   history: { at: string; by: string | null; what: string }[]
+  /** The secret in the client's public setup page link (/gbp-setup/<token>). */
+  publicToken?: string | null
+  /** When the client pasted their new profile link on that page. */
+  clientDoneAt?: string | null
 }
 
 const EMPTY: GbpState = { status: null, values: {}, lookup: null, profileUrl: null, reviewUrl: null, texts: [], remind: false, history: [] }
@@ -291,7 +303,8 @@ async function textOwner(id: string, kind: 'checklist' | 'reminder', by: string 
   if (to.length !== 10) {
     return { ok: false, detail: 'No owner phone number to text. Add it on the left.', state }
   }
-  const message = kind === 'checklist' ? verificationMessage(x) : reminderMessage(x)
+  const link = state.publicToken ? hubLink(`/gbp-setup/${state.publicToken}`) : null
+  const message = kind === 'checklist' ? verificationMessage(x) : reminderMessage(x, link)
   if (/⟦/.test(message)) return { ok: false, detail: 'The message still has blanks. Fill them in on the left first.', state }
   let ok = true
   let detail: string | null = null
@@ -459,4 +472,157 @@ export async function gbpOverview(): Promise<GbpOverviewRow[]> {
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }))
+}
+
+// ---------------------------------------------------------------------------
+// The client does it: instructions and a public setup page
+// ---------------------------------------------------------------------------
+
+/** Who the client adds as a manager on their new profile, so Genisys can help keep it current. */
+export const GBP_MANAGER_EMAIL = process.env.GBP_MANAGER_EMAIL?.trim() || 'alex@leadgenisys.com'
+const PUBLIC_KEY = (token: string) => `gbp.public.${token}`
+
+/** The client's setup page link, made once and kept (the same link works in every reminder). */
+export async function publicSetupLink(id: string): Promise<string> {
+  const state = await load(id)
+  if (!state.publicToken) {
+    state.publicToken = randomBytes(18).toString('base64url')
+    await prisma.appSetting.create({ data: { key: PUBLIC_KEY(state.publicToken), value: id } })
+    await save(id, state)
+  }
+  return hubLink(`/gbp-setup/${state.publicToken}`)
+}
+
+/**
+ * "Send Google Business Profile Instructions": text and email the owner the
+ * link to their setup page, where every answer is ready to copy. Turns on
+ * the every-3-days reminder (with the same link) until they're done.
+ */
+export async function sendSetupInstructions(id: string, by: string | null): Promise<{ ok: boolean; link: string; sms: string; email: string; state: GbpState }> {
+  const board = await gbpBoard(id)
+  if (!board) throw new Error('client not found')
+  const x = { ...board.prefill, ...board.state.values }
+  const link = await publicSetupLink(id)
+  const state = await load(id)
+
+  // Text
+  let sms = 'skipped: no owner cell number on the board'
+  const to = digits(x.ownerPhone)
+  if (to.length === 10) {
+    const text = instructionsText(x, link)
+    try {
+      const [firstName, ...rest] = (x.ownerFirstName || '').split(' ')
+      await sendSmsToPhone(SMS_VAULT_ENTRY, { phone: `+1${to}`, message: text, firstName: firstName || undefined, lastName: rest.join(' ') || undefined, companyName: x.businessName || board.client.name })
+      sms = `sent to +1${to}`
+      state.texts.push({ at: now(), kind: 'checklist', to: `+1${to}`, ok: true, detail: 'setup instructions' })
+    } catch (err) {
+      sms = `failed: ${err instanceof Error ? err.message : String(err)}`
+      state.texts.push({ at: now(), kind: 'checklist', to: `+1${to}`, ok: false, detail: sms })
+    }
+  }
+
+  // Email
+  let email = 'skipped: no owner email on the board'
+  const address = (x.ownerEmail || '').trim()
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+    const mail = instructionsEmail(x, link)
+    try {
+      const from = process.env.AGENT_APPROVAL_FROM_EMAIL || (await getWriterAccountEmail())
+      await sendEmail({ accountEmail: from, to: address, subject: mail.subject, body: mail.body, fromName: 'Genisys' })
+      email = `sent to ${address}`
+    } catch (err) {
+      email = `failed: ${err instanceof Error ? err.message : String(err)}`
+    }
+  }
+
+  const ok = sms.startsWith('sent') || email.startsWith('sent')
+  if (ok) {
+    state.remind = true
+    if (state.status !== 'verified') state.status = 'verifying'
+  }
+  state.history.push({ at: now(), by, what: `Setup instructions: text ${sms}; email ${email}` })
+  await save(id, state)
+  return { ok, link, sms, email, state }
+}
+
+export type PublicSetup = {
+  businessName: string
+  ownerFirstName: string
+  fields: GbpField[]
+  managerEmail: string
+  done: boolean
+}
+
+/** The setup page's notes, in the client's terms. */
+function clientNote(id: string, mode: GbpInputs['locationMode']): string | undefined {
+  switch (id) {
+    case 'name':
+      return 'Exactly as it appears on your truck, invoices and website. Don’t add a city or services to it: Google suspends profiles that do.'
+    case 'category':
+      return 'Start typing it and pick the closest match from Google’s list.'
+    case 'extra':
+      return 'After the profile is created: Edit profile, then Business category, then Add another category.'
+    case 'location':
+      return mode === 'address'
+        ? 'When Google asks if customers can visit, choose Yes and use this address.'
+        : 'When Google asks about a location customers can visit, choose No, then add these as your service areas. Your address stays private.'
+    case 'phone':
+      return 'Use this number exactly. It’s the one on your website, so Google sees one consistent business.'
+    case 'hours':
+      return 'Under Edit profile, then Hours.'
+    case 'services':
+      return 'Under Edit profile, then Services.'
+    case 'description':
+      return 'Under Edit profile, then Description.'
+    default:
+      return undefined
+  }
+}
+
+async function idForToken(token: string): Promise<string | null> {
+  if (!/^[A-Za-z0-9_-]{20,40}$/.test(token)) return null
+  const row = await prisma.appSetting.findUnique({ where: { key: PUBLIC_KEY(token) } })
+  return row?.value ?? null
+}
+
+/** What the client's public page shows: business details only, never notes, history or contact details. */
+export async function publicSetup(token: string): Promise<PublicSetup | null> {
+  const id = await idForToken(token)
+  if (!id) return null
+  const board = await gbpBoard(id)
+  if (!board) return null
+  const x = { ...board.prefill, ...board.state.values }
+  return {
+    businessName: x.businessName || board.client.name,
+    ownerFirstName: x.ownerFirstName,
+    // The owner creates it in their own account, so our "hand over ownership" step doesn't apply,
+    // and the notes are rewritten for them (the board's notes are for our team).
+    fields: gbpFields(x)
+      .filter((f) => f.id !== 'owner')
+      .map((f) => ({ ...f, note: clientNote(f.id, x.locationMode) })),
+    managerEmail: GBP_MANAGER_EMAIL,
+    done: !!board.state.clientDoneAt || board.state.status === 'verified',
+  }
+}
+
+/** The client pasted their new profile link on the public page. */
+export async function publicSetupDone(token: string, profileUrl: unknown): Promise<{ ok: boolean; error?: string }> {
+  const id = await idForToken(token)
+  if (!id) return { ok: false, error: 'This link is no longer valid.' }
+  const url = typeof profileUrl === 'string' ? profileUrl.trim() : ''
+  if (!/^https?:\/\/(www\.)?(google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl|g\.page|share\.google|business\.google\.com|g\.co)\//i.test(url) || url.length > 500) {
+    return { ok: false, error: 'That doesn’t look like a Google link. In your profile, tap Share and copy the link it gives you.' }
+  }
+  const state = await load(id)
+  state.profileUrl = url
+  state.clientDoneAt = now()
+  state.remind = false
+  if (state.status !== 'verified') state.status = 'created'
+  state.history.push({ at: now(), by: 'client (setup page)', what: `Client finished the setup page and sent their profile link: ${url}` })
+  await save(id, state)
+  const client = await prisma.client.findUnique({ where: { id }, select: { name: true } })
+  const name = client?.name ?? 'A client'
+  await hubAlert(`:round_pushpin: *${name}* created their Google Business Profile from the setup page. <${url}|Profile> · <${hubLink(`/clients/${id}/gbp`)}|Open in Hub> (check it's verified, then mark it verified there).`).catch(() => {})
+  await textTeam(`Genisys: ${name} finished their Google Business Profile setup and sent the link. Check it in the Hub: ${hubLink(`/clients/${id}/gbp`)}`).catch(() => {})
+  return { ok: true }
 }

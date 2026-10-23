@@ -50,6 +50,29 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   })
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState<{ ok: boolean; sms: string; email: string; link: string | null } | null>(null)
+
+  async function sendInstructions() {
+    if (!window.confirm('Text and email this client their Google Business Profile setup link?')) return
+    setSending(true)
+    setSendResult(null)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/gbp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'send_instructions' }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; sms?: string; email?: string; link?: string; error?: string }
+      if (!res.ok) throw new Error(out.error || 'Couldn’t send the instructions')
+      setSendResult({ ok: !!out.ok, sms: out.sms ?? '', email: out.email ?? '', link: out.link ?? null })
+      q.refetch()
+    } catch (err) {
+      setSendResult({ ok: false, sms: err instanceof Error ? err.message : String(err), email: 'not sent', link: null })
+    } finally {
+      setSending(false)
+    }
+  }
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
       <PageHeader
@@ -57,14 +80,46 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
         subtitle="Find a listing the business already has, create the profile from the kit, and get the owner through Google’s verification. Filled in from the onboarding answers and the SEO engine’s business facts."
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Google Profiles', href: '/google-profiles' }, { label: q.data?.client.name ?? 'Client' }]}
         actions={
-          <Link
-            href="/google-profiles"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" /> All clients
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/google-profiles"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              <ArrowLeft className="h-4 w-4" /> All clients
+            </Link>
+            <button
+              type="button"
+              onClick={sendInstructions}
+              disabled={sending || !q.data}
+              title="Texts and emails the owner a link to their own setup page, with every answer ready to copy"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send Google Business Profile Instructions
+            </button>
+          </div>
         }
       />
+      {sendResult && (
+        <div
+          className={cn(
+            'flex flex-col gap-1 rounded-xl border px-4 py-3 text-[13px]',
+            sendResult.ok ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10',
+          )}
+        >
+          <p className="font-medium">{sendResult.ok ? 'Instructions sent.' : 'Nothing was sent.'}</p>
+          <p className="text-muted-foreground">
+            Text: {sendResult.sms}. Email: {sendResult.email}.
+          </p>
+          {sendResult.link && (
+            <p className="break-all text-muted-foreground">
+              Their setup page:{' '}
+              <a href={sendResult.link} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                {sendResult.link}
+              </a>
+            </p>
+          )}
+        </div>
+      )}
       {q.isLoading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…

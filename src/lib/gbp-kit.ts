@@ -344,10 +344,48 @@ export function verificationMessage(x: GbpInputs): string {
   ].join('\n')
 }
 
-/** Follow-up while the profile still isn't verified. */
-export function reminderMessage(x: GbpInputs): string {
+/** Follow-up while the profile still isn't done. With the client's setup page link when they were sent one. */
+export function reminderMessage(x: GbpInputs, setupLink?: string | null): string {
   const first = clean(x.ownerFirstName) || 'there'
-  return `Hi ${first}, quick reminder from Genisys: your Google Business Profile for ${v(x.businessName, 'BUSINESS NAME')} still needs the short verification video. Go to business.google.com, tap Verify, then Video. Reply here if you want help.`
+  return setupLink
+    ? `Hi ${first}, quick reminder from Genisys: your Google Business Profile for ${v(x.businessName, 'BUSINESS NAME')} isn't set up yet. Every answer is filled in for you here, it takes about 10 minutes: ${setupLink}`
+    : `Hi ${first}, quick reminder from Genisys: your Google Business Profile for ${v(x.businessName, 'BUSINESS NAME')} still needs the short verification video. Go to business.google.com, tap Verify, then Video. Reply here if you want help.`
+}
+
+/** The text with the client's setup page: they create the profile themselves, from our answers. Plain characters only. */
+export function instructionsText(x: GbpInputs, setupLink: string): string {
+  const first = clean(x.ownerFirstName) || 'there'
+  return `Hi ${first}, it's Genisys. Next step for ${v(x.businessName, 'BUSINESS NAME')}: getting you on Google Maps with a Google Business Profile. It takes about 10 minutes and we filled in every answer for you. Start here: ${setupLink}`
+}
+
+/** The same as an email (markdown; the Hub's mailer turns it into HTML). */
+export function instructionsEmail(x: GbpInputs, setupLink: string): { subject: string; body: string } {
+  const first = clean(x.ownerFirstName) || 'there'
+  const B = v(x.businessName, 'BUSINESS NAME')
+  return {
+    subject: `Set up your Google Business Profile for ${B}`,
+    body: [
+      `Hi ${first},`,
+      '',
+      `The next step for ${B} is a Google Business Profile. It's what puts you on Google Maps and in the local results when people search for your services nearby, and it's where customers leave reviews.`,
+      '',
+      'It takes about 10 minutes, and we have already written every answer Google asks for. Open your setup page and copy each one in:',
+      '',
+      `**[Open your Google Business Profile setup page](${setupLink})**`,
+      '',
+      'The page walks you through it:',
+      '',
+      '1. Start the profile at business.google.com/create, signed in with your own Google account, so you own it.',
+      '2. Copy in each answer we prepared: your business name, category, service areas, phone, website, services and description.',
+      '3. Add Genisys as a manager, so we can keep it up to date for you.',
+      '4. Verify the profile: Google usually asks for a short video showing your business.',
+      '5. Paste your new profile link at the bottom of the page, so we know it is done.',
+      '',
+      'If you get stuck at any step, reply to this email or text us and we will walk you through it.',
+      '',
+      'Genisys',
+    ].join('\n'),
+  }
 }
 
 export const GBP_STATUSES = ['needed', 'existing', 'created', 'verifying', 'verified', 'has_profile'] as const
@@ -357,7 +395,7 @@ export const GBP_STATUS_LABEL: Record<GbpStatus, string> = {
   needed: 'Needs a profile',
   existing: 'Existing listing to claim',
   created: 'Created, ownership being set',
-  verifying: 'Waiting on the client to verify',
+  verifying: 'Waiting on the client',
   verified: 'Verified',
   has_profile: 'Client already has one',
 }
