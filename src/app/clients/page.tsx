@@ -34,6 +34,9 @@ import { DuplicateClients } from '@/components/clients/duplicate-clients'
 import { GhlSubAccountPicker } from '@/components/clients/ghl-subaccount-picker'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
+import { suggestReposForClients, type RepoSuggestion } from '@/lib/site-match'
+import type { SiteSuggestion } from '@/lib/site-suggestions'
+import type { GitWatchView } from '@/lib/seo/lovable-git-watch'
 import {
   ClientEditDialog,
   LIFECYCLES,
@@ -291,6 +294,34 @@ function ClientsPage() {
     for (const c of clients) if (c.seo?.repoFullName) m.set(c.seo.repoFullName.toLowerCase(), c.name)
     return m
   }, [clients])
+  // The repo each client most likely lives in (src/lib/site-match.ts), shown in green in the Repo column.
+  const repoList = useGithubRepos()
+  const gitWatch = useQuery<GitWatchView | null>({
+    queryKey: ['lovable-git-watch'],
+    queryFn: async () => {
+      const res = await fetch('/api/seo/lovable/git-watch')
+      if (res.status === 403) return null
+      if (!res.ok) throw new Error(`Failed to load (${res.status})`)
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
+  const repoSuggestions = useMemo(() => {
+    const repos = (repoList.data?.repos ?? []).map((r) => r.fullName)
+    if (!repos.length) return new Map<string, RepoSuggestion>()
+    const live = clients.filter((c) => !c.archivedAt)
+    return suggestReposForClients(
+      live.map((c) => ({
+        id: c.id,
+        name: c.name,
+        people: [c.contactName, c.intake?.fullName],
+        addresses: [c.siteUrl, c.website, c.intake?.domainName, c.intake?.website, c.contactEmail, c.intake?.leadEmail],
+        repoFullName: c.seo?.repoFullName ?? null,
+      })),
+      repos,
+      (gitWatch.data?.projects ?? []).map((p) => ({ name: p.name, repoFullName: p.repoFullName, clientId: p.clientId })),
+    )
+  }, [clients, repoList.data, gitWatch.data])
 
   // ?focus=<id> (from the ⌘K palette) opens that client on arrival. It
   // is derived from the URL rather than copied into state; closing the
@@ -447,7 +478,7 @@ function ClientsPage() {
                     </td>
                   </tr>
                 ) : (
-                  roster.map((c) => <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} />)
+                  roster.map((c) => <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} />)
                 )}
               </tbody>
             </table>
@@ -473,7 +504,7 @@ function ClientsPage() {
                   <table className="w-full min-w-[60rem] text-[13px]">
                     <tbody>
                       {archived.map((c) => (
-                        <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} />
+                        <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} />
                       ))}
                     </tbody>
                   </table>
@@ -541,10 +572,12 @@ function ClientRow({
   client,
   onOpen,
   repoOwners,
+  suggestion,
 }: {
   client: RosterClient
   onOpen: (c: RosterClient) => void
   repoOwners: Map<string, string>
+  suggestion?: RepoSuggestion
 }) {
   const i = client.intake
   return (
@@ -584,7 +617,7 @@ function ClientRow({
         <SiteLink client={client} />
       </td>
       <td className="whitespace-nowrap px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <RepoSelect client={client} repoOwners={repoOwners} />
+        <RepoSelect client={client} repoOwners={repoOwners} suggestion={suggestion} />
       </td>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <InlineStatus client={client} />
@@ -601,13 +634,28 @@ function ClientRow({
 /**
  * The site we built. A link once it is set; an inline field to paste
  * it into until then. Enter saves, Esc cancels, clicking the pencil
- * reopens it for changes.
+ * reopens it for changes. While the field is open, the live sites the
+ * Hub found for this client are listed under it (green = the page names
+ * the business); clicking one saves it.
  */
 function SiteLink({ client, size = 'sm' }: { client: RosterClient; size?: 'sm' | 'md' }) {
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(client.siteUrl ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const found = useQuery<{ suggestions: SiteSuggestion[] }>({
+    queryKey: ['site-suggestions', client.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/clients/${client.id}/site-suggestions`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Couldn’t look for sites (${res.status})`)
+      return data
+    },
+    enabled: editing,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 
   const save = useMutation({
     mutationFn: async (siteUrl: string) => {
@@ -637,48 +685,96 @@ function SiteLink({ client, size = 'sm' }: { client: RosterClient; size?: 'sm' |
   }
 
   if (editing) {
+    const options = (found.data?.suggestions ?? []).filter((s) => !s.current)
     return (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          save.mutate(value.trim())
-        }}
-        className="flex items-center gap-1.5"
-      >
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setEditing(false)
+      <div className="flex flex-col gap-1.5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate(value.trim())
           }}
-          placeholder="https://"
-          spellCheck={false}
-          className={cn(
-            'rounded-md border border-border bg-surface px-2 font-mono text-[12px] outline-none focus:border-foreground/30',
-            size === 'sm' ? 'h-7 w-44' : 'h-9 w-72',
+          className="flex items-center gap-1.5"
+        >
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditing(false)
+            }}
+            placeholder="https://"
+            spellCheck={false}
+            className={cn(
+              'rounded-md border border-border bg-surface px-2 font-mono text-[12px] outline-none focus:border-foreground/30',
+              size === 'sm' ? 'h-7 w-44' : 'h-9 w-72',
+            )}
+          />
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="grid h-7 w-7 place-items-center rounded-md border border-border text-foreground hover:bg-muted disabled:opacity-50"
+            title="Save"
+          >
+            {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted"
+            title="Cancel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          {save.isError && (
+            <span className="text-xs text-destructive">{(save.error as Error).message}</span>
           )}
-        />
-        <button
-          type="submit"
-          disabled={save.isPending}
-          className="grid h-7 w-7 place-items-center rounded-md border border-border text-foreground hover:bg-muted disabled:opacity-50"
-          title="Save"
-        >
-          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted"
-          title="Cancel"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-        {save.isError && (
-          <span className="text-xs text-destructive">{(save.error as Error).message}</span>
+        </form>
+        {found.isFetching ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Looking for this client’s live site…
+          </span>
+        ) : found.isError ? (
+          <span className="text-[11px] text-muted-foreground">{(found.error as Error).message}</span>
+        ) : found.data && !options.length ? (
+          <span className="text-[11px] text-muted-foreground">No live site found yet. Paste it above.</span>
+        ) : (
+          options.map((s) => (
+            <button
+              key={s.url}
+              type="button"
+              disabled={save.isPending}
+              onClick={() => {
+                if (s.takenBy && !window.confirm(`${hostOf(s.url)} is already ${s.takenBy}’s site. Use it for ${client.name} too?`)) return
+                setValue(s.url)
+                save.mutate(s.url)
+              }}
+              title={[
+                s.title,
+                s.confirmed
+                  ? 'Our Lovable build, and the page names this business'
+                  : s.lovable
+                    ? 'On Lovable, but the page doesn’t name this business'
+                    : 'Not on Lovable: likely the client’s own or older site',
+                `Found from: ${s.from.join(', ')}`,
+              ]
+                .filter(Boolean)
+                .join('\n')}
+              className={cn(
+                'inline-flex w-fit items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[12px] transition disabled:opacity-50',
+                s.takenBy
+                  ? 'border-border text-muted-foreground/70 hover:text-foreground'
+                  : s.confirmed
+                    ? 'border-success/40 bg-success/10 text-success hover:bg-success/15'
+                    : 'border-dashed border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {s.confirmed && !s.takenBy ? <Check className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+              {hostOf(s.url)}
+              {s.takenBy ? <span className="font-sans text-[11px]">· {s.takenBy}’s</span> : null}
+            </button>
+          ))
         )}
-      </form>
+      </div>
     )
   }
 
@@ -737,11 +833,8 @@ type GithubRepo = { fullName: string; private: boolean; pushedAt: string | null 
  * popup would be clipped by that scroll area. Only people who can use SEO
  * can load the repo list; everyone else sees the repo as plain text.
  */
-function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: Map<string, string> }) {
-  const qc = useQueryClient()
-  const current = client.seo?.repoFullName ?? ''
-
-  const repos = useQuery<{ repos: GithubRepo[] }>({
+function useGithubRepos() {
+  return useQuery<{ repos: GithubRepo[] }>({
     queryKey: ['seo-github-repos'],
     queryFn: async () => {
       const res = await fetch('/api/seo/github/repos')
@@ -752,6 +845,27 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
     staleTime: 5 * 60_000,
     retry: false,
   })
+}
+
+/*
+ * The Hub's guess (src/lib/site-match.ts) shows in green: the suggested
+ * repo tops the list, an unlinked client gets a one-click "Link" chip, and
+ * a linked repo that matches the guess turns green. A linked repo that
+ * differs from the guess gets an amber dot worth a second look.
+ */
+function RepoSelect({
+  client,
+  repoOwners,
+  suggestion,
+}: {
+  client: RosterClient
+  repoOwners: Map<string, string>
+  suggestion?: RepoSuggestion
+}) {
+  const qc = useQueryClient()
+  const current = client.seo?.repoFullName ?? ''
+
+  const repos = useGithubRepos()
 
   const assign = useMutation({
     mutationFn: async (repoFullName: string) => {
@@ -786,10 +900,18 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
 
   const list = repos.data?.repos ?? []
   // Keep the current repo selectable even if the list hasn't loaded or no longer has it.
-  const options =
+  const withCurrent =
     current && !list.some((r) => r.fullName.toLowerCase() === current.toLowerCase())
       ? [{ fullName: current, private: true, pushedAt: null }, ...list]
       : list
+  const suggested = suggestion?.repo ?? null
+  const isSuggested = (fullName: string) => !!suggested && fullName.toLowerCase() === suggested.toLowerCase()
+  // The suggested repo first.
+  const options = suggested
+    ? [...withCurrent.filter((r) => isSuggested(r.fullName)), ...withCurrent.filter((r) => !isSuggested(r.fullName))]
+    : withCurrent
+  const matches = !!current && isSuggested(current)
+  const differs = !!current && !!suggested && !matches
   const busy = assign.isPending || repos.isLoading
 
   return (
@@ -797,15 +919,23 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
       <span
         className={cn(
           'relative inline-flex items-center rounded-md border font-mono text-[12px] transition focus-within:border-foreground/30 hover:border-foreground/30',
-          current ? 'border-border bg-surface text-foreground' : 'border-dashed border-border text-muted-foreground hover:text-foreground',
+          matches
+            ? 'border-success/40 bg-success/10 text-success'
+            : current
+              ? 'border-border bg-surface text-foreground'
+              : 'border-dashed border-border text-muted-foreground hover:text-foreground',
           busy && 'opacity-60',
         )}
-        title={current || 'Pick the GitHub repo this client’s site lives in'}
+        title={
+          matches
+            ? `${current}\nMatches this client: ${suggestion!.why}`
+            : current || 'Pick the GitHub repo this client’s site lives in'
+        }
       >
         {assign.isPending ? (
           <Loader2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 animate-spin" />
         ) : (
-          <FolderGit2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-muted-foreground" />
+          <FolderGit2 className={cn('pointer-events-none absolute left-2 h-3.5 w-3.5', matches ? 'text-success' : 'text-muted-foreground')} />
         )}
         <select
           value={current}
@@ -822,16 +952,41 @@ function RepoSelect({ client, repoOwners }: { client: RosterClient; repoOwners: 
           {options.map((r) => {
             const owner = repoOwners.get(r.fullName.toLowerCase())
             const taken = !!owner && owner !== client.name
+            const pick = isSuggested(r.fullName)
             return (
-              <option key={r.fullName} value={r.fullName} disabled={taken}>
+              <option
+                key={r.fullName}
+                value={r.fullName}
+                disabled={taken}
+                style={pick ? { color: 'var(--success)', fontWeight: 600 } : undefined}
+              >
+                {pick ? '✓ ' : ''}
                 {short(r.fullName)}
+                {pick ? ' (suggested)' : ''}
                 {taken ? ` — ${owner}` : ''}
               </option>
             )
           })}
         </select>
-        <ChevronDown className="pointer-events-none absolute right-1.5 h-3 w-3 text-muted-foreground" />
+        <ChevronDown className={cn('pointer-events-none absolute right-1.5 h-3 w-3', matches ? 'text-success' : 'text-muted-foreground')} />
       </span>
+      {!current && suggested && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => assign.mutate(suggested)}
+          className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-1 font-mono text-[12px] text-success transition hover:bg-success/15 disabled:opacity-50"
+          title={`Suggested: ${suggested}\n${suggestion!.why}`}
+        >
+          <Check className="h-3 w-3" /> {short(suggested)}
+        </button>
+      )}
+      {differs && (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+          title={`Worth a second look: the Hub expected ${short(suggested!)} (${suggestion!.why}).`}
+        />
+      )}
       {current && client.seo?.siteId && (
         <a
           href={`/seo/${client.seo.siteId}`}
