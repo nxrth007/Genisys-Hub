@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
@@ -66,6 +66,44 @@ export function A2pBoard({ clientId }: { clientId: string }) {
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   })
+  const qc = useQueryClient()
+  const tracker = useQuery({
+    queryKey: ['a2p-tracker', clientId],
+    queryFn: async (): Promise<{ ok: boolean; row: number | null; steps: Record<string, string>; detail: string | null }> => {
+      const res = await fetch(`/api/clients/${clientId}/a2p/complete`)
+      const out = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(out.error || 'Couldn’t read the tracker')
+      return out
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  })
+  const [completing, setCompleting] = useState(false)
+  const [completeMsg, setCompleteMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function markComplete() {
+    setCompleting(true)
+    setCompleteMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/a2p/complete`, { method: 'POST' })
+      const out = (await res.json().catch(() => ({}))) as { error?: string; tracker?: { ok: boolean; action: string; detail: string } }
+      if (!res.ok) throw new Error(out.error || 'Couldn’t mark it complete')
+      const t = out.tracker
+      setCompleteMsg({
+        ok: !!t?.ok,
+        text: t?.ok
+          ? t.action === 'already'
+            ? 'Onboarding tracker: “A2P Submitted” was already checked.'
+            : 'Onboarding tracker: “A2P Submitted” checked.'
+          : `Onboarding tracker not updated: ${t?.detail ?? 'unknown error'}`,
+      })
+      qc.invalidateQueries({ queryKey: ['a2p-tracker', clientId] })
+    } catch (err) {
+      setCompleteMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setCompleting(false)
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
@@ -74,14 +112,45 @@ export function A2pBoard({ clientId }: { clientId: string }) {
         subtitle="Everything GHL asks for when registering this client for A2P 10DLC, filled in from their onboarding answers. Copy each box into GHL."
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients', href: '/clients' }, { label: 'A2P' }]}
         actions={
-          <Link
-            href={`/clients?focus=${clientId}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to client
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/clients?focus=${clientId}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to client
+            </Link>
+            <button
+              type="button"
+              onClick={markComplete}
+              disabled={completing}
+              title="Checks “A2P Submitted” for this client in the onboarding tracker sheet"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Mark Complete
+            </button>
+          </div>
         }
       />
+      {tracker.data && (
+        <p className="text-[12px] text-muted-foreground">
+          Onboarding tracker sheet:{' '}
+          {!tracker.data.ok
+            ? `can’t read it (${tracker.data.detail})`
+            : tracker.data.row
+              ? `row ${tracker.data.row} · A2P Submitted ${tracker.data.steps['A2P Submitted'] || 'blank'}`
+              : tracker.data.detail}
+        </p>
+      )}
+      {completeMsg && (
+        <p
+          className={cn(
+            'rounded-xl border px-4 py-3 text-[13px]',
+            completeMsg.ok ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10',
+          )}
+        >
+          {completeMsg.text}
+        </p>
+      )}
       {q.isLoading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…

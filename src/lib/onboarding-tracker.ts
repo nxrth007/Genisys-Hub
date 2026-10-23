@@ -9,6 +9,7 @@ import { getSheetsClient, getWriterAccountEmail } from '@/lib/drive'
  *   Sign-Up Link Completed     ← a new Whop membership (whop-signup-alerts.ts)
  *   Intake Form Completed      ← a finished onboarding form (client-intake-ingest.ts)
  *   Automations Configuration  ← "Mark Completed" on the Automation Copy board
+ *   A2P Submitted              ← "Mark Complete" on the A2P board
  *
  * Rows are matched by Contact Email first, then Business, then Client
  * Name. A client with no row yet gets one appended. Columns are found by
@@ -25,6 +26,7 @@ export const TRACKER_STEPS = {
   signup: 'Sign-Up Link Completed',
   intake: 'Intake Form Completed',
   automations: 'Automations Configuration',
+  a2p: 'A2P Submitted',
 } as const
 export type TrackerStep = keyof typeof TRACKER_STEPS
 
@@ -182,5 +184,25 @@ export async function trackerRowFor(who: TrackerWho): Promise<{ ok: boolean; row
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, row: null, steps: {}, detail: msg }
+  }
+}
+
+/** How a Hub client is found in the tracker: their onboarding email and contact email, business and owner name. */
+export async function trackerWhoForClient(clientId: string): Promise<TrackerWho | null> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      name: true,
+      contactName: true,
+      contactEmail: true,
+      intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { leadEmail: true, fullName: true, businessName: true } },
+    },
+  })
+  if (!client) return null
+  const intake = client.intakes[0]
+  return {
+    emails: [intake?.leadEmail, client.contactEmail],
+    business: intake?.businessName || client.name,
+    name: intake?.fullName || client.contactName,
   }
 }
