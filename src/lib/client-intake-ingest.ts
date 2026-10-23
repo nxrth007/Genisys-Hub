@@ -7,6 +7,7 @@ import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 import { startGbpForNewIntake } from '@/lib/gbp-setup'
 import { onboardingText, textTeam } from '@/lib/team-sms'
+import { markTrackerStep } from '@/lib/onboarding-tracker'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -169,6 +170,12 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     void textTeam(
       onboardingText({ business: who, owner: data.fullName?.trim() || null, city: city || null, created, link: hubLink(`/clients?focus=${clientId}`) }),
     ).catch((err) => console.warn(`[client-onboarding] team text failed for ${clientId}:`, err))
+    // Ethan's onboarding tracker: tick "Intake Form Completed" (adds the client's row if there isn't one yet).
+    void markTrackerStep('intake', { emails: [data.leadEmail], business: who, name: data.fullName ?? null }, { addIfMissing: true })
+      .then((r) => {
+        if (!r.ok) console.warn(`[client-onboarding] tracker for ${clientId}: ${r.detail}`)
+      })
+      .catch((err) => console.warn(`[client-onboarding] tracker for ${clientId}:`, err))
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
     // An existing site's business facts pick up what the client just told us.
     const gbpFor = clientId

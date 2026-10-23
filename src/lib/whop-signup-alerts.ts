@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { getWhopCompanyId, listWhopMemberships, whopConfigured } from '@/lib/whop'
 import { textTeam, whopSignupText } from '@/lib/team-sms'
+import { markTrackerStep } from '@/lib/onboarding-tracker'
 
 /**
  * Text Alex and Ethan when someone signs up on Whop.
@@ -51,6 +52,9 @@ export async function maybeAlertWhopSignups(): Promise<number> {
     for (const m of fresh.reverse()) {
       const text = whopSignupText({ name: m.customerName, email: m.customerEmail, product: m.productTitle, price: m.renewalPrice, link: hubLink('/payments') })
       const sent = await textTeam(text)
+      // Ethan's onboarding tracker: tick "Sign-Up Link Completed" (adds the client's row if there isn't one yet).
+      const tracked = await markTrackerStep('signup', { emails: [m.customerEmail], name: m.customerName }, { addIfMissing: true })
+      if (!tracked.ok) console.warn(`[whop-signups] tracker: ${tracked.detail}`)
       await hubAlert(`:moneybag: *New Whop sign-up* — ${m.customerName ?? m.customerEmail ?? 'someone'}${m.productTitle ? ` joined *${m.productTitle}*` : ''}${m.renewalPrice ? ` (${m.renewalPrice})` : ''}. <${hubLink('/payments')}|Payments>`).catch(() => {})
       console.log(`[whop-signups] ${m.id}: texted ${sent.filter((s) => s.ok).map((s) => s.name).join(', ') || 'nobody'}`)
       seen.add(m.id)
