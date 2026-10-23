@@ -44,6 +44,7 @@ import { reconcileOnboardingSheet } from './onboarding-sheet'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
+import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 
 let initialized = false
 
@@ -425,6 +426,13 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] google profile: ${n} verification reminder(s) texted`)
       })
       .catch((err) => console.error('[scheduler] google profile reminders failed:', err))
+    // Lovable ↔ GitHub: nudge Lovable when it misses an engine merge, and merge
+    // edits it parked on lovable-sync back into main (every 10 min).
+    void maybeHealLovableSync()
+      .then((r) => {
+        if (r.nudged || r.merged || r.conflicts) console.log(`[scheduler] lovable sync: ${r.nudged} nudged, ${r.merged} merged, ${r.conflicts} conflict(s)`)
+      })
+      .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
     // Whop: text Alex and Ethan about new memberships (checks every 5 min).
     void maybeAlertWhopSignups()
       .then((n) => {

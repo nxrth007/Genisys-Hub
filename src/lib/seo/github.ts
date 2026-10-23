@@ -811,3 +811,44 @@ export async function deleteBranch(fullName: string, branch: string): Promise<vo
     throw err
   }
 }
+
+/**
+ * Merge `head` into `base` with a merge commit (POST /merges): what Lovable
+ * asks for when it parks edits on `lovable-sync`. Never squashes or rebases,
+ * never forces. 'conflict' when GitHub can't merge them cleanly.
+ */
+export async function mergeBranchInto(
+  fullName: string,
+  base: string,
+  head: string,
+  message: string,
+): Promise<{ result: 'merged' | 'up_to_date' | 'conflict'; sha: string | null }> {
+  assertClientRepo(fullName)
+  assertBranchName(base)
+  assertBranchName(head)
+  try {
+    const res = await request<{ sha?: string } | null>(`${repoPath(fullName)}/merges`, { method: 'POST', body: { base, head, commit_message: message } })
+    return res.status === 204 ? { result: 'up_to_date', sha: null } : { result: 'merged', sha: res.data?.sha ?? null }
+  } catch (err) {
+    if (isStatus(err, 409)) return { result: 'conflict', sha: null }
+    throw err
+  }
+}
+
+/**
+ * An empty commit on top of a branch (same tree, nothing changed), so
+ * GitHub sends Lovable a fresh push notification. Lovable two-way syncs on
+ * that notification; when one is missed it doesn't pull until the next
+ * push. Moves the branch forward only (no force).
+ */
+export async function pushEmptyCommit(fullName: string, branch: string, message: string): Promise<string> {
+  assertClientRepo(fullName)
+  assertBranchName(branch)
+  const head = await getBranchHead(fullName, branch)
+  const c = await request<{ sha: string }>(`${repoPath(fullName)}/git/commits`, {
+    method: 'POST',
+    body: { message, tree: head.treeSha, parents: [head.sha] },
+  })
+  await request(`${repoPath(fullName)}/git/refs/heads/${encodeSegments(branch)}`, { method: 'PATCH', body: { sha: c.data.sha, force: false } })
+  return c.data.sha
+}
