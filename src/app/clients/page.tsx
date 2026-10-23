@@ -324,7 +324,8 @@ function ClientsPage() {
         return tokens.every((t) => hay.includes(t))
       })
     }
-    return list
+    // A–Z by name, ignoring case ("gary shining…" sits with the G's).
+    return [...list].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }))
   }, [clients, statusFilter, search])
 
   const roster = useMemo(() => filtered.filter((c) => !c.archivedAt), [filtered])
