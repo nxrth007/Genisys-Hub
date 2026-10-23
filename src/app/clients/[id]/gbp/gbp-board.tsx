@@ -55,13 +55,13 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
       <PageHeader
         title={q.data ? `Google profile — ${q.data.client.name}` : 'Google Business Profile'}
         subtitle="Find a listing the business already has, create the profile from the kit, and get the owner through Google’s verification. Filled in from the onboarding answers and the SEO engine’s business facts."
-        breadcrumbs={[{ label: 'Genisys' }, { label: 'Clients', href: '/clients' }, { label: 'Google profile' }]}
+        breadcrumbs={[{ label: 'Genisys' }, { label: 'Google Profiles', href: '/google-profiles' }, { label: q.data?.client.name ?? 'Client' }]}
         actions={
           <Link
-            href={`/clients?focus=${clientId}`}
+            href="/google-profiles"
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
           >
-            <ArrowLeft className="h-4 w-4" /> Back to client
+            <ArrowLeft className="h-4 w-4" /> All clients
           </Link>
         }
       />

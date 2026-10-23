@@ -403,3 +403,58 @@ export async function maybeSendGbpReminders(): Promise<number> {
   }
   return sent
 }
+
+// ---------------------------------------------------------------------------
+// The Google Profiles tab
+// ---------------------------------------------------------------------------
+
+export type GbpOverviewRow = {
+  id: string
+  name: string
+  status: GbpStatus | null
+  /** The onboarding form's answer, word for word. */
+  answer: string | null
+  profileUrl: string | null
+  /** Possible existing listings from the last Google Maps search, or null when never searched. */
+  found: number | null
+  lookupError: string | null
+  textsSent: number
+  lastTextAt: string | null
+  reminding: boolean
+}
+
+/** Every active client, A–Z, with its Google Business Profile standing. One query each for clients and saved state. */
+export async function gbpOverview(): Promise<GbpOverviewRow[]> {
+  const [clients, rows] = await Promise.all([
+    prisma.client.findMany({
+      where: { archivedAt: null },
+      select: {
+        id: true,
+        name: true,
+        intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { hasGoogleProfile: true, googleProfileLink: true } },
+      },
+    }),
+    prisma.appSetting.findMany({ where: { key: { startsWith: 'gbp.client.' } }, select: { key: true, value: true } }),
+  ])
+  const saved = new Map(rows.map((r) => [r.key.slice('gbp.client.'.length), parse(r.value)]))
+  return clients
+    .map((c) => {
+      const s = saved.get(c.id) ?? { ...EMPTY }
+      const intake = c.intakes[0] ?? null
+      const says = intakeSaysProfile(intake?.hasGoogleProfile)
+      const okTexts = s.texts.filter((t) => t.ok)
+      return {
+        id: c.id,
+        name: c.name,
+        status: s.status ?? (says === 'no' ? 'needed' : says === 'yes' || intake?.googleProfileLink ? 'has_profile' : null),
+        answer: intake?.hasGoogleProfile ?? null,
+        profileUrl: s.profileUrl ?? intake?.googleProfileLink ?? null,
+        found: s.lookup && !s.lookup.error ? s.lookup.candidates.length : null,
+        lookupError: s.lookup?.error ?? null,
+        textsSent: okTexts.length,
+        lastTextAt: okTexts[okTexts.length - 1]?.at ?? null,
+        reminding: s.remind && s.status === 'verifying',
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }))
+}

@@ -11,6 +11,7 @@ import {
   CheckSquare,
   Building2,
   ClipboardCopy,
+  MapPin,
   Globe,
   Inbox,
   Send,
@@ -85,6 +86,7 @@ const SIMPLIFIED_NAV: NavItem[] = [
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
   { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
+  { href: '/google-profiles', label: 'Google Profiles', icon: MapPin },
   // Documents — Ethan needs the pinned financials + Mary client
   // sheets at the top of the page just like Alex does. There's
   // no path-level admin gate on /documents, so just exposing the
@@ -105,6 +107,7 @@ const FULL_NAV: NavItem[] = [
   // Call Center and Call Center 2 retired 2026-09-26 (see SIMPLIFIED_NAV).
   { href: '/clients', label: 'Clients', icon: Building2 },
   { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
+  { href: '/google-profiles', label: 'Google Profiles', icon: MapPin },
   { href: '/notion', label: 'Notion', icon: CheckSquare },
   { href: '/drive', label: 'Drive', icon: HardDrive },
   { href: '/documents', label: 'Documents', icon: FolderOpen },

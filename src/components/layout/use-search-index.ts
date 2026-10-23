@@ -32,6 +32,7 @@ const PAGES: SearchResult[] = [
   { type: 'Page', label: 'Tasks', href: '/today' },
   { type: 'Page', label: 'Clients', href: '/clients' },
   { type: 'Page', label: 'Automation Copy', href: '/automation-copy', hint: 'GHL automation text per client' },
+  { type: 'Page', label: 'Google Profiles', href: '/google-profiles', hint: 'Google Business Profile setup per client' },
   { type: 'Page', label: 'Notion', href: '/notion' },
   { type: 'Page', label: 'Inbox', href: '/inbox' },
   { type: 'Page', label: 'CRM', href: '/crm' },
