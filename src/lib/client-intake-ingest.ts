@@ -169,6 +169,7 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // Text Alex and Ethan (src/lib/team-sms.ts). Fire-and-forget: a failed text must not hold up the rest.
     void textTeam(
       onboardingText({ business: who, owner: data.fullName?.trim() || null, city: city || null, created, link: hubLink(`/clients?focus=${clientId}`) }),
+      'Onboarding form',
     ).catch((err) => console.warn(`[client-onboarding] team text failed for ${clientId}:`, err))
     // Ethan's onboarding tracker: tick "Intake Form Completed" (adds the client's row if there isn't one yet).
     void markTrackerStep('intake', { emails: [data.leadEmail], business: who, name: data.fullName ?? null }, { addIfMissing: true })

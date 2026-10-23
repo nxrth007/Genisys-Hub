@@ -150,16 +150,17 @@ export async function markTrackerStep(step: TrackerStep, who: TrackerWho, opts: 
     set('Contact Email', (who.emails ?? []).find((e) => !!e?.trim()) ?? null)
     set('Start Date', today())
     cells[c] = DONE
-    // Below the last row that has anything in it.
-    const last = s.values.reduce((n, r, i) => (r.some((x) => String(x ?? '').trim()) ? i + 1 : n), 1)
-    const at = last + 1
-    await s.sheets.spreadsheets.values.update({
+    // Google's append: added after the sheet's (or table's) last row in one step, so two
+    // events landing together can't both pick the same row.
+    const res = await s.sheets.spreadsheets.values.append({
       spreadsheetId: s.spreadsheetId,
-      range: `'${s.tab}'!A${at}:${colLetter(cells.length - 1)}${at}`,
+      range: `'${s.tab}'!A1`,
       valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [cells] },
     })
-    return { ok: true, action: 'added', row: at, detail: `Added row ${at} with "${header}" ticked` }
+    const at = Number(res.data.updates?.updatedRange?.match(/(\d+)(?::[A-Z]+\d+)?$/)?.[1] ?? 0) || null
+    return { ok: true, action: 'added', row: at, detail: `Added a row${at ? ` (row ${at})` : ''} with "${header}" ticked` }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const hint = /permission|403|not have access|caller does not/i.test(msg)

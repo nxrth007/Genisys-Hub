@@ -149,6 +149,7 @@ export function WhopTab() {
 
   return (
     <div className="space-y-6">
+      <TeamTexts />
       {/* Header: which account, which window, refresh. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
@@ -778,6 +779,79 @@ function PayoutsTable({ payouts, balances }: { payouts: WhopPayout[]; balances: 
             </tr>
           ))}
         </Table>
+      )}
+    </div>
+  )
+}
+
+type TeamTextLog = {
+  at: string
+  label: string
+  preview: string
+  results: { name: string; ok: boolean; error: string | null; from: string | null }[]
+}
+
+/** The text alerts to Alex and Ethan (Whop sign-ups, onboarding forms): recent sends, their results, and a test button. */
+function TeamTexts() {
+  const [sending, setSending] = useState(false)
+  const q = useQuery<{ phones: string[]; log: TeamTextLog[] }>({
+    queryKey: ['team-sms'],
+    queryFn: async () => {
+      const res = await fetch('/api/team-sms')
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || 'Failed to load the text log')
+      return d
+    },
+  })
+  async function test() {
+    if (!window.confirm('Send a test text to everyone on the alert list?')) return
+    setSending(true)
+    try {
+      await fetch('/api/team-sms', { method: 'POST' })
+      await q.refetch()
+    } finally {
+      setSending(false)
+    }
+  }
+  const log = q.data?.log ?? []
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-[13px] font-semibold text-foreground">Text alerts</p>
+          <p className="text-[12px] text-muted-foreground">
+            Texts to {q.data?.phones.join(' and ') || 'the team'} for new Whop sign-ups and finished onboarding forms. The latest sends and what happened.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={test}
+          disabled={sending}
+          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+        >
+          {sending ? 'Sending…' : 'Send test text'}
+        </button>
+      </div>
+      {log.length === 0 ? (
+        <p className="mt-3 text-[12.5px] text-muted-foreground">No texts sent yet.</p>
+      ) : (
+        <ul className="mt-3 flex flex-col gap-2">
+          {log.slice(0, 8).map((e, i) => (
+            <li key={i} className="rounded-lg border border-border-soft bg-surface px-3 py-2 text-[12.5px]">
+              <p className="text-muted-foreground">
+                {new Date(e.at).toLocaleString()} · {e.label}
+              </p>
+              <p className="truncate text-foreground/85">{e.preview}</p>
+              <p className="mt-0.5 flex flex-wrap gap-x-3">
+                {e.results.map((r) => (
+                  <span key={r.name} className={r.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
+                    {r.name}: {r.ok ? `sent${r.from ? ` (from ${r.from})` : ''}` : `failed (${r.error})`}
+                  </span>
+                ))}
+              </p>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

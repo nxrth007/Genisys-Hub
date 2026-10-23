@@ -623,6 +623,6 @@ export async function publicSetupDone(token: string, profileUrl: unknown): Promi
   const client = await prisma.client.findUnique({ where: { id }, select: { name: true } })
   const name = client?.name ?? 'A client'
   await hubAlert(`:round_pushpin: *${name}* created their Google Business Profile from the setup page. <${url}|Profile> · <${hubLink(`/clients/${id}/gbp`)}|Open in Hub> (check it's verified, then mark it verified there).`).catch(() => {})
-  await textTeam(`Genisys: ${name} finished their Google Business Profile setup and sent the link. Check it in the Hub: ${hubLink(`/clients/${id}/gbp`)}`).catch(() => {})
+  await textTeam(`Genisys: ${name} finished their Google Business Profile setup and sent the link. Check it in the Hub: ${hubLink(`/clients/${id}/gbp`)}`, 'Google profile done').catch(() => {})
   return { ok: true }
 }

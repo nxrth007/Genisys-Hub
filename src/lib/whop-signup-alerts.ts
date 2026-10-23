@@ -30,7 +30,8 @@ async function signupName(m: WhopMembership): Promise<string | null> {
   if (m.customerName) return m.customerName
   const email = m.customerEmail?.trim().toLowerCase()
   if (email) {
-    const { orders } = await listWhopOrders({ max: 25, statuses: [] }).catch(() => ({ orders: [] as Awaited<ReturnType<typeof listWhopOrders>>['orders'] }))
+    // A free trial's first payment stays "open", so not just paid ones.
+    const { orders } = await listWhopOrders({ max: 25, statuses: ['paid', 'open', 'pending', 'unresolved'] }).catch(() => ({ orders: [] as Awaited<ReturnType<typeof listWhopOrders>>['orders'] }))
     const paid = orders.find((o) => o.customerEmail?.trim().toLowerCase() === email && o.customerName)
     if (paid?.customerName) return paid.customerName
     const intake = await prisma.clientIntake
@@ -77,7 +78,7 @@ export async function maybeAlertWhopSignups(): Promise<number> {
     for (const m of fresh.reverse()) {
       const name = await signupName(m)
       const text = whopSignupText({ name, email: m.customerEmail, username: m.customerUsername, product: m.productTitle, price: m.renewalPrice, link: hubLink('/payments') })
-      const sent = await textTeam(text)
+      const sent = await textTeam(text, 'Whop sign-up')
       // Ethan's onboarding tracker: tick "Sign-Up Link Completed" (adds the client's row if there isn't one yet).
       const tracked = await markTrackerStep('signup', { emails: [m.customerEmail], name }, { addIfMissing: true })
       if (!tracked.ok) console.warn(`[whop-signups] tracker: ${tracked.detail}`)
