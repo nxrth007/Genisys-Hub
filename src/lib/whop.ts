@@ -141,6 +141,30 @@ const str = (v: unknown): string | null =>
 
 type Raw = Record<string, unknown>
 
+/**
+ * The buyer's name. Whop's user profile name is usually blank (people sign
+ * up with just an email), so this also looks where checkout puts the name
+ * typed in: the billing address, the card, the payment method's billing
+ * details and the member record. First one present wins.
+ */
+export function buyerName(p: Raw): string | null {
+  const o = (v: unknown) => (v && typeof v === 'object' ? (v as Raw) : {})
+  const method = o(p.payment_method)
+  const candidates = [
+    o(p.billing_address).name,
+    o(p.billing_details).name,
+    o(method.billing_details).name,
+    o(o(method.billing_details).address).name,
+    o(method.card).name,
+    o(method.card).cardholder_name,
+    o(p.member).name,
+    o(p.user).name,
+    o(o(p.member).user).name,
+  ]
+  for (const c of candidates) if (typeof c === 'string' && c.trim()) return c.trim()
+  return null
+}
+
 function shape(p: Raw): WhopOrder {
   const user = (p.user ?? {}) as Raw
   const product = (p.product ?? {}) as Raw
@@ -161,7 +185,7 @@ function shape(p: Raw): WhopOrder {
     refunded: num(p.refunded_amount),
     currency: str(p.currency),
     billingReason: str(p.billing_reason),
-    customerName: str(user.name),
+    customerName: buyerName(p),
     customerEmail: str(user.email),
     customerUsername: str(user.username),
     productTitle: str(product.title),
@@ -541,7 +565,7 @@ export async function listWhopMemberships(
       return {
         id: String(m.id ?? ''),
         status: str(m.status) ?? 'unknown',
-        customerName: str(user.name),
+        customerName: buyerName(m),
         customerEmail: str(user.email),
         customerUsername: str(user.username),
         productTitle: str(obj(m.product).title),
@@ -744,4 +768,26 @@ export async function getWhopStat(
     latest: points.length > 0 ? num(points[points.length - 1].value) : null,
     total: totals.length > 0 ? num(totals[0].value) : null,
   }
+}
+
+/**
+ * Which fields Whop sends on the newest payment and membership, as dotted
+ * paths with value types ("billing_address.name: string"), never values.
+ * For checking where Whop puts the buyer's name.
+ */
+export async function whopFieldMap(): Promise<{ payment: string[]; membership: string[] }> {
+  const companyId = await getWhopCompanyId()
+  const walk = (v: unknown, prefix = '', out: string[] = [], depth = 0): string[] => {
+    if (v && typeof v === 'object' && !Array.isArray(v) && depth < 4) {
+      for (const [k, x] of Object.entries(v as Raw)) walk(x, prefix ? `${prefix}.${k}` : k, out, depth + 1)
+    } else {
+      out.push(`${prefix}: ${v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v}${typeof v === 'string' && v ? ' (set)' : ''}`)
+    }
+    return out
+  }
+  const [pay, mem] = await Promise.all([
+    whopList('/payments', CURRENT_VERSION, { company_id: companyId ?? undefined, order: 'created_at', direction: 'desc' }, 1).catch(() => ({ rows: [] as Raw[] })),
+    companyId ? whopList('/memberships', LEGACY_VERSION, { account_id: companyId, order: 'created_at', direction: 'desc' }, 1).catch(() => ({ rows: [] as Raw[] })) : { rows: [] as Raw[] },
+  ])
+  return { payment: pay.rows[0] ? walk(pay.rows[0]) : [], membership: mem.rows[0] ? walk(mem.rows[0]) : [] }
 }

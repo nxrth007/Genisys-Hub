@@ -37,7 +37,16 @@ export function onboardingText(o: { business: string; owner: string | null; city
 }
 
 /** The text for a new Whop membership. */
-export function whopSignupText(o: { name: string | null; email: string | null; product: string | null; price: string | null; link: string }): string {
-  const who = o.name || o.email || 'Someone'
-  return `Genisys: New Whop sign-up! ${who}${o.name && o.email ? ` (${o.email})` : ''} joined ${o.product || 'Genisys'}${o.price ? ` at ${o.price}` : ''}. ${o.link}`
+export function whopSignupText(o: {
+  name: string | null
+  email: string | null
+  username?: string | null
+  product: string | null
+  price: string | null
+  link: string
+}): string {
+  // A name when Whop or the Hub has one; otherwise the email and Whop username so they can still be identified.
+  const who = o.name || o.email || (o.username ? `@${o.username}` : 'Someone')
+  const extra = [o.name ? o.email : null, o.username ? `Whop @${o.username}` : null].filter(Boolean).join(', ')
+  return `Genisys: New Whop sign-up! ${who}${extra ? ` (${extra})` : ''} joined ${o.product || 'Genisys'}${o.price ? ` at ${o.price}` : ''}. ${o.link}`
 }
