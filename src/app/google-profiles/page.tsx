@@ -55,6 +55,16 @@ export default function GoogleProfilesPage() {
         title="Google Profiles"
         subtitle="Every client’s Google Business Profile: who still needs one, who’s waiting to verify, and who’s done. Open a client for the setup kit, the Maps search and the verification texts."
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Google Profiles' }]}
+        actions={
+          <a
+            href="https://business.google.com/create"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-90"
+          >
+            Create Profile <ExternalLink className="h-4 w-4" />
+          </a>
+        }
       />
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
