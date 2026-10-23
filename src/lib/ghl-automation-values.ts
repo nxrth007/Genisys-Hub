@@ -371,3 +371,28 @@ export async function pushAutomationValues(clientId: string, inputs: AutomationI
   const status = await ghlAutomationStatus(clientId, inputs)
   return { ok: results.every((r) => r.action !== 'failed'), error: null, results, status }
 }
+
+/**
+ * Set one custom value in a client's sub-account by name (update, or create
+ * when missing), with the client's own sub-account key. Used for values
+ * that aren't on the Automation Copy board, like "Review Google URL".
+ */
+export async function setClientCustomValue(clientId: string, name: string, value: string): Promise<{ ok: boolean; detail: string }> {
+  const client = await linkedClient(clientId)
+  if (!client?.ghlLocationId) return { ok: false, detail: 'The client isn’t linked to a GHL sub-account.' }
+  const locationId = client.ghlLocationId
+  const { keys } = await subAccountKeys(locationId, [client.name])
+  for (const k of keys) {
+    try {
+      const existing = await readValues(k, locationId)
+      const match = existing.find((v) => v.name.trim().toLowerCase() === name.trim().toLowerCase())
+      if (match && match.value === value) return { ok: true, detail: `${name} already set` }
+      if (match) await call(k.token, `/locations/${locationId}/customValues/${match.id}`, { method: 'PUT', body: { name: match.name, value } })
+      else await call(k.token, `/locations/${locationId}/customValues`, { method: 'POST', body: { name, value } })
+      return { ok: true, detail: `${name} ${match ? 'updated' : 'created'}` }
+    } catch (err) {
+      if (k === keys[keys.length - 1]) return { ok: false, detail: reason(err) }
+    }
+  }
+  return { ok: false, detail: 'No Vault key for this client’s sub-account.' }
+}

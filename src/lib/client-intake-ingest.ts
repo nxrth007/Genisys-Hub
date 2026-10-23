@@ -5,6 +5,7 @@ import { provisionGhlSubAccountForNewClient } from '@/lib/ghl-subaccount-provisi
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
+import { startGbpForNewIntake } from '@/lib/gbp-setup'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -165,9 +166,13 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     )
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
     // An existing site's business facts pick up what the client just told us.
+    const gbpFor = clientId
     void ensureSeoSiteForClient(clientId)
       .then((siteId) => (siteId ? syncClientFacts(siteId, { announce: !created }) : null))
       .catch((err) => console.warn(`[client-onboarding] seo site for ${clientId}:`, err))
+      // "No Google Business Profile" on the form: look for a listing Google made on its own and post the setup kit (src/lib/gbp-setup.ts).
+      .then(() => startGbpForNewIntake(gbpFor))
+      .catch((err) => console.warn(`[client-onboarding] google profile for ${gbpFor}:`, err))
     // Put the new client on the Home globe now rather than on the next
     // page load. A new submission may carry the address an earlier one
     // lacked, so an unplaced client's backoff is lifted first.

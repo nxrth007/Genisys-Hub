@@ -18,6 +18,7 @@ import {
   FolderGit2,
   Globe,
   Loader2,
+  MapPin,
   MessageSquareText,
   Pencil,
   Search,
@@ -1013,6 +1014,18 @@ function ClientDetailDialog({
               title="Copy-and-paste board to create this client's GHL sub-account by hand, then link it"
             >
               <Building2 className="h-3.5 w-3.5" /> Sub-account
+            </Link>
+            <Link
+              href={`/clients/${client.id}/gbp`}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition hover:bg-muted',
+                /^\s*(no|n|nope)\b|don'?t|not yet|none/i.test(client.intake?.hasGoogleProfile ?? '')
+                  ? 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                  : 'border-border bg-card',
+              )}
+              title="Google Business Profile: find an existing listing, the create kit, and verification texts"
+            >
+              <MapPin className="h-3.5 w-3.5" /> Google profile
             </Link>
             <button
               type="button"
