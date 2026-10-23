@@ -250,7 +250,7 @@ export async function lookupExistingListing(id: string): Promise<GbpState['looku
     const msg = err instanceof Error ? err.message : String(err)
     result.error = /not found in \/vault|Vault entry/i.test(msg)
       ? `Add the "${MAPS_KEY_ENTRY}" to the Vault to search Google Maps.`
-      : /has not been used|disabled|not enabled|PERMISSION_DENIED|API_KEY_SERVICE_BLOCKED/i.test(msg)
+      : /has not been used|disabled|not enabled|PERMISSION_DENIED|API_KEY_SERVICE_BLOCKED|does not have permission|not authorized to use this API/i.test(msg)
         ? `Google Maps search is off for this key: enable “Places API (New)” on the "${MAPS_KEY_ENTRY}" in Google Cloud. (${msg})`
         : msg
   }
