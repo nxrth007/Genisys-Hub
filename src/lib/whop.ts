@@ -786,7 +786,14 @@ export async function whopFieldMap(): Promise<{ payment: string[]; membership: s
     return out
   }
   const [pay, mem] = await Promise.all([
-    whopList('/payments', CURRENT_VERSION, { company_id: companyId ?? undefined, order: 'created_at', direction: 'desc' }, 1).catch(() => ({ rows: [] as Raw[] })),
+    // The same request listWhopOrders makes (it works where the versioned list didn't).
+    (async () => {
+      const qs = new URLSearchParams({ first: '1', order: 'created_at', direction: 'desc' })
+      if (companyId) qs.set('company_id', companyId)
+      const res = await fetch(`${BASE}/payments?${qs}`, { headers: { Authorization: `Bearer ${await readKey()}`, Accept: 'application/json' } })
+      const body = (await res.json().catch(() => ({}))) as { data?: Raw[] }
+      return { rows: Array.isArray(body.data) ? body.data : [] }
+    })().catch(() => ({ rows: [] as Raw[] })),
     companyId ? whopList('/memberships', LEGACY_VERSION, { account_id: companyId, order: 'created_at', direction: 'desc' }, 1).catch(() => ({ rows: [] as Raw[] })) : { rows: [] as Raw[] },
   ])
   return { payment: pay.rows[0] ? walk(pay.rows[0]) : [], membership: mem.rows[0] ? walk(mem.rows[0]) : [] }
