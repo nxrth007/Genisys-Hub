@@ -43,6 +43,7 @@ import { maybeCheckStalePublishes, maybeRunSeoWatch } from './seo/site-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
+import { maybeAlertWhopSignups } from './whop-signup-alerts'
 
 let initialized = false
 
@@ -424,6 +425,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] google profile: ${n} verification reminder(s) texted`)
       })
       .catch((err) => console.error('[scheduler] google profile reminders failed:', err))
+    // Whop: text Alex and Ethan about new memberships (checks every 5 min).
+    void maybeAlertWhopSignups()
+      .then((n) => {
+        if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
+      })
+      .catch((err) => console.error('[scheduler] whop sign-up check failed:', err))
     void maybeCheckStalePublishes()
       .then((n) => {
         if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)

@@ -6,6 +6,7 @@ import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 import { startGbpForNewIntake } from '@/lib/gbp-setup'
+import { onboardingText, textTeam } from '@/lib/team-sms'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -164,6 +165,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     await hubAlert(
       `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : matched ? ` — linked to *${matched.name}* already on file (${matched.why}). If they're really two businesses, say so and we'll split them` : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
     )
+    // Text Alex and Ethan (src/lib/team-sms.ts). Fire-and-forget: a failed text must not hold up the rest.
+    void textTeam(
+      onboardingText({ business: who, owner: data.fullName?.trim() || null, city: city || null, created, link: hubLink(`/clients?focus=${clientId}`) }),
+    ).catch((err) => console.warn(`[client-onboarding] team text failed for ${clientId}:`, err))
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
     // An existing site's business facts pick up what the client just told us.
     const gbpFor = clientId

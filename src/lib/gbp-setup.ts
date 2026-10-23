@@ -384,6 +384,8 @@ let lastReminderRun = 0
  * only 10am to 7pm Eastern so nobody gets a text at night.
  */
 export async function maybeSendGbpReminders(): Promise<number> {
+  // The scheduler also runs under `next dev`; only the live Hub texts clients.
+  if (process.env.NODE_ENV !== 'production') return 0
   if (Date.now() - lastReminderRun < 3_600_000) return 0
   const hourEt = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(new Date()))
   if (hourEt < 10 || hourEt >= 19) return 0
