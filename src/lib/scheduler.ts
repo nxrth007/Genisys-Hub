@@ -47,6 +47,7 @@ import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
+import { maybeResumeImports } from './hl/ghl-import'
 
 let initialized = false
 
@@ -449,6 +450,11 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} automation run(s) resumed`)
       })
       .catch((err) => console.error('[scheduler] hell-level runs failed:', err))
+    void maybeResumeImports()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: resumed ${n} GoHighLevel import(s)`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level import resume failed:', err))
     void maybeRefreshVerifications()
       .then((n) => {
         if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)

@@ -4,6 +4,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { mergeProfile, profileForClient, readProfile } from '@/lib/hl/accounts'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { launchpad } from '@/lib/hl/launchpad'
+import { setDefaultAccount } from '@/lib/hl/ghl-import'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -34,6 +35,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (account instanceof NextResponse) return account
   try {
     const body = await jsonBody(req)
+    if (body.makeDefault === true) {
+      await setDefaultAccount(id)
+      return NextResponse.json({ ok: true })
+    }
     const data: Prisma.HlAccountUpdateInput = {}
     const name = str(body.name)
     if (name) data.name = name

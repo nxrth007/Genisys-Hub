@@ -64,8 +64,8 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
     <div className="flex flex-col gap-5 p-5">
       <div className="flex flex-col items-center gap-2 text-center">
         <Avatar name={name} size={56} />
-        <p className="text-[16px] font-semibold text-[#101828]">{name}</p>
-        <p className="text-[12px] text-[#667085]">
+        <p className="text-[16px] font-semibold text-foreground">{name}</p>
+        <p className="text-[12px] text-muted-foreground">
           {SOURCE_LABEL[c.source ?? ''] ?? 'Contact'} · added {timeAgo(c.createdAt)}
         </p>
       </div>
@@ -89,49 +89,49 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
         </div>
       ) : (
         <div className="flex flex-col gap-2 text-[14px]">
-          <p className="flex items-center gap-2 text-[#344054]">
-            <Phone className="h-4 w-4 text-[#98A2B3]" /> {c.phone ? prettyPhone(c.phone) : <span className="text-[#98A2B3]">No phone</span>}
+          <p className="flex items-center gap-2 text-foreground/90">
+            <Phone className="h-4 w-4 text-muted-foreground/70" /> {c.phone ? prettyPhone(c.phone) : <span className="text-muted-foreground/70">No phone</span>}
           </p>
-          <p className="flex items-center gap-2 break-all text-[#344054]">
-            <Mail className="h-4 w-4 shrink-0 text-[#98A2B3]" /> {c.email || <span className="text-[#98A2B3]">No email</span>}
+          <p className="flex items-center gap-2 break-all text-foreground/90">
+            <Mail className="h-4 w-4 shrink-0 text-muted-foreground/70" /> {c.email || <span className="text-muted-foreground/70">No email</span>}
           </p>
-          <button type="button" onClick={() => setEdit(true)} className="self-start text-[13px] font-semibold text-[#155EEF] hover:underline">
+          <button type="button" onClick={() => setEdit(true)} className="self-start text-[13px] font-semibold text-primary hover:underline">
             Edit details
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-3 rounded-lg border border-[#EAECF0] p-3">
-        <label className="flex items-center justify-between gap-3 text-[13.5px] text-[#344054]">
+      <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+        <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
           <span>
             Agreed to texts
-            <span className="block text-[12px] text-[#667085]">Automations only text contacts who did</span>
+            <span className="block text-[12px] text-muted-foreground">Automations only text contacts who did</span>
           </span>
           <Toggle checked={c.smsConsent} onChange={(v) => patch.mutate({ smsConsent: v })} label="Agreed to texts" />
         </label>
-        <label className="flex items-center justify-between gap-3 text-[13.5px] text-[#344054]">
+        <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
           <span>
             Do not disturb
-            <span className="block text-[12px] text-[#667085]">{c.dnd ? 'Texted STOP, or set by hand' : 'Nothing is sent while on'}</span>
+            <span className="block text-[12px] text-muted-foreground">{c.dnd ? 'Texted STOP, or set by hand' : 'Nothing is sent while on'}</span>
           </span>
           <Toggle checked={c.dnd} onChange={(v) => patch.mutate({ dnd: v })} label="Do not disturb" />
         </label>
       </div>
 
       <div>
-        <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#344054]">
+        <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-foreground/90">
           <Tag className="h-3.5 w-3.5" /> Tags
         </p>
         <div className="flex flex-wrap gap-1.5">
           {c.tags.map((t) => (
-            <span key={t} className="inline-flex items-center gap-1 rounded-full bg-[#EFF4FF] px-2 py-0.5 text-[12px] font-medium text-[#004EEB]">
+            <span key={t} className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-[12px] font-medium text-primary">
               {t}
-              <button type="button" onClick={() => patch.mutate({ tags: c.tags.filter((x) => x !== t) })} className="text-[#84ADFF] hover:text-[#004EEB]" aria-label={`Remove ${t}`}>
+              <button type="button" onClick={() => patch.mutate({ tags: c.tags.filter((x) => x !== t) })} className="text-primary/60 hover:text-primary" aria-label={`Remove ${t}`}>
                 <X className="h-3 w-3" />
               </button>
             </span>
           ))}
-          {!c.tags.length && <span className="text-[12px] text-[#98A2B3]">No tags</span>}
+          {!c.tags.length && <span className="text-[12px] text-muted-foreground/70">No tags</span>}
         </div>
         <form
           className="mt-2 flex gap-2"
@@ -150,13 +150,13 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
       </div>
 
       <div>
-        <p className="mb-2 text-[13px] font-semibold text-[#344054]">Opportunities</p>
+        <p className="mb-2 text-[13px] font-semibold text-foreground/90">Opportunities</p>
         {detail.opportunities.length ? (
           <div className="flex flex-col gap-2">
             {detail.opportunities.map((o) => (
-              <Link key={o.id} href={`/hell-level/${accountId}/opportunities`} className="rounded-lg border border-[#EAECF0] p-2.5 text-[13px] hover:bg-[#F9FAFB]">
-                <p className="font-medium text-[#101828]">{o.name}</p>
-                <p className="text-[12px] text-[#667085]">
+              <Link key={o.id} href={`/hell-level/${accountId}/opportunities`} className="rounded-lg border border-border p-2.5 text-[13px] hover:bg-muted/50">
+                <p className="font-medium text-foreground">{o.name}</p>
+                <p className="text-[12px] text-muted-foreground">
                   {o.pipeline.name} → {o.pipeline.stages.find((s) => s.id === o.stageId)?.name ?? '—'}
                   {o.value ? ` · $${o.value.toLocaleString('en-US')}` : ''}
                 </p>
@@ -165,23 +165,23 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
             ))}
           </div>
         ) : (
-          <p className="text-[12px] text-[#98A2B3]">None</p>
+          <p className="text-[12px] text-muted-foreground/70">None</p>
         )}
       </div>
 
       <div>
-        <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#344054]">
+        <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-foreground/90">
           <Workflow className="h-3.5 w-3.5" /> Automations
         </p>
         {detail.runs.length ? (
           <ul className="flex flex-col gap-1.5">
             {detail.runs.slice(0, 6).map((r) => (
               <li key={r.id} className="flex items-center justify-between gap-2 text-[12.5px]">
-                <span className="truncate text-[#344054]">{r.workflow.name}</span>
+                <span className="truncate text-foreground/90">{r.workflow.name}</span>
                 <span className="flex items-center gap-1.5">
                   <Badge color={r.status === 'done' ? 'green' : r.status === 'waiting' ? 'blue' : r.status === 'failed' ? 'red' : 'gray'}>{r.status === 'waiting' && r.nextRunAt ? `waiting · ${fmtDateTime(r.nextRunAt)}` : r.status}</Badge>
                   {(r.status === 'waiting' || r.status === 'running') && (
-                    <button type="button" onClick={() => patch.mutate({ cancelRun: r.id })} className="text-[#98A2B3] hover:text-[#D92D20]" title="Remove from this workflow">
+                    <button type="button" onClick={() => patch.mutate({ cancelRun: r.id })} className="text-muted-foreground/70 hover:text-destructive" title="Remove from this workflow">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -190,7 +190,7 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
             ))}
           </ul>
         ) : (
-          <p className="text-[12px] text-[#98A2B3]">Not in any workflow</p>
+          <p className="text-[12px] text-muted-foreground/70">Not in any workflow</p>
         )}
         <div className="mt-2 flex gap-2">
           <Select value={wf} onChange={(e) => setWf(e.target.value)} className="h-8 text-[13px]">
@@ -215,7 +215,7 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
         onClick={() => {
           if (window.confirm(`Delete ${name} and their whole conversation? This can’t be undone.`)) del.mutate()
         }}
-        className="flex items-center gap-1.5 self-start text-[13px] font-medium text-[#D92D20] hover:underline"
+        className="flex items-center gap-1.5 self-start text-[13px] font-medium text-destructive hover:underline"
       >
         <Trash2 className="h-3.5 w-3.5" /> Delete contact
       </button>

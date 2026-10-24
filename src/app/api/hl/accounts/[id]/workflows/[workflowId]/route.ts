@@ -42,6 +42,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
       const run = await prisma.hlWorkflowRun.findUnique({ where: { id: runId } })
       return NextResponse.json({ run })
     }
+    if (body.restore === true) {
+      return NextResponse.json({ workflow: await prisma.hlWorkflow.update({ where: { id: workflowId }, data: { deletedAt: null } }) })
+    }
     const data: Prisma.HlWorkflowUpdateInput = {}
     const name = str(body.name)
     if (name) data.name = name
@@ -61,13 +64,21 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 }
 
-/** DELETE: the workflow and its run history; waiting contacts simply stop. */
-export async function DELETE(_req: Request, { params }: Ctx) {
+/**
+ * DELETE: into "Deleted" (switched off, restorable), like GHL. ?permanent=1 on a
+ * deleted one removes it and its run history for good.
+ */
+export async function DELETE(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const { id, workflowId } = await params
   const workflow = await load(id, workflowId)
   if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
-  await prisma.hlWorkflow.delete({ where: { id: workflowId } })
+  if (new URL(req.url).searchParams.get('permanent') && workflow.deletedAt) {
+    await prisma.hlWorkflow.delete({ where: { id: workflowId } })
+  } else {
+    await prisma.hlWorkflow.update({ where: { id: workflowId }, data: { deletedAt: new Date(), status: 'draft' } })
+    await prisma.hlWorkflowRun.updateMany({ where: { workflowId, status: { in: ['running', 'waiting'] } }, data: { status: 'cancelled', lockedAt: null, nextRunAt: null } })
+  }
   return NextResponse.json({ ok: true })
 }

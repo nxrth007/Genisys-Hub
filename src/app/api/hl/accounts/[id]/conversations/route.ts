@@ -19,6 +19,8 @@ export async function GET(req: Request, { params }: Ctx) {
     accountId: id,
     lastMessageAt: { not: null },
     ...(sp.get('filter') === 'unread' ? { unread: { gt: 0 } } : {}),
+    ...(sp.get('filter') === 'starred' ? { starred: true } : {}),
+    ...(sp.get('filter') === 'recents' ? { lastMessageAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } : {}),
     ...(q
       ? {
           OR: [
@@ -34,7 +36,7 @@ export async function GET(req: Request, { params }: Ctx) {
     where,
     orderBy: { lastMessageAt: 'desc' },
     take: 100,
-    select: { id: true, firstName: true, lastName: true, phone: true, email: true, lastMessage: true, lastMessageAt: true, unread: true, dnd: true, source: true },
+    select: { id: true, firstName: true, lastName: true, phone: true, email: true, lastMessage: true, lastMessageAt: true, unread: true, dnd: true, starred: true, source: true },
   })
   return NextResponse.json({ conversations })
 }

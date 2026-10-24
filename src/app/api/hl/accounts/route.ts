@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createAccountForClient, createStandaloneAccount, readProfile } from '@/lib/hl/accounts'
+import { defaultAccountId } from '@/lib/hl/ghl-import'
 import { hlError, hlGuard, jsonBody, str } from '@/lib/hl/http'
 
 /**
@@ -28,6 +29,7 @@ export async function GET() {
     }),
   ])
   const unread = await prisma.hlContact.groupBy({ by: ['accountId'], where: { unread: { gt: 0 } }, _count: { _all: true } })
+  const homeId = await defaultAccountId()
   const lastLead = await prisma.hlContact.groupBy({ by: ['accountId'], _max: { createdAt: true } })
   return NextResponse.json({
     accounts: accounts.map((a) => {
@@ -39,6 +41,7 @@ export async function GET() {
         clientName: a.client?.name ?? null,
         owner: p.ownerName || a.client?.contactName || null,
         website: p.website || null,
+        ghlLocationId: a.ghlLocationId,
         number: a.numbers[0] ? { number: a.numbers[0].number, kind: a.numbers[0].kind, verification: a.numbers[0].verificationStatus } : null,
         contacts: a._count.contacts,
         unread: unread.find((u) => u.accountId === a.id)?._count._all ?? 0,
@@ -47,6 +50,7 @@ export async function GET() {
       }
     }),
     clientsWithout: clients,
+    defaultAccountId: homeId,
   })
 }
 

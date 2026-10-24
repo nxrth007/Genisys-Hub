@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2, CheckCircle2, ChevronRight, Plus, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Building2, CheckCircle2, ChevronRight, Plus, ShieldCheck, Star, TriangleAlert } from 'lucide-react'
 import { useAccounts } from '@/components/hell-level/shell'
 import { textingBadge } from '@/components/hell-level/bits'
+import { ImportPanel } from '@/components/hell-level/import-panel'
 import { Avatar, Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, hlFetch, timeAgo } from '@/components/hell-level/ui'
 import { prettyPhone } from '@/lib/hl/merge'
 
@@ -35,6 +36,11 @@ export default function AgencyView() {
     },
   })
 
+  const makeHome = useMutation({
+    mutationFn: (id: string) => hlFetch(`/api/hl/accounts/${id}`, { method: 'PATCH', json: { makeDefault: true } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'accounts'] }),
+  })
+
   const rows = accounts.data?.accounts ?? []
   const without = accounts.data?.clientsWithout ?? []
   const approved = twilio.data?.profiles.some((p) => p.status === 'twilio-approved')
@@ -51,19 +57,21 @@ export default function AgencyView() {
         }
       />
 
+      <ImportPanel compact />
+
       <Card className="flex flex-wrap items-center gap-4 px-5 py-4">
         {twilio.isLoading ? (
           <Spinner />
         ) : twilio.data?.ok ? (
           <>
-            <span className={`grid h-10 w-10 place-items-center rounded-full ${approved ? 'bg-[#ECFDF3] text-[#079455]' : 'bg-[#FFFAEB] text-[#DC6803]'}`}>
+            <span className={`grid h-10 w-10 place-items-center rounded-full ${approved ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
               {approved ? <ShieldCheck className="h-5 w-5" /> : <TriangleAlert className="h-5 w-5" />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-[#101828]">
+              <p className="text-[14px] font-semibold text-foreground">
                 Twilio connected{twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}
               </p>
-              <p className="text-[13px] text-[#475467]">
+              <p className="text-[13px] text-muted-foreground">
                 {approved
                   ? 'Genisys’s business profile is approved, so Hell-level can file toll-free verifications for clients.'
                   : 'Before texting can be verified for clients, Genisys needs an approved Trust Hub business profile in Twilio (one time). See Settings → Twilio in any sub-account.'}
@@ -72,12 +80,12 @@ export default function AgencyView() {
           </>
         ) : (
           <>
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-[#FEF3F2] text-[#D92D20]">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-destructive/10 text-destructive">
               <TriangleAlert className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-[#101828]">Twilio isn’t reachable</p>
-              <p className="text-[13px] text-[#475467]">{twilio.data?.error ?? 'Check the "Twilio Account SID" and "Twilio Auth Token" entries in the Vault.'}</p>
+              <p className="text-[14px] font-semibold text-foreground">Twilio isn’t reachable</p>
+              <p className="text-[13px] text-muted-foreground">{twilio.data?.error ?? 'Check the "Twilio Account SID" and "Twilio Auth Token" entries in the Vault.'}</p>
             </div>
           </>
         )}
@@ -96,7 +104,7 @@ export default function AgencyView() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[14px]">
               <thead>
-                <tr className="border-b border-[#EAECF0] bg-[#F9FAFB] text-[12px] font-medium text-[#475467]">
+                <tr className="border-b border-border bg-surface-muted text-[12px] font-medium text-muted-foreground">
                   <th className="px-5 py-3">Sub-account</th>
                   <th className="px-4 py-3">Phone</th>
                   <th className="px-4 py-3">Texting</th>
@@ -107,25 +115,36 @@ export default function AgencyView() {
               </thead>
               <tbody>
                 {rows.map((a) => (
-                  <tr key={a.id} className="border-b border-[#EAECF0] last:border-0 hover:bg-[#F9FAFB]">
+                  <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                     <td className="px-5 py-3">
-                      <Link href={`/hell-level/${a.id}/launchpad`} className="flex items-center gap-3">
+                      <Link href={`/hell-level/${a.id}/dashboard`} className="flex items-center gap-3">
                         <Avatar name={a.name} />
                         <span className="min-w-0">
-                          <span className="block truncate font-semibold text-[#101828]">{a.name}</span>
-                          <span className="block truncate text-[13px] text-[#667085]">{a.owner || a.clientName || '—'}</span>
+                          <span className="block truncate font-semibold text-foreground">{a.name}</span>
+                          <span className="block truncate text-[13px] text-muted-foreground">{a.owner || a.clientName || '—'}</span>
                         </span>
+                        {a.id === accounts.data?.defaultAccountId && <Badge color="blue">Home</Badge>}
                         {!!a.unread && <Badge color="red">{a.unread} unread</Badge>}
                       </Link>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#344054]">{a.number ? prettyPhone(a.number.number) : '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-foreground/90">{a.number ? prettyPhone(a.number.number) : '—'}</td>
                     <td className="px-4 py-3">{textingBadge(a.number)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[#344054]">{a.contacts}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#667085]">{a.lastLeadAt ? timeAgo(a.lastLeadAt) : '—'}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-foreground/90">{a.contacts}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{a.lastLeadAt ? timeAgo(a.lastLeadAt) : '—'}</td>
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/hell-level/${a.id}/launchpad`} className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#155EEF] hover:underline">
+                      <Link href={`/hell-level/${a.id}/dashboard`} className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
                         Open <ChevronRight className="h-4 w-4" />
                       </Link>
+                      {a.id !== accounts.data?.defaultAccountId && (
+                        <button
+                          type="button"
+                          onClick={() => makeHome.mutate(a.id)}
+                          className="ml-3 inline-flex items-center gap-1 font-mono text-[11.5px] text-muted-foreground hover:text-foreground"
+                          title="Open Hell-level on this sub-account"
+                        >
+                          <Star className="h-3 w-3" /> Make home
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -139,8 +158,8 @@ export default function AgencyView() {
         <Card className="px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[15px] font-semibold text-[#101828]">Clients without a sub-account</p>
-              <p className="text-[13px] text-[#475467]">New clients get one automatically when their onboarding form comes in.</p>
+              <p className="text-[15px] font-semibold text-foreground">Clients without a sub-account</p>
+              <p className="text-[13px] text-muted-foreground">New clients get one automatically when their onboarding form comes in.</p>
             </div>
             <Button variant="secondary" loading={create.isPending && !!create.variables?.all} onClick={() => create.mutate({ all: true })}>
               Create for all ({without.length})
@@ -153,7 +172,7 @@ export default function AgencyView() {
                 type="button"
                 disabled={create.isPending}
                 onClick={() => create.mutate({ clientId: c.id })}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#D0D5DD] bg-white px-3 py-1.5 text-[13px] font-medium text-[#344054] transition hover:border-[#155EEF] hover:text-[#155EEF] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[13px] font-medium text-foreground/90 transition hover:border-primary hover:text-primary disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" /> {c.name}
               </button>
@@ -180,22 +199,22 @@ export default function AgencyView() {
         <div className="flex flex-col gap-4">
           {without.length > 0 && (
             <div className="flex flex-col gap-2">
-              <p className="text-[13px] font-medium text-[#344054]">From a client</p>
-              <div className="flex max-h-56 flex-col overflow-y-auto rounded-lg border border-[#EAECF0]">
+              <p className="text-[13px] font-medium text-foreground/90">From a client</p>
+              <div className="flex max-h-56 flex-col overflow-y-auto rounded-lg border border-border">
                 {without.map((c) => (
                   <button
                     key={c.id}
                     type="button"
                     disabled={create.isPending}
                     onClick={() => create.mutate({ clientId: c.id })}
-                    className="flex items-center gap-3 border-b border-[#EAECF0] px-3 py-2.5 text-left text-[14px] last:border-0 hover:bg-[#F9FAFB]"
+                    className="flex items-center gap-3 border-b border-border px-3 py-2.5 text-left text-[14px] last:border-0 hover:bg-muted/50"
                   >
                     <Avatar name={c.name} size={28} />
                     <span className="flex-1">
-                      <span className="block font-medium text-[#101828]">{c.name}</span>
-                      <span className="block text-[12px] text-[#667085]">{c.contactName ?? c.lifecycle}</span>
+                      <span className="block font-medium text-foreground">{c.name}</span>
+                      <span className="block text-[12px] text-muted-foreground">{c.contactName ?? c.lifecycle}</span>
                     </span>
-                    <CheckCircle2 className="h-4 w-4 text-[#D0D5DD]" />
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
                   </button>
                 ))}
               </div>

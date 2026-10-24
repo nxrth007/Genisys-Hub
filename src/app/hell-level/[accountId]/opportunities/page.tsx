@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,6 +11,8 @@ import { prettyPhone } from '@/lib/hl/merge'
 import type { HlStage } from '@/lib/hl/types'
 import { contactLabel } from '@/components/hell-level/bits'
 import { Badge, Button, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, hlFetch, timeAgo } from '@/components/hell-level/ui'
+import { NotYet, useSectionTab } from '@/components/hell-level/section'
+import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 
 type Opp = {
   id: string
@@ -26,6 +28,28 @@ type Opp = {
 type Pipeline = { id: string; name: string; stages: HlStage[]; opportunities: Opp[] }
 
 export default function OpportunitiesPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-24"><Spinner /></div>}>
+      <OpportunitiesSection />
+    </Suspense>
+  )
+}
+
+function OpportunitiesSection() {
+  const { accountId } = useParams<{ accountId: string }>()
+  const tab = useSectionTab('opportunities')
+  if (tab === 'pipelines')
+    return (
+      <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-6">
+        <PageHeader title="Pipelines" description="Each pipeline’s stages, in board order." />
+        <PipelinesManager accountId={accountId} />
+      </div>
+    )
+  if (tab === 'bulk-actions') return <NotYet title="Bulk Actions" what="GoHighLevel logs bulk opportunity jobs (bulk moves, imports, exports) here. Hell-level moves opportunities one at a time on the board." />
+  return <Board />
+}
+
+function Board() {
   const { accountId } = useParams<{ accountId: string }>()
   const qc = useQueryClient()
   const q = useQuery<{ pipelines: Pipeline[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
@@ -104,13 +128,13 @@ export default function OpportunitiesPage() {
                 <Column key={s.id} id={s.id}>
                   <div className="flex items-center justify-between px-1 pb-2">
                     <div>
-                      <p className="text-[14px] font-semibold text-[#101828]">{s.name}</p>
-                      <p className="text-[12px] text-[#667085]">
+                      <p className="text-[14px] font-semibold text-foreground">{s.name}</p>
+                      <p className="text-[12px] text-muted-foreground">
                         {cards.length} {cards.length === 1 ? 'opportunity' : 'opportunities'}
                         {total ? ` · ${money(total)}` : ''}
                       </p>
                     </div>
-                    <button type="button" onClick={() => setAdding(s.id)} className="grid h-7 w-7 place-items-center rounded-md text-[#98A2B3] hover:bg-white hover:text-[#344054]" title="Add here">
+                    <button type="button" onClick={() => setAdding(s.id)} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground" title="Add here">
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
@@ -118,7 +142,7 @@ export default function OpportunitiesPage() {
                     {cards.map((o) => (
                       <OppCard key={o.id} o={o} accountId={accountId} onOpen={() => setEditing(o)} />
                     ))}
-                    {!cards.length && <p className="rounded-lg border border-dashed border-[#D0D5DD] px-3 py-6 text-center text-[12px] text-[#98A2B3]">Drop here</p>}
+                    {!cards.length && <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-[12px] text-muted-foreground/70">Drop here</p>}
                   </div>
                 </Column>
               )
@@ -136,7 +160,7 @@ export default function OpportunitiesPage() {
 function Column({ id, children }: { id: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <div ref={setNodeRef} className={cn('flex w-[290px] shrink-0 flex-col overflow-y-auto rounded-xl bg-[#F2F4F7] p-3 transition', isOver && 'bg-[#EFF4FF] ring-2 ring-[#84ADFF]')}>
+    <div ref={setNodeRef} className={cn('flex w-[290px] shrink-0 flex-col overflow-y-auto rounded-xl bg-muted p-3 transition', isOver && 'bg-primary-soft ring-2 ring-primary/50')}>
       {children}
     </div>
   )
@@ -151,14 +175,14 @@ function OppCard({ o, accountId, onOpen }: { o: Opp; accountId: string; onOpen: 
       {...listeners}
       onClick={onOpen}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      className={cn('cursor-grab rounded-lg border border-[#EAECF0] bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,0.05)] active:cursor-grabbing', isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-[#84ADFF]')}
+      className={cn('cursor-grab rounded-lg border border-border bg-card p-3 active:cursor-grabbing', isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-primary/50')}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[14px] font-semibold text-[#101828]">{o.name}</p>
+        <p className="text-[14px] font-semibold text-foreground">{o.name}</p>
         {o.status !== 'open' && <Badge color={o.status === 'won' ? 'green' : 'gray'}>{o.status}</Badge>}
       </div>
-      {o.value > 0 && <p className="mt-0.5 text-[13px] font-medium text-[#079455]">${o.value.toLocaleString('en-US')}</p>}
-      <div className="mt-2 flex items-center justify-between text-[12px] text-[#667085]">
+      {o.value > 0 && <p className="mt-0.5 text-[13px] font-medium text-success">${o.value.toLocaleString('en-US')}</p>}
+      <div className="mt-2 flex items-center justify-between text-[12px] text-muted-foreground">
         <span className="flex items-center gap-1 truncate">
           <Phone className="h-3 w-3" /> {o.contact.phone ? prettyPhone(o.contact.phone) : contactLabel(o.contact)}
         </span>
@@ -168,7 +192,7 @@ function OppCard({ o, accountId, onOpen }: { o: Opp; accountId: string; onOpen: 
         href={`/hell-level/${accountId}/conversations?contact=${o.contact.id}`}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
-        className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[#155EEF] hover:underline"
+        className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline"
       >
         <MessagesSquare className="h-3 w-3" /> Conversation
       </Link>
@@ -201,7 +225,7 @@ function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: 
       description={contactLabel(opp.contact)}
       footer={
         <>
-          <Button variant="ghost" className="mr-auto text-[#D92D20]" loading={del.isPending} onClick={() => window.confirm('Delete this opportunity? The contact stays.') && del.mutate()}>
+          <Button variant="ghost" className="mr-auto text-destructive" loading={del.isPending} onClick={() => window.confirm('Delete this opportunity? The contact stays.') && del.mutate()}>
             Delete
           </Button>
           <Button onClick={onClose}>Cancel</Button>

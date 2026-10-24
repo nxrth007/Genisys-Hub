@@ -176,7 +176,8 @@ export function Sidebar() {
   const nav: NavItem[] = [
     ...baseNav,
     // Hell-level: the agency's own GoHighLevel (same allowlist as Payments).
-    ...(canAccessHellLevel(email) ? [{ href: '/hell-level', label: 'Hell-level', icon: Flame }] : []),
+    // Opens on its entrance screen (src/components/hell-level/enter-splash.tsx).
+    ...(canAccessHellLevel(email) ? [{ href: '/hell-level?enter=1', match: '/hell-level', label: 'Hell-level', icon: Flame }] : []),
     ...(canAccessSeo(email) ? [{ href: '/seo', label: 'SEO', icon: TrendingUp }] : []),
     ...(canAccessPayments(email) ? [{ href: '/payments', label: 'Payments', icon: Wallet }] : []),
   ]

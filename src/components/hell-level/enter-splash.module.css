@@ -1,0 +1,939 @@
+/*
+ * Hell-level's entrance: black, white and grey only.
+ *
+ * Timeline (seconds from open): art rises out of the dark (0.15 → 2.7),
+ * the System box types its line (0.5 → 2.5), the eye ignites with a lens
+ * flare (1.45), a light sweep crosses the art (1.7), the title assembles
+ * letter by letter (1.15 →), the button lands (2.25) and the credit last
+ * (2.8). After that it idles: aura breathes, fog drifts, the eye pulses,
+ * embers rise, film grain crawls.
+ *
+ * Leaving (.leaving): the copy slides away, the art dives into the eye,
+ * "ARISE" flashes, the screen whites out, the CRM loads underneath and the
+ * white fades to reveal it.
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  isolation: isolate;
+  background: #000;
+  color: #fff;
+  color-scheme: dark;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+.leaving {
+  pointer-events: none;
+  animation: rootOut 0.6s 1.02s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes rootOut {
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------- art */
+
+.art {
+  position: absolute;
+  top: 50%;
+  right: -2vh;
+  z-index: 0;
+  height: 114vh;
+  aspect-ratio: 990 / 1238;
+  translate: 0 -50%;
+  /* A soft spotlight, feathered on every side so the artwork's own edges never show. */
+  -webkit-mask-image:
+    radial-gradient(ellipse 62% 56% at 55% 43%, #000 48%, transparent 100%),
+    linear-gradient(90deg, transparent 0%, #000 18%, #000 84%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, #000 9%, #000 70%, transparent 100%);
+  -webkit-mask-composite: source-in, source-in;
+  mask-image:
+    radial-gradient(ellipse 62% 56% at 55% 43%, #000 48%, transparent 100%),
+    linear-gradient(90deg, transparent 0%, #000 18%, #000 84%, transparent 100%),
+    linear-gradient(180deg, transparent 0%, #000 9%, #000 70%, transparent 100%);
+  mask-composite: intersect;
+}
+.artInner {
+  position: absolute;
+  inset: 0;
+  transform-origin: 60.45% 42.6%;
+  animation: artIn 2.6s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes artIn {
+  from {
+    opacity: 0;
+    transform: scale(1.14);
+    filter: blur(14px) brightness(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0) brightness(1);
+  }
+}
+.leaving .artInner {
+  animation: artDive 1.05s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+@keyframes artDive {
+  from {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  to {
+    opacity: 1;
+    transform: scale(3.8);
+    filter: brightness(1.8) blur(3px);
+  }
+}
+
+.img {
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.14) brightness(0.86);
+  -webkit-user-drag: none;
+}
+/* A blurred, brightened copy on top: the aura that breathes around the light edges. */
+.aura {
+  object-fit: cover;
+  filter: grayscale(1) blur(18px) brightness(1.55);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transform-origin: 55% 40%;
+  animation:
+    auraIn 2s 1s ease forwards,
+    breathe 6.5s 3s ease-in-out infinite;
+}
+@keyframes auraIn {
+  to {
+    opacity: 0.2;
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.46;
+    transform: scale(1.035);
+  }
+}
+
+.fog {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.24), transparent);
+  filter: blur(28px);
+  mix-blend-mode: screen;
+  opacity: 0;
+  pointer-events: none;
+}
+.fogA {
+  left: 4%;
+  top: -6%;
+  width: 72%;
+  height: 46%;
+  animation:
+    fogIn 3s 1.2s ease forwards,
+    drift 22s 1.2s ease-in-out infinite alternate;
+}
+.fogB {
+  left: 34%;
+  top: 4%;
+  width: 60%;
+  height: 40%;
+  animation:
+    fogIn 3s 1.6s ease forwards,
+    drift 28s 1.6s ease-in-out infinite alternate-reverse;
+}
+@keyframes fogIn {
+  to {
+    opacity: 0.6;
+  }
+}
+@keyframes drift {
+  from {
+    transform: translate3d(-7%, 2%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(9%, -4%, 0) scale(1.18);
+  }
+}
+
+.sweep {
+  position: absolute;
+  inset: -20%;
+  background: linear-gradient(104deg, transparent 42%, rgb(255 255 255 / 0.32) 50%, transparent 58%);
+  mix-blend-mode: overlay;
+  opacity: 0;
+  pointer-events: none;
+  animation: sweep 1.7s 1.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-55%);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(55%);
+  }
+}
+
+/* The eye: found at 60.45% / 42.6% of the artwork. */
+.eye {
+  position: absolute;
+  left: 60.45%;
+  top: 42.6%;
+  width: 0;
+  height: 0;
+}
+.eyeCore {
+  position: absolute;
+  left: -1vh;
+  top: -1vh;
+  width: 2vh;
+  height: 2vh;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgb(255 255 255 / 0.9) 32%, rgb(255 255 255 / 0) 70%);
+  box-shadow:
+    0 0 1.2vh 0.5vh rgb(255 255 255 / 0.75),
+    0 0 6vh 2vh rgb(255 255 255 / 0.3);
+  opacity: 0;
+  animation:
+    ignite 1s 1.45s cubic-bezier(0.2, 0.8, 0.2, 1) forwards,
+    pulse 2.8s 2.6s ease-in-out infinite;
+}
+@keyframes ignite {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1.28);
+  }
+}
+.eyeFlare {
+  position: absolute;
+  left: -15vh;
+  top: -0.12vh;
+  width: 30vh;
+  height: 0.24vh;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.85) 44%, #fff 50%, rgb(255 255 255 / 0.85) 56%, transparent);
+  filter: blur(0.4px);
+  opacity: 0;
+  transform: scaleX(0);
+  animation:
+    flare 1.4s 1.45s cubic-bezier(0.2, 0.8, 0.2, 1) forwards,
+    flicker 3.6s 3s ease-in-out infinite;
+}
+@keyframes flare {
+  0% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  30% {
+    opacity: 1;
+    transform: scaleX(1.6);
+  }
+  100% {
+    opacity: 0.7;
+    transform: scaleX(1);
+  }
+}
+@keyframes flicker {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scaleX(1);
+  }
+  44% {
+    opacity: 0.42;
+    transform: scaleX(0.82);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scaleX(1.12);
+  }
+}
+.leaving .eyeCore {
+  animation: eyeBlast 0.95s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+@keyframes eyeBlast {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: scale(70);
+  }
+}
+
+/* ------------------------------------------------------------ framing */
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse 80% 75% at 62% 46%, transparent 45%, rgb(0 0 0 / 0.7) 100%);
+}
+.shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(90deg, #000 0%, rgb(0 0 0 / 0.82) 28%, transparent 60%);
+}
+.embers {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  /* White embers turn dark over the bright backdrop: always visible, always grey. */
+  mix-blend-mode: difference;
+}
+.grain {
+  position: absolute;
+  inset: -50%;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.09;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: grain 0.9s steps(6) infinite;
+}
+@keyframes grain {
+  0% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-5%, 3%);
+  }
+  40% {
+    transform: translate(4%, -6%);
+  }
+  60% {
+    transform: translate(-7%, 2%);
+  }
+  80% {
+    transform: translate(3%, 7%);
+  }
+  100% {
+    transform: translate(-2%, -4%);
+  }
+}
+.scan {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.04) 0 1px, transparent 1px 3px);
+}
+
+/* ---------------------------------------------------------------- hud */
+
+.hud {
+  position: absolute;
+  left: clamp(24px, 7vw, 120px);
+  right: clamp(20px, 4vw, 56px);
+  top: clamp(18px, 4vh, 36px);
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.45);
+  opacity: 0;
+  animation: fadeIn 1s 0.3s ease forwards;
+}
+.hudMark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hudMark i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgb(255 255 255 / 0.7);
+  rotate: 45deg;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 8px rgb(255 255 255 / 0.8);
+  animation: breatheDot 2.2s ease-in-out infinite;
+}
+@keyframes breatheDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* --------------------------------------------------------------- copy */
+
+.copy {
+  position: absolute;
+  left: clamp(24px, 7vw, 120px);
+  top: 50%;
+  z-index: 5;
+  width: min(580px, 48vw);
+  translate: 0 -50%;
+}
+.leaving .copy {
+  animation: copyOut 0.5s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes copyOut {
+  to {
+    opacity: 0;
+    transform: translateX(-36px);
+    filter: blur(6px);
+  }
+}
+
+.sys {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 20px 15px 16px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.015));
+  backdrop-filter: blur(6px);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  opacity: 0;
+  animation: fadeUp 0.7s 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.sys::before,
+.sys::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: solid #fff;
+}
+.sys::before {
+  left: -1px;
+  top: -1px;
+  border-width: 1px 0 0 1px;
+}
+.sys::after {
+  right: -1px;
+  bottom: -1px;
+  border-width: 0 1px 1px 0;
+}
+.sysLabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.55);
+}
+.sysLabel i {
+  width: 6px;
+  height: 6px;
+  background: #fff;
+  box-shadow: 0 0 8px #fff;
+  animation: breatheDot 1.4s ease-in-out infinite;
+}
+.typed {
+  display: block;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid #fff;
+  padding-right: 2px;
+  font-size: 14px;
+  letter-spacing: 0;
+  color: #fff;
+  animation:
+    type 1.5s 0.95s steps(29) forwards,
+    caret 0.85s step-end infinite;
+}
+@keyframes type {
+  to {
+    width: calc(29ch + 4px);
+  }
+}
+@keyframes caret {
+  50% {
+    border-color: transparent;
+  }
+}
+
+.titleWrap {
+  position: relative;
+  margin-top: 30px;
+}
+.title {
+  display: flex;
+  margin: 0;
+  font-size: clamp(54px, 7.2vw, 128px);
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: jitter 7s 3.6s infinite;
+}
+.char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(55%);
+  filter: blur(8px);
+  background: linear-gradient(180deg, #fff 35%, #8f8f8f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: charIn 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes charIn {
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+@keyframes jitter {
+  0%,
+  95.4%,
+  100% {
+    transform: none;
+  }
+  95.8% {
+    transform: translate(3px, -1px) skewX(-7deg);
+  }
+  96.2% {
+    transform: translate(-4px, 1px);
+  }
+  96.6% {
+    transform: translate(1px, 0) skewX(4deg);
+  }
+  97% {
+    transform: none;
+  }
+}
+/* A grey ghost of the title that tears through during the glitch. */
+.ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  font-size: clamp(54px, 7.2vw, 128px);
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #fff;
+  mix-blend-mode: difference;
+  opacity: 0;
+  pointer-events: none;
+  animation: tear 7s 3.6s infinite;
+}
+@keyframes tear {
+  0%,
+  95.4%,
+  97.2%,
+  100% {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+    transform: none;
+  }
+  95.6% {
+    opacity: 0.85;
+    clip-path: inset(22% 0 52% 0);
+    transform: translateX(-9px);
+  }
+  96.1% {
+    opacity: 0.6;
+    clip-path: inset(62% 0 12% 0);
+    transform: translateX(7px);
+  }
+  96.7% {
+    opacity: 0.75;
+    clip-path: inset(8% 0 78% 0);
+    transform: translateX(-4px);
+  }
+}
+
+.sub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 0 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.62);
+  opacity: 0;
+  animation: fadeUp 0.8s 1.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.sub::before {
+  content: '';
+  width: 36px;
+  height: 1px;
+  background: rgb(255 255 255 / 0.5);
+}
+.tagline {
+  max-width: 420px;
+  margin: 16px 0 0;
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: rgb(255 255 255 / 0.52);
+  opacity: 0;
+  animation: fadeUp 0.8s 1.95s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-top: 42px;
+}
+.btnWrap {
+  position: relative;
+  display: inline-block;
+  opacity: 0;
+  animation: fadeUp 0.8s 2.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+/* HUD brackets that open out when the button is hovered. */
+.btnWrap::before,
+.btnWrap::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: solid rgb(255 255 255 / 0.65);
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btnWrap::before {
+  left: -8px;
+  top: -8px;
+  border-width: 1px 0 0 1px;
+}
+.btnWrap::after {
+  right: -8px;
+  bottom: -8px;
+  border-width: 0 1px 1px 0;
+}
+.btnWrap:hover::before,
+.btnWrap:focus-within::before {
+  transform: translate(-4px, -4px);
+}
+.btnWrap:hover::after,
+.btnWrap:focus-within::after {
+  transform: translate(4px, 4px);
+}
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  height: 58px;
+  padding: 0 26px 0 30px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.9);
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.2s ease;
+}
+/* White fill that sweeps in on hover. */
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn:hover::before,
+.btn:focus-visible::before {
+  transform: scaleX(1);
+}
+/* Idle shine passing over the button. */
+.btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  z-index: 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.28), transparent);
+  animation: shine 4.8s 3.4s ease-in-out infinite;
+}
+@keyframes shine {
+  0% {
+    left: -60%;
+  }
+  32%,
+  100% {
+    left: 130%;
+  }
+}
+.btn:active {
+  transform: scale(0.985);
+}
+.btn:focus-visible {
+  box-shadow: 0 0 0 4px rgb(255 255 255 / 0.18);
+}
+.btnLabel,
+.btnArrow {
+  position: relative;
+  z-index: 1;
+  transition:
+    color 0.3s ease,
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btnArrow {
+  width: 18px;
+  height: 18px;
+}
+.btn:hover .btnLabel,
+.btn:hover .btnArrow,
+.btn:focus-visible .btnLabel,
+.btn:focus-visible .btnArrow {
+  color: #000;
+}
+.btn:hover .btnArrow,
+.btn:focus-visible .btnArrow {
+  transform: translateX(5px);
+}
+.hint {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.38);
+  opacity: 0;
+  animation: fadeIn 0.8s 2.7s ease forwards;
+}
+.hint kbd {
+  margin-left: 6px;
+  padding: 2px 6px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  color: rgb(255 255 255 / 0.7);
+}
+
+.credit {
+  position: absolute;
+  right: clamp(20px, 4vw, 56px);
+  bottom: clamp(18px, 4vh, 40px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.45);
+  opacity: 0;
+  animation: fadeIn 1s 2.8s ease forwards;
+}
+.credit::before {
+  content: '';
+  width: 42px;
+  height: 1px;
+  background: rgb(255 255 255 / 0.35);
+}
+.credit b {
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: none;
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------- exit */
+
+.arise {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 7;
+  padding-left: 0.32em;
+  translate: -50% -50%;
+  font-size: clamp(64px, 12vw, 210px);
+  font-weight: 900;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #fff;
+  mix-blend-mode: difference;
+  opacity: 0;
+  pointer-events: none;
+}
+.leaving .arise {
+  animation: arise 0.95s 0.12s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes arise {
+  0% {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(14px);
+  }
+  42% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+    filter: blur(5px);
+  }
+}
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.leaving .flash {
+  animation: fadeIn 0.42s 0.6s ease-in forwards;
+}
+
+/* -------------------------------------------------------------- shared */
+
+@keyframes fadeIn {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------- mobile */
+
+@media (max-width: 820px) {
+  .art {
+    right: 50%;
+    top: 0;
+    height: 88vh;
+    translate: 50% 0;
+  }
+  .shade {
+    background: linear-gradient(0deg, #000 0%, rgb(0 0 0 / 0.92) 36%, transparent 66%);
+  }
+  .copy {
+    left: 24px;
+    right: 24px;
+    top: auto;
+    bottom: 84px;
+    width: auto;
+    translate: none;
+  }
+  .sys {
+    display: none;
+  }
+  .title,
+  .ghost {
+    font-size: clamp(44px, 13vw, 76px);
+  }
+  .titleWrap {
+    margin-top: 0;
+  }
+  .tagline {
+    display: none;
+  }
+  .actions {
+    margin-top: 30px;
+  }
+  .btn {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .btnWrap {
+    display: block;
+    width: 100%;
+  }
+  .hint,
+  .status {
+    display: none;
+  }
+  .credit {
+    right: 50%;
+    translate: 50% 0;
+    bottom: 26px;
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation-delay: 0s !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

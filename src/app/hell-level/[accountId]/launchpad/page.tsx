@@ -32,7 +32,7 @@ export default function LaunchpadPage() {
   return (
     <div className="mx-auto flex max-w-6xl gap-6 px-6 py-7">
       <aside className="hidden w-60 shrink-0 lg:block">
-        <p className="px-3 pb-2 text-[13px] font-semibold text-[#344054]">Setup Guide</p>
+        <p className="px-3 pb-2 text-[13px] font-semibold text-foreground/90">Setup Guide</p>
         <nav className="flex flex-col gap-0.5">
           {launchpad.items.map((i) => (
             <button
@@ -41,10 +41,10 @@ export default function LaunchpadPage() {
               onClick={() => setOpenKey(i.key)}
               className={cn(
                 'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13.5px] transition',
-                expanded === i.key ? 'bg-white font-semibold text-[#101828] shadow-[0_1px_2px_rgba(16,24,40,0.06)]' : 'text-[#475467] hover:bg-white/70',
+                expanded === i.key ? 'bg-card font-semibold text-foreground' : 'text-muted-foreground hover:bg-muted/60',
               )}
             >
-              {i.done ? <Check className="h-4 w-4 shrink-0 text-[#079455]" strokeWidth={2.5} /> : <Circle className="h-4 w-4 shrink-0 text-[#D0D5DD]" />}
+              {i.done ? <Check className="h-4 w-4 shrink-0 text-success" strokeWidth={2.5} /> : <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />}
               <span className="truncate">{i.title}</span>
             </button>
           ))}
@@ -53,22 +53,22 @@ export default function LaunchpadPage() {
 
       <div className="min-w-0 flex-1">
         <Card className="overflow-hidden">
-          <div className="flex items-start gap-4 border-b border-[#EAECF0] px-6 py-5">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#EFF4FF] text-[#155EEF]">
+          <div className="flex items-start gap-4 border-b border-border px-6 py-5">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
               <Rocket className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <h1 className="text-[18px] font-semibold text-[#101828]">{pct === 100 ? `${business} is all set` : `Let’s get ${business} set up`}</h1>
-              <p className="mt-0.5 text-[14px] text-[#475467]">
+              <h1 className="text-[18px] font-semibold text-foreground">{pct === 100 ? `${business} is all set` : `Let’s get ${business} set up`}</h1>
+              <p className="mt-0.5 text-[14px] text-muted-foreground">
                 {pct === 100
                   ? 'Leads from the website and missed calls are answered automatically.'
                   : 'Finish these and Hell-level answers every website lead and missed call by itself.'}
               </p>
               <div className="mt-4 flex items-center gap-3">
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#EAECF0]">
-                  <div className="h-full rounded-full bg-[#155EEF] transition-all" style={{ width: `${pct}%` }} />
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
                 </div>
-                <span className="text-[13px] font-semibold tabular-nums text-[#344054]">{pct}%</span>
+                <span className="text-[13px] font-semibold tabular-nums text-foreground/90">{pct}%</span>
               </div>
             </div>
           </div>
@@ -76,26 +76,26 @@ export default function LaunchpadPage() {
             {launchpad.items.map((i) => {
               const open = expanded === i.key
               return (
-                <li key={i.key} className={cn('border-b border-[#EAECF0] last:border-0', open && 'bg-[#F9FAFB]')}>
+                <li key={i.key} className={cn('border-b border-border last:border-0', open && 'bg-surface-muted')}>
                   <button type="button" onClick={() => setOpenKey(open ? '' : i.key)} className="flex w-full items-center gap-4 px-6 py-4 text-left">
-                    <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full', i.done ? 'bg-[#DCFAE6] text-[#079455]' : 'border-2 border-[#D0D5DD] text-transparent')}>
+                    <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full', i.done ? 'bg-success/15 text-success' : 'border-2 border-border text-transparent')}>
                       <Check className="h-4 w-4" strokeWidth={3} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className={cn('block text-[15px] font-semibold', i.done ? 'text-[#344054]' : 'text-[#101828]')}>{i.title}</span>
-                      {!open && <span className="block truncate text-[13px] text-[#667085]">{i.detail}</span>}
+                      <span className={cn('block text-[15px] font-semibold', i.done ? 'text-foreground/90' : 'text-foreground')}>{i.title}</span>
+                      {!open && <span className="block truncate text-[13px] text-muted-foreground">{i.detail}</span>}
                     </span>
                     {i.done ? <Badge color="green">Done</Badge> : <Badge color="gray">To do</Badge>}
-                    {open ? <ChevronDown className="h-4 w-4 text-[#98A2B3]" /> : <ChevronRight className="h-4 w-4 text-[#98A2B3]" />}
+                    {open ? <ChevronDown className="h-4 w-4 text-muted-foreground/70" /> : <ChevronRight className="h-4 w-4 text-muted-foreground/70" />}
                   </button>
                   {open && (
                     <div className="flex flex-wrap items-center gap-4 px-6 pb-5 pl-[68px]">
-                      <p className="min-w-[240px] flex-1 text-[14px] text-[#475467]">{i.detail}</p>
+                      <p className="min-w-[240px] flex-1 text-[14px] text-muted-foreground">{i.detail}</p>
                       <Link
                         href={`/hell-level/${accountId}/${i.href}`}
                         className={cn(
                           'inline-flex h-9 items-center rounded-lg px-4 text-[13.5px] font-semibold transition',
-                          i.done ? 'border border-[#D0D5DD] bg-white text-[#344054] hover:bg-[#F9FAFB]' : 'bg-[#155EEF] text-white hover:bg-[#004EEB]',
+                          i.done ? 'border border-border bg-card text-foreground/90 hover:bg-muted/50' : 'bg-primary text-primary-foreground hover:bg-primary/90',
                         )}
                       >
                         {i.done ? 'View' : i.cta}

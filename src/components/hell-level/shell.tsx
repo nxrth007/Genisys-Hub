@@ -1,34 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams, usePathname, useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  ArrowLeft,
-  BarChart3,
-  Bell,
-  CalendarDays,
-  ChevronsUpDown,
-  Contact,
-  CreditCard,
-  Filter,
-  Flame,
-  Globe,
-  LayoutDashboard,
-  Megaphone,
-  MessagesSquare,
-  Phone,
-  Rocket,
-  Search,
-  Settings,
-  Star,
-  Workflow,
-  Building2,
-} from 'lucide-react'
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Phone, Search, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { Avatar, hlFetch } from './ui'
+import { EnterSplashGate } from './enter-splash'
+import { SECTIONS, SETTINGS_SECTION, activeTab, sectionOf, type Section } from './nav'
 
 export type AccountRow = {
   id: string
@@ -37,6 +18,7 @@ export type AccountRow = {
   clientName: string | null
   owner: string | null
   website: string | null
+  ghlLocationId: string | null
   number: { number: string; kind: string; verification: string } | null
   contacts: number
   unread: number
@@ -44,7 +26,12 @@ export type AccountRow = {
   createdAt: string
 }
 
-export type AccountsResponse = { accounts: AccountRow[]; clientsWithout: { id: string; name: string; contactName: string | null; lifecycle: string }[] }
+export type AccountsResponse = {
+  accounts: AccountRow[]
+  clientsWithout: { id: string; name: string; contactName: string | null; lifecycle: string }[]
+  /** The sub-account Hell-level opens on (Lead Genisys). */
+  defaultAccountId: string | null
+}
 
 export function useAccounts() {
   return useQuery<AccountsResponse>({
@@ -54,18 +41,20 @@ export function useAccounts() {
   })
 }
 
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; soon?: boolean; badge?: number }
-
 const LAST_KEY = 'hl-last-account'
 
-/** GoHighLevel's sub-account chrome: navy sidebar with the account switcher, white top bar, light canvas. */
+/**
+ * Hell-level's frame: GoHighLevel's sub-account structure (the left menu in
+ * GHL's order, section tabs across the top) in the Hub's own look.
+ */
 export function HellShell({ children }: { children: React.ReactNode }) {
   const params = useParams<{ accountId?: string }>()
   const pathname = usePathname()
-  const router = useRouter()
   const accountId = params?.accountId ?? null
   const accounts = useAccounts()
   const current = accounts.data?.accounts.find((a) => a.id === accountId) ?? null
+  const sectionKey = accountId ? pathname.split('/')[3] : undefined
+  const section = sectionOf(sectionKey)
 
   useEffect(() => {
     if (!accountId) return
@@ -77,121 +66,139 @@ export function HellShell({ children }: { children: React.ReactNode }) {
   }, [accountId])
 
   const base = accountId ? `/hell-level/${accountId}` : null
-  const main: NavItem[] = base
-    ? [
-        { href: `${base}/launchpad`, label: 'Launchpad', icon: Rocket },
-        { href: `${base}/dashboard`, label: 'Dashboard', icon: LayoutDashboard },
-        { href: `${base}/conversations`, label: 'Conversations', icon: MessagesSquare, badge: current?.unread },
-        { href: `${base}/calendars`, label: 'Calendars', icon: CalendarDays, soon: true },
-        { href: `${base}/contacts`, label: 'Contacts', icon: Contact },
-        { href: `${base}/opportunities`, label: 'Opportunities', icon: Filter },
-        { href: `${base}/payments`, label: 'Payments', icon: CreditCard, soon: true },
-      ]
-    : []
-  const grow: NavItem[] = base
-    ? [
-        { href: `${base}/marketing`, label: 'Marketing', icon: Megaphone, soon: true },
-        { href: `${base}/automation`, label: 'Automation', icon: Workflow },
-        { href: `${base}/sites`, label: 'Sites', icon: Globe },
-        { href: `${base}/reputation`, label: 'Reputation', icon: Star, soon: true },
-        { href: `${base}/reporting`, label: 'Reporting', icon: BarChart3, soon: true },
-      ]
-    : []
+  const top = SECTIONS.filter((s) => s.group === 'top')
+  const grow = SECTIONS.filter((s) => s.group === 'grow')
 
   return (
-    <div className="hl-root fixed inset-0 flex overflow-hidden font-sans">
-      <aside className="hl-sidebar flex w-[248px] shrink-0 flex-col bg-[#0E1A33] text-[#C3CAD9]">
+    <div className="fixed inset-0 flex overflow-hidden bg-background text-foreground">
+      <aside className="flex w-[232px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[#FF7A1A] to-[#E0301E] text-white shadow-[0_2px_8px_rgba(224,48,30,0.45)]">
-            <Flame className="h-[18px] w-[18px]" strokeWidth={2.2} />
+          <span className="grid h-7 w-7 place-items-center rounded-md border border-border bg-surface text-foreground">
+            <Flame className="h-3.5 w-3.5" />
           </span>
-          <div className="leading-tight">
-            <p className="text-[15px] font-bold tracking-tight text-white">Hell-level</p>
-            <p className="text-[11px] text-[#8A94A8]">by Genisys</p>
-          </div>
+          <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground">Hell-level</span>
         </div>
 
-        <AccountSwitcher accounts={accounts.data?.accounts ?? []} current={current} loading={accounts.isLoading} />
-
+        <AccountSwitcher accounts={accounts.data?.accounts ?? []} defaultId={accounts.data?.defaultAccountId ?? null} current={current} loading={accounts.isLoading} />
         {base && <QuickSearch base={base} />}
 
-        <nav className="mt-2 flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-3">
-          {!base && (
-            <NavLink item={{ href: '/hell-level', label: 'Sub-Accounts', icon: Building2 }} active={pathname === '/hell-level'} />
+        <nav className="mt-3 flex flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
+          {!base ? (
+            <NavLink href="/hell-level" label="Sub-Accounts" icon={Building2} active={pathname === '/hell-level'} />
+          ) : (
+            <>
+              {top.map((s) => (
+                <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} badge={s.key === 'conversations' ? current?.unread : undefined} tag={s.badge} />
+              ))}
+              <div className="my-2 h-px bg-border-soft" />
+              {grow.map((s) => (
+                <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} tag={s.badge} />
+              ))}
+            </>
           )}
-          {main.map((item) => (
-            <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
-          ))}
-          {grow.length > 0 && <div className="my-2 h-px bg-white/10" />}
-          {grow.map((item) => (
-            <NavLink key={item.href} item={item} active={pathname.startsWith(item.href)} />
-          ))}
         </nav>
 
-        <div className="flex flex-col gap-0.5 border-t border-white/10 px-3 py-3">
-          {base && <NavLink item={{ href: `${base}/settings`, label: 'Settings', icon: Settings }} active={pathname.startsWith(`${base}/settings`)} />}
-          <Link href="/home" className="flex h-9 items-center gap-3 rounded-lg px-3 text-[13.5px] text-[#8A94A8] transition hover:bg-white/5 hover:text-white">
-            <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={1.8} />
+        <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
+          {base && <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />}
+          <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-white/[0.04] hover:text-foreground">
+            <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Back to the Hub
           </Link>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[60px] shrink-0 items-center justify-between gap-4 border-b border-[#EAECF0] bg-white px-6">
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold text-[#101828]">{current?.name ?? (accountId ? 'Loading…' : 'Agency view')}</p>
-            {current && <p className="truncate text-[12px] text-[#667085]">{[current.owner, current.website?.replace(/^https?:\/\//, '').replace(/\/$/, '')].filter(Boolean).join(' · ') || 'Sub-account'}</p>}
-          </div>
-          <div className="flex items-center gap-2">
+        <header className="flex h-[54px] shrink-0 items-center gap-6 border-b border-border px-5">
+          <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : 'Agency view')}</p>
+          {section?.tabs && base && (
+            <Suspense fallback={null}>
+              <SectionTabs section={section} href={`${base}/${section.key}`} />
+            </Suspense>
+          )}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {current?.number && (
-              <span className="hidden items-center gap-1.5 rounded-full bg-[#F2F4F7] px-3 py-1.5 text-[13px] font-medium text-[#344054] md:inline-flex" title="This sub-account's number">
-                <Phone className="h-3.5 w-3.5 text-[#667085]" />
+              <span className="hidden items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 font-mono text-[12px] text-muted-foreground lg:inline-flex" title="This sub-account’s number">
+                <Phone className="h-3 w-3" />
                 {prettyPhone(current.number.number)}
               </span>
             )}
             {base && (
-              <button
-                type="button"
-                onClick={() => router.push(`${base}/conversations?filter=unread`)}
-                className="relative grid h-9 w-9 place-items-center rounded-full text-[#475467] transition hover:bg-[#F2F4F7]"
-                title="Unread conversations"
-              >
-                <Bell className="h-[18px] w-[18px]" />
+              <Link href={`${base}/conversations?filter=unread`} className="relative grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Unread conversations">
+                <Bell className="h-4 w-4" />
                 {!!current?.unread && (
-                  <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-[#F04438] px-1 text-[10px] font-bold text-white">{current.unread > 99 ? '99+' : current.unread}</span>
+                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 font-mono text-[9px] font-bold text-destructive-foreground">{current.unread > 99 ? '99+' : current.unread}</span>
                 )}
-              </button>
+              </Link>
             )}
-            <Avatar name="Genisys" size={34} />
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
+      {/* The entrance (Hub sidebar → /hell-level?enter=1), over the CRM loading underneath. */}
+      <Suspense fallback={null}>
+        <EnterSplashGate />
+      </Suspense>
     </div>
   )
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
-  const Icon = item.icon
+function SectionTabs({ section, href }: { section: Section; href: string }) {
+  const sp = useSearchParams()
+  const pathname = usePathname()
+  // On a page under the section (a workflow, a form), the first tab stays lit.
+  const current = activeTab(section, pathname === href ? sp.get('tab') : null)
+  return (
+    <nav className="-mb-px flex min-w-0 items-stretch gap-1 self-stretch overflow-x-auto">
+      {section.tabs!.map((t) => (
+        <Link
+          key={t.key}
+          href={t.key === section.tabs![0].key ? href : `${href}?tab=${t.key}`}
+          className={cn(
+            'flex shrink-0 items-center border-b-2 px-2.5 text-[13px] transition',
+            current === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+  badge,
+  tag,
+}: {
+  href: string
+  label: string
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  active: boolean
+  badge?: number
+  tag?: string
+}) {
   return (
     <Link
-      href={item.href}
+      href={href}
       className={cn(
-        'group flex h-9 items-center gap-3 rounded-lg px-3 text-[13.5px] font-medium transition',
-        active ? 'bg-[#22314F] text-white' : 'text-[#C3CAD9] hover:bg-white/5 hover:text-white',
-        item.soon && !active && 'text-[#8A94A8]',
+        'relative flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] transition',
+        active
+          ? 'bg-white/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
+          : 'text-foreground/70 hover:bg-white/[0.04] hover:text-foreground',
       )}
     >
-      <Icon className={cn('h-[18px] w-[18px] shrink-0', active ? 'text-white' : 'text-[#98A2B3] group-hover:text-white')} strokeWidth={1.8} />
-      <span className="flex-1 truncate">{item.label}</span>
-      {item.soon && <span className="rounded bg-white/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-[#8A94A8]">Soon</span>}
-      {!!item.badge && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[#F04438] px-1.5 text-[11px] font-bold text-white">{item.badge}</span>}
+      <Icon className={cn('h-[15px] w-[15px] shrink-0', active && 'text-primary')} strokeWidth={1.75} />
+      <span className="flex-1 truncate">{label}</span>
+      {tag && <span className="eyebrow rounded bg-warning/15 px-1.5 py-px text-[9px] text-warning">{tag}</span>}
+      {!!badge && <span className="grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 font-mono text-[9px] font-bold text-destructive-foreground">{badge}</span>}
     </Link>
   )
 }
 
-function AccountSwitcher({ accounts, current, loading }: { accounts: AccountRow[]; current: AccountRow | null; loading: boolean }) {
+function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; loading: boolean }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const box = useRef<HTMLDivElement>(null)
@@ -209,60 +216,60 @@ function AccountSwitcher({ accounts, current, loading }: { accounts: AccountRow[
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return s ? accounts.filter((a) => `${a.name} ${a.owner ?? ''} ${a.clientName ?? ''}`.toLowerCase().includes(s)) : accounts
-  }, [accounts, q])
+    const all = s ? accounts.filter((a) => `${a.name} ${a.owner ?? ''} ${a.clientName ?? ''}`.toLowerCase().includes(s)) : accounts
+    // The default (Lead Genisys) first, like GHL's own location at the top.
+    return [...all].sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId))
+  }, [accounts, q, defaultId])
 
-  // Switching keeps you on the same page of the other sub-account (GHL does the same).
-  const section = params?.accountId ? pathname.split('/')[3] || 'launchpad' : 'launchpad'
-  const keep = ['launchpad', 'dashboard', 'conversations', 'contacts', 'opportunities', 'automation', 'sites', 'settings'].includes(section) ? section : 'launchpad'
+  // Switching keeps you on the same section of the other sub-account (GHL does the same).
+  const section = params?.accountId ? pathname.split('/')[3] || 'dashboard' : 'dashboard'
 
   return (
     <div ref={box} className="relative px-3">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2.5 rounded-lg bg-[#1A2742] px-3 py-2.5 text-left transition hover:bg-[#22314F]"
+        className="flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2 text-left transition hover:bg-muted"
       >
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#2B3B5C] text-[13px] font-bold text-white">
-          {(current?.name ?? 'S').charAt(0).toUpperCase()}
-        </span>
+        <Avatar name={current?.name ?? 'S'} size={26} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13.5px] font-semibold text-white">{current?.name ?? (loading ? 'Loading…' : 'Choose a sub-account')}</span>
-          <span className="block truncate text-[11.5px] text-[#8A94A8]">{current ? current.owner || 'Sub-account' : `${accounts.length} sub-account${accounts.length === 1 ? '' : 's'}`}</span>
+          <span className="block truncate text-[13px] font-medium text-foreground">{current?.name ?? (loading ? 'Loading…' : 'Choose a sub-account')}</span>
+          <span className="eyebrow block truncate text-muted-foreground">{current ? (current.id === defaultId ? 'Home sub-account' : current.owner || 'Sub-account') : `${accounts.length} sub-accounts`}</span>
         </span>
-        <ChevronsUpDown className="h-4 w-4 shrink-0 text-[#8A94A8]" />
+        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
       {open && (
-        <div className="absolute left-3 right-3 top-full z-40 mt-1.5 overflow-hidden rounded-xl border border-[#EAECF0] bg-white text-[#101828] shadow-[0_12px_16px_-4px_rgba(16,24,40,0.12)]">
-          <div className="border-b border-[#EAECF0] p-2">
+        <div className="absolute left-3 right-3 top-full z-40 mt-1.5 overflow-hidden rounded-lg border border-border bg-popover shadow-pop">
+          <div className="border-b border-border p-2">
             <input
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search sub-accounts"
-              className="h-9 w-full rounded-lg border border-[#D0D5DD] px-3 text-[13px] outline-none focus:border-[#84ADFF]"
+              className="h-8 w-full rounded-md border border-border bg-surface px-2.5 text-[12.5px] text-foreground outline-none focus:border-primary/50"
             />
           </div>
           <div className="max-h-[50vh] overflow-y-auto py-1">
             {list.map((a) => (
               <Link
                 key={a.id}
-                href={`/hell-level/${a.id}/${keep}`}
+                href={`/hell-level/${a.id}/${section}`}
                 onClick={() => setOpen(false)}
-                className={cn('flex items-center gap-2.5 px-3 py-2 text-[13px] hover:bg-[#F9FAFB]', a.id === current?.id && 'bg-[#EFF4FF]')}
+                className={cn('flex items-center gap-2.5 px-3 py-2 text-[13px] hover:bg-muted', a.id === current?.id && 'bg-primary-soft')}
               >
-                <Avatar name={a.name} size={28} />
+                <Avatar name={a.name} size={24} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{a.name}</span>
-                  <span className="block truncate text-[11.5px] text-[#667085]">{a.owner || a.clientName || 'Sub-account'}</span>
+                  <span className="block truncate font-medium text-foreground">{a.name}</span>
+                  <span className="block truncate text-[11.5px] text-muted-foreground">{a.owner || a.clientName || (a.ghlLocationId ? 'Imported from GHL' : 'Sub-account')}</span>
                 </span>
-                {!!a.unread && <span className="rounded-full bg-[#F04438] px-1.5 text-[10px] font-bold text-white">{a.unread}</span>}
+                {a.id === defaultId && <Star className="h-3 w-3 shrink-0 fill-primary text-primary" />}
+                {!!a.unread && <span className="rounded-full bg-destructive px-1.5 font-mono text-[10px] font-bold text-destructive-foreground">{a.unread}</span>}
               </Link>
             ))}
-            {!list.length && <p className="px-3 py-4 text-center text-[13px] text-[#667085]">No sub-accounts match.</p>}
+            {!list.length && <p className="px-3 py-4 text-center text-[13px] text-muted-foreground">No sub-accounts match.</p>}
           </div>
-          <Link href="/hell-level" onClick={() => setOpen(false)} className="flex items-center gap-2 border-t border-[#EAECF0] px-3 py-2.5 text-[13px] font-semibold text-[#155EEF] hover:bg-[#F9FAFB]">
-            <Building2 className="h-4 w-4" /> All sub-accounts
+          <Link href="/hell-level" onClick={() => setOpen(false)} className="flex items-center gap-2 border-t border-border px-3 py-2.5 font-mono text-[12px] text-primary hover:bg-muted">
+            <Building2 className="h-3.5 w-3.5" /> All sub-accounts
           </Link>
         </div>
       )}
@@ -275,15 +282,15 @@ function QuickSearch({ base }: { base: string }) {
   const [q, setQ] = useState('')
   return (
     <form
-      className="mt-3 px-3"
+      className="mt-2.5 px-3"
       onSubmit={(e) => {
         e.preventDefault()
         router.push(`${base}/contacts?q=${encodeURIComponent(q.trim())}`)
       }}
     >
-      <label className="flex h-9 items-center gap-2 rounded-lg bg-[#1A2742] px-3 text-[13px] text-[#8A94A8] focus-within:ring-2 focus-within:ring-[#155EEF]/60">
-        <Search className="h-4 w-4 shrink-0" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contacts" className="w-full bg-transparent text-white outline-none placeholder:text-[#8A94A8]" />
+      <label className="flex h-8 items-center gap-2 rounded-md border border-border bg-surface px-2.5 font-mono text-[12px] text-muted-foreground focus-within:border-primary/50">
+        <Search className="h-3.5 w-3.5 shrink-0" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" />
       </label>
     </form>
   )

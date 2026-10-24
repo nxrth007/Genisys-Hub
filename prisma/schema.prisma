@@ -2256,6 +2256,8 @@ model HlAccount {
   clientId   String?   @unique
   client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
   name       String
+  /// The GHL location this sub-account was imported from (src/lib/hl/ghl-import.ts).
+  ghlLocationId String? @unique
   /// IANA zone: quiet hours and the dashboard's days.
   timezone   String    @default("America/New_York")
   /// The business profile, which doubles as the custom values automations
@@ -2275,6 +2277,10 @@ model HlAccount {
   submissions   HlFormSubmission[]
   workflows     HlWorkflow[]
   runs          HlWorkflowRun[]
+  calendars     HlCalendar[]
+  appointments  HlAppointment[]
+  tasks         HlTask[]
+  records       HlRecord[]
 }
 
 /// A phone number bought for a sub-account. Texts go out from it; calls to it
@@ -2317,6 +2323,8 @@ model HlContact {
   id            String    @id @default(cuid())
   accountId     String
   account       HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// GHL contact id, for imported contacts (re-imports update instead of duplicating).
+  ghlId         String?
   firstName     String?
   lastName      String?
   /// E.164
@@ -2336,6 +2344,8 @@ model HlContact {
   lastMessageAt DateTime?
   lastMessage   String?
   unread        Int       @default(0)
+  /// Starred in Conversations.
+  starred       Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -2343,7 +2353,10 @@ model HlContact {
   opportunities HlOpportunity[]
   runs          HlWorkflowRun[]
   submissions   HlFormSubmission[]
+  tasks         HlTask[]
+  appointments  HlAppointment[]
 
+  @@unique([accountId, ghlId])
   @@index([accountId, phone])
   @@index([accountId, email])
   @@index([accountId, lastMessageAt])
@@ -2385,6 +2398,7 @@ model HlPipeline {
   id        String    @id @default(cuid())
   accountId String
   account   HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ghlId     String?
   name      String
   /// [{ id, name }] in board order
   stages    Json
@@ -2393,6 +2407,7 @@ model HlPipeline {
 
   opportunities HlOpportunity[]
 
+  @@unique([accountId, ghlId])
   @@index([accountId])
 }
 
@@ -2405,7 +2420,10 @@ model HlOpportunity {
   stageId    String
   contactId  String
   contact    HlContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  ghlId      String?
   name       String
+  /// Who it is assigned to (a staff name, from GHL)
+  assignedTo String?
   /// Whole dollars
   value      Int        @default(0)
   /// open | won | lost | abandoned
@@ -2417,6 +2435,7 @@ model HlOpportunity {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
+  @@unique([accountId, ghlId])
   @@index([accountId, pipelineId, stageId])
   @@index([contactId])
 }
@@ -2427,6 +2446,7 @@ model HlForm {
   id         String    @id @default(cuid())
   accountId  String
   account    HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ghlId      String?
   name       String
   /// form | chat
   kind       String    @default("form")
@@ -2440,11 +2460,13 @@ model HlForm {
 
   submissions HlFormSubmission[]
 
+  @@unique([accountId, ghlId])
   @@index([accountId])
 }
 
 model HlFormSubmission {
   id        String     @id @default(cuid())
+  ghlId     String?    @unique
   formId    String
   form      HlForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
   accountId String
@@ -2465,6 +2487,7 @@ model HlWorkflow {
   id           String    @id @default(cuid())
   accountId    String
   account      HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ghlId        String?
   name         String
   folder       String?
   /// draft | published
@@ -2478,11 +2501,16 @@ model HlWorkflow {
   /// The starter template it came from (missed_call, chat_widget, quote_form, review_request).
   template     String?
   publishedAt  DateTime?
+  /// Imported details GHL gives (status, version); its steps are not in GHL's API.
+  meta         Json      @default("{}")
+  /// In "Deleted": restorable, never runs.
+  deletedAt    DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   runs HlWorkflowRun[]
 
+  @@unique([accountId, ghlId])
   @@index([accountId, status])
 }
 
@@ -2511,4 +2539,91 @@ model HlWorkflowRun {
   @@index([status, nextRunAt])
   @@index([workflowId, createdAt])
   @@index([contactId])
+}
+
+/// A booking calendar (GHL's Calendars).
+model HlCalendar {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ghlId       String?
+  name        String
+  description String?
+  /// round_robin | event | class_booking | collective | service_booking | personal
+  kind        String?
+  isActive    Boolean   @default(true)
+  /// Everything else GHL keeps on the calendar (slot length, team, colour, widget slug).
+  settings    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  appointments HlAppointment[]
+
+  @@unique([accountId, ghlId])
+  @@index([accountId])
+}
+
+/// An appointment on a calendar.
+model HlAppointment {
+  id         String      @id @default(cuid())
+  accountId  String
+  account    HlAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  calendarId String?
+  calendar   HlCalendar? @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+  contactId  String?
+  contact    HlContact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  ghlId      String?
+  title      String
+  startTime  DateTime
+  endTime    DateTime
+  /// new | confirmed | showed | noshow | cancelled | invalid
+  status     String      @default("confirmed")
+  assignedTo String?
+  address    String?
+  notes      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([accountId, ghlId])
+  @@index([accountId, startTime])
+  @@index([contactId])
+}
+
+/// A to-do on a contact (GHL's Tasks).
+model HlTask {
+  id         String     @id @default(cuid())
+  accountId  String
+  account    HlAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contactId  String?
+  contact    HlContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  ghlId      String?
+  title      String
+  body       String?
+  dueDate    DateTime?
+  completed  Boolean    @default(false)
+  assignedTo String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@unique([accountId, ghlId])
+  @@index([accountId, completed, dueDate])
+}
+
+/// Everything else imported from GHL that Hell-level shows as a list:
+/// kind = user | tag | custom_field | custom_value | funnel | website | media |
+/// product | invoice | order | transaction | subscription | coupon | trigger_link |
+/// snippet | company | survey | campaign. data = the GHL record.
+model HlRecord {
+  id        String    @id @default(cuid())
+  accountId String
+  account   HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  kind      String
+  ghlId     String?
+  name      String
+  data      Json      @default("{}")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([accountId, kind, ghlId])
+  @@index([accountId, kind])
 }

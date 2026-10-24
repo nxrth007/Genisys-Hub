@@ -108,22 +108,22 @@ export default function WorkflowBuilderPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-[#EAECF0] bg-white px-5 py-2.5">
-        <Link href={`/hell-level/${accountId}/automation`} className="grid h-9 w-9 place-items-center rounded-lg text-[#475467] hover:bg-[#F2F4F7]" title="Back to workflows">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-2.5">
+        <Link href={`/hell-level/${accountId}/automation`} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" title="Back to workflows">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <input
           value={draft.name}
           onChange={(e) => update({ name: e.target.value })}
-          className="min-w-[220px] rounded-md border border-transparent px-2 py-1 text-[16px] font-semibold text-[#101828] outline-none hover:border-[#D0D5DD] focus:border-[#84ADFF]"
+          className="min-w-[220px] rounded-md border border-transparent px-2 py-1 text-[16px] font-semibold text-foreground outline-none hover:border-border focus:border-primary/50"
         />
-        <div className="ml-2 flex gap-1 rounded-lg bg-[#F2F4F7] p-1">
+        <div className="ml-2 flex gap-1 rounded-lg bg-muted p-1">
           {(['builder', 'logs', 'settings'] as const).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className={cn('rounded-md px-3 py-1.5 text-[13px] font-semibold transition', tab === t ? 'bg-white text-[#101828] shadow-sm' : 'text-[#667085] hover:text-[#344054]')}
+              className={cn('rounded-md px-3 py-1.5 text-[13px] font-semibold transition', tab === t ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             >
               {t === 'builder' ? 'Builder' : t === 'logs' ? 'Execution Logs' : 'Settings'}
             </button>
@@ -133,7 +133,7 @@ export default function WorkflowBuilderPage() {
           <Button size="sm" icon={<Play className="h-3.5 w-3.5" />} onClick={() => setTesting(true)} disabled={dirty} title={dirty ? 'Save first' : undefined}>
             Test workflow
           </Button>
-          <span className="flex items-center gap-2 text-[13px] font-semibold text-[#344054]">
+          <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground/90">
             {published ? 'Publish' : 'Draft'}
             <Toggle checked={published} onChange={(v) => save.mutate({ status: v ? 'published' : 'draft' })} disabled={save.isPending} label="Published" />
           </span>
@@ -143,27 +143,27 @@ export default function WorkflowBuilderPage() {
         </div>
       </div>
       {save.error && (
-        <div className="border-b border-[#FECDCA] bg-[#FEF3F2] px-5 py-2 text-[13px] text-[#B42318]">{(save.error as Error).message}</div>
+        <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-[13px] text-destructive">{(save.error as Error).message}</div>
       )}
 
       {tab === 'builder' && (
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-auto bg-[#F2F4F7] [background-image:radial-gradient(#D0D5DD_1px,transparent_1px)] [background-size:22px_22px]">
+          <div className="min-w-0 flex-1 overflow-auto bg-muted [background-image:radial-gradient(rgb(255_255_255/0.07)_1px,transparent_1px)] [background-size:22px_22px]">
             <div className="mx-auto flex w-[380px] flex-col items-center py-10">
               <button
                 type="button"
                 onClick={() => setDrawer({ kind: 'trigger' })}
                 className={cn(
-                  'w-full rounded-xl border-2 border-dashed bg-white px-4 py-3.5 text-left shadow-sm transition hover:border-[#F79009]',
-                  drawer?.kind === 'trigger' ? 'border-[#F79009]' : 'border-[#FEC84B]',
+                  'w-full rounded-xl border-2 border-dashed bg-card px-4 py-3.5 text-left shadow-sm transition hover:border-warning',
+                  drawer?.kind === 'trigger' ? 'border-warning' : 'border-warning/40',
                 )}
               >
                 <span className="flex items-center gap-3">
                   <Tile look={TRIGGER_LOOK} />
                   <span className="min-w-0">
-                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#DC6803]">Trigger</span>
-                    <span className="block truncate text-[14px] font-semibold text-[#101828]">{triggerLabel(draft.trigger.type)}</span>
-                    <span className="block truncate text-[12px] text-[#667085]">{triggerDetail(draft.trigger, forms.data?.forms ?? [], allStages)}</span>
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-warning">Trigger</span>
+                    <span className="block truncate text-[14px] font-semibold text-foreground">{triggerLabel(draft.trigger.type)}</span>
+                    <span className="block truncate text-[12px] text-muted-foreground">{triggerDetail(draft.trigger, forms.data?.forms ?? [], allStages)}</span>
                   </span>
                 </span>
               </button>
@@ -178,15 +178,15 @@ export default function WorkflowBuilderPage() {
                       onClick={() => setDrawer({ kind: 'step', index: i })}
                       onKeyDown={(e) => e.key === 'Enter' && setDrawer({ kind: 'step', index: i })}
                       className={cn(
-                        'group relative w-full cursor-pointer rounded-xl border bg-white px-4 py-3.5 shadow-sm transition hover:border-[#84ADFF]',
-                        drawer?.kind === 'step' && drawer.index === i ? 'border-[#155EEF] ring-2 ring-[#155EEF]/15' : 'border-[#EAECF0]',
+                        'group relative w-full cursor-pointer rounded-xl border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/50',
+                        drawer?.kind === 'step' && drawer.index === i ? 'border-primary ring-2 ring-primary/20' : 'border-border',
                       )}
                     >
                       <span className="flex items-center gap-3">
                         <Tile look={look} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-semibold text-[#101828]">{s.name || STEPS.find((x) => x.type === s.type)?.label}</span>
-                          <span className="block truncate text-[12px] text-[#667085]">{stepSummary(s, allStages)}</span>
+                          <span className="block truncate text-[14px] font-semibold text-foreground">{s.name || STEPS.find((x) => x.type === s.type)?.label}</span>
+                          <span className="block truncate text-[12px] text-muted-foreground">{stepSummary(s, allStages)}</span>
                         </span>
                       </span>
                       <button
@@ -196,7 +196,7 @@ export default function WorkflowBuilderPage() {
                           setSteps(draft.steps.filter((_, j) => j !== i))
                           setDrawer(null)
                         }}
-                        className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 place-items-center rounded-full border border-[#EAECF0] bg-white text-[#98A2B3] shadow-sm hover:text-[#D92D20] group-hover:grid"
+                        className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted-foreground/70 shadow-sm hover:text-destructive group-hover:grid"
                         title="Delete action"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -206,17 +206,17 @@ export default function WorkflowBuilderPage() {
                   </div>
                 )
               })}
-              <span className="rounded-full bg-[#D0D5DD] px-4 py-1 text-[12px] font-bold tracking-wide text-[#344054]">END</span>
+              <span className="rounded-full bg-muted px-4 py-1 text-[12px] font-bold tracking-wide text-foreground/90">END</span>
             </div>
           </div>
 
           {drawer && (
-            <aside className="flex w-[460px] shrink-0 flex-col border-l border-[#EAECF0] bg-white">
-              <div className="flex items-center justify-between border-b border-[#EAECF0] px-5 py-4">
-                <p className="text-[16px] font-semibold text-[#101828]">
+            <aside className="flex w-[460px] shrink-0 flex-col border-l border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <p className="text-[16px] font-semibold text-foreground">
                   {drawer.kind === 'trigger' ? 'Workflow Trigger' : drawer.kind === 'add' ? 'Actions' : 'Edit Action'}
                 </p>
-                <button type="button" onClick={() => setDrawer(null)} className="grid h-8 w-8 place-items-center rounded-lg text-[#98A2B3] hover:bg-[#F2F4F7]">
+                <button type="button" onClick={() => setDrawer(null)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground/70 hover:bg-muted">
                   <X className="h-5 w-5" />
                 </button>
               </div>
@@ -274,14 +274,14 @@ export default function WorkflowBuilderPage() {
           <Field label="Folder">
             <Input value={draft.folder ?? ''} onChange={(e) => update({ folder: e.target.value })} placeholder="Incoming Lead Workflows" />
           </Field>
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-[#EAECF0] bg-white p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
             <span>
-              <span className="block text-[14px] font-semibold text-[#101828]">Allow re-entry</span>
-              <span className="block text-[13px] text-[#667085]">A contact can go through this workflow again each time the trigger happens (the same trigger within a minute is ignored).</span>
+              <span className="block text-[14px] font-semibold text-foreground">Allow re-entry</span>
+              <span className="block text-[13px] text-muted-foreground">A contact can go through this workflow again each time the trigger happens (the same trigger within a minute is ignored).</span>
             </span>
             <Toggle checked={draft.allowReentry} onChange={(v) => update({ allowReentry: v })} label="Allow re-entry" />
           </label>
-          <div className="flex justify-between border-t border-[#EAECF0] pt-5">
+          <div className="flex justify-between border-t border-border pt-5">
             <Button variant="danger" loading={remove.isPending} onClick={() => window.confirm(`Delete “${draft.name}”? Contacts waiting in it stop where they are.`) && remove.mutate()}>
               Delete workflow
             </Button>
@@ -318,11 +318,11 @@ function Tile({ look }: { look: { icon: React.ComponentType<{ className?: string
 function Connector({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="flex flex-col items-center">
-      <span className="h-5 w-px bg-[#98A2B3]" />
-      <button type="button" onClick={onAdd} className="grid h-7 w-7 place-items-center rounded-full border border-[#D0D5DD] bg-white text-[#475467] shadow-sm transition hover:border-[#155EEF] hover:bg-[#155EEF] hover:text-white" title="Add action">
+      <span className="h-5 w-px bg-border" />
+      <button type="button" onClick={onAdd} className="grid h-7 w-7 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition hover:border-primary hover:bg-primary hover:text-primary-foreground" title="Add action">
         <Plus className="h-4 w-4" />
       </button>
-      <span className="h-5 w-px bg-[#98A2B3]" />
+      <span className="h-5 w-px bg-border" />
     </div>
   )
 }
@@ -333,21 +333,21 @@ function ActionPicker({ onPick }: { onPick: (t: HlStepType) => void }) {
   const shown = STEPS.filter((s) => s.label.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <div className="flex flex-col gap-4">
-      <label className="flex h-10 items-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-[#98A2B3] focus-within:border-[#84ADFF]">
+      <label className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50">
         <Search className="h-4 w-4" />
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search actions" className="w-full bg-transparent text-[14px] text-[#101828] outline-none" />
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search actions" className="w-full bg-transparent text-[14px] text-foreground outline-none" />
       </label>
       {groups.map((g) => {
         const items = shown.filter((s) => s.group === g)
         if (!items.length) return null
         return (
           <div key={g}>
-            <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[#98A2B3]">{g}</p>
+            <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground/70">{g}</p>
             <div className="flex flex-col gap-1.5">
               {items.map((s) => (
-                <button key={s.type} type="button" onClick={() => onPick(s.type)} className="flex items-center gap-3 rounded-lg border border-[#EAECF0] px-3 py-2.5 text-left transition hover:border-[#84ADFF] hover:bg-[#F5F8FF]">
+                <button key={s.type} type="button" onClick={() => onPick(s.type)} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 text-left transition hover:border-primary/50 hover:bg-primary-soft">
                   <Tile look={STEP_LOOK[s.type]} />
-                  <span className="text-[14px] font-medium text-[#101828]">{s.label}</span>
+                  <span className="text-[14px] font-medium text-foreground">{s.label}</span>
                 </button>
               ))}
             </div>
@@ -360,18 +360,18 @@ function ActionPicker({ onPick }: { onPick: (t: HlStepType) => void }) {
 
 function Logs({ runs, steps }: { runs: Run[]; steps: HlStep[] }) {
   const [open, setOpen] = useState<string | null>(null)
-  if (!runs.length) return <p className="px-6 py-16 text-center text-[14px] text-[#667085]">Nobody has gone through this workflow yet.</p>
+  if (!runs.length) return <p className="px-6 py-16 text-center text-[14px] text-muted-foreground">Nobody has gone through this workflow yet.</p>
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-6">
-      <div className="overflow-hidden rounded-xl border border-[#EAECF0] bg-white">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         {runs.map((r) => (
-          <div key={r.id} className="border-b border-[#EAECF0] last:border-0">
-            <button type="button" onClick={() => setOpen(open === r.id ? null : r.id)} className="flex w-full items-center gap-4 px-5 py-3 text-left hover:bg-[#F9FAFB]">
+          <div key={r.id} className="border-b border-border last:border-0">
+            <button type="button" onClick={() => setOpen(open === r.id ? null : r.id)} className="flex w-full items-center gap-4 px-5 py-3 text-left hover:bg-muted/50">
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-medium text-[#101828]">{contactLabel(r.contact)}</span>
-                <span className="block text-[12px] text-[#667085]">{fmtDateTime(r.createdAt)}</span>
+                <span className="block truncate text-[14px] font-medium text-foreground">{contactLabel(r.contact)}</span>
+                <span className="block text-[12px] text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
               </span>
-              <span className="text-[12px] text-[#667085]">
+              <span className="text-[12px] text-muted-foreground">
                 {Math.min(r.step, steps.length)}/{steps.length} steps
               </span>
               <Badge color={r.status === 'done' ? 'green' : r.status === 'waiting' ? 'blue' : r.status === 'failed' ? 'red' : 'gray'}>
@@ -380,16 +380,16 @@ function Logs({ runs, steps }: { runs: Run[]; steps: HlStep[] }) {
               {r.log.some((l) => !l.ok) && <Badge color="red">has errors</Badge>}
             </button>
             {open === r.id && (
-              <ol className="flex flex-col gap-1.5 bg-[#F9FAFB] px-5 py-3">
+              <ol className="flex flex-col gap-1.5 bg-surface-muted px-5 py-3">
                 {r.log.map((l, i) => (
                   <li key={i} className="flex gap-3 text-[13px]">
-                    <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', l.ok ? 'bg-[#17B26A]' : 'bg-[#F04438]')} />
-                    <span className="w-36 shrink-0 text-[#667085]">{fmtDateTime(l.at)}</span>
-                    <span className="w-44 shrink-0 font-medium text-[#344054]">{steps[l.step]?.name || STEPS.find((s) => s.type === l.type)?.label || l.type}</span>
-                    <span className={l.ok ? 'text-[#475467]' : 'text-[#B42318]'}>{l.detail}</span>
+                    <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', l.ok ? 'bg-success' : 'bg-destructive')} />
+                    <span className="w-36 shrink-0 text-muted-foreground">{fmtDateTime(l.at)}</span>
+                    <span className="w-44 shrink-0 font-medium text-foreground/90">{steps[l.step]?.name || STEPS.find((s) => s.type === l.type)?.label || l.type}</span>
+                    <span className={l.ok ? 'text-muted-foreground' : 'text-destructive'}>{l.detail}</span>
                   </li>
                 ))}
-                {!r.log.length && <li className="text-[13px] text-[#667085]">No steps ran yet.</li>}
+                {!r.log.length && <li className="text-[13px] text-muted-foreground">No steps ran yet.</li>}
               </ol>
             )}
           </div>
@@ -413,12 +413,12 @@ function TestModal({ accountId, workflowId, onClose, onDone }: { accountId: stri
     <Modal open onClose={onClose} title="Test workflow" description="Runs it for real for one contact, right now (drafts included). Texts and emails really go out, so pick yourself or a test contact." width="max-w-xl">
       {run.data ? (
         <div className="flex flex-col gap-2">
-          <p className="text-[14px] font-semibold text-[#101828]">Result: {run.data.run.status}</p>
+          <p className="text-[14px] font-semibold text-foreground">Result: {run.data.run.status}</p>
           <ol className="flex flex-col gap-1.5">
             {run.data.run.log.map((l, i) => (
               <li key={i} className="flex gap-2 text-[13px]">
-                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', l.ok ? 'bg-[#17B26A]' : 'bg-[#F04438]')} />
-                <span className={l.ok ? 'text-[#344054]' : 'text-[#B42318]'}>{l.detail}</span>
+                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', l.ok ? 'bg-success' : 'bg-destructive')} />
+                <span className={l.ok ? 'text-foreground/90' : 'text-destructive'}>{l.detail}</span>
               </li>
             ))}
           </ol>
@@ -429,14 +429,14 @@ function TestModal({ accountId, workflowId, onClose, onDone }: { accountId: stri
       ) : (
         <div className="flex flex-col gap-3">
           <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contacts" />
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-[#EAECF0]">
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
             {(contacts.data?.contacts ?? []).map((c) => (
-              <button key={c.id} type="button" disabled={run.isPending} onClick={() => run.mutate(c.id)} className="flex w-full items-center justify-between gap-3 border-b border-[#EAECF0] px-3 py-2.5 text-left text-[14px] last:border-0 hover:bg-[#F9FAFB]">
-                <span className="font-medium text-[#101828]">{contactLabel(c)}</span>
-                <span className="text-[12px] text-[#667085]">{c.phone ?? c.email}</span>
+              <button key={c.id} type="button" disabled={run.isPending} onClick={() => run.mutate(c.id)} className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-[14px] last:border-0 hover:bg-muted/50">
+                <span className="font-medium text-foreground">{contactLabel(c)}</span>
+                <span className="text-[12px] text-muted-foreground">{c.phone ?? c.email}</span>
               </button>
             ))}
-            {contacts.data && !contacts.data.contacts.length && <p className="px-3 py-6 text-center text-[13px] text-[#667085]">No contacts. Add yourself under Contacts first.</p>}
+            {contacts.data && !contacts.data.contacts.length && <p className="px-3 py-6 text-center text-[13px] text-muted-foreground">No contacts. Add yourself under Contacts first.</p>}
           </div>
           {run.isPending && <Spinner />}
           <ErrorNote error={run.error} />

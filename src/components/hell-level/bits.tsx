@@ -57,6 +57,7 @@ export type ContactRow = {
   source: string | null
   smsConsent: boolean
   dnd: boolean
+  starred: boolean
   fields: Record<string, unknown>
   lastMessageAt: string | null
   lastMessage: string | null

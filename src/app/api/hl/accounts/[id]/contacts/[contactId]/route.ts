@@ -71,6 +71,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       data.smsConsentAt = body.smsConsent ? new Date() : null
     }
     if (typeof body.dnd === 'boolean') data.dnd = body.dnd
+    if (typeof body.starred === 'boolean') data.starred = body.starred
     if (body.read === true) data.unread = 0
     const updated = await prisma.hlContact.update({ where: { id: contactId }, data })
     for (const tag of freshTags) await fireTrigger(id, contactId, { type: 'tag_added', tag })

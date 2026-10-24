@@ -1,42 +1,49 @@
-import Link from 'next/link'
-import { notFound } from 'next/navigation'
-import { BarChart3, CalendarDays, CreditCard, Megaphone, Star } from 'lucide-react'
+'use client'
 
-const SOON: Record<string, { title: string; icon: React.ComponentType<{ className?: string }>; text: string; meanwhile: string }> = {
-  calendars: {
-    title: 'Calendars',
-    icon: CalendarDays,
-    text: 'Booking links and appointment reminders.',
-    meanwhile: 'Leads come in through the website form and calls, and the owner books them by phone.',
+import { Suspense } from 'react'
+import { notFound, useParams } from 'next/navigation'
+import { NotYet, useSectionTab } from '@/components/hell-level/section'
+import { sectionOf } from '@/components/hell-level/nav'
+import { Spinner } from '@/components/hell-level/ui'
+
+/**
+ * GoHighLevel sections Hell-level has the place for but not the feature yet:
+ * the menu item and tabs match GHL, and the page says what it is.
+ */
+const PAGES: Record<string, Record<string, { title: string; what: string }>> = {
+  'ask-ai': { '': { title: 'Ask AI', what: 'Ask questions about the sub-account in plain English (“who hasn’t been called back?”) and get answers from its contacts, conversations and pipeline.' } },
+  'ai-studio': { '': { title: 'AI Studio', what: 'GHL’s beta space for building AI tools on the sub-account’s data.' } },
+  'ai-agents': {
+    'getting-started': { title: 'AI Agents', what: 'AI that answers calls, texts and chats for the business.' },
+    'voice-ai': { title: 'Voice AI', what: 'An AI receptionist that answers the phone, books appointments and takes messages.' },
+    'conversation-ai': { title: 'Conversation AI', what: 'An AI that replies to texts and chats in the business’s voice.' },
+    'knowledge-base': { title: 'Knowledge Base', what: 'What the AI agents know about the business: services, prices, FAQs.' },
+    'agent-templates': { title: 'Agent Templates', what: 'Ready-made AI agents for common jobs.' },
+    'content-ai': { title: 'Content AI', what: 'AI writing for emails, posts and pages.' },
   },
-  payments: { title: 'Payments', icon: CreditCard, text: 'Invoices and payment links for the client’s customers.', meanwhile: 'Genisys bills clients through Whop (Hub → Payments).' },
-  marketing: { title: 'Marketing', icon: Megaphone, text: 'Bulk texts and email campaigns.', meanwhile: 'Automations already reply to every lead one by one.' },
-  reputation: {
-    title: 'Reputation',
-    icon: Star,
-    text: 'Review tracking and replies.',
-    meanwhile: 'Review requests already work: switch on “Google Review Request” under Automation; it texts the review link when a job moves to “Job Complete”.',
+  memberships: {
+    dashboard: { title: 'Memberships', what: 'Online courses and communities. GHL’s API doesn’t export courses, so nothing comes over from GHL here.' },
+    courses: { title: 'Courses', what: 'Video courses with lessons and drip schedules.' },
+    communities: { title: 'Communities', what: 'Member groups with posts and chat.' },
+    certificates: { title: 'Certificates', what: 'Certificates for finishing a course.' },
+    'client-portal': { title: 'Client Portal', what: 'One login for the business’s customers to reach courses and communities.' },
   },
-  reporting: { title: 'Reporting', icon: BarChart3, text: 'Call and lead-source reports.', meanwhile: 'The Dashboard has leads, calls and texts per day.' },
+  'app-marketplace': { '': { title: 'App Marketplace', what: 'Third-party apps for GHL sub-accounts. Hell-level’s integrations live under Settings → Integrations.' } },
 }
 
-/** GHL sections Hell-level doesn't have yet: kept in the sidebar so it reads like GHL, with what to use meanwhile. */
-export default async function ComingSoon({ params }: { params: Promise<{ accountId: string; section: string }> }) {
-  const { accountId, section } = await params
-  const s = SOON[section]
-  if (!s) notFound()
-  const Icon = s.icon
+export default function SectionPage() {
   return (
-    <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-6 py-24 text-center">
-      <span className="grid h-14 w-14 place-items-center rounded-2xl bg-[#EFF4FF] text-[#155EEF]">
-        <Icon className="h-7 w-7" />
-      </span>
-      <h1 className="text-[22px] font-semibold text-[#101828]">{s.title} is coming</h1>
-      <p className="text-[15px] text-[#475467]">{s.text}</p>
-      <p className="rounded-xl border border-[#EAECF0] bg-white px-5 py-4 text-[14px] text-[#344054]">{s.meanwhile}</p>
-      <Link href={`/hell-level/${accountId}/launchpad`} className="text-[14px] font-semibold text-[#155EEF] hover:underline">
-        Back to Launchpad
-      </Link>
-    </div>
+    <Suspense fallback={<div className="flex justify-center py-24"><Spinner /></div>}>
+      <Section />
+    </Suspense>
   )
+}
+
+function Section() {
+  const { section } = useParams<{ section: string }>()
+  const tab = useSectionTab(section)
+  const pages = PAGES[section]
+  if (!pages || !sectionOf(section)) notFound()
+  const page = pages[tab] ?? pages[''] ?? Object.values(pages)[0]
+  return <NotYet title={page.title} what={page.what} />
 }

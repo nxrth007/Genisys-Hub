@@ -7,15 +7,43 @@ import { Contact, Plus, Search } from 'lucide-react'
 import { prettyPhone } from '@/lib/hl/merge'
 import { contactLabel, SOURCE_LABEL, type ContactRow } from '@/components/hell-level/bits'
 import { Avatar, Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Toggle, hlFetch, timeAgo } from '@/components/hell-level/ui'
+import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/hell-level/section'
+import { TasksView } from '@/components/hell-level/tasks-view'
 
 type ContactsResponse = { contacts: ContactRow[]; total: number; page: number; pageSize: number; tags: string[] }
 
 export default function ContactsPage() {
   return (
     <Suspense fallback={<div className="flex justify-center py-24"><Spinner /></div>}>
-      <Contacts />
+      <ContactsSection />
     </Suspense>
   )
+}
+
+function ContactsSection() {
+  const { accountId } = useParams<{ accountId: string }>()
+  const tab = useSectionTab('contacts')
+  if (tab === 'tasks') return <TasksView accountId={accountId} />
+  if (tab === 'companies')
+    return (
+      <RecordsTable
+        accountId={accountId}
+        kind="company"
+        title="Companies"
+        emptyText="Companies (businesses) from GoHighLevel show up here after the import."
+        columns={[
+          { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
+          { label: 'Phone', render: (r) => rv(r, 'phone') || '—' },
+          { label: 'Email', render: (r) => rv(r, 'email') || '—' },
+          { label: 'Website', render: (r) => rv(r, 'website') || '—' },
+          { label: 'City', render: (r) => [rv(r, 'city'), rv(r, 'state')].filter(Boolean).join(', ') || '—' },
+        ]}
+      />
+    )
+  if (tab === 'bulk-actions') return <NotYet title="Bulk Actions" what="GoHighLevel keeps a log of bulk jobs here (bulk tags, imports, exports, bulk texts). Hell-level doesn’t run bulk jobs yet." />
+  if (tab === 'restore') return <NotYet title="Restore" what="GoHighLevel keeps deleted contacts for 60 days so they can be restored. Contacts deleted in Hell-level are removed for good, so this is empty." />
+  if (tab === 'manage-smart-lists') return <NotYet title="Manage Smart Lists" what="Saved contact filters, shared with the team. For now, filter by tag or search on Smart Lists." />
+  return <Contacts />
 }
 
 function Contacts() {
@@ -58,8 +86,8 @@ function Contacts() {
         }
       />
       <Card>
-        <div className="flex flex-wrap items-center gap-3 border-b border-[#EAECF0] px-4 py-3">
-          <label className="flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-[#98A2B3] focus-within:border-[#84ADFF]">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+          <label className="flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50">
             <Search className="h-4 w-4" />
             <input
               value={q}
@@ -68,7 +96,7 @@ function Contacts() {
                 setPage(0)
               }}
               placeholder="Search by name, phone or email"
-              className="w-full bg-transparent text-[14px] text-[#101828] outline-none"
+              className="w-full bg-transparent text-[14px] text-foreground outline-none"
             />
           </label>
           <Select
@@ -99,7 +127,7 @@ function Contacts() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[14px]">
               <thead>
-                <tr className="border-b border-[#EAECF0] bg-[#F9FAFB] text-[12px] font-medium text-[#475467]">
+                <tr className="border-b border-border bg-surface-muted text-[12px] font-medium text-muted-foreground">
                   <th className="px-5 py-3">Name</th>
                   <th className="px-4 py-3">Phone</th>
                   <th className="px-4 py-3">Email</th>
@@ -110,17 +138,17 @@ function Contacts() {
               </thead>
               <tbody>
                 {d.contacts.map((c) => (
-                  <tr key={c.id} onClick={() => router.push(`/hell-level/${accountId}/conversations?contact=${c.id}`)} className="cursor-pointer border-b border-[#EAECF0] last:border-0 hover:bg-[#F9FAFB]">
+                  <tr key={c.id} onClick={() => router.push(`/hell-level/${accountId}/conversations?contact=${c.id}`)} className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50">
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-3">
                         <Avatar name={contactLabel(c)} size={32} />
-                        <span className="font-medium text-[#101828]">{contactLabel(c)}</span>
+                        <span className="font-medium text-foreground">{contactLabel(c)}</span>
                         {c.dnd && <Badge color="red">DND</Badge>}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#344054]">{c.phone ? prettyPhone(c.phone) : '—'}</td>
-                    <td className="px-4 py-3 text-[#344054]">{c.email ?? '—'}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#667085]">{SOURCE_LABEL[c.source ?? ''] ?? c.source ?? '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-foreground/90">{c.phone ? prettyPhone(c.phone) : '—'}</td>
+                    <td className="px-4 py-3 text-foreground/90">{c.email ?? '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{SOURCE_LABEL[c.source ?? ''] ?? c.source ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className="flex flex-wrap gap-1">
                         {c.tags.slice(0, 3).map((t) => (
@@ -131,7 +159,7 @@ function Contacts() {
                         {c.tags.length > 3 && <Badge>+{c.tags.length - 3}</Badge>}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[#667085]">{timeAgo(c.createdAt)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{timeAgo(c.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -139,7 +167,7 @@ function Contacts() {
           </div>
         )}
         {d && d.total > d.pageSize && (
-          <div className="flex items-center justify-between border-t border-[#EAECF0] px-5 py-3 text-[13px] text-[#475467]">
+          <div className="flex items-center justify-between border-t border-border px-5 py-3 text-[13px] text-muted-foreground">
             <span>
               Page {page + 1} of {pages}
             </span>
@@ -183,10 +211,10 @@ function Contacts() {
           <Field label="Email">
             <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </Field>
-          <label className="flex items-center justify-between gap-3 rounded-lg border border-[#EAECF0] p-3 text-[14px] text-[#344054]">
+          <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[14px] text-foreground/90">
             <span>
               They agreed to receive texts
-              <span className="block text-[12px] text-[#667085]">Only switch on if they said yes; automations won’t text them otherwise.</span>
+              <span className="block text-[12px] text-muted-foreground">Only switch on if they said yes; automations won’t text them otherwise.</span>
             </span>
             <Toggle checked={form.consent} onChange={(v) => setForm({ ...form, consent: v })} />
           </label>

@@ -56,7 +56,7 @@ function matches(w: HlWorkflow, e: TriggerEvent): boolean {
 /** Start every published workflow of the sub-account that listens for this event. Returns how many started. */
 export async function fireTrigger(accountId: string, contactId: string, e: TriggerEvent, depth = 0): Promise<number> {
   if (depth > MAX_DEPTH) return 0
-  const workflows = await prisma.hlWorkflow.findMany({ where: { accountId, status: 'published' }, orderBy: { createdAt: 'asc' } })
+  const workflows = await prisma.hlWorkflow.findMany({ where: { accountId, status: 'published', deletedAt: null }, orderBy: { createdAt: 'asc' } })
   let started = 0
   for (const w of workflows.filter((x) => matches(x, e))) {
     const earlier = await prisma.hlWorkflowRun.findFirst({

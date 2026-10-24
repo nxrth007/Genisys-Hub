@@ -6,20 +6,20 @@ import { renderTemplate, unknownTokens } from '@/lib/hl/merge'
 import { MERGE_FIELDS, STEPS, TRIGGERS, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { Button, Field, Input, Select, Textarea } from './ui'
 
-/** How each action looks on the canvas (GHL colours its action tiles by kind). */
+/** How each action looks on the canvas (GHL colours its action tiles by kind; here in the Hub's chip tones). */
 export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ className?: string }>; bg: string; fg: string }> = {
-  send_sms: { icon: MessageCircle, bg: '#ECFDF3', fg: '#079455' },
-  internal_sms: { icon: Smartphone, bg: '#EFF8FF', fg: '#1570EF' },
-  internal_email: { icon: Mail, bg: '#F4F3FF', fg: '#6938EF' },
-  wait: { icon: Clock, bg: '#FFFAEB', fg: '#DC6803' },
-  add_tag: { icon: Tag, bg: '#F0FDF9', fg: '#0E9384' },
-  remove_tag: { icon: Tag, bg: '#F0FDF9', fg: '#0E9384' },
-  create_opportunity: { icon: Filter, bg: '#EEF4FF', fg: '#3538CD' },
-  move_opportunity: { icon: Filter, bg: '#EEF4FF', fg: '#3538CD' },
-  if_tag: { icon: GitBranch, bg: '#FDF2FA', fg: '#C11574' },
+  send_sms: { icon: MessageCircle, bg: 'var(--chip-mint)', fg: 'var(--chip-mint-fg)' },
+  internal_sms: { icon: Smartphone, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
+  internal_email: { icon: Mail, bg: 'var(--chip-violet)', fg: 'var(--chip-violet-fg)' },
+  wait: { icon: Clock, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' },
+  add_tag: { icon: Tag, bg: 'var(--chip-mint)', fg: 'var(--chip-mint-fg)' },
+  remove_tag: { icon: Tag, bg: 'var(--chip-mint)', fg: 'var(--chip-mint-fg)' },
+  create_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
+  move_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
+  if_tag: { icon: GitBranch, bg: 'var(--chip-pink)', fg: 'var(--chip-pink-fg)' },
 }
 
-export const TRIGGER_LOOK = { icon: Zap, bg: '#FFFAEB', fg: '#DC6803' }
+export const TRIGGER_LOOK = { icon: Zap, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' }
 
 export const SAMPLE = (profile: HlProfile) => ({
   contact: { firstName: 'Jennifer', lastName: 'Smith', phone: '+15125550123', email: 'jennifer@example.com' },
@@ -69,11 +69,11 @@ function MessageField({ label, value, onChange, profile, rows = 6, hint }: { lab
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-end justify-between gap-2">
-        <span className="text-[13px] font-medium text-[#344054]">{label}</span>
+        <span className="text-[13px] font-medium text-foreground/90">{label}</span>
         <select
           value=""
           onChange={(e) => e.target.value && insert(e.target.value)}
-          className="h-7 rounded-md border border-[#D0D5DD] bg-white px-2 text-[12px] text-[#344054]"
+          className="h-7 rounded-md border border-border bg-card px-2 text-[12px] text-foreground/90"
         >
           <option value="">{'{ }'} Insert field…</option>
           {MERGE_FIELDS.map((m) => (
@@ -84,11 +84,11 @@ function MessageField({ label, value, onChange, profile, rows = 6, hint }: { lab
         </select>
       </div>
       <Textarea ref={ref} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
-      {hint && <span className="text-[12px] text-[#667085]">{hint}</span>}
-      {unknown.length > 0 && <span className="text-[12px] text-[#B54708]">Won’t fill: {unknown.join(', ')}</span>}
-      <div className="rounded-lg bg-[#F9FAFB] p-3">
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#98A2B3]">Preview (sample lead)</p>
-        <p className="whitespace-pre-wrap text-[13px] text-[#344054]">{preview || '—'}</p>
+      {hint && <span className="text-[12px] text-muted-foreground">{hint}</span>}
+      {unknown.length > 0 && <span className="text-[12px] text-warning">Won’t fill: {unknown.join(', ')}</span>}
+      <div className="rounded-lg bg-surface-muted p-3">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Preview (sample lead)</p>
+        <p className="whitespace-pre-wrap text-[13px] text-foreground/90">{preview || '—'}</p>
       </div>
     </div>
   )
@@ -159,7 +159,7 @@ export function StepEditor({
               <option value="days">Days</option>
             </Select>
           </Field>
-          <p className="col-span-2 text-[12px] text-[#667085]">Texts after a wait don’t go out between 9 PM and 8 AM in the sub-account’s timezone; they wait for 9 AM.</p>
+          <p className="col-span-2 text-[12px] text-muted-foreground">Texts after a wait don’t go out between 9 PM and 8 AM in the sub-account’s timezone; they wait for 9 AM.</p>
         </div>
       )}
       {(s.type === 'add_tag' || s.type === 'remove_tag' || s.type === 'if_tag') && (
@@ -202,8 +202,8 @@ export function StepEditor({
         </>
       )}
 
-      <div className="flex justify-between gap-2 border-t border-[#EAECF0] pt-4">
-        <Button variant="ghost" className="text-[#D92D20]" onClick={onDelete}>
+      <div className="flex justify-between gap-2 border-t border-border pt-4">
+        <Button variant="ghost" className="text-destructive" onClick={onDelete}>
           Delete action
         </Button>
         <Button variant="primary" onClick={() => onSave(s)}>
@@ -238,7 +238,7 @@ export function TriggerEditor({
           ))}
         </Select>
       </Field>
-      <p className="-mt-2 text-[12.5px] text-[#667085]">{TRIGGERS.find((x) => x.type === t.type)?.hint}</p>
+      <p className="-mt-2 text-[12.5px] text-muted-foreground">{TRIGGERS.find((x) => x.type === t.type)?.hint}</p>
       {(t.type === 'form_submitted' || t.type === 'chat_submitted') && (
         <Field label={t.type === 'chat_submitted' ? 'Chat widget' : 'Form'}>
           <Select value={t.formId ?? ''} onChange={(e) => setT({ ...t, formId: e.target.value || undefined })}>
@@ -273,7 +273,7 @@ export function TriggerEditor({
           </Select>
         </Field>
       )}
-      <div className="flex justify-end border-t border-[#EAECF0] pt-4">
+      <div className="flex justify-end border-t border-border pt-4">
         <Button variant="primary" onClick={() => onSave(t)}>
           Save trigger
         </Button>
