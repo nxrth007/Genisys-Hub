@@ -545,7 +545,7 @@ async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDet
   const primary = owner.sid
   const email = settings.notificationEmail?.trim() || 'alex@leadgenisys.com'
   // Genisys's own texting: the brand goes on the primary profile, which is never edited from here.
-  if (!sole && !row.brandSid && (await isOwnBusiness(client, primary, d.ein))) {
+  if (!sole && ((meta.own && row.customerProfileSid === primary) || (!row.brandSid && (await isOwnBusiness(client, primary, d.ein))))) {
     if (row.customerProfileSid !== primary) {
       // A trust bundle made for an earlier client profile can't carry over.
       await prisma.hlA2p.update({ where: { id: row.id }, data: { customerProfileSid: primary, trustProductSid: null } })
@@ -566,8 +566,10 @@ async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDet
   }
   const profile = await hub.customerProfiles(sid).fetch()
   const editable = profile.status === 'draft' || profile.status === 'twilio-rejected'
+  // Twilio locks a profile once it's submitted or approved (error 70002 on any change to what's in it).
+  if (!editable) return sid
 
-  // The people and business on it. Kept current even after it's submitted, so a rejected brand resubmits with the fix.
+  // The people and business on it, while it can still change (a new or Twilio-rejected profile).
   const upsertEndUser = async (key: 'businessEndUser' | 'repEndUser' | 'starterEndUser', type: string, attributes: Record<string, unknown>) => {
     const existing = meta[key]
     if (existing) {
@@ -614,7 +616,6 @@ async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDet
   entities.push(meta.documentSid, primary)
   await prisma.hlA2p.update({ where: { id: row.id }, data: { meta: asJson(meta) } })
 
-  if (!editable) return sid
   // Exactly one profile belongs on it: Genisys's primary. Anything else (a client profile picked by mistake) comes off.
   const current = await hub.customerProfiles(sid).customerProfilesEntityAssignments.list({ limit: 50 })
   for (const a of current) if (a.objectSid.startsWith('BU') && a.objectSid !== primary) await hub.customerProfiles(sid).customerProfilesEntityAssignments(a.sid).remove()
@@ -637,13 +638,13 @@ async function ensureTrustProduct(client: TwilioClient, row: HlA2p, d: A2pDetail
     sid = made.sid
     await prisma.hlA2p.update({ where: { id: row.id }, data: { trustProductSid: sid } })
   }
+  // Submitted or approved, Twilio has locked it (70002): leave it as it is.
+  const bundle = await hub.trustProducts(sid).fetch()
+  if (bundle.status !== 'draft' && bundle.status !== 'twilio-rejected') return sid
   const attributes = sole ? { brand_name: d.brandName, mobile_phone_number: d.phone } : { company_type: 'private' }
   if (meta.trustEndUser) await hub.endUsers(meta.trustEndUser).update({ attributes })
   else meta.trustEndUser = (await hub.endUsers.create({ friendlyName: `A2P profile · ${row.accountId.slice(-6)}`, type: sole ? 'sole_proprietor_information' : 'us_a2p_messaging_profile_information', attributes })).sid
   await prisma.hlA2p.update({ where: { id: row.id }, data: { meta: asJson(meta) } })
-
-  const bundle = await hub.trustProducts(sid).fetch()
-  if (bundle.status !== 'draft' && bundle.status !== 'twilio-rejected') return sid
   const have = await assigned(() => hub.trustProducts(sid).trustProductsEntityAssignments.list({ limit: 50 }))
   for (const objectSid of [meta.trustEndUser, profileSid]) if (!have.has(objectSid)) await hub.trustProducts(sid).trustProductsEntityAssignments.create({ objectSid })
   const evaluation = await hub.trustProducts(sid).trustProductsEvaluations.create({ policySid: sole ? POLICY.soleTrust : POLICY.a2pTrust })
@@ -846,6 +847,15 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   }
   row = await prisma.hlA2p.update({ where: { id: row.id }, data: { path: d.path, details: asJson(d), note: null, filedBy: by, filedAt: now } })
   try {
+    // The brand passed and only the carriers turned the campaign down: the profile and bundles behind it are
+    // approved (and locked), so the fix goes straight to the campaign.
+    if (row.campaignSid && row.campaignStatus === 'FAILED' && row.brandSid && row.brandStatus !== 'FAILED') {
+      await resubmitCampaign(client, row, d)
+      delete meta.failedStep
+      row = await prisma.hlA2p.update({ where: { id: row.id }, data: { stage: 'campaign', campaignStatus: 'PENDING', meta: asJson(meta), checkedAt: now, lockedUntil: null } })
+      await mirrorNumbers(row)
+      return (await a2pView(accountId))!
+    }
     const profileSid = await ensureCustomerProfile(client, row, d, meta)
     row = { ...(await prisma.hlA2p.findUniqueOrThrow({ where: { id: row.id } })), customerProfileSid: profileSid }
     const trustSid = await ensureTrustProduct(client, row, d, meta, profileSid)
@@ -880,7 +890,9 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
 export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2pView | null> {
   const now = deps.now ?? new Date()
   let row = await prisma.hlA2p.findUnique({ where: { accountId } })
-  if (!row || row.stage === 'draft' || row.stage === 'failed') return row ? a2pView(accountId) : null
+  // A campaign the carriers turned down can also be fixed and resubmitted in Twilio's console: keep watching it.
+  const rejectedCampaign = row?.stage === 'failed' && row.campaignStatus === 'FAILED' && !!row.campaignSid && !!row.messagingServiceSid
+  if (!row || row.stage === 'draft' || (row.stage === 'failed' && !rejectedCampaign)) return row ? a2pView(accountId) : null
   if (!(await claim(row.id, now))) return a2pView(accountId)
   const client = deps.client ?? (await twilioClient())
   const meta = readMeta(row.meta)
@@ -916,6 +928,15 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
           Object.assign(data, { stage: 'failed', note: `Twilio rejected the business profile: ${errorsText(profile.errors, 'no reason given')}` })
         }
       }
+    } else if (row.stage === 'failed') {
+      // Resubmitted outside Hell-level: back in review, or through.
+      const campaign = await client.messaging.v1.services(row.messagingServiceSid!).usAppToPerson(row.campaignSid!).fetch()
+      if (campaign.campaignStatus !== 'FAILED' && campaign.campaignStatus !== 'SUSPENDED') {
+        delete meta.failedStep
+        const through = campaign.campaignStatus === 'VERIFIED'
+        Object.assign(data, { stage: through ? 'approved' : 'campaign', campaignStatus: campaign.campaignStatus, note: null, ...(through ? { approvedAt: now } : {}) })
+        if (through && row.path !== 'sole_prop') await attachNumbers(client, row, meta)
+      }
     } else if (row.stage === 'campaign' || row.stage === 'approved') {
       const campaign = await client.messaging.v1.services(row.messagingServiceSid!).usAppToPerson(row.campaignSid!).fetch()
       Object.assign(data, { campaignStatus: campaign.campaignStatus })
@@ -928,7 +949,9 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
       }
     }
   } catch (err) {
-    if (refused(err)) {
+    if (row.stage === 'failed') {
+      // Only watching a rejected campaign: its rejection reason stays on show.
+    } else if (refused(err)) {
       meta.failedStep = err instanceof StepError ? err.step : row.stage === 'profile' ? 'brand' : 'campaign'
       Object.assign(data, { stage: 'failed', note: problem(err) })
     } else {
@@ -974,7 +997,10 @@ export async function maybeAdvanceA2p(deps: Deps = {}): Promise<number> {
   const now = deps.now ?? new Date()
   if (!deps.now && now.getTime() - lastSweep < 60_000) return 0
   lastSweep = now.getTime()
-  const rows = await prisma.hlA2p.findMany({ where: { stage: { in: [...ACTIVE_STAGES, 'approved'] } }, select: { accountId: true, stage: true, nextAt: true, checkedAt: true } })
+  const rows = await prisma.hlA2p.findMany({
+    where: { OR: [{ stage: { in: [...ACTIVE_STAGES, 'approved'] } }, { stage: 'failed', campaignStatus: 'FAILED', campaignSid: { not: null } }] },
+    select: { accountId: true, stage: true, nextAt: true, checkedAt: true },
+  })
   let moved = 0
   for (const r of rows) {
     const due = r.stage === 'profile' ? !r.nextAt || r.nextAt <= now : !r.checkedAt || now.getTime() - r.checkedAt.getTime() >= (DUE_MS[r.stage as A2pStage] ?? 30 * 60_000)
