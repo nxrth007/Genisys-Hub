@@ -2,7 +2,21 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
-import { connectLovable, copyDnsForTransfer, normalizeDomain, refreshFromRegistrar, refreshTransfer, releaseHeldTransfer, retryPurchase } from '@/lib/hl/domains'
+import {
+  LOVABLE_IP,
+  connectLovable,
+  copyDnsForTransfer,
+  disconnectHost,
+  metaOf,
+  normalizeDomain,
+  refreshFromRegistrar,
+  refreshTransfer,
+  releaseHeldTransfer,
+  retryPurchase,
+  siteRecords,
+  verifyExternal,
+  type HostConnection,
+} from '@/lib/hl/domains'
 import {
   PorkbunError,
   RECORD_TYPES,
@@ -41,13 +55,22 @@ async function part<T>(fn: () => Promise<T>): Promise<{ data: T | null; error: s
   }
 }
 
-/** GET: the domain with its DNS records, nameservers, email forwards and redirects. */
+/** A connection with the records it needs, for the page to list. */
+const withRecords = (h: HostConnection) => ({ ...h, records: siteRecords(h) })
+
+/** GET: the domain with its DNS records, nameservers, email forwards and redirects (an external one: its connections and their DNS check). */
 export async function GET(_req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const { id, domainId } = await params
-  const domain = await load(id, domainId)
-  if (!domain) return NextResponse.json({ error: 'Domain not found' }, { status: 404 })
+  const loaded = await load(id, domainId)
+  if (!loaded) return NextResponse.json({ error: 'Domain not found' }, { status: 404 })
+  let domain = loaded
+  if (domain.origin === 'external') {
+    // Re-check what's still waiting on its DNS provider.
+    if ((metaOf(domain.meta).hosts ?? []).some((h) => !h.verifiedAt)) domain = await verifyExternal(domain.id)
+    return NextResponse.json({ domain, hosts: (metaOf(domain.meta).hosts ?? []).map(withRecords) })
+  }
   const live = domain.status === 'active' || domain.status === 'held' || domain.status === 'transferring'
   if (!live) return NextResponse.json({ domain })
   const [records, nameservers, forwards, redirects] = await Promise.all([
@@ -56,10 +79,20 @@ export async function GET(_req: Request, { params }: Ctx) {
     domain.status === 'active' ? part(() => emailForwards(domain.name)) : Promise.resolve({ data: null, error: null }),
     domain.status === 'active' ? part(() => urlForwards(domain.name)) : Promise.resolve({ data: null, error: null }),
   ])
-  const meta = (domain.meta as Record<string, unknown>) ?? {}
-  const expectNs = (meta.porkbunNameservers as string[] | undefined)?.length ? (meta.porkbunNameservers as string[]) : PORKBUN_NS
+  const meta = metaOf(domain.meta)
+  const expectNs = meta.porkbunNameservers?.length ? meta.porkbunNameservers : PORKBUN_NS
   const onPorkbun = nameservers.data ? nameservers.data.some((n) => n.endsWith('.porkbun.com') || expectNs.includes(n)) : null
-  return NextResponse.json({ domain, records, nameservers: { ...nameservers, onPorkbun }, forwards, redirects })
+  // Connected products, read off the records: hosts pointed at Lovable, and email forwarding.
+  if (records.data) {
+    const pointed = new Set(records.data.filter((r) => r.type === 'A' && r.content === LOVABLE_IP).map((r) => (r.host === 'www' ? '' : r.host)))
+    const known = meta.hosts ?? []
+    const hosts: HostConnection[] = [...pointed].map((h) => known.find((k) => k.host === h) ?? { host: h, product: 'site' as const, addedAt: domain.createdAt.toISOString(), verifiedAt: null })
+    const emailForwards = forwards.data?.length ?? meta.emailForwards ?? 0
+    if (JSON.stringify(hosts) !== JSON.stringify(known) || emailForwards !== meta.emailForwards) {
+      domain = await prisma.hlDomain.update({ where: { id: domain.id }, data: { meta: { ...meta, hosts, emailForwards } as Prisma.InputJsonValue } })
+    }
+  }
+  return NextResponse.json({ domain, records, nameservers: { ...nameservers, onPorkbun }, forwards, redirects, hosts: (metaOf(domain.meta).hosts ?? []).map(withRecords) })
 }
 
 function recordInput(body: Record<string, unknown>): RecordInput {
@@ -165,8 +198,15 @@ export async function POST(req: Request, { params }: Ctx) {
         break
       }
       case 'connect-lovable':
+        if (domain.origin === 'external') throw new HlInputError('This domain’s DNS is elsewhere: add the records there, then Verify.')
         if (!dnsEditable) throw new HlInputError('Connect the site once the domain is here.')
-        await connectLovable(domainId, { rootTxt: str(body.rootTxt) ?? '', wwwTxt: str(body.wwwTxt), by })
+        await connectLovable(domainId, { host: str(body.host) ?? '', rootTxt: str(body.rootTxt) ?? '', wwwTxt: str(body.wwwTxt), by })
+        break
+      case 'verify':
+        await verifyExternal(domainId)
+        break
+      case 'disconnect':
+        await disconnectHost(domainId, typeof body.host === 'string' ? body.host : '', by)
         break
       case 'use-porkbun-ns': {
         if (domain.status !== 'active') throw new HlInputError('Only for a domain that’s here.')
@@ -193,7 +233,8 @@ export async function POST(req: Request, { params }: Ctx) {
         break
       }
       case 'refresh':
-        if (domain.status === 'transferring' || domain.status === 'held') await refreshTransfer(domainId, by)
+        if (domain.origin === 'external') await verifyExternal(domainId)
+        else if (domain.status === 'transferring' || domain.status === 'held') await refreshTransfer(domainId, by)
         else if (domain.status === 'failed' && domain.origin === 'bought') await retryPurchase(domainId, by)
         else await refreshFromRegistrar([domainId])
         break

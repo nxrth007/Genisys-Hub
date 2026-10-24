@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
+import { dnsProvider, resolve, splitHost } from './dns-lookup'
+import { LOVABLE_IP, fqdnOf, metaOf, siteRecords, type DomainMeta, type HostConnection } from './domain-shared'
 import { HlInputError } from './http'
 import {
   PorkbunError,
@@ -41,7 +43,7 @@ import {
  * Money is only ever spent from a person's click on an exact price.
  */
 
-export const LOVABLE_IP = '185.158.133.1' // Lovable's edge, docs.lovable.dev/features/custom-domain
+export { LOVABLE_IP, metaOf, siteRecords, type DomainMeta, type HostConnection } from './domain-shared'
 
 type LogEntry = { at: string; by: string; what: string }
 
@@ -331,7 +333,7 @@ export async function refreshTransfer(id: string, by = 'hell-level') {
 
 /** Expiry and auto-renew from the registrar for these rows (all active ones when none are given). */
 export async function refreshFromRegistrar(ids?: string[]): Promise<number> {
-  const rows = await prisma.hlDomain.findMany({ where: ids ? { id: { in: ids } } : { status: 'active' }, select: { id: true, name: true } })
+  const rows = await prisma.hlDomain.findMany({ where: ids ? { id: { in: ids }, origin: { not: 'external' } } : { status: 'active', origin: { not: 'external' } }, select: { id: true, name: true } })
   if (!rows.length) return 0
   const byName = new Map((await listRegistrarDomains()).map((d) => [d.name, d]))
   let n = 0
@@ -361,10 +363,16 @@ export async function maybeRefreshDomains(): Promise<number> {
         console.warn(`[hell-level] domain transfer check ${m.id}:`, errText(err))
       }
     }
+    // Connections waiting on someone to add records at another DNS provider.
+    const external = await prisma.hlDomain.findMany({ where: { origin: 'external', status: 'active' }, select: { id: true, meta: true } })
+    for (const e of external) {
+      if (!(metaOf(e.meta).hosts ?? []).some((h) => !h.verifiedAt)) continue
+      await verifyExternal(e.id).catch((err) => console.warn(`[hell-level] external domain check ${e.id}:`, errText(err)))
+    }
   }
   if (Date.now() - lastRegistrarSweep >= 12 * 3600_000) {
     lastRegistrarSweep = Date.now()
-    if (await prisma.hlDomain.count({ where: { status: 'active' } })) await refreshFromRegistrar().catch((err) => console.warn('[hell-level] domain expiry refresh:', errText(err)))
+    if (await prisma.hlDomain.count({ where: { status: 'active', origin: { not: 'external' } } })) await refreshFromRegistrar().catch((err) => console.warn('[hell-level] domain expiry refresh:', errText(err)))
   }
   return changed
 }
@@ -373,32 +381,139 @@ export async function maybeRefreshDomains(): Promise<number> {
 // Pointing a domain at the client's Lovable site
 // ---------------------------------------------------------------------------
 
+const checkTxt = (v: string | null | undefined, what: string) => {
+  const t = v?.trim() || null
+  if (t && !t.startsWith('lovable_verify=')) throw new HlInputError(`The ${what} value Lovable shows starts with “lovable_verify=”.`)
+  return t
+}
+
+function withHost(meta: DomainMeta, c: HostConnection): DomainMeta {
+  return { ...meta, hosts: [...(meta.hosts ?? []).filter((h) => h.host !== c.host), c].sort((a, b) => a.host.localeCompare(b.host)) }
+}
+
 /**
- * Lovable's records (Project → Settings → Domains → Connect domain → manual):
- * A @ and www to Lovable's IP, and the _lovable TXT value it shows for each.
- * What would fight them at @ and www (other A/AAAA/CNAME/ALIAS) goes first.
+ * Lovable's records (Project → Settings → Domains → Connect domain → manual)
+ * on a domain held here: A to Lovable's IP (the domain and www, or the
+ * subdomain), and the _lovable TXT value it shows. What would fight them at
+ * those names (other A/AAAA/CNAME/ALIAS) goes first.
  */
-export async function connectLovable(id: string, o: { rootTxt: string; wwwTxt?: string | null; by: string }) {
+export async function connectLovable(id: string, o: { host?: string; rootTxt: string; wwwTxt?: string | null; by: string }) {
   const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
-  const rootTxt = o.rootTxt.trim()
-  const wwwTxt = o.wwwTxt?.trim() || null
-  if (!rootTxt.startsWith('lovable_verify=')) throw new HlInputError('Paste the TXT value Lovable shows: it starts with “lovable_verify=”.')
-  if (wwwTxt && !wwwTxt.startsWith('lovable_verify=')) throw new HlInputError('The www TXT value should start with “lovable_verify=” too.')
+  const host = (o.host ?? '').toLowerCase()
+  const rootTxt = checkTxt(o.rootTxt, 'TXT')
+  const wwwTxt = host ? null : checkTxt(o.wwwTxt, 'www TXT')
+  if (!rootTxt) throw new HlInputError('Paste the TXT value Lovable shows: it starts with “lovable_verify=”.')
+  const names = host ? [host] : ['', 'www']
   const records = await dnsRecords(row.name)
   const removed: string[] = []
   for (const r of records) {
-    if ((r.host === '' || r.host === 'www') && ['A', 'AAAA', 'CNAME', 'ALIAS'].includes(r.type) && !(r.type === 'A' && r.content === LOVABLE_IP)) {
+    if (names.includes(r.host) && ['A', 'AAAA', 'CNAME', 'ALIAS'].includes(r.type) && !(r.type === 'A' && r.content === LOVABLE_IP)) {
       await deleteRecord(row.name, r.id)
       removed.push(`${r.type} ${r.host || '@'} → ${r.content}`)
     }
   }
-  const has = (host: string, type: string, content: string) => records.some((r) => r.host === host && r.type === type && r.content === content)
-  const wanted: { host: string; type: string; content: string }[] = [
-    { host: '', type: 'A', content: LOVABLE_IP },
-    { host: 'www', type: 'A', content: LOVABLE_IP },
-    { host: '_lovable', type: 'TXT', content: rootTxt },
-    ...(wwwTxt ? [{ host: '_lovable.www', type: 'TXT', content: wwwTxt }] : []),
-  ]
-  for (const w of wanted) if (!has(w.host, w.type, w.content)) await createRecord(row.name, { ...w, ttl: 600 })
-  return addLog(id, o.by, `Pointed at the Lovable site${removed.length ? ` (replaced ${removed.join('; ')})` : ''}. Press Verify in Lovable once DNS has updated (minutes to a few hours).`)
+  const has = (h: string, type: string, content: string) => records.some((r) => r.host === h && r.type === type && r.content === content)
+  for (const w of siteRecords({ host, txt: rootTxt, wwwTxt })) {
+    const h = w.host === '@' ? '' : w.host
+    if (!has(h, w.type, w.value)) await createRecord(row.name, { host: h, type: w.type, content: w.value, ttl: 600 })
+  }
+  const now = new Date().toISOString()
+  const meta = withHost(metaOf(row.meta), { host, product: 'site', txt: rootTxt, wwwTxt, addedAt: now, verifiedAt: null })
+  return addLog(id, o.by, `Pointed ${fqdnOf(row.name, host)} at the Lovable site${removed.length ? ` (replaced ${removed.join('; ')})` : ''}. Press Verify in Lovable once DNS has updated (minutes to a few hours).`, {
+    meta: meta as Prisma.InputJsonValue,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Connect a domain (GHL's "Connect a domain"): one held here gets its records
+// set; one registered elsewhere becomes an external domain with the records
+// to add at its DNS provider, checked against public DNS.
+// ---------------------------------------------------------------------------
+
+/** "https://Try.Acme.com/x" → "try.acme.com" (subdomains kept, unlike normalizeDomain). */
+export function normalizeHost(input: string): string | null {
+  const s = input
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/[/?#].*$/, '')
+    .replace(/\.$/, '')
+  return normalizeDomain(s) ? s : /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(s) ? s : null
+}
+
+export async function connectDomain(o: { accountId: string; name: string; txt?: string | null; wwwTxt?: string | null; by: string }) {
+  const fqdn = normalizeHost(o.name)
+  if (!fqdn) throw new HlInputError('Type the domain or subdomain, like acmeroofing.com or try.acmeroofing.com.')
+  const split = splitHost(fqdn)
+  const domain = split.domain
+  // www.acme.com is the domain itself (its records include www).
+  const host = split.host === 'www' ? '' : split.host
+  const txt = checkTxt(o.txt, 'TXT')
+  const wwwTxt = host ? null : checkTxt(o.wwwTxt, 'www TXT')
+  const existing = await prisma.hlDomain.findUnique({ where: { name: domain }, include: { account: { select: { name: true } } } })
+  if (existing && existing.accountId !== o.accountId) throw new HlInputError(`${domain} belongs to ${existing.account.name}.`)
+  if (existing && existing.origin !== 'external') {
+    if (existing.status !== 'active' && existing.status !== 'held') throw new HlInputError(`${domain} isn’t ready yet (${existing.status}).`)
+    if (!txt) throw new HlInputError('Paste the TXT value Lovable shows for it (it starts with “lovable_verify=”), and the records are set here.')
+    return { domain: await connectLovable(existing.id, { host, rootTxt: txt, wwwTxt, by: o.by }), internal: true }
+  }
+  const now = new Date().toISOString()
+  let meta = withHost(metaOf(existing?.meta), { host, product: 'site', txt, wwwTxt, addedAt: now, verifiedAt: null, lastCheck: null })
+  try {
+    const p = await dnsProvider(domain)
+    meta = { ...meta, provider: p.provider, nameservers: p.nameservers }
+  } catch {
+    // provider shown as unknown until the next check
+  }
+  const row = existing
+    ? await addLog(existing.id, o.by, `Connected ${fqdnOf(domain, host)} to the website`, { meta: meta as Prisma.InputJsonValue })
+    : await prisma.hlDomain.create({
+        data: {
+          accountId: o.accountId,
+          name: domain,
+          origin: 'external',
+          status: 'active',
+          meta: meta as Prisma.InputJsonValue,
+          createdBy: o.by,
+          log: [{ at: now, by: o.by, what: `Connected ${fqdnOf(domain, host)} to the website (DNS stays where it is)` }] as unknown as Prisma.InputJsonValue,
+        },
+      })
+  return { domain: await verifyExternal(row.id), internal: false }
+}
+
+/** Look up each connected host's records in public DNS. */
+export async function verifyExternal(id: string) {
+  const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
+  const meta = metaOf(row.meta)
+  const hosts: HostConnection[] = []
+  for (const h of meta.hosts ?? []) {
+    const fqdn = fqdnOf(row.name, h.host)
+    try {
+      const a = await resolve(fqdn, 'A')
+      const wwwOk = h.host ? true : (await resolve(`www.${row.name}`, 'A')).includes(LOVABLE_IP)
+      const txtOk = h.txt ? (await resolve(h.host ? `_lovable.${fqdn}` : `_lovable.${row.name}`, 'TXT')).includes(h.txt) : true
+      const ok = a.includes(LOVABLE_IP) && wwwOk && txtOk
+      const at = new Date().toISOString()
+      hosts.push({ ...h, lastCheck: { at, ok, a, txtOk }, verifiedAt: ok ? (h.verifiedAt ?? at) : null })
+    } catch {
+      hosts.push(h)
+    }
+  }
+  let next: DomainMeta = { ...meta, hosts }
+  if (row.origin === 'external') {
+    try {
+      const p = await dnsProvider(row.name)
+      next = { ...next, provider: p.provider, nameservers: p.nameservers }
+    } catch {
+      // keep what we had
+    }
+  }
+  return prisma.hlDomain.update({ where: { id }, data: { meta: next as Prisma.InputJsonValue } })
+}
+
+export async function disconnectHost(id: string, host: string, by: string) {
+  const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
+  const meta = metaOf(row.meta)
+  const next = { ...meta, hosts: (meta.hosts ?? []).filter((h) => h.host !== host) }
+  return addLog(id, by, `Disconnected ${fqdnOf(row.name, host)} from the website${row.origin === 'external' ? ' (its DNS records stay where they are; remove them there)' : ''}`, { meta: next as Prisma.InputJsonValue })
 }
