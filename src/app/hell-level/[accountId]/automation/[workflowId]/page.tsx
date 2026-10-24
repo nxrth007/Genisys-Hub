@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { STEPS, triggerLabel, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { contactLabel, useAccount, type ContactRow } from '@/components/hell-level/bits'
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, stepSummary } from '@/components/hell-level/step-editor'
+import { PanZoomCanvas } from '@/components/hell-level/canvas'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Spinner, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 
 type Workflow = { id: string; name: string; folder: string | null; status: string; trigger: HlTrigger; steps: HlStep[]; allowReentry: boolean; updatedAt: string }
@@ -150,8 +151,9 @@ export default function WorkflowBuilderPage() {
 
       {tab === 'builder' && (
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-auto bg-muted [background-image:radial-gradient(rgb(255_255_255/0.07)_1px,transparent_1px)] [background-size:22px_22px]">
-            <div className="mx-auto flex w-[380px] flex-col items-center py-10">
+          <div className="min-w-0 flex-1">
+            <PanZoomCanvas>
+            <div className="flex w-[380px] flex-col items-center pb-24">
               <button
                 type="button"
                 onClick={() => setDrawer({ kind: 'trigger' })}
@@ -210,6 +212,7 @@ export default function WorkflowBuilderPage() {
               })}
               <span className="rounded-full bg-muted px-4 py-1 text-[12px] font-bold tracking-wide text-foreground/90">END</span>
             </div>
+            </PanZoomCanvas>
           </div>
 
           {drawer && (
