@@ -8,6 +8,7 @@ import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 import { startGbpForNewIntake } from '@/lib/gbp-setup'
 import { onboardingText, textTeam } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { createAccountForClient } from '@/lib/hl/accounts'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -194,6 +195,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       .updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } })
       .then(() => ensureClientGeo(id))
       .catch((err) => console.warn(`[client-onboarding] geocode failed for ${id}:`, err))
+    // Hell-level sub-account (src/lib/hl): free (Hub rows, not a GHL plan feature),
+    // so every new client gets one with the starter pipeline, forms and automations.
+    // Nothing texts until someone buys the client a number.
+    void createAccountForClient(id).catch((err) => console.warn(`[client-onboarding] hell-level sub-account for ${id}:`, err))
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.
     if (created) {

@@ -26,6 +26,16 @@ export function RootShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
+  if (pathname.startsWith('/hl/')) {
+    // Hell-level's public forms, chat widget and legal pages, embedded on client websites.
+    return <>{children}</>
+  }
+
+  if (pathname === '/hell-level' || pathname.startsWith('/hell-level/')) {
+    // Hell-level draws its own GoHighLevel-style shell (src/app/hell-level/layout.tsx).
+    return <>{children}</>
+  }
+
   if (pathname.startsWith('/gbp-setup/')) {
     // A client's public Google Business Profile setup page: no Hub chrome.
     return <>{children}</>

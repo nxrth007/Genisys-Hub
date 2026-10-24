@@ -60,6 +60,13 @@ const PUBLIC_PATHS = [
   '/api/webhooks/client-onboarding',
   // Client sub-account workflows post form / chat leads here (?secret=).
   '/api/webhooks/ghl-lead',
+  // Hell-level (src/lib/hl): what the public and Twilio reach. /hl serves the
+  // forms, chat widget and legal pages embedded on client websites; the
+  // Twilio webhooks check Twilio's signature themselves; form posts are
+  // rate-limited per IP. The staff app is /hell-level and /api/hl/*, gated.
+  '/hl',
+  '/api/hl/twilio',
+  '/api/hl/public',
   // External API for separately-hosted frontends (the Lovable Vite SPA).
   // Those callers are on another domain and have no session cookie, so
   // middleware would 401 them before the handler runs. Every route under

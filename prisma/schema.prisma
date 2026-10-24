@@ -746,6 +746,8 @@ model Client {
   invoices          Invoice[]
   intakes           ClientIntake[]        @relation("ClientIntakes")
   seoSite           SeoSite?
+  /// The client's Hell-level sub-account (src/lib/hl).
+  hlAccount         HlAccount?
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
@@ -2239,4 +2241,274 @@ model SeoPost {
 
   @@unique([siteId, slug])
   @@index([siteId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Hell-level: the agency's own GoHighLevel (src/lib/hl, /hell-level).
+// One HlAccount ("sub-account") per client; contacts, conversations,
+// pipelines, forms and automations hang off it. Texts and calls go through
+// the Hub's Twilio account, on numbers bought per sub-account.
+// ---------------------------------------------------------------------------
+
+/// A sub-account: one client's CRM.
+model HlAccount {
+  id         String    @id @default(cuid())
+  clientId   String?   @unique
+  client     Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  name       String
+  /// IANA zone: quiet hours and the dashboard's days.
+  timezone   String    @default("America/New_York")
+  /// The business profile, which doubles as the custom values automations
+  /// use (businessName, ownerFirstName, notifyPhone, reviewLink, …).
+  /// See HlProfile in src/lib/hl/types.ts.
+  profile    Json      @default("{}")
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  numbers       HlPhoneNumber[]
+  contacts      HlContact[]
+  messages      HlMessage[]
+  pipelines     HlPipeline[]
+  opportunities HlOpportunity[]
+  forms         HlForm[]
+  submissions   HlFormSubmission[]
+  workflows     HlWorkflow[]
+  runs          HlWorkflowRun[]
+}
+
+/// A phone number bought for a sub-account. Texts go out from it; calls to it
+/// ring forwardTo, or count as missed straight away when that's empty.
+model HlPhoneNumber {
+  id                 String    @id @default(cuid())
+  accountId          String
+  account            HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// E.164
+  number             String    @unique
+  /// twilio
+  provider           String    @default("twilio")
+  /// Twilio IncomingPhoneNumber sid (PN…)
+  providerSid        String?
+  /// toll_free | local
+  kind               String
+  /// Where calls ring. Null = every call is a missed call (the owner's own
+  /// line forwards here when they don't pick up).
+  forwardTo          String?
+  /// Ask whoever picks up at forwardTo to press a key before connecting, so a
+  /// call their voicemail answers still counts as missed (and gets the text-back).
+  whisper            Boolean   @default(true)
+  /// The number texts go out from, when an account has several.
+  isDefault          Boolean   @default(true)
+  /// active | released
+  status             String    @default("active")
+  /// Toll-free verification: none | pending | in_review | approved | rejected
+  verificationStatus String    @default("none")
+  verificationSid    String?
+  verificationNote   String?
+  verificationAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([accountId])
+}
+
+/// A lead or customer of the client (GHL's "contact").
+model HlContact {
+  id            String    @id @default(cuid())
+  accountId     String
+  account       HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  firstName     String?
+  lastName      String?
+  /// E.164
+  phone         String?
+  email         String?
+  tags          String[]  @default([])
+  /// form | chat | call | sms | manual
+  source        String?
+  /// Ticked the texting consent box on a form, or called/texted first.
+  smsConsent    Boolean   @default(false)
+  smsConsentAt  DateTime?
+  /// Texted STOP: nothing goes out until they text START.
+  dnd           Boolean   @default(false)
+  /// Form answers and anything else worth keeping, by field key.
+  fields        Json      @default("{}")
+  /// Conversation summary for the inbox list.
+  lastMessageAt DateTime?
+  lastMessage   String?
+  unread        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages      HlMessage[]
+  opportunities HlOpportunity[]
+  runs          HlWorkflowRun[]
+  submissions   HlFormSubmission[]
+
+  @@index([accountId, phone])
+  @@index([accountId, email])
+  @@index([accountId, lastMessageAt])
+  @@index([accountId, createdAt])
+}
+
+/// One entry in a contact's conversation: a text, an email, a call, a note
+/// or an activity line ("Submitted Quote Form").
+model HlMessage {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     HlContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// inbound | outbound
+  direction   String
+  /// sms | email | call | note | activity
+  channel     String
+  body        String    @default("")
+  /// queued | sent | delivered | failed | undelivered | received | ringing | answered | missed | logged
+  status      String
+  from        String?
+  to          String?
+  /// Twilio message or call sid
+  providerSid String?   @unique
+  error       String?
+  meta        Json      @default("{}")
+  /// Staff email, or "automation"
+  by          String?
+  runId       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([contactId, createdAt])
+  @@index([accountId, createdAt])
+}
+
+model HlPipeline {
+  id        String    @id @default(cuid())
+  accountId String
+  account   HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  /// [{ id, name }] in board order
+  stages    Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  opportunities HlOpportunity[]
+
+  @@index([accountId])
+}
+
+model HlOpportunity {
+  id         String     @id @default(cuid())
+  accountId  String
+  account    HlAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  pipelineId String
+  pipeline   HlPipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  stageId    String
+  contactId  String
+  contact    HlContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  name       String
+  /// Whole dollars
+  value      Int        @default(0)
+  /// open | won | lost | abandoned
+  status     String     @default("open")
+  source     String?
+  /// Order inside its stage column
+  position   Float      @default(0)
+  closedAt   DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([accountId, pipelineId, stageId])
+  @@index([contactId])
+}
+
+/// A form or chat widget for the client's website, served by the Hub and
+/// embedded on the Lovable site.
+model HlForm {
+  id         String    @id @default(cuid())
+  accountId  String
+  account    HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name       String
+  /// form | chat
+  kind       String    @default("form")
+  /// [{ key, label, type, required, placeholder, options }]
+  fields     Json
+  /// { heading, submitLabel, thankYou, consentText, color }
+  settings   Json      @default("{}")
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  submissions HlFormSubmission[]
+
+  @@index([accountId])
+}
+
+model HlFormSubmission {
+  id        String     @id @default(cuid())
+  formId    String
+  form      HlForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  accountId String
+  account   HlAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contactId String?
+  contact   HlContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  data      Json
+  pageUrl   String?
+  ip        String?
+  createdAt DateTime   @default(now())
+
+  @@index([formId, createdAt])
+  @@index([accountId, createdAt])
+}
+
+/// An automation: a trigger, and the steps each contact it fires for goes through.
+model HlWorkflow {
+  id           String    @id @default(cuid())
+  accountId    String
+  account      HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name         String
+  folder       String?
+  /// draft | published
+  status       String    @default("draft")
+  /// { type, formId?, keyword?, tag? }: HlTrigger in src/lib/hl/types.ts
+  trigger      Json
+  /// [{ id, type, config }]: HlStep in src/lib/hl/types.ts
+  steps        Json
+  /// A contact can go through it again while (or after) an earlier run.
+  allowReentry Boolean   @default(true)
+  /// The starter template it came from (missed_call, chat_widget, quote_form, review_request).
+  template     String?
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  runs HlWorkflowRun[]
+
+  @@index([accountId, status])
+}
+
+/// One contact going through one workflow.
+model HlWorkflowRun {
+  id         String     @id @default(cuid())
+  workflowId String
+  workflow   HlWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    HlAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contactId  String
+  contact    HlContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  /// running | waiting | done | failed | cancelled
+  status     String     @default("running")
+  /// Index of the next step to run
+  step       Int        @default(0)
+  nextRunAt  DateTime?
+  /// What fired it: { trigger, form, call, message }
+  context    Json       @default("{}")
+  /// [{ at, step, type, ok, detail }]
+  log        Json       @default("[]")
+  lockedAt   DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([status, nextRunAt])
+  @@index([workflowId, createdAt])
+  @@index([contactId])
 }

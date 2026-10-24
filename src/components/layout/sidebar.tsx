@@ -31,10 +31,12 @@ import {
   Moon,
   Sun,
   LogOut,
+  Flame,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canAccessPayments } from '@/lib/payments-access'
 import { canAccessSeo } from '@/lib/seo/access'
+import { canAccessHellLevel } from '@/lib/hl/access'
 import { Avatar } from '../ui/avatar'
 import { SearchDialog } from './search-dialog'
 import { useGraphite } from './theme-toggle'
@@ -173,6 +175,8 @@ export function Sidebar() {
   // whichever base nav the viewer sees, SEO just before Payments.
   const nav: NavItem[] = [
     ...baseNav,
+    // Hell-level: the agency's own GoHighLevel (same allowlist as Payments).
+    ...(canAccessHellLevel(email) ? [{ href: '/hell-level', label: 'Hell-level', icon: Flame }] : []),
     ...(canAccessSeo(email) ? [{ href: '/seo', label: 'SEO', icon: TrendingUp }] : []),
     ...(canAccessPayments(email) ? [{ href: '/payments', label: 'Payments', icon: Wallet }] : []),
   ]

@@ -1,0 +1,166 @@
+/**
+ * Hell-level shapes shared by the server and the pages: the business
+ * profile (the sub-account's custom values), workflow triggers and steps,
+ * form fields and pipeline stages. No server imports here.
+ */
+
+/** The sub-account's business profile. Automations read it as {{account.*}}. */
+export type HlProfile = {
+  businessName?: string
+  ownerFirstName?: string
+  ownerName?: string
+  /** The number leads are told to call (often the owner's cell). */
+  businessPhone?: string
+  website?: string
+  /** Owner notifications: texts go here (comma-separate several). */
+  notifyPhone?: string
+  /** Owner notifications: emails go here (comma-separate several). */
+  notifyEmail?: string
+  /** Google review link for review requests. */
+  reviewLink?: string
+  address?: string
+  /** EIN, for texting verification. Blank = verify as a sole proprietor. */
+  ein?: string
+  /** LLC, Inc… as registered, for texting verification. */
+  legalName?: string
+}
+
+export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: string; hint?: string }[] = [
+  { key: 'businessName', label: 'Business name', merge: 'account.business_name' },
+  { key: 'ownerFirstName', label: 'Owner first name', merge: 'account.owner_first_name' },
+  { key: 'ownerName', label: 'Owner full name', merge: 'account.owner_name' },
+  { key: 'businessPhone', label: 'Business phone', merge: 'account.business_phone', hint: 'The number leads are told to call' },
+  { key: 'website', label: 'Website', merge: 'account.website' },
+  { key: 'notifyPhone', label: 'Notification phone', merge: 'account.notify_phone', hint: 'Owner texts go here. Separate several with commas' },
+  { key: 'notifyEmail', label: 'Notification email', merge: 'account.notify_email', hint: 'Owner emails go here. Separate several with commas' },
+  { key: 'reviewLink', label: 'Google review link', merge: 'account.review_link' },
+  { key: 'address', label: 'Business address', merge: 'account.address' },
+  { key: 'legalName', label: 'Legal business name', merge: 'account.legal_name', hint: 'As registered, for texting verification' },
+  { key: 'ein', label: 'EIN', merge: 'account.ein', hint: 'For texting verification. Leave blank for a sole proprietor' },
+]
+
+// ---------------------------------------------------------------------------
+// Workflows
+// ---------------------------------------------------------------------------
+
+export type HlTriggerType =
+  | 'form_submitted'
+  | 'chat_submitted'
+  | 'missed_call'
+  | 'inbound_sms'
+  | 'contact_created'
+  | 'tag_added'
+  | 'opportunity_stage'
+  | 'manual'
+
+export type HlTrigger = {
+  type: HlTriggerType
+  /** form_submitted / chat_submitted: only this form (blank = any). */
+  formId?: string
+  /** inbound_sms: only messages containing this word (blank = any). */
+  keyword?: string
+  /** tag_added: only this tag. */
+  tag?: string
+  /** opportunity_stage: only moves into this stage id. */
+  stageId?: string
+}
+
+export const TRIGGERS: { type: HlTriggerType; label: string; hint: string }[] = [
+  { type: 'form_submitted', label: 'Form submitted', hint: 'Someone sends a form on the website' },
+  { type: 'chat_submitted', label: 'Chat widget submitted', hint: 'Someone sends a message through the chat bubble' },
+  { type: 'missed_call', label: 'Missed call', hint: 'A call to the sub-account’s number isn’t answered' },
+  { type: 'inbound_sms', label: 'Customer replied', hint: 'A contact texts the sub-account’s number' },
+  { type: 'contact_created', label: 'Contact created', hint: 'A new contact is added, any way' },
+  { type: 'tag_added', label: 'Tag added', hint: 'A tag is put on a contact' },
+  { type: 'opportunity_stage', label: 'Pipeline stage changed', hint: 'An opportunity moves into a stage' },
+  { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
+]
+
+export type HlStepType =
+  | 'send_sms'
+  | 'internal_sms'
+  | 'internal_email'
+  | 'wait'
+  | 'add_tag'
+  | 'remove_tag'
+  | 'create_opportunity'
+  | 'move_opportunity'
+  | 'if_tag'
+
+export type HlStep = {
+  id: string
+  type: HlStepType
+  /** Shown on the builder card, like GHL's action names. */
+  name?: string
+  config: {
+    body?: string
+    subject?: string
+    /** internal_sms / internal_email: override the profile's notification phone/email. */
+    to?: string
+    amount?: number
+    unit?: 'minutes' | 'hours' | 'days'
+    tag?: string
+    pipelineId?: string
+    stageId?: string
+    /** if_tag: skip to the end when the contact does (or doesn't) have the tag. */
+    has?: boolean
+  }
+}
+
+export const STEPS: { type: HlStepType; label: string; group: 'Communication' | 'Timing' | 'Contact' | 'Pipeline' | 'Logic' }[] = [
+  { type: 'send_sms', label: 'Send SMS', group: 'Communication' },
+  { type: 'internal_sms', label: 'Internal notification (SMS)', group: 'Communication' },
+  { type: 'internal_email', label: 'Internal notification (email)', group: 'Communication' },
+  { type: 'wait', label: 'Wait', group: 'Timing' },
+  { type: 'add_tag', label: 'Add tag', group: 'Contact' },
+  { type: 'remove_tag', label: 'Remove tag', group: 'Contact' },
+  { type: 'create_opportunity', label: 'Create opportunity', group: 'Pipeline' },
+  { type: 'move_opportunity', label: 'Move opportunity', group: 'Pipeline' },
+  { type: 'if_tag', label: 'If / else: tag', group: 'Logic' },
+]
+
+export const stepLabel = (t: HlStepType) => STEPS.find((s) => s.type === t)?.label ?? t
+export const triggerLabel = (t: HlTriggerType) => TRIGGERS.find((s) => s.type === t)?.label ?? t
+
+/** Merge fields offered in the builder. {{form.<key>}} also works for any form field. */
+export const MERGE_FIELDS: { token: string; label: string }[] = [
+  { token: '{{contact.first_name}}', label: 'Contact first name' },
+  { token: '{{contact.full_name}}', label: 'Contact full name' },
+  { token: '{{contact.phone}}', label: 'Contact phone' },
+  { token: '{{contact.email}}', label: 'Contact email' },
+  { token: '{{form.service}}', label: 'Form: service needed' },
+  { token: '{{form.message}}', label: 'Form: project details' },
+  ...PROFILE_FIELDS.filter((f) => f.key !== 'ein').map((f) => ({ token: `{{${f.merge}}}`, label: f.label })),
+]
+
+// ---------------------------------------------------------------------------
+// Forms and pipelines
+// ---------------------------------------------------------------------------
+
+export type HlFieldType = 'text' | 'phone' | 'email' | 'textarea' | 'select'
+
+export type HlField = {
+  key: string
+  label: string
+  type: HlFieldType
+  required?: boolean
+  placeholder?: string
+  options?: string[]
+}
+
+export type HlFormSettings = {
+  heading?: string
+  submitLabel?: string
+  thankYou?: string
+  /** The texting consent line next to the checkbox. */
+  consentText?: string
+  /** Button and accent colour, #rrggbb. */
+  color?: string
+}
+
+export type HlStage = { id: string; name: string }
+
+/** Contact keys a form field can fill directly. */
+export const CONTACT_FIELD_KEYS = ['first_name', 'last_name', 'full_name', 'phone', 'email'] as const
+
+export const OPPORTUNITY_STATUSES = ['open', 'won', 'lost', 'abandoned'] as const

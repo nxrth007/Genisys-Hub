@@ -45,6 +45,8 @@ import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
+import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
+import { maybeRefreshVerifications } from './hl/verification'
 
 let initialized = false
 
@@ -439,6 +441,19 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
       })
       .catch((err) => console.error('[scheduler] whop sign-up check failed:', err))
+    // Hell-level: resume automation runs whose wait is over, and check
+    // toll-free verifications Twilio is still reviewing (every 30 min).
+    void recoverStuckRuns()
+      .then(() => resumeDueRuns())
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} automation run(s) resumed`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level runs failed:', err))
+    void maybeRefreshVerifications()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level verification check failed:', err))
     void maybeCheckStalePublishes()
       .then((n) => {
         if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)
