@@ -35,6 +35,9 @@ export type A2pDetails = {
   phone: string
   /** Sole proprietor only: the business name, or the owner's name when there's none. */
   brandName: string
+  /** The business's own policy pages (or the ones the Hub hosts). The campaign cites them; filing also saves them to the Business Profile, so the forms link to the same pages. */
+  privacyUrl: string
+  termsUrl: string
   description: string
   messageFlow: string
   samples: string[]
@@ -106,6 +109,7 @@ export const US_STATES = [
 export const LIMITS = { description: [40, 4096], messageFlow: [40, 2048], sample: [20, 1024], samples: [2, 5] } as const
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const LINK = /^https?:\/\/[^\s/$.?#][^\s]*$/i
 
 /** What has to be fixed before anything can be filed (the server checks the same). */
 export function detailProblems(d: A2pDetails): string[] {
@@ -121,7 +125,9 @@ export function detailProblems(d: A2pDetails): string[] {
   } else if (!d.brandName.trim()) {
     out.push('Brand name is missing (the business name, or the owner’s name if there’s none).')
   }
-  if (!/^https?:\/\/[^\s/$.?#][^\s]*$/i.test(d.website.trim())) out.push('Website must be a full link (https://…).')
+  if (!LINK.test(d.website.trim())) out.push('Website must be a full link (https://…).')
+  if (!LINK.test(d.privacyUrl.trim())) out.push('The privacy policy link must be a full link (https://…).')
+  if (!LINK.test(d.termsUrl.trim())) out.push('The terms link must be a full link (https://…).')
   if (!d.street.trim() || !d.city.trim()) out.push('Street address and city are needed.')
   if (!US_STATES.includes(d.state.trim().toUpperCase())) out.push('State must be a two-letter code (NH, TX…).')
   if (!/^\d{5}(-\d{4})?$/.test(d.zip.trim())) out.push('ZIP must be 5 digits.')

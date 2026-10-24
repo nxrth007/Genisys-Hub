@@ -161,6 +161,13 @@ function A2pModal({ accountId, onClose, onFiled }: { accountId: string; onClose:
   return <A2pForm accountId={accountId} draft={draft.data} onClose={onClose} onFiled={onFiled} />
 }
 
+type Linked = 'website' | 'privacyUrl' | 'termsUrl'
+
+/** A link where it's quoted whole: not as the start of a longer one (the site in https://site.com/privacy). */
+const linkPattern = (url: string) => new RegExp(`${url.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(?![\\w/.-])`, 'g')
+const quotes = (text: string, url: string) => linkPattern(url).test(text)
+const swapLink = (text: string, from: string, to: string) => text.replace(linkPattern(from), () => to)
+
 const CHECK_ICON = {
   ok: <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />,
   warning: <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />,
@@ -187,6 +194,16 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
   const [d, setD] = useState<A2pDetails>(draft.details)
   const [run, setRun] = useState(0)
   const set = (patch: Partial<A2pDetails>) => setD({ ...d, ...patch })
+  // The opt-in text and samples quote the website and policy links: changing one changes it there too.
+  const [quoted, setQuoted] = useState<Record<Linked, string>>({ website: draft.details.website, privacyUrl: draft.details.privacyUrl, termsUrl: draft.details.termsUrl })
+  const setLink = (key: Linked, value: string) => {
+    const prev = quoted[key]
+    const url = value.trim()
+    if (url && prev && url !== prev && [d.messageFlow, ...d.samples].some((t) => quotes(t, prev))) {
+      setD({ ...d, [key]: value, messageFlow: swapLink(d.messageFlow, prev, url), samples: d.samples.map((s) => swapLink(s, prev, url)) })
+      setQuoted({ ...quoted, [key]: url })
+    } else set({ [key]: value })
+  }
   const sole = d.path === 'sole_prop'
   const checks = useQuery<{ checks: A2pCheck[] }>({
     queryKey: ['hl', 'a2p-check', accountId, run],
@@ -284,7 +301,7 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
               </>
             )}
             <Field label="Website" hint="The home page, as it loads (no redirect)" className={sole ? 'sm:col-span-2' : undefined}>
-              <Input value={d.website} onChange={(e) => set({ website: e.target.value })} placeholder="https://example.com" />
+              <Input value={d.website} onChange={(e) => setLink('website', e.target.value)} placeholder="https://example.com" />
             </Field>
             <Field label="Street address" className="sm:col-span-2">
               <Input value={d.street} onChange={(e) => set({ street: e.target.value })} />
@@ -381,15 +398,17 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
             </span>
             <Toggle checked={d.marketing} onChange={(v) => set({ marketing: v })} label="Some texts are promotions" />
           </label>
-          <div className="grid gap-1 rounded-lg border border-border-soft bg-muted/30 px-3 py-2.5 text-[12.5px]">
-            <p className="text-muted-foreground">
-              Privacy policy: <a className="text-foreground underline" href={draft.legal.privacy} target="_blank" rel="noreferrer">{draft.legal.privacy}</a>
-            </p>
-            <p className="text-muted-foreground">
-              Terms: <a className="text-foreground underline" href={draft.legal.terms} target="_blank" rel="noreferrer">{draft.legal.terms}</a>
-            </p>
-            <p className="text-muted-foreground/80">Change these in Settings → Business Profile.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Privacy policy link">
+              <Input value={d.privacyUrl} onChange={(e) => setLink('privacyUrl', e.target.value)} placeholder="https://example.com/privacy-policy" />
+            </Field>
+            <Field label="Terms link">
+              <Input value={d.termsUrl} onChange={(e) => setLink('termsUrl', e.target.value)} placeholder="https://example.com/terms" />
+            </Field>
           </div>
+          <p className="-mt-1 text-[12px] text-muted-foreground">
+            The business’s own pages, or the ones Hell-level hosts. “How people opt in” quotes them too, and filing saves them to the Business Profile so the forms link to the same pages.
+          </p>
         </Section>
 
         <Section title="Pre-check" hint="What reviewers reject for, tested on the live pages before anything is paid.">
@@ -408,7 +427,7 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
                     <span>
                       <span className="font-medium text-foreground">{c.label}.</span> <span className="text-muted-foreground">{c.detail}</span>
                       {c.fix && (
-                        <button type="button" className="ml-1.5 font-medium text-primary hover:underline" onClick={() => set(c.fix!.patch)}>
+                        <button type="button" className="ml-1.5 font-medium text-primary hover:underline" onClick={() => (c.fix!.patch.website ? setLink('website', c.fix!.patch.website) : set(c.fix!.patch))}>
                           {c.fix.label}
                         </button>
                       )}

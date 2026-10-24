@@ -5,7 +5,7 @@ import { a2pPrefill, type A2pInputs } from '@/lib/a2p'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { asSettings, consentsOf } from './forms'
-import { resolveLegalLinks, type LegalLinks } from './legal-links'
+import { hostedLegalUrl, resolveLegalLinks, type LegalLinks } from './legal-links'
 import { prettyPhone } from './merge'
 import { splitName, toE164 } from './phone'
 import { formUrl, primaryProfileSid, readTwilioSettings } from './verification'
@@ -114,6 +114,8 @@ export function cleanDetails(raw: unknown): A2pDetails {
     email: clean(r.email).toLowerCase().slice(0, 200),
     phone: toE164(clean(r.phone)) ?? clean(r.phone),
     brandName: clean(r.brandName).slice(0, 200),
+    privacyUrl: clean(r.privacyUrl).slice(0, 500),
+    termsUrl: clean(r.termsUrl).slice(0, 500),
     description: cleanBlock(r.description).slice(0, 4096),
     messageFlow: cleanBlock(r.messageFlow).slice(0, 2048),
     samples: (Array.isArray(r.samples) ? r.samples : []).map(cleanBlock).filter(Boolean).slice(0, 5).map((s) => s.slice(0, 1024)),
@@ -254,6 +256,8 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
     email,
     phone,
     brandName: business,
+    privacyUrl: legal.privacy,
+    termsUrl: legal.terms,
     marketing,
     ...copy,
   }
@@ -265,6 +269,11 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
     for (const [k, v] of Object.entries(saved) as [keyof A2pDetails, A2pDetails[keyof A2pDetails]][]) {
       if (k === 'samples' ? (v as string[]).length : k === 'marketing' || k === 'path' ? true : typeof v === 'string' && v.trim()) (details as Record<string, unknown>)[k] = v
     }
+  }
+  // A draft written before the business's own policy pages were set still quotes the Hub's: point it at the real ones.
+  for (const [doc, url] of [['privacy', details.privacyUrl], ['terms', details.termsUrl]] as const) {
+    const hosted = hostedLegalUrl(accountId, doc)
+    if (url && url !== hosted) details.messageFlow = details.messageFlow.split(hosted).join(url)
   }
   return { details, legal, formUrls, smsBox: smsBox && fill(smsBox), marketingBox: marketingBox && fill(marketingBox) }
 }
@@ -379,11 +388,8 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   const checks: A2pCheck[] = detailProblems(d).map((p, i) => ({ key: `detail-${i}`, level: 'error' as const, label: 'Missing or invalid', detail: p }))
   if ((await twilioAccountType().catch(() => null)) === 'Trial')
     checks.push({ key: 'twilio-trial', level: 'error', label: 'Twilio account', detail: 'Twilio is still a free trial, and trial accounts can’t register A2P (or text anyone but verified numbers). Upgrade it in the Twilio Console first, then check again.' })
-  const [site, privacy, terms] = await Promise.all([
-    d.website ? load(d.website) : Promise.resolve(null),
-    load(ctx.legal.privacy),
-    load(ctx.legal.terms),
-  ])
+  const legal = { privacy: d.privacyUrl || ctx.legal.privacy, terms: d.termsUrl || ctx.legal.terms }
+  const [site, privacy, terms] = await Promise.all([d.website ? load(d.website) : Promise.resolve(null), load(legal.privacy), load(legal.terms)])
 
   const business = (d.path === 'sole_prop' ? d.brandName : ctx.details.brandName || d.legalName).replace(/[,.]?\s*\b(llc|l\.l\.c\.|inc|incorporated|corp|corporation|co|ltd|lp|llp)\b\.?$/i, '').trim()
   if (site) {
@@ -405,14 +411,14 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
 
   // Pages built with JavaScript can't be read here; say so rather than call them wrong.
   const unreadable = (html: string) => visibleText(html).length < 300
-  if (!privacy.ok) checks.push({ key: 'privacy', level: 'error', label: 'Privacy policy', detail: `${ctx.legal.privacy} doesn’t load (${privacy.error ?? `HTTP ${privacy.status}`}).` })
-  else if (unreadable(privacy.html)) checks.push({ key: 'privacy', level: 'warning', label: 'Privacy policy', detail: `${ctx.legal.privacy} loads, but its text is built with JavaScript, so it couldn’t be checked. Make sure it says phone numbers and texting consent are never shared.` })
+  if (!privacy.ok) checks.push({ key: 'privacy', level: 'error', label: 'Privacy policy', detail: `${legal.privacy} doesn’t load (${privacy.error ?? `HTTP ${privacy.status}`}).` })
+  else if (unreadable(privacy.html)) checks.push({ key: 'privacy', level: 'warning', label: 'Privacy policy', detail: `${legal.privacy} loads, but its text is built with JavaScript, so it couldn’t be checked. Make sure it says phone numbers and texting consent are never shared.` })
   else if (!/\b(sms|text messag)/i.test(privacy.html) || !/\b(no|not|never)\b[^.]{0,120}\b(sell|sold|shar|rent)/i.test(visibleText(privacy.html)))
     checks.push({ key: 'privacy', level: 'warning', label: 'Privacy policy', detail: 'It should say texting consent and phone numbers are never sold or shared with third parties.' })
   else checks.push({ key: 'privacy', level: 'ok', label: 'Privacy policy', detail: 'Loads, and covers texting.' })
 
-  if (!terms.ok) checks.push({ key: 'terms', level: 'error', label: 'Terms', detail: `${ctx.legal.terms} doesn’t load (${terms.error ?? `HTTP ${terms.status}`}).` })
-  else if (unreadable(terms.html)) checks.push({ key: 'terms', level: 'warning', label: 'Terms', detail: `${ctx.legal.terms} loads, but its text is built with JavaScript, so it couldn’t be checked. Make sure it covers STOP, HELP and “message and data rates may apply”.` })
+  if (!terms.ok) checks.push({ key: 'terms', level: 'error', label: 'Terms', detail: `${legal.terms} doesn’t load (${terms.error ?? `HTTP ${terms.status}`}).` })
+  else if (unreadable(terms.html)) checks.push({ key: 'terms', level: 'warning', label: 'Terms', detail: `${legal.terms} loads, but its text is built with JavaScript, so it couldn’t be checked. Make sure it covers STOP, HELP and “message and data rates may apply”.` })
   else if (!/\bSTOP\b/.test(terms.html) || !/\bHELP\b/.test(terms.html) || !/rates may apply/i.test(terms.html))
     checks.push({ key: 'terms', level: 'warning', label: 'Terms', detail: 'The texting terms should cover STOP, HELP and “message and data rates may apply”.' })
   else checks.push({ key: 'terms', level: 'ok', label: 'Terms', detail: 'Loads, with STOP, HELP and rates.' })
@@ -677,8 +683,8 @@ async function fileCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails, met
     subscriberOptIn: true,
     ageGated: false,
     directLending: false,
-    privacyPolicyUrl: legal.privacy,
-    termsAndConditionsUrl: legal.terms,
+    privacyPolicyUrl: d.privacyUrl || legal.privacy,
+    termsAndConditionsUrl: d.termsUrl || legal.terms,
     xTwilioApiVersion: 'v1.2',
   })
   return { sid: campaign.sid, status: campaign.campaignStatus }
@@ -700,8 +706,8 @@ async function resubmitCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails)
       hasEmbeddedPhone: samples.some((s) => /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/.test(s)),
       ageGated: false,
       directLending: false,
-      privacyPolicyUrl: legal.privacy,
-      termsAndConditionsUrl: legal.terms,
+      privacyPolicyUrl: d.privacyUrl || legal.privacy,
+      termsAndConditionsUrl: d.termsUrl || legal.terms,
       xTwilioApiVersion: 'v1.2',
     })
 }
@@ -728,6 +734,17 @@ async function mirrorNumbers(row: HlA2p): Promise<void> {
     if (n.verificationStatus !== next.verificationStatus || n.verificationNote !== next.verificationNote || +(n.verificationAt ?? 0) !== +(next.verificationAt ?? 0))
       await prisma.hlPhoneNumber.update({ where: { id: n.id }, data: next })
   }
+}
+
+/** The policy links being filed become the Business Profile's, so the forms and the registration point at the same pages. */
+async function saveLegalLinks(accountId: string, d: A2pDetails): Promise<void> {
+  const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, select: { profile: true } })
+  const profile = readProfile(account?.profile)
+  const own = (url: string, doc: 'privacy' | 'terms') => (url === hostedLegalUrl(accountId, doc) ? '' : url)
+  const privacyUrl = own(d.privacyUrl, 'privacy')
+  const termsUrl = own(d.termsUrl, 'terms')
+  if ((profile.privacyUrl ?? '') === privacyUrl && (profile.termsUrl ?? '') === termsUrl) return
+  await prisma.hlAccount.update({ where: { id: accountId }, data: { profile: asJson({ ...profile, privacyUrl, termsUrl }) } })
 }
 
 export async function a2pView(accountId: string): Promise<A2pView | null> {
@@ -764,6 +781,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   const local = await prisma.hlPhoneNumber.count({ where: { accountId, status: 'active', kind: 'local' } })
   if (!local) throw new HlInputError('Buy a local number first: A2P registers the sub-account’s local numbers.')
   const client = deps.client ?? (await twilioClient())
+  await saveLegalLinks(accountId, d)
 
   let row = await prisma.hlA2p.upsert({ where: { accountId }, create: { accountId, path: d.path, details: asJson(d) }, update: {} })
   if (row.stage === 'approved') throw new HlInputError('This sub-account’s A2P registration is already approved.')
