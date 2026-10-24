@@ -147,6 +147,11 @@ export default auth((req) => {
   const { pathname } = req.nextUrl
 
   if (isPublic(pathname)) return NextResponse.next()
+  // Hell-level's Google Calendar connections come back through the Hub's one
+  // registered Google return address, and a team member connecting from the
+  // link they were sent has no Hub account: the signed state is the access
+  // there (src/lib/hl/google-calendar.ts). Every other use stays gated.
+  if (pathname === '/api/drive/callback' && req.nextUrl.searchParams.get('state')?.startsWith('hl-cal.')) return NextResponse.next()
 
   const session = req.auth
   if (!session) {

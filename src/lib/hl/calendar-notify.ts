@@ -40,15 +40,16 @@ const quiet = (tz: string, at: Date) => {
 
 const split = (v: string | null | undefined) => (v ?? '').split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean)
 
-async function load(appointmentId: string) {
+/** An appointment with what its messages say (its calendar, contact and sub-account). */
+export async function loadAppointment(appointmentId: string) {
   return prisma.hlAppointment.findUnique({
     where: { id: appointmentId },
     include: { calendar: true, contact: true, account: { select: { id: true, name: true, timezone: true, profile: true } } },
   })
 }
-type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>
+type Loaded = NonNullable<Awaited<ReturnType<typeof loadAppointment>>>
 
-function mergeFor(a: Loaded): MergeData {
+export function mergeFor(a: Loaded): MergeData {
   const base = publicBase()
   const manage = a.token ? `${base}/hl/a/${a.token}` : null
   return {
@@ -117,7 +118,7 @@ async function record(id: string, notices: Notice[], sent?: Record<string, strin
 
 /** Send the calendar's notifications for something that just happened to an appointment. A reschedule re-arms its reminders. */
 export async function notifyAppointment(appointmentId: string, on: 'booked' | 'rescheduled' | 'cancelled'): Promise<number> {
-  const a = await load(appointmentId)
+  const a = await loadAppointment(appointmentId)
   if (!a || a.source === 'block' || !a.calendar) return 0
   if (on === 'rescheduled') {
     const meta = (a.meta ?? {}) as Meta
@@ -154,7 +155,7 @@ export async function sendDueReminders(now = new Date()): Promise<number> {
       select: { id: true },
     })
     for (const { id } of appts) {
-      const a = await load(id)
+      const a = await loadAppointment(id)
       if (!a) continue
       const meta = (a.meta ?? {}) as Meta
       const due = timed.filter((n) => {

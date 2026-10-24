@@ -11,6 +11,7 @@ import {
   WEEKDAYS,
   calendarTypeLabel,
   durationsOf,
+  wantsMeet,
   type HlCalendarGroup,
   type HlCalendarSettings,
   type HlDateOverride,
@@ -65,6 +66,8 @@ export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
   const go = (s: Section) => {
     const q = new URLSearchParams(sp.toString())
     q.set('section', s)
+    q.delete('gcal_connected')
+    q.delete('gcal_error')
     router.replace(`${pathname}?${q}`)
   }
   return (
@@ -83,7 +86,7 @@ export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
       {section === 'calendars' && <CalendarsTab accountId={accountId} />}
       {section === 'preferences' && <PreferencesTab accountId={accountId} />}
       {section === 'availability' && <AvailabilityTab accountId={accountId} />}
-      {section === 'connections' && <ConnectionsTab />}
+      {section === 'connections' && <ConnectionsTab accountId={accountId} />}
     </div>
   )
 }
@@ -847,31 +850,91 @@ function ScheduleEditor({ accountId, schedule, calendars }: { accountId: string;
 // Connections
 // ---------------------------------------------------------------------------
 
-const CONNECTIONS: { group: string; items: { name: string; what: string; when: 'next' | 'later' }[] }[] = [
+type Connection = { id: string; staffKey: string; staffId: string; email: string; calendarId: string; checkIds: string[]; conflicts: boolean; push: boolean; connectedAt: string; error: string | null }
+type GoogleCal = { id: string; name: string; primary: boolean; canWrite: boolean }
+
+const LATER: { group: string; items: { name: string; what: string }[] }[] = [
   {
-    group: 'Calendars',
+    group: 'Other calendars',
     items: [
-      { name: 'Google Calendar', what: 'Two-way: busy times in Google block slots here, and bookings land in Google.', when: 'next' },
-      { name: 'Outlook calendar', what: 'Office 365, Outlook.com, live.com or hotmail.', when: 'later' },
-      { name: 'iCloud calendar', what: 'Apple calendars, through an app-specific password.', when: 'later' },
-      { name: 'Calendly', what: 'Bring Calendly bookings in.', when: 'later' },
+      { name: 'Outlook calendar', what: 'Office 365, Outlook.com, live.com or hotmail.' },
+      { name: 'iCloud calendar', what: 'Apple calendars, through an app-specific password.' },
+      { name: 'Calendly', what: 'Bring Calendly bookings in.' },
     ],
   },
   {
-    group: 'Video conferencing',
+    group: 'Other video conferencing',
     items: [
-      { name: 'Google Meet', what: 'A Meet link for each booking (needs Google Calendar).', when: 'next' },
-      { name: 'Zoom', what: 'A Zoom meeting for each booking.', when: 'later' },
-      { name: 'Microsoft Teams', what: 'A Teams meeting for each booking.', when: 'later' },
+      { name: 'Zoom', what: 'A Zoom meeting for each booking.' },
+      { name: 'Microsoft Teams', what: 'A Teams meeting for each booking.' },
     ],
   },
 ]
 
-function ConnectionsTab() {
+/** GHL's Connections: each team member's own Google Calendar (busy times in, bookings out), and Google Meet. */
+function ConnectionsTab({ accountId }: { accountId: string }) {
+  const sp = useSearchParams()
+  const cals = useCalendars(accountId)
+  const conns = useQuery<{ connections: Connection[]; googleReady: boolean }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
+  const staff = cals.data?.staff ?? []
+  const list = conns.data?.connections ?? []
+  const connFor = (m: StaffRow) => list.find((c) => c.staffId === m.id || c.staffKey === staffKey(m))
+  const connected = sp.get('gcal_connected')
+  const failed = sp.get('gcal_error')
+  // Calendars that make a Meet link for someone, and who on them isn't connected (so gets none).
+  const meet = (cals.data?.calendars ?? []).flatMap((c) => {
+    const members = (c.settings.teamMembers ?? []).filter((m) => m.selected !== false && wantsMeet(c.settings, m.userId))
+    if (!members.length) return []
+    const missing = members.filter((m) => !list.some((x) => x.push && (x.staffKey === m.userId || x.staffId === m.userId))).map((m) => staff.find((x) => staffKey(x) === m.userId || x.id === m.userId)?.name ?? 'A team member')
+    return [{ id: c.id, name: c.name, missing }]
+  })
+
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px] text-muted-foreground">Each team member connects their own calendar and meeting apps, so their bookings and busy times stay in step.</p>
-      {CONNECTIONS.map((g) => (
+      {connected && <p className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-[13px] text-success">Google Calendar connected: {connected}.</p>}
+      {failed && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive">Google Calendar didn’t connect: {failed}</p>}
+      <Card className="px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-semibold text-foreground">Google Calendar</p>
+            <p className="text-[12.5px] text-muted-foreground">
+              Each team member connects their own Google account. Busy times on it stop people booking them then, and their appointments go into it, moving or coming off when they’re rescheduled or cancelled. Send them a link to connect it themselves (it works for a week), or connect here if it’s your own.
+            </p>
+          </div>
+        </div>
+        {conns.data && !conns.data.googleReady && <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">The Hub’s Google sign-in isn’t set up on this server (AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET).</p>}
+        <ErrorNote error={cals.error || conns.error} />
+        {(cals.isLoading || conns.isLoading) && <Spinner />}
+        {!cals.isLoading && !staff.length && <p className="mt-3 text-[13px] text-muted-foreground">No team members yet: add them under Settings → My Staff.</p>}
+        <div className="mt-2 flex flex-col divide-y divide-border-soft">
+          {staff.map((m) => (
+            <StaffConnection key={m.id} accountId={accountId} member={m} conn={connFor(m)} />
+          ))}
+        </div>
+      </Card>
+
+      <Card className="px-5 py-4">
+        <p className="text-[14px] font-semibold text-foreground">Google Meet</p>
+        <p className="text-[12.5px] text-muted-foreground">
+          A calendar set to Google Meet (its Details → Meeting type) gets a Meet link made for each booking, on the team member’s Google Calendar. The link becomes the appointment’s location, so {'{{appointment.location}}'} in its texts carries it. Calendars brought over from GHL with Meet keep it.
+        </p>
+        {meet.length > 0 ? (
+          <div className="mt-2 flex flex-col divide-y divide-border-soft">
+            {meet.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-center gap-3 py-2">
+                <Link href={`/hell-level/${accountId}/calendars/${c.id}`} className="text-[13.5px] font-medium text-foreground hover:underline">
+                  {c.name}
+                </Link>
+                {c.missing.length ? <span className="text-[12.5px] text-warning">No Meet link for {c.missing.join(', ')} until their Google Calendar is connected.</span> : <Badge color="green">Ready</Badge>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          !cals.isLoading && <p className="mt-2 text-[12.5px] text-muted-foreground">No calendar uses Google Meet yet.</p>
+        )}
+      </Card>
+
+      {LATER.map((g) => (
         <Card key={g.group} className="px-5 py-4">
           <p className="mb-2 text-[14px] font-semibold text-foreground">{g.group}</p>
           <div className="flex flex-col divide-y divide-border-soft">
@@ -881,12 +944,139 @@ function ConnectionsTab() {
                   <p className="text-[13.5px] font-medium text-foreground">{i.name}</p>
                   <p className="text-[12.5px] text-muted-foreground">{i.what}</p>
                 </div>
-                <Badge color={i.when === 'next' ? 'blue' : 'gray'}>{i.when === 'next' ? 'Next up' : 'Later'}</Badge>
+                <Badge color="gray">Later</Badge>
               </div>
             ))}
           </div>
         </Card>
       ))}
+    </div>
+  )
+}
+
+function StaffConnection({ accountId, member, conn }: { accountId: string; member: StaffRow; conn: Connection | undefined }) {
+  const qc = useQueryClient()
+  const [copied, setCopied] = useState(false)
+  const [choosing, setChoosing] = useState(false)
+  const refresh = () => qc.invalidateQueries({ queryKey: ['hl', 'calendar-connections', accountId] })
+  const start = useMutation({
+    mutationFn: (action: 'connect' | 'link') => hlFetch<{ url: string }>(`/api/hl/accounts/${accountId}/calendar-connections`, { method: 'POST', json: { staffKey: staffKey(member), action } }),
+    onSuccess: (r, action) => {
+      if (action === 'connect') {
+        window.location.href = r.url
+      } else {
+        copyText(r.url)
+        setCopied(true)
+      }
+    },
+  })
+  const patch = useMutation({
+    mutationFn: (body: Partial<Pick<Connection, 'conflicts' | 'push' | 'calendarId' | 'checkIds'>>) => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections/${conn!.id}`, { method: 'PATCH', json: body }),
+    onSuccess: refresh,
+  })
+  const remove = useMutation({
+    mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections/${conn!.id}`, { method: 'DELETE' }),
+    onSuccess: refresh,
+  })
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13.5px] font-medium text-foreground">{member.name}</p>
+          <p className="text-[12.5px] text-muted-foreground">
+            {conn ? (
+              <>
+                Connected as <span className="text-foreground">{conn.email}</span>
+              </>
+            ) : (
+              'Not connected'
+            )}
+          </p>
+        </div>
+        {conn ? (
+          <>
+            {conn.error ? <Badge color="red">Needs attention</Badge> : <Badge color="green">Connected</Badge>}
+            <Button size="sm" variant="ghost" onClick={() => setChoosing((v) => !v)}>
+              {choosing ? 'Done' : 'Calendars'}
+            </Button>
+            <Button size="sm" variant="ghost" loading={start.isPending && start.variables === 'link'} icon={<Copy className="h-3.5 w-3.5" />} onClick={() => start.mutate('link')}>
+              {copied ? 'Link copied' : 'Reconnect link'}
+            </Button>
+            <Button size="sm" variant="ghost" className="text-destructive" loading={remove.isPending} onClick={() => void confirmAction(`Disconnect ${conn.email}? Busy times there stop blocking ${member.name}’s slots and new bookings stop going into it (ones already there stay).`, 'Disconnect').then((ok) => ok && remove.mutate())}>
+              Disconnect
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" loading={start.isPending && start.variables === 'link'} icon={<Copy className="h-3.5 w-3.5" />} onClick={() => start.mutate('link')}>
+              {copied ? 'Link copied' : 'Copy connect link'}
+            </Button>
+            <Button size="sm" variant="ghost" loading={start.isPending && start.variables === 'connect'} icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => start.mutate('connect')} title="Signs in to Google in this browser: for your own calendar">
+              Connect here
+            </Button>
+          </>
+        )}
+      </div>
+      {conn?.error && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12.5px] text-destructive">
+          Google says: {conn.error}. {/invalid_grant|expired|revoked/i.test(conn.error) ? 'The sign-in has been withdrawn: send them a reconnect link.' : /has not been used|is disabled|accessNotConfigured/i.test(conn.error) ? 'The Google Calendar API is off in the Hub’s Google Cloud project: turn it on there.' : ''}
+        </p>
+      )}
+      {conn && (
+        <div className="flex flex-wrap gap-x-6 gap-y-2 pl-0.5">
+          <Toggle checked={conn.conflicts} disabled={patch.isPending} onChange={(v) => patch.mutate({ conflicts: v })} label="Busy times block bookings" />
+          <Toggle checked={conn.push} disabled={patch.isPending} onChange={(v) => patch.mutate({ push: v })} label="Add bookings to Google Calendar" />
+        </div>
+      )}
+      {conn && choosing && <ChooseCalendars accountId={accountId} conn={conn} onSave={(v) => patch.mutateAsync(v).then(() => setChoosing(false))} saving={patch.isPending} />}
+      <ErrorNote error={start.error || patch.error || remove.error} />
+    </div>
+  )
+}
+
+/** GHL's linked calendar (where bookings go) and conflict calendars (whose busy times count). */
+function ChooseCalendars({ accountId, conn, onSave, saving }: { accountId: string; conn: Connection; onSave: (v: { calendarId: string; checkIds: string[] }) => Promise<unknown>; saving: boolean }) {
+  const q = useQuery<{ calendars: GoogleCal[] }>({ queryKey: ['hl', 'google-calendars', conn.id], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections/${conn.id}`) })
+  const [into, setInto] = useState(conn.calendarId)
+  const [check, setCheck] = useState<string[]>(conn.checkIds)
+  const items = q.data?.calendars ?? []
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/30 p-3">
+      {q.isLoading && <Spinner />}
+      <ErrorNote error={q.error} />
+      {items.length > 0 && (
+        <>
+          <Field label="Bookings go into">
+            <Select value={into} onChange={(e) => setInto(e.target.value)}>
+              {items
+                .filter((c) => c.canWrite)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.primary ? ' (main)' : ''}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <div>
+            <p className="text-[12.5px] font-medium text-foreground">Check these for busy times</p>
+            <div className="mt-1 flex flex-col gap-1">
+              {items.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-[13px] text-foreground">
+                  <input type="checkbox" checked={check.includes(c.id)} onChange={(e) => setCheck(e.target.checked ? [...check, c.id] : check.filter((x) => x !== c.id))} />
+                  {c.name}
+                  {c.primary ? ' (main)' : ''}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Button size="sm" variant="primary" loading={saving} onClick={() => void onSave({ calendarId: into, checkIds: check })}>
+              Save calendars
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -21,6 +21,10 @@ export type HlTeamMember = {
   selected?: boolean
   isPrimary?: boolean
   meetingLocation?: string
+  /** GHL's own meeting settings for the member, kept from the import (Google Meet: isZoomAdded 'meet', or a google_conference location). */
+  isZoomAdded?: string | boolean
+  meetingLocationType?: string
+  locationConfigurations?: { kind?: string; location?: string }[]
 }
 export type TimeUnit = 'mins' | 'hours' | 'days' | 'weeks' | 'months'
 
@@ -76,6 +80,8 @@ export type HlCalendarSettings = {
   hlNotifications?: HlNotification[]
   /** Where it happens when no team member has their own: an address, a phone number, a meeting link. */
   meetingLocation?: string
+  /** Google Meet: a Meet link made for each booking on the team member's Google Calendar. Unset: as GHL had it for each member. */
+  meetingType?: 'location' | 'google_meet'
   /** The booking form's consent boxes (default: the two every form gets). */
   consents?: HlConsentBox[]
   askEmail?: boolean
@@ -100,6 +106,13 @@ export function limitOf(v: unknown): number | null {
 }
 
 export const asCalendarSettings = (v: unknown): HlCalendarSettings => (v && typeof v === 'object' && !Array.isArray(v) ? (v as HlCalendarSettings) : {})
+
+/** A Google Meet link for this member's bookings: the calendar says so, else the member's GHL settings did. */
+export function wantsMeet(s: HlCalendarSettings, memberKey: string): boolean {
+  if (s.meetingType) return s.meetingType === 'google_meet'
+  const m = (s.teamMembers ?? []).find((t) => t.userId === memberKey)
+  return m?.isZoomAdded === 'meet' || m?.meetingLocationType === 'gmeet' || !!m?.locationConfigurations?.some((l) => l?.kind === 'google_conference')
+}
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 

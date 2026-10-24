@@ -7,6 +7,7 @@ import { notifyAppointment } from './calendar-notify'
 import { getPrefs, scheduleHoursFor } from './calendar-records'
 import { asCalendarSettings, durationsOf, type HlCalendarSettings } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
+import { googleBusy, syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
 import { resolveLegalLinks, type LegalLinks } from './legal-links'
 import { appointmentTimes, renderTemplate } from './merge'
@@ -44,7 +45,7 @@ export async function teamOf(accountId: string, s: HlCalendarSettings, db: Db = 
   })
 }
 
-/** What's already booked that could clash: on this calendar, or with any of its team members on any calendar. */
+/** What's already booked that could clash: on this calendar, or with any of its team members on any calendar (their Google Calendars too). */
 async function busyFor(db: Db, accountId: string, calendarId: string, team: TeamMember[], from: Date, to: Date, excludeId?: string): Promise<Busy[]> {
   const keys = team.map((m) => m.key)
   const names = team.map((m) => m.name)
@@ -64,12 +65,13 @@ async function busyFor(db: Db, accountId: string, calendarId: string, team: Team
     },
     select: { startTime: true, endTime: true, assignedUserId: true, assignedTo: true, calendarId: true, meta: true },
   })
-  return rows.flatMap((r) => {
+  const booked = rows.flatMap((r): Busy[] => {
     const members = (r.meta as { members?: unknown } | null)?.members
     const hosts = Array.isArray(members) ? members.filter((m): m is string => typeof m === 'string') : []
     if (hosts.length) return hosts.map((member) => ({ start: r.startTime, end: r.endTime, member, calendarId: r.calendarId }))
     return [{ start: r.startTime, end: r.endTime, member: r.assignedUserId ?? team.find((m) => m.name === r.assignedTo)?.key ?? null, calendarId: r.calendarId }]
   })
+  return [...booked, ...(await googleBusy(accountId, keys, from, to, db))]
 }
 
 async function loadCalendar(calendarId: string, db: Db = prisma) {
@@ -335,15 +337,20 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
   }
 }
 
-/** After a booking: "contact created" for someone new, then "customer booked appointment", then the calendar's booked notifications. */
+/**
+ * After a booking: onto the team member's Google Calendar (a Meet link becomes its location, for the texts), "contact
+ * created" for someone new, then "customer booked appointment", then the calendar's booked notifications.
+ */
 export async function fireBookingTriggers(b: Booked): Promise<void> {
+  await syncAppointmentToGoogle(b.appointmentId)
   if (b.created) await fireTrigger(b.accountId, b.contactId, { type: 'contact_created', context: { appointmentId: b.appointmentId } })
   await fireTrigger(b.accountId, b.contactId, { type: 'appointment_booked', calendarId: b.calendarId, context: { appointmentId: b.appointmentId } })
   await notifyAppointment(b.appointmentId, 'booked')
 }
 
-/** After a status change (or a reschedule): "Appointment status" automations, then the calendar's cancelled or rescheduled notifications. */
+/** After a status change (or a reschedule): Google Calendar, "Appointment status" automations, then the calendar's cancelled or rescheduled notifications. */
 export async function fireStatusTrigger(appointmentId: string, status: string): Promise<void> {
+  await syncAppointmentToGoogle(appointmentId)
   const a = await prisma.hlAppointment.findUnique({ where: { id: appointmentId }, select: { accountId: true, contactId: true, calendarId: true } })
   if (!a?.contactId) return
   await fireTrigger(a.accountId, a.contactId, { type: 'appointment_status', status, calendarId: a.calendarId ?? undefined, context: { appointmentId } })

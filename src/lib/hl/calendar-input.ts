@@ -113,6 +113,7 @@ export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings
   if (s.eventColor !== undefined) out.eventColor = hex(s.eventColor) ?? existing.eventColor
   if (s.widgetColor !== undefined) out.widgetColor = hex(s.widgetColor) ?? existing.widgetColor
   if (s.meetingLocation !== undefined) out.meetingLocation = str(s.meetingLocation, 300)
+  if (s.meetingType !== undefined) out.meetingType = s.meetingType === 'google_meet' ? 'google_meet' : 'location'
   if (s.formSubmitType !== undefined) out.formSubmitType = s.formSubmitType === 'RedirectURL' ? 'RedirectURL' : 'ThankYouMessage'
   if (s.formSubmitThanksMessage !== undefined) out.formSubmitThanksMessage = str(s.formSubmitThanksMessage, 500)
   if (s.formSubmitRedirectUrl !== undefined) {

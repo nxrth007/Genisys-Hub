@@ -5,6 +5,7 @@ import { BookingError, chooseMember, lockKey, newToken, setStatus, slotsFor, tea
 import { notifyAppointment } from './calendar-notify'
 import { asCalendarSettings, minutesOf } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
+import { syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
 import { appointmentTimes, renderTemplate } from './merge'
 import { staffOf } from './staff'
@@ -219,9 +220,11 @@ export async function deleteBlock(accountId: string, id: string): Promise<void> 
   await prisma.hlAppointment.delete({ where: { id } })
 }
 
-/** After a staff booking: "contact created" for someone new, then "appointment booked" (blocked-off time fires nothing). */
+/** After a staff booking: Google Calendar, "contact created" for someone new, then "appointment booked" (blocked-off time fires nothing). */
 export async function fireMadeTriggers(accountId: string, m: Made): Promise<void> {
-  if (m.kind !== 'appointment' || !m.contactId) return
+  if (m.kind !== 'appointment') return
+  await syncAppointmentToGoogle(m.appointmentId)
+  if (!m.contactId) return
   if (m.created) await fireTrigger(accountId, m.contactId, { type: 'contact_created', context: { appointmentId: m.appointmentId } })
   await fireTrigger(accountId, m.contactId, { type: 'appointment_booked', calendarId: m.calendarId ?? undefined, context: { appointmentId: m.appointmentId } })
   await notifyAppointment(m.appointmentId, 'booked')

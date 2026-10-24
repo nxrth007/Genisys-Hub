@@ -15,6 +15,7 @@ import {
   defaultCalendarSettings,
   durationsOf,
   minutesOf,
+  wantsMeet,
   type HlCalendarGroup,
   type HlCalendarSettings,
   type HlHours,
@@ -215,9 +216,26 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
             <Field label="Description" hint="Shown on the booking page">
               <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="A free 30-minute call to talk through your project." />
             </Field>
-            <Field label="Meeting location" hint="An address, a phone number or a meeting link. A team member’s own location wins.">
-              <Input value={s.meetingLocation ?? ''} onChange={(e) => set({ meetingLocation: e.target.value })} placeholder="We’ll call you at the number you give" />
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
+              <Field label="Meeting type">
+                <Select value={s.meetingType ?? ((s.teamMembers ?? []).some((m) => wantsMeet(s, m.userId)) ? 'google_meet' : 'location')} onChange={(e) => set({ meetingType: e.target.value === 'google_meet' ? 'google_meet' : 'location' })}>
+                  <option value="location">At the meeting location</option>
+                  <option value="google_meet">Google Meet</option>
+                </Select>
+              </Field>
+              <Field label="Meeting location" hint={s.meetingType === 'google_meet' ? 'Leave empty: each booking’s Meet link becomes its location' : 'An address, a phone number or a meeting link. A team member’s own location wins.'}>
+                <Input value={s.meetingLocation ?? ''} onChange={(e) => set({ meetingLocation: e.target.value })} placeholder={s.meetingType === 'google_meet' ? 'Google Meet' : 'We’ll call you at the number you give'} />
+              </Field>
+            </div>
+            {(s.meetingType === 'google_meet' || (!s.meetingType && (s.teamMembers ?? []).some((m) => wantsMeet(s, m.userId)))) && (
+              <p className="-mt-2 text-[12.5px] text-muted-foreground">
+                A Google Meet link is made for each booking on the team member’s Google Calendar, so they need it connected under{' '}
+                <Link className="underline" href={`/hell-level/${accountId}/settings?tab=calendars&section=connections`}>
+                  Settings → Calendars → Connections
+                </Link>
+                .
+              </p>
+            )}
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
               <Field label="Appointment title" hint="{{contact.name}} becomes the person’s name">
                 <Input value={s.eventTitle ?? ''} onChange={(e) => set({ eventTitle: e.target.value })} />

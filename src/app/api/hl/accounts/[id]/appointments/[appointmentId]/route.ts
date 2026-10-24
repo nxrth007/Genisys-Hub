@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { deleteBlock, updateAppointment, type StaffAppointmentChange } from '@/lib/hl/appointments'
 import { fireStatusTrigger } from '@/lib/hl/booking'
+import { syncAppointmentToGoogle } from '@/lib/hl/google-calendar'
 import { hlError, hlGuard, jsonBody } from '@/lib/hl/http'
 import { publicBase } from '@/lib/hl/twilio'
 
@@ -29,6 +30,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       try {
         if (moved && statusChanged !== 'cancelled') await fireStatusTrigger(appointmentId, 'rescheduled')
         if (statusChanged) await fireStatusTrigger(appointmentId, statusChanged)
+        // Other changes (its title, team member, location) go to Google Calendar too.
+        if (!moved && !statusChanged) await syncAppointmentToGoogle(appointmentId)
       } catch (err) {
         console.error('[hell-level] appointment automations failed:', err)
       }
