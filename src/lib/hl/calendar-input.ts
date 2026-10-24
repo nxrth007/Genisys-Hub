@@ -1,5 +1,6 @@
 import { HlInputError } from './http'
-import type { HlCalendarSettings, HlDateOverride, HlDurationOption, HlHours, HlOpenHours, HlTeamMember, TimeUnit } from './calendar-shared'
+import { randomUUID } from 'crypto'
+import type { HlCalendarSettings, HlDateOverride, HlDurationOption, HlHours, HlNotification, HlOpenHours, HlTeamMember, TimeUnit } from './calendar-shared'
 import type { HlConsentBox } from './types'
 
 /**
@@ -146,6 +147,30 @@ export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings
     }
   }
   if (s.notes !== undefined) out.notes = str(s.notes, 2000)
+  if (s.hlNotifications !== undefined) {
+    if (!Array.isArray(s.hlNotifications)) throw new HlInputError('Notifications must be a list.')
+    const ons = ['booked', 'rescheduled', 'cancelled', 'reminder', 'followup'] as const
+    out.hlNotifications = s.hlNotifications.slice(0, 20).map((n, i): HlNotification => {
+      const x = (n ?? {}) as Record<string, unknown>
+      const on = ons.find((o) => o === x.on)
+      if (!on) throw new HlInputError(`Notification ${i + 1}: pick when it goes.`)
+      const to = x.to === 'member' ? 'member' : 'contact'
+      const channel = x.channel === 'email' && to === 'member' ? 'email' : 'sms'
+      const body = str(x.body, 1600)
+      if (!body) throw new HlInputError(`Notification ${i + 1} has no message.`)
+      const timed = on === 'reminder' || on === 'followup'
+      return {
+        id: typeof x.id === 'string' && /^[\w-]{6,64}$/.test(x.id) ? x.id : randomUUID(),
+        on,
+        to,
+        channel,
+        ...(timed ? { minutes: num(x.minutes ?? 60, 0, 60 * 24 * 30, `Notification ${i + 1}: the time`) } : {}),
+        ...(channel === 'email' ? { subject: str(x.subject, 200) } : {}),
+        body,
+        enabled: x.enabled !== false,
+      }
+    })
+  }
   if (s.stickyContact !== undefined) out.stickyContact = s.stickyContact === true
   if (s.pixelId !== undefined) {
     const px = str(s.pixelId, 40)

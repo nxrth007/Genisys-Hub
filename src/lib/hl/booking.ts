@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
+import { notifyAppointment } from './calendar-notify'
 import { getPrefs, scheduleHoursFor } from './calendar-records'
 import { asCalendarSettings, durationsOf, type HlCalendarSettings } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
@@ -334,16 +335,19 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
   }
 }
 
-/** After a booking: "contact created" for someone new, then "customer booked appointment". */
+/** After a booking: "contact created" for someone new, then "customer booked appointment", then the calendar's booked notifications. */
 export async function fireBookingTriggers(b: Booked): Promise<void> {
   if (b.created) await fireTrigger(b.accountId, b.contactId, { type: 'contact_created', context: { appointmentId: b.appointmentId } })
   await fireTrigger(b.accountId, b.contactId, { type: 'appointment_booked', calendarId: b.calendarId, context: { appointmentId: b.appointmentId } })
+  await notifyAppointment(b.appointmentId, 'booked')
 }
 
+/** After a status change (or a reschedule): "Appointment status" automations, then the calendar's cancelled or rescheduled notifications. */
 export async function fireStatusTrigger(appointmentId: string, status: string): Promise<void> {
   const a = await prisma.hlAppointment.findUnique({ where: { id: appointmentId }, select: { accountId: true, contactId: true, calendarId: true } })
   if (!a?.contactId) return
   await fireTrigger(a.accountId, a.contactId, { type: 'appointment_status', status, calendarId: a.calendarId ?? undefined, context: { appointmentId } })
+  if (status === 'cancelled' || status === 'rescheduled') await notifyAppointment(appointmentId, status)
 }
 
 // ---------------------------------------------------------------------------

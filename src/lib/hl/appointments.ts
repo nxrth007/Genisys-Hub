@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger } from './automation'
 import { BookingError, chooseMember, lockKey, newToken, setStatus, slotsFor, teamOf, type History } from './booking'
+import { notifyAppointment } from './calendar-notify'
 import { asCalendarSettings, minutesOf } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
 import { HlInputError } from './http'
@@ -156,7 +157,7 @@ export async function createAppointment(accountId: string, input: StaffAppointme
 export type StaffAppointmentChange = Partial<Omit<StaffAppointmentInput, 'kind' | 'contact' | 'contactId'>>
 
 /** Change an appointment (or blocked-off time) from the calendar: its time, who it's with, its details, its status. */
-export async function updateAppointment(accountId: string, id: string, input: StaffAppointmentChange, by: string): Promise<{ statusChanged: string | null }> {
+export async function updateAppointment(accountId: string, id: string, input: StaffAppointmentChange, by: string): Promise<{ statusChanged: string | null; moved: boolean }> {
   const a = await prisma.hlAppointment.findFirst({ where: { id, accountId }, include: { calendar: true } })
   if (!a) throw new HlInputError('Appointment not found.')
   const block = a.source === 'block'
@@ -196,7 +197,8 @@ export async function updateAppointment(accountId: string, id: string, input: St
     data.meta = asJson({ ...meta, history: history.slice(-20) })
     await prisma.hlAppointment.update({ where: { id }, data })
   }
-  if (moving && a.contactId && data.startTime && (data.startTime as Date).getTime() !== a.startTime.getTime()) {
+  const moved = !block && !!data.startTime && (data.startTime as Date).getTime() !== a.startTime.getTime()
+  if (moved && a.contactId) {
     const tz = (await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { timezone: true } })).timezone
     await logActivity(accountId, a.contactId, `Rescheduled ${a.calendar?.name.trim() ?? 'appointment'} (by ${by})\nfrom ${appointmentTimes({ startTime: a.startTime, timezone: tz }).full}\nto ${appointmentTimes({ startTime: data.startTime as Date, timezone: tz }).full}`, { appointmentId: id })
   }
@@ -206,7 +208,7 @@ export async function updateAppointment(accountId: string, id: string, input: St
     await setStatus(id, input.status, by)
     statusChanged = input.status
   }
-  return { statusChanged }
+  return { statusChanged, moved }
 }
 
 /** Remove blocked-off time. Appointments are cancelled instead, so their automations stop properly. */
@@ -222,4 +224,5 @@ export async function fireMadeTriggers(accountId: string, m: Made): Promise<void
   if (m.kind !== 'appointment' || !m.contactId) return
   if (m.created) await fireTrigger(accountId, m.contactId, { type: 'contact_created', context: { appointmentId: m.appointmentId } })
   await fireTrigger(accountId, m.contactId, { type: 'appointment_booked', calendarId: m.calendarId ?? undefined, context: { appointmentId: m.appointmentId } })
+  await notifyAppointment(m.appointmentId, 'booked')
 }

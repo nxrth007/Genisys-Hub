@@ -8,6 +8,8 @@ import { ArrowLeft, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   CALENDAR_TYPES,
+  NOTIFICATION_EVENTS,
+  NOTIFICATION_PRESETS,
   WEEKDAYS,
   asCalendarSettings,
   defaultCalendarSettings,
@@ -16,6 +18,7 @@ import {
   type HlCalendarGroup,
   type HlCalendarSettings,
   type HlHours,
+  type HlNotification,
   type HlSchedule,
   type TimeUnit,
 } from '@/lib/hl/calendar-shared'
@@ -118,7 +121,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
   const [newLength, setNewLength] = useState('')
   const mainLength = minutesOf(s.slotDuration, s.slotDurationUnit, 30)
   const lengths = [...new Set([mainLength, ...extra])]
-  const [tab, setTab] = useState<'details' | 'availability' | 'form' | 'confirm' | 'share'>('details')
+  const [tab, setTab] = useState<'details' | 'availability' | 'form' | 'confirm' | 'notify' | 'share'>('details')
   const [newDate, setNewDate] = useState('')
   const save = useMutation({
     mutationFn: () =>
@@ -174,6 +177,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
           { key: 'availability', label: 'Availability' },
           { key: 'form', label: 'Booking Form' },
           { key: 'confirm', label: 'Confirmations' },
+          { key: 'notify', label: 'Notifications' },
           { key: 'share', label: 'Share & Embed' },
         ]}
       />
@@ -491,7 +495,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
               <Input value={s.pixelId ?? ''} onChange={(e) => set({ pixelId: e.target.value.replace(/\D/g, '') })} placeholder="1301548744583715" className="w-56 font-mono text-[12.5px]" />
             </Field>
             <p className="text-[12.5px] text-muted-foreground">
-              Confirmation and reminder texts come from automations:{' '}
+              Confirmation and reminder texts: set them up under Notifications, or with automations:{' '}
               <Link href={`/hell-level/${accountId}/automation`} className="text-primary hover:underline">
                 Automation → Create workflow → Appointment Confirmation & Reminders
               </Link>
@@ -500,6 +504,8 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
           </Card>
         </div>
       )}
+
+      {tab === 'notify' && <NotificationsTab value={s.hlNotifications ?? []} onChange={(hlNotifications) => set({ hlNotifications })} />}
 
       {tab === 'share' && (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -537,6 +543,99 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+const MERGE_HINT = '{{contact.first_name}} {{contact.name}} {{appointment.start_time}} {{appointment.time}} {{appointment.calendar_name}} {{appointment.location}} {{appointment.reschedule_link}} {{appointment.cancellation_link}} {{appointment.booking_link}} {{account.business_name}}'
+
+/** Minutes as a number and a unit for the reminder and follow-up times. */
+function splitMinutes(m: number): { n: number; unit: 'minutes' | 'hours' | 'days' } {
+  if (m > 0 && m % 1440 === 0) return { n: m / 1440, unit: 'days' }
+  if (m > 0 && m % 60 === 0) return { n: m / 60, unit: 'hours' }
+  return { n: m, unit: 'minutes' }
+}
+const UNIT_MINUTES = { minutes: 1, hours: 60, days: 1440 } as const
+
+/** The calendar's notifications: texts to the contact, texts or emails to the team member, on booking, changes, before and after. */
+function NotificationsTab({ value, onChange }: { value: HlNotification[]; onChange: (v: HlNotification[]) => void }) {
+  const [preset, setPreset] = useState('')
+  const set = (i: number, patch: Partial<HlNotification>) => onChange(value.map((n, j) => (j === i ? { ...n, ...patch } : n)))
+  const add = (key: string) => {
+    const p = NOTIFICATION_PRESETS.find((x) => x.label === key)
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `n${Date.now()}`
+    onChange([...value, p ? { id, enabled: true, on: p.on, to: p.to, channel: p.channel, minutes: p.minutes, subject: p.subject, body: p.body } : { id, enabled: true, on: 'booked', to: 'contact', channel: 'sms', body: '' }])
+    setPreset('')
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-2 p-5">
+        <p className="text-[15px] font-semibold text-foreground">Notifications</p>
+        <p className="text-[12.5px] text-muted-foreground">
+          Sent when an appointment on this calendar is booked, rescheduled or cancelled, before it starts and after it ends. Texts to the contact need their texting consent (the booking form’s box) and stop if they text STOP; reminders wait for the morning. Team member alerts go to the appointment’s team member (their phone and email under My Staff), else the business’s notification phone and email.
+        </p>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Select className="w-80" value={preset} onChange={(e) => setPreset(e.target.value)}>
+            <option value="">Add a notification…</option>
+            {NOTIFICATION_PRESETS.map((p) => (
+              <option key={p.label} value={p.label}>
+                {p.label}
+              </option>
+            ))}
+            <option value="__blank">A blank one</option>
+          </Select>
+          <Button size="sm" icon={<Plus className="h-3.5 w-3.5" />} disabled={!preset} onClick={() => add(preset)}>
+            Add
+          </Button>
+        </div>
+      </Card>
+      {!value.length && <p className="px-1 text-[13px] text-muted-foreground">None yet: this calendar sends nothing on its own (automations still can).</p>}
+      {value.map((n, i) => {
+        const timed = n.on === 'reminder' || n.on === 'followup'
+        const t = splitMinutes(Number(n.minutes) || 0)
+        return (
+          <Card key={n.id} className={cn('flex flex-col gap-3 p-4', !n.enabled && 'opacity-60')}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Toggle checked={n.enabled} onChange={(v) => set(i, { enabled: v })} label="On" />
+              <Select className="h-8 w-36 text-[12.5px]" value={n.on} onChange={(e) => set(i, { on: e.target.value as HlNotification['on'], ...(e.target.value === 'reminder' || e.target.value === 'followup' ? { minutes: n.minutes ?? 60 } : {}) })}>
+                {NOTIFICATION_EVENTS.map((ev) => (
+                  <option key={ev.key} value={ev.key}>
+                    {ev.label}
+                  </option>
+                ))}
+              </Select>
+              {timed && (
+                <>
+                  <Input type="number" min={0} className="h-8 w-20 text-[12.5px]" value={t.n} onChange={(e) => set(i, { minutes: Math.max(0, Number(e.target.value) || 0) * UNIT_MINUTES[t.unit] })} />
+                  <Select className="h-8 w-28 text-[12.5px]" value={t.unit} onChange={(e) => set(i, { minutes: t.n * UNIT_MINUTES[e.target.value as keyof typeof UNIT_MINUTES] })}>
+                    <option value="minutes">minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                  </Select>
+                  <span className="text-[12.5px] text-muted-foreground">{n.on === 'reminder' ? 'before it starts' : 'after it ends'}</span>
+                </>
+              )}
+              <span className="text-[12.5px] text-muted-foreground">to</span>
+              <Select className="h-8 w-36 text-[12.5px]" value={n.to} onChange={(e) => set(i, { to: e.target.value === 'member' ? 'member' : 'contact', ...(e.target.value === 'contact' ? { channel: 'sms' } : {}) })}>
+                <option value="contact">the contact</option>
+                <option value="member">the team member</option>
+              </Select>
+              <Select className="h-8 w-24 text-[12.5px]" value={n.channel} onChange={(e) => set(i, { channel: e.target.value === 'email' ? 'email' : 'sms' })}>
+                <option value="sms">Text</option>
+                <option value="email" disabled={n.to === 'contact'}>
+                  Email{n.to === 'contact' ? ' (not yet)' : ''}
+                </option>
+              </Select>
+              <button type="button" title="Remove" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => onChange(value.filter((_, j) => j !== i))}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+            {n.channel === 'email' && <Input placeholder="Subject" value={n.subject ?? ''} onChange={(e) => set(i, { subject: e.target.value })} />}
+            <Textarea rows={3} value={n.body} onChange={(e) => set(i, { body: e.target.value })} placeholder="The message" />
+          </Card>
+        )
+      })}
+      <p className="px-1 font-mono text-[11px] leading-relaxed text-muted-foreground">{MERGE_HINT}</p>
     </div>
   )
 }

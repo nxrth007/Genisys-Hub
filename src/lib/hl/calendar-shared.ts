@@ -72,6 +72,8 @@ export type HlCalendarSettings = {
   /** A Facebook pixel fired on the booking page. */
   pixelId?: string
   // --- Hell-level's own ---
+  /** The calendar's own notifications (GHL's Notifications tab). GHL's imported `notifications` are its older email switches, kept as they were. */
+  hlNotifications?: HlNotification[]
   /** Where it happens when no team member has their own: an address, a phone number, a meeting link. */
   meetingLocation?: string
   /** The booking form's consent boxes (default: the two every form gets). */
@@ -102,6 +104,43 @@ export const asCalendarSettings = (v: unknown): HlCalendarSettings => (v && type
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export type HlDurationOption = { duration: number; durationUnit: TimeUnit; isDefault?: boolean; order?: number }
+
+/**
+ * A calendar notification: a text to the contact, or a text or email to the
+ * team member, when an appointment is booked, rescheduled or cancelled, a
+ * reminder `minutes` before it starts, or a follow-up `minutes` after it ends.
+ */
+export type HlNotification = {
+  id: string
+  on: 'booked' | 'rescheduled' | 'cancelled' | 'reminder' | 'followup'
+  to: 'contact' | 'member'
+  channel: 'sms' | 'email'
+  minutes?: number
+  subject?: string
+  body: string
+  enabled: boolean
+}
+
+export const NOTIFICATION_EVENTS: { key: HlNotification['on']; label: string }[] = [
+  { key: 'booked', label: 'Booked' },
+  { key: 'rescheduled', label: 'Rescheduled' },
+  { key: 'cancelled', label: 'Cancelled' },
+  { key: 'reminder', label: 'Reminder' },
+  { key: 'followup', label: 'Follow-up' },
+]
+
+/** GHL's usual set, in Hell-level's words: confirmations, two reminders, the team's heads-up. */
+export const NOTIFICATION_PRESETS: (Omit<HlNotification, 'id' | 'enabled'> & { label: string })[] = [
+  { label: 'Confirmation text to the contact', on: 'booked', to: 'contact', channel: 'sms', body: 'Hi {{contact.first_name}}, you’re booked with {{account.business_name}} for {{appointment.start_time}}. Need to change it? {{appointment.reschedule_link}}' },
+  { label: 'Reminder text a day before', on: 'reminder', to: 'contact', channel: 'sms', minutes: 1440, body: 'Reminder: {{account.business_name}} tomorrow, {{appointment.start_time}}. Need a different time? {{appointment.reschedule_link}}' },
+  { label: 'Reminder text an hour before', on: 'reminder', to: 'contact', channel: 'sms', minutes: 60, body: 'See you soon, {{contact.first_name}}! {{account.business_name}} at {{appointment.time}}.' },
+  { label: 'Rescheduled text to the contact', on: 'rescheduled', to: 'contact', channel: 'sms', body: 'Your appointment with {{account.business_name}} is now {{appointment.start_time}}.' },
+  { label: 'Cancelled text to the contact', on: 'cancelled', to: 'contact', channel: 'sms', body: 'Your appointment with {{account.business_name}} on {{appointment.start_time}} is cancelled. Book another time: {{appointment.booking_link}}' },
+  { label: 'Follow-up text after', on: 'followup', to: 'contact', channel: 'sms', minutes: 60, body: 'Thanks for your time today, {{contact.first_name}}! Any questions, just reply here. – {{account.business_name}}' },
+  { label: 'New booking text to the team member', on: 'booked', to: 'member', channel: 'sms', body: 'New booking: {{contact.name}} {{contact.phone}}, {{appointment.calendar_name}}, {{appointment.start_time}}.' },
+  { label: 'New booking email to the team member', on: 'booked', to: 'member', channel: 'email', subject: 'New booking: {{contact.name}}', body: '{{contact.name}} ({{contact.phone}}, {{contact.email}}) booked {{appointment.calendar_name}} for {{appointment.start_time}}.' },
+  { label: 'Cancellation text to the team member', on: 'cancelled', to: 'member', channel: 'sms', body: 'Cancelled: {{contact.name}}, {{appointment.calendar_name}}, {{appointment.start_time}}.' },
+]
 
 /** The lengths a booker can pick, in minutes, default first (just the slot length when there's no choice). */
 export function durationsOf(s: HlCalendarSettings): number[] {

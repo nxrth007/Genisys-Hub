@@ -26,6 +26,8 @@ export type MergeAppointment = {
   status?: string | null
   rescheduleUrl?: string | null
   cancelUrl?: string | null
+  /** The calendar's booking page, to book another time. */
+  bookingUrl?: string | null
 }
 
 export type MergeData = {
@@ -88,6 +90,8 @@ function appointmentValue(key: string, a: MergeAppointment | null | undefined): 
     case 'cancellation_link':
     case 'cancel_link':
       return a.cancelUrl ?? ''
+    case 'booking_link':
+      return a.bookingUrl ?? ''
     default:
       return ''
   }

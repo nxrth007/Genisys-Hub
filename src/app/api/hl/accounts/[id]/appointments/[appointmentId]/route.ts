@@ -23,8 +23,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   try {
     const body = (await jsonBody(req)) as unknown as StaffAppointmentChange
-    const { statusChanged } = await updateAppointment(id, appointmentId, body, guard.email)
-    if (statusChanged) after(() => fireStatusTrigger(appointmentId, statusChanged).catch((err) => console.error('[hell-level] status automations failed:', err)))
+    const { statusChanged, moved } = await updateAppointment(id, appointmentId, body, guard.email)
+    // A move is GHL's "rescheduled" (automations and the calendar's notifications); then any new status.
+    after(async () => {
+      try {
+        if (moved && statusChanged !== 'cancelled') await fireStatusTrigger(appointmentId, 'rescheduled')
+        if (statusChanged) await fireStatusTrigger(appointmentId, statusChanged)
+      } catch (err) {
+        console.error('[hell-level] appointment automations failed:', err)
+      }
+    })
     const updated = await prisma.hlAppointment.findUniqueOrThrow({ where: { id: appointmentId } })
     return NextResponse.json({ appointment: { ...updated, manageUrl: updated.token ? `${publicBase()}/hl/a/${updated.token}` : null } })
   } catch (err) {
