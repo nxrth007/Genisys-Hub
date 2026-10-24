@@ -53,13 +53,31 @@ function Board() {
   const { accountId } = useParams<{ accountId: string }>()
   const qc = useQueryClient()
   const q = useQuery<{ pipelines: Pipeline[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
-  const [pipelineId, setPipelineId] = useState<string>('')
+  // The pipeline picked last time on this browser (GHL remembers it too).
+  const storageKey = `hl.pipeline.${accountId}`
+  const [pipelineId, setPipelineId] = useState<string>(() => {
+    try {
+      return typeof window === 'undefined' ? '' : (window.localStorage.getItem(storageKey) ?? '')
+    } catch {
+      return ''
+    }
+  })
+  const pickPipeline = (id: string) => {
+    setPipelineId(id)
+    try {
+      window.localStorage.setItem(storageKey, id)
+    } catch {
+      // private window: just not remembered
+    }
+  }
   const [status, setStatus] = useState<'open' | 'all' | 'won' | 'lost'>('open')
   const [editing, setEditing] = useState<Opp | null>(null)
   const [adding, setAdding] = useState<string | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
-  const pipeline = q.data?.pipelines.find((p) => p.id === pipelineId) ?? q.data?.pipelines[0]
+  // Otherwise the busiest one, not whichever was made first.
+  const busiest = useMemo(() => [...(q.data?.pipelines ?? [])].sort((a, b) => b.opportunities.length - a.opportunities.length)[0], [q.data])
+  const pipeline = q.data?.pipelines.find((p) => p.id === pipelineId) ?? busiest
   const shown = useMemo(() => (pipeline?.opportunities ?? []).filter((o) => status === 'all' || o.status === status), [pipeline, status])
 
   const move = useMutation({
@@ -90,7 +108,7 @@ function Board() {
       {/* GHL's toolbar: the pipeline and how many are in it on the left, the rest on the right. */}
       <div className="flex flex-wrap items-center gap-3">
         {(q.data?.pipelines.length ?? 0) > 1 && (
-          <Select value={pipeline?.id ?? ''} onChange={(e) => setPipelineId(e.target.value)} className="w-56">
+          <Select value={pipeline?.id ?? ''} onChange={(e) => pickPipeline(e.target.value)} className="w-56">
             {q.data!.pipelines.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
