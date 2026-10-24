@@ -204,11 +204,12 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
                   <Link href={`/hell-level/${accountId}/automation/${w.id}`} className="font-medium text-foreground hover:text-primary">
                     {w.name}
                   </Link>
-                  <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-                    <Zap className="h-3 w-3 text-warning" /> {triggerTitle(w.triggers?.[0] ?? w.trigger)}
+                  <p className="text-[12px] text-muted-foreground">
+                    <Zap className="mr-1 inline h-3 w-3 align-[-2px] text-warning" />
+                    {triggerTitle(w.triggers?.[0] ?? w.trigger)}
                     {(w.triggers?.length ?? 0) > 1 && ` +${w.triggers!.length - 1}`} · {w.steps.length} action{w.steps.length === 1 ? '' : 's'}
-                    {searching && w.folder && <span>· in {w.folder.split('/').join(' › ')}</span>}
-                    {w.ghlId && <span className="font-mono text-[11px]">· from GHL</span>}
+                    {searching && w.folder && ` · in ${w.folder.split('/').join(' › ')}`}
+                    {w.ghlId && <span className="font-mono text-[11px]"> · from GHL</span>}
                   </p>
                 </td>
                 <td className="px-4 py-3">{w.deletedAt ? <Badge color="red">Deleted</Badge> : <Badge color={w.status === 'published' ? 'green' : 'gray'}>{w.status === 'published' ? 'Published' : 'Draft'}</Badge>}</td>

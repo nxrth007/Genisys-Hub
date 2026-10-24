@@ -182,7 +182,14 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
     if (structural(t)) continue
     const a = rec(t.attributes)
     const id = String(t.id)
-    const name = str(t.name) ?? undefined
+    // The name GHL shows: an If/Else's is its condition name (every one is called "yes" inside); newer
+    // actions (Split, Find Contact) keep theirs in attributes, with an i18n key or a stock label as `name`.
+    const own = str(a.name)
+    const name =
+      (t.type === 'if_else' ? str(a.conditionName) : null) ??
+      (own && !own.includes('{{') && (!str(t.name) || /^[\w-]+(\.[\w-]+)+$/.test(str(t.name)!) || t.type === 'find_contact' || t.type === 'workflow_split') ? own : null) ??
+      str(t.name) ??
+      undefined
     const next = Array.isArray(t.next) ? null : resolve(t.next)
     const base = { id, name, next }
     const ghl = { type: String(t.type) }

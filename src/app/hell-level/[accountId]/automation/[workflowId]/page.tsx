@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
 import { contactLabel, useAccount, type ContactRow } from '@/components/hell-level/bits'
-import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, stepSummary } from '@/components/hell-level/step-editor'
+import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, conditionText, stepSummary } from '@/components/hell-level/step-editor'
 import { PanZoomCanvas } from '@/components/hell-level/canvas'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Spinner, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 import { confirmAction } from '@/components/hell-level/confirm'
@@ -79,6 +79,8 @@ type Ctx = {
   add: (slot: Slot) => void
   remove: (id: string) => void
   name: (id: string) => string
+  /** A trigger id → its name, for If/Else branches that check which trigger started the run. */
+  triggerName: (id: string) => string | undefined
 }
 
 const stepLabel = (s: HlStep) => s.name || STEPS.find((x) => x.type === s.type)?.label || s.type
@@ -173,6 +175,10 @@ export default function WorkflowBuilderPage() {
     name: (id) => {
       const s = draft.steps.find((x) => x.id === id)
       return s ? stepLabel(s) : 'a removed step'
+    },
+    triggerName: (id) => {
+      const t = triggers.find((x) => x.id === id)
+      return t ? triggerTitle(t) : undefined
     },
     remove: (id) => {
       const s = draft.steps.find((x) => x.id === id)
@@ -339,6 +345,7 @@ export default function WorkflowBuilderPage() {
                     profile={profile}
                     workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt)}
                     steps={draft.steps}
+                    triggerName={ctx.triggerName}
                     onSave={(s) => {
                       setSteps(draft.steps.map((x) => (x.id === s.id ? s : x)))
                       setDrawer(null)
@@ -484,7 +491,7 @@ function ChainView({ chain, ctx }: { chain: FlowChain; ctx: Ctx }) {
         <Fragment key={n.step.id}>
           <NodeCard s={n.step} ctx={ctx} />
           {n.arms ? (
-            <Arms arms={n.arms} ctx={ctx} />
+            <Arms step={n.step} arms={n.arms} ctx={ctx} />
           ) : n.jump !== undefined ? (
             <div className="flex flex-col items-center">
               <span className="h-5 border-l border-dashed border-border" />
@@ -503,8 +510,16 @@ function ChainView({ chain, ctx }: { chain: FlowChain; ctx: Ctx }) {
   )
 }
 
+/** What an If/Else branch checks, in a line (GHL shows it under the branch name). */
+function armDetail(step: HlStep, key: string, ctx: Ctx): string | null {
+  if (step.type !== 'if_else') return null
+  if (key === 'else') return 'When none of the conditions are met'
+  const first = step.branches?.find((b) => b.id === key)?.segments[0]?.conditions[0]
+  return first ? `If ${conditionText(first, ctx.triggerName)}` : null
+}
+
 /** If/Else branches and Split paths side by side, joined to their step by one line. */
-function Arms({ arms, ctx }: { arms: FlowArm[]; ctx: Ctx }) {
+function Arms({ step, arms, ctx }: { step: HlStep; arms: FlowArm[]; ctx: Ctx }) {
   return (
     <div className="flex flex-col items-center">
       <span className="h-6 w-px bg-border" />
@@ -513,9 +528,12 @@ function Arms({ arms, ctx }: { arms: FlowArm[]; ctx: Ctx }) {
           <div key={a.key} className="relative flex flex-col items-center px-6">
             {arms.length > 1 && <span className={cn('absolute top-0 h-px bg-border', i === 0 ? 'left-1/2 right-0' : i === arms.length - 1 ? 'left-0 right-1/2' : 'inset-x-0')} />}
             <span className="h-5 w-px bg-border" />
-            <span className="max-w-[280px] truncate rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-foreground/90 shadow-sm">
-              {a.label}
-              {a.percent !== undefined && ` · ${a.percent}%`}
+            <span className="flex max-w-[280px] flex-col items-center rounded-xl border border-border bg-card px-3 py-1.5 text-center shadow-sm">
+              <span className="max-w-full truncate text-[12px] font-semibold text-foreground/90">
+                {a.label}
+                {a.percent !== undefined && ` · ${a.percent}%`}
+              </span>
+              {armDetail(step, a.key, ctx) && <span className="max-w-full truncate text-[11px] text-muted-foreground">{armDetail(step, a.key, ctx)}</span>}
             </span>
             <Connector onAdd={() => ctx.add(a.slot)} />
             <ChainView chain={a.chain} ctx={ctx} />

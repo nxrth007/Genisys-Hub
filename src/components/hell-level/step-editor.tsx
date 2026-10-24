@@ -64,13 +64,14 @@ export function windowText(w: { days: number[]; start: string; end: string }): s
   return `${run ? `${DAY_NAMES[d[0]]}–${DAY_NAMES[d[d.length - 1]]}` : d.map((x) => DAY_NAMES[x]).join(', ')} ${w.start}–${w.end}`
 }
 
-/** A GHL if/else condition in words. */
-export function conditionText(c: HlCondition): string {
+/** A GHL if/else condition in words (`triggerName` turns a trigger id into its name). */
+export function conditionText(c: HlCondition, triggerName?: (id: string) => string | undefined): string {
   const v = Array.isArray(c.value) ? c.value.join(', ') : String(c.value ?? '')
   if (c.type === 'contact_reply' && c.subType === 'message.body') return `Reply ${c.operator === 'notContain' ? 'doesn’t contain' : c.operator === 'contain' ? 'contains' : c.operator} “${v}”`
   if (c.type === 'contact_reply' && c.subType === 'contact_replied') return v === 'false' ? 'Contact hasn’t replied' : 'Contact replied'
   if (c.type === 'contact_detail' && c.subType === 'tags') return `${c.operator === 'index-of-false' ? 'Doesn’t have' : 'Has'} tag “${v}”`
-  if (c.type === 'trigger') return 'Started by a particular trigger'
+  if (c.type === 'contact_reply' && c.subType === 'matches_intent') return `Reply means “${v}” (AI intent)`
+  if (c.type === 'trigger') return `Workflow trigger ${c.operator === '!=' ? 'isn’t' : 'is'} “${triggerName?.(v) ?? 'a particular trigger'}”`
   return `${c.type}${c.subType ? ` · ${c.subType}` : ''} ${c.operator} ${v}`.trim()
 }
 
@@ -174,6 +175,7 @@ export function StepEditor({
   profile,
   workflows = [],
   steps = [],
+  triggerName,
   onSave,
   onDelete,
 }: {
@@ -181,6 +183,8 @@ export function StepEditor({
   stages: HlStage[]
   pipelines: { id: string; name: string; stages: HlStage[] }[]
   profile: HlProfile
+  /** A trigger id → its name (If/Else "Workflow trigger is …"). */
+  triggerName?: (id: string) => string | undefined
   /** The sub-account's other workflows (Add to / Remove from workflow). */
   workflows?: { id: string; name: string }[]
   /** The workflow's steps (where a Go to jumps). */
@@ -411,7 +415,7 @@ export function StepEditor({
                     {seg.conditions.map((c, j) => (
                       <li key={j}>
                         {j > 0 && <span className="mr-1 font-semibold uppercase">{seg.operator === 'or' ? 'or' : 'and'}</span>}
-                        {conditionText(c)}
+                        {conditionText(c, triggerName)}
                       </li>
                     ))}
                   </ul>
