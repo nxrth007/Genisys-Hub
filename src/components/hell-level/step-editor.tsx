@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Ban, CalendarClock, Clock, CornerUpLeft, Droplets, FileText, Filter, GitBranch, GitFork, ListPlus, ListX, Mail, MailOpen, MessageCircle, MessageSquareReply, PenLine, Puzzle, Smartphone, Tag, UserPen, Zap } from 'lucide-react'
+import { Ban, CalendarClock, Clock, CornerUpLeft, Droplets, FileText, Filter, FilterX, GitBranch, GitFork, ListPlus, ListX, Mail, MailOpen, MessageCircle, MessageSquareReply, PenLine, Puzzle, Smartphone, Tag, UserPen, Zap } from 'lucide-react'
 import { renderTemplate, unknownTokens } from '@/lib/hl/merge'
 import { APPOINTMENT_STATUSES, MERGE_FIELDS, STEPS, TRIGGERS, type HlCondition, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from './ui'
@@ -16,6 +16,7 @@ export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ classNa
   remove_tag: { icon: Tag, bg: 'var(--chip-mint)', fg: 'var(--chip-mint-fg)' },
   create_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
   move_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
+  remove_opportunity: { icon: FilterX, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
   if_tag: { icon: GitBranch, bg: 'var(--chip-pink)', fg: 'var(--chip-pink-fg)' },
   wait_appointment: { icon: CalendarClock, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' },
   send_email: { icon: MailOpen, bg: 'var(--chip-violet)', fg: 'var(--chip-violet-fg)' },
@@ -40,6 +41,7 @@ export const SAMPLE = (profile: HlProfile) => ({
   account: profile,
   form: { service: 'Roof repair', message: 'Small leak over the kitchen' },
   call: { from: '+15125550123' },
+  links: { review: 'https://genisys-hub.onrender.com/hl/l/sample' },
   appointment: {
     title: 'Jennifer Smith',
     startTime: '2026-11-03T19:00:00.000Z',
@@ -107,8 +109,11 @@ export function stepSummary(s: HlStep, stages: HlStage[]): string {
       return (c.fields ?? []).map((f) => f.label || f.key).join(', ') || 'Nothing to update'
     case 'add_note':
       return plain(c.body).slice(0, 70) || 'Empty note'
+    case 'remove_opportunity':
+      return c.pipelineId ? 'From the pipeline it names' : 'No pipeline picked'
     case 'add_to_workflow':
     case 'remove_from_workflow':
+      if (s.type === 'remove_from_workflow' && c.all) return 'All workflows'
       return c.workflowIds?.length ? `${c.workflowIds.length} workflow${c.workflowIds.length === 1 ? '' : 's'}` : s.type === 'remove_from_workflow' ? 'This workflow' : 'Pick a workflow'
     case 'drip':
       return 'Batches contacts; one goes straight on here'
@@ -317,6 +322,28 @@ export function StepEditor({
           </Select>
         </Field>
       )}
+      {s.type === 'remove_opportunity' && (
+        <Field label="Remove the contact's opportunity from" hint="Only this pipeline; nothing is removed until one is picked.">
+          <Select value={s.config.pipelineId ?? ''} onChange={(e) => set({ pipelineId: e.target.value || undefined })}>
+            <option value="">Pick a pipeline…</option>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {s.type === 'create_opportunity' && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Opportunity name" hint="Blank = the contact's name">
+            <Input value={s.config.oppName ?? ''} onChange={(e) => set({ oppName: e.target.value })} placeholder="{{contact.name}}" />
+          </Field>
+          <Field label="Lead source">
+            <Input value={s.config.source ?? ''} onChange={(e) => set({ source: e.target.value })} placeholder="Form Submitted" />
+          </Field>
+        </div>
+      )}
       {(s.type === 'create_opportunity' || s.type === 'move_opportunity') && (
         <>
           {pipelines.length > 1 && (
@@ -430,7 +457,16 @@ export function StepEditor({
       {(s.type === 'add_to_workflow' || s.type === 'remove_from_workflow') && (
         <div className="flex flex-col gap-1.5">
           <p className="text-[13px] font-medium text-foreground/90">{s.type === 'add_to_workflow' ? 'Add the contact to' : 'Take the contact out of'}</p>
-          {s.type === 'remove_from_workflow' && <p className="text-[12px] text-muted-foreground">None ticked = this workflow (the contact stops here).</p>}
+          {s.type === 'remove_from_workflow' && (
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13px] text-foreground/90">
+              <span>
+                All workflows
+                <span className="block text-[12px] text-muted-foreground">Every other workflow they’re in ends; this one carries on.</span>
+              </span>
+              <Toggle checked={!!s.config.all} onChange={(v) => set({ all: v || undefined })} label="All workflows" />
+            </label>
+          )}
+          {s.type === 'remove_from_workflow' && !s.config.all && <p className="text-[12px] text-muted-foreground">None ticked = this workflow (the contact stops here).</p>}
           <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
             {workflows.map((w) => {
               const on = (s.config.workflowIds ?? []).includes(w.id)
@@ -560,8 +596,15 @@ export function TriggerEditor({
       )}
       {t.type === 'inbound_sms' && (
         <div className="grid grid-cols-[1fr_150px] gap-3">
-          <Field label={t.match === 'exact' ? 'Only replies that are exactly' : 'Only replies containing'} hint="Blank = any reply">
-            <Input value={t.keyword ?? ''} onChange={(e) => setT({ ...t, keyword: e.target.value })} placeholder="e.g. yes" />
+          <Field label={t.match === 'exact' ? 'Only replies that are exactly' : 'Only replies containing'} hint="Blank = any reply. Several: separate with commas (any of them).">
+            <Input
+              value={(t.keywords?.length ? t.keywords : t.keyword ? [t.keyword] : []).join(', ')}
+              onChange={(e) => {
+                const phrases = e.target.value.split(',').map((x) => x.trim())
+                setT({ ...t, keyword: undefined, keywords: phrases.some(Boolean) ? phrases : undefined })
+              }}
+              placeholder="e.g. yes"
+            />
           </Field>
           <Field label="Match">
             <Select value={t.match ?? 'contains'} onChange={(e) => setT({ ...t, match: e.target.value === 'exact' ? 'exact' : 'contains' })}>
@@ -570,6 +613,14 @@ export function TriggerEditor({
             </Select>
           </Field>
         </div>
+      )}
+      {t.type === 'link_clicked' && (
+        <Field label="Link" hint="The review link in review-request texts ({{trigger_link.review}}).">
+          <Select value={t.link ?? ''} onChange={(e) => setT({ ...t, link: e.target.value || undefined })}>
+            <option value="">Any tracked link</option>
+            <option value="review">Review link</option>
+          </Select>
+        </Field>
       )}
       {t.type === 'tag_added' && (
         <Field label="Tag">

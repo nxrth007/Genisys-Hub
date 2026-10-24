@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { automationPrefill, type AutomationInputs } from '@/lib/automation-copy'
+import { type AutomationInputs, automationPrefill, bestIntake } from '@/lib/automation-copy'
 import { AUTOMATION_COPY_PREFIX, cleanSavedCopy, parseSavedCopy } from '@/lib/automation-copy-saved'
 
 /**
@@ -19,8 +19,8 @@ export async function boardInputs(id: string, override?: unknown): Promise<Autom
       website: true,
       intakes: {
         orderBy: { receivedAt: 'desc' },
-        take: 1,
-        select: { fullName: true, businessName: true, customerPhone: true, leadEmail: true, website: true, domainName: true },
+        take: 6,
+        select: { fullName: true, businessName: true, businessAddress: true, customerPhone: true, leadEmail: true, website: true, domainName: true },
       },
     },
   })
@@ -29,5 +29,5 @@ export async function boardInputs(id: string, override?: unknown): Promise<Autom
   const row = await prisma.appSetting.findUnique({ where: { key: `${AUTOMATION_COPY_PREFIX}${id}` } })
   const saved = parseSavedCopy(row?.value).values
   const fromBody = override ? cleanSavedCopy({ values: override }).values : {}
-  return { ...automationPrefill({ ...c, intake: intakes[0] ?? null }), ...saved, ...fromBody }
+  return { ...automationPrefill({ ...c, intake: bestIntake(intakes) ?? null }), ...saved, ...fromBody }
 }

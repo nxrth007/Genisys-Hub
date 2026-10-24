@@ -5,6 +5,8 @@ import { readProfile } from './accounts'
 import { addTags, removeTags } from './contacts'
 import { renderTemplate, type MergeAppointment, type MergeData } from './merge'
 import { sendInternalEmail, sendInternalSms, sendSmsToContact } from './messages'
+import { replyIntent } from './intent'
+import { trackedLink } from './links'
 import { emailList, phoneList, toE164 } from './phone'
 import { publicBase } from './twilio'
 import type { HlBranch, HlCondition, HlStage, HlStep, HlTrigger, HlTriggerType } from './types'
@@ -34,6 +36,8 @@ export type TriggerEvent = {
   calendarId?: string
   /** appointment_status: confirmed | cancelled | showed | noshow | rescheduled */
   status?: string
+  /** link_clicked: which tracked link. */
+  link?: string
   /** Saved on the run for merge fields: { form: {...} } / { call: {...} } / { appointmentId }. */
   context?: Record<string, unknown>
 }
@@ -62,6 +66,24 @@ export function asTriggers(w: Pick<HlWorkflow, 'trigger' | 'triggers'>): HlTrigg
   return list.length ? list : [asTrigger(w.trigger)]
 }
 
+/** A reply as GHL compares it: lower case, no surrounding quotes or end punctuation. */
+const squash = (s: string) => s.trim().toLowerCase().replace(/^["'\u201c\u201d\u2018\u2019]+|["'\u201c\u201d\u2018\u2019.!?]+$/g, '').trim()
+
+/**
+ * Does the reply match one of the trigger's phrases? "exact" = the whole reply
+ * is the phrase; "contains" = the phrase appears as whole words, so "no"
+ * catches "No thanks" but not "I know".
+ */
+export function replyMatches(text: string, phrases: string[], match: 'contains' | 'exact' | undefined): boolean {
+  const reply = squash(text)
+  return phrases.some((p) => {
+    const want = squash(p)
+    if (!want) return false
+    if (match === 'exact') return reply === want
+    return new RegExp(`(^|[^a-z0-9])${want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(reply)
+  })
+}
+
 function triggerMatches(t: HlTrigger, e: TriggerEvent): boolean {
   // Switched off in GHL, or a GHL trigger with no Hell-level equivalent: never fires.
   if (t.active === false || t.type === 'ghl' || t.type !== e.type) return false
@@ -69,11 +91,11 @@ function triggerMatches(t: HlTrigger, e: TriggerEvent): boolean {
     if (t.formId && t.formId !== e.formId) return false
     if (t.formIds?.length && !t.formIds.includes(e.formId ?? '')) return false
   }
-  if (t.type === 'inbound_sms' && t.keyword?.trim()) {
-    const text = (e.text ?? '').trim().toLowerCase()
-    const word = t.keyword.trim().toLowerCase()
-    if (t.match === 'exact' ? text !== word : !text.includes(word)) return false
+  if (t.type === 'inbound_sms') {
+    const phrases = t.keywords?.length ? t.keywords : t.keyword?.trim() ? [t.keyword] : []
+    if (phrases.length && !replyMatches(e.text ?? '', phrases, t.match)) return false
   }
+  if (t.type === 'link_clicked' && t.link && t.link !== e.link) return false
   if (t.type === 'tag_added' && t.tag?.trim() && t.tag.trim().toLowerCase() !== (e.tag ?? '').toLowerCase()) return false
   if (t.type === 'opportunity_stage' || t.type === 'opportunity_created') {
     if (t.stageId && t.stageId !== e.stageId) return false
@@ -213,6 +235,27 @@ const durationMs = (amount: unknown, unit: unknown) => {
   return n * (unit === 'days' ? 86_400_000 : unit === 'hours' ? 3_600_000 : 60_000)
 }
 
+/** What the latest reply means (GHL's AI intent), asked once per reply and kept on the run. */
+async function intentOfReply(c: Ctx): Promise<'positive' | 'negative' | 'unclear' | null> {
+  const reply = await prisma.hlMessage.findFirst({
+    where: { contactId: c.contact.id, direction: 'inbound', channel: 'sms', createdAt: { gte: new Date(c.startedAt.getTime() - 120_000) } },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, body: true },
+  })
+  if (!reply?.body) return null
+  const known = rec(c.context.intent)
+  if (known.messageId === reply.id && typeof known.intent === 'string') return known.intent as 'positive' | 'negative' | 'unclear'
+  // What it's a reply to: this run's last text to them.
+  const offer = await prisma.hlMessage.findFirst({
+    where: { contactId: c.contact.id, direction: 'outbound', channel: 'sms', runId: c.runId },
+    orderBy: { createdAt: 'desc' },
+    select: { body: true },
+  })
+  const intent = await replyIntent(reply.body, offer?.body ?? '')
+  if (intent) c.context.intent = { messageId: reply.id, intent }
+  return intent
+}
+
 /** The contact's latest text since the run started (the reply it's about), or null. */
 async function latestReply(c: Ctx): Promise<string | null> {
   const m = await prisma.hlMessage.findFirst({
@@ -243,6 +286,13 @@ async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null
       if (op === '!=') return !values.some((v) => text.trim() === v)
       return null
     }
+    // GHL's AI "Intent type": schedule-yes = a yes, schedule-no = a no.
+    if (cond.subType === 'matches_intent') {
+      const intent = await intentOfReply(c)
+      if (intent === null) return null
+      const want = String(cond.value).includes('no') ? 'negative' : 'positive'
+      return op === '!=' ? intent !== want : intent === want
+    }
     return null
   }
   if (cond.type === 'contact_detail') {
@@ -263,6 +313,14 @@ async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null
     if (op === 'is_empty' || op === 'is-empty') return !value
     if (op === 'is_not_empty' || op === 'is-not-empty') return !!value
     return null
+  }
+  // GHL's "Opportunity" conditions: the stage of the contact's open opportunity.
+  if (cond.type === 'opportunities' && cond.subType === 'pipelineStageId') {
+    const want = asList(cond.value)
+    if (!want.length) return null
+    const open = await prisma.hlOpportunity.findMany({ where: { contactId: c.contact.id, status: 'open' }, select: { stageId: true } })
+    const inStage = open.some((o) => want.includes(o.stageId.toLowerCase()))
+    return op === '!=' ? !inStage : inStage
   }
   if (cond.type === 'trigger') {
     const fired = String(c.context.triggerId ?? '')
@@ -374,8 +432,14 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       const stages = (pipeline.stages as HlStage[]) ?? []
       const stage = stages.find((s) => s.id === cfg.stageId) ?? stages[0]
       if (!stage) return { ok: false, detail: 'The pipeline has no stages' }
+      // GHL's "Create or Update Opportunity": an open one in this pipeline moves to the stage instead.
       const open = await prisma.hlOpportunity.findFirst({ where: { contactId: c.contact.id, pipelineId: pipeline.id, status: 'open' } })
-      if (open) return { ok: true, detail: 'Already has an open opportunity in this pipeline' }
+      if (open) {
+        if (!cfg.stageId || open.stageId === stage.id) return { ok: true, detail: 'Already has an open opportunity in this pipeline' }
+        await prisma.hlOpportunity.update({ where: { id: open.id }, data: { stageId: stage.id } })
+        await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: pipeline.id }, c.depth + 1)
+        return { ok: true, detail: `Moved the open opportunity to ${stage.name}` }
+      }
       const last = await prisma.hlOpportunity.findFirst({ where: { pipelineId: pipeline.id, stageId: stage.id }, orderBy: { position: 'desc' }, select: { position: true } })
       const c0 = c.contact
       await prisma.hlOpportunity.create({
@@ -384,8 +448,8 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
           pipelineId: pipeline.id,
           stageId: stage.id,
           contactId: c0.id,
-          name: [c0.firstName, c0.lastName].filter(Boolean).join(' ') || c0.phone || c0.email || 'New lead',
-          source: c0.source,
+          name: render(cfg.oppName).trim().slice(0, 200) || [c0.firstName, c0.lastName].filter(Boolean).join(' ') || c0.phone || c0.email || 'New lead',
+          source: render(cfg.source).trim().slice(0, 120) || c0.source,
           position: (last?.position ?? 0) + 1,
         },
       })
@@ -405,6 +469,12 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       await prisma.hlOpportunity.update({ where: { id: opp.id }, data: { stageId: stage.id } })
       await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: opp.pipelineId }, c.depth + 1)
       return { ok: true, detail: `Moved to ${stage.name}` }
+    }
+    case 'remove_opportunity': {
+      // Only ever in the pipeline the step names, so a blank step can't clear someone's whole board.
+      if (!cfg.pipelineId) return { ok: false, detail: 'No pipeline picked: nothing removed' }
+      const gone = await prisma.hlOpportunity.deleteMany({ where: { accountId: c.accountId, contactId: c.contact.id, pipelineId: cfg.pipelineId } })
+      return { ok: true, detail: gone.count ? `Removed ${gone.count} opportunit${gone.count === 1 ? 'y' : 'ies'}` : 'No opportunity to remove in that pipeline' }
     }
     case 'if_tag': {
       const tag = (cfg.tag ?? '').trim().toLowerCase()
@@ -482,6 +552,14 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       return names.length ? { ok: true, detail: `Added to ${names.map((n) => `“${n}”`).join(', ')}` } : { ok: false, detail: 'That workflow isn’t here' }
     }
     case 'remove_from_workflow': {
+      if (cfg.all) {
+        // GHL's "Remove from all workflows": every other run of theirs ends; this one carries on to its next step.
+        const ended = await prisma.hlWorkflowRun.updateMany({
+          where: { contactId: c.contact.id, status: { in: ['running', 'waiting'] }, id: { not: c.runId } },
+          data: { status: 'cancelled', lockedAt: null, nextRunAt: null },
+        })
+        return { ok: true, detail: `Removed from all workflows (${ended.count} other run${ended.count === 1 ? '' : 's'} ended)` }
+      }
       const ids = cfg.workflowIds?.length ? cfg.workflowIds : [c.workflowId]
       const others = ids.filter((id) => id !== c.workflowId)
       if (others.length) {
@@ -558,6 +636,7 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
       form: (context.form as Record<string, unknown>) ?? null,
       call: (context.call as Record<string, unknown>) ?? null,
       appointment,
+      links: { review: trackedLink(run.contact.id, 'review') },
     },
   }
 

@@ -212,8 +212,10 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
       }
       case 'wait': {
         const after = rec(a.startAfter)
-        const amount = num(after.value) ?? 0
-        const unit = UNIT[str(after.type) ?? ''] ?? 'minutes'
+        // GHL can count in seconds; Hell-level's smallest unit is minutes.
+        const seconds = /^sec/i.test(str(after.type) ?? '')
+        const amount = seconds ? Math.round(((num(after.value) ?? 0) / 60) * 100) / 100 : (num(after.value) ?? 0)
+        const unit = seconds ? 'minutes' : (UNIT[str(after.type) ?? ''] ?? 'minutes')
         const kind = str(a.type)
         const w = rec(a.window)
         const days = arr(w.days).map(num).filter((d): d is number => d !== null && d >= 0 && d <= 6)
@@ -231,8 +233,25 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
         step = { ...base, type: 'remove_tag', config: { tags: arr(a.tags).map(str).filter((x): x is string => !!x) }, ghl }
         break
       case 'create_opportunity':
-        step = { ...base, type: 'create_opportunity', config: { pipelineId: refs.pipelines.get(str(a.pipeline_id) ?? '') ?? undefined, stageId: str(a.pipeline_stage_id) ?? undefined }, ghl }
+        step = {
+          ...base,
+          type: 'create_opportunity',
+          config: {
+            pipelineId: refs.pipelines.get(str(a.pipeline_id) ?? '') ?? undefined,
+            stageId: str(a.pipeline_stage_id) ?? undefined,
+            oppName: str(a.opportunity_name) ?? undefined,
+            source: str(a.opportunity_source) ?? undefined,
+          },
+          ghl,
+        }
         break
+      case 'remove_opportunity': {
+        // Only with a pipeline Hell-level has; it must never fall back to "any pipeline".
+        const pipelineId = refs.pipelines.get(str(a.pipeline_id) ?? '')
+        step = pipelineId ? { ...base, type: 'remove_opportunity', config: { pipelineId }, ghl } : { ...base, type: 'ghl', config: {}, ghl: { type: 'remove_opportunity', attributes: a } }
+        if (!pipelineId) unsupported.push('remove_opportunity')
+        break
+      }
       case 'if_else': {
         const nodes = arr(t.next)
           .map((n) => byId.get(String(n)))
@@ -310,7 +329,7 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
         break
       case 'remove_from_workflow': {
         const ids = (Array.isArray(a.workflow_id) ? a.workflow_id : [a.workflow_id]).map((x) => refs.workflows.get(str(x) ?? '')).filter((x): x is string => !!x)
-        step = { ...base, type: 'remove_from_workflow', config: { workflowIds: ids }, ghl }
+        step = { ...base, type: 'remove_from_workflow', config: { workflowIds: ids, ...(a.allWorkflows === true ? { all: true } : {}) }, ghl }
         break
       }
       case 'drip':
@@ -347,16 +366,42 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
       const base = { id: str(t.id) ?? undefined, name: str(t.name) ?? undefined, active: t.active !== false, ghl: { type: String(t.type), conditions: conds } }
       switch (t.type) {
         case 'customer_reply': {
+          // The reply channel: 2 = SMS, 5 = the chat widget; others (email, Facebook…) aren't Hell-level's.
+          const channel = num(pick('message.type')?.value)
+          if (channel === 5) {
+            const widget = str(pick('message.chatWidgetId')?.value)
+            const formId = widget ? refs.forms.get(widget) : undefined
+            return widget && !formId ? { ...base, type: 'ghl' } : { ...base, type: 'chat_submitted', ...(formId ? { formIds: [formId] } : {}) }
+          }
+          if (channel !== null && channel !== 2) return { ...base, type: 'ghl' }
+          // One phrase or a list ("matches any of" / "contains any of").
           const phrase = conds.find((c) => c.field === 'message.body')
-          return { ...base, type: 'inbound_sms', keyword: str(phrase?.value) ?? undefined, match: phrase && /exact/i.test(`${phrase.operator} ${phrase.id}`) ? 'exact' : 'contains' }
+          const phrases = (Array.isArray(phrase?.value) ? phrase.value : [phrase?.value]).map(str).filter((x): x is string => !!x)
+          const match = phrase && /exact|matches/i.test(`${phrase.operator} ${phrase.id}`) ? 'exact' : 'contains'
+          return { ...base, type: 'inbound_sms', match, ...(phrases.length ? { keywords: phrases } : {}) }
+        }
+        case 'call_status': {
+          // GHL's missed-call trigger: an inbound call that's busy, no-answer or voicemail.
+          const statuses = arr(pick('call_status')?.value).map((v) => str(v)?.toLowerCase())
+          const inbound = str(pick('message.direction')?.value)
+          return (!inbound || inbound === 'inbound') && (!statuses.length || statuses.some((s) => s === 'busy' || s === 'no-answer' || s === 'voicemail')) ? { ...base, type: 'missed_call' } : { ...base, type: 'ghl' }
+        }
+        case 'trigger_link':
+          // A client sub-account has one trigger link, the review link.
+          return { ...base, type: 'link_clicked', link: 'review' }
+        case 'survey_submission': {
+          const survey = refs.forms.get(str(arr(pick('survey.id')?.value)[0] ?? pick('survey.id')?.value) ?? '')
+          return survey ? { ...base, type: 'form_submitted', formIds: [survey] } : { ...base, type: 'ghl' }
         }
         case 'contact_tag': {
           const added = pick('tagsAdded')
           return added ? { ...base, type: 'tag_added', tag: str(added.value)?.toLowerCase() } : { ...base, type: 'ghl' }
         }
         case 'form_submission': {
-          const forms = arr(pick('form.id')?.value).length ? arr(pick('form.id')?.value) : [pick('form.id')?.value]
-          return { ...base, type: 'form_submitted', formIds: forms.map((f) => refs.forms.get(str(f) ?? '')).filter((x): x is string => !!x) }
+          const forms = (arr(pick('form.id')?.value).length ? arr(pick('form.id')?.value) : [pick('form.id')?.value]).map(str).filter((x): x is string => !!x)
+          const mapped = forms.map((f) => refs.forms.get(f)).filter((x): x is string => !!x)
+          // Forms Hell-level doesn't have: a trigger with no forms left would fire on every form.
+          return forms.length && !mapped.length ? { ...base, type: 'ghl' } : { ...base, type: 'form_submitted', ...(mapped.length ? { formIds: mapped } : {}) }
         }
         case 'pipeline_stage_updated':
         case 'opportunity_changed':
@@ -364,10 +409,14 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
         case 'opportunity_created':
           return { ...base, type: 'opportunity_created', pipelineId: refs.pipelines.get(str(pick('opportunity.pipelineId')?.value) ?? '') ?? undefined, stageId: str(pick('opportunity.pipelineStageId')?.value) ?? undefined }
         case 'customer_appointment':
-          return { ...base, type: 'appointment_booked', calendarId: refs.calendars.get(str(pick('calendar.id')?.value) ?? '') ?? undefined }
         case 'appointment': {
+          // A calendar Hell-level doesn't have: unfiltered, the trigger would fire for every calendar.
+          const ghlCalendar = str(arr(pick('calendar.id')?.value)[0] ?? pick('calendar.id')?.value)
+          const calendarId = ghlCalendar ? refs.calendars.get(ghlCalendar) : undefined
+          if (ghlCalendar && !calendarId) return { ...base, type: 'ghl' }
+          if (t.type === 'customer_appointment') return { ...base, type: 'appointment_booked', ...(calendarId ? { calendarId } : {}) }
           const status = str(pick('appointment.status')?.value ?? pick('appointment.appointmentStatus')?.value)
-          return { ...base, type: 'appointment_status', status: status ?? undefined, calendarId: refs.calendars.get(str(pick('calendar.id')?.value) ?? '') ?? undefined }
+          return { ...base, type: 'appointment_status', status: status ?? undefined, ...(calendarId ? { calendarId } : {}) }
         }
         case 'validation_error':
           return { ...base, type: 'sms_error' }

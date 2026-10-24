@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { createAccountForClient, createStandaloneAccount, readProfile } from '@/lib/hl/accounts'
+import { createAccountForClient, createStandaloneAccount, readProfile, repairClientProfile } from '@/lib/hl/accounts'
+import { applyClientKit } from '@/lib/hl/client-kit'
 import { defaultAccountId } from '@/lib/hl/ghl-import'
 import { hlError, hlGuard, jsonBody, str } from '@/lib/hl/http'
 
@@ -8,6 +9,9 @@ import { hlError, hlGuard, jsonBody, str } from '@/lib/hl/http'
  * GET  /api/hl/accounts: every sub-account (the switcher and the agency view),
  *      plus the clients that don't have one yet.
  * POST /api/hl/accounts { clientId } | { all: true } | { name }: create.
+ * POST /api/hl/accounts { clientKit: 'all' | accountId }: bring client
+ *      sub-accounts up to the client kit (GHL's client workflows), repairing
+ *      profiles crossed onboarding answers got wrong.
  */
 export async function GET() {
   const guard = await hlGuard()
@@ -59,6 +63,21 @@ export async function POST(req: Request) {
   if (guard instanceof NextResponse) return guard
   try {
     const body = await jsonBody(req)
+    const kitFor = str(body.clientKit)
+    if (kitFor) {
+      const accounts = await prisma.hlAccount.findMany({
+        where: { archivedAt: null, clientId: { not: null }, ...(kitFor === 'all' ? {} : { id: kitFor }) },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      })
+      const results = []
+      for (const a of accounts) {
+        const repaired = await repairClientProfile(a.id)
+        const kit = await applyClientKit(a.id)
+        results.push({ id: a.id, name: a.name, repaired, ...kit })
+      }
+      return NextResponse.json({ results })
+    }
     if (body.all === true) {
       const clients = await prisma.client.findMany({ where: { archivedAt: null, hlAccount: null }, select: { id: true } })
       let created = 0

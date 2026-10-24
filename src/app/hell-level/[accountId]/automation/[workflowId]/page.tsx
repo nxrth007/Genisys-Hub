@@ -62,6 +62,7 @@ const DEFAULTS: Record<HlStepType, HlStep['config']> = {
   add_note: { body: '' },
   create_opportunity: {},
   move_opportunity: {},
+  remove_opportunity: {},
   if_tag: { tag: '', has: true },
   if_else: {},
   goto: {},
@@ -414,7 +415,11 @@ function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], pipe
     const names = ids.map((id) => forms.find((f) => f.id === id)?.name).filter(Boolean)
     return names.length ? names.join(', ') : `${ids.length} form${ids.length === 1 ? '' : 's'}`
   }
-  if (t.type === 'inbound_sms') return t.keyword ? (t.match === 'exact' ? `Reply is exactly “${t.keyword}”` : `Reply contains “${t.keyword}”`) : 'Any reply'
+  if (t.type === 'inbound_sms') {
+    const phrases = (t.keywords?.length ? t.keywords : t.keyword ? [t.keyword] : []).map((p) => `“${p}”`).join(' or ')
+    return phrases ? (t.match === 'exact' ? `Reply is exactly ${phrases}` : `Reply contains ${phrases}`) : 'Any reply'
+  }
+  if (t.type === 'link_clicked') return t.link === 'review' ? 'The review link' : 'Any tracked link'
   if (t.type === 'tag_added') return t.tag ? `Tag “${t.tag}”` : 'Any tag'
   if (t.type === 'opportunity_stage' || t.type === 'opportunity_created') {
     const pipeline = pipelines.find((p) => p.id === t.pipelineId)

@@ -21,8 +21,11 @@ export function cleanTrigger(raw: unknown): HlTrigger {
   }
   if (type === 'inbound_sms') {
     out.keyword = s(t.keyword, 200)
+    const phrases = [...new Set(list(t.keywords).map((x) => s(x, 200)).filter((x): x is string => !!x))].slice(0, 30)
+    if (phrases.length) out.keywords = phrases
     if (t.match === 'exact') out.match = 'exact'
   }
+  if (type === 'link_clicked') out.link = s(t.link, 30)?.toLowerCase()
   if (type === 'tag_added') out.tag = s(t.tag)?.toLowerCase()
   if (type === 'opportunity_stage' || type === 'opportunity_created') {
     out.stageId = s(t.stageId)
@@ -136,7 +139,14 @@ export function cleanSteps(raw: unknown): HlStep[] {
       case 'create_opportunity':
       case 'move_opportunity':
         if (type === 'move_opportunity' && !s(c.stageId)) throw new HlInputError(`Step ${i + 1}: pick the stage to move to.`)
-        return out({ ...(s(c.pipelineId) ? { pipelineId: s(c.pipelineId) } : {}), ...(s(c.stageId) ? { stageId: s(c.stageId) } : {}) })
+        return out({
+          ...(s(c.pipelineId) ? { pipelineId: s(c.pipelineId) } : {}),
+          ...(s(c.stageId) ? { stageId: s(c.stageId) } : {}),
+          ...(type === 'create_opportunity' && s(c.oppName, 200) ? { oppName: s(c.oppName, 200) } : {}),
+          ...(type === 'create_opportunity' && s(c.source, 120) ? { source: s(c.source, 120) } : {}),
+        })
+      case 'remove_opportunity':
+        return out(s(c.pipelineId) ? { pipelineId: s(c.pipelineId) } : {})
       case 'if_else':
         return { ...out({}), branches: list(step.branches).slice(0, 20).map(rec).map(branch), elseNext: s(step.elseNext, 60) ?? null, elseName: s(step.elseName, 120) ?? 'None' }
       case 'goto':
@@ -159,7 +169,7 @@ export function cleanSteps(raw: unknown): HlStep[] {
         return out({ body: s(c.body, 8000) })
       case 'add_to_workflow':
       case 'remove_from_workflow':
-        return out({ workflowIds: list(c.workflowIds).map((x) => s(x, 60)).filter((x): x is string => !!x) })
+        return out({ workflowIds: list(c.workflowIds).map((x) => s(x, 60)).filter((x): x is string => !!x), ...(type === 'remove_from_workflow' && c.all === true ? { all: true } : {}) })
       case 'drip':
         return out({})
       case 'ghl': {

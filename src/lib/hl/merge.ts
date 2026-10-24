@@ -36,6 +36,8 @@ export type MergeData = {
   /** The call that fired it: { from, to }. */
   call?: Record<string, unknown> | null
   appointment?: MergeAppointment | null
+  /** The contact's tracked links ({{trigger_link.review}}). */
+  links?: Record<string, string> | null
 }
 
 /** "Tuesday, October 28, 2026 at 2:00 PM EDT" and its parts, in the appointment's zone. */
@@ -160,6 +162,8 @@ function value(path: string, d: MergeData): string | null {
     return key.endsWith('phone') ? prettyPhone(v) : v
   }
   if (scope === 'form') return str((d.form ?? {})[key])
+  // GHL names trigger links by id; a sub-account has one, the review link.
+  if (scope === 'trigger_link') return (d.links ?? {})[key] ?? (d.links ?? {}).review ?? ''
   if (scope === 'appointment') return appointmentValue(key, d.appointment)
   if (scope === 'call') return key.endsWith('from') || key.endsWith('to') ? prettyPhone(str((d.call ?? {})[key])) : str((d.call ?? {})[key])
   return null
@@ -186,7 +190,7 @@ export function unknownTokens(text: string): string[] {
     const bare = m[1].trim().toLowerCase()
     if (bare === 'reschedule_link' || bare === 'cancellation_link') continue
     const scope = bare.split('.')[0]
-    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location'].includes(scope)) out.push(m[0])
+    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link'].includes(scope)) out.push(m[0])
   }
   return out
 }

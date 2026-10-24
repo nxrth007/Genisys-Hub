@@ -61,6 +61,8 @@ export type HlTriggerType =
   | 'appointment_status'
   | 'sms_error'
   | 'manual'
+  /** A contact opened a tracked link from a text ({{trigger_link.review}}): GHL's "Trigger link clicked". */
+  | 'link_clicked'
   /** A GoHighLevel trigger Hell-level doesn't have (Facebook lead form, inbound webhook…): shown, never fires. */
   | 'ghl'
 
@@ -78,6 +80,8 @@ export type HlTrigger = {
   formIds?: string[]
   /** inbound_sms: only messages containing this word (blank = any). */
   keyword?: string
+  /** inbound_sms: any of these phrases (GHL's "matches any of" / "contains any of"); used instead of keyword. */
+  keywords?: string[]
   /** inbound_sms: "exact" = the whole reply is the keyword (GHL's exact match phrase). */
   match?: 'contains' | 'exact'
   /** tag_added: only this tag. */
@@ -90,6 +94,8 @@ export type HlTrigger = {
   calendarId?: string
   /** appointment_status: only this status (blank = any change). */
   status?: string
+  /** link_clicked: which tracked link ("review"). Blank = any. */
+  link?: string
   /** GHL's own trigger as it was: the card shows it, and its filters are kept. */
   ghl?: { type: string; conditions?: unknown[] }
 }
@@ -110,6 +116,7 @@ export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?
   { type: 'appointment_status', label: 'Appointment status', hint: 'An appointment is confirmed, cancelled, rescheduled, or marked showed / no-show' },
   { type: 'sms_error', label: 'Text failed: invalid number', hint: 'A text bounces because the number can’t get texts (GHL’s Twilio validation error)' },
   { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
+  { type: 'link_clicked', label: 'Trigger link clicked', hint: 'A contact opens a tracked link from a text, like the review link' },
   { type: 'ghl', label: 'GoHighLevel trigger', hint: 'A GoHighLevel trigger Hell-level doesn’t have yet; it never fires here', pick: false },
 ]
 
@@ -125,6 +132,7 @@ export type HlStepType =
   | 'remove_tag'
   | 'create_opportunity'
   | 'move_opportunity'
+  | 'remove_opportunity'
   | 'if_tag'
   | 'if_else'
   | 'goto'
@@ -181,6 +189,11 @@ export type HlStep = {
     fields?: { key: string; label?: string; value: string }[]
     /** add_to_workflow / remove_from_workflow (blank on remove = this workflow). */
     workflowIds?: string[]
+    /** remove_from_workflow: every workflow the contact is in, this one too (GHL's "Remove from all workflows"). */
+    all?: boolean
+    /** create_opportunity: the opportunity's name (merge fields; blank = the contact's name) and lead source. */
+    oppName?: string
+    source?: string
     /** split: weighted random paths. */
     paths?: { id: string; name: string; percent: number; next: string | null }[]
     /** wait: only carry on inside this window (GHL's "wait for business hours"): days 0 = Sunday, times HH:MM in the sub-account's timezone. */
@@ -217,6 +230,7 @@ export const STEPS: { type: HlStepType; label: string; group: StepGroup; pick?: 
   { type: 'add_note', label: 'Add note', group: 'Contact' },
   { type: 'create_opportunity', label: 'Create opportunity', group: 'Pipeline' },
   { type: 'move_opportunity', label: 'Move opportunity', group: 'Pipeline' },
+  { type: 'remove_opportunity', label: 'Remove opportunity', group: 'Pipeline' },
   { type: 'if_tag', label: 'If / else: tag', group: 'Logic' },
   { type: 'if_else', label: 'If / else', group: 'Logic', pick: false },
   { type: 'goto', label: 'Go to', group: 'Logic', pick: false },
@@ -296,6 +310,8 @@ export type HlFormSettings = {
   inputBorder?: string
   /** The Privacy Policy / Texting terms links under the form (default on). */
   showLegalLinks?: boolean
+  /** Review survey: ratings at or above this (out of 5) go to the Google review link; lower ones leave feedback. */
+  reviewThreshold?: number
   /** Where those links go for this form. Blank = the sub-account's (Business Profile), else the Hub's hosted pages. */
   privacyUrl?: string
   termsUrl?: string

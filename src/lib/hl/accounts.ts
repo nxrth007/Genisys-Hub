@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/prisma'
-import { looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
+import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
 import { boardInputs } from '@/lib/automation-copy-server'
 import type { Prisma } from '@/generated/prisma/client'
+import { applyClientKit } from './client-kit'
 import { HlInputError } from './http'
 import { toE164 } from './phone'
-import { CHAT_FIELDS, CHAT_SETTINGS, LEAD_STAGES, QUOTE_FORM_FIELDS, QUOTE_FORM_SETTINGS, workflowTemplates } from './templates'
 import type { HlProfile } from './types'
 
 /**
@@ -30,14 +30,15 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
         contactPhone: true,
         address: true,
         ein: true,
-        intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { customerPhone: true, businessContact: true, businessAddress: true, ein: true, businessName: true } },
+        contactEmail: true,
+        intakes: { orderBy: { receivedAt: 'desc' }, take: 6, select: { customerPhone: true, businessContact: true, businessAddress: true, ein: true, businessName: true, leadEmail: true } },
       },
     }),
     boardInputs(clientId).catch(() => null),
     prisma.appSetting.findUnique({ where: { key: `gbp.client.${clientId}` } }).catch(() => null),
   ])
   if (!client) throw new HlInputError('That client no longer exists.')
-  const intake = client.intakes[0]
+  const intake = bestIntake(client.intakes)
   let reviewLink = ''
   try {
     reviewLink = clean((JSON.parse(gbp?.value ?? '{}') as { reviewUrl?: string }).reviewUrl)
@@ -57,7 +58,7 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
     businessPhone: clean(inputs?.phone),
     website: clean(inputs?.quoteLink),
     notifyPhone: ownerPhone ?? '',
-    notifyEmail: clean(inputs?.notifyEmail),
+    notifyEmail: emailOrBlank(inputs?.notifyEmail) || emailOrBlank(intake?.leadEmail) || emailOrBlank(client.contactEmail),
     reviewLink,
     address: clean(answeredAddress || client.address),
     legalName: (notABusinessName(intake?.businessName) ? '' : clean(intake?.businessName)) || clean(client.name),
@@ -66,60 +67,64 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
 }
 
 /**
- * The pipeline, forms and automations a new sub-account starts with. Safe to
- * run again: it only adds what's missing (by template key / name).
+ * Which US timezone the client is in: their onboarding answer ("Central",
+ * "PST", "Eastern daylight", "Texas"…), else the state in their address.
+ * null when neither says.
+ */
+export function zoneFromAnswers(answer: string | null | undefined, address: string | null | undefined): string | null {
+  // A website or phone number in the timezone box (crossed answers) says nothing about the zone.
+  const said = (answer ?? '').trim()
+  const a = /^\S+\.(com|net|org|co|us|biz|info|io)\b|^[\d\s().+-]{7,}$/i.test(said) ? '  ' : ` ${said.toLowerCase()} `
+  if (/hawaii|\bhst\b/.test(a)) return 'Pacific/Honolulu'
+  if (/alaska|\bakst\b/.test(a)) return 'America/Anchorage'
+  if (/arizona|phoenix/.test(a)) return 'America/Phoenix'
+  if (/pacific|\bpst\b|\bpdt\b|\bpt\b|california|los.?angeles|washington|oregon|nevada/.test(a)) return 'America/Los_Angeles'
+  if (/mountain|\bmst\b|\bmdt\b|\bmt\b|denver|colorado|utah|idaho|montana|new mexico/.test(a)) return 'America/Denver'
+  if (/central|\bcst\b|\bcdt\b|\bct\b|texas|chicago|illinois|minnesota|missouri|louisiana|oklahoma|alabama|tennessee/.test(a)) return 'America/Chicago'
+  if (/eastern|\best\b|\bedt\b|\bet\b|new.?york|florida|georgia|carolina|ohio|michigan|pennsylvania|virginia|massachusetts|new jersey/.test(a)) return 'America/New_York'
+  // Else the state in the address: "Tyler texas 75704", "Ontario CA 91764", "Waycross Ga".
+  const tail = (address ?? '').toLowerCase().replace(/\d{5}(-\d{4})?/g, ' ').replace(/[^a-z ]/g, ' ').trim().split(/\s+/).slice(-3).join(' ')
+  const states: [RegExp, string][] = [
+    [/\b(hawaii|hi)\b/, 'Pacific/Honolulu'],
+    [/\b(alaska|ak)\b/, 'America/Anchorage'],
+    [/\b(arizona|az)\b/, 'America/Phoenix'],
+    [/\b(california|ca|washington|wa|oregon|or|nevada|nv)\b/, 'America/Los_Angeles'],
+    [/\b(colorado|co|utah|ut|idaho|id|montana|mt|wyoming|wy|new mexico|nm)\b/, 'America/Denver'],
+    [/\b(texas|tx|illinois|il|minnesota|mn|missouri|mo|louisiana|la|oklahoma|ok|alabama|al|tennessee|tn|wisconsin|wi|iowa|ia|kansas|ks|nebraska|ne|arkansas|ar|mississippi|ms)\b/, 'America/Chicago'],
+    [/\b(new york|ny|florida|fl|georgia|ga|north carolina|south carolina|nc|sc|ohio|oh|michigan|mi|pennsylvania|pa|virginia|va|massachusetts|ma|new jersey|nj|maryland|md|connecticut|ct|indiana|in|kentucky|ky|maine|me|new hampshire|nh|vermont|vt|rhode island|ri|delaware|de|west virginia|wv|dc)\b/, 'America/New_York'],
+  ]
+  return states.find(([re]) => re.test(tail))?.[1] ?? null
+}
+
+/** The client's timezone from their onboarding answers, if they say. */
+export async function zoneForClient(clientId: string): Promise<string | null> {
+  const c = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { address: true, intakes: { orderBy: { receivedAt: 'desc' }, take: 6, select: { timeZone: true, businessName: true, businessAddress: true, leadEmail: true } } },
+  })
+  if (!c) return null
+  const i = bestIntake(c.intakes)
+  const address = i && looksLikeAddress(i.businessName) && !looksLikeAddress(i.businessAddress) ? i.businessName : (i?.businessAddress ?? c.address)
+  return zoneFromAnswers(i?.timeZone, address) ?? zoneFromAnswers(null, c.address)
+}
+
+/**
+ * The pipeline, forms and automations a new sub-account starts with: the
+ * client kit (GHL's client workflows, src/lib/hl/client-kit.ts). Safe to run
+ * again: it only adds what's missing.
  */
 export async function ensureStarterKit(accountId: string): Promise<void> {
-  const [pipelines, forms, workflows] = await Promise.all([
-    prisma.hlPipeline.count({ where: { accountId } }),
-    prisma.hlForm.findMany({ where: { accountId }, select: { id: true, kind: true } }),
-    prisma.hlWorkflow.findMany({ where: { accountId }, select: { template: true } }),
-  ])
-  if (!pipelines) {
-    await prisma.hlPipeline.create({ data: { accountId, name: 'Leads', stages: LEAD_STAGES as unknown as Prisma.InputJsonValue } })
-  }
-  let quote = forms.find((f) => f.kind === 'form')?.id
-  let chat = forms.find((f) => f.kind === 'chat')?.id
-  if (!quote) {
-    quote = (
-      await prisma.hlForm.create({
-        data: { accountId, name: 'Website Quote Form', kind: 'form', fields: QUOTE_FORM_FIELDS as unknown as Prisma.InputJsonValue, settings: QUOTE_FORM_SETTINGS as Prisma.InputJsonValue },
-      })
-    ).id
-  }
-  if (!chat) {
-    chat = (
-      await prisma.hlForm.create({
-        data: { accountId, name: 'Website Chat Widget', kind: 'chat', fields: CHAT_FIELDS as unknown as Prisma.InputJsonValue, settings: CHAT_SETTINGS as Prisma.InputJsonValue },
-      })
-    ).id
-  }
-  const have = new Set(workflows.map((w) => w.template))
-  for (const t of workflowTemplates({ quote, chat })) {
-    if (have.has(t.key)) continue
-    await prisma.hlWorkflow.create({
-      data: {
-        accountId,
-        name: t.name,
-        folder: t.folder,
-        template: t.key,
-        status: t.publish ? 'published' : 'draft',
-        publishedAt: t.publish ? new Date() : null,
-        trigger: t.trigger as unknown as Prisma.InputJsonValue,
-        steps: t.steps as unknown as Prisma.InputJsonValue,
-      },
-    })
-  }
+  await applyClientKit(accountId)
 }
 
 /** The client's sub-account, made (with its starter kit) if it doesn't exist yet. */
 export async function createAccountForClient(clientId: string): Promise<{ id: string; created: boolean }> {
   const existing = await prisma.hlAccount.findUnique({ where: { clientId }, select: { id: true } })
   if (existing) return { id: existing.id, created: false }
-  const profile = await profileForClient(clientId)
+  const [profile, zone] = await Promise.all([profileForClient(clientId), zoneForClient(clientId)])
   const account = await prisma.hlAccount
     .create({
-      data: { clientId, name: profile.businessName || 'New sub-account', profile: profile as Prisma.InputJsonValue },
+      data: { clientId, name: profile.businessName || 'New sub-account', profile: profile as Prisma.InputJsonValue, ...(zone ? { timezone: zone } : {}) },
       select: { id: true },
     })
     .catch(async (err) => {
@@ -130,6 +135,47 @@ export async function createAccountForClient(clientId: string): Promise<{ id: st
     })
   await ensureStarterKit(account.id)
   return { id: account.id, created: true }
+}
+
+/**
+ * Put right what onboarding's crossed answers got wrong in a client
+ * sub-account (an address as the business name, a phone number as the alert
+ * email, New York time for a client in Texas), and fill what's blank. Anything
+ * that already looks right, typed by hand or not, is left as it is.
+ */
+export async function repairClientProfile(accountId: string): Promise<string[]> {
+  const a = await prisma.hlAccount.findUnique({ where: { id: accountId }, select: { clientId: true, name: true, profile: true, timezone: true } })
+  if (!a?.clientId) return []
+  const now = readProfile(a.profile) as Record<string, string | undefined>
+  const fresh = (await profileForClient(a.clientId)) as Record<string, string | undefined>
+  const next: Record<string, string | undefined> = { ...now }
+  const fixed: string[] = []
+  const take = (key: string, wrong: boolean) => {
+    if (wrong && fresh[key]?.trim() && fresh[key] !== now[key]) {
+      next[key] = fresh[key]
+      fixed.push(key)
+    }
+  }
+  take('businessName', notABusinessName(now.businessName))
+  take('legalName', notABusinessName(now.legalName))
+  take('notifyEmail', !emailOrBlank(now.notifyEmail))
+  for (const key of ['ownerFirstName', 'ownerName', 'businessPhone', 'website', 'notifyPhone', 'reviewLink', 'address', 'ein']) take(key, !now[key]?.trim())
+  const data: Prisma.HlAccountUpdateInput = {}
+  if (fixed.length) data.profile = next as Prisma.InputJsonValue
+  if (notABusinessName(a.name) && next.businessName) {
+    data.name = next.businessName
+    fixed.push('name')
+  }
+  // Only from the default: a timezone someone picked stays.
+  if (a.timezone === 'America/New_York') {
+    const zone = await zoneForClient(a.clientId)
+    if (zone && zone !== a.timezone) {
+      data.timezone = zone
+      fixed.push('timezone')
+    }
+  }
+  if (Object.keys(data).length) await prisma.hlAccount.update({ where: { id: accountId }, data })
+  return fixed
 }
 
 /** A sub-account with no client behind it (the agency's own, a test account…). */

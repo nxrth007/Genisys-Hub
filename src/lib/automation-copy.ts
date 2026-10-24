@@ -106,6 +106,23 @@ export function notABusinessName(s: string | null | undefined): boolean {
   return !t || looksLikeAddress(t) || PHONE(t) || (!/\s/.test(t) && /\.(com|net|org|co|us|biz|info|io)\b/i.test(t))
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Of a client's intakes, the copy with its answers in the right boxes. A
+ * submission can be stored twice (the webhook's copy and the onboarding
+ * sheet's), and the sheet's has had answers crossed (a street address as the
+ * business name, a phone number as the email), so "the newest" alone can pick
+ * the wrong one. Newest first among equals.
+ */
+export function bestIntake<T extends { businessName?: string | null; businessAddress?: string | null; leadEmail?: string | null }>(intakes: T[]): T | undefined {
+  const score = (i: T) => (notABusinessName(i.businessName) ? 0 : 2) + (EMAIL.test((i.leadEmail ?? '').trim()) ? 1 : 0) + (!i.businessAddress || looksLikeAddress(i.businessAddress) ? 1 : 0)
+  return intakes.reduce<T | undefined>((best, i) => (best === undefined || score(i) > score(best) ? i : best), undefined)
+}
+
+/** An email address, or blank (a phone number typed into the email box isn't one). */
+export const emailOrBlank = (s: string | null | undefined) => (EMAIL.test((s ?? '').trim()) ? (s ?? '').trim() : '')
+
 export function automationPrefill(src: AutomationSource): AutomationInputs {
   const i = src.intake
   const fullName = clean(i?.fullName) || clean(src.contactName)
@@ -115,7 +132,7 @@ export function automationPrefill(src: AutomationSource): AutomationInputs {
     ownerFullName: fullName,
     quoteLink: siteLink(src.siteUrl) || siteLink(i?.domainName) || siteLink(i?.website) || siteLink(src.website),
     phone: formatPhone(i?.customerPhone || src.contactPhone),
-    notifyEmail: clean(i?.leadEmail) || clean(src.contactEmail),
+    notifyEmail: emailOrBlank(i?.leadEmail) || emailOrBlank(src.contactEmail),
   }
 }
 
