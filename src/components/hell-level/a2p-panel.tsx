@@ -444,12 +444,16 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
             </Button>
           </div>
         </Section>
-        {problems.length > 0 && (
-          <ul className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-[12.5px] text-destructive">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
+        {/* Why File is greyed out, right above it: missing fields, then whatever the pre-check found that would fail at Twilio. */}
+        {(problems.length > 0 || blocking.length > 0) && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-[12.5px] text-destructive">
+            <p className="mb-1 font-semibold">Can’t file yet:</p>
+            <ul className="flex flex-col gap-1">
+              {[...problems, ...blocking.map((c) => c.detail)].map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
         )}
         <ErrorNote error={file.error} />
       </div>
