@@ -15,6 +15,10 @@ import {
   defaultCalendarSettings,
   durationsOf,
   minutesOf,
+  RRULE_DAYS,
+  MAX_SERIES,
+  recurringLabel,
+  recurringOf,
   wantsMeet,
   type HlCalendarGroup,
   type HlCalendarSettings,
@@ -367,6 +371,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 </Button>
               </div>
             </Card>
+            <RecurringCard s={s} set={set} />
           </div>
           <Card className="flex h-fit flex-col gap-4 p-5">
             <p className="text-[15px] font-semibold text-foreground">Slots</p>
@@ -655,5 +660,80 @@ function NotificationsTab({ value, onChange }: { value: HlNotification[]; onChan
       })}
       <p className="px-1 font-mono text-[11px] leading-relaxed text-muted-foreground">{MERGE_HINT}</p>
     </div>
+  )
+}
+
+/** GHL's Recurring: every booking on the calendar is a series. */
+function RecurringCard({ s, set }: { s: HlCalendarSettings; set: (patch: Partial<HlCalendarSettings>) => void }) {
+  const r = { freq: 'WEEKLY' as const, count: 4, interval: 1, weekDays: [], monthDays: [], bookingOption: 'skip' as const, bookingOverlapDefaultStatus: 'confirmed' as const, ...(s.recurring ?? {}) }
+  const put = (patch: Partial<typeof r>) => set({ recurring: { ...r, ...patch } })
+  const rule = recurringOf({ ...s, enableRecurring: true, recurring: r })
+  const unit = r.freq === 'DAILY' ? 'days' : r.freq === 'MONTHLY' ? 'months' : 'weeks'
+  return (
+    <Card className="flex flex-col gap-3 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[15px] font-semibold text-foreground">Recurring</p>
+          <p className="text-[12.5px] text-muted-foreground">Each booking is a series: the first time picked, then the rest on a schedule, with the same team member when they’re free.</p>
+        </div>
+        <Toggle checked={s.enableRecurring === true} onChange={(v) => set({ enableRecurring: v, recurring: { ...r, count: Math.max(2, Number(r.count) || 2) } })} label="Recurring" />
+      </div>
+      {s.enableRecurring === true && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Repeats">
+              <Select value={r.freq ?? 'WEEKLY'} onChange={(e) => put({ freq: e.target.value as 'DAILY' | 'WEEKLY' | 'MONTHLY', weekDays: [], monthDays: [] })}>
+                <option value="DAILY">Daily</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </Select>
+            </Field>
+            <Field label={`Every (${unit})`}>
+              <Input type="number" min={1} max={12} value={r.interval ?? 1} onChange={(e) => put({ interval: Math.max(1, Math.min(12, Number(e.target.value) || 1)) })} />
+            </Field>
+            <Field label="Times in all" hint={`2 to ${MAX_SERIES}`}>
+              <Input type="number" min={2} max={MAX_SERIES} value={r.count ?? 2} onChange={(e) => put({ count: Math.max(2, Math.min(MAX_SERIES, Number(e.target.value) || 2)) })} />
+            </Field>
+          </div>
+          {r.freq === 'WEEKLY' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[12.5px] text-muted-foreground">On</span>
+              {RRULE_DAYS.map((code, i) => {
+                const on = (r.weekDays ?? []).includes(code)
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => put({ weekDays: on ? (r.weekDays ?? []).filter((x) => x !== code) : [...(r.weekDays ?? []), code] })}
+                    className={cn('rounded-full border px-2.5 py-0.5 text-[12.5px]', on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground')}
+                  >
+                    {WEEKDAYS[i].slice(0, 3)}
+                  </button>
+                )
+              })}
+              <span className="text-[12px] text-muted-foreground">(none: the day of the first booking)</span>
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="When a time in the series isn’t free">
+              <Select value={r.bookingOption ?? 'skip'} onChange={(e) => put({ bookingOption: e.target.value as 'skip' | 'book_next' | 'continue' })}>
+                <option value="skip">Skip it</option>
+                <option value="book_next">Book the next free time that day</option>
+                <option value="continue">Book it anyway</option>
+              </Select>
+            </Field>
+            {r.bookingOption === 'continue' && (
+              <Field label="Booked anyway as">
+                <Select value={r.bookingOverlapDefaultStatus === 'new' ? 'new' : 'confirmed'} onChange={(e) => put({ bookingOverlapDefaultStatus: e.target.value === 'new' ? 'new' : 'confirmed' })}>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="new">Unconfirmed</option>
+                </Select>
+              </Field>
+            )}
+          </div>
+          {rule && <p className="text-[12.5px] text-muted-foreground">{recurringLabel(rule)}. The booking page says so, and each one gets its own reminders and reschedule link.</p>}
+        </>
+      )}
+    </Card>
   )
 }

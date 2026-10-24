@@ -75,6 +75,9 @@ export type HlCalendarSettings = {
   stickyContact?: boolean
   /** A Facebook pixel fired on the booking page. */
   pixelId?: string
+  /** GHL's recurring appointments: each booking is a series (only with enableRecurring on). */
+  enableRecurring?: boolean
+  recurring?: HlRecurring
   // --- Hell-level's own ---
   /** The calendar's own notifications (GHL's Notifications tab). GHL's imported `notifications` are its older email switches, kept as they were. */
   hlNotifications?: HlNotification[]
@@ -115,6 +118,66 @@ export function wantsMeet(s: HlCalendarSettings, memberKey: string): boolean {
 }
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** GHL's recurring settings, as GHL keeps them (weekDays as RRULE days: MO, TU…). */
+export type HlRecurring = {
+  freq?: 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  /** How many in the series, the first included. */
+  count?: number
+  /** Every this many days, weeks or months. */
+  interval?: number | null
+  weekDays?: string[]
+  monthDays?: number[]
+  /** A time in the series that isn't free: skip it, book the next free time that day, or book it anyway. */
+  bookingOption?: 'skip' | 'book_next' | 'continue'
+  /** What a time booked anyway is: confirmed, or unconfirmed. */
+  bookingOverlapDefaultStatus?: 'confirmed' | 'new' | ''
+}
+
+export const RRULE_DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const
+/** The most appointments one booking makes. */
+export const MAX_SERIES = 52
+
+/** A calendar's series rule, worked out (weekDays as 0 = Sunday … 6). */
+export type Recurring = {
+  freq: 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  count: number
+  interval: number
+  weekDays: number[]
+  monthDays: number[]
+  option: 'skip' | 'book_next' | 'continue'
+  overlapStatus: 'confirmed' | 'new' | null
+}
+
+/** The calendar's series rule, or null when its bookings don't repeat. */
+export function recurringOf(s: HlCalendarSettings): Recurring | null {
+  const r = s.recurring
+  if (s.enableRecurring !== true || !r) return null
+  const freq = r.freq === 'DAILY' || r.freq === 'WEEKLY' || r.freq === 'MONTHLY' ? r.freq : null
+  const count = Math.min(MAX_SERIES, Math.floor(Number(r.count) || 0))
+  if (!freq || count < 2) return null
+  const weekDays = [...new Set((r.weekDays ?? []).map((d) => (RRULE_DAYS as readonly string[]).indexOf(String(d).toUpperCase().slice(0, 2))).filter((d) => d >= 0))]
+  const monthDays = [...new Set((r.monthDays ?? []).map(Number).filter((d) => Number.isInteger(d) && d >= 1 && d <= 31))]
+  return {
+    freq,
+    count,
+    interval: Math.max(1, Math.min(12, Math.floor(Number(r.interval) || 1))),
+    weekDays: freq === 'WEEKLY' ? weekDays.sort((a, b) => a - b) : [],
+    monthDays: freq === 'MONTHLY' ? monthDays.sort((a, b) => a - b) : [],
+    option: r.bookingOption === 'book_next' || r.bookingOption === 'continue' ? r.bookingOption : 'skip',
+    overlapStatus: r.bookingOverlapDefaultStatus === 'new' || r.bookingOverlapDefaultStatus === 'confirmed' ? r.bookingOverlapDefaultStatus : null,
+  }
+}
+
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`
+
+/** "Repeats every week on Mon, Wed, 6 times". */
+export function recurringLabel(r: Recurring): string {
+  const unit = r.freq === 'DAILY' ? 'day' : r.freq === 'WEEKLY' ? 'week' : 'month'
+  const every = r.interval === 1 ? `every ${unit}` : `every ${r.interval} ${unit}s`
+  const on = r.weekDays.length ? ` on ${r.weekDays.map((d) => WEEKDAYS[d].slice(0, 3)).join(', ')}` : r.monthDays.length ? ` on the ${r.monthDays.map(ordinal).join(', ')}` : ''
+  return `Repeats ${every}${on}, ${r.count} times`
+}
 
 export type HlDurationOption = { duration: number; durationUnit: TimeUnit; isDefault?: boolean; order?: number }
 

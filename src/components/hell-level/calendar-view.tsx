@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { Ban, CalendarPlus, ChevronLeft, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { asCalendarSettings, durationsOf } from '@/lib/hl/calendar-shared'
+import { asCalendarSettings, durationsOf, recurringLabel, recurringOf } from '@/lib/hl/calendar-shared'
 import type { StaffRow } from '@/lib/hl/staff'
 import { contactLabel, useAccount } from './bits'
 import { confirmAction } from './confirm'
@@ -476,7 +476,9 @@ function NewAppointment({
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState<'confirmed' | 'new'>('confirmed')
   const [anyway, setAnyway] = useState(false)
+  const [once, setOnce] = useState(false)
   const team = teamFor(cal, data.staff)
+  const repeats = recurringOf(asCalendarSettings(cal?.settings))
   const hits = useQuery<{ contacts: ContactHit[] }>({
     queryKey: ['hl', 'contact-search', accountId, search],
     queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/contacts?q=${encodeURIComponent(search)}`),
@@ -504,6 +506,7 @@ function NewAppointment({
                 notes,
                 status,
                 ignoreAvailability: anyway,
+                once,
               },
       }),
     onSuccess: () => {
@@ -652,6 +655,14 @@ function NewAppointment({
             </label>
           </div>
         )}
+        {kind === 'appointment' && repeats && (
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[13px] text-foreground/90">
+            <span>{recurringLabel(repeats)}: the rest of the series is booked with this one.</span>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={once} onChange={(e) => setOnce(e.target.checked)} /> Just this one
+            </label>
+          </div>
+        )}
         {kind === 'appointment' && <p className="text-[12px] text-muted-foreground">Booking fires the calendar’s “Appointment booked” automations, like a booking from the page.</p>}
         <ErrorNote error={save.error || hits.error} />
       </div>
@@ -715,6 +726,7 @@ export function AppointmentDrawer({ accountId, a, data, tz, onClose }: { account
     },
   })
   const manage = a.token ? `${typeof window === 'undefined' ? '' : window.location.origin}/hl/a/${a.token}` : null
+  const series = (a.meta as { series?: { id?: string; index?: number; count?: number } } | null)?.series
   return (
     <Modal
       open
@@ -742,6 +754,19 @@ export function AppointmentDrawer({ accountId, a, data, tz, onClose }: { account
               </Button>
             ))
           )}
+          {!block && series?.id && (series.index ?? 0) + 1 < (series.count ?? 0) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive"
+              disabled={save.isPending}
+              onClick={() =>
+                void confirmAction('Cancel this one and the rest of its series? This one’s “Appointment status: cancelled” automations run (once), and every one’s reminders stop.', 'Cancel the series').then((ok) => ok && save.mutate({ status: 'cancelled', series: 'following' }))
+              }
+            >
+              Cancel the rest of the series
+            </Button>
+          )}
           <span className="ml-auto" />
           <Button onClick={onClose}>Close</Button>
           <Button variant="primary" loading={save.isPending} onClick={() => save.mutate({})}>
@@ -756,6 +781,7 @@ export function AppointmentDrawer({ accountId, a, data, tz, onClose }: { account
             <Badge color={STATUS_COLOR[status] ?? 'gray'}>{STATUS_LABEL[status] ?? status}</Badge>
             {a.source === 'booking' && <span className="text-muted-foreground">Booked online</span>}
             {a.source === 'manual' && <span className="text-muted-foreground">Booked by staff</span>}
+            {series?.count && <span className="text-muted-foreground">{`Series: ${(series.index ?? 0) + 1} of ${series.count}`}</span>}
             {a.contact && (
               <Link href={`/hell-level/${accountId}/conversations?contact=${a.contact.id}`} className="ml-auto text-primary hover:underline">
                 Open conversation

@@ -182,7 +182,7 @@ function googleHref(c: { title: string; start: string; end: string; location?: s
   return `https://calendar.google.com/calendar/render?${p}`
 }
 
-export function Booked({ calendar, start, end, tz, manageUrl, headline }: { calendar: PublicCalendar; start: string; end: string; tz: string; manageUrl?: string | null; headline: string }) {
+export function Booked({ calendar, start, end, tz, manageUrl, headline, series = [] }: { calendar: PublicCalendar; start: string; end: string; tz: string; manageUrl?: string | null; headline: string; series?: { start: string; end: string }[] }) {
   const event = { title: `${calendar.name} with ${calendar.business}`, start, end, location: calendar.location || undefined, description: manageUrl ? `Reschedule or cancel: ${manageUrl}` : undefined }
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
@@ -198,6 +198,18 @@ export function Booked({ calendar, start, end, tz, manageUrl, headline }: { cale
         {timeOf(start, tz, calendar.hour12 !== false)} – {timeOf(end, tz, calendar.hour12 !== false)} ({zoneName(tz)})
       </p>
       {calendar.location && <p className="text-[13px] text-[#667085]">{calendar.location}</p>}
+      {series.length > 0 && (
+        <div className="w-full max-w-sm rounded-lg bg-[#F9FAFB] px-4 py-3 text-left text-[13.5px] text-[#344054]">
+          <p className="font-semibold text-[#101828]">And the rest of the series</p>
+          <ul className="mt-1 space-y-0.5">
+            {series.map((x) => (
+              <li key={x.start}>
+                {longDate(x.start, tz)}, {timeOf(x.start, tz, calendar.hour12 !== false)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap justify-center gap-2 text-[13px]">
         <a href={googleHref(event)} target="_blank" rel="noreferrer" className="rounded-lg border border-[#D0D5DD] px-3 py-2 font-medium text-[#344054] hover:bg-[#F9FAFB]">
           Add to Google Calendar
@@ -239,7 +251,7 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ text: string; field?: string } | null>(null)
-  const [done, setDone] = useState<{ start: string; end: string; manageUrl: string | null } | null>(null)
+  const [done, setDone] = useState<{ start: string; end: string; manageUrl: string | null; series: { start: string; end: string }[] } | null>(null)
   const key = (kind: string) => (kind === 'marketing' ? 'marketing_consent' : 'sms_consent')
 
   async function submit(e: React.FormEvent) {
@@ -266,7 +278,7 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
           _hp: (document.getElementById('hl-hp') as HTMLInputElement | null)?.value ?? '',
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string; field?: string; start?: string; end?: string; manageUrl?: string; redirectUrl?: string | null }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; field?: string; start?: string; end?: string; manageUrl?: string; redirectUrl?: string | null; series?: { start: string; end: string }[] }
       if (!res.ok) {
         setError({ text: data.error || 'Something went wrong. Please try again.', field: data.field })
         if (data.field === 'start') {
@@ -287,7 +299,7 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
         }
       }
       ;(window as { fbq?: (...a: unknown[]) => void }).fbq?.('track', 'Schedule')
-      setDone({ start: data.start ?? picked, end: data.end ?? picked, manageUrl: data.manageUrl ?? null })
+      setDone({ start: data.start ?? picked, end: data.end ?? picked, manageUrl: data.manageUrl ?? null, series: Array.isArray(data.series) ? data.series : [] })
     } catch {
       setError({ text: 'Couldn’t book. Check your connection and try again.' })
     } finally {
@@ -295,11 +307,12 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
     }
   }
 
-  if (done) return <Booked calendar={calendar} start={done.start} end={done.end} tz={tz} manageUrl={done.manageUrl} headline={calendar.thankYou ?? 'You’re booked!'} />
+  if (done) return <Booked calendar={calendar} start={done.start} end={done.end} tz={tz} manageUrl={done.manageUrl} headline={calendar.thankYou ?? 'You’re booked!'} series={done.series} />
 
   const input = 'w-full rounded-lg border border-[#D0D5DD] bg-white px-3.5 py-2.5 text-[15px] text-[#101828] outline-none transition placeholder:text-[#98A2B3] focus:border-[var(--hl-c)] focus:ring-4 focus:ring-[color-mix(in_srgb,var(--hl-c)_15%,transparent)]'
   return (
     <div className="flex flex-col gap-5">
+      {calendar.recurring && <p className="rounded-lg bg-[#F9FAFB] px-3.5 py-2.5 text-[13.5px] text-[#344054]">{calendar.recurring}. Pick the first time; the rest are booked with it.</p>}
       {step === 'pick' ? (
         <>
           {calendar.durations?.length > 1 && (

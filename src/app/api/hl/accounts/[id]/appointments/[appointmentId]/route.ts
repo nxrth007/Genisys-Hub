@@ -14,8 +14,9 @@ async function owned(id: string, appointmentId: string) {
 }
 
 /**
- * PATCH { status?, start?, end?, duration?, assignedUserId?, title?, address?, notes?, ignoreAvailability? }:
- * change an appointment from the calendar. A new status fires "Appointment status".
+ * PATCH { status?, start?, end?, duration?, assignedUserId?, title?, address?, notes?, ignoreAvailability?, series? }:
+ * change an appointment from the calendar. A new status fires "Appointment status". { status: 'cancelled',
+ * series: 'following' } cancels the rest of its series too.
  */
 export async function PATCH(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
@@ -24,7 +25,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   try {
     const body = (await jsonBody(req)) as unknown as StaffAppointmentChange
-    const { statusChanged, moved } = await updateAppointment(id, appointmentId, body, guard.email)
+    const { statusChanged, moved, alsoCancelled } = await updateAppointment(id, appointmentId, body, guard.email)
     // A move is GHL's "rescheduled" (automations and the calendar's notifications); then any new status.
     after(async () => {
       try {
@@ -32,6 +33,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
         if (statusChanged) await fireStatusTrigger(appointmentId, statusChanged)
         // Other changes (its title, team member, location) go to Google Calendar too.
         if (!moved && !statusChanged) await syncAppointmentToGoogle(appointmentId)
+        for (const x of alsoCancelled) await syncAppointmentToGoogle(x)
       } catch (err) {
         console.error('[hell-level] appointment automations failed:', err)
       }

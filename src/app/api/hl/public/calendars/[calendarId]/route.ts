@@ -73,7 +73,15 @@ export async function POST(req: Request, { params }: Ctx) {
     after(() => fireBookingTriggers(b).catch((err) => console.error('[hell-level] booking automations failed:', err)))
     const calendar = await publicCalendar(calendarId)
     return NextResponse.json(
-      { ok: true, start: b.start.toISOString(), end: b.end.toISOString(), manageUrl: b.manageUrl, thankYou: calendar?.thankYou ?? null, redirectUrl: calendar?.redirectUrl ?? null },
+      {
+        ok: true,
+        start: b.start.toISOString(),
+        end: b.end.toISOString(),
+        manageUrl: b.manageUrl,
+        thankYou: calendar?.thankYou ?? null,
+        redirectUrl: calendar?.redirectUrl ?? null,
+        series: b.series.map((x) => ({ start: x.start.toISOString(), end: x.end.toISOString() })),
+      },
       { headers: CORS },
     )
   } catch (err) {

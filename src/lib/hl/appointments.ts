@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger } from './automation'
-import { BookingError, chooseMember, lockKey, newToken, setStatus, slotsFor, teamOf, type History } from './booking'
+import { BookingError, bookRestOfSeries, chooseMember, lockKey, newToken, seriesNote, setStatus, slotsFor, teamOf, type History, type SeriesItem } from './booking'
 import { notifyAppointment } from './calendar-notify'
 import { asCalendarSettings, minutesOf } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
@@ -40,9 +40,11 @@ export type StaffAppointmentInput = {
   status?: string | null
   /** Book outside the calendar's hours or over other bookings (GHL lets staff do this). */
   ignoreAvailability?: boolean
+  /** Just this one, on a calendar whose bookings repeat. */
+  once?: boolean
 }
 
-export type Made = { appointmentId: string; contactId: string | null; created: boolean; calendarId: string | null; kind: 'appointment' | 'block' }
+export type Made = { appointmentId: string; contactId: string | null; created: boolean; calendarId: string | null; kind: 'appointment' | 'block'; series: SeriesItem[] }
 
 function times(input: { start: string; end?: string | null; duration?: number | null }, fallbackMinutes: number) {
   const start = new Date(input.start)
@@ -88,7 +90,7 @@ export async function createAppointment(accountId: string, input: StaffAppointme
         meta: asJson({ history: [{ at: new Date().toISOString(), what: `blocked off by ${by}` }] }),
       },
     })
-    return { appointmentId: row.id, contactId: null, created: false, calendarId: row.calendarId, kind }
+    return { appointmentId: row.id, contactId: null, created: false, calendarId: row.calendarId, kind, series: [] }
   }
 
   // The contact: one picked, or a new one (found again by phone or email if they're already here).
@@ -108,8 +110,9 @@ export async function createAppointment(accountId: string, input: StaffAppointme
   const contact = await prisma.hlContact.findUniqueOrThrow({ where: { id: contactId } })
   const status = input.status === 'new' ? 'new' : 'confirmed'
   const duration = Math.round((end.getTime() - start.getTime()) / MIN)
+  const tz = (await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { timezone: true } })).timezone
 
-  const row = await prisma.$transaction(
+  const { row, series } = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(accountId)}))`
       let assigned = member
@@ -129,7 +132,7 @@ export async function createAppointment(accountId: string, input: StaffAppointme
       }
       const hosts = calendar!.kind === 'collective' ? await teamOf(accountId, settings, tx) : []
       const title = text(input.title, 300) || renderTemplate(settings.eventTitle?.trim() || '{{contact.name}}', { contact }).trim() || calendar!.name.trim()
-      return tx.hlAppointment.create({
+      const row = await tx.hlAppointment.create({
         data: {
           accountId,
           calendarId: calendar!.id,
@@ -147,18 +150,22 @@ export async function createAppointment(accountId: string, input: StaffAppointme
           meta: asJson({ ...(hosts.length ? { members: hosts.map((m) => m.key) } : {}), history: [{ at: new Date().toISOString(), what: `booked by ${by}` }] }),
         },
       })
+      const series = input.once ? [] : await bookRestOfSeries(tx, row, { settings, team: hosts.length ? hosts : await teamOf(accountId, settings, tx), collective: hosts.length > 0, tz, by })
+      return { row, series }
     },
-    { timeout: 20_000 },
+    { timeout: 30_000 },
   )
-  const tz = (await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { timezone: true } })).timezone
-  await logActivity(accountId, contactId, `Booked ${calendar!.name.trim()} (by ${by})\n${appointmentTimes({ startTime: row.startTime, timezone: tz }).full}${row.assignedTo ? ` with ${row.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}`, { appointmentId: row.id })
-  return { appointmentId: row.id, contactId, created, calendarId: calendar!.id, kind }
+  await logActivity(accountId, contactId, `Booked ${calendar!.name.trim()} (by ${by})\n${appointmentTimes({ startTime: row.startTime, timezone: tz }).full}${row.assignedTo ? ` with ${row.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}${seriesNote(series, tz)}`, { appointmentId: row.id })
+  return { appointmentId: row.id, contactId, created, calendarId: calendar!.id, kind, series }
 }
 
-export type StaffAppointmentChange = Partial<Omit<StaffAppointmentInput, 'kind' | 'contact' | 'contactId'>>
+export type StaffAppointmentChange = Partial<Omit<StaffAppointmentInput, 'kind' | 'contact' | 'contactId' | 'once'>> & {
+  /** With status cancelled: the later ones in its series too. */
+  series?: 'following'
+}
 
 /** Change an appointment (or blocked-off time) from the calendar: its time, who it's with, its details, its status. */
-export async function updateAppointment(accountId: string, id: string, input: StaffAppointmentChange, by: string): Promise<{ statusChanged: string | null; moved: boolean }> {
+export async function updateAppointment(accountId: string, id: string, input: StaffAppointmentChange, by: string): Promise<{ statusChanged: string | null; moved: boolean; alsoCancelled: string[] }> {
   const a = await prisma.hlAppointment.findFirst({ where: { id, accountId }, include: { calendar: true } })
   if (!a) throw new HlInputError('Appointment not found.')
   const block = a.source === 'block'
@@ -209,7 +216,20 @@ export async function updateAppointment(accountId: string, id: string, input: St
     await setStatus(id, input.status, by)
     statusChanged = input.status
   }
-  return { statusChanged, moved }
+  // "Cancel this and the rest": the later ones in its series, quietly (the one cancelled fires the automations).
+  const alsoCancelled: string[] = []
+  const seriesId = (meta as { series?: { id?: unknown } }).series?.id
+  if (!block && input.series === 'following' && input.status === 'cancelled' && typeof seriesId === 'string') {
+    const rest = await prisma.hlAppointment.findMany({
+      where: { accountId, id: { not: id }, startTime: { gt: a.startTime }, status: { notIn: ['cancelled', 'invalid'] }, meta: { path: ['series', 'id'], equals: seriesId } },
+      select: { id: true },
+    })
+    for (const r of rest) {
+      await setStatus(r.id, 'cancelled', `${by}, with the series`)
+      alsoCancelled.push(r.id)
+    }
+  }
+  return { statusChanged, moved, alsoCancelled }
 }
 
 /** Remove blocked-off time. Appointments are cancelled instead, so their automations stop properly. */
@@ -224,8 +244,10 @@ export async function deleteBlock(accountId: string, id: string): Promise<void> 
 export async function fireMadeTriggers(accountId: string, m: Made): Promise<void> {
   if (m.kind !== 'appointment') return
   await syncAppointmentToGoogle(m.appointmentId)
-  if (!m.contactId) return
-  if (m.created) await fireTrigger(accountId, m.contactId, { type: 'contact_created', context: { appointmentId: m.appointmentId } })
-  await fireTrigger(accountId, m.contactId, { type: 'appointment_booked', calendarId: m.calendarId ?? undefined, context: { appointmentId: m.appointmentId } })
-  await notifyAppointment(m.appointmentId, 'booked')
+  if (m.contactId) {
+    if (m.created) await fireTrigger(accountId, m.contactId, { type: 'contact_created', context: { appointmentId: m.appointmentId } })
+    await fireTrigger(accountId, m.contactId, { type: 'appointment_booked', calendarId: m.calendarId ?? undefined, context: { appointmentId: m.appointmentId } })
+    await notifyAppointment(m.appointmentId, 'booked')
+  }
+  for (const x of m.series ?? []) await syncAppointmentToGoogle(x.appointmentId)
 }

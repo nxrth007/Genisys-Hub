@@ -5,7 +5,8 @@ import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
 import { notifyAppointment } from './calendar-notify'
 import { getPrefs, scheduleHoursFor } from './calendar-records'
-import { asCalendarSettings, durationsOf, type HlCalendarSettings } from './calendar-shared'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { asCalendarSettings, durationsOf, recurringLabel, recurringOf, type HlCalendarSettings, type Recurring } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
 import { googleBusy, syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
@@ -158,6 +159,8 @@ export type PublicCalendar = {
   stickyContact: boolean
   /** A Facebook pixel to fire on the booking page. */
   pixelId: string | null
+  /** "Repeats every week, 4 times": a booking here is a series. */
+  recurring: string | null
 }
 
 /** The booking page's view of a calendar: no team details, no sub-account ids. */
@@ -195,6 +198,10 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     weekStartsOn: prefs.weekStartsOn,
     stickyContact: s.stickyContact === true,
     pixelId: s.pixelId && /^\d{6,20}$/.test(s.pixelId) ? s.pixelId : null,
+    recurring: (() => {
+      const r = recurringOf(s)
+      return r ? recurringLabel(r) : null
+    })(),
   }
 }
 
@@ -224,6 +231,8 @@ export type Booked = {
   created: boolean
   accountId: string
   calendarId: string
+  /** The rest of the series, on a repeating calendar. */
+  series: SeriesItem[]
 }
 
 /** The field a booking error is about, so the page can point at it. */
@@ -259,6 +268,132 @@ export async function chooseMember(db: Db, calendarId: string, slot: Slot, team:
   return team.find((m) => m.key === key) ?? null
 }
 
+// ---------------------------------------------------------------------------
+// Recurring appointments (GHL's Recurring: a booking is a series)
+// ---------------------------------------------------------------------------
+
+/** The starts of a series after its first, at the same wall-clock time in the sub-account's timezone. */
+export function seriesStarts(first: Date, tz: string, r: Recurring): Date[] {
+  const date = formatInTimeZone(first, tz, 'yyyy-MM-dd')
+  const time = formatInTimeZone(first, tz, 'HH:mm:ss')
+  const [y, m, d] = date.split('-').map(Number)
+  const day0 = Date.UTC(y, m - 1, d)
+  const at = (ms: number) => fromZonedTime(`${new Date(ms).toISOString().slice(0, 10)}T${time}`, tz)
+  const want = r.count - 1
+  const out: Date[] = []
+  if (r.freq === 'DAILY') {
+    for (let i = 1; out.length < want; i++) out.push(at(day0 + i * r.interval * DAY))
+  } else if (r.freq === 'WEEKLY') {
+    const days = r.weekDays.length ? r.weekDays : [new Date(day0).getUTCDay()]
+    // Weeks count from the first one's (Monday to Sunday, as calendar repeat rules do).
+    const monday = day0 - ((new Date(day0).getUTCDay() + 6) % 7) * DAY
+    for (let t = day0 + DAY; out.length < want && t < day0 + 800 * DAY; t += DAY) {
+      if (Math.floor((t - monday) / (7 * DAY)) % r.interval === 0 && days.includes(new Date(t).getUTCDay())) out.push(at(t))
+    }
+  } else {
+    const dates = r.monthDays.length ? r.monthDays : [d]
+    for (let k = 0; out.length < want && k <= 12 * 10; k += r.interval) {
+      const last = new Date(Date.UTC(y, m - 1 + k + 1, 0)).getUTCDate()
+      // A month without the date (the 31st in June) is passed over.
+      for (const dd of dates) if (dd <= last && out.length < want && Date.UTC(y, m - 1 + k, dd) > day0) out.push(at(Date.UTC(y, m - 1 + k, dd)))
+    }
+  }
+  return out
+}
+
+export type SeriesItem = { appointmentId: string; start: Date; end: Date }
+type SeriesFirst = {
+  id: string
+  accountId: string
+  calendarId: string | null
+  contactId: string | null
+  title: string
+  startTime: Date
+  endTime: Date
+  status: string
+  assignedUserId: string | null
+  assignedTo: string | null
+  notes: string | null
+  source: string | null
+  timezone: string | null
+  meta: unknown
+}
+
+/**
+ * The rest of a repeating calendar's series, booked with its first in the
+ * same transaction (under the lock). A time that's free goes to the same
+ * team member if they're free then, else to whoever's turn it is; one that
+ * isn't free is skipped, moved to the next free time that day, or booked
+ * anyway, as the calendar says. The calendar's notice and booking window
+ * apply to the first only.
+ */
+export async function bookRestOfSeries(
+  tx: Prisma.TransactionClient,
+  first: SeriesFirst,
+  o: { settings: HlCalendarSettings; team: TeamMember[]; collective: boolean; tz: string; by: string; now?: Date },
+): Promise<SeriesItem[]> {
+  const r = recurringOf(o.settings)
+  if (!r || !first.calendarId) return []
+  const starts = seriesStarts(first.startTime, o.tz, r)
+  if (!starts.length) return []
+  const length = first.endTime.getTime() - first.startTime.getTime()
+  const { slots } = await slotsFor(first.calendarId, new Date(starts[0].getTime() - 60_000), new Date(starts[starts.length - 1].getTime() + DAY), { db: tx, duration: length / 60_000, staff: true, now: o.now })
+  const dayOf = (d: Date) => formatInTimeZone(d, o.tz, 'yyyy-MM-dd')
+  const hosts = o.collective ? o.team : []
+  const plan: { start: Date; status: string; member: TeamMember | null }[] = []
+  for (const t of starts) {
+    let slot = slots.find((x) => x.start.getTime() === t.getTime())
+    let status = first.status
+    if (!slot && r.option === 'book_next') slot = slots.find((x) => x.start > t && dayOf(x.start) === dayOf(t))
+    if (!slot && r.option === 'continue') {
+      slot = { start: t, end: new Date(t.getTime() + length), members: [] }
+      if (r.overlapStatus) status = r.overlapStatus
+    }
+    if (!slot) continue
+    const same = first.assignedUserId && (!slot.members.length || slot.members.includes(first.assignedUserId)) ? (o.team.find((m) => m.key === first.assignedUserId) ?? null) : null
+    const member = hosts[0] ?? same ?? (slot.members.length ? await chooseMember(tx, first.calendarId, slot, o.team, o.settings) : null)
+    plan.push({ start: slot.start, status, member })
+  }
+  if (!plan.length) return []
+  const meta = (first.meta && typeof first.meta === 'object' ? first.meta : {}) as Record<string, unknown>
+  const series = { id: first.id, count: plan.length + 1 }
+  await tx.hlAppointment.update({ where: { id: first.id }, data: { meta: { ...meta, series: { ...series, index: 0 } } as Prisma.InputJsonValue } })
+  const out: SeriesItem[] = []
+  for (const [i, p] of plan.entries()) {
+    const row = await tx.hlAppointment.create({
+      data: {
+        accountId: first.accountId,
+        calendarId: first.calendarId,
+        contactId: first.contactId,
+        title: first.title,
+        startTime: p.start,
+        endTime: new Date(p.start.getTime() + length),
+        status: p.status,
+        assignedUserId: p.member?.key ?? null,
+        assignedTo: hosts.length ? first.assignedTo : (p.member?.name ?? null),
+        address: p.member?.location || o.settings.meetingLocation?.trim() || null,
+        notes: first.notes,
+        source: first.source,
+        token: newToken(),
+        timezone: first.timezone,
+        meta: {
+          consent: meta.consent,
+          marketingConsent: meta.marketingConsent,
+          ...(hosts.length ? { members: hosts.map((h) => h.key) } : {}),
+          series: { ...series, index: i + 1 },
+          history: [{ at: new Date().toISOString(), what: `booked in a series (${o.by})` }],
+        } as Prisma.InputJsonValue,
+      },
+    })
+    out.push({ appointmentId: row.id, start: row.startTime, end: row.endTime })
+  }
+  return out
+}
+
+/** "Also: Nov 9, 2026 10:00 AM; …" for the activity log. */
+export const seriesNote = (series: SeriesItem[], tz: string) =>
+  series.length ? `\nThe rest of the series: ${series.map((x) => { const t = appointmentTimes({ startTime: x.start, timezone: tz }); return `${t.date} ${t.time}` }).join('; ')}` : ''
+
 /** Book a slot from the booking page (or by hand). Re-checks the slot under the lock; fires nothing (see fireBookingTriggers). */
 export async function book(calendarId: string, input: BookInput, o: { source?: 'booking' | 'manual'; now?: Date } = {}): Promise<Booked> {
   const start = new Date(input.start)
@@ -284,7 +419,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
   const duration = pickedDuration(asCalendarSettings(calendar.settings), input.duration)
   const { contact, created } = await upsertContact(accountId, { firstName, lastName, phone, email, source: 'booking', consent, marketingConsent })
 
-  const appointment = await prisma.$transaction(
+  const { appointment, series } = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(accountId)}))`
       const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { now: o.now, db: tx, duration })
@@ -294,7 +429,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
       const hosts = calendar.kind === 'collective' ? team : []
       const member = hosts[0] ?? (await chooseMember(tx, calendarId, slot, team, settings))
       const title = renderTemplate(settings.eventTitle?.trim() || '{{contact.name}}', { contact }).trim() || calendar.name
-      return tx.hlAppointment.create({
+      const appointment = await tx.hlAppointment.create({
         data: {
           accountId,
           calendarId,
@@ -319,11 +454,13 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
           } as Prisma.InputJsonValue,
         },
       })
+      const series = await bookRestOfSeries(tx, appointment, { settings, team, collective: hosts.length > 0, tz: calendar.account.timezone, by: 'booking page', now: o.now })
+      return { appointment, series }
     },
-    { timeout: 20_000 },
+    { timeout: 30_000 },
   )
   const when = appointmentTimes({ startTime: appointment.startTime, timezone: calendar.account.timezone }).full
-  await logActivity(accountId, contact.id, `Booked ${calendar.name.trim()}\n${when}${appointment.assignedTo ? ` with ${appointment.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}`, { appointmentId: appointment.id, consent, marketingConsent })
+  await logActivity(accountId, contact.id, `Booked ${calendar.name.trim()}\n${when}${appointment.assignedTo ? ` with ${appointment.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}${seriesNote(series, calendar.account.timezone)}`, { appointmentId: appointment.id, consent, marketingConsent })
   return {
     appointmentId: appointment.id,
     token: appointment.token!,
@@ -334,6 +471,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
     created,
     accountId,
     calendarId,
+    series,
   }
 }
 
@@ -346,6 +484,8 @@ export async function fireBookingTriggers(b: Booked): Promise<void> {
   if (b.created) await fireTrigger(b.accountId, b.contactId, { type: 'contact_created', context: { appointmentId: b.appointmentId } })
   await fireTrigger(b.accountId, b.contactId, { type: 'appointment_booked', calendarId: b.calendarId, context: { appointmentId: b.appointmentId } })
   await notifyAppointment(b.appointmentId, 'booked')
+  // The rest of a series goes onto Google Calendar too (the one confirmation covers it; each gets its reminders).
+  for (const x of b.series ?? []) await syncAppointmentToGoogle(x.appointmentId)
 }
 
 /** After a status change (or a reschedule): Google Calendar, "Appointment status" automations, then the calendar's cancelled or rescheduled notifications. */

@@ -1,5 +1,6 @@
 import { HlInputError } from './http'
 import { randomUUID } from 'crypto'
+import { MAX_SERIES, RRULE_DAYS } from './calendar-shared'
 import type { HlCalendarSettings, HlDateOverride, HlDurationOption, HlHours, HlNotification, HlOpenHours, HlTeamMember, TimeUnit } from './calendar-shared'
 import type { HlConsentBox } from './types'
 
@@ -114,6 +115,21 @@ export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings
   if (s.widgetColor !== undefined) out.widgetColor = hex(s.widgetColor) ?? existing.widgetColor
   if (s.meetingLocation !== undefined) out.meetingLocation = str(s.meetingLocation, 300)
   if (s.meetingType !== undefined) out.meetingType = s.meetingType === 'google_meet' ? 'google_meet' : 'location'
+  if (s.enableRecurring !== undefined) out.enableRecurring = s.enableRecurring === true
+  if (s.recurring !== undefined) {
+    const r = (s.recurring ?? {}) as Record<string, unknown>
+    out.recurring = {
+      ...(existing.recurring ?? {}),
+      freq: r.freq === 'WEEKLY' || r.freq === 'MONTHLY' ? r.freq : 'DAILY',
+      count: num(r.count ?? 2, 1, MAX_SERIES, 'How many times it repeats'),
+      interval: num(r.interval ?? 1, 1, 12, 'How often it repeats'),
+      weekDays: Array.isArray(r.weekDays) ? [...new Set(r.weekDays.map((d) => String(d).toUpperCase().slice(0, 2)).filter((d) => (RRULE_DAYS as readonly string[]).includes(d)))] : [],
+      monthDays: Array.isArray(r.monthDays) ? [...new Set(r.monthDays.map(Number).filter((d) => Number.isInteger(d) && d >= 1 && d <= 31))] : [],
+      bookingOption: r.bookingOption === 'book_next' || r.bookingOption === 'continue' ? r.bookingOption : 'skip',
+      bookingOverlapDefaultStatus: r.bookingOverlapDefaultStatus === 'new' ? 'new' : 'confirmed',
+    }
+  }
+  if (out.enableRecurring && !((out.recurring?.count ?? 0) >= 2)) throw new HlInputError('A repeating calendar books at least 2 in a series.')
   if (s.formSubmitType !== undefined) out.formSubmitType = s.formSubmitType === 'RedirectURL' ? 'RedirectURL' : 'ThankYouMessage'
   if (s.formSubmitThanksMessage !== undefined) out.formSubmitThanksMessage = str(s.formSubmitThanksMessage, 500)
   if (s.formSubmitRedirectUrl !== undefined) {
