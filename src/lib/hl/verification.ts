@@ -55,16 +55,21 @@ export async function saveTwilioSettings(s: HlTwilioSettings): Promise<void> {
  * counts when its policy is the primary business one, and one that's tied
  * to another profile is a client's whatever its policy says.
  */
-export async function primaryProfileSid(client?: TwilioClient): Promise<string> {
+export async function primaryProfile(client?: TwilioClient): Promise<{ sid: string; name: string; individual: boolean }> {
   const s = await readTwilioSettings()
   const twilio = client ?? (await twilioClient())
   const profiles = await twilio.trusthub.v1.customerProfiles.list({ limit: 100 })
   const kinds = await profileKinds(twilio, profiles)
+  const policyOf = new Map(profiles.map((p, i) => [p.sid, kinds[i].policy ?? '']))
+  const individual = (sid: string) => /individual/i.test(policyOf.get(sid) ?? '')
+  const result = (p: { sid: string; friendlyName: string }) => ({ sid: p.sid, name: p.friendlyName, individual: individual(p.sid) })
   const primary = profiles.filter((_, i) => kinds[i].kind === 'primary')
   const tied = async (sid: string) => (await twilio.trusthub.v1.customerProfiles(sid).customerProfilesEntityAssignments.list({ limit: 50 })).some((a) => a.objectSid.startsWith('BU'))
   const picked = primary.find((p) => p.sid === s.customerProfileSid?.trim())
-  if (picked && !(primary.length > 1 && (await tied(picked.sid)))) return picked.sid
-  const candidates = primary.filter((p) => p.status === 'twilio-approved').sort((a, b) => Number(b.policySid === PRIMARY_PROFILE_POLICY) - Number(a.policySid === PRIMARY_PROFILE_POLICY))
+  if (picked && !(primary.length > 1 && (await tied(picked.sid)))) return result(picked)
+  // A business profile before an individual's; Twilio's primary business policy first of all.
+  const rank = (p: { sid: string; policySid: string }) => (p.policySid === PRIMARY_PROFILE_POLICY ? 0 : individual(p.sid) ? 2 : 1)
+  const candidates = primary.filter((p) => p.status === 'twilio-approved').sort((a, b) => rank(a) - rank(b))
   let approved = candidates[0]
   if (candidates.length > 1) {
     for (const p of candidates) {
@@ -79,7 +84,18 @@ export async function primaryProfileSid(client?: TwilioClient): Promise<string> 
       'Twilio needs Genisys’s primary business profile approved: in the Twilio Console open Trust Hub → Customer Profiles, create the Primary Business Profile (choose “ISV / Reseller”), and wait for “Twilio Approved”. Then file again.',
     )
   }
-  return approved.sid
+  return result(approved)
+}
+
+export async function primaryProfileSid(client?: TwilioClient): Promise<string> {
+  return (await primaryProfile(client)).sid
+}
+
+/** Why a client's A2P can't hang off this account's primary profile, or null when it can. */
+export function individualProfileProblem(p: { name: string; individual: boolean }): string | null {
+  return p.individual
+    ? `Genisys’s Twilio primary profile (“${p.name}”) is for an individual. Registering a business’s A2P needs a Primary Business Profile set up as “ISV Reseller or Partner”: in the Twilio Console open Trust Hub → Customer Profiles → Create Primary Business Profile, fill it in for Lead Genisys LLC, and wait for “Twilio Approved”. Then file again.`
+    : null
 }
 
 const STATUS: Record<string, string> = {

@@ -8,7 +8,7 @@ import { asSettings, consentsOf } from './forms'
 import { hostedLegalUrl, resolveLegalLinks, type LegalLinks } from './legal-links'
 import { prettyPhone } from './merge'
 import { splitName, toE164 } from './phone'
-import { formUrl, primaryProfileSid, readTwilioSettings } from './verification'
+import { formUrl, individualProfileProblem, primaryProfile, readTwilioSettings } from './verification'
 import { publicBase, twilioAccountType, twilioClient, type TwilioClient } from './twilio'
 import {
   ACTIVE_STAGES,
@@ -389,10 +389,15 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   if ((await twilioAccountType().catch(() => null)) === 'Trial')
     checks.push({ key: 'twilio-trial', level: 'error', label: 'Twilio account', detail: 'Twilio is still a free trial, and trial accounts can’t register A2P (or text anyone but verified numbers). Upgrade it in the Twilio Console first, then check again.' })
   else
-    await primaryProfileSid().catch((err) => {
-      // Not set up at all (no Twilio keys) is said elsewhere; a missing primary profile is said here.
-      if (err instanceof HlInputError && /primary business profile/.test(err.message)) checks.push({ key: 'twilio-profile', level: 'error', label: 'Genisys’s Twilio profile', detail: err.message })
-    })
+    await primaryProfile()
+      .then((p) => {
+        const problem = individualProfileProblem(p)
+        if (problem) checks.push({ key: 'twilio-profile', level: 'error', label: 'Genisys’s Twilio profile', detail: problem })
+      })
+      .catch((err) => {
+        // Not set up at all (no Twilio keys) is said elsewhere; a missing primary profile is said here.
+        if (err instanceof HlInputError && /primary business profile/.test(err.message)) checks.push({ key: 'twilio-profile', level: 'error', label: 'Genisys’s Twilio profile', detail: err.message })
+      })
   const legal = { privacy: d.privacyUrl || ctx.legal.privacy, terms: d.termsUrl || ctx.legal.terms }
   const [site, privacy, terms] = await Promise.all([d.website ? load(d.website) : Promise.resolve(null), load(legal.privacy), load(legal.terms)])
 
@@ -514,7 +519,10 @@ async function assigned(list: () => Promise<{ objectSid: string }[]>): Promise<S
 async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDetails, meta: Meta): Promise<string> {
   const hub = client.trusthub.v1
   const sole = d.path === 'sole_prop'
-  const [primary, settings] = await Promise.all([primaryProfileSid(client), readTwilioSettings()])
+  const [owner, settings] = await Promise.all([primaryProfile(client), readTwilioSettings()])
+  const individual = individualProfileProblem(owner)
+  if (individual) throw new StepError(individual, 'profile')
+  const primary = owner.sid
   const email = settings.notificationEmail?.trim() || 'alex@leadgenisys.com'
   let sid = row.customerProfileSid
   if (!sid) {

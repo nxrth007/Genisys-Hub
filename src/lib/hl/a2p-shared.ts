@@ -122,8 +122,10 @@ export function detailProblems(d: A2pDetails): string[] {
     if (!(INDUSTRIES as readonly string[]).includes(d.industry)) out.push('Pick the industry.')
     if (!d.title.trim()) out.push('The representative’s job title is missing.')
     if (!(JOB_POSITIONS as readonly string[]).includes(d.position)) out.push('Pick the representative’s position.')
-  } else if (!d.brandName.trim()) {
-    out.push('Brand name is missing (the business name, or the owner’s name if there’s none).')
+  } else {
+    if (!d.brandName.trim()) out.push('Brand name is missing (the business name, or the owner’s name if there’s none).')
+    // The registry's rule: sole proprietor is only for a business with no tax ID (every LLC has an EIN).
+    if (d.ein.replace(/\D/g, '').length === 9) out.push('This business has an EIN, so it can’t register as a sole proprietor: pick Low volume.')
   }
   if (!LINK.test(d.website.trim())) out.push('Website must be a full link (https://…).')
   if (!LINK.test(d.privacyUrl.trim())) out.push('The privacy policy link must be a full link (https://…).')
