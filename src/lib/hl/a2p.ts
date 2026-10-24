@@ -816,6 +816,22 @@ async function resubmitCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails,
   return updated
 }
 
+/**
+ * Where a resubmitted campaign stands. Twilio only sends an API edit back to
+ * the carriers on accounts in its private beta for API campaign edits; on
+ * others it keeps the new wording but leaves the campaign rejected, and the
+ * new review starts from the Console's Edit Campaign → Update. The watch on
+ * rejected campaigns (advanceA2p) notices when it does.
+ */
+function afterResubmit(status: string, sid: string): Prisma.HlA2pUpdateInput {
+  if (status !== 'FAILED') return { stage: 'campaign', campaignStatus: 'PENDING' }
+  return {
+    stage: 'failed',
+    campaignStatus: 'FAILED',
+    note: `Twilio saved the fix but didn’t send the campaign back for review: it only does that from its Console for this account (editing campaigns through its API is a private beta). In the Twilio Console, open Messaging → Regulatory compliance → Campaigns, click campaign ${sid}, then Edit Campaign → Update. Hell-level notices the new review by itself.`,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The registration's life
 // ---------------------------------------------------------------------------
@@ -951,9 +967,11 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
     // The brand passed and only the carriers turned the campaign down: the profile and bundles behind it are
     // approved (and locked), so the fix goes straight to the campaign.
     if (row.campaignSid && row.campaignStatus === 'FAILED' && row.brandSid && row.brandStatus !== 'FAILED') {
-      await resubmitCampaign(client, row, d, meta, now)
-      delete meta.failedStep
-      row = await prisma.hlA2p.update({ where: { id: row.id }, data: { stage: 'campaign', campaignStatus: 'PENDING', meta: asJson(meta), checkedAt: now, lockedUntil: null } })
+      const updated = await resubmitCampaign(client, row, d, meta, now)
+      const data = afterResubmit(updated.campaignStatus, row.campaignSid)
+      if (data.stage === 'failed') meta.failedStep = 'campaign'
+      else delete meta.failedStep
+      row = await prisma.hlA2p.update({ where: { id: row.id }, data: { ...data, meta: asJson(meta), checkedAt: now, lockedUntil: null } })
       await mirrorNumbers(row)
       return (await a2pView(accountId))!
     }
@@ -967,8 +985,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
       await client.messaging.v1.brandRegistrations(row.brandSid).update()
       data = { stage: 'brand', brandStatus: 'PENDING' }
     } else if (row.campaignSid && row.campaignStatus === 'FAILED') {
-      await resubmitCampaign(client, row, d, meta, now)
-      data = { stage: 'campaign', campaignStatus: 'PENDING' }
+      data = afterResubmit((await resubmitCampaign(client, row, d, meta, now)).campaignStatus, row.campaignSid)
     } else if (row.campaignSid) {
       data = { stage: 'campaign' }
     } else if (row.brandSid) {
@@ -976,7 +993,8 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
     } else {
       data = { stage: 'profile', nextAt: new Date(now.getTime() + BRAND_PAUSE_MS) }
     }
-    delete meta.failedStep
+    if (data.stage === 'failed') meta.failedStep = 'campaign'
+    else delete meta.failedStep
     row = await prisma.hlA2p.update({ where: { id: row.id }, data: { ...data, meta: asJson(meta), checkedAt: now, lockedUntil: null } })
   } catch (err) {
     meta.failedStep = err instanceof StepError ? err.step : (meta.failedStep ?? 'profile')
