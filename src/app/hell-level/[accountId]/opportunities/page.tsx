@@ -82,36 +82,39 @@ function Board() {
     if (stageId && opp && opp.stageId !== stageId) move.mutate({ id: opp.id, stageId })
   }
 
-  const money = (n: number) => `$${n.toLocaleString('en-US')}`
+  const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 px-6 py-7">
-      <PageHeader
-        title="Opportunities"
-        description="Drag a lead to the next stage as the job moves. Moving one to “Job Complete” sends the review request (when it’s switched on)."
-        actions={
-          <>
-            {(q.data?.pipelines.length ?? 0) > 1 && (
-              <Select value={pipeline?.id ?? ''} onChange={(e) => setPipelineId(e.target.value)} className="w-52">
-                {q.data!.pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-            <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className="w-36">
-              <option value="open">Open</option>
-              <option value="won">Won</option>
-              <option value="lost">Lost</option>
-              <option value="all">All</option>
-            </Select>
-            <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!pipeline} onClick={() => setAdding(pipeline?.stages[0]?.id ?? null)}>
-              Add opportunity
-            </Button>
-          </>
-        }
-      />
+    <div className="flex h-full min-h-0 flex-col gap-4 px-6 py-7">
+      <PageHeader title="Opportunities" description="Drag a lead to the next stage as the job moves. Moving one to “Job Complete” sends the review request (when it’s switched on)." />
+      {/* GHL's toolbar: the pipeline and how many are in it on the left, the rest on the right. */}
+      <div className="flex flex-wrap items-center gap-3">
+        {(q.data?.pipelines.length ?? 0) > 1 && (
+          <Select value={pipeline?.id ?? ''} onChange={(e) => setPipelineId(e.target.value)} className="w-56">
+            {q.data!.pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        )}
+        {pipeline && (
+          <span className="rounded-full bg-primary-soft px-3 py-1 text-[12.5px] font-medium tabular-nums text-primary">
+            {shown.length.toLocaleString('en-US')} {shown.length === 1 ? 'opportunity' : 'opportunities'}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className="w-36">
+            <option value="open">Open</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+            <option value="all">All</option>
+          </Select>
+          <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!pipeline} onClick={() => setAdding(pipeline?.stages[0]?.id ?? null)}>
+            Add opportunity
+          </Button>
+        </div>
+      </div>
       {q.isLoading ? (
         <div className="flex justify-center py-20">
           <Spinner />
@@ -122,16 +125,17 @@ function Board() {
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2">
             {pipeline.stages.map((s) => {
-              const cards = shown.filter((o) => o.stageId === s.id).sort((a, b) => a.position - b.position)
+              // Newest first, as GHL sorts its board by default.
+              const cards = shown.filter((o) => o.stageId === s.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
               const total = cards.reduce((sum, o) => sum + o.value, 0)
               return (
                 <Column key={s.id} id={s.id}>
                   <div className="flex items-center justify-between px-1 pb-2">
                     <div>
                       <p className="text-[14px] font-semibold text-foreground">{s.name}</p>
-                      <p className="text-[12px] text-muted-foreground">
+                      <p className="text-[12px] tabular-nums text-muted-foreground">
                         {cards.length} {cards.length === 1 ? 'opportunity' : 'opportunities'}
-                        {total ? ` · ${money(total)}` : ''}
+                        <span className="ml-2 text-foreground/80">{money(total)}</span>
                       </p>
                     </div>
                     <button type="button" onClick={() => setAdding(s.id)} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground" title="Add here">

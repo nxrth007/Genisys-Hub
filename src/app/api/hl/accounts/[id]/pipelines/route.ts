@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     orderBy: { createdAt: 'asc' },
     include: {
       opportunities: {
-        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ createdAt: 'desc' }],
         include: { contact: { select: { id: true, firstName: true, lastName: true, phone: true, email: true, tags: true } } },
       },
     },
