@@ -12,6 +12,11 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '2mb',
     },
+    // Next starts one build worker per CPU to collect page data, each loading
+    // the server code. Render's build machine has 48 CPUs, and 47 workers ran
+    // past its 8 GB limit (Oct 2026: "out of memory", five failed deploys).
+    // Four is plenty.
+    cpus: 4,
   },
 }
 
