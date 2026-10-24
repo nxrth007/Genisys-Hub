@@ -2,9 +2,9 @@
 
 import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Phone, Search, Star } from 'lucide-react'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { Avatar, hlFetch } from './ui'
@@ -43,6 +43,16 @@ export function useAccounts() {
 
 const LAST_KEY = 'hl-last-account'
 
+/** The agency view's menu (GHL's agency sidebar, the parts Hell-level has). */
+const AGENCY_NAV = [
+  { href: '/hell-level/agency/launchpad', label: 'Launchpad', icon: Rocket },
+  { href: '/hell-level/agency/dashboard', label: 'Agency Dashboard', icon: LayoutDashboard },
+  { href: '/hell-level', label: 'Sub-Accounts', icon: Building2 },
+  { href: '/hell-level/agency/snapshots', label: 'Account Snapshots', icon: Layers },
+]
+const AGENCY_SETTINGS = { href: '/hell-level/agency/settings', label: 'Settings', icon: Settings }
+const agencyTitle = (pathname: string) => [...AGENCY_NAV, AGENCY_SETTINGS].find((n) => n.href === pathname)?.label ?? 'Agency view'
+
 /**
  * Hell-level's frame: GoHighLevel's sub-account structure (the left menu in
  * GHL's order, section tabs across the top) in the Hub's own look.
@@ -60,6 +70,8 @@ export function HellShell({ children }: { children: React.ReactNode }) {
     if (!accountId) return
     try {
       localStorage.setItem(LAST_KEY, accountId)
+      // The switcher's "Recent": newest first.
+      writeList(RECENT_KEY, [accountId, ...readList(RECENT_KEY).filter((x) => x !== accountId)].slice(0, 6))
     } catch {
       // private mode: the switcher still works, it just won't remember
     }
@@ -84,7 +96,7 @@ export function HellShell({ children }: { children: React.ReactNode }) {
 
         <nav className="mt-3 flex flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
           {!base ? (
-            <NavLink href="/hell-level" label="Sub-Accounts" icon={Building2} active={pathname === '/hell-level'} />
+            AGENCY_NAV.map((n) => <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={pathname === n.href} />)
           ) : (
             <>
               {top.map((s) => (
@@ -99,7 +111,11 @@ export function HellShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
-          {base && <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />}
+          {base ? (
+            <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />
+          ) : (
+            <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} />
+          )}
           <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-white/[0.04] hover:text-foreground">
             <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Back to the Hub
@@ -109,7 +125,7 @@ export function HellShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[54px] shrink-0 items-center gap-6 border-b border-border px-5">
-          <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : 'Agency view')}</p>
+          <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : agencyTitle(pathname))}</p>
           {section?.tabs && base && (
             <Suspense fallback={null}>
               <SectionTabs section={section} href={`${base}/${section.key}`} />
@@ -198,9 +214,29 @@ function NavLink({
   )
 }
 
+const RECENT_KEY = 'hl-recent-accounts'
+const PIN_KEY = 'hl-pinned-accounts'
+
+function readList(key: string): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeList(key: string, list: string[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(list))
+  } catch {
+    // private mode: not remembered
+  }
+}
+
+/** GHL's account switcher: search, "Switch to Agency View", recent sub-accounts, then all of them with home and pin. */
 function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; loading: boolean }) {
   const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
   const box = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   const params = useParams<{ accountId?: string }>()
@@ -210,16 +246,14 @@ function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: 
     const onDown = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     window.addEventListener('mousedown', onDown)
-    return () => window.removeEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [open])
-
-  const list = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    const all = s ? accounts.filter((a) => `${a.name} ${a.owner ?? ''} ${a.clientName ?? ''}`.toLowerCase().includes(s)) : accounts
-    // The default (Lead Genisys) first, like GHL's own location at the top.
-    return [...all].sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId))
-  }, [accounts, q, defaultId])
 
   // Switching keeps you on the same section of the other sub-account (GHL does the same).
   const section = params?.accountId ? pathname.split('/')[3] || 'dashboard' : 'dashboard'
@@ -231,48 +265,108 @@ function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: 
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2 text-left transition hover:bg-muted"
       >
-        <Avatar name={current?.name ?? 'S'} size={26} />
+        {current ? (
+          <Avatar name={current.name} size={26} />
+        ) : (
+          <span className="grid h-[26px] w-[26px] place-items-center rounded-full bg-primary-soft text-primary">
+            <RefreshCcw className="h-3.5 w-3.5" />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-foreground">{current?.name ?? (loading ? 'Loading…' : 'Choose a sub-account')}</span>
-          <span className="eyebrow block truncate text-muted-foreground">{current ? (current.id === defaultId ? 'Home sub-account' : current.owner || 'Sub-account') : `${accounts.length} sub-accounts`}</span>
+          <span className="block truncate text-[13px] font-medium text-foreground">{current?.name ?? (loading ? 'Loading…' : 'Click here to switch')}</span>
+          <span className="eyebrow block truncate text-muted-foreground">{current ? (current.id === defaultId ? 'Home sub-account' : current.owner || 'Sub-account') : 'Agency view'}</span>
         </span>
         <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
-      {open && (
-        <div className="absolute left-3 right-3 top-full z-40 mt-1.5 overflow-hidden rounded-lg border border-border bg-popover shadow-pop">
-          <div className="border-b border-border p-2">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search sub-accounts"
-              className="h-8 w-full rounded-md border border-border bg-surface px-2.5 text-[12.5px] text-foreground outline-none focus:border-primary/50"
-            />
-          </div>
-          <div className="max-h-[50vh] overflow-y-auto py-1">
-            {list.map((a) => (
-              <Link
-                key={a.id}
-                href={`/hell-level/${a.id}/${section}`}
-                onClick={() => setOpen(false)}
-                className={cn('flex items-center gap-2.5 px-3 py-2 text-[13px] hover:bg-muted', a.id === current?.id && 'bg-primary-soft')}
-              >
-                <Avatar name={a.name} size={24} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-foreground">{a.name}</span>
-                  <span className="block truncate text-[11.5px] text-muted-foreground">{a.owner || a.clientName || (a.ghlLocationId ? 'Imported from GHL' : 'Sub-account')}</span>
-                </span>
-                {a.id === defaultId && <Star className="h-3 w-3 shrink-0 fill-primary text-primary" />}
-                {!!a.unread && <span className="rounded-full bg-destructive px-1.5 font-mono text-[10px] font-bold text-destructive-foreground">{a.unread}</span>}
-              </Link>
-            ))}
-            {!list.length && <p className="px-3 py-4 text-center text-[13px] text-muted-foreground">No sub-accounts match.</p>}
-          </div>
-          <Link href="/hell-level" onClick={() => setOpen(false)} className="flex items-center gap-2 border-t border-border px-3 py-2.5 font-mono text-[12px] text-primary hover:bg-muted">
-            <Building2 className="h-3.5 w-3.5" /> All sub-accounts
-          </Link>
-        </div>
+      {open && <SwitcherPanel accounts={accounts} defaultId={defaultId} current={current} section={section} onClose={() => setOpen(false)} />}
+    </div>
+  )
+}
+
+function SwitcherPanel({ accounts, defaultId, current, section, onClose }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; section: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [q, setQ] = useState('')
+  // Read when the panel opens (it's only ever on screen in the browser).
+  const [pinned, setPinned] = useState<string[]>(() => readList(PIN_KEY))
+  const [recentIds] = useState<string[]>(() => readList(RECENT_KEY))
+  const makeHome = useMutation({
+    mutationFn: (id: string) => hlFetch(`/api/hl/accounts/${id}`, { method: 'PATCH', json: { makeDefault: true } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'accounts'] }),
+  })
+  const togglePin = (id: string) => {
+    const next = pinned.includes(id) ? pinned.filter((x) => x !== id) : [id, ...pinned]
+    setPinned(next)
+    writeList(PIN_KEY, next)
+  }
+  const s = q.trim().toLowerCase()
+  const matches = (a: AccountRow) => !s || `${a.name} ${a.owner ?? ''} ${a.clientName ?? ''}`.toLowerCase().includes(s)
+  const recent = recentIds
+    .map((id) => accounts.find((a) => a.id === id))
+    .filter((a): a is AccountRow => !!a && a.id !== current?.id)
+    .slice(0, 3)
+  const rank = (a: AccountRow) => (pinned.includes(a.id) ? 0 : a.id === defaultId ? 1 : 2)
+  const all = accounts.filter(matches).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+
+  const card = (a: AccountRow, tools: boolean) => (
+    <div key={`${tools ? 'all' : 'recent'}-${a.id}`} className={cn('mx-3 mb-1.5 flex items-center gap-2 rounded-md border px-2.5 py-2 transition', a.id === current?.id ? 'border-primary/50 bg-primary-soft' : 'border-border hover:bg-muted')}>
+      <Link href={`/hell-level/${a.id}/${section}`} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-2.5">
+        <Avatar name={a.name} size={26} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-foreground">{a.name}</span>
+          <span className="block truncate text-[11.5px] text-muted-foreground">{a.owner || a.clientName || (a.ghlLocationId ? 'Imported from GoHighLevel' : 'Sub-account')}</span>
+        </span>
+        {!!a.unread && <span className="rounded-full bg-destructive px-1.5 font-mono text-[10px] font-bold text-destructive-foreground">{a.unread}</span>}
+      </Link>
+      {tools && (
+        <>
+          <button
+            type="button"
+            onClick={() => a.id !== defaultId && makeHome.mutate(a.id)}
+            className={cn('grid h-7 w-7 place-items-center rounded-md transition', a.id === defaultId ? 'text-primary' : 'text-muted-foreground/60 hover:bg-white/[0.06] hover:text-foreground')}
+            title={a.id === defaultId ? 'Home sub-account: Hell-level opens here' : 'Make this the home sub-account'}
+          >
+            <Home className={cn('h-3.5 w-3.5', a.id === defaultId && 'fill-primary/20')} />
+          </button>
+          <button
+            type="button"
+            onClick={() => togglePin(a.id)}
+            className={cn('grid h-7 w-7 place-items-center rounded-md transition', pinned.includes(a.id) ? 'text-primary' : 'text-muted-foreground/60 hover:bg-white/[0.06] hover:text-foreground')}
+            title={pinned.includes(a.id) ? 'Unpin' : 'Pin to the top'}
+          >
+            <Pin className={cn('h-3.5 w-3.5', pinned.includes(a.id) && 'fill-primary')} />
+          </button>
+        </>
       )}
+    </div>
+  )
+
+  return (
+    <div className="absolute left-3 top-full z-50 mt-1.5 flex w-[330px] flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-pop">
+      <div className="p-3 pb-2">
+        <label className="flex h-9 items-center gap-2 rounded-md border border-primary/50 bg-surface px-2.5 text-[13px] text-muted-foreground">
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search for a sub-account" className="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" />
+        </label>
+      </div>
+      {current && (
+        <Link href="/hell-level/agency/launchpad" onClick={onClose} className="mx-3 mb-2 flex w-fit items-center gap-2 text-[12.5px] font-medium text-primary hover:underline">
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+            <Undo2 className="h-3 w-3" />
+          </span>
+          Switch to Agency View
+        </Link>
+      )}
+      <div className="max-h-[60vh] overflow-y-auto border-t border-border pb-2">
+        {!s && recent.length > 0 && (
+          <>
+            <p className="eyebrow px-3 pb-1.5 pt-3 text-muted-foreground">Recent</p>
+            {recent.map((a) => card(a, false))}
+          </>
+        )}
+        <p className="eyebrow px-3 pb-1.5 pt-3 text-muted-foreground">All accounts</p>
+        {all.map((a) => card(a, true))}
+        {!all.length && <p className="px-3 py-4 text-center text-[13px] text-muted-foreground">No sub-accounts match.</p>}
+      </div>
     </div>
   )
 }
