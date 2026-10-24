@@ -21,6 +21,7 @@ import {
 } from '@/lib/hl/calendar-shared'
 import type { StaffRow } from '@/lib/hl/staff'
 import { useAccount } from './bits'
+import { ResourcesTab, ServiceMenusTab } from './calendar-services'
 import { confirmAction } from './confirm'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Table, Tabs, Textarea, Toggle, copyText, hlFetch } from './ui'
 
@@ -97,6 +98,7 @@ export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
 
 function CalendarsTab({ accountId }: { accountId: string }) {
   const [sub, setSub] = useState<'calendars' | 'services' | 'rooms' | 'equipment'>('calendars')
+  const cals = useCalendars(accountId).data?.calendars ?? []
   return (
     <div className="flex flex-col gap-4">
       <Tabs
@@ -109,20 +111,10 @@ function CalendarsTab({ accountId }: { accountId: string }) {
           { key: 'equipment', label: 'Equipment' },
         ]}
       />
-      {sub === 'calendars' ? (
-        <CalendarList accountId={accountId} />
-      ) : (
-        <Card className="px-6 py-10 text-center">
-          <p className="eyebrow text-muted-foreground">Coming with service booking</p>
-          <p className="mx-auto mt-2 max-w-lg text-[13px] text-muted-foreground">
-            {sub === 'services'
-              ? 'The service menu lists what people can book on a service booking calendar (each with its length and price), grouped into categories.'
-              : sub === 'rooms'
-                ? 'Rooms a service needs. A room is booked with the appointment, so two services can’t use it at once.'
-                : 'Equipment a service needs, with how many of each there are, booked with the appointment.'}
-          </p>
-        </Card>
-      )}
+      {sub === 'calendars' && <CalendarList accountId={accountId} />}
+      {sub === 'services' && <ServiceMenusTab accountId={accountId} calendars={cals} />}
+      {sub === 'rooms' && <ResourcesTab accountId={accountId} kind="room" calendars={cals} />}
+      {sub === 'equipment' && <ResourcesTab accountId={accountId} kind="equipment" calendars={cals} />}
     </div>
   )
 }

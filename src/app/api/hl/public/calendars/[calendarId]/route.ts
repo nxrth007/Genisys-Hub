@@ -7,7 +7,8 @@ type Ctx = { params: Promise<{ calendarId: string }> }
 /**
  * The public side of a booking calendar (the booking page, or a client's
  * own site). CORS * like the forms.
- *   GET ?from=ISO&to=ISO[&duration=minutes]: the calendar and its open slots (62 days at most).
+ *   GET ?from=ISO&to=ISO[&duration=minutes][&member=key]: the calendar and its open slots (62 days at most), with
+ *   that team member free when one was picked.
  *   POST: a booking. Rate-limited per IP.
  */
 
@@ -34,7 +35,9 @@ export async function GET(req: Request, { params }: Ctx) {
   if (duration && !calendar.durations.includes(duration)) return NextResponse.json({ error: 'Pick one of the meeting lengths.' }, { status: 400, headers: CORS })
   try {
     const { slots } = await slotsFor(calendarId, from, capped, { duration })
-    return NextResponse.json({ calendar, slots: slots.map((s) => ({ start: s.start.toISOString(), end: s.end.toISOString() })) }, { headers: CORS })
+    const member = sp.get('member')
+    const open = member ? slots.filter((s) => s.members.includes(member)) : slots
+    return NextResponse.json({ calendar, slots: open.map((s) => ({ start: s.start.toISOString(), end: s.end.toISOString() })) }, { headers: CORS })
   } catch (err) {
     if (err instanceof BookingError) return NextResponse.json({ error: err.message }, { status: 400, headers: CORS })
     console.error('[hell-level] slots failed:', err)
@@ -69,6 +72,7 @@ export async function POST(req: Request, { params }: Ctx) {
       marketingConsent: raw.marketing_consent === true || raw.marketing_consent === 'true',
       timezone: s(raw.timezone),
       pageUrl: s(raw._page) ?? req.headers.get('referer'),
+      member: s(raw.member),
     })
     after(() => fireBookingTriggers(b).catch((err) => console.error('[hell-level] booking automations failed:', err)))
     const calendar = await publicCalendar(calendarId)

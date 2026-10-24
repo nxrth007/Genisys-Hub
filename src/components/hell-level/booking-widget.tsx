@@ -44,6 +44,7 @@ export function SlotPicker({
   picked,
   onPick,
   duration,
+  member,
 }: {
   calendar: PublicCalendar
   tz: string
@@ -52,6 +53,8 @@ export function SlotPicker({
   onPick: (start: string) => void
   /** A length the booker picked (minutes); the calendar's own when there's no choice. */
   duration?: number
+  /** The team member they picked (a service menu with staff selection). */
+  member?: string
 }) {
   const now = useMemo(() => new Date(), [])
   const [month, setMonth] = useState({ y: now.getFullYear(), m: now.getMonth() })
@@ -62,9 +65,9 @@ export function SlotPicker({
     return { from: from < now ? now : from, to }
   }, [month, now])
   const q = useQuery<{ slots: SlotRow[] }>({
-    queryKey: ['hl-slots', calendar.id, range.from.toISOString(), range.to.toISOString(), duration ?? null],
+    queryKey: ['hl-slots', calendar.id, range.from.toISOString(), range.to.toISOString(), duration ?? null, member ?? null],
     queryFn: async () => {
-      const res = await fetch(`/api/hl/public/calendars/${calendar.id}?from=${range.from.toISOString()}&to=${range.to.toISOString()}${duration ? `&duration=${duration}` : ''}`)
+      const res = await fetch(`/api/hl/public/calendars/${calendar.id}?from=${range.from.toISOString()}&to=${range.to.toISOString()}${duration ? `&duration=${duration}` : ''}${member ? `&member=${encodeURIComponent(member)}` : ''}`)
       const data = (await res.json().catch(() => ({}))) as { slots?: SlotRow[]; error?: string }
       if (!res.ok) throw new Error(data.error || 'Couldn’t load the times.')
       return { slots: data.slots ?? [] }
@@ -231,7 +234,8 @@ export function Booked({ calendar, start, end, tz, manageUrl, headline, series =
 }
 
 /** The whole booking page: pick a time, give details, done. */
-export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar; pageUrl: string | null }) {
+export function BookingWidget({ calendar, pageUrl, team = [] }: { calendar: PublicCalendar; pageUrl: string | null; team?: { key: string; name: string }[] }) {
+  const [member, setMember] = useState('')
   const [tz, setTz] = useState(() => (typeof window === 'undefined' ? calendar.timezone : visitorZone(calendar.timezone)))
   const [picked, setPicked] = useState<string | null>(null)
   const [duration, setDuration] = useState(calendar.durations?.[0] ?? calendar.duration)
@@ -271,6 +275,7 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
         body: JSON.stringify({
           start: picked,
           ...(calendar.durations?.length > 1 ? { duration } : {}),
+          ...(member ? { member } : {}),
           ...f,
           timezone: tz,
           ...Object.fromEntries(calendar.consents.map((c) => [key(c.kind), !!ticked[key(c.kind)]])),
@@ -333,7 +338,25 @@ export function BookingWidget({ calendar, pageUrl }: { calendar: PublicCalendar;
               ))}
             </div>
           )}
-          <SlotPicker calendar={calendar} tz={tz} onTz={setTz} picked={picked} onPick={setPicked} duration={calendar.durations?.length > 1 ? duration : undefined} />
+          {team.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] font-medium text-[#344054]">With</span>
+              {[{ key: '', name: 'Anyone' }, ...team].map((m) => (
+                <button
+                  key={m.key || 'anyone'}
+                  type="button"
+                  onClick={() => {
+                    setMember(m.key)
+                    setPicked(null)
+                  }}
+                  className={`rounded-full border px-3 py-1 text-[13px] transition ${m.key === member ? 'border-[var(--hl-c)] bg-[color-mix(in_srgb,var(--hl-c)_10%,white)] font-semibold text-[var(--hl-c)]' : 'border-[#D0D5DD] text-[#344054] hover:bg-[#F9FAFB]'}`}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <SlotPicker calendar={calendar} tz={tz} onTz={setTz} picked={picked} onPick={setPicked} duration={calendar.durations?.length > 1 ? duration : undefined} member={member || undefined} />
           {error && <p className="rounded-lg bg-[#FEF3F2] px-3 py-2 text-[13px] text-[#B42318]">{error.text}</p>}
           <button
             type="button"

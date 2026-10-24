@@ -11,6 +11,7 @@ import { logActivity, upsertContact } from './contacts'
 import { googleBusy, syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
 import { resolveLegalLinks, type LegalLinks } from './legal-links'
+import { resourcesFor, slotsWithResources } from './resources'
 import { appointmentTimes, renderTemplate } from './merge'
 import { toE164 } from './phone'
 import { computeSlots, pickMember, rulesOf, type Busy, type Slot } from './slots'
@@ -114,7 +115,8 @@ export async function slotsFor(calendarId: string, from: Date, to: Date, o: { ex
     duration: o.duration,
     staff: o.staff,
   })
-  return { calendar, settings, team, slots }
+  // A room with space and the equipment free (GHL's Rooms and Equipment), when the calendar uses them.
+  return { calendar, settings, team, slots: await slotsWithResources(db, calendar.accountId, calendar.id, slots, o.excludeAppointmentId) }
 }
 
 /** GHL descriptions are HTML; the booking page shows them as text. */
@@ -219,6 +221,8 @@ export type BookInput = {
   /** The booker's timezone (shown back to them). */
   timezone?: string | null
   pageUrl?: string | null
+  /** The team member they picked (a service menu with staff selection). */
+  member?: string | null
 }
 
 export type Booked = {
@@ -360,6 +364,7 @@ export async function bookRestOfSeries(
   await tx.hlAppointment.update({ where: { id: first.id }, data: { meta: { ...meta, series: { ...series, index: 0 } } as Prisma.InputJsonValue } })
   const out: SeriesItem[] = []
   for (const [i, p] of plan.entries()) {
+    const taken = await resourcesFor(tx, first.accountId, first.calendarId, p.start, new Date(p.start.getTime() + length))
     const row = await tx.hlAppointment.create({
       data: {
         accountId: first.accountId,
@@ -381,6 +386,7 @@ export async function bookRestOfSeries(
           marketingConsent: meta.marketingConsent,
           ...(hosts.length ? { members: hosts.map((h) => h.key) } : {}),
           series: { ...series, index: i + 1 },
+          ...(taken ? { resources: taken } : {}),
           history: [{ at: new Date().toISOString(), what: `booked in a series (${o.by})` }],
         } as Prisma.InputJsonValue,
       },
@@ -425,9 +431,13 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
       const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { now: o.now, db: tx, duration })
       const slot = slots.find((x) => x.start.getTime() === start.getTime())
       if (!slot) throw new BookingError('That time was just taken. Please pick another.', 'start')
-      // A collective booking is with the whole team; otherwise one member, in turn.
+      // A collective booking is with the whole team; otherwise the one they picked, or one member in turn.
       const hosts = calendar.kind === 'collective' ? team : []
-      const member = hosts[0] ?? (await chooseMember(tx, calendarId, slot, team, settings))
+      const picked = !hosts.length && input.member ? input.member : null
+      if (picked && !slot.members.includes(picked)) throw new BookingError('They’re not free then. Pick another time, or anyone.', 'start')
+      const member = hosts[0] ?? (await chooseMember(tx, calendarId, slot, team, settings, picked))
+      const taken = await resourcesFor(tx, accountId, calendarId, slot.start, slot.end)
+      if (taken === false) throw new BookingError('That time was just taken. Please pick another.', 'start')
       const title = renderTemplate(settings.eventTitle?.trim() || '{{contact.name}}', { contact }).trim() || calendar.name
       const appointment = await tx.hlAppointment.create({
         data: {
@@ -450,6 +460,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
             marketingConsent,
             pageUrl: input.pageUrl?.slice(0, 500) ?? null,
             ...(hosts.length ? { members: hosts.map((h) => h.key) } : {}),
+            ...(taken ? { resources: taken } : {}),
             history: [{ at: new Date().toISOString(), what: 'booked' }],
           } as Prisma.InputJsonValue,
         },
@@ -572,7 +583,9 @@ export async function rescheduleByToken(t: string, newStart: string, o: { now?: 
       if (!slot) throw new BookingError('That time was just taken. Please pick another.', 'start')
       const collective = a.calendar?.kind === 'collective'
       const member = collective ? (team[0] ?? null) : await chooseMember(tx, calendarId, slot, team, settings, a.assignedUserId)
-      const meta = (a.meta && typeof a.meta === 'object' ? a.meta : {}) as { history?: History[] }
+      const taken = await resourcesFor(tx, a.accountId, calendarId, slot.start, slot.end, a.id)
+      if (taken === false) throw new BookingError('That time was just taken. Please pick another.', 'start')
+      const meta = (a.meta && typeof a.meta === 'object' ? a.meta : {}) as { history?: History[]; resources?: unknown }
       const history = [...(meta.history ?? []), { at: new Date().toISOString(), what: 'rescheduled', from: a.startTime.toISOString(), to: slot.start.toISOString() }].slice(-20)
       return tx.hlAppointment.update({
         where: { id: a.id },
@@ -580,7 +593,7 @@ export async function rescheduleByToken(t: string, newStart: string, o: { now?: 
           startTime: slot.start,
           endTime: slot.end,
           ...(team.length && !collective ? { assignedUserId: member?.key ?? null, assignedTo: member?.name ?? null } : {}),
-          meta: { ...meta, history } as Prisma.InputJsonValue,
+          meta: { ...meta, history, resources: taken || undefined } as Prisma.InputJsonValue,
         },
       })
     },

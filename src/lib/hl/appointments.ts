@@ -8,6 +8,7 @@ import { logActivity, upsertContact } from './contacts'
 import { syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
 import { appointmentTimes, renderTemplate } from './merge'
+import { resourcesFor } from './resources'
 import { staffOf } from './staff'
 
 /**
@@ -131,6 +132,9 @@ export async function createAppointment(accountId: string, input: StaffAppointme
         }
       }
       const hosts = calendar!.kind === 'collective' ? await teamOf(accountId, settings, tx) : []
+      // A room and equipment, when the calendar uses them ("Book anyway" books without, if they're all in use).
+      const taken = await resourcesFor(tx, accountId, calendar!.id, start, end)
+      if (taken === false && !input.ignoreAvailability) throw new BookingError(`A room or equipment ${calendar!.name.trim()} needs is in use then. Pick another time, or tick “Book anyway”.`, 'start')
       const title = text(input.title, 300) || renderTemplate(settings.eventTitle?.trim() || '{{contact.name}}', { contact }).trim() || calendar!.name.trim()
       const row = await tx.hlAppointment.create({
         data: {
@@ -147,7 +151,7 @@ export async function createAppointment(accountId: string, input: StaffAppointme
           notes,
           source: 'manual',
           token: newToken(),
-          meta: asJson({ ...(hosts.length ? { members: hosts.map((m) => m.key) } : {}), history: [{ at: new Date().toISOString(), what: `booked by ${by}` }] }),
+          meta: asJson({ ...(hosts.length ? { members: hosts.map((m) => m.key) } : {}), ...(taken ? { resources: taken } : {}), history: [{ at: new Date().toISOString(), what: `booked by ${by}` }] }),
         },
       })
       const series = input.once ? [] : await bookRestOfSeries(tx, row, { settings, team: hosts.length ? hosts : await teamOf(accountId, settings, tx), collective: hosts.length > 0, tz, by })
@@ -170,8 +174,9 @@ export async function updateAppointment(accountId: string, id: string, input: St
   if (!a) throw new HlInputError('Appointment not found.')
   const block = a.source === 'block'
   const data: Prisma.HlAppointmentUpdateInput = {}
-  const meta = (a.meta && typeof a.meta === 'object' ? a.meta : {}) as { history?: History[] }
+  const meta = (a.meta && typeof a.meta === 'object' ? a.meta : {}) as { history?: History[]; resources?: unknown }
   const history = [...(meta.history ?? [])]
+  let resources: unknown = meta.resources
   if (input.title !== undefined) data.title = text(input.title, 300) || a.title
   if (input.notes !== undefined) data.notes = text(input.notes, 2000) || null
   if (input.address !== undefined) data.address = text(input.address, 300) || null
@@ -197,12 +202,17 @@ export async function updateAppointment(accountId: string, id: string, input: St
       if (!slot || (key && team.length && a.calendar?.kind !== 'collective' && !slot.members.includes(key)))
         throw new BookingError('That time isn’t free on this calendar. Pick another time, or tick “Book anyway”.', 'start')
     }
+    if (!block && a.calendarId) {
+      const taken = await resourcesFor(prisma, accountId, a.calendarId, start, end, a.id)
+      if (taken === false && !input.ignoreAvailability) throw new BookingError('A room or equipment it needs is in use then. Pick another time, or tick “Book anyway”.', 'start')
+      resources = taken || undefined
+    }
     data.startTime = start
     data.endTime = end
     if (start.getTime() !== a.startTime.getTime()) history.push({ at: new Date().toISOString(), what: `moved by ${by}`, from: a.startTime.toISOString(), to: start.toISOString() })
   }
   if (Object.keys(data).length) {
-    data.meta = asJson({ ...meta, history: history.slice(-20) })
+    data.meta = asJson({ ...meta, history: history.slice(-20), resources })
     await prisma.hlAppointment.update({ where: { id }, data })
   }
   const moved = !block && !!data.startTime && (data.startTime as Date).getTime() !== a.startTime.getTime()
