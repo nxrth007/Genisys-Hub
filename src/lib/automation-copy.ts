@@ -86,11 +86,31 @@ export function siteLink(raw: string | null | undefined): string {
 }
 
 /** Everything the client record and onboarding answers can fill in. */
+const PO_BOX = /^(p\.?\s*[o0]\.?\s*b[o0]x|post\s+office\s+box)\b/i
+const PHONE = (t: string) => /^[\d\s().+-]+$/.test(t) && t.replace(/\D/g, '').length >= 7
+
+/** A street address or PO box: what a crossed "business name" answer usually holds. */
+export function looksLikeAddress(s: string | null | undefined): boolean {
+  const t = (s ?? '').trim()
+  return (/^\d/.test(t) && !PHONE(t)) || PO_BOX.test(t)
+}
+
+/**
+ * An onboarding answer that can't be a business name. Older funnel
+ * submissions have the business-name and business-address answers crossed
+ * (22 of the first 30 clients), so the "name" is often a street address, a
+ * PO box, a phone number or a web address; the client's own name is used then.
+ */
+export function notABusinessName(s: string | null | undefined): boolean {
+  const t = (s ?? '').trim()
+  return !t || looksLikeAddress(t) || PHONE(t) || (!/\s/.test(t) && /\.(com|net|org|co|us|biz|info|io)\b/i.test(t))
+}
+
 export function automationPrefill(src: AutomationSource): AutomationInputs {
   const i = src.intake
   const fullName = clean(i?.fullName) || clean(src.contactName)
   return {
-    businessName: clean(i?.businessName) || clean(src.name),
+    businessName: (notABusinessName(i?.businessName) ? '' : clean(i?.businessName)) || clean(src.name),
     ownerFirstName: fullName.split(' ')[0] ?? '',
     ownerFullName: fullName,
     quoteLink: siteLink(src.siteUrl) || siteLink(i?.domainName) || siteLink(i?.website) || siteLink(src.website),

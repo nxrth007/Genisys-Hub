@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
 import { boardInputs } from '@/lib/automation-copy-server'
 import type { Prisma } from '@/generated/prisma/client'
 import { HlInputError } from './http'
@@ -45,8 +46,12 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
   }
   const ownerPhone = toE164(intake?.customerPhone) ?? toE164(client.contactPhone) ?? toE164(intake?.businessContact)
   const ein = clean(intake?.ein || client.ein).replace(/[^\d-]/g, '')
+  // Older intakes have the name and address answers crossed: the street address sits in businessName.
+  const crossed = looksLikeAddress(intake?.businessName) && !looksLikeAddress(intake?.businessAddress)
+  // A phone number or bare web address in the address box isn't an address either.
+  const answeredAddress = crossed ? intake?.businessName : /^[\d\s().+-]+$|^\S+\.(com|net|org|co|us|biz|info|io)$/i.test(clean(intake?.businessAddress)) ? null : intake?.businessAddress
   return {
-    businessName: clean(inputs?.businessName) || clean(client.name),
+    businessName: (notABusinessName(inputs?.businessName) ? '' : clean(inputs?.businessName)) || clean(client.name),
     ownerFirstName: clean(inputs?.ownerFirstName),
     ownerName: clean(inputs?.ownerFullName),
     businessPhone: clean(inputs?.phone),
@@ -54,8 +59,8 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
     notifyPhone: ownerPhone ?? '',
     notifyEmail: clean(inputs?.notifyEmail),
     reviewLink,
-    address: clean(intake?.businessAddress || client.address),
-    legalName: clean(intake?.businessName) || clean(client.name),
+    address: clean(answeredAddress || client.address),
+    legalName: (notABusinessName(intake?.businessName) ? '' : clean(intake?.businessName)) || clean(client.name),
     ein: ein.replace(/\D/g, '').length === 9 ? ein : '',
   }
 }
