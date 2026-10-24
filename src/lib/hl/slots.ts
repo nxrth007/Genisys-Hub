@@ -41,6 +41,8 @@ export type SlotInput = {
   collective?: boolean
   /** The length the booker picked (minutes), instead of the calendar's own. */
   duration?: number
+  /** Staff booking from the calendar: the public page's minimum notice, booking window and "look busy" don't apply. */
+  staff?: boolean
 }
 
 export type Slot = { start: Date; end: Date; members: string[] }
@@ -133,8 +135,8 @@ function startsIn(hours: Pick<HlCalendarSettings, 'openHours' | 'availabilities'
 
 export function computeSlots(o: SlotInput): Slot[] {
   const r = rulesOf(o.settings, o.duration)
-  const earliest = o.now.getTime() + r.notice * MIN
-  const latest = r.ahead !== null ? o.now.getTime() + r.ahead * MIN : Infinity
+  const earliest = o.staff ? -Infinity : o.now.getTime() + r.notice * MIN
+  const latest = !o.staff && r.ahead !== null ? o.now.getTime() + r.ahead * MIN : Infinity
   const resources = o.members.length ? o.members : ['']
 
   // Who has hours when: a member's own schedule, or the calendar's hours.
@@ -176,7 +178,7 @@ export function computeSlots(o: SlotInput): Slot[] {
     // Appointments on this calendar with no one in particular take a place from someone.
     const places = o.members.length ? free.length - unassigned : free.length
     if (places <= 0) continue
-    if (r.lookBusy && hash(`${o.calendarId}|${t}`) % 100 < r.lookBusy) continue
+    if (!o.staff && r.lookBusy && hash(`${o.calendarId}|${t}`) % 100 < r.lookBusy) continue
     slots.push({ start, end, members: free.filter((k) => k !== '') })
   }
   return slots

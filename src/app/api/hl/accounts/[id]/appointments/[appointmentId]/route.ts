@@ -1,25 +1,47 @@
 import { NextResponse, after } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { fireStatusTrigger, setStatus } from '@/lib/hl/booking'
+import { deleteBlock, updateAppointment, type StaffAppointmentChange } from '@/lib/hl/appointments'
+import { fireStatusTrigger } from '@/lib/hl/booking'
 import { hlError, hlGuard, jsonBody } from '@/lib/hl/http'
 import { publicBase } from '@/lib/hl/twilio'
 
 type Ctx = { params: Promise<{ id: string; appointmentId: string }> }
 
-/** PATCH { status }: confirmed, showed, noshow, cancelled… (fires "Appointment status"). */
+async function owned(id: string, appointmentId: string) {
+  const a = await prisma.hlAppointment.findUnique({ where: { id: appointmentId }, select: { accountId: true } })
+  return !!a && a.accountId === id
+}
+
+/**
+ * PATCH { status?, start?, end?, duration?, assignedUserId?, title?, address?, notes?, ignoreAvailability? }:
+ * change an appointment from the calendar. A new status fires "Appointment status".
+ */
 export async function PATCH(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const { id, appointmentId } = await params
-  const a = await prisma.hlAppointment.findUnique({ where: { id: appointmentId }, select: { accountId: true, status: true } })
-  if (!a || a.accountId !== id) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+  if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   try {
-    const body = await jsonBody(req)
-    const status = typeof body.status === 'string' ? body.status : ''
-    const updated = await setStatus(appointmentId, status, guard.email)
-    if (a.status !== status) after(() => fireStatusTrigger(appointmentId, status).catch((err) => console.error('[hell-level] status automations failed:', err)))
+    const body = (await jsonBody(req)) as unknown as StaffAppointmentChange
+    const { statusChanged } = await updateAppointment(id, appointmentId, body, guard.email)
+    if (statusChanged) after(() => fireStatusTrigger(appointmentId, statusChanged).catch((err) => console.error('[hell-level] status automations failed:', err)))
+    const updated = await prisma.hlAppointment.findUniqueOrThrow({ where: { id: appointmentId } })
     return NextResponse.json({ appointment: { ...updated, manageUrl: updated.token ? `${publicBase()}/hl/a/${updated.token}` : null } })
   } catch (err) {
-    return hlError(err, 'appointment status')
+    return hlError(err, 'appointment')
+  }
+}
+
+/** DELETE: blocked-off time only (appointments are cancelled, so their automations stop). */
+export async function DELETE(_req: Request, { params }: Ctx) {
+  const guard = await hlGuard()
+  if (guard instanceof NextResponse) return guard
+  const { id, appointmentId } = await params
+  if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
+  try {
+    await deleteBlock(id, appointmentId)
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    return hlError(err, 'delete blocked time')
   }
 }

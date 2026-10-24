@@ -86,7 +86,7 @@ export function pickedDuration(s: HlCalendarSettings, minutes: unknown): number 
 }
 
 /** Open slots between two instants (of a length the booker picked, when the calendar offers a choice). */
-export async function slotsFor(calendarId: string, from: Date, to: Date, o: { excludeAppointmentId?: string; now?: Date; db?: Db; duration?: number } = {}) {
+export async function slotsFor(calendarId: string, from: Date, to: Date, o: { excludeAppointmentId?: string; now?: Date; db?: Db; duration?: number; staff?: boolean } = {}) {
   const db = o.db ?? prisma
   const calendar = await loadCalendar(calendarId, db)
   const settings = asCalendarSettings(calendar.settings)
@@ -108,6 +108,7 @@ export async function slotsFor(calendarId: string, from: Date, to: Date, o: { ex
     memberHours,
     collective: calendar.kind === 'collective',
     duration: o.duration,
+    staff: o.staff,
   })
   return { calendar, settings, team, slots }
 }
@@ -233,11 +234,12 @@ export class BookingError extends HlInputError {
   }
 }
 
-const token = () => randomBytes(18).toString('base64url')
-const lockKey = (accountId: string) => `hl-book:${accountId}`
+export const newToken = () => randomBytes(18).toString('base64url')
+/** The advisory lock every booking on a sub-account takes, so two can't take the last place in a slot. */
+export const lockKey = (accountId: string) => `hl-book:${accountId}`
 
 /** Who gets it: a round-robin pick among those free at that time. */
-async function chooseMember(db: Db, calendarId: string, slot: Slot, team: TeamMember[], s: HlCalendarSettings, keep?: string | null): Promise<TeamMember | null> {
+export async function chooseMember(db: Db, calendarId: string, slot: Slot, team: TeamMember[], s: HlCalendarSettings, keep?: string | null): Promise<TeamMember | null> {
   if (!team.length) return null
   if (keep && slot.members.includes(keep)) return team.find((m) => m.key === keep) ?? null
   const recent = await db.hlAppointment.groupBy({
@@ -303,7 +305,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
           address: member?.location || settings.meetingLocation?.trim() || null,
           notes,
           source: o.source ?? 'booking',
-          token: token(),
+          token: newToken(),
           timezone: input.timezone?.slice(0, 60) || null,
           meta: {
             consent,
@@ -399,7 +401,7 @@ export async function appointmentByToken(t: string): Promise<ManagedAppointment 
   }
 }
 
-type History = { at: string; what: string; from?: string; to?: string }
+export type History = { at: string; what: string; from?: string; to?: string }
 
 export async function rescheduleByToken(t: string, newStart: string, o: { now?: Date } = {}): Promise<{ appointmentId: string; start: Date; end: Date }> {
   const a = await byToken(t)
