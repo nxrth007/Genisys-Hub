@@ -5,7 +5,7 @@ import { HlInputError } from './http'
 import { renderTemplate } from './merge'
 import { splitName, toE164 } from './phone'
 import { asSettings, consentsOf } from './forms'
-import { resolveLegalLinks } from './legal-links'
+import { fillLegalLinksFromSite, isHubUrl, resolveLegalLinks, siteFormPages } from './legal-links'
 import { PRIMARY_PROFILE_POLICY, profileKinds, publicBase, twilioClient, type TwilioClient } from './twilio'
 
 /**
@@ -113,7 +113,10 @@ export async function verificationDraft(numberId: string) {
   if (!number || number.status !== 'active') throw new HlInputError('That number isn’t active.')
   if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers are registered for A2P instead (the Texting panel on the number).')
   if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Hell-level.')
-  const p = readProfile(number.account.profile)
+  // A client's own privacy and terms pages (found in the site's repo, hooked up under Clients) fill blank links.
+  const clientId = number.account.clientId
+  if (clientId) await fillLegalLinksFromSite(number.accountId)
+  const p = readProfile((await prisma.hlAccount.findUniqueOrThrow({ where: { id: number.accountId }, select: { profile: true } })).profile)
   const missing = [
     !p.businessName && 'business name',
     !p.website && 'website',
@@ -123,11 +126,17 @@ export async function verificationDraft(numberId: string) {
   const website = /^https?:\/\//i.test(p.website!) ? p.website! : `https://${p.website}`
   // Hell-level's own forms (an imported GHL form isn't served from here).
   const own = number.account.forms.filter((f) => !f.ghlId)
-  const quote = own.find((f) => f.kind === 'form')
-  const chat = own.find((f) => f.kind === 'chat')
   // A form with the separate promotional box means some texts are marketing, and the filing has to say so.
   const promos = own.some((f) => consentsOf(asSettings(f.settings)).some((c) => c.kind === 'marketing'))
   const legal = resolveLegalLinks(number.accountId, p)
+  // Reviewers check the business's own site: the Hub's pages (its domain or Render's) get a registration rejected.
+  if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
+    throw new HlInputError(
+      `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms in the site’s repo (Clients → the site). If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
+    )
+  // Where people opt in: the quote form on the client's own pages, never a Hub address.
+  const pages = clientId ? await siteFormPages(clientId) : []
+  const optInPages = pages.length ? pages : [website]
   const sample = renderTemplate(
     "Hey {{contact.first_name}}! Just got your quote form.\n\nI'll be in touch with you shortly. Please feel free to reach out to us directly at {{account.business_phone}}\n\n- {{account.owner_name}} at {{account.business_name}}\n\nReply STOP to opt out.",
     { contact: { firstName: 'Jennifer' }, account: p },
@@ -152,16 +161,16 @@ export async function verificationDraft(numberId: string) {
       businessContactEmail: (p.notifyEmail ?? '').split(/[,;\s]+/)[0],
       ...(toE164(p.notifyPhone?.split(',')[0]) ? { businessContactPhone: toE164(p.notifyPhone?.split(',')[0])! } : {}),
       useCaseCategories: promos ? ['CUSTOMER_CARE', 'MARKETING'] : ['CUSTOMER_CARE'],
-      useCaseSummary: `${p.businessName} is a local contractor. This number replies to people who ask for a quote: when someone submits the quote form or chat widget on ${website} and ticks the texting consent box, or calls or texts this number first, we text them back to confirm their request and arrange the job.${promos ? ' Occasional promotional texts (seasonal specials and discounts, 1-2 a month) go only to people who also tick the separate, optional marketing box.' : ' No marketing lists.'} Customers can reply STOP at any time.`,
+      useCaseSummary: `${p.businessName} is a local contractor. This number texts people who ask for an estimate on the quote form on ${optInPages.join(' and ')}: the form has an optional, unchecked checkbox to agree to texts, with links to the privacy policy and terms. We text them about their request: the estimate, appointments and project updates.${promos ? ' Occasional promotions (seasonal specials and discounts, 1-2 a month) go only to people who also tick the separate, optional marketing checkbox.' : ' No marketing lists.'} Customers can reply STOP at any time.`,
       productionMessageSample: sample,
       optInType: 'WEB_FORM' as const,
-      optInImageUrls: [quote && formUrl(quote.id), chat && formUrl(chat.id), website].filter((u): u is string => !!u),
+      optInImageUrls: optInPages,
       optInConfirmationMessage: `${p.businessName}: thanks for reaching out! We'll text you about your request. Msg & data rates may apply. Reply STOP to opt out, HELP for help.`,
       helpMessageSample: `${p.businessName}: for help call ${p.businessPhone || 'us'} or visit ${website}. Reply STOP to opt out.`,
       messageVolume: '1,000',
       privacyPolicyUrl: legal.privacy,
       termsAndConditionsUrl: legal.terms,
-      additionalInformation: 'Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the client’s website form shown in the opt-in links.',
+      additionalInformation: 'Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the quote form on the client’s own website (the opt-in links): optional, unchecked checkboxes, with links to its privacy policy and terms.',
       externalReferenceId: number.accountId,
       ageGatedContent: false,
     },

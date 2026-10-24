@@ -5,10 +5,10 @@ import { a2pPrefill, type A2pInputs } from '@/lib/a2p'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { asSettings, consentsOf } from './forms'
-import { hostedLegalUrl, resolveLegalLinks, type LegalLinks } from './legal-links'
+import { fillLegalLinksFromSite, hostedLegalUrl, isHubUrl, resolveLegalLinks, siteFormPages, type LegalLinks } from './legal-links'
 import { prettyPhone } from './merge'
 import { splitName, toE164 } from './phone'
-import { formUrl, individualProfileProblem, primaryProfile, readTwilioSettings } from './verification'
+import { individualProfileProblem, primaryProfile, readTwilioSettings } from './verification'
 import { publicBase, twilioAccountType, twilioClient, type TwilioClient } from './twilio'
 import {
   ACTIVE_STAGES,
@@ -213,7 +213,9 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
     include: { forms: { where: { archivedAt: null, ghlId: null } }, a2p: true, numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] } },
   })
   if (!account) throw new HlInputError('Sub-account not found.')
-  const p = readProfile(account.profile)
+  // A client's own privacy and terms pages (found in the site's repo, hooked up under Clients) fill blank links.
+  const filled = account.clientId ? await fillLegalLinksFromSite(accountId) : null
+  const p = readProfile(filled ? (await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { profile: true } })).profile : account.profile)
   const board = account.clientId ? await boardFor(account.clientId) : null
   const business = p.businessName || board?.businessName || account.name
   const legal = resolveLegalLinks(accountId, p)
@@ -225,7 +227,8 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
   const boxes = quote ? consentsOf(asSettings(quote.settings)) : []
   const smsBox = boxes.find((b) => b.kind === 'sms')?.text ?? null
   const marketingBox = boxes.find((b) => b.kind === 'marketing')?.text ?? null
-  const formUrls = [quote && formUrl(quote.id)].filter((u): u is string => !!u)
+  // Where people opt in: the quote form on the client's own site, never a Hub address.
+  const formUrls = account.clientId ? await siteFormPages(account.clientId) : []
 
   const ein = (p.ein || board?.ein || '').replace(/\D/g, '')
   const legalName = p.legalName || board?.legalName || business
@@ -487,6 +490,13 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   else checks.push({ key: 'terms', level: 'ok', label: 'Terms', detail: 'Loads, with STOP, HELP and rates.' })
 
   const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, include: { forms: { where: { archivedAt: null, ghlId: null, kind: 'form' } } } })
+  // A client's registration points only at the client's own site: reviewers reject a Hub (or Render) address.
+  if (account?.clientId) {
+    if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
+      checks.push({ key: 'client-pages', level: 'error', label: 'The client’s own pages', detail: 'The privacy policy and terms have to be pages on the client’s own website; the Hub’s won’t pass review. Hell-level finds /privacy and /terms in the site’s repo (Clients → the site), or put the links in above.' })
+    if ([...d.messageFlow.matchAll(/https?:\/\/[^\s"')]+/g)].some((m) => isHubUrl(m[0])))
+      checks.push({ key: 'client-flow', level: 'error', label: 'Opt-in links', detail: '“How people opt in” links a Hub page. Point it at the quote form on the client’s own website.' })
+  }
   const quote = account?.forms[0]
   const boxes = quote ? consentsOf(asSettings(quote.settings)) : []
   const smsBox = boxes.find((b) => b.kind === 'sms')

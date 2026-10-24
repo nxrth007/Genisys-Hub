@@ -22,6 +22,16 @@ const httpUrl = (v: string | null | undefined): string | null => {
 
 export const hostedLegalUrl = (accountId: string, doc: 'privacy' | 'terms') => `${publicBase()}/hl/legal/${accountId}/${doc}`
 
+/** A page on the Hub itself (its own domain, or Render's): never what a client's registration should point reviewers at. */
+export function isHubUrl(url: string): boolean {
+  try {
+    const host = new URL(url).host.toLowerCase()
+    return host === new URL(publicBase()).host.toLowerCase() || host.endsWith('.onrender.com')
+  } catch {
+    return false
+  }
+}
+
 export function resolveLegalLinks(accountId: string, profile: HlProfile, settings?: HlFormSettings): LegalLinks {
   return {
     privacy: httpUrl(settings?.privacyUrl) ?? httpUrl(profile.privacyUrl) ?? hostedLegalUrl(accountId, 'privacy'),
@@ -38,20 +48,21 @@ function routePath(file: string): string | null {
 }
 
 /**
- * The client's website's own privacy and terms pages, read from its repo
- * (file routes, or the paths in src/App.tsx on older single-page sites).
- * Null when there's no live site with a connected repo, or no such pages.
+ * The client's live site (Clients: the site we built) and the pages its repo
+ * has (file routes, or the paths in src/App.tsx on older single-page sites).
+ * Null without a live site; no pages without a connected repo.
  */
-export async function detectSiteLegalLinks(clientId: string): Promise<{ privacyUrl: string | null; termsUrl: string | null; site: string } | null> {
+async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Set<string> } | null> {
   const [site, client] = await Promise.all([
     prisma.seoSite.findUnique({ where: { clientId }, select: { liveUrl: true, repoFullName: true, defaultBranch: true } }),
     prisma.client.findUnique({ where: { id: clientId }, select: { siteUrl: true } }),
   ])
   const base = httpUrl(site?.liveUrl) ?? httpUrl(client?.siteUrl)
-  if (!base || !site?.repoFullName) return null
+  if (!base) return null
   const origin = new URL(base).origin
-  const ref = site.defaultBranch || 'main'
   const paths = new Set<string>()
+  if (!site?.repoFullName) return { origin, paths }
+  const ref = site.defaultBranch || 'main'
   const { entries } = await getTree(site.repoFullName, ref)
   for (const e of entries) {
     const p = e.type === 'blob' ? routePath(e.path) : null
@@ -61,11 +72,33 @@ export async function detectSiteLegalLinks(clientId: string): Promise<{ privacyU
     const app = await readFile(site.repoFullName, 'src/App.tsx', ref).catch(() => null)
     for (const m of app?.matchAll(/path=["'`](\/[^"'`]*)["'`]/g) ?? []) paths.add(m[1])
   }
+  return { origin, paths }
+}
+
+/**
+ * The client's website's own privacy and terms pages, read from its repo.
+ * Null when there's no live site with a connected repo, or no such pages.
+ */
+export async function detectSiteLegalLinks(clientId: string): Promise<{ privacyUrl: string | null; termsUrl: string | null; site: string } | null> {
+  const found = await siteRoutes(clientId)
+  if (!found?.paths.size) return null
+  const { origin, paths } = found
   const shortest = (re: RegExp) => [...paths].filter((p) => re.test(p)).sort((a, b) => a.length - b.length)[0] ?? null
   const privacy = shortest(/privac/i)
   const terms = shortest(/terms|conditions/i)
   if (!privacy && !terms) return null
   return { privacyUrl: privacy ? `${origin}${privacy}` : null, termsUrl: terms ? `${origin}${terms}` : null, site: origin }
+}
+
+/**
+ * Where people ask for a quote on the client's own site: the home page, and
+ * its contact or quote page when it has one. Empty without a live site.
+ */
+export async function siteFormPages(clientId: string): Promise<string[]> {
+  const found = await siteRoutes(clientId).catch(() => null)
+  if (!found) return []
+  const extra = ['/contact', '/contact-us', '/quote', '/get-a-quote', '/free-estimate', '/estimate'].filter((p) => found.paths.has(p))
+  return [`${found.origin}/`, ...extra.map((p) => `${found.origin}${p}`)]
 }
 
 const lastLook = new Map<string, number>()
