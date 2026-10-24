@@ -111,6 +111,19 @@ const STATUS: Record<string, string> = {
 
 export const formUrl = (formId: string) => `${publicBase()}/hl/f/${formId}`
 
+/** The toll-free registry's limits (Twilio answers "Invalid use case summary" past 500; Plivo, on the same registry, documents them). */
+const TFV_LIMITS = { useCaseSummary: 500, productionMessageSample: 1000, optInConfirmationMessage: 500, helpMessageSample: 500, additionalInformation: 1000 } as const
+
+/** How the business texts, within the registry's 500 characters: the first wording that fits (no links: they're in the opt-in field). */
+function summaryOf(name: string, promos: boolean): string {
+  const promo = promos ? 'Occasional promotions (1-2 a month) go only to people who also tick the separate, optional marketing checkbox.' : 'No marketing lists.'
+  const versions = [
+    [`${name} is a local contractor. It texts people who ask for an estimate on the quote form on its website.`, 'The form has an optional, unchecked checkbox to agree to texts, with links to the privacy policy and terms.', 'Texts are about their request: the estimate, appointments and project updates.', promo, 'Reply STOP to opt out.'],
+    [`${name} texts people who ask for an estimate on its website's quote form.`, 'Its checkbox to agree to texts is optional and unchecked, with links to the privacy policy and terms.', 'Texts cover the estimate, appointments and project updates.', promo, 'Reply STOP to opt out.'],
+  ].map((v) => v.join(' '))
+  return versions.find((v) => v.length <= TFV_LIMITS.useCaseSummary) ?? versions[versions.length - 1].slice(0, TFV_LIMITS.useCaseSummary)
+}
+
 /** What would be filed, for the review screen and the request itself. Throws with what's missing. */
 export async function verificationDraft(numberId: string) {
   const number = await prisma.hlPhoneNumber.findUnique({ where: { id: numberId }, include: { account: { include: { forms: { where: { archivedAt: null } }, workflows: true } } } })
@@ -172,7 +185,7 @@ export async function verificationDraft(numberId: string) {
       businessContactEmail: (p.notifyEmail ?? '').split(/[,;\s]+/)[0],
       ...(toE164(p.notifyPhone?.split(',')[0]) ? { businessContactPhone: toE164(p.notifyPhone?.split(',')[0])! } : {}),
       useCaseCategories: promos ? ['CUSTOMER_CARE', 'MARKETING'] : ['CUSTOMER_CARE'],
-      useCaseSummary: `${p.businessName} is a local contractor. This number texts people who ask for an estimate on the quote form on ${optInPages.join(' and ')}: the form has an optional, unchecked checkbox to agree to texts, with links to the privacy policy and terms. We text them about their request: the estimate, appointments and project updates.${promos ? ' Occasional promotions (seasonal specials and discounts, 1-2 a month) go only to people who also tick the separate, optional marketing checkbox.' : ' No marketing lists.'} Customers can reply STOP at any time.`,
+      useCaseSummary: summaryOf(p.businessName!, promos),
       productionMessageSample: sample,
       optInType: 'WEB_FORM' as const,
       optInImageUrls: optInPages,
@@ -181,16 +194,25 @@ export async function verificationDraft(numberId: string) {
       messageVolume: '1,000',
       privacyPolicyUrl: legal.privacy,
       termsAndConditionsUrl: legal.terms,
-      additionalInformation: 'Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the quote form on the client’s own website (the opt-in links): optional, unchecked checkboxes, with links to its privacy policy and terms.',
+      additionalInformation: `Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the quote form on the client’s own website (${optInPages.join(' and ')}): optional, unchecked checkboxes, with links to its privacy policy and terms.`,
       externalReferenceId: number.accountId,
       ageGatedContent: false,
     },
   }
 }
 
+/** Twilio refuses a field past the registry's limit; say which, before anything is sent. */
+function checkLengths(request: Record<string, unknown>): void {
+  for (const [field, max] of Object.entries(TFV_LIMITS)) {
+    const v = request[field]
+    if (typeof v === 'string' && v.length > max) throw new HlInputError(`The filing’s ${field} is ${v.length} characters; Twilio takes ${max}. Shorten it in Settings → Business Profile (the business name, phone or website).`)
+  }
+}
+
 /** File (or re-file after a rejection) the toll-free verification for a number. */
 export async function submitVerification(numberId: string): Promise<{ status: string; sid: string }> {
   const { number, request } = await verificationDraft(numberId)
+  checkLengths(request)
   if (number.verificationStatus === 'approved') throw new HlInputError('This number is already approved.')
   if ((number.verificationStatus === 'pending' || number.verificationStatus === 'in_review') && number.verificationSid) {
     throw new HlInputError('A verification is already with Twilio for this number. Use “Check status”.')
