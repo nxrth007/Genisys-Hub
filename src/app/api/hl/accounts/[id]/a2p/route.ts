@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody } from '@/lib/hl/http'
-import { a2pDraft, a2pPreflight, a2pView, advanceA2p, cleanDetails, fileA2p, resendA2pCode } from '@/lib/hl/a2p'
+import { a2pDraft, a2pPreflight, a2pTwilio, a2pView, advanceA2p, cleanDetails, fileA2p, resendA2pCode } from '@/lib/hl/a2p'
 
 type Ctx = { params: Promise<{ id: string }> }
 
 /**
  * GET: where the sub-account's A2P registration stands. ?draft=1 adds what
- * the review screen starts with; ?refresh=1 asks Twilio first.
+ * the review screen starts with; ?refresh=1 asks Twilio first; ?twilio=1
+ * adds what Twilio itself has on file for the brand and campaign.
  */
 export async function GET(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
@@ -19,6 +20,7 @@ export async function GET(req: Request, { params }: Ctx) {
   const sp = new URL(req.url).searchParams
   try {
     const a2p = sp.get('refresh') ? await advanceA2p(id) : await a2pView(id)
+    if (sp.get('twilio')) return NextResponse.json({ a2p, twilio: await a2pTwilio(id) })
     if (!sp.get('draft')) return NextResponse.json({ a2p })
     return NextResponse.json({ a2p, ...(await a2pDraft(id)) })
   } catch (err) {

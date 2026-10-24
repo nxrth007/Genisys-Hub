@@ -16,9 +16,11 @@ import {
   feeLine,
   industryLabel,
   stageText,
+  withOptInLink,
   type A2pCheck,
   type A2pDetails,
   type A2pPath,
+  type A2pScreenshot,
   type A2pView,
 } from '@/lib/hl/a2p-shared'
 import { Button, ErrorNote, Field, Input, Modal, Select, Spinner, Textarea, Toggle, fmtDateTime, hlFetch } from './ui'
@@ -29,7 +31,7 @@ import { Button, ErrorNote, Field, Input, Modal, Select, Spinner, Textarea, Togg
  * local number on the sub-account.
  */
 
-type Draft = { a2p: A2pView | null; details: A2pDetails; legal: { privacy: string; terms: string }; formUrls: string[]; smsBox: string | null; marketingBox: string | null }
+type Draft = { a2p: A2pView | null; details: A2pDetails; legal: { privacy: string; terms: string }; formUrls: string[]; smsBox: string | null; marketingBox: string | null; optInUrl: string }
 
 const ORDER = ['profile', 'brand', 'otp', 'campaign', 'approved'] as const
 
@@ -115,6 +117,7 @@ export function A2pTexting({ accountId, number }: { accountId: string; number: s
           <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{v.note || 'The registration was rejected.'}</span>
         </p>
+        {v.rejectedAt && <p className="text-[12px] text-muted-foreground">Rejection seen {fmtDateTime(v.rejectedAt)}.</p>}
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
             Fix and file again
@@ -195,6 +198,7 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
   const [d, setD] = useState<A2pDetails>(draft.details)
   const [run, setRun] = useState(0)
   const set = (patch: Partial<A2pDetails>) => setD({ ...d, ...patch })
+  const setShot = (i: number, patch: Partial<A2pScreenshot>) => set({ screenshots: d.screenshots.map((s, j) => (j === i ? { ...s, ...patch } : s)) })
   // The opt-in text and samples quote the website and policy links: changing one changes it there too.
   const [quoted, setQuoted] = useState<Record<Linked, string>>({ website: draft.details.website, privacyUrl: draft.details.privacyUrl, termsUrl: draft.details.termsUrl })
   const setLink = (key: Linked, value: string) => {
@@ -236,7 +240,7 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <p className="text-[12.5px] text-muted-foreground">
-            {refiling ? 'Resubmitting a rejected brand or campaign is free up to three times.' : `Twilio charges ${fee.text}.`}
+            {refiling ? (draft.a2p?.campaignStatus === 'FAILED' ? 'Resubmitting a rejected campaign is free: Twilio charges its review once.' : 'Fixes the rejected registration in place.') : `Twilio charges ${fee.text}.`}
           </p>
           <div className="flex gap-2">
             <Button onClick={onClose}>Cancel</Button>
@@ -368,6 +372,39 @@ function A2pForm({ accountId, draft, onClose, onFiled }: { accountId: string; dr
           <Field label={<span className="flex w-full justify-between">How people opt in <Count n={d.messageFlow.length} max={LIMITS.messageFlow[1]} /></span>} hint="Quotes the form’s checkbox word for word">
             <Textarea rows={6} value={d.messageFlow} onChange={(e) => set({ messageFlow: e.target.value })} />
           </Field>
+          <div className="flex flex-col gap-2">
+            <p className="text-[12.5px] font-medium text-muted-foreground">Screenshots of the sign-up (optional)</p>
+            <p className="-mt-1 text-[12px] text-muted-foreground">
+              When people sign up somewhere reviewers can’t see at a glance, like a booking page or another site’s form: a picture of each step and what it shows. They’re shown on a public page for reviewers,{' '}
+              <a href={draft.optInUrl} target="_blank" rel="noreferrer" className="break-all text-primary hover:underline">
+                {draft.optInUrl}
+              </a>
+              , once Check again saves them.
+            </p>
+            {d.screenshots.map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <div className="grid flex-1 gap-2 sm:grid-cols-2">
+                  <Input value={s.url} onChange={(e) => setShot(i, { url: e.target.value })} placeholder="https://… link to the picture" />
+                  <Input value={s.caption} maxLength={LIMITS.caption} onChange={(e) => setShot(i, { caption: e.target.value })} placeholder="What this step shows" />
+                </div>
+                <button type="button" title="Remove" onClick={() => set({ screenshots: d.screenshots.filter((_, j) => j !== i) })} className="mt-2 text-muted-foreground hover:text-destructive">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2">
+              {d.screenshots.length < LIMITS.screenshots && (
+                <Button size="sm" variant="ghost" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => set({ screenshots: [...d.screenshots, { url: '', caption: '' }] })}>
+                  Add a screenshot
+                </Button>
+              )}
+              {d.screenshots.length > 0 && !d.messageFlow.includes(draft.optInUrl) && (
+                <Button size="sm" variant="ghost" onClick={() => set({ messageFlow: withOptInLink(d.messageFlow, draft.optInUrl) })}>
+                  Link them in “How people opt in”
+                </Button>
+              )}
+            </div>
+          </div>
           <div className="flex flex-col gap-2">
             <p className="text-[12.5px] font-medium text-muted-foreground">Sample messages (2 to 5)</p>
             {d.samples.map((s, i) => (

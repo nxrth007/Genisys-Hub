@@ -43,7 +43,15 @@ export type A2pDetails = {
   samples: string[]
   /** Some texts are promotions (people ticked the separate marketing box). */
   marketing: boolean
+  /**
+   * Pictures of each step of the sign-up, shown on the public opt-in page
+   * (/hl/optin/<sub-account>) that "How people opt in" links. For a sign-up
+   * reviewers can't see at a glance: a booking page, a form on another site.
+   */
+  screenshots: A2pScreenshot[]
 }
+
+export type A2pScreenshot = { url: string; caption: string }
 
 export type A2pCheck = {
   key: string
@@ -70,6 +78,8 @@ export type A2pView = {
   numbers: string[]
   /** Genisys's own business: registered on its primary business profile, as Twilio wants an agency's own brand. */
   own: boolean
+  /** When Hell-level saw the registry's or the carriers' rejection (a failed registration only). */
+  rejectedAt: string | null
 }
 
 /** What Twilio charges (passed through from the registry and carriers), per Twilio's A2P pricing as of Aug 2025. */
@@ -108,7 +118,7 @@ export const US_STATES = [
 ]
 
 /** Twilio's limits on the campaign fields. */
-export const LIMITS = { description: [40, 4096], messageFlow: [40, 2048], sample: [20, 1024], samples: [2, 5] } as const
+export const LIMITS = { description: [40, 4096], messageFlow: [40, 2048], sample: [20, 1024], samples: [2, 5], screenshots: 6, caption: 300 } as const
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const LINK = /^https?:\/\/[^\s/$.?#][^\s]*$/i
@@ -145,7 +155,18 @@ export function detailProblems(d: A2pDetails): string[] {
   const samples = d.samples.map((s) => s.trim()).filter(Boolean)
   if (samples.length < LIMITS.samples[0] || samples.length > LIMITS.samples[1]) out.push('Give 2 to 5 sample messages.')
   if (samples.some((s) => s.length < LIMITS.sample[0] || s.length > LIMITS.sample[1])) out.push(`Each sample message must be ${LIMITS.sample[0]}–${LIMITS.sample[1]} characters.`)
+  if (d.screenshots.length > LIMITS.screenshots) out.push(`Up to ${LIMITS.screenshots} screenshots.`)
+  d.screenshots.forEach((s, i) => {
+    if (!LINK.test(s.url.trim())) out.push(`Screenshot ${i + 1} needs a full link to the picture (https://…).`)
+    if (!s.caption.trim()) out.push(`Say what screenshot ${i + 1} shows.`)
+  })
   return out
+}
+
+/** "How people opt in" with the opt-in page's link added at the end. */
+export function withOptInLink(flow: string, url: string): string {
+  const text = flow.trim()
+  return `${text}${/[.!?]$/.test(text) ? '' : '.'} Screenshots of every step: ${url}`
 }
 
 /** What the number card says about where a registration is. */

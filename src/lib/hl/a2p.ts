@@ -12,12 +12,15 @@ import { formUrl, individualProfileProblem, primaryProfile, readTwilioSettings }
 import { publicBase, twilioAccountType, twilioClient, type TwilioClient } from './twilio'
 import {
   ACTIVE_STAGES,
+  LIMITS,
   detailProblems,
   type A2pCheck,
   type A2pDetails,
   type A2pPath,
+  type A2pScreenshot,
   type A2pStage,
   type A2pView,
+  withOptInLink,
 } from './a2p-shared'
 
 /**
@@ -41,8 +44,8 @@ import {
  * person clicks File on the review screen (with the price on the button),
  * and every paid step looks for an existing brand or campaign first and
  * runs under a claim on the row, so nothing is ever filed (or paid) twice.
- * Rejected brands and campaigns are fixed and resubmitted in place (Twilio
- * allows three free resubmissions of each).
+ * Rejected brands and campaigns are fixed and resubmitted in place; Twilio
+ * charges a campaign's review fee once, however often it's resubmitted.
  */
 
 const POLICY = {
@@ -69,6 +72,12 @@ type Meta = {
   usecase?: string
   /** Genisys's own business: the brand sits on the primary profile itself. */
   own?: boolean
+  /** The last time a rejected campaign was fixed and resubmitted, and the status Twilio answered with. */
+  resubmittedAt?: string
+  resubmitStatus?: string
+  resubmits?: number
+  /** When a check found the registry's or carriers' rejection. */
+  rejectedAt?: string
 }
 
 type Deps = { client?: TwilioClient; now?: Date }
@@ -122,8 +131,18 @@ export function cleanDetails(raw: unknown): A2pDetails {
     messageFlow: cleanBlock(r.messageFlow).slice(0, 2048),
     samples: (Array.isArray(r.samples) ? r.samples : []).map(cleanBlock).filter(Boolean).slice(0, 5).map((s) => s.slice(0, 1024)),
     marketing: r.marketing === true,
+    screenshots: (Array.isArray(r.screenshots) ? r.screenshots : [])
+      .map((s): A2pScreenshot => {
+        const o = s && typeof s === 'object' ? (s as Record<string, unknown>) : {}
+        return { url: clean(o.url).slice(0, 500), caption: clean(o.caption).slice(0, LIMITS.caption) }
+      })
+      .filter((s) => s.url || s.caption)
+      .slice(0, LIMITS.screenshots),
   }
 }
+
+/** The public page that shows a sub-account's opt-in, step by step, with its screenshots. */
+export const optInPageUrl = (accountId: string) => `${publicBase()}/hl/optin/${accountId}`
 
 /** "Acme Fence LLC" → an LLC. Most contractors are LLCs, so that's the guess when the name doesn't say. */
 function businessTypeOf(legalName: string): string {
@@ -185,7 +204,7 @@ async function boardFor(clientId: string): Promise<A2pInputs | null> {
   return prefill
 }
 
-type DraftContext = { details: A2pDetails; legal: LegalLinks; formUrls: string[]; smsBox: string | null; marketingBox: string | null }
+type DraftContext = { details: A2pDetails; legal: LegalLinks; formUrls: string[]; smsBox: string | null; marketingBox: string | null; optInUrl: string }
 
 /** The review screen: what's been saved, else everything the Hub already knows, with the campaign copy written for this business. */
 export async function a2pDraft(accountId: string, now = new Date()): Promise<DraftContext> {
@@ -261,6 +280,7 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
     privacyUrl: legal.privacy,
     termsUrl: legal.terms,
     marketing,
+    screenshots: [],
     ...copy,
   }
   // What was typed on the review screen before wins over the defaults.
@@ -269,7 +289,7 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
   if (raw && typeof raw === 'object' && Object.keys(raw).length) {
     const saved = cleanDetails(raw)
     for (const [k, v] of Object.entries(saved) as [keyof A2pDetails, A2pDetails[keyof A2pDetails]][]) {
-      if (k === 'samples' ? (v as string[]).length : k === 'marketing' || k === 'path' ? true : typeof v === 'string' && v.trim()) (details as Record<string, unknown>)[k] = v
+      if (Array.isArray(v) ? v.length : k === 'marketing' || k === 'path' ? true : typeof v === 'string' && v.trim()) (details as Record<string, unknown>)[k] = v
     }
   }
   // A draft written before the business's own policy pages were set still quotes the Hub's: point it at the real ones.
@@ -277,7 +297,7 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
     const hosted = hostedLegalUrl(accountId, doc)
     if (url && url !== hosted) details.messageFlow = details.messageFlow.split(hosted).join(url)
   }
-  return { details, legal, formUrls, smsBox: smsBox && fill(smsBox), marketingBox: marketingBox && fill(marketingBox) }
+  return { details, legal, formUrls, smsBox: smsBox && fill(smsBox), marketingBox: marketingBox && fill(marketingBox), optInUrl: optInPageUrl(accountId) }
 }
 
 /** The campaign's description, opt-in flow and sample messages, in the wording that's been getting contractors approved. */
@@ -366,6 +386,18 @@ async function load(url: string): Promise<{ ok: boolean; status: number; finalUr
   }
 }
 
+/** A link that loads as a picture (what a reviewer's browser would show). */
+async function isImage(url: string): Promise<boolean> {
+  if (!loadable(url)) return false
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(12_000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; GenisysHub texting-registration check)' } })
+    await res.body?.cancel()
+    return res.ok && /^image\//i.test(res.headers.get('content-type') ?? '')
+  } catch {
+    return false
+  }
+}
+
 const hostOf = (u: string) => {
   try {
     return new URL(u).host.toLowerCase()
@@ -401,7 +433,16 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
         if (err instanceof HlInputError && /primary business profile/.test(err.message)) checks.push({ key: 'twilio-profile', level: 'error', label: 'Genisys’s Twilio profile', detail: err.message })
       })
   const legal = { privacy: d.privacyUrl || ctx.legal.privacy, terms: d.termsUrl || ctx.legal.terms }
-  const [site, privacy, terms] = await Promise.all([d.website ? load(d.website) : Promise.resolve(null), load(legal.privacy), load(legal.terms)])
+  const [site, privacy, terms, shown] = await Promise.all([
+    d.website ? load(d.website) : Promise.resolve(null),
+    load(legal.privacy),
+    load(legal.terms),
+    Promise.all(d.screenshots.map((s) => isImage(s.url))),
+  ])
+  const hlOnSite = !!site?.ok && /\/hl\/(widget\.js|f\/|c\/)/.test(site.html)
+  // People sign up somewhere other than a Hell-level form (a booking page, another site's form), shown in screenshots.
+  const outside = d.screenshots.length > 0 && !hlOnSite
+  const linked = d.messageFlow.includes(ctx.optInUrl)
 
   const business = (d.path === 'sole_prop' ? d.brandName : ctx.details.brandName || d.legalName).replace(/[,.]?\s*\b(llc|l\.l\.c\.|inc|incorporated|corp|corporation|co|ltd|lp|llp)\b\.?$/i, '').trim()
   if (site) {
@@ -417,8 +458,18 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
     if (site.ok && business && !site.html.toLowerCase().includes(business.toLowerCase()))
       checks.push({ key: 'site-name', level: 'warning', label: 'Business name on the site', detail: `Couldn’t find “${business}” on the page. Fine if the site builds its text with JavaScript, but reviewers reject sites that show a different name.` })
     // Reviewers look for the consent boxes where people actually sign up: the site itself.
-    if (site.ok && visibleText(site.html).length >= 300 && !/\/hl\/(widget\.js|f\/|c\/)/.test(site.html))
-      checks.push({ key: 'site-form', level: 'warning', label: 'Form on the website', detail: 'The website doesn’t show the Hell-level form or chat yet. Reviewers look for the consent boxes on the site, so put the form there first, or make sure the site’s own form has the same two boxes.' })
+    if (site.ok && visibleText(site.html).length >= 300 && !hlOnSite) {
+      if (outside && linked) checks.push({ key: 'site-form', level: 'ok', label: 'Where people opt in', detail: 'Not on the site’s own pages, so the opt-in page shows reviewers each step in screenshots.' })
+      else
+        checks.push({ key: 'site-form', level: 'warning', label: 'Form on the website', detail: 'The website doesn’t show the Hell-level form or chat yet. Reviewers look for the consent boxes on the site, so put the form there first, or make sure the site’s own form has the same two boxes. If people sign up somewhere a reviewer can’t see at a glance (a booking page, another site), add screenshots of each step.' })
+    }
+  }
+  if (d.screenshots.length) {
+    const broken = d.screenshots.map((_, i) => (shown[i] ? 0 : i + 1)).filter(Boolean)
+    if (broken.length) checks.push({ key: 'screenshots', level: 'warning', label: 'Screenshots', detail: `Screenshot ${broken.join(', ')} doesn’t load as a picture, so reviewers would see a broken image. Use a direct link to the image file.` })
+    else if (!linked)
+      checks.push({ key: 'screenshots', level: 'warning', label: 'Screenshots', detail: `“How people opt in” doesn’t link the opt-in page (${ctx.optInUrl}), so reviewers won’t find the screenshots.`, fix: { label: 'Add the link', patch: { messageFlow: withOptInLink(d.messageFlow, ctx.optInUrl) } } })
+    else checks.push({ key: 'screenshots', level: 'ok', label: 'Screenshots', detail: `All ${d.screenshots.length} load, and “How people opt in” links the page that shows them.` })
   }
 
   // Pages built with JavaScript can't be read here; say so rather than call them wrong.
@@ -439,12 +490,14 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   const quote = account?.forms[0]
   const boxes = quote ? consentsOf(asSettings(quote.settings)) : []
   const smsBox = boxes.find((b) => b.kind === 'sms')
-  if (!quote || !smsBox) checks.push({ key: 'form', level: 'warning', label: 'Opt-in form', detail: 'No Hell-level form with a texting consent box. Make sure the form on the website has one (two optional, unchecked boxes).' })
+  // A sign-up outside Hell-level has its own boxes, which the screenshots show; the Hell-level form isn't what reviewers see.
+  if (outside) checks.push({ key: 'form', level: 'ok', label: 'Opt-in form', detail: 'People sign up on a form outside Hell-level. Make sure “How people opt in” quotes its consent boxes word for word, as the screenshots show them.' })
+  else if (!quote || !smsBox) checks.push({ key: 'form', level: 'warning', label: 'Opt-in form', detail: 'No Hell-level form with a texting consent box. Make sure the form on the website has one (two optional, unchecked boxes).' })
   else if (smsBox.required) checks.push({ key: 'form', level: 'error', label: 'Opt-in form', detail: `Turn off “Required” on the texting consent box in “${quote.name}”: consent can’t be a condition, and a required box gets rejected.` })
   else checks.push({ key: 'form', level: 'ok', label: 'Opt-in form', detail: `“${quote.name}” has an optional, unchecked texting box.` })
-  if (d.marketing && !boxes.some((b) => b.kind === 'marketing'))
+  if (!outside && d.marketing && !boxes.some((b) => b.kind === 'marketing'))
     checks.push({ key: 'marketing', level: 'error', label: 'Promotions', detail: 'The campaign includes promotions, but the form has no separate marketing box. Add it to the form, or untick promotions and drop the promo sample.' })
-  if (ctx.smsBox && !d.messageFlow.includes(ctx.smsBox))
+  if (!outside && ctx.smsBox && !d.messageFlow.includes(ctx.smsBox))
     checks.push({ key: 'verbatim', level: 'warning', label: 'Opt-in wording', detail: '“How people opt in” should quote the form’s texting box word for word.' })
 
   if (d.samples.length) {
@@ -737,12 +790,12 @@ async function fileCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails, met
   return { sid: campaign.sid, status: campaign.campaignStatus }
 }
 
-/** A rejected campaign, edited and resubmitted in place (free up to three times). */
-async function resubmitCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails) {
+/** A rejected campaign, edited and resubmitted in place (Twilio charges the review once per campaign). */
+async function resubmitCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails, meta: Meta, now: Date) {
   const account = await prisma.hlAccount.findUnique({ where: { id: row.accountId }, select: { profile: true } })
   const legal = resolveLegalLinks(row.accountId, readProfile(account?.profile))
   const samples = d.samples.slice(0, 5)
-  return client.messaging.v1
+  const updated = await client.messaging.v1
     .services(row.messagingServiceSid!)
     .usAppToPerson(row.campaignSid!)
     .update({
@@ -757,6 +810,10 @@ async function resubmitCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails)
       termsAndConditionsUrl: d.termsUrl || legal.terms,
       xTwilioApiVersion: 'v1.2',
     })
+  meta.resubmittedAt = now.toISOString()
+  meta.resubmitStatus = updated.campaignStatus
+  meta.resubmits = (meta.resubmits ?? 0) + 1
+  return updated
 }
 
 // ---------------------------------------------------------------------------
@@ -813,7 +870,50 @@ export async function a2pView(accountId: string): Promise<A2pView | null> {
     otpPhone: row.path === 'sole_prop' ? d.phone || null : null,
     numbers: attached.map((n) => n.number),
     own: !!meta.own,
+    rejectedAt: row.stage === 'failed' ? (meta.rejectedAt ?? null) : null,
   }
+}
+
+/**
+ * What Twilio itself has on file for the brand and campaign, for when the
+ * summary isn't enough: is the fix there, and when did Twilio last change it.
+ */
+export async function a2pTwilio(accountId: string, deps: Deps = {}): Promise<Record<string, unknown> | null> {
+  const row = await prisma.hlA2p.findUnique({ where: { accountId } })
+  if (!row) return null
+  const client = deps.client ?? (await twilioClient())
+  const m = client.messaging.v1
+  const out: Record<string, unknown> = { meta: readMeta(row.meta) }
+  if (row.brandSid) {
+    try {
+      const b = await m.brandRegistrations(row.brandSid).fetch()
+      out.brand = { sid: b.sid, status: b.status, identityStatus: b.identityStatus, failureReason: b.failureReason, errors: b.errors, feedback: b.brandFeedback, created: b.dateCreated, updated: b.dateUpdated }
+    } catch (err) {
+      out.brand = { error: problem(err) }
+    }
+  }
+  if (row.campaignSid && row.messagingServiceSid) {
+    try {
+      const c = await m.services(row.messagingServiceSid).usAppToPerson(row.campaignSid).fetch()
+      out.campaign = {
+        sid: c.sid,
+        campaignId: c.campaignId,
+        status: c.campaignStatus,
+        errors: c.errors,
+        created: c.dateCreated,
+        updated: c.dateUpdated,
+        usecase: c.usAppToPersonUsecase,
+        description: c.description,
+        messageFlow: c.messageFlow,
+        samples: c.messageSamples,
+        privacyPolicyUrl: c.privacyPolicyUrl,
+        termsAndConditionsUrl: c.termsAndConditionsUrl,
+      }
+    } catch (err) {
+      out.campaign = { error: problem(err) }
+    }
+  }
+  return out
 }
 
 /**
@@ -837,6 +937,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   if (!(await claim(row.id, now))) throw new HlInputError('Hell-level is already working on this registration. Try again in a minute.')
 
   let meta = readMeta(row.meta)
+  delete meta.rejectedAt
   // A different kind of registration (say, no EIN after all) starts over with new Trust Hub records.
   if (row.path !== d.path && (row.customerProfileSid || row.brandSid)) {
     meta = {}
@@ -850,7 +951,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
     // The brand passed and only the carriers turned the campaign down: the profile and bundles behind it are
     // approved (and locked), so the fix goes straight to the campaign.
     if (row.campaignSid && row.campaignStatus === 'FAILED' && row.brandSid && row.brandStatus !== 'FAILED') {
-      await resubmitCampaign(client, row, d)
+      await resubmitCampaign(client, row, d, meta, now)
       delete meta.failedStep
       row = await prisma.hlA2p.update({ where: { id: row.id }, data: { stage: 'campaign', campaignStatus: 'PENDING', meta: asJson(meta), checkedAt: now, lockedUntil: null } })
       await mirrorNumbers(row)
@@ -866,7 +967,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
       await client.messaging.v1.brandRegistrations(row.brandSid).update()
       data = { stage: 'brand', brandStatus: 'PENDING' }
     } else if (row.campaignSid && row.campaignStatus === 'FAILED') {
-      await resubmitCampaign(client, row, d)
+      await resubmitCampaign(client, row, d, meta, now)
       data = { stage: 'campaign', campaignStatus: 'PENDING' }
     } else if (row.campaignSid) {
       data = { stage: 'campaign' }
@@ -911,6 +1012,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
       if (brand.status === 'FAILED' || brand.status === 'SUSPENDED' || String(brand.status) === 'EXPIRED') {
         const feedback = (brand.brandFeedback ?? []).map((f) => BRAND_FEEDBACK[f] ?? f)
         meta.failedStep = 'brand'
+        meta.rejectedAt = now.toISOString()
         Object.assign(data, { stage: 'failed', note: `The Campaign Registry rejected the brand: ${[errorsText(brand.errors, ''), ...feedback].filter(Boolean).join(' · ') || brand.failureReason || 'no reason given'}` })
       } else if (brand.status === 'APPROVED') {
         if (d.path === 'sole_prop' && brand.identityStatus !== 'VERIFIED') {
@@ -925,6 +1027,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
         const profile = row.customerProfileSid ? await client.trusthub.v1.customerProfiles(row.customerProfileSid).fetch() : null
         if (profile?.status === 'twilio-rejected') {
           meta.failedStep = 'profile'
+          meta.rejectedAt = now.toISOString()
           Object.assign(data, { stage: 'failed', note: `Twilio rejected the business profile: ${errorsText(profile.errors, 'no reason given')}` })
         }
       }
@@ -933,6 +1036,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
       const campaign = await client.messaging.v1.services(row.messagingServiceSid!).usAppToPerson(row.campaignSid!).fetch()
       if (campaign.campaignStatus !== 'FAILED' && campaign.campaignStatus !== 'SUSPENDED') {
         delete meta.failedStep
+        delete meta.rejectedAt
         const through = campaign.campaignStatus === 'VERIFIED'
         Object.assign(data, { stage: through ? 'approved' : 'campaign', campaignStatus: campaign.campaignStatus, note: null, ...(through ? { approvedAt: now } : {}) })
         if (through && row.path !== 'sole_prop') await attachNumbers(client, row, meta)
@@ -945,6 +1049,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
         if (row.path !== 'sole_prop') await attachNumbers(client, row, meta)
       } else if (campaign.campaignStatus === 'FAILED' || campaign.campaignStatus === 'SUSPENDED') {
         meta.failedStep = 'campaign'
+        meta.rejectedAt = now.toISOString()
         Object.assign(data, { stage: 'failed', note: `Carriers rejected the campaign: ${errorsText(campaign.errors, 'no reason given')}` })
       }
     }
