@@ -20,8 +20,12 @@ import { PRIMARY_PROFILE_POLICY, profileKinds, publicBase, twilioClient, type Tw
  * number can't text (owner notifications fall back to the Hub's own number
  * meanwhile).
  *
- * The Trust Hub business profile (CustomerProfileSid) is Genisys's own: set
- * once in the Twilio Console, Twilio-approved, then used for every client.
+ * Each filing carries the client's own details (name, website, address and
+ * contact) and no CustomerProfileSid: Twilio makes the client's profile from
+ * them. Twilio refuses those details alongside a profile, and Genisys's own
+ * profile would file the client as the agency (rejection 30474, "Need end
+ * business"). Genisys's approved primary profile is still needed on the
+ * account first.
  */
 
 const SETTINGS_KEY = 'hl.twilio'
@@ -48,8 +52,8 @@ export async function saveTwilioSettings(s: HlTwilioSettings): Promise<void> {
 }
 
 /**
- * Genisys's own approved primary Trust Hub profile: toll-free verifications
- * are filed under it, and every client's A2P profile is tied to it. The
+ * Genisys's own approved primary Trust Hub profile: the account needs it
+ * before any toll-free filing, and every client's A2P profile is tied to it. The
  * account also holds other approved profiles (the ones A2P makes for
  * clients, and Lead Genisys's second business profile), so a profile only
  * counts when its policy is the primary business one, and one that's tied
@@ -134,6 +138,12 @@ export async function verificationDraft(numberId: string) {
     throw new HlInputError(
       `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms in the site’s repo (Clients → the site). If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
     )
+  // Twilio makes the client's own profile from the filing, so the address has to be whole.
+  const addr = parseUsAddress(p.address)
+  if (!(addr.street && addr.city && addr.state && addr.zip))
+    throw new HlInputError(
+      `Add ${p.businessName}’s full business address in Settings → Business Profile: street, city, state and ZIP${p.address?.trim() ? ` (it says “${p.address.trim()}”)` : ''}. Twilio makes the client’s own profile from it.`,
+    )
   // Where people opt in: the quote form on the client's own pages, never a Hub address.
   const pages = clientId ? await siteFormPages(clientId) : []
   const optInPages = pages.length ? pages : [website]
@@ -143,7 +153,6 @@ export async function verificationDraft(numberId: string) {
   )
   const ein = (p.ein ?? '').replace(/\D/g, '')
   const owner = splitName(p.ownerName || p.ownerFirstName)
-  const addr = parseUsAddress(p.address)
   const business = p.legalName || p.businessName!
   return {
     number,
@@ -154,9 +163,11 @@ export async function verificationDraft(numberId: string) {
       businessWebsite: website,
       businessType: (ein.length === 9 ? 'PRIVATE_PROFIT' : 'SOLE_PROPRIETOR') as 'PRIVATE_PROFIT' | 'SOLE_PROPRIETOR',
       ...(ein.length === 9 ? { businessRegistrationNumber: ein, businessRegistrationAuthority: 'EIN' as const, businessRegistrationCountry: 'US' } : {}),
-      ...(addr.street && addr.city && addr.state && addr.zip
-        ? { businessStreetAddress: addr.street, businessCity: addr.city, businessStateProvinceRegion: addr.state, businessPostalCode: addr.zip, businessCountry: 'US' }
-        : {}),
+      businessStreetAddress: addr.street,
+      businessCity: addr.city,
+      businessStateProvinceRegion: addr.state,
+      businessPostalCode: addr.zip,
+      businessCountry: 'US',
       ...(owner.firstName ? { businessContactFirstName: owner.firstName, businessContactLastName: owner.lastName ?? owner.firstName } : {}),
       businessContactEmail: (p.notifyEmail ?? '').split(/[,;\s]+/)[0],
       ...(toE164(p.notifyPhone?.split(',')[0]) ? { businessContactPhone: toE164(p.notifyPhone?.split(',')[0])! } : {}),
@@ -186,8 +197,9 @@ export async function submitVerification(numberId: string): Promise<{ status: st
   }
   const notificationEmail = (await readTwilioSettings()).notificationEmail?.trim() || 'alex@leadgenisys.com'
   const client = await twilioClient()
-  const customerProfileSid = await primaryProfileSid()
-  const params = { ...request, notificationEmail, customerProfileSid }
+  // The account needs Genisys's approved primary profile, but the filing goes without it (see the top of this file).
+  await primaryProfileSid(client)
+  const params = { ...request, notificationEmail }
   // A rejected verification is edited and resubmitted rather than filed again.
   const v =
     number.verificationStatus === 'rejected' && number.verificationSid
