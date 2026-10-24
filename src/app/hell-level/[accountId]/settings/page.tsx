@@ -15,6 +15,7 @@ import { SETTINGS_PAGES } from '@/components/hell-level/nav'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { ImportPanel } from '@/components/hell-level/import-panel'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
+import { StaffPanel } from '@/components/hell-level/staff-panel'
 
 const ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu']
 
@@ -86,20 +87,7 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
         </Panel>
       )
     case 'my-staff':
-      return (
-        <RecordsTable
-          accountId={accountId}
-          kind="user"
-          title="My Staff"
-          emptyText="The team members on the GoHighLevel sub-account show up here after the import. Hell-level itself is signed into with your Hub login."
-          columns={[
-            { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
-            { label: 'Email', render: (r) => rv(r, 'email') || '—' },
-            { label: 'Phone', render: (r) => rv(r, 'phone') || '—' },
-            { label: 'Role', render: (r) => <span className="eyebrow text-muted-foreground">{[rv(r, 'roles.type'), rv(r, 'roles.role')].filter(Boolean).join(' · ') || '—'}</span> },
-          ]}
-        />
-      )
+      return <StaffPanel accountId={accountId} />
     case 'pipelines':
       return (
         <Panel title="Opportunities & Pipelines" description="Pipelines and their stages. Opportunities point at a stage, so a stage with opportunities in it can’t be removed.">

@@ -3,9 +3,10 @@ import { prisma } from '@/lib/prisma'
 import type { HlContact, HlWorkflow, Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { addTags, removeTags } from './contacts'
-import { renderTemplate, type MergeData } from './merge'
+import { renderTemplate, type MergeAppointment, type MergeData } from './merge'
 import { sendInternalEmail, sendInternalSms, sendSmsToContact } from './messages'
 import { emailList, phoneList } from './phone'
+import { publicBase } from './twilio'
 import type { HlStage, HlStep, HlTrigger, HlTriggerType } from './types'
 
 /**
@@ -24,7 +25,10 @@ export type TriggerEvent = {
   text?: string
   tag?: string
   stageId?: string
-  /** Saved on the run for merge fields: { form: {...} } / { call: {...} }. */
+  calendarId?: string
+  /** appointment_status: confirmed | cancelled | showed | noshow | rescheduled */
+  status?: string
+  /** Saved on the run for merge fields: { form: {...} } / { call: {...} } / { appointmentId }. */
   context?: Record<string, unknown>
 }
 
@@ -50,6 +54,8 @@ function matches(w: HlWorkflow, e: TriggerEvent): boolean {
   if (t.type === 'inbound_sms' && t.keyword?.trim() && !(e.text ?? '').toLowerCase().includes(t.keyword.trim().toLowerCase())) return false
   if (t.type === 'tag_added' && t.tag?.trim() && t.tag.trim().toLowerCase() !== (e.tag ?? '').toLowerCase()) return false
   if (t.type === 'opportunity_stage' && t.stageId && t.stageId !== e.stageId) return false
+  if ((t.type === 'appointment_booked' || t.type === 'appointment_status') && t.calendarId && t.calendarId !== e.calendarId) return false
+  if (t.type === 'appointment_status' && t.status && t.status !== e.status) return false
   return true
 }
 
@@ -99,6 +105,32 @@ type Ctx = {
   depth: number
   /** True once the run has waited at least once: its texts are no longer an instant reply. */
   delayed: boolean
+  /** The appointment the run is about (appointment triggers), read fresh each time the run moves. */
+  appointment: (MergeAppointment & { id: string; start: Date; cancelled: boolean }) | null
+}
+
+const WAITS = new Set(['wait', 'wait_appointment'])
+
+/** The run's appointment, as merge fields and for "wait before the appointment". */
+async function loadAppointment(id: unknown, timezone: string): Promise<Ctx['appointment']> {
+  if (typeof id !== 'string' || !id) return null
+  const a = await prisma.hlAppointment.findUnique({ where: { id }, include: { calendar: { select: { name: true } } } })
+  if (!a) return null
+  const link = a.token ? `${publicBase()}/hl/a/${a.token}` : null
+  return {
+    id: a.id,
+    start: a.startTime,
+    cancelled: a.status === 'cancelled' || a.status === 'invalid',
+    title: a.title,
+    startTime: a.startTime,
+    endTime: a.endTime,
+    timezone,
+    calendarName: a.calendar?.name ?? null,
+    location: a.address,
+    status: a.status,
+    rescheduleUrl: link,
+    cancelUrl: link ? `${link}?cancel=1` : null,
+  }
 }
 
 type StepResult = { ok: boolean; detail: string; waitUntil?: Date; stop?: boolean; retryStep?: boolean }
@@ -110,7 +142,10 @@ async function runStep(step: HlStep, c: Ctx): Promise<StepResult> {
   switch (step.type) {
     case 'send_sms': {
       if (c.delayed && inQuietHours(c.timezone)) {
-        return { ok: true, detail: 'Quiet hours: waiting until 9 AM', waitUntil: nextMorning(c.timezone), retryStep: true }
+        const morning = nextMorning(c.timezone)
+        // A reminder that can't go out before the appointment isn't worth sending after it.
+        if (c.appointment && morning.getTime() >= c.appointment.start.getTime()) return { ok: true, detail: 'Skipped: quiet hours last until after the appointment' }
+        return { ok: true, detail: 'Quiet hours: waiting until 9 AM', waitUntil: morning, retryStep: true }
       }
       const r = await sendSmsToContact({ accountId: c.accountId, contactId: c.contact.id, body: render(cfg.body), by: 'automation', runId: c.runId })
       return { ok: r.ok, detail: r.detail }
@@ -129,6 +164,17 @@ async function runStep(step: HlStep, c: Ctx): Promise<StepResult> {
       const amount = Math.max(1, Number(cfg.amount) || 1)
       const ms = (cfg.unit === 'days' ? 86_400_000 : cfg.unit === 'hours' ? 3_600_000 : 60_000) * amount
       return { ok: true, detail: `Waiting ${amount} ${cfg.unit ?? 'minutes'}`, waitUntil: new Date(Date.now() + ms) }
+    }
+    case 'wait_appointment': {
+      const a = c.appointment
+      if (!a) return { ok: false, detail: 'No appointment on this run (the trigger wasn’t an appointment): carried on' }
+      if (a.cancelled) return { ok: true, detail: 'The appointment was cancelled: stopped here', stop: true }
+      const amount = Math.max(0, Number(cfg.amount) || 0)
+      const ms = (cfg.unit === 'days' ? 86_400_000 : cfg.unit === 'hours' ? 3_600_000 : 60_000) * amount
+      const target = new Date(a.start.getTime() + (cfg.when === 'after' ? ms : -ms))
+      // Re-checked when the wait is over, so a rescheduled appointment moves it.
+      if (target.getTime() <= Date.now() + 30_000) return { ok: true, detail: 'Time reached: carried on' }
+      return { ok: true, detail: `Waiting until ${target.toISOString()}`, waitUntil: target, retryStep: true }
     }
     case 'add_tag': {
       const tag = render(cfg.tag).trim().toLowerCase()
@@ -228,18 +274,21 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
 
   const steps = asSteps(run.workflow.steps)
   const context = (run.context ?? {}) as Record<string, unknown>
+  const appointment = await loadAppointment(context.appointmentId, run.account.timezone)
   const ctx: Ctx = {
     runId,
     accountId: run.accountId,
     timezone: run.account.timezone,
     contact: run.contact,
     depth,
-    delayed: log.some((l) => l.type === 'wait'),
+    delayed: log.some((l) => WAITS.has(l.type)),
+    appointment,
     merge: {
       contact: run.contact,
       account: readProfile(run.account.profile),
       form: (context.form as Record<string, unknown>) ?? null,
       call: (context.call as Record<string, unknown>) ?? null,
+      appointment,
     },
   }
 
@@ -252,7 +301,7 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
     }
     log.push({ at: new Date().toISOString(), step: i, type: steps[i].type, ok: r.ok, detail: r.detail })
     if (r.waitUntil) {
-      if (steps[i].type === 'wait') ctx.delayed = true
+      if (WAITS.has(steps[i].type)) ctx.delayed = true
       await finish('waiting', r.retryStep ? i : i + 1, { nextRunAt: r.waitUntil })
       return
     }

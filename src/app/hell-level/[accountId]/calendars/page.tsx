@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { Suspense, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CalendarDays, ChevronLeft, ChevronRight, Copy, ExternalLink, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { contactLabel } from '@/components/hell-level/bits'
 import { useSectionTab } from '@/components/hell-level/section'
-import { Badge, Button, Card, Empty, ErrorNote, Modal, PageHeader, Spinner, Table, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, copyText, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 
 type Appointment = {
   id: string
@@ -19,6 +19,8 @@ type Appointment = {
   assignedTo: string | null
   address: string | null
   notes: string | null
+  source?: string | null
+  token?: string | null
   contact: { id: string; firstName: string | null; lastName: string | null; phone: string | null; email: string | null } | null
   calendar: { id: string; name: string } | null
 }
@@ -125,13 +127,54 @@ function MonthView({ accountId }: { accountId: string }) {
   )
 }
 
+const STATUS_ACTIONS: { status: string; label: string }[] = [
+  { status: 'confirmed', label: 'Confirm' },
+  { status: 'showed', label: 'Showed' },
+  { status: 'noshow', label: 'No-show' },
+  { status: 'cancelled', label: 'Cancel' },
+]
+
 function AppointmentModal({ accountId, a, onClose }: { accountId: string; a: Appointment; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [status, setStatus] = useState(a.status)
+  const change = useMutation({
+    mutationFn: (s: string) => hlFetch(`/api/hl/accounts/${accountId}/appointments/${a.id}`, { method: 'PATCH', json: { status: s } }),
+    onSuccess: (_d, s) => {
+      setStatus(s)
+      qc.invalidateQueries({ queryKey: ['hl', 'appointments', accountId] })
+    },
+  })
+  const manage = a.token ? `${typeof window === 'undefined' ? '' : window.location.origin}/hl/a/${a.token}` : null
   return (
-    <Modal open onClose={onClose} title={a.title} description={`${fmtDateTime(a.startTime)} – ${new Date(a.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={a.title}
+      description={`${fmtDateTime(a.startTime)} – ${new Date(a.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+      footer={
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <span className="mr-auto text-[12px] text-muted-foreground">Mark as</span>
+          {STATUS_ACTIONS.map((x) => (
+            <Button
+              key={x.status}
+              size="sm"
+              variant={status === x.status ? 'primary' : x.status === 'cancelled' ? 'ghost' : 'secondary'}
+              className={x.status === 'cancelled' && status !== 'cancelled' ? 'text-destructive' : undefined}
+              disabled={status === x.status}
+              loading={change.isPending && change.variables === x.status}
+              onClick={() => (x.status !== 'cancelled' || window.confirm('Cancel this appointment? Any “Appointment status: cancelled” automations run.')) && change.mutate(x.status)}
+            >
+              {x.label}
+            </Button>
+          ))}
+        </div>
+      }
+    >
       <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-[13px]">
         <dt className="eyebrow text-muted-foreground">Status</dt>
         <dd>
-          <Badge color={STATUS[a.status] ?? 'gray'}>{a.status}</Badge>
+          <Badge color={STATUS[status] ?? 'gray'}>{status}</Badge>
+          {a.source === 'booking' && <span className="ml-2 text-[12px] text-muted-foreground">Booked online</span>}
         </dd>
         <dt className="eyebrow text-muted-foreground">Contact</dt>
         <dd>
@@ -159,7 +202,18 @@ function AppointmentModal({ accountId, a, onClose }: { accountId: string; a: App
             <dd className="whitespace-pre-wrap text-foreground/90">{a.notes}</dd>
           </>
         )}
+        {manage && (
+          <>
+            <dt className="eyebrow text-muted-foreground">Their link</dt>
+            <dd>
+              <button type="button" className="inline-flex items-center gap-1 text-primary hover:underline" onClick={() => copyText(manage)}>
+                <Copy className="h-3 w-3" /> Copy the reschedule / cancel link
+              </button>
+            </dd>
+          </>
+        )}
       </dl>
+      <ErrorNote error={change.error} />
     </Modal>
   )
 }
@@ -225,36 +279,104 @@ function AppointmentList({ accountId }: { accountId: string }) {
   )
 }
 
+type CalendarListRow = CalendarRow & { upcoming: number }
+
 function CalendarSettings({ accountId }: { accountId: string }) {
-  const now = useMemo(() => new Date(), [])
-  const q = useRange(accountId, now, now)
+  const router = useRouter()
+  const qc = useQueryClient()
+  const q = useQuery<{ calendars: CalendarListRow[] }>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
+  const [creating, setCreating] = useState(false)
+  const [name, setName] = useState('')
+  const create = useMutation({
+    mutationFn: () => hlFetch<{ calendar: { id: string } }>(`/api/hl/accounts/${accountId}/calendars`, { method: 'POST', json: { name } }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['hl', 'calendars', accountId] })
+      router.push(`/hell-level/${accountId}/calendars/${r.calendar.id}`)
+    },
+  })
+  const toggle = useMutation({
+    mutationFn: (c: CalendarListRow) => hlFetch(`/api/hl/accounts/${accountId}/calendars/${c.id}`, { method: 'PATCH', json: { isActive: !c.isActive } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'calendars', accountId] }),
+  })
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const minutes = (c: CalendarRow) => {
+    const d = Number(c.settings.slotDuration)
+    if (!Number.isFinite(d) || d <= 0) return '—'
+    return c.settings.slotDurationUnit === 'hours' ? `${d} hr` : `${d} min`
+  }
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-6">
-      <PageHeader title="Calendars" description="The sub-account’s booking calendars. Booking pages and availability editing aren’t in Hell-level yet; these came over from GoHighLevel with their appointments." />
+    <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
+      <PageHeader
+        title="Calendars"
+        description="Booking calendars: each has a booking page to share or embed on the website. Bookings land here and on the contact, and can start automations."
+        actions={
+          <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+            Create calendar
+          </Button>
+        }
+      />
       <Card>
-        {!q.data?.calendars.length ? (
-          <Empty icon={<CalendarDays className="h-5 w-5" />} title="No calendars">
-            Calendars from GoHighLevel show up here after the import.
+        {q.isLoading ? (
+          <div className="flex justify-center py-14">
+            <Spinner />
+          </div>
+        ) : !q.data?.calendars.length ? (
+          <Empty icon={<CalendarDays className="h-5 w-5" />} title="No calendars yet" action={<Button variant="primary" onClick={() => setCreating(true)}>Create calendar</Button>}>
+            Make one for estimates or calls, set its hours, and put its booking page on the client’s site.
           </Empty>
         ) : (
-          <Table head={['Calendar', 'Type', 'Status', 'Slot length']}>
+          <Table head={['Calendar', 'Length', 'Upcoming', 'Status', '']}>
             {q.data.calendars.map((c) => (
-              <tr key={c.id} className="border-b border-border-soft last:border-0">
+              <tr key={c.id} className="border-b border-border-soft last:border-0 hover:bg-muted/40">
                 <td className="px-4 py-2.5">
-                  <p className="font-medium text-foreground">{c.name}</p>
-                  {c.description && <p className="line-clamp-1 text-[12px] text-muted-foreground">{c.description}</p>}
+                  <Link href={`/hell-level/${accountId}/calendars/${c.id}`} className="font-medium text-foreground hover:underline">
+                    {c.name}
+                  </Link>
+                  <p className="font-mono text-[11.5px] text-muted-foreground">{(c.kind ?? 'calendar').replace(/_/g, ' ')}</p>
                 </td>
-                <td className="px-4 py-2.5 font-mono text-[12px] text-muted-foreground">{(c.kind ?? '—').replace(/_/g, ' ')}</td>
+                <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{minutes(c)}</td>
+                <td className="px-4 py-2.5 tabular-nums text-foreground/85">{c.upcoming}</td>
                 <td className="px-4 py-2.5">
-                  <Badge color={c.isActive ? 'green' : 'gray'}>{c.isActive ? 'Active' : 'Off'}</Badge>
+                  <button type="button" onClick={() => toggle.mutate(c)} title={c.isActive ? 'Stop taking bookings' : 'Start taking bookings'}>
+                    <Badge color={c.isActive ? 'green' : 'gray'}>{c.isActive ? 'Active' : 'Off'}</Badge>
+                  </button>
                 </td>
-                <td className="px-4 py-2.5 tabular-nums text-muted-foreground">{typeof c.settings.slotDuration === 'number' ? `${c.settings.slotDuration} ${String(c.settings.slotDurationUnit ?? 'mins')}` : '—'}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                  <button type="button" className="mr-3 inline-flex items-center gap-1 text-[12.5px] text-muted-foreground hover:text-foreground" onClick={() => copyText(`${origin}/hl/b/${c.id}`)} title="Copy the booking link">
+                    <Copy className="h-3.5 w-3.5" /> Link
+                  </button>
+                  <a href={`/hl/b/${c.id}`} target="_blank" rel="noreferrer" className="mr-3 inline-flex items-center gap-1 text-[12.5px] text-muted-foreground hover:text-foreground">
+                    <ExternalLink className="h-3.5 w-3.5" /> Open
+                  </a>
+                  <Link href={`/hell-level/${accountId}/calendars/${c.id}`} className="text-[12.5px] font-semibold text-primary hover:underline">
+                    Edit
+                  </Link>
+                </td>
               </tr>
             ))}
           </Table>
         )}
       </Card>
-      <ErrorNote error={q.error} />
+      <ErrorNote error={q.error || toggle.error} />
+      <Modal
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="Create calendar"
+        description="Starts Monday to Friday, 9 to 5, 30-minute slots. Change it all after."
+        footer={
+          <>
+            <Button onClick={() => setCreating(false)}>Cancel</Button>
+            <Button variant="primary" loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>
+              Create
+            </Button>
+          </>
+        }
+      >
+        <Field label="Name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Free Estimate" autoFocus />
+        </Field>
+        <ErrorNote error={create.error} />
+      </Modal>
     </div>
   )
 }

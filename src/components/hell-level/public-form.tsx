@@ -5,7 +5,7 @@ import { formStyle } from '@/lib/hl/form-style'
 import type { HlConsentBox, HlField, HlFormSettings } from '@/lib/hl/types'
 
 /** "Privacy Policy" and "Terms" in the consent wording become links. */
-function Linked({ text, legal }: { text: string; legal: { privacy: string; terms: string } }) {
+export function Linked({ text, legal }: { text: string; legal: { privacy: string; terms: string } }) {
   const parts = text.split(/(Privacy Policy|Terms(?: of Service| and Conditions| & Conditions)?)/g)
   return (
     <>

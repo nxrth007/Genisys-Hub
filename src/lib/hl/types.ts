@@ -56,6 +56,8 @@ export type HlTriggerType =
   | 'contact_created'
   | 'tag_added'
   | 'opportunity_stage'
+  | 'appointment_booked'
+  | 'appointment_status'
   | 'manual'
 
 export type HlTrigger = {
@@ -68,7 +70,14 @@ export type HlTrigger = {
   tag?: string
   /** opportunity_stage: only moves into this stage id. */
   stageId?: string
+  /** appointment_booked / appointment_status: only this calendar (blank = any). */
+  calendarId?: string
+  /** appointment_status: only this status (blank = any change). */
+  status?: string
 }
+
+/** What "Appointment status" can listen for (GHL's statuses, plus a reschedule). */
+export const APPOINTMENT_STATUSES = ['confirmed', 'cancelled', 'showed', 'noshow', 'rescheduled'] as const
 
 export const TRIGGERS: { type: HlTriggerType; label: string; hint: string }[] = [
   { type: 'form_submitted', label: 'Form submitted', hint: 'Someone sends a form on the website' },
@@ -78,6 +87,8 @@ export const TRIGGERS: { type: HlTriggerType; label: string; hint: string }[] = 
   { type: 'contact_created', label: 'Contact created', hint: 'A new contact is added, any way' },
   { type: 'tag_added', label: 'Tag added', hint: 'A tag is put on a contact' },
   { type: 'opportunity_stage', label: 'Pipeline stage changed', hint: 'An opportunity moves into a stage' },
+  { type: 'appointment_booked', label: 'Customer booked appointment', hint: 'Someone books on a calendar’s booking page' },
+  { type: 'appointment_status', label: 'Appointment status', hint: 'An appointment is confirmed, cancelled, rescheduled, or marked showed / no-show' },
   { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
 ]
 
@@ -91,6 +102,7 @@ export type HlStepType =
   | 'create_opportunity'
   | 'move_opportunity'
   | 'if_tag'
+  | 'wait_appointment'
 
 export type HlStep = {
   id: string
@@ -104,6 +116,8 @@ export type HlStep = {
     to?: string
     amount?: number
     unit?: 'minutes' | 'hours' | 'days'
+    /** wait_appointment: that long before or after the appointment's start. */
+    when?: 'before' | 'after'
     tag?: string
     pipelineId?: string
     stageId?: string
@@ -117,6 +131,7 @@ export const STEPS: { type: HlStepType; label: string; group: 'Communication' | 
   { type: 'internal_sms', label: 'Internal notification (SMS)', group: 'Communication' },
   { type: 'internal_email', label: 'Internal notification (email)', group: 'Communication' },
   { type: 'wait', label: 'Wait', group: 'Timing' },
+  { type: 'wait_appointment', label: 'Wait: before / after the appointment', group: 'Timing' },
   { type: 'add_tag', label: 'Add tag', group: 'Contact' },
   { type: 'remove_tag', label: 'Remove tag', group: 'Contact' },
   { type: 'create_opportunity', label: 'Create opportunity', group: 'Pipeline' },
@@ -135,6 +150,13 @@ export const MERGE_FIELDS: { token: string; label: string }[] = [
   { token: '{{contact.email}}', label: 'Contact email' },
   { token: '{{form.service}}', label: 'Form: service needed' },
   { token: '{{form.message}}', label: 'Form: project details' },
+  { token: '{{appointment.start_time}}', label: 'Appointment: date and time' },
+  { token: '{{appointment.only_start_date}}', label: 'Appointment: date' },
+  { token: '{{appointment.only_start_time}}', label: 'Appointment: time' },
+  { token: '{{appointment.calendar}}', label: 'Appointment: calendar' },
+  { token: '{{appointment.meeting_location}}', label: 'Appointment: where' },
+  { token: '{{appointment.reschedule_link}}', label: 'Appointment: reschedule link' },
+  { token: '{{appointment.cancellation_link}}', label: 'Appointment: cancel link' },
   ...PROFILE_FIELDS.filter((f) => f.key !== 'ein').map((f) => ({ token: `{{${f.merge}}}`, label: f.label })),
 ]
 

@@ -82,7 +82,7 @@ let n = 0
 const id = () => `s${++n}`
 
 export type WorkflowTemplate = {
-  key: 'missed_call' | 'chat_widget' | 'quote_form' | 'review_request'
+  key: 'missed_call' | 'chat_widget' | 'quote_form' | 'review_request' | 'appointment_reminders'
   name: string
   folder: string
   description: string
@@ -194,6 +194,46 @@ export function workflowTemplates(formIds: { quote?: string; chat?: string } = {
           config: {
             body: "Hi {{contact.first_name}}, thanks for choosing {{account.business_name}}! If you were happy with the work, would you leave us a quick Google review? It really helps a small business like ours: {{account.review_link}}\n\n- {{account.owner_first_name}}",
           },
+        },
+      ],
+    },
+    {
+      key: 'appointment_reminders',
+      name: 'Appointment Confirmation & Reminders',
+      folder: 'Appointment Workflows',
+      description: 'Confirms a booking by text, tells the owner, and reminds the lead a day and two hours before.',
+      publish: false,
+      trigger: { type: 'appointment_booked' },
+      steps: [
+        {
+          id: id(),
+          type: 'send_sms',
+          name: 'Booking Confirmation (To Customer)',
+          config: {
+            body: "Hi {{contact.first_name}}, you're booked with {{account.business_name}} for {{appointment.start_time}}.\n\nNeed to change it? {{appointment.reschedule_link}}",
+          },
+        },
+        {
+          id: id(),
+          type: 'internal_sms',
+          name: 'New Booking (To Owner)',
+          config: { body: 'New booking: {{contact.full_name}} ({{contact.phone}})\n{{appointment.calendar}}, {{appointment.start_time}}' },
+        },
+        { id: id(), type: 'wait_appointment', name: '1 day before', config: { amount: 1, unit: 'days', when: 'before' } },
+        {
+          id: id(),
+          type: 'send_sms',
+          name: 'Reminder: the day before',
+          config: {
+            body: "Hi {{contact.first_name}}, a reminder that you're booked with {{account.business_name}} tomorrow at {{appointment.only_start_time}}.\n\nNeed to reschedule? {{appointment.reschedule_link}}",
+          },
+        },
+        { id: id(), type: 'wait_appointment', name: '2 hours before', config: { amount: 2, unit: 'hours', when: 'before' } },
+        {
+          id: id(),
+          type: 'send_sms',
+          name: 'Reminder: 2 hours before',
+          config: { body: 'See you at {{appointment.only_start_time}} today!\n\n- {{account.owner_first_name}} at {{account.business_name}}' },
         },
       ],
     },

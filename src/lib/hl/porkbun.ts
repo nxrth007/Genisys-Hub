@@ -16,14 +16,22 @@ const BASE = 'https://api.porkbun.com/api/json/v3'
 export const VAULT_KEY = 'Porkbun API Key'
 export const VAULT_SECRET = 'Porkbun Secret API Key'
 
-/** Porkbun's own refusal, shown to the person as is (an HlInputError, so routes answer 400 with it). */
+/** Porkbun's refusals that need something done in the Porkbun account, said for people (Porkbun's own text is written for API clients). */
+const PLAIN: Record<string, string> = {
+  VERIFICATION_REQUIRED: 'Porkbun needs the account’s phone number and email verified before it can buy anything: porkbun.com → Account → Your details → Phone Number (send verification).',
+  INSUFFICIENT_FUNDS: 'Not enough credit in the Porkbun account. Add some at porkbun.com → Account → Billing.',
+  API_ACCESS_DISABLED: 'API access is off for this domain in Porkbun. Turn it on at porkbun.com → Account → API Access (for all domains), or on the domain’s Details.',
+  INVALID_API_KEYS: 'Porkbun says the keys in the Vault aren’t valid. Make new ones at porkbun.com → Account → API Access.',
+}
+
+/** Porkbun's own refusal, shown to the person (an HlInputError, so routes answer 400 with it). */
 export class PorkbunError extends HlInputError {
   constructor(
     readonly code: string,
     message: string,
     readonly hint: string | null = null,
   ) {
-    super(hint && !message.includes(hint) ? `${message} ${hint}` : message)
+    super(PLAIN[code] ?? message)
     this.name = 'PorkbunError'
   }
 }

@@ -2582,15 +2582,27 @@ model HlAppointment {
   endTime    DateTime
   /// new | confirmed | showed | noshow | cancelled | invalid
   status     String      @default("confirmed")
+  /// The team member's name, as shown.
   assignedTo String?
+  /// The team member (a calendar's teamMembers[].userId: a GHL user id or a staff record id).
+  assignedUserId String?
   address    String?
   notes      String?
+  /// booking (the public booking page) | ghl (imported) | manual
+  source     String?
+  /// The secret in the reschedule/cancel link (/hl/a/<token>).
+  token      String?     @unique
+  /// The booker's timezone, for showing them the time.
+  timezone   String?
+  /// Booking answers and consent: { answers, consent, marketingConsent, history: [...] }.
+  meta       Json        @default("{}")
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
   @@unique([accountId, ghlId])
   @@index([accountId, startTime])
   @@index([contactId])
+  @@index([assignedUserId, startTime])
 }
 
 /// A to-do on a contact (GHL's Tasks).

@@ -717,8 +717,10 @@ const PHASES: Record<ImportPhase, (c: Ctx, ph: PhaseState) => Promise<void>> = {
             endTime: end,
             status: str(e.appointmentStatus) ?? 'confirmed',
             assignedTo: c.users.get(str(e.assignedUserId) ?? '') ?? null,
+            assignedUserId: str(e.assignedUserId),
             address: str(e.address),
             notes: str(e.notes),
+            source: 'ghl',
           }
           await prisma.hlAppointment.upsert({
             where: { accountId_ghlId: { accountId: c.accountId, ghlId: eid } },

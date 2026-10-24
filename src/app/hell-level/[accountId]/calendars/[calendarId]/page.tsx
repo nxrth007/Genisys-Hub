@@ -1,0 +1,420 @@
+'use client'
+
+import Link from 'next/link'
+import { useState } from 'react'
+import { useParams } from 'next/navigation'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { WEEKDAYS, asCalendarSettings, defaultCalendarSettings, type HlCalendarSettings, type HlHours, type TimeUnit } from '@/lib/hl/calendar-shared'
+import type { StaffRow } from '@/lib/hl/staff'
+import { useAccount } from '@/components/hell-level/bits'
+import { ConsentBoxesEditor } from '@/components/hell-level/consent-editor'
+import { bookingEmbedCode, bookingLovablePrompt } from '@/components/hell-level/embed'
+import { Badge, Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, Toggle, copyText, hlFetch } from '@/components/hell-level/ui'
+
+type Detail = {
+  calendar: { id: string; name: string; description: string | null; isActive: boolean; kind: string | null; ghlId: string | null; settings: unknown; updatedAt: string }
+  staff: StaffRow[]
+  upcoming: number
+}
+
+export default function CalendarEditorPage() {
+  const { accountId, calendarId } = useParams<{ accountId: string; calendarId: string }>()
+  const q = useQuery<Detail>({ queryKey: ['hl', 'calendar', calendarId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars/${calendarId}`) })
+  if (!q.data) return <div className="flex justify-center py-24">{q.error ? <ErrorNote error={q.error} /> : <Spinner />}</div>
+  return <CalendarEditor key={q.data.calendar.updatedAt} accountId={accountId} data={q.data} />
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const toTime = (h: number, m: number) => `${pad(h % 24)}:${pad(m)}`
+const fromTime = (v: string): [number, number] => {
+  const [h, m] = v.split(':').map(Number)
+  return [Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0]
+}
+const NINE_TO_FIVE: HlHours = { openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 0 }
+
+/** Weekly hours as one list of ranges per weekday (GHL keeps them as day groups). */
+function weekOf(s: HlCalendarSettings): HlHours[][] {
+  return WEEKDAYS.map((_, d) => (s.openHours ?? []).filter((o) => (o.daysOfTheWeek ?? []).includes(d)).flatMap((o) => o.hours ?? []))
+}
+
+function Ranges({ value, onChange }: { value: HlHours[]; onChange: (v: HlHours[]) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {value.map((h, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input type="time" className="w-32" value={toTime(h.openHour, h.openMinute)} onChange={(e) => {
+            const [openHour, openMinute] = fromTime(e.target.value)
+            onChange(value.map((x, j) => (j === i ? { ...x, openHour, openMinute } : x)))
+          }} />
+          <span className="text-muted-foreground">–</span>
+          <Input type="time" className="w-32" value={toTime(h.closeHour, h.closeMinute)} onChange={(e) => {
+            const [closeHour, closeMinute] = fromTime(e.target.value)
+            onChange(value.map((x, j) => (j === i ? { ...x, closeHour, closeMinute } : x)))
+          }} />
+          <button type="button" className="text-muted-foreground hover:text-destructive" title="Remove" onClick={() => onChange(value.filter((_, j) => j !== i))}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button type="button" className="flex w-fit items-center gap-1 text-[12.5px] text-primary hover:underline" onClick={() => onChange([...value, value.length ? { ...NINE_TO_FIVE, openHour: 13, closeHour: 17 } : NINE_TO_FIVE])}>
+        <Plus className="h-3 w-3" /> Add hours
+      </button>
+    </div>
+  )
+}
+
+function Amount({ label, hint, value, unit, units, onChange }: { label: string; hint?: string; value: number | string | undefined; unit: TimeUnit | undefined; units: TimeUnit[]; onChange: (v: number | string, u: TimeUnit) => void }) {
+  const names: Record<TimeUnit, string> = { mins: 'minutes', hours: 'hours', days: 'days', weeks: 'weeks', months: 'months' }
+  return (
+    <Field label={label} hint={hint}>
+      <div className="flex gap-2">
+        <Input type="number" min={0} className="w-24" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value), unit ?? units[0])} />
+        <Select className="w-32" value={unit ?? units[0]} onChange={(e) => onChange(value ?? 0, e.target.value as TimeUnit)}>
+          {units.map((u) => (
+            <option key={u} value={u}>
+              {names[u]}
+            </option>
+          ))}
+        </Select>
+      </div>
+    </Field>
+  )
+}
+
+function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }) {
+  const qc = useQueryClient()
+  const account = useAccount(accountId)
+  const business = account.data?.account.profile.businessName || account.data?.account.name || 'the business'
+  const [name, setName] = useState(data.calendar.name)
+  const [description, setDescription] = useState(data.calendar.description ?? '')
+  const [isActive, setActive] = useState(data.calendar.isActive)
+  const [s, setS] = useState<HlCalendarSettings>(() => ({ ...defaultCalendarSettings(), ...asCalendarSettings(data.calendar.settings) }))
+  const [tab, setTab] = useState<'details' | 'availability' | 'form' | 'confirm' | 'share'>('details')
+  const [newDate, setNewDate] = useState('')
+  const save = useMutation({
+    mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars/${data.calendar.id}`, { method: 'PATCH', json: { name, description, isActive, settings: s } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hl', 'calendar', data.calendar.id] })
+      qc.invalidateQueries({ queryKey: ['hl', 'calendars', accountId] })
+    },
+  })
+  const set = (patch: Partial<HlCalendarSettings>) => setS((x) => ({ ...x, ...patch }))
+  const week = weekOf(s)
+  const setDay = (d: number, hours: HlHours[]) => {
+    const next = week.map((h, i) => (i === d ? hours : h))
+    set({ openHours: next.flatMap((h, i) => (h.length ? [{ daysOfTheWeek: [i], hours: h }] : [])) })
+  }
+  const overrides = (s.availabilities ?? []).filter((a) => !a.deleted).map((a) => ({ ...a, date: String(a.date).slice(0, 10) }))
+  const team = s.teamMembers ?? []
+  const staffKey = (st: StaffRow) => st.ghlId ?? st.id
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const link = `${origin}/hl/b/${data.calendar.id}`
+
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-7">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href={`/hell-level/${accountId}/calendars?tab=settings`} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted">
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
+        <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-sm text-[16px] font-semibold" />
+        {data.calendar.ghlId && <Badge color="gray">From GoHighLevel</Badge>}
+        <label className="ml-auto flex items-center gap-2 text-[13px] text-foreground/85">
+          <Toggle checked={isActive} onChange={setActive} label="Taking bookings" /> {isActive ? 'Taking bookings' : 'Off'}
+        </label>
+        <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
+          Save
+        </Button>
+      </div>
+      <ErrorNote error={save.error} />
+      {save.isSuccess && !save.isPending && <p className="text-[12.5px] text-success">Saved.</p>}
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'details', label: 'Calendar Details' },
+          { key: 'availability', label: 'Availability' },
+          { key: 'form', label: 'Booking Form' },
+          { key: 'confirm', label: 'Confirmations' },
+          { key: 'share', label: 'Share & Embed' },
+        ]}
+      />
+
+      {tab === 'details' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card className="flex flex-col gap-4 p-5">
+            <Field label="Description" hint="Shown on the booking page">
+              <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="A free 30-minute call to talk through your project." />
+            </Field>
+            <Field label="Meeting location" hint="An address, a phone number or a meeting link. A team member’s own location wins.">
+              <Input value={s.meetingLocation ?? ''} onChange={(e) => set({ meetingLocation: e.target.value })} placeholder="We’ll call you at the number you give" />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+              <Field label="Appointment title" hint="{{contact.name}} becomes the person’s name">
+                <Input value={s.eventTitle ?? ''} onChange={(e) => set({ eventTitle: e.target.value })} />
+              </Field>
+              <Field label="Colour">
+                <div className="flex items-center gap-2">
+                  <input type="color" value={s.eventColor ?? '#155EEF'} onChange={(e) => set({ eventColor: e.target.value })} className="h-9 w-11 cursor-pointer rounded-md border border-border" />
+                  <Input value={s.eventColor ?? ''} onChange={(e) => set({ eventColor: e.target.value })} className="font-mono text-[12.5px]" />
+                </div>
+              </Field>
+            </div>
+          </Card>
+          <Card className="flex flex-col gap-4 p-5">
+            <div>
+              <p className="text-[15px] font-semibold text-foreground">Team members</p>
+              <p className="text-[12.5px] text-muted-foreground">Bookings go round robin to whoever is free. No one picked: the calendar takes one booking per slot.</p>
+            </div>
+            {!data.staff.length ? (
+              <p className="text-[13px] text-muted-foreground">
+                No staff yet.{' '}
+                <Link href={`/hell-level/${accountId}/settings?tab=my-staff`} className="text-primary hover:underline">
+                  Add them under Settings → My Staff
+                </Link>
+                .
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {data.staff.map((st) => {
+                  const k = staffKey(st)
+                  const m = team.find((x) => x.userId === k || x.userId === st.id)
+                  return (
+                    <div key={st.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={!!m}
+                        onChange={(e) => set({ teamMembers: e.target.checked ? [...team, { userId: k, priority: 0.5, selected: true }] : team.filter((x) => x !== m) })}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] text-foreground">{st.name}</span>
+                        {st.email && <span className="block truncate text-[12px] text-muted-foreground">{st.email}</span>}
+                      </span>
+                      {m && (
+                        <Select className="w-28" value={String(m.priority ?? 0.5)} onChange={(e) => set({ teamMembers: team.map((x) => (x === m ? { ...x, priority: Number(e.target.value) } : x)) })}>
+                          <option value="1">High</option>
+                          <option value="0.5">Medium</option>
+                          <option value="0">Low</option>
+                        </Select>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {team.length > 1 && (
+              <Field label="Distribution">
+                <Select value={s.eventType ?? 'RoundRobin_OptimizeForAvailability'} onChange={(e) => set({ eventType: e.target.value as HlCalendarSettings['eventType'] })}>
+                  <option value="RoundRobin_OptimizeForAvailability">Optimize for availability (priority first)</option>
+                  <option value="RoundRobin_OptimizeForEqualDistribution">Optimize for equal distribution</option>
+                </Select>
+              </Field>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {tab === 'availability' && (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="flex flex-col gap-5">
+            <Card className="flex flex-col gap-3 p-5">
+              <p className="text-[15px] font-semibold text-foreground">Weekly hours</p>
+              <p className="-mt-2 text-[12.5px] text-muted-foreground">In the sub-account’s timezone ({account.data?.account.timezone ?? '…'}). Visitors see times in their own.</p>
+              {WEEKDAYS.map((d, i) => (
+                <div key={d} className="grid grid-cols-[130px_minmax(0,1fr)] items-start gap-3 border-b border-border-soft pb-3 last:border-0">
+                  <label className="flex items-center gap-2 pt-2 text-[13.5px] text-foreground">
+                    <input type="checkbox" checked={week[i].length > 0} onChange={(e) => setDay(i, e.target.checked ? [NINE_TO_FIVE] : [])} /> {d}
+                  </label>
+                  {week[i].length ? <Ranges value={week[i]} onChange={(h) => setDay(i, h)} /> : <p className="pt-2 text-[13px] text-muted-foreground">Unavailable</p>}
+                </div>
+              ))}
+            </Card>
+            <Card className="flex flex-col gap-3 p-5">
+              <p className="text-[15px] font-semibold text-foreground">Date-specific hours</p>
+              <p className="-mt-2 text-[12.5px] text-muted-foreground">Holidays and one-off changes: a date’s own hours replace its weekday’s.</p>
+              {overrides.map((o) => (
+                <div key={o.date} className="grid grid-cols-[130px_minmax(0,1fr)] items-start gap-3 border-b border-border-soft pb-3">
+                  <div className="pt-2 text-[13.5px] text-foreground">
+                    {new Date(`${o.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
+                    <button type="button" className="ml-2 text-muted-foreground hover:text-destructive" title="Remove" onClick={() => set({ availabilities: overrides.filter((x) => x.date !== o.date) })}>
+                      <Trash2 className="inline h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-[13px] text-foreground/85">
+                      <input type="checkbox" checked={!o.hours.length} onChange={(e) => set({ availabilities: overrides.map((x) => (x.date === o.date ? { ...x, hours: e.target.checked ? [] : [NINE_TO_FIVE] } : x)) })} /> Closed all day
+                    </label>
+                    {o.hours.length > 0 && <Ranges value={o.hours} onChange={(h) => set({ availabilities: overrides.map((x) => (x.date === o.date ? { ...x, hours: h } : x)) })} />}
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Input type="date" className="w-44" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+                <Button
+                  disabled={!newDate || overrides.some((o) => o.date === newDate)}
+                  onClick={() => {
+                    set({ availabilities: [...overrides, { date: newDate, hours: [] }].sort((a, b) => a.date.localeCompare(b.date)) })
+                    setNewDate('')
+                  }}
+                >
+                  Add date
+                </Button>
+              </div>
+            </Card>
+          </div>
+          <Card className="flex h-fit flex-col gap-4 p-5">
+            <p className="text-[15px] font-semibold text-foreground">Slots</p>
+            <Amount label="Meeting length" value={s.slotDuration} unit={s.slotDurationUnit} units={['mins', 'hours']} onChange={(v, u) => set({ slotDuration: Number(v) || 0, slotDurationUnit: u })} />
+            <Amount label="Start a slot every" hint="Usually the meeting length" value={s.slotInterval} unit={s.slotIntervalUnit} units={['mins', 'hours']} onChange={(v, u) => set({ slotInterval: Number(v) || 0, slotIntervalUnit: u })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Amount label="Buffer before" value={s.preBuffer} unit={s.preBufferUnit} units={['mins', 'hours']} onChange={(v, u) => set({ preBuffer: Number(v) || 0, preBufferUnit: u })} />
+              <Amount label="Buffer after" value={s.slotBuffer} unit={s.slotBufferUnit} units={['mins', 'hours']} onChange={(v, u) => set({ slotBuffer: Number(v) || 0, slotBufferUnit: u })} />
+            </div>
+            <Amount label="Minimum notice" hint="How soon someone can book" value={s.allowBookingAfter} unit={s.allowBookingAfterUnit} units={['mins', 'hours', 'days']} onChange={(v, u) => set({ allowBookingAfter: Number(v) || 0, allowBookingAfterUnit: u })} />
+            <Amount label="Booking window" hint="How far ahead (0 = no limit)" value={s.allowBookingFor} unit={s.allowBookingForUnit} units={['days', 'weeks', 'months']} onChange={(v, u) => set({ allowBookingFor: Number(v) || 0, allowBookingForUnit: u })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Per slot" hint="Per team member">
+                <Input type="number" min={1} value={s.appointmentPerSlot ?? 1} onChange={(e) => set({ appointmentPerSlot: e.target.value === '' ? 1 : Number(e.target.value) })} />
+              </Field>
+              <Field label="Per day" hint="Blank = no limit">
+                <Input type="number" min={0} value={s.appointmentPerDay ?? ''} onChange={(e) => set({ appointmentPerDay: e.target.value === '' ? '' : Number(e.target.value) })} />
+              </Field>
+            </div>
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+              <span>
+                Look busy
+                <span className="block text-[12px] text-muted-foreground">Hides a share of open slots</span>
+              </span>
+              <span className="flex items-center gap-2">
+                {s.lookBusyConfig?.enabled && (
+                  <Input type="number" min={0} max={90} className="w-20" value={s.lookBusyConfig.lookBusyPercentage ?? 0} onChange={(e) => set({ lookBusyConfig: { enabled: true, lookBusyPercentage: Number(e.target.value) || 0 } })} />
+                )}
+                <Toggle checked={!!s.lookBusyConfig?.enabled} onChange={(v) => set({ lookBusyConfig: { enabled: v, lookBusyPercentage: s.lookBusyConfig?.lookBusyPercentage || 10 } })} label="Look busy" />
+              </span>
+            </label>
+          </Card>
+        </div>
+      )}
+
+      {tab === 'form' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card className="flex flex-col gap-4 p-5">
+            <p className="text-[15px] font-semibold text-foreground">What the booking form asks</p>
+            <p className="-mt-2 text-[12.5px] text-muted-foreground">First name and a mobile number are always asked (texts are how bookings are confirmed).</p>
+            {(
+              [
+                ['askEmail', 'Email'],
+                ['askNotes', '“Anything we should know?”'],
+              ] as const
+            ).map(([k, label]) => (
+              <label key={k} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+                {label}
+                <Toggle checked={s[k] !== false} onChange={(v) => set({ [k]: v })} label={label} />
+              </label>
+            ))}
+            {s.askEmail !== false && (
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+                Email required
+                <Toggle checked={!!s.requireEmail} onChange={(v) => set({ requireEmail: v })} label="Email required" />
+              </label>
+            )}
+            <Field label="Booking page colour">
+              <div className="flex items-center gap-2">
+                <input type="color" value={s.widgetColor ?? '#155EEF'} onChange={(e) => set({ widgetColor: e.target.value })} className="h-9 w-11 cursor-pointer rounded-md border border-border" />
+                <Input value={s.widgetColor ?? ''} onChange={(e) => set({ widgetColor: e.target.value })} className="font-mono text-[12.5px]" />
+              </div>
+            </Field>
+          </Card>
+          <Card className="flex flex-col gap-4 p-5">
+            <p className="text-[15px] font-semibold text-foreground">Consent checkboxes</p>
+            <ConsentBoxesEditor value={s.consents ?? []} onChange={(consents) => set({ consents })} business={business} />
+          </Card>
+        </div>
+      )}
+
+      {tab === 'confirm' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card className="flex flex-col gap-3 p-5">
+            {(
+              [
+                ['autoConfirm', 'Confirm bookings straight away', 'Off: they come in as unconfirmed for someone to confirm'],
+                ['allowReschedule', 'Let people reschedule', 'From the link in their texts'],
+                ['allowCancellation', 'Let people cancel', 'From the link in their texts'],
+              ] as const
+            ).map(([k, label, hint]) => (
+              <label key={k} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+                <span>
+                  {label}
+                  <span className="block text-[12px] text-muted-foreground">{hint}</span>
+                </span>
+                <Toggle checked={s[k] !== false} onChange={(v) => set({ [k]: v })} label={label} />
+              </label>
+            ))}
+          </Card>
+          <Card className="flex flex-col gap-4 p-5">
+            <Field label="After booking">
+              <Select value={s.formSubmitType ?? 'ThankYouMessage'} onChange={(e) => set({ formSubmitType: e.target.value as HlCalendarSettings['formSubmitType'] })}>
+                <option value="ThankYouMessage">Show a thank-you message</option>
+                <option value="RedirectURL">Send them to a page</option>
+              </Select>
+            </Field>
+            {s.formSubmitType === 'RedirectURL' ? (
+              <Field label="Page address">
+                <Input value={s.formSubmitRedirectUrl ?? ''} onChange={(e) => set({ formSubmitRedirectUrl: e.target.value })} placeholder="https://acmeroofing.com/thank-you" />
+              </Field>
+            ) : (
+              <Field label="Thank-you message">
+                <Textarea rows={2} value={s.formSubmitThanksMessage ?? ''} onChange={(e) => set({ formSubmitThanksMessage: e.target.value })} />
+              </Field>
+            )}
+            <p className="text-[12.5px] text-muted-foreground">
+              Confirmation and reminder texts come from automations:{' '}
+              <Link href={`/hell-level/${accountId}/automation`} className="text-primary hover:underline">
+                Automation → Create workflow → Appointment Confirmation & Reminders
+              </Link>
+              .
+            </p>
+          </Card>
+        </div>
+      )}
+
+      {tab === 'share' && (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <Card className="flex flex-col gap-4 p-5">
+            <Field label="Booking link">
+              <div className="flex gap-2">
+                <Input readOnly value={link} className="font-mono text-[12px]" />
+                <Button icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyText(link)}>
+                  Copy
+                </Button>
+                <a href={link} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1 rounded-md border border-border px-3 text-[13px] text-foreground hover:bg-muted">
+                  <ExternalLink className="h-3.5 w-3.5" /> Open
+                </a>
+              </div>
+            </Field>
+            <Field label="Embed on the website">
+              <Textarea readOnly rows={5} value={bookingEmbedCode(origin, { id: data.calendar.id, name })} className="font-mono text-[11.5px]" />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyText(bookingEmbedCode(origin, { id: data.calendar.id, name }))}>
+                Copy embed code
+              </Button>
+              <Button icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyText(bookingLovablePrompt(origin, { id: data.calendar.id, name }))}>
+                Copy Lovable prompt
+              </Button>
+            </div>
+            <p className="text-[12.5px] text-muted-foreground">{data.upcoming} upcoming booking{data.upcoming === 1 ? '' : 's'} on this calendar.</p>
+          </Card>
+          <div className="flex flex-col gap-2">
+            <p className="text-[13px] font-medium text-foreground/90">Preview (after you save)</p>
+            <div className={cn('overflow-hidden rounded-xl border border-border bg-card', !isActive && 'opacity-60')}>
+              <iframe key={data.calendar.updatedAt} src={`/hl/b/${data.calendar.id}`} title="Booking page" className="h-[720px] w-full border-0" />
+            </div>
+            {!isActive && <p className="text-[12px] text-warning">Turned off: the booking page says it isn’t taking bookings.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

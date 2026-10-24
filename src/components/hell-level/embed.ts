@@ -17,3 +17,15 @@ export function lovablePrompt(origin: string, f: EmbedForm): string {
     ? `Add our chat widget to every page of the site. Load this script once, in the root layout, just before the closing body tag, and don't remove any other scripts:\n\n${embedCode(origin, f)}`
     : `Replace the quote form on the contact / get-a-quote section with our hosted form. Embed this iframe where the form is (full width), keep the surrounding heading and layout, and include the small script right after it so the iframe resizes to fit. Remove any old GoHighLevel form embed:\n\n${embedCode(origin, f)}`
 }
+
+/** A booking calendar on the client's site: the booking page in an iframe that grows to fit. */
+export function bookingEmbedCode(origin: string, c: { id: string; name: string }): string {
+  return [
+    `<iframe src="${origin}/hl/b/${c.id}" id="hl-book-${c.id}" title="${c.name.replace(/"/g, '')}" style="width:100%;min-height:720px;border:0" loading="lazy"></iframe>`,
+    `<script>window.addEventListener('message',function(e){if(e.data&&e.data.hlForm==='${c.id}'){var el=document.getElementById('hl-book-${c.id}');if(el)el.style.height=e.data.height+'px'}})</script>`,
+  ].join('\n')
+}
+
+export function bookingLovablePrompt(origin: string, c: { id: string; name: string }): string {
+  return `Add our booking calendar where visitors book an appointment (a "Book a call" / "Schedule" section or page). Embed this iframe full width, keep the surrounding heading and layout, and include the small script right after it so the iframe resizes to fit. Remove any old GoHighLevel calendar embed:\n\n${bookingEmbedCode(origin, c)}`
+}

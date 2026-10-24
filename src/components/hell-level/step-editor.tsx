@@ -1,9 +1,9 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Clock, Filter, GitBranch, Mail, MessageCircle, Smartphone, Tag, Zap } from 'lucide-react'
+import { CalendarClock, Clock, Filter, GitBranch, Mail, MessageCircle, Smartphone, Tag, Zap } from 'lucide-react'
 import { renderTemplate, unknownTokens } from '@/lib/hl/merge'
-import { MERGE_FIELDS, STEPS, TRIGGERS, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { APPOINTMENT_STATUSES, MERGE_FIELDS, STEPS, TRIGGERS, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { Button, Field, Input, Select, Textarea } from './ui'
 
 /** How each action looks on the canvas (GHL colours its action tiles by kind; here in the Hub's chip tones). */
@@ -17,6 +17,7 @@ export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ classNa
   create_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
   move_opportunity: { icon: Filter, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
   if_tag: { icon: GitBranch, bg: 'var(--chip-pink)', fg: 'var(--chip-pink-fg)' },
+  wait_appointment: { icon: CalendarClock, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' },
 }
 
 export const TRIGGER_LOOK = { icon: Zap, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' }
@@ -26,7 +27,18 @@ export const SAMPLE = (profile: HlProfile) => ({
   account: profile,
   form: { service: 'Roof repair', message: 'Small leak over the kitchen' },
   call: { from: '+15125550123' },
+  appointment: {
+    title: 'Jennifer Smith',
+    startTime: '2026-11-03T19:00:00.000Z',
+    timezone: 'America/New_York',
+    calendarName: 'Free Estimate',
+    location: '123 Main St',
+    rescheduleUrl: 'https://genisys-hub.onrender.com/hl/a/sample',
+    cancelUrl: 'https://genisys-hub.onrender.com/hl/a/sample?cancel=1',
+  },
 })
+
+const STATUS_LABEL: Record<string, string> = { confirmed: 'Confirmed', cancelled: 'Cancelled', showed: 'Showed', noshow: 'No-show', rescheduled: 'Rescheduled' }
 
 /** One-line summary under an action's name on the canvas. */
 export function stepSummary(s: HlStep, stages: HlStage[]): string {
@@ -47,6 +59,8 @@ export function stepSummary(s: HlStep, stages: HlStage[]): string {
     case 'create_opportunity':
     case 'move_opportunity':
       return stages.find((x) => x.id === c.stageId)?.name ?? (s.type === 'create_opportunity' ? 'First stage' : 'Pick a stage')
+    case 'wait_appointment':
+      return c.amount ? `${c.amount} ${c.unit ?? 'minutes'} ${c.when === 'after' ? 'after' : 'before'} the appointment` : 'Until the appointment starts'
   }
 }
 
@@ -162,6 +176,29 @@ export function StepEditor({
           <p className="col-span-2 text-[12px] text-muted-foreground">Texts after a wait don’t go out between 9 PM and 8 AM in the sub-account’s timezone; they wait for 9 AM.</p>
         </div>
       )}
+      {s.type === 'wait_appointment' && (
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Wait until">
+            <Input type="number" min={0} max={365} value={s.config.amount ?? 0} onChange={(e) => set({ amount: Number(e.target.value) })} />
+          </Field>
+          <Field label="Unit">
+            <Select value={s.config.unit ?? 'hours'} onChange={(e) => set({ unit: e.target.value as 'minutes' | 'hours' | 'days' })}>
+              <option value="minutes">Minutes</option>
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+            </Select>
+          </Field>
+          <Field label="The appointment">
+            <Select value={s.config.when ?? 'before'} onChange={(e) => set({ when: e.target.value === 'after' ? 'after' : 'before' })}>
+              <option value="before">before it starts</option>
+              <option value="after">after it starts</option>
+            </Select>
+          </Field>
+          <p className="col-span-3 text-[12px] text-muted-foreground">
+            For workflows started by an appointment. A rescheduled appointment moves the wait with it; a cancelled one ends the run here. If the time has already passed, the workflow carries on straight away.
+          </p>
+        </div>
+      )}
       {(s.type === 'add_tag' || s.type === 'remove_tag' || s.type === 'if_tag') && (
         <Field label="Tag">
           <Input value={s.config.tag ?? ''} onChange={(e) => set({ tag: e.target.value })} placeholder="quote form" />
@@ -218,11 +255,13 @@ export function TriggerEditor({
   trigger,
   forms,
   stages,
+  calendars,
   onSave,
 }: {
   trigger: HlTrigger
   forms: { id: string; name: string; kind: string }[]
   stages: HlStage[]
+  calendars: { id: string; name: string }[]
   onSave: (t: HlTrigger) => void
 }) {
   const [t, setT] = useState<HlTrigger>(trigger)
@@ -259,6 +298,30 @@ export function TriggerEditor({
       {t.type === 'tag_added' && (
         <Field label="Tag">
           <Input value={t.tag ?? ''} onChange={(e) => setT({ ...t, tag: e.target.value })} placeholder="job complete" />
+        </Field>
+      )}
+      {(t.type === 'appointment_booked' || t.type === 'appointment_status') && (
+        <Field label="Calendar">
+          <Select value={t.calendarId ?? ''} onChange={(e) => setT({ ...t, calendarId: e.target.value || undefined })}>
+            <option value="">Any calendar</option>
+            {calendars.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {t.type === 'appointment_status' && (
+        <Field label="Status">
+          <Select value={t.status ?? ''} onChange={(e) => setT({ ...t, status: e.target.value || undefined })}>
+            <option value="">Any change</option>
+            {APPOINTMENT_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s] ?? s}
+              </option>
+            ))}
+          </Select>
         </Field>
       )}
       {t.type === 'opportunity_stage' && (

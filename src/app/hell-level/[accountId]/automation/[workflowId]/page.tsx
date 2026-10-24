@@ -36,6 +36,7 @@ const DEFAULTS: Record<HlStepType, HlStep['config']> = {
   create_opportunity: {},
   move_opportunity: {},
   if_tag: { tag: '', has: true },
+  wait_appointment: { amount: 1, unit: 'days', when: 'before' },
 }
 
 export default function WorkflowBuilderPage() {
@@ -49,6 +50,7 @@ export default function WorkflowBuilderPage() {
   })
   const forms = useQuery<{ forms: { id: string; name: string; kind: string }[] }>({ queryKey: ['hl', 'forms', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms`) })
   const pipelines = useQuery<{ pipelines: { id: string; name: string; stages: HlStage[] }[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
+  const calendars = useQuery<{ calendars: { id: string; name: string }[] }>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
 
   // Unsaved changes sit on top of the saved workflow; Save sends them and clears them.
   const [edits, setEdits] = useState<Workflow | null>(null)
@@ -163,7 +165,7 @@ export default function WorkflowBuilderPage() {
                   <span className="min-w-0">
                     <span className="block text-[11px] font-semibold uppercase tracking-wide text-warning">Trigger</span>
                     <span className="block truncate text-[14px] font-semibold text-foreground">{triggerLabel(draft.trigger.type)}</span>
-                    <span className="block truncate text-[12px] text-muted-foreground">{triggerDetail(draft.trigger, forms.data?.forms ?? [], allStages)}</span>
+                    <span className="block truncate text-[12px] text-muted-foreground">{triggerDetail(draft.trigger, forms.data?.forms ?? [], allStages, calendars.data?.calendars ?? [])}</span>
                   </span>
                 </span>
               </button>
@@ -227,6 +229,7 @@ export default function WorkflowBuilderPage() {
                     trigger={draft.trigger}
                     forms={forms.data?.forms ?? []}
                     stages={allStages}
+                    calendars={calendars.data?.calendars ?? []}
                     onSave={(t) => {
                       update({ trigger: t })
                       setDrawer(null)
@@ -298,7 +301,11 @@ export default function WorkflowBuilderPage() {
   )
 }
 
-function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], stages: HlStage[]): string {
+function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], stages: HlStage[], calendars: { id: string; name: string }[]): string {
+  if (t.type === 'appointment_booked' || t.type === 'appointment_status') {
+    const cal = t.calendarId ? (calendars.find((c) => c.id === t.calendarId)?.name ?? 'A calendar') : 'Any calendar'
+    return t.type === 'appointment_status' && t.status ? `${cal} · ${t.status}` : cal
+  }
   if (t.type === 'form_submitted' || t.type === 'chat_submitted') return t.formId ? (forms.find((f) => f.id === t.formId)?.name ?? 'A form') : 'Any form'
   if (t.type === 'inbound_sms') return t.keyword ? `Reply contains “${t.keyword}”` : 'Any reply'
   if (t.type === 'tag_added') return t.tag ? `Tag “${t.tag}”` : 'Any tag'

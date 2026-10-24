@@ -1,5 +1,5 @@
 import { HlInputError } from './http'
-import { STEPS, TRIGGERS, type HlStep, type HlTrigger } from './types'
+import { APPOINTMENT_STATUSES, STEPS, TRIGGERS, type HlStep, type HlTrigger } from './types'
 
 /** A trigger from the builder, with only the keys its type uses. */
 export function cleanTrigger(raw: unknown): HlTrigger {
@@ -12,6 +12,8 @@ export function cleanTrigger(raw: unknown): HlTrigger {
   if (type === 'inbound_sms') out.keyword = s(t.keyword)
   if (type === 'tag_added') out.tag = s(t.tag)?.toLowerCase()
   if (type === 'opportunity_stage') out.stageId = s(t.stageId)
+  if (type === 'appointment_booked' || type === 'appointment_status') out.calendarId = s(t.calendarId)
+  if (type === 'appointment_status') out.status = (APPOINTMENT_STATUSES as readonly string[]).includes(String(t.status)) ? String(t.status) : undefined
   return out
 }
 
@@ -40,6 +42,12 @@ export function cleanSteps(raw: unknown): HlStep[] {
         if (!(amount >= 1 && amount <= 365)) throw new HlInputError(`Step ${i + 1}: wait between 1 and 365.`)
         const unit = c.unit === 'days' || c.unit === 'hours' ? c.unit : 'minutes'
         return { id, type, name, config: { amount, unit } }
+      }
+      case 'wait_appointment': {
+        const amount = Math.round(Number(c.amount))
+        if (!(amount >= 0 && amount <= 365)) throw new HlInputError(`Step ${i + 1}: between 0 and 365.`)
+        const unit = c.unit === 'days' || c.unit === 'hours' ? c.unit : 'minutes'
+        return { id, type, name, config: { amount, unit, when: c.when === 'after' ? 'after' : 'before' } }
       }
       case 'add_tag':
       case 'remove_tag':
