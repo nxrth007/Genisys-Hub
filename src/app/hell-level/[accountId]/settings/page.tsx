@@ -560,7 +560,7 @@ type TwilioInfo = {
   accountName: string | null
   accountStatus: string | null
   accountType: string | null
-  profiles: { sid: string; name: string; status: string; kind: 'primary' | 'client' | 'other' }[]
+  profiles: { sid: string; name: string; status: string; kind: 'primary' | 'client' | 'other'; policy: string }[]
   hubNumber: string | null
   settings: { customerProfileSid?: string; notificationEmail?: string }
 }
@@ -581,7 +581,7 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
   })
   // Genisys's own profile(s); the rest were made for clients' A2P.
   const primary = d.profiles.filter((p) => p.kind === 'primary')
-  const clientProfiles = d.profiles.length - primary.length
+  const clientProfiles = d.profiles.filter((p) => p.kind === 'client').length
   const approved = primary.filter((p) => p.status === 'twilio-approved')
   return (
     <Card className="flex flex-col gap-5 p-6">
@@ -599,10 +599,13 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
           Twilio only accepts toll-free verifications from an account with an approved business profile. One-time setup in the Twilio Console: Trust Hub → Customer Profiles → create the Primary Business Profile for Genisys (pick “ISV / Reseller”, since you send for clients) and wait for “Twilio Approved”.
         </p>
         <div className="mt-3 flex flex-col gap-2">
-          {primary.map((p) => (
+          {d.profiles.filter((p) => p.kind !== 'client').map((p) => (
             <div key={p.sid} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-[13px]">
               <span>
                 <span className="font-medium text-foreground">{p.name}</span> <span className="text-muted-foreground/70">{p.sid}</span>
+                <span className="block text-[12px] text-muted-foreground">
+                  {p.kind === 'primary' ? 'Genisys’s primary profile' : 'Not a primary profile'} · {p.policy}
+                </span>
               </span>
               <Badge color={p.status === 'twilio-approved' ? 'green' : p.status === 'twilio-rejected' ? 'red' : 'amber'}>{p.status}</Badge>
             </div>

@@ -142,21 +142,38 @@ export async function twilioAccountType(): Promise<string | null> {
   return (await client.api.v2010.accounts(client.accountSid).fetch()).type ?? null
 }
 
-/** Trust Hub policies of the profiles made for clients (A2P secondary and sole-proprietor starter profiles), never Genisys's own. */
+/** Trust Hub policies: Genisys's primary business profile, and the profiles made for clients (A2P secondary, sole-proprietor starter). */
+export const PRIMARY_PROFILE_POLICY = 'RN7a97559effdf62d00f4298208492a5ea'
 const CLIENT_PROFILE_POLICIES = new Set(['RNdfbf3fae0e1107f8aded0e7cead80bf5', 'RN806dd6cd175f314e1f96a9727ee271f4'])
-let primaryPolicy: string | null | undefined
+/** Twilio's policy names by sid, kept once read (a failed read is tried again next time). */
+let policyNames: Map<string, string> | null = null
 
-/** primary: Genisys's own business profile (what toll-free verifications and every A2P profile hang off). client: made for a client's A2P. */
+/** primary: Genisys's own business profile (toll-free verifications and every client's A2P profile hang off it). client: made for a client's A2P. */
 export type ProfileKind = 'primary' | 'client' | 'other'
 
-export async function profileKinds(client: TwilioClient, profiles: { policySid: string }[]): Promise<ProfileKind[]> {
-  if (primaryPolicy === undefined) {
-    primaryPolicy = await client.trusthub.v1.policies
-      .list({ limit: 100 })
-      .then((list) => list.find((p) => /primary/i.test(p.friendlyName) && /business/i.test(p.friendlyName))?.sid ?? null)
+/**
+ * Which Trust Hub profiles are Genisys's primary business profile. An account
+ * can hold several approved profiles (Lead Genisys's holds two), and only the
+ * primary one can have clients' profiles tied to it; anything unrecognised
+ * counts as "other", never as primary.
+ */
+export async function profileKinds(client: TwilioClient, profiles: { policySid: string }[]): Promise<{ kind: ProfileKind; policy: string | null }[]> {
+  if (!policyNames) {
+    policyNames = await client.trusthub.v1.policies
+      .list({ limit: 200 })
+      .then((list) => new Map(list.map((p) => [p.sid, p.friendlyName])))
       .catch(() => null)
   }
-  return profiles.map((p) => (CLIENT_PROFILE_POLICIES.has(p.policySid) ? 'client' : !primaryPolicy || p.policySid === primaryPolicy ? 'primary' : 'other'))
+  return profiles.map((p) => {
+    const policy = policyNames?.get(p.policySid) ?? null
+    const kind: ProfileKind =
+      p.policySid === PRIMARY_PROFILE_POLICY || (!!policy && /primary/i.test(policy) && !/secondary/i.test(policy))
+        ? 'primary'
+        : CLIENT_PROFILE_POLICIES.has(p.policySid) || (!!policy && /secondary|starter/i.test(policy))
+          ? 'client'
+          : 'other'
+    return { kind, policy }
+  })
 }
 
 export type TwilioOverview = {
@@ -167,7 +184,7 @@ export type TwilioOverview = {
   /** Trial | Full. A trial account holds one number, texts only verified numbers and can't register A2P. */
   accountType: string | null
   /** Trust Hub business profiles: toll-free verification needs one that Twilio approved. */
-  profiles: { sid: string; name: string; status: string; kind: ProfileKind }[]
+  profiles: { sid: string; name: string; status: string; kind: ProfileKind; policy: string }[]
   /** The Hub's own sending number (TWILIO_FROM_NUMBER), used for owner texts when a sub-account has no approved number. */
   hubNumber: string | null
 }
@@ -179,7 +196,7 @@ export async function twilioOverview(): Promise<TwilioOverview> {
     const acct = await client.api.v2010.accounts(client.accountSid).fetch()
     const list = await client.trusthub.v1.customerProfiles.list({ limit: 100 }).catch(() => [])
     const kinds = await profileKinds(client, list)
-    const profiles = list.map((p, i) => ({ sid: p.sid, name: p.friendlyName, status: p.status, kind: kinds[i] }))
+    const profiles = list.map((p, i) => ({ sid: p.sid, name: p.friendlyName, status: p.status, kind: kinds[i].kind, policy: kinds[i].policy ?? p.policySid }))
     return { ok: true, error: null, accountName: acct.friendlyName, accountStatus: acct.status, accountType: acct.type ?? null, profiles, hubNumber }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), accountName: null, accountStatus: null, accountType: null, profiles: [], hubNumber }

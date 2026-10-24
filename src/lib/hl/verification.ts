@@ -6,7 +6,7 @@ import { renderTemplate } from './merge'
 import { splitName, toE164 } from './phone'
 import { asSettings, consentsOf } from './forms'
 import { resolveLegalLinks } from './legal-links'
-import { profileKinds, publicBase, twilioClient, type TwilioClient } from './twilio'
+import { PRIMARY_PROFILE_POLICY, profileKinds, publicBase, twilioClient, type TwilioClient } from './twilio'
 
 /**
  * Toll-free verification: texting for toll-free numbers with no A2P fees.
@@ -50,18 +50,30 @@ export async function saveTwilioSettings(s: HlTwilioSettings): Promise<void> {
 /**
  * Genisys's own approved primary Trust Hub profile: toll-free verifications
  * are filed under it, and every client's A2P profile is tied to it. The
- * account also holds the secondary profiles A2P makes for clients, so a
- * profile only counts when its policy is the primary business one.
+ * account also holds other approved profiles (the ones A2P makes for
+ * clients, and Lead Genisys's second business profile), so a profile only
+ * counts when its policy is the primary business one, and one that's tied
+ * to another profile is a client's whatever its policy says.
  */
 export async function primaryProfileSid(client?: TwilioClient): Promise<string> {
   const s = await readTwilioSettings()
   const twilio = client ?? (await twilioClient())
   const profiles = await twilio.trusthub.v1.customerProfiles.list({ limit: 100 })
   const kinds = await profileKinds(twilio, profiles)
-  const primary = profiles.filter((_, i) => kinds[i] === 'primary')
+  const primary = profiles.filter((_, i) => kinds[i].kind === 'primary')
+  const tied = async (sid: string) => (await twilio.trusthub.v1.customerProfiles(sid).customerProfilesEntityAssignments.list({ limit: 50 })).some((a) => a.objectSid.startsWith('BU'))
   const picked = primary.find((p) => p.sid === s.customerProfileSid?.trim())
-  if (picked) return picked.sid
-  const approved = primary.find((p) => p.status === 'twilio-approved')
+  if (picked && !(primary.length > 1 && (await tied(picked.sid)))) return picked.sid
+  const candidates = primary.filter((p) => p.status === 'twilio-approved').sort((a, b) => Number(b.policySid === PRIMARY_PROFILE_POLICY) - Number(a.policySid === PRIMARY_PROFILE_POLICY))
+  let approved = candidates[0]
+  if (candidates.length > 1) {
+    for (const p of candidates) {
+      if (!(await tied(p.sid))) {
+        approved = p
+        break
+      }
+    }
+  }
   if (!approved) {
     throw new HlInputError(
       'Twilio needs Genisys’s primary business profile approved: in the Twilio Console open Trust Hub → Customer Profiles, create the Primary Business Profile (choose “ISV / Reseller”), and wait for “Twilio Approved”. Then file again.',
