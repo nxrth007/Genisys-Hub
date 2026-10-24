@@ -1,3 +1,4 @@
+import Script from 'next/script'
 import { notFound } from 'next/navigation'
 import { publicCalendar } from '@/lib/hl/booking'
 import { BookingWidget } from '@/components/hell-level/booking-widget'
@@ -30,7 +31,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
               <circle cx="12" cy="12" r="10" />
               <path d="M12 6v6l4 2" />
             </svg>
-            {calendar.duration >= 60 && calendar.duration % 60 === 0 ? `${calendar.duration / 60} hr` : `${calendar.duration} min`}
+            {calendar.durations.map((m) => (m >= 60 && m % 60 === 0 ? `${m / 60} hr` : `${m} min`)).join(' / ')}
           </p>
           {calendar.location && (
             <p className="flex items-start gap-2 text-[14px] text-[#475467]">
@@ -57,6 +58,11 @@ export default async function BookingPage({ params, searchParams }: Props) {
         </section>
       </main>
       <FrameHeight formId={calendar.id} />
+      {calendar.pixelId && (
+        <Script id="hl-fb-pixel" strategy="afterInteractive">
+          {`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${calendar.pixelId}');fbq('track','PageView');`}
+        </Script>
+      )}
     </div>
   )
 }

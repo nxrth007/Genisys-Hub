@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
-import { asCalendarSettings, type HlCalendarSettings } from './calendar-shared'
+import { getPrefs, scheduleHoursFor } from './calendar-records'
+import { asCalendarSettings, durationsOf, type HlCalendarSettings } from './calendar-shared'
 import { logActivity, upsertContact } from './contacts'
 import { HlInputError } from './http'
 import { resolveLegalLinks, type LegalLinks } from './legal-links'
@@ -53,17 +54,21 @@ async function busyFor(db: Db, accountId: string, calendarId: string, team: Team
       startTime: { lt: to },
       endTime: { gt: from },
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      // Imported appointments know their member by name only until the import runs again.
-      OR: [{ calendarId }, ...(keys.length ? [{ assignedUserId: { in: keys } }, { assignedUserId: null, assignedTo: { in: names } }] : [])],
+      // Imported appointments know their member by name only until the import runs again. A collective
+      // booking is with every host in meta.members.
+      OR: [
+        { calendarId },
+        ...(keys.length ? [{ assignedUserId: { in: keys } }, { assignedUserId: null, assignedTo: { in: names } }, ...keys.map((k) => ({ meta: { path: ['members'], array_contains: [k] } }))] : []),
+      ],
     },
-    select: { startTime: true, endTime: true, assignedUserId: true, assignedTo: true, calendarId: true },
+    select: { startTime: true, endTime: true, assignedUserId: true, assignedTo: true, calendarId: true, meta: true },
   })
-  return rows.map((r) => ({
-    start: r.startTime,
-    end: r.endTime,
-    member: r.assignedUserId ?? team.find((m) => m.name === r.assignedTo)?.key ?? null,
-    calendarId: r.calendarId,
-  }))
+  return rows.flatMap((r) => {
+    const members = (r.meta as { members?: unknown } | null)?.members
+    const hosts = Array.isArray(members) ? members.filter((m): m is string => typeof m === 'string') : []
+    if (hosts.length) return hosts.map((member) => ({ start: r.startTime, end: r.endTime, member, calendarId: r.calendarId }))
+    return [{ start: r.startTime, end: r.endTime, member: r.assignedUserId ?? team.find((m) => m.name === r.assignedTo)?.key ?? null, calendarId: r.calendarId }]
+  })
 }
 
 async function loadCalendar(calendarId: string, db: Db = prisma) {
@@ -72,14 +77,38 @@ async function loadCalendar(calendarId: string, db: Db = prisma) {
   return cal
 }
 
-/** Open slots between two instants. */
-export async function slotsFor(calendarId: string, from: Date, to: Date, o: { excludeAppointmentId?: string; now?: Date; db?: Db } = {}) {
+/** A length the booker may pick (minutes), or the calendar's own. */
+export function pickedDuration(s: HlCalendarSettings, minutes: unknown): number | undefined {
+  if (minutes === undefined || minutes === null || minutes === '') return undefined
+  const m = Number(minutes)
+  if (!durationsOf(s).includes(m)) throw new BookingError('Pick one of the meeting lengths.', 'duration')
+  return m
+}
+
+/** Open slots between two instants (of a length the booker picked, when the calendar offers a choice). */
+export async function slotsFor(calendarId: string, from: Date, to: Date, o: { excludeAppointmentId?: string; now?: Date; db?: Db; duration?: number } = {}) {
   const db = o.db ?? prisma
   const calendar = await loadCalendar(calendarId, db)
   const settings = asCalendarSettings(calendar.settings)
   const team = await teamOf(calendar.accountId, settings, db)
-  const busy = await busyFor(db, calendar.accountId, calendar.id, team, new Date(from.getTime() - DAY), new Date(to.getTime() + DAY), o.excludeAppointmentId)
-  const slots = computeSlots({ calendarId: calendar.id, settings, timezone: calendar.account.timezone, now: o.now ?? new Date(), from, to, members: team.map((m) => m.key), busy })
+  const members = team.map((m) => m.key)
+  const [busy, memberHours] = await Promise.all([
+    busyFor(db, calendar.accountId, calendar.id, team, new Date(from.getTime() - DAY), new Date(to.getTime() + DAY), o.excludeAppointmentId),
+    scheduleHoursFor(calendar.accountId, calendar.id, members, db),
+  ])
+  const slots = computeSlots({
+    calendarId: calendar.id,
+    settings,
+    timezone: calendar.account.timezone,
+    now: o.now ?? new Date(),
+    from,
+    to,
+    members,
+    busy,
+    memberHours,
+    collective: calendar.kind === 'collective',
+    duration: o.duration,
+  })
   return { calendar, settings, team, slots }
 }
 
@@ -105,6 +134,8 @@ export type PublicCalendar = {
   timezone: string
   /** Minutes. */
   duration: number
+  /** The lengths the booker can pick (minutes, the default first); one means no choice. */
+  durations: number[]
   location: string
   color: string
   consents: HlConsentBox[]
@@ -116,6 +147,13 @@ export type PublicCalendar = {
   redirectUrl: string | null
   allowReschedule: boolean
   allowCancellation: boolean
+  /** Booking-page preferences (Settings → Calendars → Preferences). */
+  hour12: boolean
+  weekStartsOn: number
+  /** Fill in a returning booker's details. */
+  stickyContact: boolean
+  /** A Facebook pixel to fire on the booking page. */
+  pixelId: string | null
 }
 
 /** The booking page's view of a calendar: no team details, no sub-account ids. */
@@ -129,6 +167,7 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     .filter((c) => (c.kind === 'sms' || c.kind === 'marketing') && typeof c.text === 'string' && c.text.trim())
     .map((c) => ({ ...c, text: c.text.replace(/\{\{\s*business\s*\}\}/g, business) }))
   const redirect = s.formSubmitType === 'RedirectURL' && /^https?:\/\//i.test(s.formSubmitRedirectUrl ?? '') ? s.formSubmitRedirectUrl! : null
+  const prefs = await getPrefs(cal.accountId)
   return {
     id: cal.id,
     name: cal.name.trim(),
@@ -136,6 +175,7 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     description: plain(cal.description || s.description || ''),
     timezone: cal.account.timezone,
     duration: rulesOf(s).duration,
+    durations: durationsOf(s),
     location: s.meetingLocation?.trim() || '',
     color: (s.widgetColor && HEX.test(s.widgetColor) ? s.widgetColor : s.eventColor && HEX.test(s.eventColor) ? s.eventColor : '#155EEF'),
     consents,
@@ -147,11 +187,17 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     redirectUrl: redirect,
     allowReschedule: s.allowReschedule !== false,
     allowCancellation: s.allowCancellation !== false,
+    hour12: prefs.timeFormat !== '24h',
+    weekStartsOn: prefs.weekStartsOn,
+    stickyContact: s.stickyContact === true,
+    pixelId: s.pixelId && /^\d{6,20}$/.test(s.pixelId) ? s.pixelId : null,
   }
 }
 
 export type BookInput = {
   start: string
+  /** The length picked (minutes), when the calendar offers more than one. */
+  duration?: number | string | null
   firstName?: string | null
   lastName?: string | null
   phone?: string | null
@@ -230,15 +276,18 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
 
   const calendar = await loadCalendar(calendarId)
   const accountId = calendar.accountId
+  const duration = pickedDuration(asCalendarSettings(calendar.settings), input.duration)
   const { contact, created } = await upsertContact(accountId, { firstName, lastName, phone, email, source: 'booking', consent, marketingConsent })
 
   const appointment = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(accountId)}))`
-      const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { now: o.now, db: tx })
+      const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { now: o.now, db: tx, duration })
       const slot = slots.find((x) => x.start.getTime() === start.getTime())
       if (!slot) throw new BookingError('That time was just taken. Please pick another.', 'start')
-      const member = await chooseMember(tx, calendarId, slot, team, settings)
+      // A collective booking is with the whole team; otherwise one member, in turn.
+      const hosts = calendar.kind === 'collective' ? team : []
+      const member = hosts[0] ?? (await chooseMember(tx, calendarId, slot, team, settings))
       const title = renderTemplate(settings.eventTitle?.trim() || '{{contact.name}}', { contact }).trim() || calendar.name
       return tx.hlAppointment.create({
         data: {
@@ -250,13 +299,19 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
           endTime: slot.end,
           status: settings.autoConfirm === false ? 'new' : 'confirmed',
           assignedUserId: member?.key ?? null,
-          assignedTo: member?.name ?? null,
+          assignedTo: hosts.length ? hosts.map((h) => h.name).join(', ') : (member?.name ?? null),
           address: member?.location || settings.meetingLocation?.trim() || null,
           notes,
           source: o.source ?? 'booking',
           token: token(),
           timezone: input.timezone?.slice(0, 60) || null,
-          meta: { consent, marketingConsent, pageUrl: input.pageUrl?.slice(0, 500) ?? null, history: [{ at: new Date().toISOString(), what: 'booked' }] } as Prisma.InputJsonValue,
+          meta: {
+            consent,
+            marketingConsent,
+            pageUrl: input.pageUrl?.slice(0, 500) ?? null,
+            ...(hosts.length ? { members: hosts.map((h) => h.key) } : {}),
+            history: [{ at: new Date().toISOString(), what: 'booked' }],
+          } as Prisma.InputJsonValue,
         },
       })
     },
@@ -357,10 +412,13 @@ export async function rescheduleByToken(t: string, newStart: string, o: { now?: 
   const updated = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(a.accountId)}))`
-      const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { excludeAppointmentId: a.id, now: o.now, db: tx })
+      const length = Math.round((a.endTime.getTime() - a.startTime.getTime()) / 60_000)
+      const duration = durationsOf(asCalendarSettings(a.calendar?.settings)).includes(length) ? length : undefined
+      const { settings, team, slots } = await slotsFor(calendarId, new Date(start.getTime() - 60_000), new Date(start.getTime() + 60_000), { excludeAppointmentId: a.id, now: o.now, db: tx, duration })
       const slot = slots.find((x) => x.start.getTime() === start.getTime())
       if (!slot) throw new BookingError('That time was just taken. Please pick another.', 'start')
-      const member = await chooseMember(tx, calendarId, slot, team, settings, a.assignedUserId)
+      const collective = a.calendar?.kind === 'collective'
+      const member = collective ? (team[0] ?? null) : await chooseMember(tx, calendarId, slot, team, settings, a.assignedUserId)
       const meta = (a.meta && typeof a.meta === 'object' ? a.meta : {}) as { history?: History[] }
       const history = [...(meta.history ?? []), { at: new Date().toISOString(), what: 'rescheduled', from: a.startTime.toISOString(), to: slot.start.toISOString() }].slice(-20)
       return tx.hlAppointment.update({
@@ -368,7 +426,7 @@ export async function rescheduleByToken(t: string, newStart: string, o: { now?: 
         data: {
           startTime: slot.start,
           endTime: slot.end,
-          ...(team.length ? { assignedUserId: member?.key ?? null, assignedTo: member?.name ?? null } : {}),
+          ...(team.length && !collective ? { assignedUserId: member?.key ?? null, assignedTo: member?.name ?? null } : {}),
           meta: { ...meta, history } as Prisma.InputJsonValue,
         },
       })

@@ -7,7 +7,7 @@ type Ctx = { params: Promise<{ calendarId: string }> }
 /**
  * The public side of a booking calendar (the booking page, or a client's
  * own site). CORS * like the forms.
- *   GET ?from=ISO&to=ISO: the calendar and its open slots (62 days at most).
+ *   GET ?from=ISO&to=ISO[&duration=minutes]: the calendar and its open slots (62 days at most).
  *   POST: a booking. Rate-limited per IP.
  */
 
@@ -30,8 +30,10 @@ export async function GET(req: Request, { params }: Ctx) {
   const to = sp.get('to') ? new Date(sp.get('to')!) : new Date(from.getTime() + 31 * 86_400_000)
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) return NextResponse.json({ error: 'Bad date range.' }, { status: 400, headers: CORS })
   const capped = new Date(Math.min(to.getTime(), from.getTime() + 62 * 86_400_000))
+  const duration = Number(sp.get('duration')) || undefined
+  if (duration && !calendar.durations.includes(duration)) return NextResponse.json({ error: 'Pick one of the meeting lengths.' }, { status: 400, headers: CORS })
   try {
-    const { slots } = await slotsFor(calendarId, from, capped)
+    const { slots } = await slotsFor(calendarId, from, capped, { duration })
     return NextResponse.json({ calendar, slots: slots.map((s) => ({ start: s.start.toISOString(), end: s.end.toISOString() })) }, { headers: CORS })
   } catch (err) {
     if (err instanceof BookingError) return NextResponse.json({ error: err.message }, { status: 400, headers: CORS })
@@ -57,6 +59,7 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     const b = await book(calendarId, {
       start: s(raw.start) ?? '',
+      duration: typeof raw.duration === 'number' || typeof raw.duration === 'string' ? raw.duration : null,
       firstName: s(raw.firstName),
       lastName: s(raw.lastName),
       phone: s(raw.phone),

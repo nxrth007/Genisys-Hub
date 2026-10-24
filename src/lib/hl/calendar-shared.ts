@@ -61,6 +61,16 @@ export type HlCalendarSettings = {
   formSubmitType?: 'ThankYouMessage' | 'RedirectURL'
   formSubmitThanksMessage?: string
   formSubmitRedirectUrl?: string
+  /** The calendar group it's in (a group's key: its GHL id or its own). */
+  groupId?: string
+  /** Lengths the booker can choose from; the one marked default is slotDuration. */
+  durationOptions?: HlDurationOption[]
+  /** What the appointment's notes say (calendar invites); {{reschedule_link}} and {{cancellation_link}} work. */
+  notes?: string
+  /** Keep the details of someone who booked before filled in on the booking page. */
+  stickyContact?: boolean
+  /** A Facebook pixel fired on the booking page. */
+  pixelId?: string
   // --- Hell-level's own ---
   /** Where it happens when no team member has their own: an address, a phone number, a meeting link. */
   meetingLocation?: string
@@ -90,6 +100,62 @@ export function limitOf(v: unknown): number | null {
 export const asCalendarSettings = (v: unknown): HlCalendarSettings => (v && typeof v === 'object' && !Array.isArray(v) ? (v as HlCalendarSettings) : {})
 
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+export type HlDurationOption = { duration: number; durationUnit: TimeUnit; isDefault?: boolean; order?: number }
+
+/** The lengths a booker can pick, in minutes, default first (just the slot length when there's no choice). */
+export function durationsOf(s: HlCalendarSettings): number[] {
+  const base = minutesOf(s.slotDuration, s.slotDurationUnit, 30)
+  const opts = (Array.isArray(s.durationOptions) ? s.durationOptions : [])
+    .map((o) => ({ m: minutesOf(o.duration, o.durationUnit, 0), d: o.isDefault === true }))
+    .filter((o) => o.m >= 5 && o.m <= 720)
+  const list = [...new Set([base, ...opts.filter((o) => o.d).map((o) => o.m), ...opts.map((o) => o.m)])]
+  return list.length ? list : [base]
+}
+
+/** GHL's calendar types, in its picker's order. */
+export const CALENDAR_TYPES = [
+  { key: 'personal', label: 'Personal booking', what: 'One-on-one meetings with one team member.', example: 'Client meetings, private consultations' },
+  { key: 'round_robin', label: 'Round robin', what: 'Shares bookings among the team in turn.', example: 'Sales calls, onboarding sessions' },
+  { key: 'class_booking', label: 'Class booking', what: 'One host, many people in the same slot.', example: 'Webinars, group training, classes' },
+  { key: 'collective', label: 'Collective booking', what: 'Several hosts meet one person: a slot is open only when they’re all free.', example: 'Panel interviews, reviews' },
+  { key: 'event', label: 'Event calendar', what: 'Seats at a time with no host.', example: 'Seminars, open houses, expos' },
+  { key: 'service_booking', label: 'Service booking', what: 'Booking by service, for service businesses.', example: 'Repairs, appointments, consultations' },
+] as const
+export type CalendarType = (typeof CALENDAR_TYPES)[number]['key']
+export const calendarTypeLabel = (k: string | null | undefined) => CALENDAR_TYPES.find((t) => t.key === k)?.label ?? 'Round robin'
+
+/** A calendar group (GHL's Groups): a shared booking page listing its calendars. */
+export type HlCalendarGroup = { id: string; key: string; name: string; description: string; slug: string; isActive: boolean; ghlId: string | null }
+
+/**
+ * A team member's schedule (GHL's Availability → Schedules): weekly hours and
+ * date-specific hours, in its own timezone, that set the member's hours on
+ * the calendars it's active on (instead of the calendar's own hours).
+ */
+export type HlSchedule = {
+  id: string
+  /** The staff member: a calendar's teamMembers[].userId (GHL user id or staff record id). */
+  userId: string
+  name: string
+  timezone: string
+  isDefault: boolean
+  openHours: HlOpenHours[]
+  availabilities: HlDateOverride[]
+  calendarIds: string[]
+}
+
+/** GHL's calendar Preferences: the sub-account's (Account preference) and each user's (My preference). */
+export type HlCalendarPrefs = {
+  weekStartsOn: number
+  timeFormat: '12h' | '24h'
+  widgetLanguage: string
+  services: { serviceMenu: boolean; rooms: boolean; equipment: boolean }
+  /** By the Hub user's email. */
+  users: Record<string, { meetingLocation?: string; timezone?: string }>
+}
+
+export const defaultCalendarPrefs = (): HlCalendarPrefs => ({ weekStartsOn: 0, timeFormat: '12h', widgetLanguage: 'en', services: { serviceMenu: false, rooms: false, equipment: false }, users: {} })
 
 const nineToFive: HlHours[] = [{ openHour: 9, openMinute: 0, closeHour: 17, closeMinute: 0 }]
 

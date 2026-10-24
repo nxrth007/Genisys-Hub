@@ -22,6 +22,9 @@ export type Busy = {
   calendarId: string | null
 }
 
+/** A member's own hours (their schedule) and the timezone they're in. */
+export type MemberHours = { hours: Pick<HlCalendarSettings, 'openHours' | 'availabilities'>; timezone: string }
+
 export type SlotInput = {
   calendarId: string
   settings: HlCalendarSettings
@@ -32,6 +35,12 @@ export type SlotInput = {
   /** Team member keys, in the calendar's team order. Empty: the calendar is one resource. */
   members: string[]
   busy: Busy[]
+  /** Members whose schedule sets their hours on this calendar; the rest keep the calendar's hours. */
+  memberHours?: Map<string, MemberHours>
+  /** Collective booking: a slot is open only when every member is free. */
+  collective?: boolean
+  /** The length the booker picked (minutes), instead of the calendar's own. */
+  duration?: number
 }
 
 export type Slot = { start: Date; end: Date; members: string[] }
@@ -49,9 +58,10 @@ export type Rules = {
 }
 
 const MIN = 60_000
+const DAY = 86_400_000
 
-export function rulesOf(s: HlCalendarSettings): Rules {
-  const duration = Math.max(5, minutesOf(s.slotDuration, s.slotDurationUnit, 30))
+export function rulesOf(s: HlCalendarSettings, picked?: number): Rules {
+  const duration = picked && picked >= 5 ? picked : Math.max(5, minutesOf(s.slotDuration, s.slotDurationUnit, 30))
   const look = s.lookBusyConfig?.enabled ? Math.min(90, Math.max(0, Number(s.lookBusyConfig.lookBusyPercentage) || 0)) : 0
   return {
     duration,
@@ -84,7 +94,7 @@ const weekday = (date: string) => {
 }
 
 /** The hours a date is open: its own (a date override) or its weekday's. */
-export function hoursOn(date: string, s: HlCalendarSettings): HlHours[] {
+export function hoursOn(date: string, s: Pick<HlCalendarSettings, 'openHours' | 'availabilities'>): HlHours[] {
   const own = (s.availabilities ?? []).find((a) => !a.deleted && String(a.date).slice(0, 10) === date)
   if (own) return own.hours ?? []
   const day = weekday(date)
@@ -104,62 +114,72 @@ function hash(s: string): number {
   return h >>> 0
 }
 
+/** Where slots can start in some hours: each open range cut every `interval`, with the slot fitting inside. */
+function startsIn(hours: Pick<HlCalendarSettings, 'openHours' | 'availabilities'>, tz: string, from: Date, to: Date, r: Rules): number[] {
+  const out: number[] = []
+  // A day either side: a member in another timezone can be open on a neighbouring date.
+  const first = formatInTimeZone(new Date(from.getTime() - DAY), tz, 'yyyy-MM-dd')
+  const last = formatInTimeZone(new Date(to.getTime() + DAY), tz, 'yyyy-MM-dd')
+  for (const date of datesBetween(first, last)) {
+    for (const h of hoursOn(date, hours)) {
+      const open = (h.openHour ?? 0) * 60 + (h.openMinute ?? 0)
+      let close = (h.closeHour ?? 0) * 60 + (h.closeMinute ?? 0)
+      if (close <= open) close = 24 * 60 // "until midnight"
+      for (let m = open; m + r.duration <= close; m += r.interval) out.push(at(date, m, tz).getTime())
+    }
+  }
+  return out
+}
+
 export function computeSlots(o: SlotInput): Slot[] {
-  const r = rulesOf(o.settings)
+  const r = rulesOf(o.settings, o.duration)
   const earliest = o.now.getTime() + r.notice * MIN
   const latest = r.ahead !== null ? o.now.getTime() + r.ahead * MIN : Infinity
   const resources = o.members.length ? o.members : ['']
-  const firstDate = formatInTimeZone(o.from, o.timezone, 'yyyy-MM-dd')
-  const lastDate = formatInTimeZone(o.to, o.timezone, 'yyyy-MM-dd')
-  const slots: Slot[] = []
 
-  for (const date of datesBetween(firstDate, lastDate)) {
-    const ranges = hoursOn(date, o.settings)
-      .map((h) => {
-        const open = (h.openHour ?? 0) * 60 + (h.openMinute ?? 0)
-        let close = (h.closeHour ?? 0) * 60 + (h.closeMinute ?? 0)
-        if (close <= open) close = 24 * 60 // "until midnight"
-        return [open, close] as const
-      })
-      .sort((a, b) => a[0] - b[0])
-    if (!ranges.length) continue
-    const dayStart = at(date, 0, o.timezone).getTime()
-    const dayEnd = dayStart + 36 * 3_600_000 // a DST day can run 25 h; the date check below trims it
-    const sameDay = (t: Date) => formatInTimeZone(t, o.timezone, 'yyyy-MM-dd') === date
-    // Each resource's appointments that day on this calendar (the per-day cap).
-    const dayCount = new Map<string, number>()
-    if (r.perDay !== null) {
-      for (const b of o.busy) {
-        if (b.calendarId !== o.calendarId || b.start.getTime() < dayStart || b.start.getTime() >= dayEnd || !sameDay(b.start)) continue
-        const k = o.members.length ? (b.member ?? '') : ''
-        dayCount.set(k, (dayCount.get(k) ?? 0) + 1)
-      }
-    }
-    const seen = new Set<number>()
-    for (const [open, close] of ranges) {
-      for (let m = open; m + r.duration <= close; m += r.interval) {
-        const start = at(date, m, o.timezone)
-        const t = start.getTime()
-        const end = new Date(t + r.duration * MIN)
-        if (seen.has(t) || t < earliest || t > latest || t < o.from.getTime() || t >= o.to.getTime()) continue
-        seen.add(t)
-        // Who's free: room left in the slot (buffers around every appointment), under the day's cap.
-        const lo = t - r.post * MIN
-        const hi = end.getTime() + r.pre * MIN
-        const overlapping = o.busy.filter((b) => b.start.getTime() < hi && b.end.getTime() > lo)
-        // With a team: a member's own appointments (any calendar). Without: everything on this calendar.
-        const usedBy = (k: string) => (k === '' ? overlapping.filter((b) => b.calendarId === o.calendarId).length : overlapping.filter((b) => b.member === k).length)
-        const unassigned = o.members.length ? overlapping.filter((b) => b.calendarId === o.calendarId && (b.member === null || !o.members.includes(b.member))).length : 0
-        const free = resources.filter((k) => usedBy(k) < r.perSlot && (r.perDay === null || (dayCount.get(k) ?? 0) < r.perDay))
-        // Appointments on this calendar with no one in particular take a place from someone.
-        const places = o.members.length ? free.length - unassigned : free.length
-        if (places <= 0) continue
-        if (r.lookBusy && hash(`${o.calendarId}|${t}`) % 100 < r.lookBusy) continue
-        slots.push({ start, end, members: free.filter((k) => k !== '') })
-      }
+  // Who has hours when: a member's own schedule, or the calendar's hours.
+  const open = new Map<number, string[]>()
+  for (const k of resources) {
+    const own = k ? o.memberHours?.get(k) : undefined
+    for (const t of startsIn(own?.hours ?? o.settings, own?.timezone ?? o.timezone, o.from, o.to, r)) {
+      if (t < earliest || t > latest || t < o.from.getTime() || t >= o.to.getTime()) continue
+      const list = open.get(t)
+      if (!list) open.set(t, [k])
+      else if (!list.includes(k)) list.push(k)
     }
   }
-  return slots.sort((a, b) => a.start.getTime() - b.start.getTime())
+
+  // Each resource's appointments on this calendar per day, in the calendar's timezone (the per-day cap).
+  const dayCount = new Map<string, number>()
+  if (r.perDay !== null) {
+    for (const b of o.busy) {
+      if (b.calendarId !== o.calendarId) continue
+      const k = `${o.members.length ? (b.member ?? '') : ''}|${formatInTimeZone(b.start, o.timezone, 'yyyy-MM-dd')}`
+      dayCount.set(k, (dayCount.get(k) ?? 0) + 1)
+    }
+  }
+
+  const slots: Slot[] = []
+  for (const t of [...open.keys()].sort((a, b) => a - b)) {
+    const start = new Date(t)
+    const end = new Date(t + r.duration * MIN)
+    // Who's free: room left in the slot (buffers around every appointment), under the day's cap.
+    const lo = t - r.post * MIN
+    const hi = end.getTime() + r.pre * MIN
+    const overlapping = o.busy.filter((b) => b.start.getTime() < hi && b.end.getTime() > lo)
+    // With a team: a member's own appointments (any calendar). Without: everything on this calendar.
+    const usedBy = (k: string) => (k === '' ? overlapping.filter((b) => b.calendarId === o.calendarId).length : overlapping.filter((b) => b.member === k).length)
+    const unassigned = o.members.length ? overlapping.filter((b) => b.calendarId === o.calendarId && (b.member === null || !o.members.includes(b.member))).length : 0
+    const date = formatInTimeZone(start, o.timezone, 'yyyy-MM-dd')
+    const free = open.get(t)!.filter((k) => usedBy(k) < r.perSlot && (r.perDay === null || (dayCount.get(`${k}|${date}`) ?? 0) < r.perDay))
+    if (o.collective && o.members.length && free.length < o.members.length) continue
+    // Appointments on this calendar with no one in particular take a place from someone.
+    const places = o.members.length ? free.length - unassigned : free.length
+    if (places <= 0) continue
+    if (r.lookBusy && hash(`${o.calendarId}|${t}`) % 100 < r.lookBusy) continue
+    slots.push({ start, end, members: free.filter((k) => k !== '') })
+  }
+  return slots
 }
 
 /**

@@ -79,7 +79,18 @@ export function ManageAppointment({ token, a, startCancelling }: { token: string
 
       {mode === 'reschedule' && a.calendar && (
         <>
-          <SlotPicker calendar={a.calendar} tz={tz} onTz={setTz} picked={picked} onPick={setPicked} />
+          <SlotPicker
+            calendar={a.calendar}
+            tz={tz}
+            onTz={setTz}
+            picked={picked}
+            onPick={setPicked}
+            duration={(() => {
+              // The same length as now, when the calendar offers a choice.
+              const m = Math.round((new Date(a.end).getTime() - new Date(a.start).getTime()) / 60_000)
+              return a.calendar.durations?.length > 1 && a.calendar.durations.includes(m) ? m : undefined
+            })()}
+          />
           <div className="flex gap-2">
             <button type="button" onClick={() => setMode('view')} className="rounded-lg border border-[#D0D5DD] px-4 py-3 text-[15px] font-semibold text-[#344054]">
               Back

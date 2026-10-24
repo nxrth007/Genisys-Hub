@@ -17,6 +17,7 @@ import { ImportPanel } from '@/components/hell-level/import-panel'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
 import { StaffPanel } from '@/components/hell-level/staff-panel'
 import { A2pTexting } from '@/components/hell-level/a2p-panel'
+import { CalendarSettingsPanel } from '@/components/hell-level/calendar-settings'
 import { confirmAction } from '@/components/hell-level/confirm'
 
 const ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu']
@@ -160,7 +161,7 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
     case 'automation':
       return <NotYet title="Automation" what="GHL’s sub-account-wide automation settings. Hell-level’s are under Automation → Global Workflow Settings." />
     case 'calendars':
-      return <NotYet title="Calendars" what="Calendar setup (availability, booking forms, notifications). Imported calendars and their appointments are under Calendars." />
+      return <CalendarSettingsPanel accountId={accountId} />
     case 'email-services':
       return <NotYet title="Email Services" what="A sending domain so email to leads comes from the client’s own address. Owner notifications go out through the Hub’s Google account today." />
     case 'whatsapp':

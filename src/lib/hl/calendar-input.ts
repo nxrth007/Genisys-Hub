@@ -1,5 +1,5 @@
 import { HlInputError } from './http'
-import type { HlCalendarSettings, HlDateOverride, HlHours, HlOpenHours, HlTeamMember, TimeUnit } from './calendar-shared'
+import type { HlCalendarSettings, HlDateOverride, HlDurationOption, HlHours, HlOpenHours, HlTeamMember, TimeUnit } from './calendar-shared'
 import type { HlConsentBox } from './types'
 
 /**
@@ -30,7 +30,31 @@ function hours(raw: unknown, where: string): HlHours[] {
   })
 }
 
-export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings, staffKeys: Set<string>): HlCalendarSettings {
+/** Weekly hours, as GHL keeps them (day groups). */
+export function cleanOpenHours(raw: unknown): HlOpenHours[] {
+  if (!Array.isArray(raw)) throw new HlInputError('Weekly hours must be a list.')
+  return raw.slice(0, 14).flatMap((o): HlOpenHours[] => {
+    const x = (o ?? {}) as Record<string, unknown>
+    const days = (Array.isArray(x.daysOfTheWeek) ? x.daysOfTheWeek : []).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    const h = hours(x.hours, 'Weekly hours')
+    return days.length && h.length ? [{ daysOfTheWeek: [...new Set(days)], hours: h }] : []
+  })
+}
+
+/** Date-specific hours (no hours: closed that day). */
+export function cleanOverrides(raw: unknown): HlDateOverride[] {
+  if (!Array.isArray(raw)) throw new HlInputError('Date-specific hours must be a list.')
+  const seen = new Set<string>()
+  return raw.slice(0, 200).flatMap((a): HlDateOverride[] => {
+    const x = (a ?? {}) as Record<string, unknown>
+    const date = str(x.date, 30).slice(0, 10)
+    if (!/^\d{4}-\d\d-\d\d$/.test(date) || seen.has(date) || x.deleted === true) return []
+    seen.add(date)
+    return [{ date, hours: hours(x.hours, `Hours on ${date}`) }]
+  })
+}
+
+export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings, staffKeys: Set<string>, groupKeys?: Set<string>): HlCalendarSettings {
   const s = (raw ?? {}) as Record<string, unknown>
   const out: HlCalendarSettings = { ...existing }
 
@@ -48,26 +72,8 @@ export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings
       return [{ ...(before.get(userId) ?? {}), userId, priority: p === 1 || p === 0 ? p : 0.5, selected: true, meetingLocation: str(x.meetingLocation, 300) || undefined }]
     })
   }
-  if (s.openHours !== undefined) {
-    if (!Array.isArray(s.openHours)) throw new HlInputError('Weekly hours must be a list.')
-    out.openHours = s.openHours.slice(0, 14).flatMap((o): HlOpenHours[] => {
-      const x = (o ?? {}) as Record<string, unknown>
-      const days = (Array.isArray(x.daysOfTheWeek) ? x.daysOfTheWeek : []).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
-      const h = hours(x.hours, 'Weekly hours')
-      return days.length && h.length ? [{ daysOfTheWeek: [...new Set(days)], hours: h }] : []
-    })
-  }
-  if (s.availabilities !== undefined) {
-    if (!Array.isArray(s.availabilities)) throw new HlInputError('Date-specific hours must be a list.')
-    const seen = new Set<string>()
-    out.availabilities = s.availabilities.slice(0, 200).flatMap((a): HlDateOverride[] => {
-      const x = (a ?? {}) as Record<string, unknown>
-      const date = str(x.date, 30).slice(0, 10)
-      if (!/^\d{4}-\d\d-\d\d$/.test(date) || seen.has(date) || x.deleted === true) return []
-      seen.add(date)
-      return [{ date, hours: hours(x.hours, `Hours on ${date}`) }]
-    })
-  }
+  if (s.openHours !== undefined) out.openHours = cleanOpenHours(s.openHours)
+  if (s.availabilities !== undefined) out.availabilities = cleanOverrides(s.availabilities)
   const minutes = ['mins', 'hours'] as const
   if (s.slotDuration !== undefined) {
     out.slotDurationUnit = unit(s.slotDurationUnit, minutes, 'mins')
@@ -114,6 +120,38 @@ export function cleanCalendarSettings(raw: unknown, existing: HlCalendarSettings
     out.formSubmitRedirectUrl = u
   }
   if (out.formSubmitType === 'RedirectURL' && !out.formSubmitRedirectUrl) throw new HlInputError('Add the page to send people to after booking, or show a thank-you message instead.')
+  if (s.groupId !== undefined) {
+    const g = str(s.groupId, 80)
+    if (g && groupKeys && !groupKeys.has(g)) throw new HlInputError('That group isn’t in this sub-account.')
+    out.groupId = g || undefined
+  }
+  if (s.durationOptions !== undefined) {
+    if (!Array.isArray(s.durationOptions)) throw new HlInputError('Meeting lengths must be a list.')
+    const seen = new Set<number>()
+    out.durationOptions = s.durationOptions.slice(0, 8).flatMap((d, i): HlDurationOption[] => {
+      const x = (d ?? {}) as Record<string, unknown>
+      const durationUnit = unit(x.durationUnit, ['mins', 'hours'] as const, 'mins')
+      const duration = num(x.duration, durationUnit === 'hours' ? 1 : 5, durationUnit === 'hours' ? 12 : 720, 'A meeting length')
+      const minutes = durationUnit === 'hours' ? duration * 60 : duration
+      if (seen.has(minutes)) return []
+      seen.add(minutes)
+      return [{ duration, durationUnit, isDefault: x.isDefault === true, order: i + 1 }]
+    })
+    // The default length is the calendar's slot length.
+    const def = out.durationOptions.find((d) => d.isDefault) ?? out.durationOptions[0]
+    if (def) {
+      out.durationOptions = out.durationOptions.map((d) => ({ ...d, isDefault: d === def }))
+      out.slotDuration = def.duration
+      out.slotDurationUnit = def.durationUnit
+    }
+  }
+  if (s.notes !== undefined) out.notes = str(s.notes, 2000)
+  if (s.stickyContact !== undefined) out.stickyContact = s.stickyContact === true
+  if (s.pixelId !== undefined) {
+    const px = str(s.pixelId, 40)
+    if (px && !/^\d{6,20}$/.test(px)) throw new HlInputError('A Facebook pixel ID is just digits.')
+    out.pixelId = px
+  }
   if (s.consents !== undefined) {
     const boxes: HlConsentBox[] = []
     for (const c of Array.isArray(s.consents) ? s.consents.slice(0, 4) : []) {

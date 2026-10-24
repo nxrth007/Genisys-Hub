@@ -6,7 +6,19 @@ import { useParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WEEKDAYS, asCalendarSettings, defaultCalendarSettings, type HlCalendarSettings, type HlHours, type TimeUnit } from '@/lib/hl/calendar-shared'
+import {
+  CALENDAR_TYPES,
+  WEEKDAYS,
+  asCalendarSettings,
+  defaultCalendarSettings,
+  durationsOf,
+  minutesOf,
+  type HlCalendarGroup,
+  type HlCalendarSettings,
+  type HlHours,
+  type HlSchedule,
+  type TimeUnit,
+} from '@/lib/hl/calendar-shared'
 import type { StaffRow } from '@/lib/hl/staff'
 import { useAccount } from '@/components/hell-level/bits'
 import { ConsentBoxesEditor } from '@/components/hell-level/consent-editor'
@@ -17,7 +29,12 @@ type Detail = {
   calendar: { id: string; name: string; description: string | null; isActive: boolean; kind: string | null; ghlId: string | null; settings: unknown; updatedAt: string }
   staff: StaffRow[]
   upcoming: number
+  groups: HlCalendarGroup[]
+  /** Team members' schedules that set their hours on this calendar. */
+  schedules: HlSchedule[]
 }
+
+const lengthLabel = (m: number) => (m % 60 === 0 ? `${m / 60} hr` : m > 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m} min`)
 
 export default function CalendarEditorPage() {
   const { accountId, calendarId } = useParams<{ accountId: string; calendarId: string }>()
@@ -91,10 +108,30 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
   const [description, setDescription] = useState(data.calendar.description ?? '')
   const [isActive, setActive] = useState(data.calendar.isActive)
   const [s, setS] = useState<HlCalendarSettings>(() => ({ ...defaultCalendarSettings(), ...asCalendarSettings(data.calendar.settings) }))
+  const [kind, setKind] = useState(data.calendar.kind ?? 'round_robin')
+  // Other lengths the booker can pick, besides the meeting length.
+  const [extra, setExtra] = useState<number[]>(() => {
+    const own = asCalendarSettings(data.calendar.settings)
+    const main = minutesOf(own.slotDuration, own.slotDurationUnit, 30)
+    return durationsOf(own).filter((m) => m !== main)
+  })
+  const [newLength, setNewLength] = useState('')
+  const mainLength = minutesOf(s.slotDuration, s.slotDurationUnit, 30)
+  const lengths = [...new Set([mainLength, ...extra])]
   const [tab, setTab] = useState<'details' | 'availability' | 'form' | 'confirm' | 'share'>('details')
   const [newDate, setNewDate] = useState('')
   const save = useMutation({
-    mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars/${data.calendar.id}`, { method: 'PATCH', json: { name, description, isActive, settings: s } }),
+    mutationFn: () =>
+      hlFetch(`/api/hl/accounts/${accountId}/calendars/${data.calendar.id}`, {
+        method: 'PATCH',
+        json: {
+          name,
+          description,
+          isActive,
+          kind,
+          settings: { ...s, durationOptions: lengths.length > 1 ? lengths.map((m, i) => ({ duration: m, durationUnit: 'mins', isDefault: i === 0 })) : [] },
+        },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hl', 'calendar', data.calendar.id] })
       qc.invalidateQueries({ queryKey: ['hl', 'calendars', accountId] })
@@ -144,6 +181,33 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
       {tab === 'details' && (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card className="flex flex-col gap-4 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Calendar type">
+                <Select value={kind} onChange={(e) => setKind(e.target.value)}>
+                  {CALENDAR_TYPES.map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Group">
+                <Select value={s.groupId && data.groups.some((g) => g.key === s.groupId) ? s.groupId : ''} onChange={(e) => set({ groupId: e.target.value })}>
+                  <option value="">Not grouped</option>
+                  {data.groups.map((g) => (
+                    <option key={g.id} value={g.key}>
+                      {g.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <p className="-mt-2 text-[12.5px] text-muted-foreground">{CALENDAR_TYPES.find((t) => t.key === kind)?.what}</p>
+            {(kind === 'class_booking' || kind === 'event') && (
+              <Field label="Seats per slot" hint={kind === 'event' ? 'How many people can book the same time' : 'How many people can join the same session'}>
+                <Input type="number" min={1} className="w-32" value={s.appointmentPerSlot ?? 1} onChange={(e) => set({ appointmentPerSlot: e.target.value === '' ? 1 : Number(e.target.value) })} />
+              </Field>
+            )}
             <Field label="Description" hint="Shown on the booking page">
               <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="A free 30-minute call to talk through your project." />
             </Field>
@@ -164,10 +228,20 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
           </Card>
           <Card className="flex flex-col gap-4 p-5">
             <div>
-              <p className="text-[15px] font-semibold text-foreground">Team members</p>
-              <p className="text-[12.5px] text-muted-foreground">Bookings go round robin to whoever is free. No one picked: the calendar takes one booking per slot.</p>
+              <p className="text-[15px] font-semibold text-foreground">{kind === 'collective' ? 'Hosts' : kind === 'personal' ? 'Team member' : 'Team members'}</p>
+              <p className="text-[12.5px] text-muted-foreground">
+                {kind === 'collective'
+                  ? 'A time is open only when every host is free, and the booking is with all of them.'
+                  : kind === 'personal'
+                    ? 'One person takes every booking.'
+                    : kind === 'event'
+                      ? 'An event calendar has no host: people book seats at a time.'
+                      : kind === 'class_booking'
+                        ? 'Who runs the sessions. Each session holds the seats above.'
+                        : 'Bookings go round robin to whoever is free. No one picked: the calendar takes one booking per slot.'}
+              </p>
             </div>
-            {!data.staff.length ? (
+            {kind === 'event' ? null : !data.staff.length ? (
               <p className="text-[13px] text-muted-foreground">
                 No staff yet.{' '}
                 <Link href={`/hell-level/${accountId}/settings?tab=my-staff`} className="text-primary hover:underline">
@@ -185,13 +259,13 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                       <input
                         type="checkbox"
                         checked={!!m}
-                        onChange={(e) => set({ teamMembers: e.target.checked ? [...team, { userId: k, priority: 0.5, selected: true }] : team.filter((x) => x !== m) })}
+                        onChange={(e) => set({ teamMembers: e.target.checked ? [...(kind === 'personal' ? [] : team), { userId: k, priority: 0.5, selected: true }] : team.filter((x) => x !== m) })}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13.5px] text-foreground">{st.name}</span>
                         {st.email && <span className="block truncate text-[12px] text-muted-foreground">{st.email}</span>}
                       </span>
-                      {m && (
+                      {m && kind === 'round_robin' && (
                         <Select className="w-28" value={String(m.priority ?? 0.5)} onChange={(e) => set({ teamMembers: team.map((x) => (x === m ? { ...x, priority: Number(e.target.value) } : x)) })}>
                           <option value="1">High</option>
                           <option value="0.5">Medium</option>
@@ -203,7 +277,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 })}
               </div>
             )}
-            {team.length > 1 && (
+            {team.length > 1 && kind === 'round_robin' && (
               <Field label="Distribution">
                 <Select value={s.eventType ?? 'RoundRobin_OptimizeForAvailability'} onChange={(e) => set({ eventType: e.target.value as HlCalendarSettings['eventType'] })}>
                   <option value="RoundRobin_OptimizeForAvailability">Optimize for availability (priority first)</option>
@@ -221,6 +295,15 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
             <Card className="flex flex-col gap-3 p-5">
               <p className="text-[15px] font-semibold text-foreground">Weekly hours</p>
               <p className="-mt-2 text-[12.5px] text-muted-foreground">In the sub-account’s timezone ({account.data?.account.timezone ?? '…'}). Visitors see times in their own.</p>
+              {data.schedules.length > 0 && (
+                <p className="rounded-md border border-border bg-surface px-3 py-2 text-[12.5px] text-foreground/85">
+                  {data.schedules.map((sc) => `${data.staff.find((st) => staffKey(st) === sc.userId || st.id === sc.userId)?.name ?? 'A team member'} (${sc.name})`).join(', ')}{' '}
+                  {data.schedules.length === 1 ? 'uses their own schedule' : 'use their own schedules'} here; these hours are for everyone else.{' '}
+                  <Link href={`/hell-level/${accountId}/settings?tab=calendars&section=availability`} className="text-primary hover:underline">
+                    Schedules
+                  </Link>
+                </p>
+              )}
               {WEEKDAYS.map((d, i) => (
                 <div key={d} className="grid grid-cols-[130px_minmax(0,1fr)] items-start gap-3 border-b border-border-soft pb-3 last:border-0">
                   <label className="flex items-center gap-2 pt-2 text-[13.5px] text-foreground">
@@ -266,6 +349,32 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
           <Card className="flex h-fit flex-col gap-4 p-5">
             <p className="text-[15px] font-semibold text-foreground">Slots</p>
             <Amount label="Meeting length" value={s.slotDuration} unit={s.slotDurationUnit} units={['mins', 'hours']} onChange={(v, u) => set({ slotDuration: Number(v) || 0, slotDurationUnit: u })} />
+            <div className="-mt-2 flex flex-col gap-1.5">
+              <p className="text-[12.5px] text-muted-foreground">Let people pick another length</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {extra
+                  .filter((m) => m !== mainLength)
+                  .map((m) => (
+                    <span key={m} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-[12.5px] text-foreground/90">
+                      {lengthLabel(m)}
+                      <button type="button" title="Remove" className="text-muted-foreground hover:text-destructive" onClick={() => setExtra(extra.filter((x) => x !== m))}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                <Input type="number" min={5} max={720} className="h-8 w-20" placeholder="min" value={newLength} onChange={(e) => setNewLength(e.target.value)} />
+                <Button
+                  size="sm"
+                  disabled={!(Number(newLength) >= 5 && Number(newLength) <= 720) || lengths.includes(Number(newLength))}
+                  onClick={() => {
+                    setExtra([...extra, Number(newLength)].sort((a, b) => a - b))
+                    setNewLength('')
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
             <Amount label="Start a slot every" hint="Usually the meeting length" value={s.slotInterval} unit={s.slotIntervalUnit} units={['mins', 'hours']} onChange={(v, u) => set({ slotInterval: Number(v) || 0, slotIntervalUnit: u })} />
             <div className="grid grid-cols-2 gap-3">
               <Amount label="Buffer before" value={s.preBuffer} unit={s.preBufferUnit} units={['mins', 'hours']} onChange={(v, u) => set({ preBuffer: Number(v) || 0, preBufferUnit: u })} />
@@ -319,6 +428,13 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 <Toggle checked={!!s.requireEmail} onChange={(v) => set({ requireEmail: v })} label="Email required" />
               </label>
             )}
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+              <span>
+                Sticky contact
+                <span className="block text-[12px] text-muted-foreground">Someone who booked before finds their details filled in (kept on their own device)</span>
+              </span>
+              <Toggle checked={!!s.stickyContact} onChange={(v) => set({ stickyContact: v })} label="Sticky contact" />
+            </label>
             <Field label="Booking page colour">
               <div className="flex items-center gap-2">
                 <input type="color" value={s.widgetColor ?? '#155EEF'} onChange={(e) => set({ widgetColor: e.target.value })} className="h-9 w-11 cursor-pointer rounded-md border border-border" />
@@ -368,6 +484,12 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 <Textarea rows={2} value={s.formSubmitThanksMessage ?? ''} onChange={(e) => set({ formSubmitThanksMessage: e.target.value })} />
               </Field>
             )}
+            <Field label="Calendar invite notes" hint="Goes in the invite on the team’s Google Calendar once it’s connected. {{reschedule_link}} and {{cancellation_link}} work.">
+              <Textarea rows={3} value={s.notes ?? ''} onChange={(e) => set({ notes: e.target.value })} placeholder={'Phone: {{contact.phone}}\nReschedule: {{reschedule_link}}'} />
+            </Field>
+            <Field label="Facebook pixel ID" hint="Fires PageView on the booking page and Schedule when someone books">
+              <Input value={s.pixelId ?? ''} onChange={(e) => set({ pixelId: e.target.value.replace(/\D/g, '') })} placeholder="1301548744583715" className="w-56 font-mono text-[12.5px]" />
+            </Field>
             <p className="text-[12.5px] text-muted-foreground">
               Confirmation and reminder texts come from automations:{' '}
               <Link href={`/hell-level/${accountId}/automation`} className="text-primary hover:underline">

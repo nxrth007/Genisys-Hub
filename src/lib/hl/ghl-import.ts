@@ -687,6 +687,18 @@ const PHASES: Record<ImportPhase, (c: Ctx, ph: PhaseState) => Promise<void>> = {
   },
 
   async calendars(c, ph) {
+    // Calendar groups first (the calendars point at them by GHL id). An account without any answers with none.
+    const groups = await ghl(c, `/calendars/groups?locationId=${c.locationId}`).catch(() => null)
+    for (const g of listIn(groups, ['groups'])) {
+      const ghlId = str(g.id)
+      if (!ghlId) continue
+      const data = json({ description: str(g.description) ?? '', slug: str(g.slug) ?? '', isActive: g.isActive !== false })
+      await prisma.hlRecord.upsert({
+        where: { accountId_kind_ghlId: { accountId: c.accountId, kind: 'calendar_group', ghlId } },
+        create: { accountId: c.accountId, kind: 'calendar_group', ghlId, name: str(g.name) ?? 'Group', data },
+        update: { name: str(g.name) ?? 'Group', data },
+      })
+    }
     const r = await ghl(c, `/calendars/?locationId=${c.locationId}`)
     let appointments = 0
     for (const cal of listIn(r, ['calendars'])) {
