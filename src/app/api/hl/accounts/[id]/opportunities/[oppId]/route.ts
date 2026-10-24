@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const name = str(body.name)
     if (name) data.name = name
     const updated = await prisma.hlOpportunity.update({ where: { id: oppId }, data })
-    if (movedTo) await fireTrigger(id, opp.contactId, { type: 'opportunity_stage', stageId: movedTo })
+    if (movedTo) await fireTrigger(id, opp.contactId, { type: 'opportunity_stage', stageId: movedTo, pipelineId: opp.pipelineId })
     return NextResponse.json({ opportunity: updated })
   } catch (err) {
     return hlError(err, 'update opportunity')

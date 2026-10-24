@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { startWorkflow } from '@/lib/hl/automation'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
-import { cleanSteps, cleanTrigger } from '@/lib/hl/workflow-input'
+import { cleanSteps, cleanTrigger, cleanTriggers } from '@/lib/hl/workflow-input'
 
 type Ctx = { params: Promise<{ id: string; workflowId: string }> }
 
@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   return NextResponse.json({ workflow, runs })
 }
 
-/** PATCH { name?, folder?, trigger?, steps?, status?: 'draft'|'published', allowReentry?, testContactId? } */
+/** PATCH { name?, folder?, trigger?, triggers?, steps?, status?: 'draft'|'published', allowReentry?, stopOnResponse?, testContactId? } */
 export async function PATCH(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
@@ -49,9 +49,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const name = str(body.name)
     if (name) data.name = name
     if ('folder' in body) data.folder = str(body.folder)
-    if (body.trigger !== undefined) data.trigger = cleanTrigger(body.trigger) as unknown as Prisma.InputJsonValue
+    if (body.triggers !== undefined) {
+      // Several triggers (GHL's way): the first is also kept as `trigger` for what reads one.
+      const triggers = cleanTriggers(body.triggers)
+      data.triggers = triggers as unknown as Prisma.InputJsonValue
+      data.trigger = triggers[0] as unknown as Prisma.InputJsonValue
+    } else if (body.trigger !== undefined) {
+      data.trigger = cleanTrigger(body.trigger) as unknown as Prisma.InputJsonValue
+      data.triggers = []
+    }
     if (body.steps !== undefined) data.steps = cleanSteps(body.steps) as unknown as Prisma.InputJsonValue
     if (typeof body.allowReentry === 'boolean') data.allowReentry = body.allowReentry
+    if (typeof body.stopOnResponse === 'boolean') data.meta = { ...((workflow.meta as Record<string, unknown> | null) ?? {}), stopOnResponse: body.stopOnResponse } as Prisma.InputJsonValue
     if (body.status === 'published' || body.status === 'draft') {
       const steps = body.steps !== undefined ? cleanSteps(body.steps) : (workflow.steps as unknown[])
       if (body.status === 'published' && !steps.length) throw new HlInputError('Add at least one action before publishing.')

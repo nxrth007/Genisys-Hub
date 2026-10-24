@@ -2,11 +2,11 @@
 
 import Link from 'next/link'
 import { Suspense, useEffect, useRef, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { ChevronRight, EllipsisVertical, FolderClosed, FolderPlus, Plus, Search, Workflow, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { triggerLabel, type HlTrigger } from '@/lib/hl/types'
+import { triggerTitle, type HlTrigger } from '@/lib/hl/types'
 import { workflowTemplates } from '@/lib/hl/templates'
 import { useSectionTab } from '@/components/hell-level/section'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
@@ -18,6 +18,7 @@ type WorkflowRow = {
   folder: string | null
   status: string
   trigger: HlTrigger
+  triggers: HlTrigger[] | null
   steps: unknown[]
   template: string | null
   ghlId: string | null
@@ -48,12 +49,26 @@ function AutomationSection() {
   return <WorkflowsList accountId={accountId} q={q} />
 }
 
-/** Automation → Workflows, laid out like GHL's "Workflows list". */
+/** A folder path's parent ("A/B/C" → "A/B"), and the name it shows. */
+const parentOf = (f: string) => (f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : null)
+const leafOf = (f: string) => f.slice(f.lastIndexOf('/') + 1)
+const inside = (w: { folder: string | null }, f: string) => w.folder === f || !!w.folder?.startsWith(`${f}/`)
+
+/** Automation → Workflows, laid out like GHL's "Workflows list": folders inside folders, opened one level at a time. */
 function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<ListResponse> }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const sp = useSearchParams()
   const qc = useQueryClient()
   const [view, setView] = useState<'all' | 'review' | 'deleted'>('all')
-  const [folder, setFolder] = useState<string | null>(null)
+  // The open folder lives in the URL, so coming back from a workflow lands in the same folder.
+  const folder = sp.get('folder') || null
+  const setFolder = (f: string | null) => {
+    const next = new URLSearchParams(sp.toString())
+    if (f) next.set('folder', f)
+    else next.delete('folder')
+    router.replace(`${pathname}${next.size ? `?${next}` : ''}`, { scroll: false })
+  }
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [newFolder, setNewFolder] = useState<string | null>(null)
@@ -80,7 +95,10 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
   const pool = view === 'deleted' ? deleted : view === 'review' ? review : live
   const searching = !!s
   const rows = pool.filter((w) => (searching ? w.name.toLowerCase().includes(s) : view !== 'all' || (folder ? w.folder === folder : !w.folder)))
-  const folders = view === 'all' && !folder && !searching ? (q.data?.folders ?? []) : []
+  // Every folder, with the ones above it (a path can exist only through a workflow in it).
+  const allFolders = [...new Set((q.data?.folders ?? []).flatMap((f) => f.split('/').map((_, i, parts) => parts.slice(0, i + 1).join('/'))))].sort((a, b) => a.localeCompare(b))
+  const folders = view === 'all' && !searching ? allFolders.filter((f) => parentOf(f) === folder) : []
+  const crumbs = folder ? folder.split('/').map((name, i, parts) => ({ name, path: parts.slice(0, i + 1).join('/') })) : []
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
@@ -88,7 +106,7 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
         title="Workflows list"
         actions={
           <>
-            <Button icon={<FolderPlus className="h-3.5 w-3.5" />} onClick={() => setNewFolder('')}>
+            <Button icon={<FolderPlus className="h-3.5 w-3.5" />} onClick={() => setNewFolder('')} disabled={view !== 'all'}>
               Create folder
             </Button>
             <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setCreating(true)}>
@@ -125,16 +143,22 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
         </label>
       </div>
       {view === 'all' && !searching && (
-        <nav className="flex items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
+        <nav className="flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
           <button type="button" onClick={() => setFolder(null)} className={cn('hover:text-foreground', !folder && 'text-foreground')}>
             Home
           </button>
-          {folder && (
-            <>
+          {crumbs.map((c, i) => (
+            <span key={c.path} className="flex items-center gap-1.5">
               <ChevronRight className="h-3 w-3" />
-              <span className="text-foreground">{folder}</span>
-            </>
-          )}
+              {i === crumbs.length - 1 ? (
+                <span className="text-foreground">{c.name}</span>
+              ) : (
+                <button type="button" onClick={() => setFolder(c.path)} className="hover:text-foreground">
+                  {c.name}
+                </button>
+              )}
+            </span>
+          ))}
         </nav>
       )}
       <Card>
@@ -149,19 +173,23 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
         ) : (
           <Table head={['Name', 'Status', 'Total enrolled', 'Active enrolled', 'Last updated', 'Created on', '']}>
             {folders.map((f) => {
-              const inside = live.filter((w) => w.folder === f)
-              const updated = inside.map((w) => w.updatedAt).sort().at(-1)
+              const within = live.filter((w) => inside(w, f))
+              const subfolders = allFolders.filter((x) => parentOf(x) === f).length
+              const updated = within.map((w) => w.updatedAt).sort().at(-1)
               return (
                 <tr key={`f:${f}`} onClick={() => setFolder(f)} className="cursor-pointer border-b border-border-soft hover:bg-muted/40">
                   <td className="px-4 py-3">
                     <span className="flex items-center gap-2.5 font-medium text-foreground">
-                      <FolderClosed className="h-4 w-4 text-muted-foreground" /> {f}
-                      <span className="font-mono text-[11px] text-muted-foreground">{inside.length}</span>
+                      <FolderClosed className="h-4 w-4 text-muted-foreground" /> {leafOf(f)}
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {within.length}
+                        {subfolders ? ` · ${subfolders} folder${subfolders === 1 ? '' : 's'}` : ''}
+                      </span>
                     </span>
                   </td>
                   <td className="px-4 py-3" />
-                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{inside.reduce((n, w) => n + w.runs, 0) || ''}</td>
-                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{inside.reduce((n, w) => n + w.waiting, 0) || ''}</td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{within.reduce((n, w) => n + w.runs, 0) || ''}</td>
+                  <td className="px-4 py-3 tabular-nums text-muted-foreground">{within.reduce((n, w) => n + w.waiting, 0) || ''}</td>
                   <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{updated ? fmtDateTime(updated) : ''}</td>
                   <td className="px-4 py-3" />
                   <td className="px-4 py-3 text-right">
@@ -176,9 +204,11 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
                   <Link href={`/hell-level/${accountId}/automation/${w.id}`} className="font-medium text-foreground hover:text-primary">
                     {w.name}
                   </Link>
-                  <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                    <Zap className="h-3 w-3 text-warning" /> {triggerLabel(w.trigger.type)} · {w.steps.length} action{w.steps.length === 1 ? '' : 's'}
-                    {w.ghlId && <span className="font-mono text-[11px]">· from GHL{w.meta?.ghlStatus ? ` (${w.meta.ghlStatus} there)` : ''}</span>}
+                  <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+                    <Zap className="h-3 w-3 text-warning" /> {triggerTitle(w.triggers?.[0] ?? w.trigger)}
+                    {(w.triggers?.length ?? 0) > 1 && ` +${w.triggers!.length - 1}`} · {w.steps.length} action{w.steps.length === 1 ? '' : 's'}
+                    {searching && w.folder && <span>· in {w.folder.split('/').join(' › ')}</span>}
+                    {w.ghlId && <span className="font-mono text-[11px]">· from GHL</span>}
                   </p>
                 </td>
                 <td className="px-4 py-3">{w.deletedAt ? <Badge color="red">Deleted</Badge> : <Badge color={w.status === 'published' ? 'green' : 'gray'}>{w.status === 'published' ? 'Published' : 'Draft'}</Badge>}</td>
@@ -196,9 +226,9 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
                           ]
                         : [
                             { label: 'Edit', run: () => router.push(`/hell-level/${accountId}/automation/${w.id}`) },
-                            ...[null, ...(q.data?.folders ?? [])]
+                            ...[null, ...allFolders]
                               .filter((f) => f !== w.folder)
-                              .map((f) => ({ label: f ? `Move to ${f}` : 'Move to Home', run: () => act.mutate({ id: w.id, method: 'PATCH', body: { folder: f ?? '' } }) })),
+                              .map((f) => ({ label: f ? `Move to ${f.split('/').join(' › ')}` : 'Move to Home', run: () => act.mutate({ id: w.id, method: 'PATCH', body: { folder: f ?? '' } }) })),
                             { label: 'Delete', danger: true, run: () => act.mutate({ id: w.id, method: 'DELETE' }) },
                           ]
                     }
@@ -215,10 +245,20 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
         open={newFolder !== null}
         onClose={() => setNewFolder(null)}
         title="Create folder"
+        description={folder ? `Inside “${leafOf(folder)}”.` : undefined}
         footer={
           <>
             <Button onClick={() => setNewFolder(null)}>Cancel</Button>
-            <Button variant="primary" loading={makeFolder.isPending} disabled={!newFolder?.trim()} onClick={() => newFolder && makeFolder.mutate(newFolder.trim())}>
+            <Button
+              variant="primary"
+              loading={makeFolder.isPending}
+              disabled={!newFolder?.trim()}
+              onClick={() => {
+                // A "/" in the name would read as another level, so it becomes a look-alike slash.
+                const name = newFolder?.trim().replace(/\//g, '∕')
+                if (name) makeFolder.mutate(folder ? `${folder}/${name}` : name)
+              }}
+            >
               Create
             </Button>
           </>

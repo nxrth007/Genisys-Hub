@@ -1,6 +1,6 @@
 import { after } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { fireTrigger } from '@/lib/hl/automation'
+import { contactReplied, fireTrigger } from '@/lib/hl/automation'
 import { recordInboundSms } from '@/lib/hl/messages'
 import { isFromTwilio, twilioParams, twiml } from '@/lib/hl/twilio'
 
@@ -19,8 +19,11 @@ export async function POST(req: Request) {
   if (!r.duplicate && !r.stop) {
     after(async () => {
       try {
+        // Runs the reply starts below are newer than this; contactReplied leaves them be.
+        const at = new Date()
         if (r.created) await fireTrigger(number.accountId, r.contact.id, { type: 'contact_created' })
         await fireTrigger(number.accountId, r.contact.id, { type: 'inbound_sms', text: p.Body ?? '', context: { message: p.Body ?? '' } })
+        await contactReplied(number.accountId, r.contact.id, at)
       } catch (err) {
         console.error('[hell-level] inbound sms automations failed:', err)
       }

@@ -2536,8 +2536,10 @@ model HlWorkflow {
   folder       String?
   /// draft | published
   status       String    @default("draft")
-  /// { type, formId?, keyword?, tag? }: HlTrigger in src/lib/hl/types.ts
+  /// { type, formId?, keyword?, tag? }: HlTrigger in src/lib/hl/types.ts. The first of `triggers` when there are several.
   trigger      Json
+  /// Every trigger (GHL workflows can have several, each on or off). Empty = just `trigger`.
+  triggers     Json      @default("[]")
   /// [{ id, type, config }]: HlStep in src/lib/hl/types.ts
   steps        Json
   /// A contact can go through it again while (or after) an earlier run.

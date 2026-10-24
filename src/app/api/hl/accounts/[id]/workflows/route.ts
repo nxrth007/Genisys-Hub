@@ -54,7 +54,8 @@ export async function POST(req: Request, { params }: Ctx) {
     const folderName = str(body.createFolder)
     if (folderName) {
       const exists = await prisma.hlRecord.findFirst({ where: { accountId: id, kind: 'workflow_folder', name: folderName } })
-      if (!exists) await prisma.hlRecord.create({ data: { accountId: id, kind: 'workflow_folder', name: folderName.slice(0, 120) } })
+      // Paths: "Parent/Child" is a folder inside a folder.
+      if (!exists) await prisma.hlRecord.create({ data: { accountId: id, kind: 'workflow_folder', name: folderName.slice(0, 400) } })
       return NextResponse.json({ folder: folderName })
     }
     const key = str(body.template)

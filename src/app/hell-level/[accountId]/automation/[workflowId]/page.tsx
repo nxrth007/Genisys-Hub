@@ -1,19 +1,32 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Play, Plus, Search, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CornerUpLeft, Play, Plus, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { STEPS, triggerLabel, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
 import { contactLabel, useAccount, type ContactRow } from '@/components/hell-level/bits'
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, stepSummary } from '@/components/hell-level/step-editor'
 import { PanZoomCanvas } from '@/components/hell-level/canvas'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Spinner, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 import { confirmAction } from '@/components/hell-level/confirm'
 
-type Workflow = { id: string; name: string; folder: string | null; status: string; trigger: HlTrigger; steps: HlStep[]; allowReentry: boolean; updatedAt: string }
+type Workflow = {
+  id: string
+  name: string
+  folder: string | null
+  status: string
+  trigger: HlTrigger
+  triggers: HlTrigger[] | null
+  steps: HlStep[]
+  allowReentry: boolean
+  ghlId: string | null
+  meta: { stopOnResponse?: boolean; ghlStatus?: string | null } | null
+  updatedAt: string
+}
 type Run = {
   id: string
   status: string
@@ -23,23 +36,52 @@ type Run = {
   log: { at: string; step: number; type: string; ok: boolean; detail: string }[]
   contact: { id: string; firstName: string | null; lastName: string | null; phone: string | null; email: string | null }
 }
+type Pipeline = { id: string; name: string; stages: HlStage[] }
 
-type Drawer = { kind: 'trigger' } | { kind: 'step'; index: number } | { kind: 'add'; index: number } | null
+type Drawer = { kind: 'trigger'; index: number } | { kind: 'step'; id: string } | { kind: 'add'; slot: Slot } | null
 
-const newId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const newId = (p = 's') => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+
+/** A workflow's triggers: GHL ones can have several; older ones keep a single `trigger`. */
+const triggersOf = (w: Workflow): HlTrigger[] => (w.triggers?.length ? w.triggers : [w.trigger])
 
 const DEFAULTS: Record<HlStepType, HlStep['config']> = {
   send_sms: { body: 'Hey {{contact.first_name}}! ' },
+  send_email: { subject: '', body: '' },
   internal_sms: { body: 'New lead: {{contact.full_name}} {{contact.phone}}' },
   internal_email: { subject: 'New lead: {{contact.full_name}}', body: 'Hey {{account.owner_first_name}},\n\n' },
   wait: { amount: 5, unit: 'minutes' },
+  wait_appointment: { amount: 1, unit: 'days', when: 'before' },
+  wait_reply: { amount: 1, unit: 'days' },
+  drip: {},
   add_tag: { tag: '' },
   remove_tag: { tag: '' },
+  dnd: { dnd: true },
+  update_field: { fields: [] },
+  update_contact: { fields: [] },
+  add_note: { body: '' },
   create_opportunity: {},
   move_opportunity: {},
   if_tag: { tag: '', has: true },
-  wait_appointment: { amount: 1, unit: 'days', when: 'before' },
+  if_else: {},
+  goto: {},
+  split: { paths: [] },
+  add_to_workflow: { workflowIds: [] },
+  remove_from_workflow: { workflowIds: [] },
+  ghl: {},
 }
+
+/** What the canvas pieces need from the page. */
+type Ctx = {
+  selected: string | null
+  stages: HlStage[]
+  open: (id: string) => void
+  add: (slot: Slot) => void
+  remove: (id: string) => void
+  name: (id: string) => string
+}
+
+const stepLabel = (s: HlStep) => s.name || STEPS.find((x) => x.type === s.type)?.label || s.type
 
 export default function WorkflowBuilderPage() {
   const { accountId, workflowId } = useParams<{ accountId: string; workflowId: string }>()
@@ -51,8 +93,9 @@ export default function WorkflowBuilderPage() {
     queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows/${workflowId}`),
   })
   const forms = useQuery<{ forms: { id: string; name: string; kind: string }[] }>({ queryKey: ['hl', 'forms', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms`) })
-  const pipelines = useQuery<{ pipelines: { id: string; name: string; stages: HlStage[] }[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
+  const pipelines = useQuery<{ pipelines: Pipeline[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
   const calendars = useQuery<{ calendars: { id: string; name: string }[] }>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
+  const workflows = useQuery<{ workflows: { id: string; name: string; deletedAt: string | null }[] }>({ queryKey: ['hl', 'workflows', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows`) })
 
   // Unsaved changes sit on top of the saved workflow; Save sends them and clears them.
   const [edits, setEdits] = useState<Workflow | null>(null)
@@ -78,7 +121,15 @@ export default function WorkflowBuilderPage() {
     mutationFn: (extra: Record<string, unknown> = {}) =>
       hlFetch<{ workflow: Workflow }>(`/api/hl/accounts/${accountId}/workflows/${workflowId}`, {
         method: 'PATCH',
-        json: { name: draft?.name, folder: draft?.folder ?? '', trigger: draft?.trigger, steps: draft?.steps, allowReentry: draft?.allowReentry, ...extra },
+        json: {
+          name: draft?.name,
+          folder: draft?.folder ?? '',
+          triggers: draft ? triggersOf(draft) : undefined,
+          steps: draft?.steps,
+          allowReentry: draft?.allowReentry,
+          stopOnResponse: draft?.meta?.stopOnResponse,
+          ...extra,
+        },
       }),
     onSuccess: (r) => {
       qc.setQueryData<{ workflow: Workflow; runs: Run[] }>(['hl', 'workflow', accountId, workflowId], (d) => (d ? { ...d, workflow: r.workflow } : d))
@@ -97,6 +148,7 @@ export default function WorkflowBuilderPage() {
   })
 
   const allStages = useMemo(() => (pipelines.data?.pipelines ?? []).flatMap((p) => p.stages), [pipelines.data])
+  const tree = useMemo(() => flow(draft?.steps ?? []), [draft?.steps])
   const profile = account.data?.account.profile ?? {}
 
   if (q.isLoading || !draft) {
@@ -108,12 +160,41 @@ export default function WorkflowBuilderPage() {
   }
 
   const published = draft.status === 'published'
+  const triggers = triggersOf(draft)
   const setSteps = (steps: HlStep[]) => update({ steps })
+  const setTriggers = (next: HlTrigger[]) => update({ triggers: next, trigger: next[0] })
+  const editing = drawer?.kind === 'step' ? draft.steps.find((s) => s.id === drawer.id) : undefined
+
+  const ctx: Ctx = {
+    selected: drawer?.kind === 'step' ? drawer.id : null,
+    stages: allStages,
+    open: (id) => setDrawer({ kind: 'step', id }),
+    add: (slot) => setDrawer({ kind: 'add', slot }),
+    name: (id) => {
+      const s = draft.steps.find((x) => x.id === id)
+      return s ? stepLabel(s) : 'a removed step'
+    },
+    remove: (id) => {
+      const s = draft.steps.find((x) => x.id === id)
+      if (!s) return
+      const go = () => {
+        setSteps(removeStep(draft.steps, id))
+        setDrawer(null)
+      }
+      const under = forks(s) ? below(draft.steps, id).size : 0
+      if (!under) return go()
+      void confirmAction(`Delete “${stepLabel(s)}” and the ${under} action${under === 1 ? '' : 's'} on its branches?`, 'Delete').then((ok) => ok && go())
+    },
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-2.5">
-        <Link href={`/hell-level/${accountId}/automation`} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" title="Back to workflows">
+        <Link
+          href={`/hell-level/${accountId}/automation${q.data?.workflow.folder ? `?folder=${encodeURIComponent(q.data.workflow.folder)}` : ''}`}
+          className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+          title="Back to workflows"
+        >
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <input
@@ -146,82 +227,73 @@ export default function WorkflowBuilderPage() {
           </Button>
         </div>
       </div>
-      {save.error && (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-[13px] text-destructive">{(save.error as Error).message}</div>
-      )}
+      {save.error && <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-[13px] text-destructive">{(save.error as Error).message}</div>}
 
       {tab === 'builder' && (
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
             <PanZoomCanvas>
-            <div className="flex w-[380px] flex-col items-center pb-24">
-              <button
-                type="button"
-                onClick={() => setDrawer({ kind: 'trigger' })}
-                className={cn(
-                  'w-full rounded-xl border-2 border-dashed bg-card px-4 py-3.5 text-left shadow-sm transition hover:border-warning',
-                  drawer?.kind === 'trigger' ? 'border-warning' : 'border-warning/40',
-                )}
-              >
-                <span className="flex items-center gap-3">
-                  <Tile look={TRIGGER_LOOK} />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-warning">Trigger</span>
-                    <span className="block truncate text-[14px] font-semibold text-foreground">{triggerLabel(draft.trigger.type)}</span>
-                    <span className="block truncate text-[12px] text-muted-foreground">{triggerDetail(draft.trigger, forms.data?.forms ?? [], allStages, calendars.data?.calendars ?? [])}</span>
-                  </span>
-                </span>
-              </button>
-              <Connector onAdd={() => setDrawer({ kind: 'add', index: 0 })} />
-              {draft.steps.map((s, i) => {
-                const look = STEP_LOOK[s.type]
-                return (
-                  <div key={s.id} className="flex w-full flex-col items-center">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setDrawer({ kind: 'step', index: i })}
-                      onKeyDown={(e) => e.key === 'Enter' && setDrawer({ kind: 'step', index: i })}
-                      className={cn(
-                        'group relative w-full cursor-pointer rounded-xl border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/50',
-                        drawer?.kind === 'step' && drawer.index === i ? 'border-primary ring-2 ring-primary/20' : 'border-border',
-                      )}
-                    >
-                      <span className="flex items-center gap-3">
-                        <Tile look={look} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] font-semibold text-foreground">{s.name || STEPS.find((x) => x.type === s.type)?.label}</span>
-                          <span className="block truncate text-[12px] text-muted-foreground">{stepSummary(s, allStages)}</span>
-                        </span>
-                      </span>
+              <div className="flex flex-col items-center px-10 pb-32">
+                <div className="relative flex items-end">
+                  {triggers.map((t, i) => (
+                    <div key={t.id ?? i} className="relative flex flex-col items-center px-3">
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSteps(draft.steps.filter((_, j) => j !== i))
-                          setDrawer(null)
-                        }}
-                        className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted-foreground/70 shadow-sm hover:text-destructive group-hover:grid"
-                        title="Delete action"
+                        onClick={() => setDrawer({ kind: 'trigger', index: i })}
+                        className={cn(
+                          'w-[300px] rounded-xl border-2 bg-card px-4 py-3 text-left shadow-sm transition',
+                          drawer?.kind === 'trigger' && drawer.index === i ? 'border-warning' : 'border-warning/40 hover:border-warning',
+                          (t.active === false || t.type === 'ghl') && 'opacity-60',
+                        )}
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <span className="flex items-center gap-3">
+                          <Tile look={TRIGGER_LOOK} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-warning">
+                              Trigger
+                              {t.active === false && <span className="rounded bg-muted px-1.5 text-[10px] text-muted-foreground">Off</span>}
+                              {t.type === 'ghl' && <span className="rounded bg-muted px-1.5 text-[10px] text-muted-foreground">GHL only</span>}
+                            </span>
+                            <span className="block truncate text-[14px] font-semibold text-foreground">{triggerTitle(t)}</span>
+                            <span className="block truncate text-[12px] text-muted-foreground">{triggerDetail(t, forms.data?.forms ?? [], pipelines.data?.pipelines ?? [], calendars.data?.calendars ?? [])}</span>
+                          </span>
+                        </span>
                       </button>
+                      <span className="h-6 w-px bg-border" />
+                      {triggers.length > 1 && <span className={cn('absolute bottom-0 h-px bg-border', i === 0 ? 'left-1/2 right-0' : i === triggers.length - 1 ? 'left-0 right-1/2' : 'inset-x-0')} />}
                     </div>
-                    <Connector onAdd={() => setDrawer({ kind: 'add', index: i + 1 })} />
+                  ))}
+                  <div className="absolute bottom-6 left-full top-0 pl-3">
+                    <button
+                      type="button"
+                      onClick={() => setDrawer({ kind: 'trigger', index: triggers.length })}
+                      className={cn(
+                        'flex h-full w-[220px] items-center justify-center gap-2 rounded-xl border-2 border-dashed bg-card/60 text-[13.5px] font-semibold transition hover:border-warning hover:text-foreground',
+                        drawer?.kind === 'trigger' && drawer.index === triggers.length ? 'border-warning text-foreground' : 'border-border text-muted-foreground',
+                      )}
+                    >
+                      <Plus className="h-4 w-4" /> Add New Trigger
+                    </button>
                   </div>
-                )
-              })}
-              <span className="rounded-full bg-muted px-4 py-1 text-[12px] font-bold tracking-wide text-foreground/90">END</span>
-            </div>
+                </div>
+                <Connector onAdd={() => ctx.add({ kind: 'start' })} />
+                <ChainView chain={tree.chain} ctx={ctx} />
+                {tree.loose.length > 0 && (
+                  <div className="mt-16 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border p-6">
+                    <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Not connected: nothing leads here</p>
+                    {tree.loose.map((s) => (
+                      <NodeCard key={s.id} s={s} ctx={ctx} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </PanZoomCanvas>
           </div>
 
           {drawer && (
             <aside className="flex w-[460px] shrink-0 flex-col border-l border-border bg-card">
               <div className="flex items-center justify-between border-b border-border px-5 py-4">
-                <p className="text-[16px] font-semibold text-foreground">
-                  {drawer.kind === 'trigger' ? 'Workflow Trigger' : drawer.kind === 'add' ? 'Actions' : 'Edit Action'}
-                </p>
+                <p className="text-[16px] font-semibold text-foreground">{drawer.kind === 'trigger' ? 'Workflow Trigger' : drawer.kind === 'add' ? 'Actions' : 'Edit Action'}</p>
                 <button type="button" onClick={() => setDrawer(null)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground/70 hover:bg-muted">
                   <X className="h-5 w-5" />
                 </button>
@@ -229,43 +301,49 @@ export default function WorkflowBuilderPage() {
               <div className="min-h-0 flex-1 overflow-y-auto p-5">
                 {drawer.kind === 'trigger' && (
                   <TriggerEditor
-                    key="trigger"
-                    trigger={draft.trigger}
+                    key={`trigger-${drawer.index}`}
+                    trigger={triggers[drawer.index] ?? { type: 'form_submitted', id: newId('t') }}
                     forms={forms.data?.forms ?? []}
                     stages={allStages}
                     calendars={calendars.data?.calendars ?? []}
+                    pipelines={pipelines.data?.pipelines ?? []}
                     onSave={(t) => {
-                      update({ trigger: t })
+                      setTriggers(drawer.index < triggers.length ? triggers.map((x, j) => (j === drawer.index ? t : x)) : [...triggers, t])
                       setDrawer(null)
                     }}
+                    onDelete={
+                      triggers.length > 1 && drawer.index < triggers.length
+                        ? () => {
+                            setTriggers(triggers.filter((_, j) => j !== drawer.index))
+                            setDrawer(null)
+                          }
+                        : undefined
+                    }
                   />
                 )}
                 {drawer.kind === 'add' && (
                   <ActionPicker
                     onPick={(type) => {
                       const step: HlStep = { id: newId(), type, config: { ...DEFAULTS[type] } }
-                      const steps = [...draft.steps]
-                      steps.splice(drawer.index, 0, step)
-                      setSteps(steps)
-                      setDrawer({ kind: 'step', index: drawer.index })
+                      setSteps(insertStep(draft.steps, drawer.slot, step))
+                      setDrawer({ kind: 'step', id: step.id })
                     }}
                   />
                 )}
-                {drawer.kind === 'step' && draft.steps[drawer.index] && (
+                {drawer.kind === 'step' && editing && (
                   <StepEditor
-                    key={draft.steps[drawer.index].id}
-                    step={draft.steps[drawer.index]}
+                    key={editing.id}
+                    step={editing}
                     stages={allStages}
                     pipelines={pipelines.data?.pipelines ?? []}
                     profile={profile}
+                    workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt)}
+                    steps={draft.steps}
                     onSave={(s) => {
-                      setSteps(draft.steps.map((x, j) => (j === drawer.index ? s : x)))
+                      setSteps(draft.steps.map((x) => (x.id === s.id ? s : x)))
                       setDrawer(null)
                     }}
-                    onDelete={() => {
-                      setSteps(draft.steps.filter((_, j) => j !== drawer.index))
-                      setDrawer(null)
-                    }}
+                    onDelete={() => ctx.remove(editing.id)}
                   />
                 )}
               </div>
@@ -278,7 +356,7 @@ export default function WorkflowBuilderPage() {
 
       {tab === 'settings' && (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-6 py-8">
-          <Field label="Folder">
+          <Field label="Folder" hint="Folders inside folders: separate with “/”, e.g. Genisys Outreach Pipeline/Contractors.">
             <Input value={draft.folder ?? ''} onChange={(e) => update({ folder: e.target.value })} placeholder="Incoming Lead Workflows" />
           </Field>
           <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
@@ -288,6 +366,18 @@ export default function WorkflowBuilderPage() {
             </span>
             <Toggle checked={draft.allowReentry} onChange={(v) => update({ allowReentry: v })} label="Allow re-entry" />
           </label>
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
+            <span>
+              <span className="block text-[14px] font-semibold text-foreground">Stop on response</span>
+              <span className="block text-[13px] text-muted-foreground">When the contact texts back, they leave this workflow (GHL’s setting of the same name).</span>
+            </span>
+            <Toggle checked={draft.meta?.stopOnResponse === true} onChange={(v) => update({ meta: { ...(draft.meta ?? {}), stopOnResponse: v } })} label="Stop on response" />
+          </label>
+          {draft.ghlId && (
+            <p className="text-[12.5px] text-muted-foreground">
+              Imported from GoHighLevel{draft.meta?.ghlStatus ? ` (${draft.meta.ghlStatus} there)` : ''}.
+            </p>
+          )}
           <div className="flex justify-between border-t border-border pt-5">
             <Button variant="danger" loading={remove.isPending} onClick={() => void confirmAction(`Delete “${draft.name}”? Contacts waiting in it stop where they are.`, 'Delete workflow').then((ok) => ok && remove.mutate())}>
               Delete workflow
@@ -305,16 +395,26 @@ export default function WorkflowBuilderPage() {
   )
 }
 
-function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], stages: HlStage[], calendars: { id: string; name: string }[]): string {
+function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], pipelines: Pipeline[], calendars: { id: string; name: string }[]): string {
+  if (t.type === 'ghl') return 'Kept from GHL; doesn’t fire here'
   if (t.type === 'appointment_booked' || t.type === 'appointment_status') {
     const cal = t.calendarId ? (calendars.find((c) => c.id === t.calendarId)?.name ?? 'A calendar') : 'Any calendar'
     return t.type === 'appointment_status' && t.status ? `${cal} · ${t.status}` : cal
   }
-  if (t.type === 'form_submitted' || t.type === 'chat_submitted') return t.formId ? (forms.find((f) => f.id === t.formId)?.name ?? 'A form') : 'Any form'
-  if (t.type === 'inbound_sms') return t.keyword ? `Reply contains “${t.keyword}”` : 'Any reply'
+  if (t.type === 'form_submitted' || t.type === 'chat_submitted') {
+    const ids = t.formIds ?? (t.formId ? [t.formId] : [])
+    if (!ids.length) return t.type === 'chat_submitted' ? 'Any chat widget' : 'Any form'
+    const names = ids.map((id) => forms.find((f) => f.id === id)?.name).filter(Boolean)
+    return names.length ? names.join(', ') : `${ids.length} form${ids.length === 1 ? '' : 's'}`
+  }
+  if (t.type === 'inbound_sms') return t.keyword ? (t.match === 'exact' ? `Reply is exactly “${t.keyword}”` : `Reply contains “${t.keyword}”`) : 'Any reply'
   if (t.type === 'tag_added') return t.tag ? `Tag “${t.tag}”` : 'Any tag'
-  if (t.type === 'opportunity_stage') return t.stageId ? `Into ${stages.find((s) => s.id === t.stageId)?.name ?? 'a stage'}` : 'Any stage'
-  return 'Click to change'
+  if (t.type === 'opportunity_stage' || t.type === 'opportunity_created') {
+    const pipeline = pipelines.find((p) => p.id === t.pipelineId)
+    const stage = pipelines.flatMap((p) => p.stages).find((s) => s.id === t.stageId)
+    return [pipeline?.name, stage ? `${t.type === 'opportunity_stage' ? 'into ' : ''}${stage.name}` : 'any stage'].filter(Boolean).join(' · ')
+  }
+  return TRIGGERS.find((x) => x.type === t.type)?.hint ?? 'Click to change'
 }
 
 function Tile({ look }: { look: { icon: React.ComponentType<{ className?: string }>; bg: string; fg: string } }) {
@@ -338,10 +438,98 @@ function Connector({ onAdd }: { onAdd: () => void }) {
   )
 }
 
+function NodeCard({ s, ctx }: { s: HlStep; ctx: Ctx }) {
+  return (
+    <div
+      data-node
+      role="button"
+      tabIndex={0}
+      onClick={() => ctx.open(s.id)}
+      onKeyDown={(e) => e.key === 'Enter' && ctx.open(s.id)}
+      title={STEPS.find((x) => x.type === s.type)?.label}
+      className={cn(
+        'group relative w-[300px] cursor-pointer rounded-xl border bg-card px-4 py-3 shadow-sm transition hover:border-primary/50',
+        ctx.selected === s.id ? 'border-primary ring-2 ring-primary/20' : s.type === 'ghl' ? 'border-dashed border-warning/60' : 'border-border',
+      )}
+    >
+      <span className="flex items-center gap-3">
+        <Tile look={STEP_LOOK[s.type]} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-foreground">{stepLabel(s)}</span>
+          <span className="block truncate text-[12px] text-muted-foreground">{stepSummary(s, ctx.stages)}</span>
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          ctx.remove(s.id)
+        }}
+        className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted-foreground/70 shadow-sm hover:text-destructive group-hover:grid"
+        title="Delete action"
+      >
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  )
+}
+
+const End = () => <span className="rounded-full border border-border bg-card px-4 py-1 text-[12px] font-bold tracking-wide text-foreground/90">END</span>
+
+/** One path down the tree: its actions, then END, its branches, or where it jumps to. */
+function ChainView({ chain, ctx }: { chain: FlowChain; ctx: Ctx }) {
+  return (
+    <>
+      {chain.nodes.map((n) => (
+        <Fragment key={n.step.id}>
+          <NodeCard s={n.step} ctx={ctx} />
+          {n.arms ? (
+            <Arms arms={n.arms} ctx={ctx} />
+          ) : n.jump !== undefined ? (
+            <div className="flex flex-col items-center">
+              <span className="h-5 border-l border-dashed border-border" />
+              <span className="flex max-w-[300px] items-center gap-1.5 truncate rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-foreground/90">
+                <CornerUpLeft className="h-3.5 w-3.5 shrink-0" /> {n.jump ? `Goes to “${ctx.name(n.jump)}”` : 'Go to: pick a step'}
+              </span>
+            </div>
+          ) : (
+            <Connector onAdd={() => ctx.add({ kind: 'after', id: n.step.id })} />
+          )}
+        </Fragment>
+      ))}
+      {chain.joins && <span className="rounded-full border border-dashed border-border bg-card px-3 py-1 text-[12px] font-semibold text-muted-foreground">Carries on at “{ctx.name(chain.joins)}”</span>}
+      {chain.end && <End />}
+    </>
+  )
+}
+
+/** If/Else branches and Split paths side by side, joined to their step by one line. */
+function Arms({ arms, ctx }: { arms: FlowArm[]; ctx: Ctx }) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className="h-6 w-px bg-border" />
+      <div className="flex items-start">
+        {arms.map((a, i) => (
+          <div key={a.key} className="relative flex flex-col items-center px-6">
+            {arms.length > 1 && <span className={cn('absolute top-0 h-px bg-border', i === 0 ? 'left-1/2 right-0' : i === arms.length - 1 ? 'left-0 right-1/2' : 'inset-x-0')} />}
+            <span className="h-5 w-px bg-border" />
+            <span className="max-w-[280px] truncate rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-foreground/90 shadow-sm">
+              {a.label}
+              {a.percent !== undefined && ` · ${a.percent}%`}
+            </span>
+            <Connector onAdd={() => ctx.add(a.slot)} />
+            <ChainView chain={a.chain} ctx={ctx} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ActionPicker({ onPick }: { onPick: (t: HlStepType) => void }) {
   const [q, setQ] = useState('')
-  const groups = ['Communication', 'Timing', 'Contact', 'Pipeline', 'Logic'] as const
-  const shown = STEPS.filter((s) => s.label.toLowerCase().includes(q.trim().toLowerCase()))
+  const groups = ['Communication', 'Timing', 'Contact', 'Pipeline', 'Logic', 'Workflow'] as const
+  const shown = STEPS.filter((s) => s.pick !== false && s.label.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <div className="flex flex-col gap-4">
       <label className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50">
@@ -383,7 +571,7 @@ function Logs({ runs, steps }: { runs: Run[]; steps: HlStep[] }) {
                 <span className="block text-[12px] text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
               </span>
               <span className="text-[12px] text-muted-foreground">
-                {Math.min(r.step, steps.length)}/{steps.length} steps
+                {r.log.length} step{r.log.length === 1 ? '' : 's'} run
               </span>
               <Badge color={r.status === 'done' ? 'green' : r.status === 'waiting' ? 'blue' : r.status === 'failed' ? 'red' : 'gray'}>
                 {r.status === 'waiting' && r.nextRunAt ? `waiting until ${fmtDateTime(r.nextRunAt)}` : r.status}

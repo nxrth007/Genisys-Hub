@@ -122,9 +122,36 @@ function value(path: string, d: MergeData): string | null {
         return prettyPhone(c.phone)
       case 'email':
         return c.email ?? ''
+      // GHL's name for the contact's company.
+      case 'business_name':
+      case 'company_name':
+        return str(c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, unknown>).company_name : null)
       default:
         return str(c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, unknown>)[key] : null)
     }
+  }
+  // GHL's {{user.*}} (the sub-account's user: here, its owner) and {{location.*}} (the business).
+  if (scope === 'user' || scope === 'location') {
+    const a = d.account ?? {}
+    const first = (s: string | undefined) => (s ?? '').split(/[,;]/)[0].trim()
+    const values: Record<string, string> =
+      scope === 'user'
+        ? {
+            name: a.ownerName || a.ownerFirstName || '',
+            first_name: a.ownerFirstName || (a.ownerName ?? '').split(' ')[0] || '',
+            last_name: (a.ownerName ?? '').split(' ').slice(1).join(' '),
+            phone: prettyPhone(first(a.notifyPhone) || a.businessPhone),
+            email: first(a.notifyEmail),
+          }
+        : {
+            name: a.businessName ?? '',
+            phone: prettyPhone(a.businessPhone),
+            email: first(a.notifyEmail),
+            address: a.address ?? '',
+            full_address: a.address ?? '',
+            website: a.website ?? '',
+          }
+    return values[key] ?? ''
   }
   if (scope === 'account' || scope === 'custom_values') {
     const a = (d.account ?? {}) as Record<string, unknown>
@@ -159,7 +186,7 @@ export function unknownTokens(text: string): string[] {
     const bare = m[1].trim().toLowerCase()
     if (bare === 'reschedule_link' || bare === 'cancellation_link') continue
     const scope = bare.split('.')[0]
-    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment'].includes(scope)) out.push(m[0])
+    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location'].includes(scope)) out.push(m[0])
   }
   return out
 }

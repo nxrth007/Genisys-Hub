@@ -50,6 +50,7 @@ export async function POST(req: Request, { params }: Ctx) {
       },
     })
     if (created) await fireTrigger(id, contactId, { type: 'contact_created' })
+    await fireTrigger(id, contactId, { type: 'opportunity_created', pipelineId: pipeline.id, stageId: stage.id })
     return NextResponse.json({ opportunity: opp })
   } catch (err) {
     return hlError(err, 'create opportunity')
