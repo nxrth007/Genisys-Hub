@@ -49,6 +49,7 @@ import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeResumeImports } from './hl/ghl-import'
+import { maybeUpgradeClientAccounts } from './hl/accounts'
 import { maybeRefreshDomains } from './hl/domains'
 
 let initialized = false
@@ -457,6 +458,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: resumed ${n} GoHighLevel import(s)`)
       })
       .catch((err) => console.error('[scheduler] hell-level import resume failed:', err))
+    // Client sub-accounts brought up to the client kit, once per kit version.
+    void maybeUpgradeClientAccounts()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
     void maybeRefreshVerifications()
       .then((n) => {
         if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)

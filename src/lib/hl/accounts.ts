@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
 import { boardInputs } from '@/lib/automation-copy-server'
 import type { Prisma } from '@/generated/prisma/client'
-import { applyClientKit } from './client-kit'
+import { applyClientKit, KIT_VERSION } from './client-kit'
 import { HlInputError } from './http'
 import { toE164 } from './phone'
 import type { HlProfile } from './types'
@@ -176,6 +176,36 @@ export async function repairClientProfile(accountId: string): Promise<string[]> 
   }
   if (Object.keys(data).length) await prisma.hlAccount.update({ where: { id: accountId }, data })
   return fixed
+}
+
+let upgradedTo = 0
+
+/**
+ * Once per client-kit version, on the first scheduler tick after a deploy:
+ * every client sub-account repaired and brought up to the kit (what POST
+ * /api/hl/accounts { clientKit: 'all' } does by hand). A marker claimed first
+ * keeps two containers of a rolling deploy from both doing it.
+ */
+export async function maybeUpgradeClientAccounts(): Promise<number> {
+  if (upgradedTo >= KIT_VERSION) return 0
+  const key = `hl.clientKit.v${KIT_VERSION}`
+  if (await prisma.appSetting.findUnique({ where: { key }, select: { id: true } })) {
+    upgradedTo = KIT_VERSION
+    return 0
+  }
+  try {
+    await prisma.appSetting.create({ data: { key, value: 'running' } })
+  } catch {
+    return 0 // another container got there first
+  }
+  upgradedTo = KIT_VERSION
+  const accounts = await prisma.hlAccount.findMany({ where: { archivedAt: null, clientId: { not: null } }, select: { id: true } })
+  for (const a of accounts) {
+    await repairClientProfile(a.id)
+    await applyClientKit(a.id)
+  }
+  await prisma.appSetting.update({ where: { key }, data: { value: `done ${new Date().toISOString()}: ${accounts.length} sub-accounts` } })
+  return accounts.length
 }
 
 /** A sub-account with no client behind it (the agency's own, a test account…). */
