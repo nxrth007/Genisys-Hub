@@ -5,7 +5,8 @@ import { renderDeploys } from '@/lib/render'
 /**
  * GET /api/admin/render[?deploy=<id>]
  *
- * The Hub's recent Render deploys, with the build log of the given deploy
+ * The Hub's recent Render deploys and service events (failed builds, crashes,
+ * restarts, with Render's reason), and the build log of the given deploy
  * (default: the latest that failed). Read through Render's API with the
  * Vault's "Render API Key"; admin-only, and never returns the key.
  */

@@ -55,19 +55,53 @@ async function hubService(key: string): Promise<Service> {
 async function buildLog(key: string, service: Service, d: RenderDeploy): Promise<string[]> {
   let startTime = d.startedAt ?? d.createdAt
   let endTime = d.finishedAt ?? new Date().toISOString()
-  const newestFirst: string[] = []
+  const lines: { message: string; timestamp: string }[] = []
   for (let page = 0; page < 2; page++) {
     const q = new URLSearchParams({ ownerId: service.ownerId, resource: service.id, type: 'build', startTime, endTime, direction: 'backward', limit: '100' })
-    const r = await call<{ logs: { message: string }[]; hasMore: boolean; nextStartTime?: string; nextEndTime?: string }>(key, `/logs?${q}`)
-    newestFirst.push(...r.logs.map((l) => l.message))
+    const r = await call<{ logs: { message: string; timestamp: string }[]; hasMore: boolean; nextStartTime?: string; nextEndTime?: string }>(key, `/logs?${q}`)
+    lines.push(...r.logs)
     if (!r.hasMore || !r.nextStartTime || !r.nextEndTime) break
     startTime = r.nextStartTime
     endTime = r.nextEndTime
   }
-  return newestFirst.reverse()
+  // Render's order depends on the page and the direction: put the lines in time order.
+  return lines.sort((a, b) => a.timestamp.localeCompare(b.timestamp)).map((l) => l.message)
 }
 
-/** Recent deploys, with the build log of the one asked for (default: the latest that failed). */
+type Failure = { evicted?: boolean; evictionReason?: string; nonZeroExit?: number; earlyExit?: boolean; oomKilled?: { memoryLimit: string }; timedOutSeconds?: number; timedOutReason?: string; unhealthy?: string }
+
+/** A failure reason in words: out of memory, a crash's exit code, a timeout. */
+function why(f: Failure | undefined): string | null {
+  if (!f) return null
+  const out = [
+    f.oomKilled && `out of memory (limit ${f.oomKilled.memoryLimit})`,
+    f.nonZeroExit !== undefined && `exited with code ${f.nonZeroExit}`,
+    f.earlyExit && 'exited early',
+    f.timedOutSeconds !== undefined && `timed out after ${f.timedOutSeconds}s${f.timedOutReason ? ` (${f.timedOutReason})` : ''}`,
+    f.unhealthy && `unhealthy: ${f.unhealthy}`,
+    f.evicted && `evicted${f.evictionReason ? `: ${f.evictionReason}` : ''}`,
+  ].filter(Boolean)
+  return out.length ? out.join('; ') : null
+}
+
+const WATCHED = new Set(['build_ended', 'deploy_ended', 'server_failed', 'server_restarted', 'server_available', 'server_hardware_failure', 'zero_downtime_redeploy_ended'])
+
+/** The last day's builds, deploys, crashes and restarts, newest first, with Render's reason for each failure. */
+async function serviceEvents(key: string, service: Service): Promise<{ at: string; type: string; detail: string | null }[]> {
+  const q = new URLSearchParams({ startTime: new Date(Date.now() - 24 * 60 * 60_000).toISOString(), limit: '100' })
+  const list = await call<{ event: { timestamp: string; type: string; details?: Record<string, unknown> } }[]>(key, `/services/${service.id}/events?${q}`)
+  return list
+    .map((x) => x.event)
+    .filter((e) => WATCHED.has(e.type))
+    .map((e) => {
+      const d = (e.details ?? {}) as { buildStatus?: string; deployStatus?: string; reason?: { failure?: Failure } & Failure; triggeredByUser?: string | null }
+      const status = d.buildStatus ?? d.deployStatus ?? null
+      const reason = why(d.reason?.failure) ?? why(e.type === 'server_failed' ? d.reason : undefined)
+      return { at: e.timestamp, type: e.type, detail: [status, reason, e.type === 'server_restarted' && d.triggeredByUser ? `by ${d.triggeredByUser}` : null].filter(Boolean).join(' · ') || null }
+    })
+}
+
+/** Recent deploys and service events, with the build log of the deploy asked for (default: the latest that failed). */
 export async function renderDeploys(opts: { deployId?: string; limit?: number } = {}) {
   const key = await getSecretByName(RENDER_VAULT_NAME)
   const service = await hubService(key)
@@ -85,6 +119,7 @@ export async function renderDeploys(opts: { deployId?: string; limit?: number } 
   return {
     service: { id: service.id, name: service.name, dashboardUrl: service.dashboardUrl },
     deploys,
+    events: await serviceEvents(key, service).catch((err) => [{ at: new Date().toISOString(), type: 'error', detail: err instanceof Error ? err.message : String(err) }]),
     log: pick ? { deploy: pick.id, status: pick.status, lines: await buildLog(key, service, pick) } : null,
   }
 }
