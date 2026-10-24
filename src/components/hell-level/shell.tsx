@@ -10,6 +10,7 @@ import { prettyPhone } from '@/lib/hl/merge'
 import { Avatar, hlFetch } from './ui'
 import { EnterSplashGate } from './enter-splash'
 import { SECTIONS, SETTINGS_SECTION, activeTab, sectionOf, type Section } from './nav'
+import { ConfirmHost } from './confirm'
 
 export type AccountRow = {
   id: string
@@ -154,6 +155,7 @@ export function HellShell({ children }: { children: React.ReactNode }) {
       <Suspense fallback={null}>
         <EnterSplashGate />
       </Suspense>
+      <ConfirmHost />
     </div>
   )
 }

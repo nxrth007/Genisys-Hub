@@ -8,6 +8,7 @@ import { prettyPhone } from '@/lib/hl/merge'
 import type { HlStage } from '@/lib/hl/types'
 import { contactLabel, SOURCE_LABEL, type ContactRow } from './bits'
 import { Avatar, Badge, Button, ErrorNote, Input, Select, Toggle, fmtDateTime, hlFetch, timeAgo } from './ui'
+import { confirmAction } from './confirm'
 
 export type ContactDetail = {
   contact: ContactRow
@@ -213,7 +214,7 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
       <button
         type="button"
         onClick={() => {
-          if (window.confirm(`Delete ${name} and their whole conversation? This can’t be undone.`)) del.mutate()
+          void confirmAction(`Delete ${name} and their whole conversation? This can’t be undone.`, 'Delete contact').then((ok) => ok && del.mutate())
         }}
         className="flex items-center gap-1.5 self-start text-[13px] font-medium text-destructive hover:underline"
       >

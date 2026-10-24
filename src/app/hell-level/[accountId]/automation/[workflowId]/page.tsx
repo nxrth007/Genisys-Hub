@@ -11,6 +11,7 @@ import { contactLabel, useAccount, type ContactRow } from '@/components/hell-lev
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, stepSummary } from '@/components/hell-level/step-editor'
 import { PanZoomCanvas } from '@/components/hell-level/canvas'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Spinner, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 type Workflow = { id: string; name: string; folder: string | null; status: string; trigger: HlTrigger; steps: HlStep[]; allowReentry: boolean; updatedAt: string }
 type Run = {
@@ -288,7 +289,7 @@ export default function WorkflowBuilderPage() {
             <Toggle checked={draft.allowReentry} onChange={(v) => update({ allowReentry: v })} label="Allow re-entry" />
           </label>
           <div className="flex justify-between border-t border-border pt-5">
-            <Button variant="danger" loading={remove.isPending} onClick={() => window.confirm(`Delete “${draft.name}”? Contacts waiting in it stop where they are.`) && remove.mutate()}>
+            <Button variant="danger" loading={remove.isPending} onClick={() => void confirmAction(`Delete “${draft.name}”? Contacts waiting in it stop where they are.`, 'Delete workflow').then((ok) => ok && remove.mutate())}>
               Delete workflow
             </Button>
             <Button variant="primary" disabled={!dirty} loading={save.isPending} onClick={() => save.mutate({})}>

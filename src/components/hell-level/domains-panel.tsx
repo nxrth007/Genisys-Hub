@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { fqdnOf, metaOf, type DomainMeta, type HostConnection, type SiteRecord } from '@/lib/hl/domain-shared'
 import { useAccount } from './bits'
 import { Badge, Button, Card, ErrorNote, Field, Input, Modal, Select, Spinner, Table, Tabs, Toggle, copyText, fmtDateTime, hlFetch } from './ui'
+import { confirmAction } from './confirm'
 
 type DomainRow = {
   id: string
@@ -777,7 +778,7 @@ function ManageInternal({ accountId, domainId, onBack }: { accountId: string; do
           <button
             type="button"
             onClick={() => {
-              if (window.confirm(`Unlink ${d.name} from this sub-account? It stays in the Porkbun account (nothing is cancelled), and you can link it again.`)) unlink.mutate(undefined, { onSuccess: onBack })
+              void confirmAction(`Unlink ${d.name} from this sub-account? It stays in the Porkbun account (nothing is cancelled), and you can link it again.`, 'Unlink').then((ok) => ok && unlink.mutate(undefined, { onSuccess: onBack }))
             }}
             className="flex items-center gap-1.5 text-[13px] font-medium text-destructive hover:underline"
           >
@@ -824,7 +825,7 @@ function ProductsTab({ accountId, d, hosts, forwards, act, onEmail }: { accountI
                     type="button"
                     className="text-[12.5px] text-destructive hover:underline"
                     onClick={() => {
-                      if (window.confirm(`Stop listing ${fqdnOf(d.name, h.host)} as connected? Its DNS records stay; delete them under DNS Records to take it off the site.`)) act.mutate({ action: 'disconnect', host: h.host })
+                      void confirmAction(`Stop listing ${fqdnOf(d.name, h.host)} as connected? Its DNS records stay; delete them under DNS Records to take it off the site.`, 'Stop listing').then((ok) => ok && act.mutate({ action: 'disconnect', host: h.host }))
                     }}
                   >
                     Disconnect
@@ -868,7 +869,7 @@ function HeldTransfer({ d, recordCount, act }: { d: DomainRow; recordCount: numb
           disabled={!recordCount}
           loading={act.isPending && act.variables?.action === 'release'}
           onClick={() => {
-            if (window.confirm(`Release the transfer of ${d.name}? GoHighLevel then has up to 5 days to let it go, and the DNS here takes over when it arrives.`)) act.mutate({ action: 'release' })
+            void confirmAction(`Release the transfer of ${d.name}? GoHighLevel then has up to 5 days to let it go, and the DNS here takes over when it arrives.`, 'Release transfer', { danger: false }).then((ok) => ok && act.mutate({ action: 'release' }))
           }}
         >
           Records look right: release the transfer
@@ -915,7 +916,7 @@ function DnsTab({ d, detail, act }: { d: DomainRow; detail: Detail; act: Act }) 
             size="sm"
             loading={act.isPending && act.variables?.action === 'use-porkbun-ns'}
             onClick={() => {
-              if (window.confirm(`Switch ${d.name} to Porkbun’s nameservers? The records listed here take over (check the site and email records are here first).`)) act.mutate({ action: 'use-porkbun-ns' })
+              void confirmAction(`Switch ${d.name} to Porkbun’s nameservers? The records listed here take over (check the site and email records are here first).`, 'Switch nameservers', { danger: false }).then((ok) => ok && act.mutate({ action: 'use-porkbun-ns' }))
             }}
           >
             Use Porkbun DNS
@@ -962,7 +963,7 @@ function DnsTab({ d, detail, act }: { d: DomainRow; detail: Detail; act: Act }) 
                         className="text-muted-foreground hover:text-destructive"
                         title="Delete"
                         onClick={() => {
-                          if (window.confirm(`Delete ${r.type} ${r.host || '@'} → ${r.content}?`)) act.mutate({ action: 'delete-record', recordId: r.id })
+                          void confirmAction(`Delete ${r.type} ${r.host || '@'} → ${r.content}?`, 'Delete record').then((ok) => ok && act.mutate({ action: 'delete-record', recordId: r.id }))
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1095,7 +1096,7 @@ function EmailTab({ d, detail, act }: { d: DomainRow; detail: Detail; act: Act }
       {
         onSuccess: (r) => {
           if (r.needsConfirm) {
-            if (window.confirm(`${r.message ?? 'This changes the domain’s mail records.'}\n\nForwarding replaces the domain’s current email (MX) records, so mail hosted elsewhere for ${d.name} would stop arriving there. Go ahead?`)) add(true)
+            void confirmAction(`${r.message ?? 'This changes the domain’s mail records.'}\n\nForwarding replaces the domain’s current email (MX) records, so mail hosted elsewhere for ${d.name} would stop arriving there. Go ahead?`, 'Replace mail records').then((ok) => ok && add(true))
             return
           }
           setAddress('')
@@ -1137,7 +1138,7 @@ function EmailTab({ d, detail, act }: { d: DomainRow; detail: Detail; act: Act }
                     className="text-muted-foreground hover:text-destructive"
                     title="Stop forwarding"
                     onClick={() => {
-                      if (window.confirm(`Stop forwarding ${f.address}?`)) act.mutate({ action: 'delete-forward', address: f.address })
+                      void confirmAction(`Stop forwarding ${f.address}?`, 'Stop forwarding').then((ok) => ok && act.mutate({ action: 'delete-forward', address: f.address }))
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -1216,7 +1217,7 @@ function ManageExternal({ accountId, domainId, onBack }: { accountId: string; do
                   type="button"
                   className="text-destructive hover:underline"
                   onClick={() => {
-                    if (window.confirm(`Disconnect ${fqdnOf(d.name, h.host)}? Remove its records at ${meta.provider ?? 'the DNS provider'} too.`)) act.mutate({ action: 'disconnect', host: h.host })
+                    void confirmAction(`Disconnect ${fqdnOf(d.name, h.host)}? Remove its records at ${meta.provider ?? 'the DNS provider'} too.`, 'Disconnect').then((ok) => ok && act.mutate({ action: 'disconnect', host: h.host }))
                   }}
                 >
                   Disconnect
@@ -1261,7 +1262,7 @@ function ManageExternal({ accountId, domainId, onBack }: { accountId: string; do
         <button
           type="button"
           onClick={() => {
-            if (window.confirm(`Remove ${d.name} from this sub-account? Its DNS stays where it is.`)) unlink.mutate(undefined, { onSuccess: onBack })
+            void confirmAction(`Remove ${d.name} from this sub-account? Its DNS stays where it is.`, 'Remove').then((ok) => ok && unlink.mutate(undefined, { onSuccess: onBack }))
           }}
           className="flex items-center gap-1.5 text-[13px] font-medium text-destructive hover:underline"
         >
@@ -1323,7 +1324,7 @@ function UrlRedirects({ accountId, connected }: { accountId: string; connected: 
                     className="text-muted-foreground hover:text-destructive"
                     title="Remove"
                     onClick={() => {
-                      if (window.confirm(`Remove the redirect from ${fqdnOf(r.domain, r.host)} to ${r.location}?`)) remove.mutate(r)
+                      void confirmAction(`Remove the redirect from ${fqdnOf(r.domain, r.host)} to ${r.location}?`, 'Remove redirect').then((ok) => ok && remove.mutate(r))
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

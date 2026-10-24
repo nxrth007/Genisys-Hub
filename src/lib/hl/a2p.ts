@@ -9,7 +9,7 @@ import { resolveLegalLinks, type LegalLinks } from './legal-links'
 import { prettyPhone } from './merge'
 import { splitName, toE164 } from './phone'
 import { formUrl, primaryProfileSid, readTwilioSettings } from './verification'
-import { publicBase, twilioClient, type TwilioClient } from './twilio'
+import { publicBase, twilioAccountType, twilioClient, type TwilioClient } from './twilio'
 import {
   ACTIVE_STAGES,
   detailProblems,
@@ -377,6 +377,8 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   const d = cleanDetails(raw)
   const ctx = await a2pDraft(accountId)
   const checks: A2pCheck[] = detailProblems(d).map((p, i) => ({ key: `detail-${i}`, level: 'error' as const, label: 'Missing or invalid', detail: p }))
+  if ((await twilioAccountType().catch(() => null)) === 'Trial')
+    checks.push({ key: 'twilio-trial', level: 'error', label: 'Twilio account', detail: 'Twilio is still a free trial, and trial accounts can’t register A2P (or text anyone but verified numbers). Upgrade it in the Twilio Console first, then check again.' })
   const [site, privacy, terms] = await Promise.all([
     d.website ? load(d.website) : Promise.resolve(null),
     load(ctx.legal.privacy),

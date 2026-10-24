@@ -136,11 +136,19 @@ export async function sendTwilioSms(o: { from: string; to: string; body: string 
   return { sid: m.sid, status: m.status }
 }
 
+/** Trial or Full (null when Twilio can't be reached). */
+export async function twilioAccountType(): Promise<string | null> {
+  const client = await twilioClient()
+  return (await client.api.v2010.accounts(client.accountSid).fetch()).type ?? null
+}
+
 export type TwilioOverview = {
   ok: boolean
   error: string | null
   accountName: string | null
   accountStatus: string | null
+  /** Trial | Full. A trial account holds one number, texts only verified numbers and can't register A2P. */
+  accountType: string | null
   /** Trust Hub business profiles: toll-free verification needs one that Twilio approved. */
   profiles: { sid: string; name: string; status: string }[]
   /** The Hub's own sending number (TWILIO_FROM_NUMBER), used for owner texts when a sub-account has no approved number. */
@@ -156,9 +164,9 @@ export async function twilioOverview(): Promise<TwilioOverview> {
       .list({ limit: 20 })
       .then((list) => list.map((p) => ({ sid: p.sid, name: p.friendlyName, status: p.status })))
       .catch(() => [])
-    return { ok: true, error: null, accountName: acct.friendlyName, accountStatus: acct.status, profiles, hubNumber }
+    return { ok: true, error: null, accountName: acct.friendlyName, accountStatus: acct.status, accountType: acct.type ?? null, profiles, hubNumber }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), accountName: null, accountStatus: null, profiles: [], hubNumber }
+    return { ok: false, error: err instanceof Error ? err.message : String(err), accountName: null, accountStatus: null, accountType: null, profiles: [], hubNumber }
   }
 }
 

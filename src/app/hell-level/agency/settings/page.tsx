@@ -5,7 +5,7 @@ import { CheckCircle2, Globe, Phone, ShieldCheck, TriangleAlert } from 'lucide-r
 import { ImportPanel } from '@/components/hell-level/import-panel'
 import { Card, PageHeader, Spinner, hlFetch } from '@/components/hell-level/ui'
 
-type Twilio = { ok: boolean; error: string | null; accountName: string | null; profiles: { status: string }[]; hubNumber: string | null }
+type Twilio = { ok: boolean; error: string | null; accountName: string | null; accountType: string | null; profiles: { status: string }[]; hubNumber: string | null }
 type Porkbun = { connected: boolean; sandbox: boolean; account: string | null; error: string | null; spendLimitCents: number | null; monthlySpendCents: number | null }
 
 function Row({ icon, title, ok, detail }: { icon: React.ReactNode; title: string; ok: boolean | null; detail: string }) {
@@ -33,8 +33,14 @@ export default function AgencySettingsPage() {
         <Row
           icon={<Phone className="h-5 w-5" />}
           title="Phone system: Twilio"
-          ok={twilio.isLoading ? null : !!twilio.data?.ok}
-          detail={twilio.data?.ok ? `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}${twilio.data.hubNumber ? ` · Hub number ${twilio.data.hubNumber}` : ''}` : (twilio.data?.error ?? 'Add “Twilio Account SID” and “Twilio Auth Token” to the Vault.')}
+          ok={twilio.isLoading ? null : !!twilio.data?.ok && twilio.data.accountType !== 'Trial'}
+          detail={
+            twilio.data?.ok
+              ? twilio.data.accountType === 'Trial'
+                ? `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}, but still a free trial: one number, texts only to verified phones, no A2P. Upgrade it in the Twilio Console (pay as you go).`
+                : `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}${twilio.data.hubNumber ? ` · Hub number ${twilio.data.hubNumber}` : ''}`
+              : (twilio.data?.error ?? 'Add “Twilio Account SID” and “Twilio Auth Token” to the Vault.')
+          }
         />
         <Row
           icon={<ShieldCheck className="h-5 w-5" />}

@@ -10,6 +10,7 @@ import { triggerLabel, type HlTrigger } from '@/lib/hl/types'
 import { workflowTemplates } from '@/lib/hl/templates'
 import { useSectionTab } from '@/components/hell-level/section'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 type WorkflowRow = {
   id: string
@@ -191,7 +192,7 @@ function WorkflowsList({ accountId, q }: { accountId: string; q: UseQueryResult<
                       w.deletedAt
                         ? [
                             { label: 'Restore', run: () => act.mutate({ id: w.id, method: 'PATCH', body: { restore: true } }) },
-                            { label: 'Delete forever', danger: true, run: () => window.confirm(`Delete “${w.name}” and its history for good?`) && act.mutate({ id: w.id, method: 'DELETE', permanent: true }) },
+                            { label: 'Delete forever', danger: true, run: () => void confirmAction(`Delete “${w.name}” and its history for good?`, 'Delete forever').then((ok) => ok && act.mutate({ id: w.id, method: 'DELETE', permanent: true })) },
                           ]
                         : [
                             { label: 'Edit', run: () => router.push(`/hell-level/${accountId}/automation/${w.id}`) },

@@ -17,6 +17,7 @@ import { ImportPanel } from '@/components/hell-level/import-panel'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
 import { StaffPanel } from '@/components/hell-level/staff-panel'
 import { A2pTexting } from '@/components/hell-level/a2p-panel'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 const ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu']
 
@@ -394,7 +395,7 @@ function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNum
         <button
           type="button"
           onClick={() => {
-            if (window.confirm(`Release ${prettyPhone(n.number)} back to Twilio? It stops working right away and you can’t get it back.`)) release.mutate()
+            void confirmAction(`Release ${prettyPhone(n.number)} back to Twilio? It stops working right away and you can’t get it back.`, 'Release number').then((ok) => ok && release.mutate())
           }}
           className="flex items-center gap-1.5 text-[13px] font-medium text-destructive hover:underline"
         >
@@ -558,6 +559,7 @@ type TwilioInfo = {
   error: string | null
   accountName: string | null
   accountStatus: string | null
+  accountType: string | null
   profiles: { sid: string; name: string; status: string }[]
   hubNumber: string | null
   settings: { customerProfileSid?: string; notificationEmail?: string }
@@ -583,6 +585,9 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
       <div>
         <p className="text-[15px] font-semibold text-foreground">Twilio account</p>
         <p className="mt-1 text-[14px] text-muted-foreground">{d.ok ? `${d.accountName ?? 'Connected'} (${d.accountStatus ?? 'active'}). Shared by every sub-account.` : `Not reachable: ${d.error}`}</p>
+        {d.accountType === 'Trial' && (
+          <p className="mt-1 text-[13px] text-warning">Still a free trial: one number, texts only to verified phones, and no A2P. Upgrade it in the Twilio Console to buy numbers for clients (pay as you go).</p>
+        )}
         {d.hubNumber && <p className="mt-1 text-[13px] text-muted-foreground">Hub number for owner alerts until a sub-account’s own number is approved: {prettyPhone(d.hubNumber)}</p>}
       </div>
       <div className="border-t border-border pt-5">

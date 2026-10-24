@@ -8,6 +8,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, Trash2, TriangleAlert }
 import { MARKETING_CONSENT_TEXT, SMS_CONSENT_TEXT } from '@/lib/hl/templates'
 import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
 import { Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 type FormDetail = {
   form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings & { consents: HlConsentBox[] } }
@@ -103,7 +104,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
         </Link>
         <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-sm text-[16px] font-semibold" />
         <div className="ml-auto flex gap-2">
-          <Button variant="ghost" className="text-destructive" loading={archive.isPending} onClick={() => window.confirm('Delete this form? Where it’s embedded it stops working. Submissions and contacts stay.') && archive.mutate()}>
+          <Button variant="ghost" className="text-destructive" loading={archive.isPending} onClick={() => void confirmAction('Delete this form? Where it’s embedded it stops working. Submissions and contacts stay.', 'Delete form').then((ok) => ok && archive.mutate())}>
             Delete
           </Button>
           <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>

@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { contactLabel } from '@/components/hell-level/bits'
 import { useSectionTab } from '@/components/hell-level/section'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, copyText, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 type Appointment = {
   id: string
@@ -162,7 +163,7 @@ function AppointmentModal({ accountId, a, onClose }: { accountId: string; a: App
               className={x.status === 'cancelled' && status !== 'cancelled' ? 'text-destructive' : undefined}
               disabled={status === x.status}
               loading={change.isPending && change.variables === x.status}
-              onClick={() => (x.status !== 'cancelled' || window.confirm('Cancel this appointment? Any “Appointment status: cancelled” automations run.')) && change.mutate(x.status)}
+              onClick={() => void (x.status !== 'cancelled' ? Promise.resolve(true) : confirmAction('Cancel this appointment? Any “Appointment status: cancelled” automations run.', 'Cancel appointment')).then((ok) => ok && change.mutate(x.status))}
             >
               {x.label}
             </Button>

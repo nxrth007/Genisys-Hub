@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import type { HlStage } from '@/lib/hl/types'
 import { Button, Card, ErrorNote, Input, Spinner, hlFetch } from './ui'
+import { confirmAction } from './confirm'
 
 /** Pipelines and their stages: Opportunities → Pipelines, and Settings → Opportunities & Pipelines. */
 export function PipelinesManager({ accountId }: { accountId: string }) {
@@ -80,7 +81,7 @@ function PipelineEditor({ accountId, pipeline, canDelete }: { accountId: string;
       <ErrorNote error={save.error || del.error} />
       <div className="flex justify-between border-t border-border pt-4">
         {canDelete ? (
-          <Button variant="ghost" className="text-destructive" loading={del.isPending} onClick={() => window.confirm(`Delete the “${pipeline.name}” pipeline?`) && del.mutate()}>
+          <Button variant="ghost" className="text-destructive" loading={del.isPending} onClick={() => void confirmAction(`Delete the “${pipeline.name}” pipeline?`, 'Delete pipeline').then((ok) => ok && del.mutate())}>
             Delete pipeline
           </Button>
         ) : (

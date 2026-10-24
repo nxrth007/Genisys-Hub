@@ -6,6 +6,7 @@ import { Plus, Trash2, Users } from 'lucide-react'
 import type { StaffRow } from '@/lib/hl/staff'
 import { prettyPhone } from '@/lib/hl/merge'
 import { Avatar, Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, hlFetch } from './ui'
+import { confirmAction } from './confirm'
 
 /** Settings → My Staff: the people on the sub-account, who can be on a calendar's team. */
 export function StaffPanel({ accountId }: { accountId: string }) {
@@ -66,7 +67,7 @@ export function StaffPanel({ accountId }: { accountId: string }) {
                       type="button"
                       className="text-muted-foreground hover:text-destructive"
                       title="Remove"
-                      onClick={() => window.confirm(`Remove ${s.name}? They come off any calendar team.`) && remove.mutate(s.id)}
+                      onClick={() => void confirmAction(`Remove ${s.name}? They come off any calendar team.`, 'Remove').then((ok) => ok && remove.mutate(s.id))}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

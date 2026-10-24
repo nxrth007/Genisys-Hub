@@ -13,6 +13,7 @@ import { contactLabel } from '@/components/hell-level/bits'
 import { Badge, Button, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, hlFetch, timeAgo } from '@/components/hell-level/ui'
 import { NotYet, useSectionTab } from '@/components/hell-level/section'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
+import { confirmAction } from '@/components/hell-level/confirm'
 
 type Opp = {
   id: string
@@ -247,7 +248,7 @@ function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: 
       description={contactLabel(opp.contact)}
       footer={
         <>
-          <Button variant="ghost" className="mr-auto text-destructive" loading={del.isPending} onClick={() => window.confirm('Delete this opportunity? The contact stays.') && del.mutate()}>
+          <Button variant="ghost" className="mr-auto text-destructive" loading={del.isPending} onClick={() => void confirmAction('Delete this opportunity? The contact stays.', 'Delete opportunity').then((ok) => ok && del.mutate())}>
             Delete
           </Button>
           <Button onClick={onClose}>Cancel</Button>
