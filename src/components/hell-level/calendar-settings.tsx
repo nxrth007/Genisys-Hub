@@ -908,7 +908,7 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
         {!cals.isLoading && !staff.length && <p className="mt-3 text-[13px] text-muted-foreground">No team members yet: add them under Settings → My Staff.</p>}
         <div className="mt-2 flex flex-col divide-y divide-border-soft">
           {staff.map((m) => (
-            <StaffConnection key={m.id} accountId={accountId} member={m} conn={connFor(m)} />
+            <StaffConnection key={m.id} accountId={accountId} member={m} conn={connFor(m)} onCalendars={(cals.data?.calendars ?? []).filter((c) => (c.settings.teamMembers ?? []).some((t) => t.selected !== false && (t.userId === staffKey(m) || t.userId === m.id))).length} />
           ))}
         </div>
       </Card>
@@ -954,7 +954,7 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
   )
 }
 
-function StaffConnection({ accountId, member, conn }: { accountId: string; member: StaffRow; conn: Connection | undefined }) {
+function StaffConnection({ accountId, member, conn, onCalendars }: { accountId: string; member: StaffRow; conn: Connection | undefined; onCalendars: number }) {
   const qc = useQueryClient()
   const [copied, setCopied] = useState(false)
   const [choosing, setChoosing] = useState(false)
@@ -982,7 +982,12 @@ function StaffConnection({ accountId, member, conn }: { accountId: string; membe
     <div className="flex flex-col gap-2 py-3">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-medium text-foreground">{member.name}</p>
+          <p className="text-[13.5px] font-medium text-foreground">
+            {member.name}
+            <span className="ml-2 text-[12px] font-normal text-muted-foreground">
+              {[member.email, onCalendars ? `on ${onCalendars} calendar${onCalendars === 1 ? '' : 's'}` : 'on no calendars'].filter(Boolean).join(' · ')}
+            </span>
+          </p>
           <p className="text-[12.5px] text-muted-foreground">
             {conn ? (
               <>

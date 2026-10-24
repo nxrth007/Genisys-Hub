@@ -1,12 +1,16 @@
 import { NextResponse, after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createAppointment, fireMadeTriggers, type StaffAppointmentInput } from '@/lib/hl/appointments'
+import { googleBusy } from '@/lib/hl/google-calendar'
 import { hlAccountOr404, hlError, hlGuard, jsonBody } from '@/lib/hl/http'
 import { staffOf } from '@/lib/hl/staff'
 
 type Ctx = { params: Promise<{ id: string }> }
 
-/** GET ?from=ISO&to=ISO: calendars, staff, and the appointments (and blocked-off time) in the range (default: this month ± a week). */
+/**
+ * GET ?from=ISO&to=ISO: calendars, staff, and the appointments (and blocked-off time) in the range (default: this month
+ * ± a week), with the busy times on the team's connected Google Calendars (`outside`).
+ */
 export async function GET(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
@@ -28,7 +32,8 @@ export async function GET(req: Request, { params }: Ctx) {
     }),
     staffOf(id),
   ])
-  return NextResponse.json({ calendars, appointments, staff, timezone: account.timezone, from, to })
+  const outside = await googleBusy(id, staff.map((s) => s.ghlId ?? s.id), from, to).catch(() => [])
+  return NextResponse.json({ calendars, appointments, staff, timezone: account.timezone, from, to, outside: outside.map((b) => ({ start: b.start, end: b.end, member: b.member })) })
 }
 
 /**

@@ -36,7 +36,9 @@ export type Appt = {
   calendar: { id: string; name: string } | null
 }
 export type Cal = { id: string; name: string; kind: string | null; isActive: boolean; settings: unknown }
-export type RangeData = { calendars: Cal[]; appointments: Appt[]; staff: StaffRow[]; timezone: string }
+/** Busy on a team member's connected Google Calendar. */
+export type Outside = { start: string; end: string; member: string | null }
+export type RangeData = { calendars: Cal[]; appointments: Appt[]; staff: StaffRow[]; timezone: string; outside?: Outside[] }
 
 export const STATUS_COLOR: Record<string, 'green' | 'blue' | 'red' | 'gray' | 'amber'> = { confirmed: 'blue', showed: 'green', noshow: 'red', cancelled: 'gray', new: 'amber', invalid: 'gray' }
 const STATUS_LABEL: Record<string, string> = { confirmed: 'Confirmed', showed: 'Showed', noshow: 'No-show', cancelled: 'Cancelled', new: 'Unconfirmed', invalid: 'Invalid' }
@@ -106,6 +108,9 @@ export function CalendarView({ accountId }: { accountId: string }) {
   const cals = q.data?.calendars ?? []
   const staff = q.data?.staff ?? []
   const shown = (q.data?.appointments ?? []).filter((a) => (!calFilter || a.calendarId === calFilter) && (!userFilter || membersOf(a).includes(userFilter)))
+  // Google busy times: the filtered user's, else the filtered calendar's team's, else everyone's.
+  const calTeam = calFilter ? teamFor(cals.find((c) => c.id === calFilter), staff).map((m) => m.key) : null
+  const outside = (q.data?.outside ?? []).filter((b) => !!b.member && (userFilter ? b.member === userFilter : !calTeam || calTeam.includes(b.member)))
   const step = (dir: number) => setAnchor(view === 'day' ? addDays(at, dir) : view === 'week' ? addDays(at, 7 * dir) : (() => {
     const [y, m] = at.split('-').map(Number)
     const d = new Date(Date.UTC(y, m - 1 + dir, 1))
@@ -183,7 +188,7 @@ export function CalendarView({ accountId }: { accountId: string }) {
           }}
         />
       ) : (
-        <TimeGrid dates={dates} today={today} tz={tz} appts={shown} cals={cals} onOpen={setOpen} onPick={(date, time) => setCreating({ kind: 'appointment', date, time })} />
+        <TimeGrid dates={dates} today={today} tz={tz} appts={shown} cals={cals} outside={outside} staff={staff} onOpen={setOpen} onPick={(date, time) => setCreating({ kind: 'appointment', date, time })} />
       )}
       <ErrorNote error={q.error || prefs.error} />
       {creating && q.data && (
@@ -281,7 +286,40 @@ function layout(items: { a: Appt; start: number; end: number }[]) {
   return placed
 }
 
-function TimeGrid({ dates, today, tz, appts, cals, onOpen, onPick }: { dates: string[]; today: string; tz: string; appts: Appt[]; cals: Cal[]; onOpen: (a: Appt) => void; onPick: (date: string, time: string) => void }) {
+/** Busy times that overlap, run together, with whose they are. */
+function mergeBusy(items: { start: number; end: number; name: string }[]) {
+  const out: { start: number; end: number; names: string[] }[] = []
+  for (const it of [...items].sort((x, y) => x.start - y.start)) {
+    const last = out[out.length - 1]
+    if (last && it.start < last.end) {
+      last.end = Math.max(last.end, it.end)
+      if (!last.names.includes(it.name)) last.names.push(it.name)
+    } else out.push({ start: it.start, end: it.end, names: [it.name] })
+  }
+  return out
+}
+
+function TimeGrid({
+  dates,
+  today,
+  tz,
+  appts,
+  cals,
+  outside,
+  staff,
+  onOpen,
+  onPick,
+}: {
+  dates: string[]
+  today: string
+  tz: string
+  appts: Appt[]
+  cals: Cal[]
+  outside: Outside[]
+  staff: StaffRow[]
+  onOpen: (a: Appt) => void
+  onPick: (date: string, time: string) => void
+}) {
   const scroller = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -296,7 +334,12 @@ function TimeGrid({ dates, today, tz, appts, cals, onOpen, onPick }: { dates: st
     const items = appts
       .map((a) => ({ a, start: Math.max(new Date(a.startTime).getTime(), start), end: Math.min(new Date(a.endTime).getTime(), end) }))
       .filter((x) => x.end > x.start)
-    return { date: d, start, end, placed: layout(items) }
+    const busy = mergeBusy(
+      outside
+        .map((b) => ({ start: Math.max(new Date(b.start).getTime(), start), end: Math.min(new Date(b.end).getTime(), end), name: staff.find((s) => s.id === b.member || s.ghlId === b.member)?.name ?? 'Team member' }))
+        .filter((x) => x.end > x.start),
+    )
+    return { date: d, start, end, placed: layout(items), busy }
   })
   const pxPerMs = HOUR_PX / 3_600_000
   return (
@@ -331,6 +374,16 @@ function TimeGrid({ dates, today, tz, appts, cals, onOpen, onPick }: { dates: st
             >
               {Array.from({ length: 24 }, (_, h) => (
                 <span key={h} className="pointer-events-none absolute inset-x-0 border-t border-border-soft" style={{ top: h * HOUR_PX }} />
+              ))}
+              {col.busy.map((b) => (
+                <span
+                  key={b.start}
+                  title={`Busy in Google Calendar: ${b.names.join(', ')} · ${timeIn(new Date(b.start), tz)}–${timeIn(new Date(b.end), tz)}`}
+                  className="pointer-events-none absolute inset-x-0 overflow-hidden border-y border-border-soft px-1.5 py-0.5 text-[10.5px] leading-tight text-muted-foreground"
+                  style={{ top: (b.start - col.start) * pxPerMs, height: Math.max(12, (b.end - b.start) * pxPerMs), background: 'repeating-linear-gradient(-45deg, rgba(152,162,179,.12), rgba(152,162,179,.12) 4px, transparent 4px, transparent 9px)' }}
+                >
+                  {(b.end - b.start) * pxPerMs > 18 && <span className="block truncate">Busy · {b.names.join(', ')}</span>}
+                </span>
               ))}
               {col.date === today && now >= col.start && now < col.end && <span className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-destructive" style={{ top: (now - col.start) * pxPerMs }} />}
               {col.placed.map(({ a, start, end, col: c, cols }) => {
