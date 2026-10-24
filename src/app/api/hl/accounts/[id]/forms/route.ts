@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { fillLegalLinksFromSite } from '@/lib/hl/legal-links'
 import { CHAT_FIELDS, CHAT_SETTINGS, QUOTE_FORM_FIELDS, QUOTE_FORM_SETTINGS } from '@/lib/hl/templates'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -48,6 +49,8 @@ export async function POST(req: Request, { params }: Ctx) {
         settings: (chat ? CHAT_SETTINGS : QUOTE_FORM_SETTINGS) as Prisma.InputJsonValue,
       },
     })
+    // Its policy links: the client's own pages when their site has them.
+    await fillLegalLinksFromSite(id)
     return NextResponse.json({ form })
   } catch (err) {
     return hlError(err, 'create form')

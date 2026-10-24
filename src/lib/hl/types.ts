@@ -23,6 +23,9 @@ export type HlProfile = {
   ein?: string
   /** LLC, Inc… as registered, for texting verification. */
   legalName?: string
+  /** The client's own privacy policy and terms pages (their website's /privacy and /terms when it has them). Blank = the pages the Hub hosts. */
+  privacyUrl?: string
+  termsUrl?: string
 }
 
 export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: string; hint?: string }[] = [
@@ -37,6 +40,8 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'address', label: 'Business address', merge: 'account.address' },
   { key: 'legalName', label: 'Legal business name', merge: 'account.legal_name', hint: 'As registered, for texting verification' },
   { key: 'ein', label: 'EIN', merge: 'account.ein', hint: 'For texting verification. Leave blank for a sole proprietor' },
+  { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
+  { key: 'termsUrl', label: 'Terms link', merge: 'account.terms_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -148,14 +153,41 @@ export type HlField = {
   options?: string[]
 }
 
+/**
+ * A consent checkbox under the form. `kind` says what ticking it records:
+ * sms = texts about their request (contact.smsConsent), marketing =
+ * promotional texts (contact.marketingConsent). {{business}} in the text
+ * becomes the sub-account's business name; "Privacy Policy" and "Terms"
+ * become links.
+ */
+export type HlConsentBox = {
+  kind: 'sms' | 'marketing'
+  text: string
+  required?: boolean
+}
+
 export type HlFormSettings = {
   heading?: string
   submitLabel?: string
   thankYou?: string
-  /** The texting consent line next to the checkbox. */
+  /** Before the two-box consent: one texting box with this wording. Read only when `consents` is missing. */
   consentText?: string
+  consents?: HlConsentBox[]
   /** Button and accent colour, #rrggbb. */
   color?: string
+  buttonText?: string
+  /** The form's page: a colour, or 'transparent' to take the website's behind it. */
+  background?: string
+  /** Heading, labels and consent wording. */
+  textColor?: string
+  inputBackground?: string
+  inputText?: string
+  inputBorder?: string
+  /** The Privacy Policy / Texting terms links under the form (default on). */
+  showLegalLinks?: boolean
+  /** Where those links go for this form. Blank = the sub-account's (Business Profile), else the Hub's hosted pages. */
+  privacyUrl?: string
+  termsUrl?: string
 }
 
 export type HlStage = { id: string; name: string }

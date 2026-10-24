@@ -3,8 +3,10 @@ import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
 import { logActivity, upsertContact } from './contacts'
+import { resolveLegalLinks, type LegalLinks } from './legal-links'
 import { toE164 } from './phone'
-import type { HlField, HlFormSettings } from './types'
+import { CONSENT_TEXT } from './templates'
+import type { HlConsentBox, HlField, HlFormSettings } from './types'
 
 /**
  * Website forms and the chat widget, as the public sees them: the Hub serves
@@ -16,28 +18,42 @@ import type { HlField, HlFormSettings } from './types'
 export const asFields = (v: unknown) => (Array.isArray(v) ? (v as HlField[]) : [])
 export const asSettings = (v: unknown) => (v && typeof v === 'object' ? (v as HlFormSettings) : {})
 
+/** The form's consent boxes; a form from before the two-box consent has its one texting box. */
+export function consentsOf(s: HlFormSettings): HlConsentBox[] {
+  if (Array.isArray(s.consents)) return s.consents.filter((c) => (c.kind === 'sms' || c.kind === 'marketing') && typeof c.text === 'string' && c.text.trim())
+  return [{ kind: 'sms', text: s.consentText || CONSENT_TEXT, required: false }]
+}
+
+/** The form field each box posts as. */
+export const consentField = (kind: HlConsentBox['kind']) => (kind === 'marketing' ? 'marketing_consent' : 'sms_consent')
+
 export type PublicForm = {
   id: string
   kind: 'form' | 'chat'
   name: string
   business: string
   fields: HlField[]
-  settings: HlFormSettings
+  /** consents as shown: the business name filled in. */
+  settings: HlFormSettings & { consents: HlConsentBox[] }
+  legal: LegalLinks
   accountId: string
 }
 
 export async function publicForm(formId: string): Promise<PublicForm | null> {
   const form = await prisma.hlForm.findUnique({ where: { id: formId }, include: { account: { select: { id: true, name: true, profile: true, archivedAt: true } } } })
   if (!form || form.archivedAt || form.account.archivedAt) return null
-  const business = readProfile(form.account.profile).businessName || form.account.name
+  const profile = readProfile(form.account.profile)
+  const business = profile.businessName || form.account.name
   const settings = asSettings(form.settings)
+  const consents = consentsOf(settings).map((c) => ({ ...c, text: c.text.replace(/\{\{\s*business\s*\}\}/g, business) }))
   return {
     id: form.id,
     kind: form.kind === 'chat' ? 'chat' : 'form',
     name: form.name,
     business,
     fields: asFields(form.fields),
-    settings: { ...settings, consentText: (settings.consentText ?? '').replace(/\{\{\s*business\s*\}\}/g, business) },
+    settings: { ...settings, consentText: undefined, consents },
+    legal: resolveLegalLinks(form.account.id, profile, settings),
     accountId: form.account.id,
   }
 }
@@ -56,7 +72,14 @@ export async function submitForm(formId: string, raw: Record<string, unknown>, m
     if (v && f.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return { ok: false, error: 'Please enter a valid email address.', field: f.key }
     if (v) answers[f.key] = v
   }
-  const consent = raw.sms_consent === true || raw.sms_consent === 'true' || raw.sms_consent === 'on'
+  const ticked = (kind: HlConsentBox['kind']) => {
+    const v = raw[consentField(kind)]
+    return form.settings.consents.some((c) => c.kind === kind) && (v === true || v === 'true' || v === 'on' || v === '1')
+  }
+  const missing = form.settings.consents.find((c) => c.required && !ticked(c.kind))
+  if (missing) return { ok: false, error: 'Please check the box to agree before sending.', field: consentField(missing.kind) }
+  const consent = ticked('sms')
+  const marketingConsent = ticked('marketing')
   const phoneKey = form.fields.find((f) => f.type === 'phone')?.key
   const emailKey = form.fields.find((f) => f.type === 'email')?.key
   if (!(phoneKey && answers[phoneKey]) && !(emailKey && answers[emailKey])) return { ok: false, error: 'Please leave a phone number or email so we can reach you.' }
@@ -71,16 +94,21 @@ export async function submitForm(formId: string, raw: Record<string, unknown>, m
     email: emailKey ? answers[emailKey] : null,
     source: form.kind,
     consent,
+    marketingConsent,
     fields: extra,
   })
+  const consentData = {
+    sms_consent: consent,
+    ...(form.settings.consents.some((c) => c.kind === 'marketing') ? { marketing_consent: marketingConsent } : {}),
+  }
   await prisma.hlFormSubmission.create({
-    data: { formId: form.id, accountId: form.accountId, contactId: contact.id, data: { ...answers, sms_consent: consent } as Prisma.InputJsonValue, pageUrl: meta.pageUrl, ip: meta.ip },
+    data: { formId: form.id, accountId: form.accountId, contactId: contact.id, data: { ...answers, ...consentData } as Prisma.InputJsonValue, pageUrl: meta.pageUrl, ip: meta.ip },
   })
   const summary = form.fields
     .filter((f) => answers[f.key])
     .map((f) => `${f.label}: ${answers[f.key]}`)
     .join('\n')
-  await logActivity(form.accountId, contact.id, `${form.kind === 'chat' ? 'Chat widget' : form.name}\n${summary}`, { formId: form.id, consent, pageUrl: meta.pageUrl })
+  await logActivity(form.accountId, contact.id, `${form.kind === 'chat' ? 'Chat widget' : form.name}\n${summary}`, { formId: form.id, consent, marketingConsent, pageUrl: meta.pageUrl })
   return {
     ok: true,
     thankYou: form.settings.thankYou || 'Thanks! We’ll be in touch shortly.',

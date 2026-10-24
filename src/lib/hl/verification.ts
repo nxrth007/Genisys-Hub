@@ -4,6 +4,8 @@ import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { renderTemplate } from './merge'
 import { splitName, toE164 } from './phone'
+import { asSettings, consentsOf } from './forms'
+import { resolveLegalLinks } from './legal-links'
 import { publicBase, twilioClient } from './twilio'
 
 /**
@@ -67,7 +69,6 @@ const STATUS: Record<string, string> = {
   TWILIO_REJECTED: 'rejected',
 }
 
-export const legalUrl = (accountId: string, doc: 'privacy' | 'terms') => `${publicBase()}/hl/legal/${accountId}/${doc}`
 export const formUrl = (formId: string) => `${publicBase()}/hl/f/${formId}`
 
 /** What would be filed, for the review screen and the request itself. Throws with what's missing. */
@@ -84,8 +85,13 @@ export async function verificationDraft(numberId: string) {
   ].filter(Boolean)
   if (missing.length) throw new HlInputError(`Fill in the business profile first: ${missing.join(', ')} (Settings → Business Profile).`)
   const website = /^https?:\/\//i.test(p.website!) ? p.website! : `https://${p.website}`
-  const quote = number.account.forms.find((f) => f.kind === 'form')
-  const chat = number.account.forms.find((f) => f.kind === 'chat')
+  // Hell-level's own forms (an imported GHL form isn't served from here).
+  const own = number.account.forms.filter((f) => !f.ghlId)
+  const quote = own.find((f) => f.kind === 'form')
+  const chat = own.find((f) => f.kind === 'chat')
+  // A form with the separate promotional box means some texts are marketing, and the filing has to say so.
+  const promos = own.some((f) => consentsOf(asSettings(f.settings)).some((c) => c.kind === 'marketing'))
+  const legal = resolveLegalLinks(number.accountId, p)
   const sample = renderTemplate(
     "Hey {{contact.first_name}}! Just got your quote form.\n\nI'll be in touch with you shortly. Please feel free to reach out to us directly at {{account.business_phone}}\n\n- {{account.owner_name}} at {{account.business_name}}\n\nReply STOP to opt out.",
     { contact: { firstName: 'Jennifer' }, account: p },
@@ -109,16 +115,16 @@ export async function verificationDraft(numberId: string) {
       ...(owner.firstName ? { businessContactFirstName: owner.firstName, businessContactLastName: owner.lastName ?? owner.firstName } : {}),
       businessContactEmail: (p.notifyEmail ?? '').split(/[,;\s]+/)[0],
       ...(toE164(p.notifyPhone?.split(',')[0]) ? { businessContactPhone: toE164(p.notifyPhone?.split(',')[0])! } : {}),
-      useCaseCategories: ['CUSTOMER_CARE'],
-      useCaseSummary: `${p.businessName} is a local contractor. This number replies to people who ask for a quote: when someone submits the quote form or chat widget on ${website} and ticks the texting consent box, or calls or texts this number first, we text them back to confirm their request and arrange the job. No marketing lists; customers can reply STOP at any time.`,
+      useCaseCategories: promos ? ['CUSTOMER_CARE', 'MARKETING'] : ['CUSTOMER_CARE'],
+      useCaseSummary: `${p.businessName} is a local contractor. This number replies to people who ask for a quote: when someone submits the quote form or chat widget on ${website} and ticks the texting consent box, or calls or texts this number first, we text them back to confirm their request and arrange the job.${promos ? ' Occasional promotional texts (seasonal specials and discounts, 1-2 a month) go only to people who also tick the separate, optional marketing box.' : ' No marketing lists.'} Customers can reply STOP at any time.`,
       productionMessageSample: sample,
       optInType: 'WEB_FORM' as const,
       optInImageUrls: [quote && formUrl(quote.id), chat && formUrl(chat.id), website].filter((u): u is string => !!u),
       optInConfirmationMessage: `${p.businessName}: thanks for reaching out! We'll text you about your request. Msg & data rates may apply. Reply STOP to opt out, HELP for help.`,
       helpMessageSample: `${p.businessName}: for help call ${p.businessPhone || 'us'} or visit ${website}. Reply STOP to opt out.`,
       messageVolume: '1,000',
-      privacyPolicyUrl: legalUrl(number.accountId, 'privacy'),
-      termsAndConditionsUrl: legalUrl(number.accountId, 'terms'),
+      privacyPolicyUrl: legal.privacy,
+      termsAndConditionsUrl: legal.terms,
       additionalInformation: 'Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the client’s website form shown in the opt-in links.',
       externalReferenceId: number.accountId,
       ageGatedContent: false,

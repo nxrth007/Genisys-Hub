@@ -4,14 +4,32 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowLeft, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
-import { Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { MARKETING_CONSENT_TEXT, SMS_CONSENT_TEXT } from '@/lib/hl/templates'
+import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
+import { Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 
 type FormDetail = {
-  form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings }
+  form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings & { consents: HlConsentBox[] } }
   submissions: { id: string; createdAt: string; data: Record<string, unknown>; pageUrl: string | null; contact: { id: string; firstName: string | null; lastName: string | null } | null }[]
+  /** What blank settings fall back to. */
+  defaults: { business: string; privacy: string; terms: string; fromProfile: { privacy: boolean; terms: boolean } }
 }
+
+const CONSENT_KINDS: { kind: HlConsentBox['kind']; label: string; text: string }[] = [
+  { kind: 'sms', label: 'Texts about their request', text: SMS_CONSENT_TEXT },
+  { kind: 'marketing', label: 'Promotional texts', text: MARKETING_CONSENT_TEXT },
+]
+
+/** Colours a form can set, with the plain look's values when it doesn't. */
+const COLOURS: { key: keyof HlFormSettings; label: string; fallback: string }[] = [
+  { key: 'color', label: 'Button', fallback: '#155EEF' },
+  { key: 'buttonText', label: 'Button text', fallback: '#FFFFFF' },
+  { key: 'textColor', label: 'Heading and labels', fallback: '#101828' },
+  { key: 'inputBackground', label: 'Input background', fallback: '#FFFFFF' },
+  { key: 'inputText', label: 'Input text', fallback: '#101828' },
+  { key: 'inputBorder', label: 'Input border', fallback: '#D0D5DD' },
+]
 
 const TYPES: { value: HlFieldType; label: string }[] = [
   { value: 'text', label: 'Short text' },
@@ -40,6 +58,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
   const [tab, setTab] = useState<'build' | 'submissions'>('build')
   const [version, setVersion] = useState(0)
 
+  const [defaults, setDefaults] = useState(data.defaults)
   const save = useMutation({
     mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms/${formId}`, { method: 'PATCH', json: { name, fields, settings } }),
     onSuccess: () => {
@@ -47,6 +66,16 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
       setVersion((v) => v + 1)
     },
   })
+  const lookAgain = useMutation({
+    mutationFn: () => hlFetch<FormDetail>(`/api/hl/accounts/${accountId}/forms/${formId}?lookLegal=1`),
+    onSuccess: (d) => {
+      setDefaults(d.defaults)
+      qc.invalidateQueries({ queryKey: ['hl', 'account', accountId] })
+    },
+  })
+  const consents = settings.consents ?? []
+  const setConsent = (kind: HlConsentBox['kind'], patch: Partial<HlConsentBox>) =>
+    setSettings((s) => ({ ...s, consents: (s.consents ?? []).map((c) => (c.kind === kind ? { ...c, ...patch } : c)) }))
   const archive = useMutation({
     mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms/${formId}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -137,27 +166,118 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
               </div>
             </Card>
             <Card className="flex flex-col gap-4 p-5">
-              <p className="text-[15px] font-semibold text-foreground">Wording and look</p>
+              <p className="text-[15px] font-semibold text-foreground">Wording</p>
               <Field label="Heading">
                 <Input value={settings.heading ?? ''} onChange={(e) => setSettings({ ...settings, heading: e.target.value })} />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Button text">
-                  <Input value={settings.submitLabel ?? ''} onChange={(e) => setSettings({ ...settings, submitLabel: e.target.value })} />
-                </Field>
-                <Field label="Colour">
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={settings.color ?? '#155EEF'} onChange={(e) => setSettings({ ...settings, color: e.target.value })} className="h-10 w-12 cursor-pointer rounded-lg border border-border" />
-                    <Input value={settings.color ?? ''} onChange={(e) => setSettings({ ...settings, color: e.target.value })} />
-                  </div>
-                </Field>
-              </div>
+              <Field label="Button text">
+                <Input value={settings.submitLabel ?? ''} onChange={(e) => setSettings({ ...settings, submitLabel: e.target.value })} />
+              </Field>
               <Field label="Thank-you message">
                 <Textarea rows={2} value={settings.thankYou ?? ''} onChange={(e) => setSettings({ ...settings, thankYou: e.target.value })} />
               </Field>
-              <Field label="Texting consent wording" hint="Shown next to the consent checkbox. Carriers check this when they verify the number, so keep the STOP/HELP and rates wording. {{business}} becomes the business name.">
-                <Textarea rows={3} value={settings.consentText ?? ''} onChange={(e) => setSettings({ ...settings, consentText: e.target.value })} />
+            </Card>
+
+            <Card className="flex flex-col gap-4 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[15px] font-semibold text-foreground">Style</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSettings((s) => ({ ...s, color: '#155EEF', buttonText: undefined, background: undefined, textColor: undefined, inputBackground: undefined, inputText: undefined, inputBorder: undefined }))}
+                >
+                  Reset colours
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Background" hint={chat ? 'The chat panel' : 'Behind the whole form'}>
+                  <div className="flex items-center gap-2">
+                    <ColourInput value={settings.background === 'transparent' ? '#FFFFFF' : settings.background} fallback="#FFFFFF" disabled={settings.background === 'transparent'} onChange={(v) => setSettings({ ...settings, background: v })} />
+                    {!chat && (
+                      <label className="flex items-center gap-1.5 whitespace-nowrap text-[12.5px] text-muted-foreground">
+                        <input type="checkbox" checked={settings.background === 'transparent'} onChange={(e) => setSettings({ ...settings, background: e.target.checked ? 'transparent' : undefined })} /> None
+                      </label>
+                    )}
+                  </div>
+                </Field>
+                {COLOURS.map((c) => (
+                  <Field key={c.key} label={c.label}>
+                    <ColourInput value={settings[c.key] as string | undefined} fallback={c.fallback} onChange={(v) => setSettings({ ...settings, [c.key]: v })} />
+                  </Field>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="flex flex-col gap-4 p-5">
+              <div>
+                <p className="text-[15px] font-semibold text-foreground">Consent checkboxes</p>
+                <p className="text-[12.5px] text-muted-foreground">
+                  {'{{business}}'} becomes “{defaults.business}”. “Privacy Policy” and “Terms” in the wording link to the pages below. Both boxes start unchecked; carriers look for that.
+                </p>
+              </div>
+              {CONSENT_KINDS.map((k) => {
+                const box = consents.find((c) => c.kind === k.kind)
+                if (!box) {
+                  return (
+                    <Button key={k.kind} icon={<Plus className="h-4 w-4" />} onClick={() => setSettings((s) => ({ ...s, consents: [...(s.consents ?? []), { kind: k.kind, text: k.text, required: false }].sort((a, b) => (a.kind === 'sms' ? -1 : b.kind === 'sms' ? 1 : 0)) }))}>
+                      Add the {k.label.toLowerCase()} box
+                    </Button>
+                  )
+                }
+                return (
+                  <div key={k.kind} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-medium text-foreground">{k.label}</p>
+                      <span className="flex items-center gap-3">
+                        <button type="button" className="text-[12px] text-muted-foreground hover:text-foreground" onClick={() => setConsent(k.kind, { text: k.text })}>
+                          Standard wording
+                        </button>
+                        <label className="flex items-center gap-1.5 text-[12.5px] text-foreground/85">
+                          <input type="checkbox" checked={!!box.required} onChange={(e) => setConsent(k.kind, { required: e.target.checked })} /> Required
+                        </label>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-destructive"
+                          title="Remove this box"
+                          onClick={() => setSettings((s) => ({ ...s, consents: (s.consents ?? []).filter((c) => c.kind !== k.kind) }))}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    </div>
+                    <Textarea rows={4} value={box.text} onChange={(e) => setConsent(k.kind, { text: e.target.value })} />
+                    {box.required && (
+                      <p className="flex items-start gap-1.5 text-[12px] text-warning">
+                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        Carriers reject texting verification when agreeing to texts is required to send the form. Keep it optional on forms that go with a number being verified.
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </Card>
+
+            <Card className="flex flex-col gap-4 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[15px] font-semibold text-foreground">Privacy policy and terms</p>
+                  <p className="text-[12.5px] text-muted-foreground">Where the links in the consent wording and under the form go. Blank uses the sub-account’s.</p>
+                </div>
+                <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={lookAgain.isPending} onClick={() => lookAgain.mutate()} title="Read the client's website again for its /privacy and /terms pages">
+                  Check their website
+                </Button>
+              </div>
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
+                Show “Privacy policy · Texting terms” under the form
+                <Toggle checked={settings.showLegalLinks !== false} onChange={(v) => setSettings({ ...settings, showLegalLinks: v })} label="Show the links under the form" />
+              </label>
+              <Field label="Privacy policy link" hint={`Blank: ${defaults.privacy}${defaults.fromProfile.privacy ? '' : ' (hosted by the Hub)'}`}>
+                <Input value={settings.privacyUrl ?? ''} onChange={(e) => setSettings({ ...settings, privacyUrl: e.target.value })} placeholder={defaults.privacy} />
               </Field>
+              <Field label="Terms link" hint={`Blank: ${defaults.terms}${defaults.fromProfile.terms ? '' : ' (hosted by the Hub)'}`}>
+                <Input value={settings.termsUrl ?? ''} onChange={(e) => setSettings({ ...settings, termsUrl: e.target.value })} placeholder={defaults.terms} />
+              </Field>
+              <ErrorNote error={lookAgain.error} />
             </Card>
           </div>
           <div className="flex flex-col gap-2">
@@ -188,7 +308,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
                   <dl className="mt-1.5 grid gap-x-4 gap-y-0.5 text-[13px] sm:grid-cols-[160px_1fr]">
                     {Object.entries(s.data).map(([k, v]) => (
                       <div key={k} className="contents">
-                        <dt className="text-muted-foreground">{data.form.fields.find((f) => f.key === k)?.label ?? (k === 'sms_consent' ? 'Agreed to texts' : k)}</dt>
+                        <dt className="text-muted-foreground">{data.form.fields.find((f) => f.key === k)?.label ?? (k === 'sms_consent' ? 'Agreed to texts' : k === 'marketing_consent' ? 'Agreed to promotional texts' : k)}</dt>
                         <dd className="whitespace-pre-wrap text-foreground/90">{typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</dd>
                       </div>
                     ))}
@@ -200,6 +320,16 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
           )}
         </Card>
       )}
+    </div>
+  )
+}
+
+/** A colour picker with its hex beside it; blank keeps the default. */
+function ColourInput({ value, fallback, onChange, disabled }: { value: string | undefined; fallback: string; onChange: (v: string | undefined) => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-1 items-center gap-2">
+      <input type="color" disabled={disabled} value={value || fallback} onChange={(e) => onChange(e.target.value)} className="h-9 w-11 shrink-0 cursor-pointer rounded-md border border-border disabled:opacity-40" />
+      <Input disabled={disabled} value={value ?? ''} onChange={(e) => onChange(e.target.value.trim() || undefined)} placeholder={fallback} className="font-mono text-[12.5px]" />
     </div>
   )
 }

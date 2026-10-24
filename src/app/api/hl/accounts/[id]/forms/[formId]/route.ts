@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
+import { readProfile } from '@/lib/hl/accounts'
+import { asSettings, consentsOf } from '@/lib/hl/forms'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
-import type { HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
+import { fillLegalLinksFromSite, resolveLegalLinks } from '@/lib/hl/legal-links'
+import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
 
 type Ctx = { params: Promise<{ id: string; formId: string }> }
 
@@ -41,30 +44,77 @@ function cleanFields(raw: unknown): HlField[] {
 function cleanSettings(raw: unknown): HlFormSettings {
   const s = (raw ?? {}) as Record<string, unknown>
   const t = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined)
-  const color = t(s.color, 7)
+  const hex = (v: unknown) => {
+    const c = t(v, 7)
+    return c && /^#[0-9a-f]{6}$/i.test(c) ? c : undefined
+  }
+  const url = (v: unknown, what: string) => {
+    const u = t(v, 500)
+    if (!u) return undefined
+    if (!/^https?:\/\/[^\s/$.?#][^\s]*$/i.test(u)) throw new HlInputError(`The ${what} link has to be a full address starting with https://.`)
+    return u
+  }
+  const consents: HlConsentBox[] = []
+  for (const c of Array.isArray(s.consents) ? s.consents.slice(0, 4) : []) {
+    const box = (c ?? {}) as Record<string, unknown>
+    const text = t(box.text, 1000)
+    if (!text || (box.kind !== 'sms' && box.kind !== 'marketing') || consents.some((x) => x.kind === box.kind)) continue
+    consents.push({ kind: box.kind, text, required: box.required === true })
+  }
   return {
     heading: t(s.heading, 120),
     submitLabel: t(s.submitLabel, 40),
     thankYou: t(s.thankYou, 400),
-    consentText: t(s.consentText, 600),
-    color: color && /^#[0-9a-f]{6}$/i.test(color) ? color : '#155EEF',
+    // The editor always sends the boxes; the old single wording only stays on a form saved without them.
+    ...(Array.isArray(s.consents) ? { consents } : { consentText: t(s.consentText, 600) }),
+    color: hex(s.color) ?? '#155EEF',
+    buttonText: hex(s.buttonText),
+    background: s.background === 'transparent' ? 'transparent' : hex(s.background),
+    textColor: hex(s.textColor),
+    inputBackground: hex(s.inputBackground),
+    inputText: hex(s.inputText),
+    inputBorder: hex(s.inputBorder),
+    showLegalLinks: s.showLegalLinks !== false,
+    privacyUrl: url(s.privacyUrl, 'privacy policy'),
+    termsUrl: url(s.termsUrl, 'terms'),
   }
 }
 
-/** GET: the form and its latest submissions. */
-export async function GET(_req: Request, { params }: Ctx) {
+/**
+ * GET: the form (its consent boxes spelled out, old single-box forms too),
+ * its latest submissions, and what blank links fall back to.
+ * ?lookLegal=1 reads the client's website again for its policy pages.
+ */
+export async function GET(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const { id, formId } = await params
   const form = await load(id, formId)
   if (!form) return NextResponse.json({ error: 'Form not found' }, { status: 404 })
-  const submissions = await prisma.hlFormSubmission.findMany({
-    where: { formId },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-    include: { contact: { select: { id: true, firstName: true, lastName: true } } },
+  // The client's own /privacy and /terms, the first time (or when asked again).
+  await fillLegalLinksFromSite(id, new URL(req.url).searchParams.get('lookLegal') === '1')
+  const [submissions, account] = await Promise.all([
+    prisma.hlFormSubmission.findMany({
+      where: { formId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { contact: { select: { id: true, firstName: true, lastName: true } } },
+    }),
+    prisma.hlAccount.findUniqueOrThrow({ where: { id }, select: { name: true, profile: true } }),
+  ])
+  const profile = readProfile(account.profile)
+  const settings = asSettings(form.settings)
+  const fallback = resolveLegalLinks(id, profile)
+  return NextResponse.json({
+    form: { ...form, settings: { ...settings, consentText: undefined, consents: consentsOf(settings) } },
+    submissions,
+    defaults: {
+      business: profile.businessName || account.name,
+      privacy: fallback.privacy,
+      terms: fallback.terms,
+      fromProfile: { privacy: !!profile.privacyUrl, terms: !!profile.termsUrl },
+    },
   })
-  return NextResponse.json({ form, submissions })
 }
 
 /** PATCH { name?, fields?, settings? } */

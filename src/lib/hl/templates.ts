@@ -1,4 +1,4 @@
-import type { HlField, HlFormSettings, HlStage, HlStep, HlTrigger } from './types'
+import type { HlConsentBox, HlField, HlFormSettings, HlStage, HlStep, HlTrigger } from './types'
 
 /**
  * The starter kit every sub-account gets: a lead pipeline, the website quote
@@ -33,24 +33,43 @@ export const CHAT_FIELDS: HlField[] = [
   { key: 'message', label: 'How can we help?', type: 'textarea', required: true },
 ]
 
-/** Consent wording for the checkbox; {{business}} is filled when the form renders. */
+/** The single consent box forms had before the two below; {{business}} is filled when the form renders. */
 export const CONSENT_TEXT =
   'I agree to receive text messages from {{business}} about my request. Message frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.'
+
+/**
+ * Every new form's two boxes (Alex's wording, as on A Plus Fence's GHL
+ * forms): texts about their request, and separately, promotions. Neither is
+ * required by default: carriers reject verification when consent is a
+ * condition of sending the form.
+ */
+export const SMS_CONSENT_TEXT =
+  'By checking this box, I agree to receive SMS text messages from {{business}} about my inquiry, estimates, appointments, and project updates. Msg frequency varies, typically 4-8 msgs/month. Msg & data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of purchase. See our Privacy Policy and Terms.'
+
+export const MARKETING_CONSENT_TEXT =
+  'By checking this box, I also agree to receive occasional marketing and promotional SMS text messages from {{business}}, such as seasonal specials and discounts. Typically 1-2 msgs/month. Msg & data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of purchase.'
+
+export const DEFAULT_CONSENTS: HlConsentBox[] = [
+  { kind: 'sms', text: SMS_CONSENT_TEXT, required: false },
+  { kind: 'marketing', text: MARKETING_CONSENT_TEXT, required: false },
+]
 
 export const QUOTE_FORM_SETTINGS: HlFormSettings = {
   heading: 'Get your free quote',
   submitLabel: 'Get my free quote',
   thankYou: "Thanks! We got your request and we'll be in touch shortly.",
-  consentText: CONSENT_TEXT,
+  consents: DEFAULT_CONSENTS,
   color: '#155EEF',
+  showLegalLinks: true,
 }
 
 export const CHAT_SETTINGS: HlFormSettings = {
   heading: 'Hi there! Have a question? Text us here.',
   submitLabel: 'Send',
   thankYou: "Thanks! We'll text you back shortly.",
-  consentText: CONSENT_TEXT,
+  consents: DEFAULT_CONSENTS,
   color: '#155EEF',
+  showLegalLinks: true,
 }
 
 const STAFF_SMS =

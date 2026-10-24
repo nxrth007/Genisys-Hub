@@ -2337,6 +2337,9 @@ model HlContact {
   /// Ticked the texting consent box on a form, or called/texted first.
   smsConsent    Boolean   @default(false)
   smsConsentAt  DateTime?
+  /// Ticked the separate, optional box for promotional texts. Marketing sends go only to these.
+  marketingConsent   Boolean   @default(false)
+  marketingConsentAt DateTime?
   /// Texted STOP: nothing goes out until they text START.
   dnd           Boolean   @default(false)
   /// Form answers and anything else worth keeping, by field key.

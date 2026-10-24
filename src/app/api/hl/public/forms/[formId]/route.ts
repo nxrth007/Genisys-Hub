@@ -26,7 +26,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const form = await publicForm(formId)
   if (!form) return NextResponse.json({ error: 'Form not found' }, { status: 404, headers: CORS })
   // Everything but the sub-account id.
-  return NextResponse.json({ form: { id: form.id, kind: form.kind, name: form.name, business: form.business, fields: form.fields, settings: form.settings } }, { headers: CORS })
+  return NextResponse.json({ form: { id: form.id, kind: form.kind, name: form.name, business: form.business, fields: form.fields, settings: form.settings, legal: form.legal } }, { headers: CORS })
 }
 
 export async function POST(req: Request, { params }: Ctx) {

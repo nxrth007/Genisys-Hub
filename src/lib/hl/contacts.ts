@@ -18,6 +18,8 @@ export type ContactInput = {
   source?: string | null
   /** True records texting consent (form checkbox, or they called/texted first). */
   consent?: boolean
+  /** True records consent to promotional texts (the separate marketing box). */
+  marketingConsent?: boolean
   fields?: Record<string, unknown>
   tags?: string[]
 }
@@ -53,6 +55,10 @@ export async function upsertContact(accountId: string, input: ContactInput): Pro
       data.smsConsent = true
       data.smsConsentAt = new Date()
     }
+    if (input.marketingConsent && !existing.marketingConsent) {
+      data.marketingConsent = true
+      data.marketingConsentAt = new Date()
+    }
     if (input.fields && Object.keys(input.fields).length) {
       data.fields = { ...((existing.fields as Record<string, unknown>) ?? {}), ...input.fields } as Prisma.InputJsonValue
     }
@@ -73,6 +79,8 @@ export async function upsertContact(accountId: string, input: ContactInput): Pro
       tags,
       smsConsent: !!input.consent,
       smsConsentAt: input.consent ? new Date() : null,
+      marketingConsent: !!input.marketingConsent,
+      marketingConsentAt: input.marketingConsent ? new Date() : null,
       fields: (input.fields ?? {}) as Prisma.InputJsonValue,
     },
   })
