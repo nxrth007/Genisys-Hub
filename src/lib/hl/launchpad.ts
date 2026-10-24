@@ -49,28 +49,30 @@ export async function launchpad(accountId: string): Promise<{ items: LaunchItem[
     {
       key: 'number',
       title: 'Get a phone number',
-      detail: number ? `${number.number} is this sub-account’s number.` : 'Buy a toll-free number: leads text and call it, and every automation texts from it.',
+      detail: number ? `${number.number} is this sub-account’s number.` : 'Buy a toll-free or local number: leads text and call it, and every automation texts from it.',
       done: !!number,
-      href: 'settings?tab=numbers',
+      href: 'settings?tab=phone-numbers',
       cta: 'Buy a number',
     },
     {
       key: 'texting',
       title: 'Get texting approved',
       detail: !number
-        ? 'Comes after the number: Hell-level files the toll-free verification with Twilio for you (no code from the client).'
-        : number.kind !== 'toll_free'
-          ? 'Local numbers need A2P 10DLC registration, which Hell-level doesn’t file. Use a toll-free number to text.'
-          : number.verificationStatus === 'approved'
-            ? 'Twilio approved this number for texting.'
-            : number.verificationStatus === 'rejected'
-              ? `Twilio rejected the verification${number.verificationNote ? `: ${number.verificationNote}` : ''}. Fix and file again.`
-              : number.verificationSid
+        ? 'Comes after the number: Hell-level files the texting registration with Twilio for you (no code from the client).'
+        : number.verificationStatus === 'approved'
+          ? 'Approved: this number texts.'
+          : number.verificationStatus === 'rejected'
+            ? `${number.kind === 'toll_free' ? 'Twilio rejected the verification' : 'The A2P registration was rejected'}${number.verificationNote ? `: ${number.verificationNote}` : ''}. Fix and file again.`
+            : number.verificationStatus === 'pending' || number.verificationStatus === 'in_review'
+              ? number.kind === 'toll_free'
                 ? 'Filed with Twilio; usually approved within a few business days.'
-                : 'File the toll-free verification: one click, filled from the business profile.',
-      done: number?.kind === 'toll_free' && number.verificationStatus === 'approved',
-      href: 'settings?tab=numbers',
-      cta: number?.verificationSid ? 'Check status' : 'File verification',
+                : 'A2P filed with Twilio; carriers usually approve it within a few days to two weeks.'
+              : number.kind === 'toll_free'
+                ? 'File the toll-free verification: one click, filled from the business profile. Free.'
+                : 'Register the local number for A2P: one click, filled from the business profile. About $19.50 once, then $1.50 a month.',
+      done: number?.verificationStatus === 'approved',
+      href: 'settings?tab=phone-numbers',
+      cta: number && number.verificationStatus !== 'none' ? 'Check status' : number?.kind === 'local' ? 'Register for A2P' : 'File verification',
     },
     {
       key: 'calls',
@@ -79,7 +81,7 @@ export async function launchpad(accountId: string): Promise<{ items: LaunchItem[
         ? `Calls ring ${number.forwardTo}; unanswered ones get the text-back.`
         : 'Set the phone calls ring, or forward the owner’s own line here when they don’t answer.',
       done: !!number?.forwardTo || calls > 0,
-      href: 'settings?tab=numbers',
+      href: 'settings?tab=phone-numbers',
       cta: 'Set call forwarding',
     },
     {

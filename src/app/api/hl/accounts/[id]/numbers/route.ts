@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { buyNumber, searchNumbers } from '@/lib/hl/twilio'
+import { syncA2pNumbers } from '@/lib/hl/a2p'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -39,6 +40,8 @@ export async function POST(req: Request, { params }: Ctx) {
     const kind = body.kind === 'local' ? 'local' : 'toll_free'
     const row = await buyNumber(id, number, kind)
     console.log(`[hell-level] ${guard.email} bought ${row.number} (${kind}) for ${account.name}`)
+    // A local number joins the sub-account's A2P campaign when there is one.
+    if (kind === 'local') await syncA2pNumbers(id).catch((err) => console.warn('[hell-level] A2P sync after purchase:', err))
     return NextResponse.json({ number: row })
   } catch (err) {
     return hlError(err, 'buy number')

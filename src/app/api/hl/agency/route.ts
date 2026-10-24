@@ -47,7 +47,7 @@ export async function GET() {
     openValue: pick(open, a.id)?._sum.value ?? 0,
     won30: pick(won30, a.id)?._count._all ?? 0,
     wonValue30: pick(won30, a.id)?._sum.value ?? 0,
-    texting: a.numbers.some((n) => n.kind === 'toll_free' && n.verificationStatus === 'approved') ? 'live' : a.numbers.length ? 'pending' : 'none',
+    texting: a.numbers.some((n) => n.verificationStatus === 'approved') ? 'live' : a.numbers.length ? 'pending' : 'none',
     workflows: a._count.workflows,
     calendars: a._count.calendars,
     domains: a._count.domains,

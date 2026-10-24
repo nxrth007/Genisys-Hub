@@ -16,6 +16,7 @@ import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { ImportPanel } from '@/components/hell-level/import-panel'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
 import { StaffPanel } from '@/components/hell-level/staff-panel'
+import { A2pTexting } from '@/components/hell-level/a2p-panel'
 
 const ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu']
 
@@ -288,9 +289,9 @@ function NumbersTab({ accountId, numbers }: { accountId: string; numbers: PhoneN
           <Phone className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-semibold text-foreground">Texting without A2P</p>
+          <p className="text-[14px] font-semibold text-foreground">Texting approval</p>
           <p className="text-[13px] text-muted-foreground">
-            Toll-free numbers don’t need A2P 10DLC (or the owner’s one-time passcode). Hell-level files the toll-free verification with Twilio from this sub-account’s profile; Twilio reviews it in a few business days.
+            Hell-level files it with Twilio from this sub-account’s profile, with no code from the owner. Toll-free numbers: a free verification, reviewed in a few business days. Local numbers: A2P 10DLC, about $19.50 once and $1.50 a month, reviewed in a few days to two weeks.
           </p>
         </div>
         <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setBuying(true)}>
@@ -358,7 +359,7 @@ function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNum
         <div className="flex flex-col gap-3">
           <p className="text-[14px] font-semibold text-foreground">Texting</p>
           {!tollFree ? (
-            <p className="text-[13px] text-muted-foreground">Local numbers need A2P 10DLC registration (with the owner’s one-time passcode), which Hell-level doesn’t do. Buy a toll-free number to text without it.</p>
+            <A2pTexting accountId={accountId} number={n.number} />
           ) : n.verificationStatus === 'approved' ? (
             <p className="flex items-center gap-2 text-[13px] text-success">
               <ShieldCheck className="h-4 w-4" /> Approved by Twilio. Texts go out from this number.
@@ -523,7 +524,7 @@ function BuyModal({ accountId, onClose }: { accountId: string; onClose: () => vo
               className={`rounded-lg border p-3 text-left transition ${kind === k ? 'border-primary bg-primary-soft ring-2 ring-primary/20' : 'border-border hover:bg-muted/50'}`}
             >
               <p className="text-[14px] font-semibold text-foreground">{k === 'toll_free' ? 'Toll-free (recommended)' : 'Local'}</p>
-              <p className="text-[12px] text-muted-foreground">{k === 'toll_free' ? 'Texts after a verification Hell-level files. No A2P.' : 'Local area code, but texting needs A2P 10DLC.'}</p>
+              <p className="text-[12px] text-muted-foreground">{k === 'toll_free' ? 'Texts after a free verification Hell-level files.' : 'Local area code. Texts after A2P, which Hell-level files: about $19.50 once + $1.50/mo.'}</p>
             </button>
           ))}
         </div>

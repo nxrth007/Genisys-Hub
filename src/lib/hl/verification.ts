@@ -9,17 +9,16 @@ import { resolveLegalLinks } from './legal-links'
 import { publicBase, twilioClient } from './twilio'
 
 /**
- * Toll-free verification, the Hell-level answer to A2P.
+ * Toll-free verification: texting for toll-free numbers with no A2P fees.
  *
- * Local (10DLC) numbers need an A2P brand registered with The Campaign
- * Registry, and the registry now sends the business owner a one-time
- * passcode to confirm it: that's the step GHL can't skip and nobody can do
- * for the client. Toll-free numbers are verified differently: one form per
- * number, filed with Twilio's API from what the Hub already knows (business
- * name, website, EIN from onboarding, the opt-in form, sample messages), no
- * code from the client. Twilio says it reviews within about three business
- * days; until then a toll-free number can't text (owner notifications fall
- * back to the Hub's own number meanwhile).
+ * Local (10DLC) numbers are registered for A2P instead (a2p.ts: a brand and
+ * a campaign, about $19.50 once and $1.50 a month). Toll-free numbers are
+ * verified differently: one form per number, filed with Twilio's API from
+ * what the Hub already knows (business name, website, EIN from onboarding,
+ * the opt-in form, sample messages), free, no code from the client. Twilio
+ * says it reviews within about three business days; until then a toll-free
+ * number can't text (owner notifications fall back to the Hub's own number
+ * meanwhile).
  *
  * The Trust Hub business profile (CustomerProfileSid) is Genisys's own: set
  * once in the Twilio Console, Twilio-approved, then used for every client.
@@ -48,7 +47,8 @@ export async function saveTwilioSettings(s: HlTwilioSettings): Promise<void> {
   await prisma.appSetting.upsert({ where: { key: SETTINGS_KEY }, create: { key: SETTINGS_KEY, value }, update: { value } })
 }
 
-async function profileSid(): Promise<string> {
+/** Genisys's own approved Trust Hub profile (toll-free verifications are filed under it, and A2P profiles are tied to it). */
+export async function primaryProfileSid(): Promise<string> {
   const s = await readTwilioSettings()
   if (s.customerProfileSid?.trim()) return s.customerProfileSid.trim()
   const client = await twilioClient()
@@ -75,7 +75,7 @@ export const formUrl = (formId: string) => `${publicBase()}/hl/f/${formId}`
 export async function verificationDraft(numberId: string) {
   const number = await prisma.hlPhoneNumber.findUnique({ where: { id: numberId }, include: { account: { include: { forms: { where: { archivedAt: null } }, workflows: true } } } })
   if (!number || number.status !== 'active') throw new HlInputError('That number isn’t active.')
-  if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers need A2P 10DLC registration, which Hell-level doesn’t do.')
+  if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers are registered for A2P instead (the Texting panel on the number).')
   if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Hell-level.')
   const p = readProfile(number.account.profile)
   const missing = [
@@ -141,7 +141,7 @@ export async function submitVerification(numberId: string): Promise<{ status: st
   }
   const notificationEmail = (await readTwilioSettings()).notificationEmail?.trim() || 'alex@leadgenisys.com'
   const client = await twilioClient()
-  const customerProfileSid = await profileSid()
+  const customerProfileSid = await primaryProfileSid()
   const params = { ...request, notificationEmail, customerProfileSid }
   // A rejected verification is edited and resubmitted rather than filed again.
   const v =
@@ -173,7 +173,7 @@ let lastSweep = 0
 export async function maybeRefreshVerifications(): Promise<number> {
   if (Date.now() - lastSweep < 30 * 60_000) return 0
   lastSweep = Date.now()
-  const pending = await prisma.hlPhoneNumber.findMany({ where: { status: 'active', verificationStatus: { in: ['pending', 'in_review'] }, verificationSid: { not: null } }, select: { id: true } })
+  const pending = await prisma.hlPhoneNumber.findMany({ where: { status: 'active', kind: 'toll_free', verificationStatus: { in: ['pending', 'in_review'] }, verificationSid: { not: null } }, select: { id: true } })
   let changed = 0
   for (const n of pending) {
     try {

@@ -2282,6 +2282,46 @@ model HlAccount {
   tasks         HlTask[]
   records       HlRecord[]
   domains       HlDomain[]
+  a2p           HlA2p?
+}
+
+/// A sub-account's A2P 10DLC registration, so its local numbers can text.
+/// Genisys files it with Twilio as the ISV (src/lib/hl/a2p.ts): a business
+/// profile and trust bundle in Trust Hub, a brand with The Campaign Registry,
+/// then a campaign on a Messaging Service holding the local numbers.
+model HlA2p {
+  id                  String    @id @default(cuid())
+  accountId           String    @unique
+  account             HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// low_volume | standard | sole_prop
+  path                String    @default("low_volume")
+  /// What the review screen filed: business, representative, campaign copy.
+  details             Json      @default("{}")
+  /// draft | profile | brand | otp | campaign | approved | failed
+  stage               String    @default("draft")
+  customerProfileSid  String?
+  trustProductSid     String?
+  brandSid            String?
+  brandStatus         String?
+  identityStatus      String?
+  messagingServiceSid String?
+  campaignSid         String?
+  campaignStatus      String?
+  /// What's wrong, in plain words, when a step failed.
+  note                String?
+  /// The other Twilio sids (end users, address, document), the attached
+  /// numbers and which step failed.
+  meta                Json      @default("{}")
+  /// The next step waits until then (Twilio wants a pause between steps).
+  nextAt              DateTime?
+  /// Claimed by a worker until then, so a registration is never filed (and paid for) twice.
+  lockedUntil         DateTime?
+  filedBy             String?
+  filedAt             DateTime?
+  approvedAt          DateTime?
+  checkedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 /// A phone number bought for a sub-account. Texts go out from it; calls to it

@@ -47,6 +47,7 @@ import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
+import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeResumeImports } from './hl/ghl-import'
 import { maybeRefreshDomains } from './hl/domains'
 
@@ -461,6 +462,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)
       })
       .catch((err) => console.error('[scheduler] hell-level verification check failed:', err))
+    // A2P registrations for local numbers: brand next, then the campaign, then the carriers' answer.
+    void maybeAdvanceA2p()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} A2P registration(s) moved on`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level A2P check failed:', err))
     // Domain transfers in progress (every 30 min) and expiry dates (twice a day).
     void maybeRefreshDomains()
       .then((n) => {

@@ -22,11 +22,21 @@ export async function sendingNumber(accountId: string): Promise<HlPhoneNumber | 
   })
 }
 
-/** Can this number text people yet? Toll-free numbers can't until Twilio approves their verification. */
+/**
+ * Can this number text people yet? A toll-free number can't until Twilio
+ * approves its verification, and a local one until its A2P campaign is
+ * approved (carriers block unregistered local-number texts outright).
+ */
 export function textingReady(n: Pick<HlPhoneNumber, 'kind' | 'verificationStatus'> | null): { ok: boolean; reason: string | null } {
   if (!n) return { ok: false, reason: 'This sub-account has no phone number yet (Settings → Phone Numbers).' }
-  if (n.kind === 'toll_free' && n.verificationStatus !== 'approved') {
-    return { ok: false, reason: 'Texting isn’t approved yet: the number’s toll-free verification is still pending (Settings → Phone Numbers).' }
+  if (n.verificationStatus !== 'approved') {
+    return {
+      ok: false,
+      reason:
+        n.kind === 'toll_free'
+          ? 'Texting isn’t approved yet: the number’s toll-free verification is still pending (Settings → Phone Numbers).'
+          : 'Texting isn’t approved yet: the local number’s A2P registration isn’t finished (Settings → Phone Numbers).',
+    }
   }
   return { ok: true, reason: null }
 }

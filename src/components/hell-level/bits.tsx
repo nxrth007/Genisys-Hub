@@ -40,11 +40,11 @@ export function useAccount(accountId: string) {
 export function textingBadge(n: { kind: string; verification?: string; verificationStatus?: string } | null) {
   if (!n) return <Badge color="gray">No number</Badge>
   const v = n.verification ?? n.verificationStatus ?? 'none'
-  if (n.kind !== 'toll_free') return <Badge color="amber">Local: needs A2P</Badge>
+  const what = n.kind === 'toll_free' ? 'Verification' : 'A2P'
   if (v === 'approved') return <Badge color="green" dot>Texting live</Badge>
-  if (v === 'rejected') return <Badge color="red" dot>Verification rejected</Badge>
-  if (v === 'pending' || v === 'in_review') return <Badge color="blue" dot>Verification in review</Badge>
-  return <Badge color="amber" dot>Verification not filed</Badge>
+  if (v === 'rejected') return <Badge color="red" dot>{what} rejected</Badge>
+  if (v === 'pending' || v === 'in_review') return <Badge color="blue" dot>{what} in review</Badge>
+  return <Badge color="amber" dot>{what} not filed</Badge>
 }
 
 export type ContactRow = {
