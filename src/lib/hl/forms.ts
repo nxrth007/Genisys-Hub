@@ -96,6 +96,7 @@ export async function submitForm(formId: string, raw: Record<string, unknown>, m
     consent,
     marketingConsent,
     fields: extra,
+    update: true,
   })
   const consentData = {
     sms_consent: consent,

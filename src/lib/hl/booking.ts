@@ -423,7 +423,7 @@ export async function book(calendarId: string, input: BookInput, o: { source?: '
   const calendar = await loadCalendar(calendarId)
   const accountId = calendar.accountId
   const duration = pickedDuration(asCalendarSettings(calendar.settings), input.duration)
-  const { contact, created } = await upsertContact(accountId, { firstName, lastName, phone, email, source: 'booking', consent, marketingConsent })
+  const { contact, created } = await upsertContact(accountId, { firstName, lastName, phone, email, source: 'booking', consent, marketingConsent, update: true })
 
   const { appointment, series } = await prisma.$transaction(
     async (tx) => {

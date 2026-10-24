@@ -87,7 +87,7 @@ export async function submitSurvey(formId: string, input: SurveyInput, meta: { i
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Please enter a valid email address.', field: 'email' }
   const name = (input.name ?? '').trim().slice(0, 120)
   if (!contactId) {
-    const { contact } = await upsertContact(survey.accountId, { fullName: name || (email ? null : 'Survey feedback'), email: email || null, source: 'survey' })
+    const { contact } = await upsertContact(survey.accountId, { fullName: name || (email ? null : 'Survey feedback'), email: email || null, source: 'survey', update: !!name })
     contactId = contact.id
   }
   const answers = { rate_us: label, your_feedback: feedback, ...(name ? { full_name: name } : {}), ...(email ? { email } : {}) }

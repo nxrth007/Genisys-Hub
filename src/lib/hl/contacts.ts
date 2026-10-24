@@ -22,6 +22,12 @@ export type ContactInput = {
   marketingConsent?: boolean
   fields?: Record<string, unknown>
   tags?: string[]
+  /**
+   * They typed it in themselves (a form, the booking page, a survey): their
+   * name, email and phone replace what's on file, as GHL does. Otherwise
+   * (staff, an inbound text or call) only blanks are filled.
+   */
+  update?: boolean
 }
 
 const cleanEmail = (e: string | null | undefined) => {
@@ -47,10 +53,14 @@ export async function upsertContact(accountId: string, input: ContactInput): Pro
 
   if (existing) {
     const data: Prisma.HlContactUpdateInput = {}
-    if (!existing.firstName && firstName) data.firstName = firstName
-    if (!existing.lastName && lastName) data.lastName = lastName
-    if (!existing.phone && phone) data.phone = phone
-    if (!existing.email && email) data.email = email
+    const replace = input.update === true
+    // A phone or email that's already another contact's stays theirs.
+    const phoneFree = async (v: string) => !(await prisma.hlContact.findFirst({ where: { accountId, phone: v, id: { not: existing.id } }, select: { id: true } }))
+    const emailFree = async (v: string) => !(await prisma.hlContact.findFirst({ where: { accountId, email: v, id: { not: existing.id } }, select: { id: true } }))
+    if (firstName && firstName !== existing.firstName && (replace || !existing.firstName)) data.firstName = firstName
+    if (lastName && lastName !== existing.lastName && (replace || !existing.lastName)) data.lastName = lastName
+    if (phone && phone !== existing.phone && (!existing.phone || (replace && (await phoneFree(phone))))) data.phone = phone
+    if (email && email !== existing.email && (!existing.email || (replace && (await emailFree(email))))) data.email = email
     if (input.consent && !existing.smsConsent) {
       data.smsConsent = true
       data.smsConsentAt = new Date()
