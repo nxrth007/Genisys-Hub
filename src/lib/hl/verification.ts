@@ -6,7 +6,7 @@ import { renderTemplate } from './merge'
 import { splitName, toE164 } from './phone'
 import { asSettings, consentsOf } from './forms'
 import { resolveLegalLinks } from './legal-links'
-import { publicBase, twilioClient } from './twilio'
+import { profileKinds, publicBase, twilioClient, type TwilioClient } from './twilio'
 
 /**
  * Toll-free verification: texting for toll-free numbers with no A2P fees.
@@ -47,16 +47,24 @@ export async function saveTwilioSettings(s: HlTwilioSettings): Promise<void> {
   await prisma.appSetting.upsert({ where: { key: SETTINGS_KEY }, create: { key: SETTINGS_KEY, value }, update: { value } })
 }
 
-/** Genisys's own approved Trust Hub profile (toll-free verifications are filed under it, and A2P profiles are tied to it). */
-export async function primaryProfileSid(): Promise<string> {
+/**
+ * Genisys's own approved primary Trust Hub profile: toll-free verifications
+ * are filed under it, and every client's A2P profile is tied to it. The
+ * account also holds the secondary profiles A2P makes for clients, so a
+ * profile only counts when its policy is the primary business one.
+ */
+export async function primaryProfileSid(client?: TwilioClient): Promise<string> {
   const s = await readTwilioSettings()
-  if (s.customerProfileSid?.trim()) return s.customerProfileSid.trim()
-  const client = await twilioClient()
-  const profiles = await client.trusthub.v1.customerProfiles.list({ limit: 20 })
-  const approved = profiles.find((p) => p.status === 'twilio-approved')
+  const twilio = client ?? (await twilioClient())
+  const profiles = await twilio.trusthub.v1.customerProfiles.list({ limit: 100 })
+  const kinds = await profileKinds(twilio, profiles)
+  const primary = profiles.filter((_, i) => kinds[i] === 'primary')
+  const picked = primary.find((p) => p.sid === s.customerProfileSid?.trim())
+  if (picked) return picked.sid
+  const approved = primary.find((p) => p.status === 'twilio-approved')
   if (!approved) {
     throw new HlInputError(
-      'Twilio needs Genisys’s business profile first: in the Twilio Console open Trust Hub → Customer Profiles, create the Primary Business Profile (choose “ISV / Reseller”), and wait for “Twilio Approved”. Then file again.',
+      'Twilio needs Genisys’s primary business profile approved: in the Twilio Console open Trust Hub → Customer Profiles, create the Primary Business Profile (choose “ISV / Reseller”), and wait for “Twilio Approved”. Then file again.',
     )
   }
   return approved.sid

@@ -53,7 +53,7 @@ export async function GET() {
     domains: a._count.domains,
   }))
   const imported = homeId ? await readImportState(homeId) : null
-  const approved = twilio.profiles.some((p) => p.status === 'twilio-approved')
+  const approved = twilio.profiles.some((p) => p.status === 'twilio-approved' && p.kind === 'primary')
   return NextResponse.json({
     accounts: rows,
     totals: {

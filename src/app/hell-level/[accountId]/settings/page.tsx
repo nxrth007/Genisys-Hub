@@ -560,7 +560,7 @@ type TwilioInfo = {
   accountName: string | null
   accountStatus: string | null
   accountType: string | null
-  profiles: { sid: string; name: string; status: string }[]
+  profiles: { sid: string; name: string; status: string; kind: 'primary' | 'client' | 'other' }[]
   hubNumber: string | null
   settings: { customerProfileSid?: string; notificationEmail?: string }
 }
@@ -579,7 +579,10 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
     mutationFn: () => hlFetch('/api/hl/settings/twilio', { method: 'PUT', json: { customerProfileSid: profileSid, notificationEmail: email } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'twilio'] }),
   })
-  const approved = d.profiles.filter((p) => p.status === 'twilio-approved')
+  // Genisys's own profile(s); the rest were made for clients' A2P.
+  const primary = d.profiles.filter((p) => p.kind === 'primary')
+  const clientProfiles = d.profiles.length - primary.length
+  const approved = primary.filter((p) => p.status === 'twilio-approved')
   return (
     <Card className="flex flex-col gap-5 p-6">
       <div>
@@ -596,7 +599,7 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
           Twilio only accepts toll-free verifications from an account with an approved business profile. One-time setup in the Twilio Console: Trust Hub → Customer Profiles → create the Primary Business Profile for Genisys (pick “ISV / Reseller”, since you send for clients) and wait for “Twilio Approved”.
         </p>
         <div className="mt-3 flex flex-col gap-2">
-          {d.profiles.map((p) => (
+          {primary.map((p) => (
             <div key={p.sid} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-[13px]">
               <span>
                 <span className="font-medium text-foreground">{p.name}</span> <span className="text-muted-foreground/70">{p.sid}</span>
@@ -604,14 +607,15 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
               <Badge color={p.status === 'twilio-approved' ? 'green' : p.status === 'twilio-rejected' ? 'red' : 'amber'}>{p.status}</Badge>
             </div>
           ))}
-          {!d.profiles.length && <p className="text-[13px] text-warning">No business profiles on the Twilio account yet.</p>}
+          {!primary.length && <p className="text-[13px] text-warning">No primary business profile on the Twilio account yet.</p>}
+          {clientProfiles > 0 && <p className="text-[12.5px] text-muted-foreground">Plus {clientProfiles} profile{clientProfiles === 1 ? '' : 's'} made for clients’ A2P registrations.</p>}
         </div>
       </div>
       <div className="grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
-        <Field label="Profile to file under" hint="Blank = the first approved one">
+        <Field label="Profile to file under" hint="Genisys’s primary profile. Blank = the approved one">
           <Select value={profileSid} onChange={(e) => setProfileSid(e.target.value)}>
-            <option value="">{approved.length ? 'First approved profile' : 'None approved yet'}</option>
-            {d.profiles.map((p) => (
+            <option value="">{approved.length ? 'The approved primary profile' : 'None approved yet'}</option>
+            {primary.map((p) => (
               <option key={p.sid} value={p.sid}>
                 {p.name} ({p.status})
               </option>

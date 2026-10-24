@@ -142,6 +142,23 @@ export async function twilioAccountType(): Promise<string | null> {
   return (await client.api.v2010.accounts(client.accountSid).fetch()).type ?? null
 }
 
+/** Trust Hub policies of the profiles made for clients (A2P secondary and sole-proprietor starter profiles), never Genisys's own. */
+const CLIENT_PROFILE_POLICIES = new Set(['RNdfbf3fae0e1107f8aded0e7cead80bf5', 'RN806dd6cd175f314e1f96a9727ee271f4'])
+let primaryPolicy: string | null | undefined
+
+/** primary: Genisys's own business profile (what toll-free verifications and every A2P profile hang off). client: made for a client's A2P. */
+export type ProfileKind = 'primary' | 'client' | 'other'
+
+export async function profileKinds(client: TwilioClient, profiles: { policySid: string }[]): Promise<ProfileKind[]> {
+  if (primaryPolicy === undefined) {
+    primaryPolicy = await client.trusthub.v1.policies
+      .list({ limit: 100 })
+      .then((list) => list.find((p) => /primary/i.test(p.friendlyName) && /business/i.test(p.friendlyName))?.sid ?? null)
+      .catch(() => null)
+  }
+  return profiles.map((p) => (CLIENT_PROFILE_POLICIES.has(p.policySid) ? 'client' : !primaryPolicy || p.policySid === primaryPolicy ? 'primary' : 'other'))
+}
+
 export type TwilioOverview = {
   ok: boolean
   error: string | null
@@ -150,7 +167,7 @@ export type TwilioOverview = {
   /** Trial | Full. A trial account holds one number, texts only verified numbers and can't register A2P. */
   accountType: string | null
   /** Trust Hub business profiles: toll-free verification needs one that Twilio approved. */
-  profiles: { sid: string; name: string; status: string }[]
+  profiles: { sid: string; name: string; status: string; kind: ProfileKind }[]
   /** The Hub's own sending number (TWILIO_FROM_NUMBER), used for owner texts when a sub-account has no approved number. */
   hubNumber: string | null
 }
@@ -160,10 +177,9 @@ export async function twilioOverview(): Promise<TwilioOverview> {
   try {
     const client = await twilioClient()
     const acct = await client.api.v2010.accounts(client.accountSid).fetch()
-    const profiles = await client.trusthub.v1.customerProfiles
-      .list({ limit: 20 })
-      .then((list) => list.map((p) => ({ sid: p.sid, name: p.friendlyName, status: p.status })))
-      .catch(() => [])
+    const list = await client.trusthub.v1.customerProfiles.list({ limit: 100 }).catch(() => [])
+    const kinds = await profileKinds(client, list)
+    const profiles = list.map((p, i) => ({ sid: p.sid, name: p.friendlyName, status: p.status, kind: kinds[i] }))
     return { ok: true, error: null, accountName: acct.friendlyName, accountStatus: acct.status, accountType: acct.type ?? null, profiles, hubNumber }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), accountName: null, accountStatus: null, accountType: null, profiles: [], hubNumber }

@@ -388,6 +388,11 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   const checks: A2pCheck[] = detailProblems(d).map((p, i) => ({ key: `detail-${i}`, level: 'error' as const, label: 'Missing or invalid', detail: p }))
   if ((await twilioAccountType().catch(() => null)) === 'Trial')
     checks.push({ key: 'twilio-trial', level: 'error', label: 'Twilio account', detail: 'Twilio is still a free trial, and trial accounts can’t register A2P (or text anyone but verified numbers). Upgrade it in the Twilio Console first, then check again.' })
+  else
+    await primaryProfileSid().catch((err) => {
+      // Not set up at all (no Twilio keys) is said elsewhere; a missing primary profile is said here.
+      if (err instanceof HlInputError && /primary business profile/.test(err.message)) checks.push({ key: 'twilio-profile', level: 'error', label: 'Genisys’s Twilio profile', detail: err.message })
+    })
   const legal = { privacy: d.privacyUrl || ctx.legal.privacy, terms: d.termsUrl || ctx.legal.terms }
   const [site, privacy, terms] = await Promise.all([d.website ? load(d.website) : Promise.resolve(null), load(legal.privacy), load(legal.terms)])
 
@@ -509,7 +514,7 @@ async function assigned(list: () => Promise<{ objectSid: string }[]>): Promise<S
 async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDetails, meta: Meta): Promise<string> {
   const hub = client.trusthub.v1
   const sole = d.path === 'sole_prop'
-  const [primary, settings] = await Promise.all([primaryProfileSid(), readTwilioSettings()])
+  const [primary, settings] = await Promise.all([primaryProfileSid(client), readTwilioSettings()])
   const email = settings.notificationEmail?.trim() || 'alex@leadgenisys.com'
   let sid = row.customerProfileSid
   if (!sid) {
@@ -572,7 +577,10 @@ async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDet
   await prisma.hlA2p.update({ where: { id: row.id }, data: { meta: asJson(meta) } })
 
   if (!editable) return sid
-  const have = await assigned(() => hub.customerProfiles(sid).customerProfilesEntityAssignments.list({ limit: 50 }))
+  // Exactly one profile belongs on it: Genisys's primary. Anything else (a client profile picked by mistake) comes off.
+  const current = await hub.customerProfiles(sid).customerProfilesEntityAssignments.list({ limit: 50 })
+  for (const a of current) if (a.objectSid.startsWith('BU') && a.objectSid !== primary) await hub.customerProfiles(sid).customerProfilesEntityAssignments(a.sid).remove()
+  const have = new Set(current.map((a) => a.objectSid))
   for (const objectSid of entities) if (!have.has(objectSid)) await hub.customerProfiles(sid).customerProfilesEntityAssignments.create({ objectSid })
   const evaluation = await hub.customerProfiles(sid).customerProfilesEvaluations.create({ policySid: sole ? POLICY.starterProfile : POLICY.secondaryProfile })
   if (evaluation.status !== 'compliant') throw new StepError(`Twilio’s business profile check: ${evaluationProblems(evaluation.results)}`, 'profile')

@@ -5,7 +5,7 @@ import { CheckCircle2, Globe, Phone, ShieldCheck, TriangleAlert } from 'lucide-r
 import { ImportPanel } from '@/components/hell-level/import-panel'
 import { Card, PageHeader, Spinner, hlFetch } from '@/components/hell-level/ui'
 
-type Twilio = { ok: boolean; error: string | null; accountName: string | null; accountType: string | null; profiles: { status: string }[]; hubNumber: string | null }
+type Twilio = { ok: boolean; error: string | null; accountName: string | null; accountType: string | null; profiles: { status: string; kind: string }[]; hubNumber: string | null }
 type Porkbun = { connected: boolean; sandbox: boolean; account: string | null; error: string | null; spendLimitCents: number | null; monthlySpendCents: number | null }
 
 function Row({ icon, title, ok, detail }: { icon: React.ReactNode; title: string; ok: boolean | null; detail: string }) {
@@ -25,7 +25,7 @@ function Row({ icon, title, ok, detail }: { icon: React.ReactNode; title: string
 export default function AgencySettingsPage() {
   const twilio = useQuery<Twilio>({ queryKey: ['hl', 'twilio'], queryFn: () => hlFetch('/api/hl/settings/twilio') })
   const porkbun = useQuery<Porkbun>({ queryKey: ['hl', 'porkbun'], queryFn: () => hlFetch('/api/hl/settings/porkbun') })
-  const approved = twilio.data?.profiles.some((p) => p.status === 'twilio-approved')
+  const approved = twilio.data?.profiles.some((p) => p.status === 'twilio-approved' && p.kind === 'primary')
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-6">
       <PageHeader title="Agency Settings" description="Connections every sub-account uses. Keys live in the Hub’s Vault." />
