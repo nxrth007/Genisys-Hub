@@ -67,6 +67,8 @@ type Meta = {
   attached?: string[]
   failedStep?: 'profile' | 'trust' | 'brand' | 'numbers' | 'campaign'
   usecase?: string
+  /** Genisys's own business: the brand sits on the primary profile itself. */
+  own?: boolean
 }
 
 type Deps = { client?: TwilioClient; now?: Date }
@@ -515,6 +517,24 @@ async function assigned(list: () => Promise<{ objectSid: string }[]>): Promise<S
   return new Set((await list()).map((a) => a.objectSid))
 }
 
+/**
+ * Is this Genisys's own business (the EIN on its primary business profile)?
+ * Twilio wants an ISV's own brand on the primary profile itself, not on a
+ * client profile, so Lead Genisys registers that way and clients don't.
+ */
+async function isOwnBusiness(client: TwilioClient, primarySid: string, ein: string): Promise<boolean> {
+  const digits = ein.replace(/\D/g, '')
+  if (digits.length !== 9) return false
+  const hub = client.trusthub.v1
+  for (const a of await hub.customerProfiles(primarySid).customerProfilesEntityAssignments.list({ limit: 50 })) {
+    if (!a.objectSid.startsWith('IT')) continue
+    const user = await hub.endUsers(a.objectSid).fetch().catch(() => null)
+    const number = user?.type === 'customer_profile_business_information' ? String((user.attributes as Record<string, unknown>)?.business_registration_number ?? '') : ''
+    if (number.replace(/\D/g, '') === digits) return true
+  }
+  return false
+}
+
 /** Step 1a: the business's customer profile in Trust Hub, made or brought up to date with the details. */
 async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDetails, meta: Meta): Promise<string> {
   const hub = client.trusthub.v1
@@ -524,6 +544,16 @@ async function ensureCustomerProfile(client: TwilioClient, row: HlA2p, d: A2pDet
   if (individual) throw new StepError(individual, 'profile')
   const primary = owner.sid
   const email = settings.notificationEmail?.trim() || 'alex@leadgenisys.com'
+  // Genisys's own texting: the brand goes on the primary profile, which is never edited from here.
+  if (!sole && !row.brandSid && (await isOwnBusiness(client, primary, d.ein))) {
+    if (row.customerProfileSid !== primary) {
+      // A trust bundle made for an earlier client profile can't carry over.
+      await prisma.hlA2p.update({ where: { id: row.id }, data: { customerProfileSid: primary, trustProductSid: null } })
+      delete meta.trustEndUser
+    }
+    meta.own = true
+    return primary
+  }
   let sid = row.customerProfileSid
   if (!sid) {
     const made = await hub.customerProfiles.create({
@@ -781,6 +811,7 @@ export async function a2pView(accountId: string): Promise<A2pView | null> {
     checkedAt: row.checkedAt?.toISOString() ?? null,
     otpPhone: row.path === 'sole_prop' ? d.phone || null : null,
     numbers: attached.map((n) => n.number),
+    own: !!meta.own,
   }
 }
 
@@ -816,7 +847,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   row = await prisma.hlA2p.update({ where: { id: row.id }, data: { path: d.path, details: asJson(d), note: null, filedBy: by, filedAt: now } })
   try {
     const profileSid = await ensureCustomerProfile(client, row, d, meta)
-    row = { ...row, customerProfileSid: profileSid }
+    row = { ...(await prisma.hlA2p.findUniqueOrThrow({ where: { id: row.id } })), customerProfileSid: profileSid }
     const trustSid = await ensureTrustProduct(client, row, d, meta, profileSid)
     row = { ...row, trustProductSid: trustSid }
 

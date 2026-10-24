@@ -131,6 +131,7 @@ export function A2pTexting({ accountId, number }: { accountId: string; number: s
         {stageText(v)}
         {v.filedAt && ` Filed ${fmtDateTime(v.filedAt)}.`}
       </p>
+      {v.own && <p className="text-[12px] text-muted-foreground">Filed as Genisys’s own brand, on its primary business profile in Twilio.</p>}
       {v.stage === 'otp' && v.otpPhone && <p className="text-[13px] text-warning">Tell the owner to look for the text on {prettyPhone(v.otpPhone)} and reply YES.</p>}
       {v.note && <p className="text-[12px] text-muted-foreground">{v.note}</p>}
       <div className="flex flex-wrap gap-2">

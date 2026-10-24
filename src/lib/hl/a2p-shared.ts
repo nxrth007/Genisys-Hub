@@ -68,6 +68,8 @@ export type A2pView = {
   otpPhone: string | null
   /** Local numbers on the campaign (E.164). */
   numbers: string[]
+  /** Genisys's own business: registered on its primary business profile, as Twilio wants an agency's own brand. */
+  own: boolean
 }
 
 /** What Twilio charges (passed through from the registry and carriers), per Twilio's A2P pricing as of Aug 2025. */
