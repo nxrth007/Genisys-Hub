@@ -48,6 +48,7 @@ import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
 import { maybeResumeImports } from './hl/ghl-import'
+import { maybeRefreshDomains } from './hl/domains'
 
 let initialized = false
 
@@ -460,6 +461,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)
       })
       .catch((err) => console.error('[scheduler] hell-level verification check failed:', err))
+    // Domain transfers in progress (every 30 min) and expiry dates (twice a day).
+    void maybeRefreshDomains()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} domain transfer(s) moved on`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level domain check failed:', err))
     void maybeCheckStalePublishes()
       .then((n) => {
         if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)

@@ -14,6 +14,7 @@ import { NotYet, RecordsTable, rv } from '@/components/hell-level/section'
 import { SETTINGS_PAGES } from '@/components/hell-level/nav'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { ImportPanel } from '@/components/hell-level/import-panel'
+import { DomainsPanel } from '@/components/hell-level/domains-panel'
 
 const ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu']
 
@@ -165,12 +166,7 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
         </Panel>
       )
     case 'domains':
-      return (
-        <NotYet
-          title="Domains & URL Redirects"
-          what="Buying domains for clients and transferring the ones bought through GoHighLevel, with the DNS for their Lovable site and email set up automatically. This is next on the list."
-        />
-      )
+      return <DomainsPanel accountId={accountId} />
     case 'automation':
       return <NotYet title="Automation" what="GHL’s sub-account-wide automation settings. Hell-level’s are under Automation → Global Workflow Settings." />
     case 'calendars':

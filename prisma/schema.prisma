@@ -2281,6 +2281,7 @@ model HlAccount {
   appointments  HlAppointment[]
   tasks         HlTask[]
   records       HlRecord[]
+  domains       HlDomain[]
 }
 
 /// A phone number bought for a sub-account. Texts go out from it; calls to it
@@ -2626,4 +2627,39 @@ model HlRecord {
 
   @@unique([accountId, kind, ghlId])
   @@index([accountId, kind])
+}
+
+/// A client's domain, held in the Hub's registrar account (Porkbun): bought
+/// here, transferred in (from GoHighLevel), or linked from the account. The
+/// registrar has the truth on expiry and DNS; this row ties the domain to a
+/// sub-account and keeps the steps taken (src/lib/hl/domains.ts).
+model HlDomain {
+  id             String    @id @default(cuid())
+  accountId      String
+  account        HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// Lowercase, no trailing dot: "acmeroofing.com".
+  name           String    @unique
+  /// bought | transfer | linked
+  origin         String
+  /// active | held (transfer paid, DNS being copied before it's released) |
+  /// transferring (waiting on the old registrar) | failed
+  status         String    @default("active")
+  /// The registrar's transfer status (NEW, PENDINGAUTH, PENDINGTRANSFER, DONE, CANCELED…).
+  transferStatus String?
+  orderId        String?
+  /// What the purchase or transfer cost, in cents.
+  costCents      Int?
+  expiresAt      DateTime?
+  autoRenew      Boolean?
+  lastError      String?
+  /// Transfer progress and leftovers: { porkbunNameservers, scanned, imported }.
+  meta           Json      @default("{}")
+  /// Steps taken, oldest first: [{ at, by, what }].
+  log            Json      @default("[]")
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([accountId])
+  @@index([status])
 }
