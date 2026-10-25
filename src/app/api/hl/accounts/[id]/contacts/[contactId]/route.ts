@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger, startWorkflow, cancelRun } from '@/lib/hl/automation'
-import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { toE164 } from '@/lib/hl/phone'
 
 type Ctx = { params: Promise<{ id: string; contactId: string }> }
@@ -14,9 +14,9 @@ async function load(id: string, contactId: string) {
 
 /** GET: the contact with its conversation, opportunities and automation runs. */
 export async function GET(_req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, contactId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const contact = await load(id, contactId)
   if (!contact) return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
   const [messages, opportunities, runs] = await Promise.all([
@@ -32,9 +32,9 @@ export async function GET(_req: Request, { params }: Ctx) {
  *         addToWorkflow?: workflowId, cancelRun?: runId }
  */
 export async function PATCH(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, contactId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const contact = await load(id, contactId)
   if (!contact) return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
   try {

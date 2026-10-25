@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { workflowTemplates } from '@/lib/hl/templates'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -12,9 +12,9 @@ type Ctx = { params: Promise<{ id: string }> }
  * folders, which exist once a workflow is in them or someone made one.
  */
 export async function GET(_req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const week = new Date(Date.now() - 7 * 86_400_000)

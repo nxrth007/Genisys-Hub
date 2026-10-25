@@ -124,6 +124,8 @@ model User {
   callbacks           Callback[]          @relation("AgentCallbacks")
   agentAlerts         AgentAlert[]        @relation("AgentAlerts")
   documentsUploaded   Document[]          @relation("DocumentUploader")
+  /// Hell-level sub-accounts this login can open (role "hl_user": a contractor or their staff).
+  hlMemberships       HlMember[]
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
   followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
   appointmentEdits    AppointmentEditLog[] @relation("AppointmentEditor")
@@ -2285,6 +2287,28 @@ model HlAccount {
   a2p           HlA2p?
   media         HlMedia[]
   emailDomain   HlEmailDomain?
+  members       HlMember[]
+}
+
+/// A login on a sub-account: a contractor (or someone on their staff) who
+/// signs in at /login and sees only the sub-accounts they're on. Set up from
+/// Settings → My Staff → "Invite to log in" (src/lib/hl/logins.ts). The
+/// person is a User with role "hl_user"; their password is theirs to choose.
+model HlMember {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The My Staff row it was set up from (HlRecord kind "user").
+  staffId     String?
+  invitedBy   String?
+  invitedAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([accountId, userId])
+  @@index([userId])
 }
 
 /// Images a sub-account keeps itself (Media Storage): a logo uploaded here, or

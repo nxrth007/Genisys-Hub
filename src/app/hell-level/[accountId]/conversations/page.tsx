@@ -10,6 +10,7 @@ import { contactLabel, useAccount } from '@/components/hell-level/bits'
 import { ContactPanel, type ContactDetail } from '@/components/hell-level/contact-panel'
 import { Avatar, Button, Empty, ErrorNote, Input, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/hell-level/ui'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/hell-level/section'
+import { useHlViewer } from '@/components/hell-level/viewer'
 
 type Conversation = {
   id: string
@@ -228,22 +229,25 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
   })
   const number = account.data?.numbers[0] ?? null
   const setup = email.data?.setup ?? null
+  const { admin } = useHlViewer()
   const warning = useMemo(() => {
+    // Where to sort it out: Settings for Genisys; a sub-account's own login asks Genisys.
+    const fix = (page: string) => (admin ? ` (Settings → ${page})` : ' Genisys sets this up.')
     if (mode === 'email') {
       if (!c.email) return 'This contact has no email address.'
       if (c.emailDnd) return `No more email to this contact: they ${c.emailDndReason ?? 'unsubscribed'}.`
-      if (email.data && !setup) return 'Email isn’t set up for this sub-account yet (Settings → Email Services).'
-      if (setup && setup.status !== 'active') return 'Email is still being verified (Settings → Email Services).'
+      if (email.data && !setup) return `Email isn’t set up for this sub-account yet.${fix('Email Services')}`
+      if (setup && setup.status !== 'active') return `Email is still being verified.${fix('Email Services')}`
       return null
     }
     if (mode !== 'sms') return null
     if (!c.phone) return 'This contact has no phone number.'
     if (c.dnd) return 'This contact texted STOP. Nothing goes out until they text START.'
-    if (!number) return 'This sub-account has no phone number yet (Settings → Phone Numbers).'
+    if (!number) return `This sub-account has no phone number yet.${fix('Phone Numbers')}`
     if (number.kind === 'toll_free' && number.verificationStatus !== 'approved') return 'Texting isn’t approved yet: the number’s toll-free verification is still with Twilio.'
     if (!c.smsConsent) return 'No texting consent recorded. If they agreed, switch on “Agreed to texts” on the right.'
     return null
-  }, [mode, c, number, email.data, setup])
+  }, [mode, c, number, email.data, setup, admin])
 
   return (
     <>

@@ -9,6 +9,9 @@
  *   Any other route bounces to /agent.
  * - role=agent_pending or agent_denied: bounced to /signin/agent/pending or
  *   /signin/agent/denied respectively. No authenticated access anywhere.
+ * - role=hl_user: a contractor on their own Hell-level sub-account
+ *   (src/lib/hl/member-access.ts): /hell-level's day-to-day screens and the
+ *   /api/hl routes that let them in (hlAccountGuard), nothing else.
  * - role=member or admin: full Hub access. /agent/* still loads (staff can
  *   preview the agent UI for QA) but all non-admin routes under /admin/* are
  *   blocked for non-admins.
@@ -18,9 +21,13 @@
  */
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { HL_MEMBER_ROLE, memberPagePath } from '@/lib/hl/member-access'
 
 const PUBLIC_PATHS = [
   '/signin',
+  // Contractors' sign-in (Hell-level sub-account logins), its "choose your
+  // password" page, and their forgot/set-password posts under /api/hl/public.
+  '/login',
   '/api/auth', // NextAuth's own routes
   '/api/health',
   // Agent registration endpoint needs to be reachable anonymously.
@@ -126,6 +133,14 @@ const AGENT_ALLOWED_PREFIXES = [
   '/api/team/manage',
 ]
 
+// Routes a Hell-level sub-account login may hit. Every /api/hl handler checks
+// for itself (hlGuard: Genisys only; hlAccountGuard: their own sub-account).
+const HL_MEMBER_ALLOWED_PREFIXES = [
+  '/hell-level',
+  '/api/hl',
+  '/api/auth',
+]
+
 // Admin-only areas — even "member" staff can't access these.
 const ADMIN_ONLY_PREFIXES = [
   '/admin',
@@ -160,7 +175,9 @@ export default auth((req) => {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
     // Pages → redirect to signin, preserving where the user was trying to go.
-    const signInUrl = new URL('/signin', req.nextUrl.origin)
+    // Hell-level goes to /login, where contractors sign in (Genisys has the
+    // Google button there too).
+    const signInUrl = new URL(matchesPrefix(pathname, ['/hell-level']) ? '/login' : '/signin', req.nextUrl.origin)
     signInUrl.searchParams.set('callbackUrl', req.nextUrl.href)
     return NextResponse.redirect(signInUrl)
   }
@@ -196,6 +213,20 @@ export default auth((req) => {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
     return NextResponse.redirect(new URL('/team', req.nextUrl.origin))
+  }
+
+  // Hell-level sub-account logins: their sub-account's day-to-day screens.
+  if (role === HL_MEMBER_ROLE) {
+    if (matchesPrefix(pathname, HL_MEMBER_ALLOWED_PREFIXES)) {
+      if (pathname.startsWith('/api/')) return NextResponse.next()
+      const page = memberPagePath(pathname, req.nextUrl.searchParams.get('tab'))
+      if (page.ok) return NextResponse.next()
+      return NextResponse.redirect(new URL(page.to, req.nextUrl.origin))
+    }
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL('/hell-level', req.nextUrl.origin))
   }
 
   // Approved agents: /agent/* only (plus NextAuth endpoints).

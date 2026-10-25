@@ -9,6 +9,7 @@ import type { HlStage } from '@/lib/hl/types'
 import { contactLabel, SOURCE_LABEL, type ContactRow } from './bits'
 import { Avatar, Badge, Button, ErrorNote, Input, Select, Toggle, fmtDateTime, hlFetch, timeAgo } from './ui'
 import { confirmAction } from './confirm'
+import { useHlViewer } from './viewer'
 
 export type ContactDetail = {
   contact: ContactRow
@@ -32,6 +33,7 @@ export type ContactDetail = {
 /** The right-hand contact card in Conversations: details, consent, tags, pipeline and automations. */
 export function ContactPanel({ accountId, detail, onDeleted }: { accountId: string; detail: ContactDetail; onDeleted: () => void }) {
   const qc = useQueryClient()
+  const { admin } = useHlViewer()
   const c = detail.contact
   const [edit, setEdit] = useState(false)
   const [form, setForm] = useState({ firstName: c.firstName ?? '', lastName: c.lastName ?? '', phone: c.phone ?? '', email: c.email ?? '' })
@@ -218,15 +220,18 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
 
       <ErrorNote error={patch.error || del.error} />
 
-      <button
-        type="button"
-        onClick={() => {
-          void confirmAction(`Delete ${name} and their whole conversation? This can’t be undone.`, 'Delete contact').then((ok) => ok && del.mutate())
-        }}
-        className="flex items-center gap-1.5 self-start text-[13px] font-medium text-destructive hover:underline"
-      >
-        <Trash2 className="h-3.5 w-3.5" /> Delete contact
-      </button>
+      {/* Genisys only: a sub-account's own login can't delete (src/lib/hl/member-access.ts). */}
+      {admin && (
+        <button
+          type="button"
+          onClick={() => {
+            void confirmAction(`Delete ${name} and their whole conversation? This can’t be undone.`, 'Delete contact').then((ok) => ok && del.mutate())
+          }}
+          className="flex items-center gap-1.5 self-start text-[13px] font-medium text-destructive hover:underline"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Delete contact
+        </button>
+      )}
     </div>
   )
 }

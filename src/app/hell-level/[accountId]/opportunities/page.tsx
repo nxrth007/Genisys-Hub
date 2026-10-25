@@ -14,6 +14,7 @@ import { Badge, Button, ErrorNote, Field, Input, Modal, PageHeader, Select, Spin
 import { NotYet, useSectionTab } from '@/components/hell-level/section'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { confirmAction } from '@/components/hell-level/confirm'
+import { useHlViewer } from '@/components/hell-level/viewer'
 
 type Opp = {
   id: string
@@ -225,6 +226,7 @@ function OppCard({ o, accountId, onOpen }: { o: Opp; accountId: string; onOpen: 
 
 function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: Opp; stages: HlStage[]; onClose: () => void }) {
   const qc = useQueryClient()
+  const { admin } = useHlViewer()
   const [form, setForm] = useState({ name: opp.name, value: String(opp.value || ''), stageId: opp.stageId, status: opp.status })
   const save = useMutation({
     mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/opportunities/${opp.id}`, { method: 'PATCH', json: { ...form, value: Number(form.value) || 0 } }),
@@ -248,9 +250,12 @@ function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: 
       description={contactLabel(opp.contact)}
       footer={
         <>
-          <Button variant="ghost" className="mr-auto text-destructive" loading={del.isPending} onClick={() => void confirmAction('Delete this opportunity? The contact stays.', 'Delete opportunity').then((ok) => ok && del.mutate())}>
-            Delete
-          </Button>
+          {/* Genisys only (a sub-account's own login marks it lost instead). */}
+          {admin && (
+            <Button variant="ghost" className="mr-auto text-destructive" loading={del.isPending} onClick={() => void confirmAction('Delete this opportunity? The contact stays.', 'Delete opportunity').then((ok) => ok && del.mutate())}>
+              Delete
+            </Button>
+          )}
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
             Save

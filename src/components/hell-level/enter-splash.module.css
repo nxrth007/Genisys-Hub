@@ -744,3 +744,278 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------------- arrive */
+
+/* After /login (ArrivalGate): the white its exit left, fading off the CRM. */
+.arrive {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #fff;
+  pointer-events: none;
+  animation: arriveOut 0.8s 0.15s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes arriveOut {
+  to {
+    opacity: 0;
+  }
+}
+
+/* -------------------------------------------------------------- login */
+
+/*
+ * /login and /login/password (login-screen.tsx): the entrance with a form
+ * where its button was, and quicker, since someone's waiting to type.
+ * Leaving it stays white until the CRM takes over (.arrive).
+ */
+.loginRoot {
+  user-select: auto;
+}
+.loginRoot.leaving {
+  animation: none;
+}
+.loginRoot .hud {
+  animation-delay: 0.1s;
+}
+.loginRoot .copy {
+  width: min(430px, 44vw);
+}
+.loginRoot .sys {
+  animation-delay: 0.15s;
+}
+.loginRoot .typed {
+  animation:
+    typeLine 0.9s 0.4s steps(var(--chars)) forwards,
+    caret 0.85s step-end infinite;
+}
+@keyframes typeLine {
+  to {
+    width: calc(var(--chars) * 1ch + 4px);
+  }
+}
+.loginRoot .titleWrap {
+  margin-top: 26px;
+}
+.loginRoot .title,
+.loginRoot .ghost {
+  font-size: clamp(46px, 5.6vw, 96px);
+}
+.loginRoot .sub {
+  margin-top: 20px;
+  animation-delay: 0.75s;
+}
+.loginRoot .credit {
+  animation-delay: 1.3s;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 34px;
+  opacity: 0;
+  animation: fadeUp 0.8s 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.label {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.55);
+}
+.inputWrap {
+  position: relative;
+}
+.input {
+  width: 100%;
+  height: 50px;
+  padding: 0 16px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 0;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.015));
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.inputWrap .input {
+  padding-right: 48px;
+}
+.input::placeholder {
+  color: rgb(255 255 255 / 0.3);
+}
+.input:focus {
+  border-color: rgb(255 255 255 / 0.85);
+  box-shadow: 0 0 0 4px rgb(255 255 255 / 0.08);
+}
+/* Browsers' autofill paints its own colours; keep it black and white. */
+.input:-webkit-autofill {
+  -webkit-text-fill-color: #fff;
+  -webkit-box-shadow: 0 0 0 1000px #0c0c0c inset;
+  caret-color: #fff;
+}
+.reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  width: 48px;
+  height: 50px;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: rgb(255 255 255 / 0.45);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.reveal:hover,
+.reveal:focus-visible {
+  color: #fff;
+  outline: none;
+}
+.reveal svg {
+  width: 16px;
+  height: 16px;
+}
+.formRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+.textBtn {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.5);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.textBtn:hover,
+.textBtn:focus-visible {
+  color: #fff;
+  outline: none;
+}
+.note {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: rgb(255 255 255 / 0.6);
+}
+.note b {
+  font-weight: 500;
+  color: #fff;
+}
+.error {
+  margin: 0;
+  padding: 11px 14px;
+  border-left: 2px solid #fff;
+  background: rgb(255 255 255 / 0.07);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #fff;
+}
+.loginRoot .actions {
+  margin-top: 10px;
+}
+.loginRoot .btnWrap {
+  display: block;
+  width: 100%;
+  animation-delay: 1.05s;
+}
+.loginRoot .btn {
+  width: 100%;
+  justify-content: space-between;
+}
+.loginRoot .btn:disabled {
+  cursor: progress;
+}
+.loginRoot .btn:disabled::before {
+  transform: scaleX(0);
+}
+.loginRoot .btn:disabled .btnLabel,
+.loginRoot .btn:disabled .btnArrow {
+  color: rgb(255 255 255 / 0.7);
+  transform: none;
+}
+.alt {
+  margin: 30px 0 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.35);
+  opacity: 0;
+  animation: fadeIn 0.8s 1.25s ease forwards;
+}
+.alt .textBtn {
+  margin-left: 8px;
+  color: rgb(255 255 255 / 0.7);
+  text-decoration: underline;
+  text-decoration-color: rgb(255 255 255 / 0.3);
+  text-underline-offset: 4px;
+}
+
+/* Laptops with little height: the System box goes. */
+@media (min-width: 821px) and (max-height: 760px) {
+  .loginRoot .sys {
+    display: none;
+  }
+  .loginRoot .titleWrap {
+    margin-top: 0;
+  }
+}
+
+/* Phones: the fire above, the form below it, and the page scrolls when the keyboard is up. */
+@media (max-width: 820px) {
+  .loginRoot {
+    overflow-y: auto;
+  }
+  .loginRoot .art {
+    height: 44vh;
+  }
+  .loginRoot .shade {
+    background: linear-gradient(0deg, #000 0%, #000 56%, transparent 72%);
+  }
+  .loginRoot .copy {
+    position: relative;
+    inset: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    width: auto;
+    min-height: 100%;
+    padding: 34vh 24px 80px;
+  }
+  .loginRoot .title,
+  .loginRoot .ghost {
+    font-size: clamp(40px, 12vw, 64px);
+  }
+  .form {
+    margin-top: 26px;
+  }
+  .alt {
+    margin-top: 24px;
+    line-height: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrive {
+    animation-delay: 0s;
+    animation-duration: 0.01ms;
+  }
+}

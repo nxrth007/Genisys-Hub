@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlError, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { sendEmailToContact } from '@/lib/hl/email'
 import { sendSmsToContact } from '@/lib/hl/messages'
 
@@ -8,9 +8,9 @@ type Ctx = { params: Promise<{ id: string; contactId: string }> }
 
 /** POST { kind: 'sms' | 'email' | 'note', body, subject? }: text or email the contact from the sub-account, or leave an internal note. */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, contactId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const contact = await prisma.hlContact.findUnique({ where: { id: contactId }, select: { accountId: true } })
   if (!contact || contact.accountId !== id) return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
   try {

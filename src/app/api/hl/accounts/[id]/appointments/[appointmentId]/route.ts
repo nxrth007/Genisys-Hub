@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { deleteBlock, updateAppointment, type StaffAppointmentChange } from '@/lib/hl/appointments'
 import { fireStatusTrigger } from '@/lib/hl/booking'
 import { syncAppointmentToGoogle } from '@/lib/hl/google-calendar'
-import { hlError, hlGuard, jsonBody } from '@/lib/hl/http'
+import { hlError, jsonBody, hlAccountGuard } from '@/lib/hl/http'
 import { publicBase } from '@/lib/hl/twilio'
 
 type Ctx = { params: Promise<{ id: string; appointmentId: string }> }
@@ -19,9 +19,9 @@ async function owned(id: string, appointmentId: string) {
  * series: 'following' } cancels the rest of its series too.
  */
 export async function PATCH(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, appointmentId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   try {
     const body = (await jsonBody(req)) as unknown as StaffAppointmentChange
@@ -47,9 +47,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 /** DELETE: blocked-off time only (appointments are cancelled, so their automations stop). */
 export async function DELETE(_req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, appointmentId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   if (!(await owned(id, appointmentId))) return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   try {
     await deleteBlock(id, appointmentId)

@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createAppointment, fireMadeTriggers, type StaffAppointmentInput } from '@/lib/hl/appointments'
 import { googleBusy } from '@/lib/hl/google-calendar'
-import { hlAccountOr404, hlError, hlGuard, jsonBody } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, jsonBody, hlAccountGuard } from '@/lib/hl/http'
 import { staffOf } from '@/lib/hl/staff'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -12,9 +12,9 @@ type Ctx = { params: Promise<{ id: string }> }
  * ± a week), with the busy times on the team's connected Google Calendars (`outside`).
  */
 export async function GET(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const sp = new URL(req.url).searchParams
@@ -42,9 +42,9 @@ export async function GET(req: Request, { params }: Ctx) {
  * by staff (fires "appointment booked"), or blocked-off time.
  */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {

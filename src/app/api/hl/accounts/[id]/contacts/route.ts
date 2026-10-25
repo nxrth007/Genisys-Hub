@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger } from '@/lib/hl/automation'
 import { upsertContact } from '@/lib/hl/contacts'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -11,9 +11,9 @@ const PAGE = 50
 
 /** GET ?q=&tag=&page=: contacts, newest first. */
 export async function GET(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const sp = new URL(req.url).searchParams
@@ -46,9 +46,9 @@ export async function GET(req: Request, { params }: Ctx) {
 
 /** POST { firstName, lastName, phone, email, tags, consent }: add a contact by hand. */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {

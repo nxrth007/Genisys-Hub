@@ -2,19 +2,24 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { readProfile } from '@/lib/hl/accounts'
 import { checkEmail, emailDomainChoices, recordsOf, removeEmail, sendTestEmail, setUpEmail, updateEmailSettings } from '@/lib/hl/email'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { mailgunStatus } from '@/lib/hl/mailgun'
 
 type Ctx = { params: Promise<{ id: string }> }
 
 /** GET: Email Services: Mailgun's connection, the sub-account's email (records and all), and the domains it could use. */
 export async function GET(_req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {
+    // The sub-account's own login: only whether it can send (the Conversations composer).
+    if (!guard.admin) {
+      const setup = await prisma.hlEmailDomain.findUnique({ where: { accountId: id }, select: { status: true, domain: true, rootDomain: true, fromName: true, fromLocal: true } })
+      return NextResponse.json({ setup })
+    }
     const [mailgun, setup, choices] = await Promise.all([mailgunStatus(), prisma.hlEmailDomain.findUnique({ where: { accountId: id } }), emailDomainChoices(id)])
     return NextResponse.json({
       mailgun,

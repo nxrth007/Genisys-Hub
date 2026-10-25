@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 
 type Ctx = { params: Promise<{ id: string }> }
 
 /** GET ?status=open|done|all: tasks with their contact, due soonest first. */
 export async function GET(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const status = new URL(req.url).searchParams.get('status') ?? 'open'
@@ -25,9 +25,9 @@ export async function GET(req: Request, { params }: Ctx) {
 
 /** POST { title, body?, dueDate?, contactId? } — PATCH-like toggles go through { id, completed }. */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { fireTrigger } from '@/lib/hl/automation'
 import { upsertContact } from '@/lib/hl/contacts'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import type { HlStage } from '@/lib/hl/types'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -12,9 +12,9 @@ type Ctx = { params: Promise<{ id: string }> }
  * Adds an opportunity, making the contact when it's a new person.
  */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {

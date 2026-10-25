@@ -18,12 +18,13 @@
  *
  * First signup is auto-promoted to "admin" so Alex can set up the workspace.
  */
-import NextAuth, { type DefaultSession } from 'next-auth'
+import NextAuth, { CredentialsSignin, type DefaultSession } from 'next-auth'
 import Google from 'next-auth/providers/google'
 import Credentials from 'next-auth/providers/credentials'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 declare module 'next-auth' {
   interface Session {
@@ -41,6 +42,17 @@ declare module 'next-auth' {
     role?: string
     clientId?: string | null
     mustChangePassword?: boolean
+  }
+}
+
+/**
+ * A refusal the sign-in page can explain: signIn() hands it back as `code`
+ * (a plain Error reaches the page only as "Configuration").
+ */
+class SignInRefused extends CredentialsSignin {
+  constructor(code: string) {
+    super()
+    this.code = code
   }
 }
 
@@ -83,7 +95,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(creds) {
+      async authorize(creds, request) {
         const email = typeof creds?.email === 'string' ? creds.email.toLowerCase().trim() : ''
         // Strip non-digits server-side so any client-side
         // canonicalization that drifts (older clients, raw
@@ -98,6 +110,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Both empty → fail; both filled → use callCenterNumber as
         // the more specific Team #1 path.
         if (!email && !callCenterNumber) return null
+
+        // Password guessing: 10 tries per login per 15 minutes from one
+        // address, 60 across logins (a call-center office shares one), and
+        // 30 per login from anywhere (the address header can be faked).
+        const ip = request ? clientIp(request) : 'unknown'
+        const login = callCenterNumber || email
+        if (
+          !checkRateLimit(`signin:${ip}:${login}`, 10, 15 * 60_000).ok ||
+          !checkRateLimit(`signin:${ip}`, 60, 15 * 60_000).ok ||
+          !checkRateLimit(`signin-login:${login}`, 30, 15 * 60_000).ok
+        ) {
+          throw new SignInRefused('rate_limited')
+        }
 
         const user = callCenterNumber
           ? await prisma.user.findUnique({
@@ -146,6 +171,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Mary's Team #1 (and future Team #N) — approved members can
           // session and reach /team/*. Pending/denied are bounced below.
           'team_member',
+          // A contractor (or their staff) on their own Hell-level
+          // sub-account, invited from Settings → My Staff and signing
+          // in at /login (src/lib/hl/logins.ts). Middleware keeps them
+          // to their sub-account's day-to-day screens.
+          'hl_user',
         ])
         if (!allowedRoles.has(user.role)) {
           if (user.role === 'agent_pending') throw new Error('pending')
@@ -154,6 +184,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (user.role === 'team_pending') throw new Error('team_pending')
           if (user.role === 'team_denied') throw new Error('team_denied')
           throw new Error('denied')
+        }
+        if (user.role === 'hl_user') {
+          // A login with no sub-account left has nowhere to go.
+          const seen = await prisma.hlMember.updateMany({ where: { userId: user.id, account: { archivedAt: null } }, data: { lastLoginAt: new Date() } })
+          if (!seen.count) throw new SignInRefused('no_account')
         }
 
         return {

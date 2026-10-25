@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { hlAccountOr404, hlGuard } from '@/lib/hl/http'
+import { hlAccountOr404, hlAccountGuard } from '@/lib/hl/http'
 
 type Ctx = { params: Promise<{ id: string }> }
 
 /** GET ?filter=unread|all&q=: conversations (contacts with any activity), most recent first. */
 export async function GET(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const sp = new URL(req.url).searchParams

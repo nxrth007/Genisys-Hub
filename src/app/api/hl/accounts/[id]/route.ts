@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { mergeProfile, profileForClient, readProfile } from '@/lib/hl/accounts'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { launchpad } from '@/lib/hl/launchpad'
 import { findSiteBrand } from '@/lib/hl/logo'
 import { keepLogo } from '@/lib/hl/media'
@@ -12,9 +12,9 @@ type Ctx = { params: Promise<{ id: string }> }
 
 /** GET: the sub-account with its profile, numbers and Launchpad checklist. */
 export async function GET(_req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   const [numbers, lp, client] = await Promise.all([

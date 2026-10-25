@@ -35,6 +35,25 @@ export function EnterSplashGate() {
   return <EnterSplash onLeaveStart={start} onLeaveEnd={end} />
 }
 
+/**
+ * After /login: its exit leaves the screen white (?arrive=1), so the CRM
+ * comes up under a white sheet that fades off, then the URL loses ?arrive.
+ */
+export function ArrivalGate() {
+  const router = useRouter()
+  const arriving = useSearchParams().get('arrive') === '1'
+  useEffect(() => {
+    if (!arriving) return
+    const t = window.setTimeout(() => {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('arrive')
+      router.replace(`${url.pathname}${url.search}`, { scroll: false })
+    }, 1100)
+    return () => window.clearTimeout(t)
+  }, [arriving, router])
+  return arriving ? <div className={s.arrive} aria-hidden /> : null
+}
+
 function EnterSplash({ onLeaveStart, onLeaveEnd }: { onLeaveStart: () => void; onLeaveEnd: () => void }) {
   const router = useRouter()
   const qc = useQueryClient()
@@ -168,7 +187,7 @@ type Ember = { x: number; y: number; size: number; vy: number; vx: number; alpha
  * Sparks and flakes rising off the fire, most from around it and a few
  * across the whole frame, fading as they climb. On "Enter" they rush upward.
  */
-function Embers({ leaving }: { leaving: React.RefObject<boolean> }) {
+export function Embers({ leaving }: { leaving: React.RefObject<boolean> }) {
   const canvas = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {

@@ -2,16 +2,16 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger } from '@/lib/hl/automation'
-import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import { hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { OPPORTUNITY_STATUSES, type HlStage } from '@/lib/hl/types'
 
 type Ctx = { params: Promise<{ id: string; oppId: string }> }
 
 /** PATCH { stageId?, position?, status?, value?, name? }. Moving into a stage fires "Pipeline stage changed". */
 export async function PATCH(req: Request, { params }: Ctx) {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
   const { id, oppId } = await params
+  const guard = await hlAccountGuard(id)
+  if (guard instanceof NextResponse) return guard
   const opp = await prisma.hlOpportunity.findUnique({ where: { id: oppId }, include: { pipeline: true } })
   if (!opp || opp.accountId !== id) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
   try {

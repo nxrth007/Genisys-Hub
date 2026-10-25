@@ -3,22 +3,25 @@ import { prisma } from '@/lib/prisma'
 import { createAccountForClient, createStandaloneAccount, readProfile, repairClientProfile } from '@/lib/hl/accounts'
 import { applyClientKit } from '@/lib/hl/client-kit'
 import { defaultAccountId } from '@/lib/hl/ghl-import'
-import { hlError, hlGuard, jsonBody, str } from '@/lib/hl/http'
+import { hlError, hlGuard, hlViewer, jsonBody, str } from '@/lib/hl/http'
 
 /**
  * GET  /api/hl/accounts: every sub-account (the switcher and the agency view),
- *      plus the clients that don't have one yet.
+ *      plus the clients that don't have one yet. A sub-account's own login
+ *      gets just theirs (their first is "home").
  * POST /api/hl/accounts { clientId } | { all: true } | { name }: create.
  * POST /api/hl/accounts { clientKit: 'all' | accountId }: bring client
  *      sub-accounts up to the client kit (GHL's client workflows), repairing
  *      profiles crossed onboarding answers got wrong.
  */
 export async function GET() {
-  const guard = await hlGuard()
-  if (guard instanceof NextResponse) return guard
+  const viewer = await hlViewer()
+  if (viewer instanceof NextResponse) return viewer
+  const only = viewer.accountIds
+  const mine = only ? { accountId: { in: only } } : {}
   const [accounts, clients] = await Promise.all([
     prisma.hlAccount.findMany({
-      where: { archivedAt: null },
+      where: { archivedAt: null, ...(only ? { id: { in: only } } : {}) },
       orderBy: { name: 'asc' },
       include: {
         numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }], take: 1 },
@@ -26,15 +29,17 @@ export async function GET() {
         client: { select: { id: true, name: true, contactName: true, lifecycle: true } },
       },
     }),
-    prisma.client.findMany({
-      where: { archivedAt: null, hlAccount: null },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, contactName: true, lifecycle: true },
-    }),
+    only
+      ? []
+      : prisma.client.findMany({
+          where: { archivedAt: null, hlAccount: null },
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true, contactName: true, lifecycle: true },
+        }),
   ])
-  const unread = await prisma.hlContact.groupBy({ by: ['accountId'], where: { unread: { gt: 0 } }, _count: { _all: true } })
-  const homeId = await defaultAccountId()
-  const lastLead = await prisma.hlContact.groupBy({ by: ['accountId'], _max: { createdAt: true } })
+  const unread = await prisma.hlContact.groupBy({ by: ['accountId'], where: { unread: { gt: 0 }, ...mine }, _count: { _all: true } })
+  const homeId = only ? (only[0] ?? null) : await defaultAccountId()
+  const lastLead = await prisma.hlContact.groupBy({ by: ['accountId'], where: mine, _max: { createdAt: true } })
   return NextResponse.json({
     accounts: accounts.map((a) => {
       const p = readProfile(a.profile)

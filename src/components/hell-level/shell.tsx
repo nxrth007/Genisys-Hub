@@ -4,13 +4,23 @@ import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Undo2 } from 'lucide-react'
+import { signOut } from 'next-auth/react'
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
+import { MEMBER_SECTIONS } from '@/lib/hl/member-access'
 import { Avatar, hlFetch } from './ui'
-import { EnterSplashGate } from './enter-splash'
+import { ArrivalGate, EnterSplashGate } from './enter-splash'
 import { SECTIONS, SETTINGS_SECTION, activeTab, sectionOf, type Section } from './nav'
 import { ConfirmHost } from './confirm'
+import { ViewerContext, type HlViewer } from './viewer'
+
+/** A section as a sub-account login sees it: only their tabs (null when it isn't theirs). */
+function memberSection(s: Section): Section | null {
+  const tabs = MEMBER_SECTIONS[s.key]
+  if (!tabs) return null
+  return s.tabs ? { ...s, tabs: s.tabs.filter((t) => tabs.includes(t.key)) } : s
+}
 
 export type AccountRow = {
   id: string
@@ -58,14 +68,15 @@ const agencyTitle = (pathname: string) => [...AGENCY_NAV, AGENCY_SETTINGS].find(
  * Hell-level's frame: GoHighLevel's sub-account structure (the left menu in
  * GHL's order, section tabs across the top) in the Hub's own look.
  */
-export function HellShell({ children }: { children: React.ReactNode }) {
+export function HellShell({ children, viewer }: { children: React.ReactNode; viewer: HlViewer }) {
   const params = useParams<{ accountId?: string }>()
   const pathname = usePathname()
   const accountId = params?.accountId ?? null
   const accounts = useAccounts()
   const current = accounts.data?.accounts.find((a) => a.id === accountId) ?? null
   const sectionKey = accountId ? pathname.split('/')[3] : undefined
-  const section = sectionOf(sectionKey)
+  const found = sectionOf(sectionKey)
+  const section = found && !viewer.admin ? memberSection(found) : found
 
   useEffect(() => {
     if (!accountId) return
@@ -79,8 +90,8 @@ export function HellShell({ children }: { children: React.ReactNode }) {
   }, [accountId])
 
   const base = accountId ? `/hell-level/${accountId}` : null
-  const top = SECTIONS.filter((s) => s.group === 'top')
-  const grow = SECTIONS.filter((s) => s.group === 'grow')
+  const top = viewer.admin ? SECTIONS.filter((s) => s.group === 'top') : SECTIONS.filter((s) => s.key in MEMBER_SECTIONS)
+  const grow = viewer.admin ? SECTIONS.filter((s) => s.group === 'grow') : []
 
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-background text-foreground">
@@ -92,7 +103,7 @@ export function HellShell({ children }: { children: React.ReactNode }) {
           <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground">Hell-level</span>
         </div>
 
-        <AccountSwitcher accounts={accounts.data?.accounts ?? []} defaultId={accounts.data?.defaultAccountId ?? null} current={current} loading={accounts.isLoading} />
+        <AccountSwitcher accounts={accounts.data?.accounts ?? []} defaultId={accounts.data?.defaultAccountId ?? null} current={current} loading={accounts.isLoading} admin={viewer.admin} />
         {base && <QuickSearch base={base} />}
 
         <nav className="mt-3 flex flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
@@ -103,7 +114,7 @@ export function HellShell({ children }: { children: React.ReactNode }) {
               {top.map((s) => (
                 <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} badge={s.key === 'conversations' ? current?.unread : undefined} tag={s.badge} />
               ))}
-              <div className="my-2 h-px bg-border-soft" />
+              {grow.length > 0 && <div className="my-2 h-px bg-border-soft" />}
               {grow.map((s) => (
                 <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} tag={s.badge} />
               ))}
@@ -111,23 +122,41 @@ export function HellShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
-          {base ? (
-            <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />
-          ) : (
-            <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} />
-          )}
-          <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-white/[0.04] hover:text-foreground">
-            <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            Back to the Hub
-          </Link>
-        </div>
+        {viewer.admin ? (
+          <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
+            {base ? (
+              <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />
+            ) : (
+              <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} />
+            )}
+            <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-white/[0.04] hover:text-foreground">
+              <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+              Back to the Hub
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 border-t border-border-soft px-4 py-3">
+            <Avatar name={viewer.name || viewer.email} size={26} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-medium text-foreground">{viewer.name || viewer.email}</span>
+              {viewer.name && <span className="block truncate text-[11px] text-muted-foreground">{viewer.email}</span>}
+            </span>
+            <button
+              type="button"
+              onClick={() => void signOut({ callbackUrl: '/login' })}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
+              title="Sign out"
+            >
+              <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            </button>
+          </div>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[54px] shrink-0 items-center gap-6 border-b border-border px-5">
           <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : agencyTitle(pathname))}</p>
-          {section?.tabs && base && (
+          {section?.tabs && section.tabs.length > 1 && base && (
             <Suspense fallback={null}>
               <SectionTabs section={section} href={`${base}/${section.key}`} />
             </Suspense>
@@ -149,11 +178,14 @@ export function HellShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <ViewerContext.Provider value={viewer}>{children}</ViewerContext.Provider>
+        </main>
       </div>
-      {/* The entrance (Hub sidebar → /hell-level?enter=1), over the CRM loading underneath. */}
+      {/* The entrance (Hub sidebar → /hell-level?enter=1), over the CRM loading underneath; and the white fading off after /login. */}
       <Suspense fallback={null}>
-        <EnterSplashGate />
+        {viewer.admin && <EnterSplashGate />}
+        <ArrivalGate />
       </Suspense>
       <ConfirmHost />
     </div>
@@ -237,7 +269,7 @@ function writeList(key: string, list: string[]) {
 }
 
 /** GHL's account switcher: search, "Switch to Agency View", recent sub-accounts, then all of them with home and pin. */
-function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; loading: boolean }) {
+function AccountSwitcher({ accounts, defaultId, current, loading, admin }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; loading: boolean; admin: boolean }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
@@ -259,13 +291,15 @@ function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: 
 
   // Switching keeps you on the same section of the other sub-account (GHL does the same).
   const section = params?.accountId ? pathname.split('/')[3] || 'dashboard' : 'dashboard'
+  // A sub-account login on just the one has nothing to switch to.
+  const fixed = !admin && accounts.length <= 1
 
   return (
     <div ref={box} className="relative px-3">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2 text-left transition hover:bg-muted"
+        onClick={() => !fixed && setOpen((o) => !o)}
+        className={cn('flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-2.5 py-2 text-left transition', fixed ? 'cursor-default' : 'hover:bg-muted')}
       >
         {current ? (
           <Avatar name={current.name} size={26} />
@@ -276,16 +310,16 @@ function AccountSwitcher({ accounts, defaultId, current, loading }: { accounts: 
         )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-foreground">{current?.name ?? (loading ? 'Loading…' : 'Click here to switch')}</span>
-          <span className="eyebrow block truncate text-muted-foreground">{current ? (current.id === defaultId ? 'Home sub-account' : current.owner || 'Sub-account') : 'Agency view'}</span>
+          <span className="eyebrow block truncate text-muted-foreground">{current ? (admin && current.id === defaultId ? 'Home sub-account' : current.owner || 'Sub-account') : 'Agency view'}</span>
         </span>
-        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        {!fixed && <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
       </button>
-      {open && <SwitcherPanel accounts={accounts} defaultId={defaultId} current={current} section={section} onClose={() => setOpen(false)} />}
+      {open && <SwitcherPanel accounts={accounts} defaultId={defaultId} current={current} section={section} admin={admin} onClose={() => setOpen(false)} />}
     </div>
   )
 }
 
-function SwitcherPanel({ accounts, defaultId, current, section, onClose }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; section: string; onClose: () => void }) {
+function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; section: string; admin: boolean; onClose: () => void }) {
   const qc = useQueryClient()
   const [q, setQ] = useState('')
   // Read when the panel opens (it's only ever on screen in the browser).
@@ -319,7 +353,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, onClose }: { acc
         </span>
         {!!a.unread && <span className="rounded-full bg-destructive px-1.5 font-mono text-[10px] font-bold text-destructive-foreground">{a.unread}</span>}
       </Link>
-      {tools && (
+      {tools && admin && (
         <>
           <button
             type="button"
@@ -350,7 +384,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, onClose }: { acc
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search for a sub-account" className="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" />
         </label>
       </div>
-      {current && (
+      {current && admin && (
         <Link href="/hell-level/agency/launchpad" onClick={onClose} className="mx-3 mb-2 flex w-fit items-center gap-2 text-[12.5px] font-medium text-primary hover:underline">
           <span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
             <Undo2 className="h-3 w-3" />

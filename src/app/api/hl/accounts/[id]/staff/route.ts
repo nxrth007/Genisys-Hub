@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { toE164 } from '@/lib/hl/phone'
+import { removeStaffLogins } from '@/lib/hl/logins'
 import { staffOf } from '@/lib/hl/staff'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -39,7 +40,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 }
 
-/** DELETE ?staffId=: remove someone added here (people imported from GHL stay). */
+/** DELETE ?staffId=: remove someone added here (people imported from GHL stay), and their login. */
 export async function DELETE(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
@@ -48,6 +49,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const row = await prisma.hlRecord.findUnique({ where: { id: staffId } })
   if (!row || row.accountId !== id || row.kind !== 'user') return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (row.ghlId) return NextResponse.json({ error: 'People imported from GoHighLevel stay; take them off a calendar’s team instead.' }, { status: 400 })
+  await removeStaffLogins(id, staffId)
   await prisma.hlRecord.delete({ where: { id: staffId } })
   return NextResponse.json({ ok: true })
 }

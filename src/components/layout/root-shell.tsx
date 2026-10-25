@@ -10,6 +10,7 @@ import { AgentShell } from './agent-shell'
  * - /agent/*  → AgentShell (minimal, no Hub sidebar)
  * - /client/* → no chrome; the client portal renders its own header
  * - /signin/* → no chrome; the signin pages render their own centered card
+ * - /login/*  → no chrome; contractors' Hell-level sign-in is full-screen
  * - everything else → AppShell (full Hub with sidebar + header)
  */
 export function RootShell({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,11 @@ export function RootShell({ children }: { children: React.ReactNode }) {
 
   if (pathname.startsWith('/hl/')) {
     // Hell-level's public forms, chat widget and legal pages, embedded on client websites.
+    return <>{children}</>
+  }
+
+  if (pathname === '/login' || pathname.startsWith('/login/')) {
+    // Contractors' sign-in to Hell-level: full-screen, the entrance's white fire.
     return <>{children}</>
   }
 
