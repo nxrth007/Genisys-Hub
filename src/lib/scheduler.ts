@@ -466,7 +466,7 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
-    // Every sub-account with a website and no logo gets its site's, once.
+    // Sub-accounts with a website and no logo get their site's (twice a day).
     void maybeFillLogos()
       .then((n) => {
         if (n) console.log(`[scheduler] hell-level: found ${n} logo(s) on client websites`)

@@ -52,6 +52,31 @@ function routePath(file: string): string | null {
  * has (file routes, or the paths in src/App.tsx on older single-page sites).
  * Null without a live site; no pages without a connected repo.
  */
+const PROBED = ['/privacy', '/privacy-policy', '/terms', '/terms-of-service', '/terms-and-conditions', '/contact', '/contact-us', '/quote', '/get-a-quote', '/free-estimate', '/estimate']
+
+/**
+ * The usual pages a live site has, asked of the site itself. Only for a site
+ * that answers a made-up page with a 404 (the sites we build do), and only
+ * pages that answer 200 where they were asked (not a redirect home).
+ */
+async function probePaths(origin: string): Promise<Set<string>> {
+  const found = new Set<string>()
+  const get = async (path: string) => {
+    try {
+      const r = await fetch(`${origin}${path}`, { redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; GenisysHub/1.0)' } })
+      await r.body?.cancel().catch(() => undefined)
+      const at = new URL(r.url || `${origin}${path}`)
+      return r.ok && at.origin === new URL(origin).origin ? at.pathname.replace(/\/+$/, '') || '/' : null
+    } catch {
+      return null
+    }
+  }
+  if (await get(`/hl-not-a-page-${Date.now().toString(36)}`)) return found
+  const hits = await Promise.all(PROBED.map(async (path) => ((await get(path)) === path ? path : null)))
+  for (const h of hits) if (h) found.add(h)
+  return found
+}
+
 async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Set<string> } | null> {
   const [site, client] = await Promise.all([
     prisma.seoSite.findUnique({ where: { clientId }, select: { liveUrl: true, repoFullName: true, defaultBranch: true } }),
@@ -61,7 +86,8 @@ async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Se
   if (!base) return null
   const origin = new URL(base).origin
   const paths = new Set<string>()
-  if (!site?.repoFullName) return { origin, paths }
+  // No repo linked (yet): ask the live site for the usual pages instead.
+  if (!site?.repoFullName) return { origin, paths: await probePaths(origin) }
   const ref = site.defaultBranch || 'main'
   const { entries } = await getTree(site.repoFullName, ref)
   for (const e of entries) {

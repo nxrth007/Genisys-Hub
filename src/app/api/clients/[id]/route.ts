@@ -9,6 +9,7 @@ import { backfillClientDeliveries } from '@/lib/client-delivery'
 import { backfillClientAlerts } from '@/lib/client-alert'
 import { installLeadAlertWorkflow } from '@/lib/lead-alert-install'
 import { getSecretByName } from '@/lib/vault-service'
+import { syncClientSite } from '@/lib/hl/client-site'
 
 /**
  * Email allowed to perform destructive operations on the Client
@@ -174,6 +175,8 @@ export async function PATCH(
     // The site we built moved or went live: the SEO site audits the new address.
     if ('siteUrl' in parsed.data && parsed.data.siteUrl && parsed.data.siteUrl !== priorSiteUrl) {
       void syncSeoSiteLiveUrl(id, parsed.data.siteUrl).catch((err) => console.warn('[clients] seo site url sync failed:', err))
+      // Their Hell-level sub-account takes the site as its website, with its policy pages and logo.
+      void syncClientSite(id, parsed.data.siteUrl, priorSiteUrl).catch((err) => console.warn('[clients] hell-level site sync failed:', err))
     }
 
     // Sync linked User roles when lifecycle changes. Without this, a

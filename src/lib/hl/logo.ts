@@ -84,23 +84,21 @@ export async function fillLogoFromSite(accountId: string, force = false): Promis
   return logo
 }
 
-/** Once after deploy: every sub-account with a website and no logo gets its site's. */
-let filled = false
+/**
+ * Twice a day: a sub-account with a website (its own, or its client's live
+ * site) and no logo gets its site's. Catches clients who onboarded before
+ * their site was built, and sites that were down.
+ */
+let lastSweep = 0
 export async function maybeFillLogos(): Promise<number> {
-  if (filled) return 0
-  filled = true
-  const key = 'hl.logos.v1'
-  try {
-    await prisma.appSetting.create({ data: { key, value: 'running' } })
-  } catch {
-    return 0 // done before, or another container is on it
-  }
-  const accounts = await prisma.hlAccount.findMany({ where: { archivedAt: null }, select: { id: true, name: true, profile: true } })
-  const found: string[] = []
+  if (Date.now() - lastSweep < 12 * 3600_000) return 0
+  lastSweep = Date.now()
+  const accounts = await prisma.hlAccount.findMany({ where: { archivedAt: null }, select: { id: true, profile: true, client: { select: { siteUrl: true } } } })
+  let found = 0
   for (const a of accounts) {
-    if (httpUrl(readProfile(a.profile).logoUrl)) continue
-    if (await fillLogoFromSite(a.id)) found.push(a.name)
+    const p = readProfile(a.profile)
+    if (httpUrl(p.logoUrl) || !(p.website?.trim() || a.client?.siteUrl)) continue
+    if (await fillLogoFromSite(a.id)) found++
   }
-  await prisma.appSetting.update({ where: { key }, data: { value: `done ${new Date().toISOString()}: ${found.length} logos (${found.join(', ').slice(0, 1500)})` } })
-  return found.length
+  return found
 }
