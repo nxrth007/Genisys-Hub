@@ -16,7 +16,6 @@ import {
   Settings,
   Sparkles,
   Star,
-  WandSparkles,
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
@@ -32,7 +31,7 @@ export type Section = {
   key: string
   label: string
   icon: LucideIcon
-  /** "top": Launchpad … Payments. "grow": AI Studio … App Marketplace (below the divider). */
+  /** "top": Launchpad … Payments. "grow": AI Agents … App Marketplace (below the divider). */
   group: 'top' | 'grow'
   tabs?: SectionTab[]
   badge?: string
@@ -108,7 +107,6 @@ export const SECTIONS: Section[] = [
       { key: 'integrations', label: 'Integrations' },
     ],
   },
-  { key: 'ai-studio', label: 'AI Studio', icon: WandSparkles, group: 'grow', badge: 'Beta' },
   {
     key: 'ai-agents',
     label: 'AI Agents',

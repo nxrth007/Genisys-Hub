@@ -11,7 +11,6 @@ import { Spinner } from '@/components/hell-level/ui'
  * the menu item and tabs match GHL, and the page says what it is.
  */
 const PAGES: Record<string, Record<string, { title: string; what: string }>> = {
-  'ai-studio': { '': { title: 'AI Studio', what: 'GHL’s beta space for building AI tools on the sub-account’s data.' } },
   'ai-agents': {
     'getting-started': { title: 'AI Agents', what: 'AI that answers calls, texts and chats for the business.' },
     'voice-ai': { title: 'Voice AI', what: 'An AI receptionist that answers the phone, books appointments and takes messages.' },
