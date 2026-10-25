@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { decryptSecret, encryptSecret } from '@/lib/crypto'
 import { getOAuth2Client } from '@/lib/drive'
+import { getSecretByName } from '@/lib/vault-service'
 import { loadAppointment, mergeFor } from './calendar-notify'
 import { asCalendarSettings, wantsMeet } from './calendar-shared'
 import { HlInputError } from './http'
@@ -42,6 +43,62 @@ const asJson = (v: unknown) => v as Prisma.InputJsonValue
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as Record<string, unknown>) } : {})
 
 // ---------------------------------------------------------------------------
+// Which Google app people sign in through
+// ---------------------------------------------------------------------------
+
+/**
+ * Calendar connections sign in through Hell-level's own Google app once it's
+ * set up (env HL_GOOGLE_CLIENT_ID / HL_GOOGLE_CLIENT_SECRET, or the Vault's
+ * "Hell-level Google Client ID" / "Hell-level Google Client Secret"). It asks
+ * for calendar access only, so Google can verify it for anyone's account.
+ * The Hub's own app (AUTH_GOOGLE_ID) also asks for full Drive, which Google
+ * only opens to outside accounts after a paid yearly security assessment, so
+ * it's the fallback for Genisys's own accounts. A connection keeps the app it
+ * signed in through: Google renews a sign-in only through the app that made it.
+ */
+export type GoogleAppKind = 'hl' | 'hub'
+type GoogleApp = { kind: GoogleAppKind; id: string; secret: string }
+
+/** Hell-level's app's return address (register it in that app's OAuth client). */
+export const HL_GOOGLE_CALLBACK = '/api/hl/public/google-calendar/callback'
+const VAULT_ID = 'Hell-level Google Client ID'
+const VAULT_SECRET = 'Hell-level Google Client Secret'
+const APP_TTL = 5 * 60_000
+let vaultApp: { at: number; app: GoogleApp | null } | null = null
+
+function envApp(kind: GoogleAppKind): GoogleApp | null {
+  const id = kind === 'hl' ? process.env.HL_GOOGLE_CLIENT_ID : process.env.AUTH_GOOGLE_ID
+  const secret = kind === 'hl' ? process.env.HL_GOOGLE_CLIENT_SECRET : process.env.AUTH_GOOGLE_SECRET
+  return id?.trim() && secret?.trim() ? { kind, id: id.trim(), secret: secret.trim() } : null
+}
+
+/** Hell-level's own app: the environment, else the Vault (read again every few minutes). */
+export async function loadHlApp(): Promise<GoogleApp | null> {
+  const env = envApp('hl')
+  if (env) return env
+  if (vaultApp && Date.now() - vaultApp.at < APP_TTL) return vaultApp.app
+  const read = (name: string) => getSecretByName(name).then((v) => v.trim(), () => '')
+  const [id, secret] = await Promise.all([read(VAULT_ID), read(VAULT_SECRET)])
+  vaultApp = { at: Date.now(), app: id && secret ? { kind: 'hl', id, secret } : null }
+  return vaultApp.app
+}
+
+/** An app as last read, for code that mustn't touch the database (busy times inside a booking's transaction). */
+const knownApp = (kind: GoogleAppKind): GoogleApp | null => (kind === 'hub' ? envApp('hub') : (envApp('hl') ?? vaultApp?.app ?? null))
+
+/** The app new connections sign in through: Hell-level's when it's set up, else the Hub's. */
+export async function connectApp(): Promise<GoogleApp | null> {
+  return (await loadHlApp()) ?? envApp('hub')
+}
+
+function oauthFor(app: GoogleApp, origin?: string) {
+  if (app.kind === 'hub') return getOAuth2Client(origin)
+  return new google.auth.OAuth2(app.id, app.secret, origin ? `${origin}${HL_GOOGLE_CALLBACK}` : undefined)
+}
+
+const appOf = (row: { data: unknown }): GoogleAppKind => (obj(row.data).app === 'hl' ? 'hl' : 'hub')
+
+// ---------------------------------------------------------------------------
 // Signed links
 // ---------------------------------------------------------------------------
 
@@ -78,9 +135,36 @@ export function readConnectState(state: string | null | undefined): ConnectState
   return { accountId: d.a, staffKey: d.s, back: d.b === 'page' ? 'page' : 'hub' }
 }
 
-/** Google's consent screen for the calendar scopes. `origin` must be the host the sign-in comes back to. */
-export function googleConsentUrl(origin: string, s: ConnectState): string {
-  return getOAuth2Client(origin).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_CALENDAR_SCOPES, state: connectState(s) })
+/** Google's consent screen for the calendar scopes, through the app connections use now. `origin` must be the host the sign-in comes back to. */
+export async function googleConsentUrl(origin: string, s: ConnectState): Promise<string> {
+  const app = await connectApp()
+  if (!app) throw new HlInputError('No Google app is set up for calendar connections yet.')
+  return oauthFor(app, origin).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_CALENDAR_SCOPES, state: connectState(s) })
+}
+
+/**
+ * Where Google's sign-in goes next: the sub-account's Connections, or (a
+ * team member from their connect link) the done page. `kind` = the app it
+ * came back through (its return address says which).
+ */
+export async function calendarCallbackRedirect(origin: string, kind: GoogleAppKind, code: string | null, state: string, denied: string | null): Promise<string> {
+  const s = readConnectState(state)
+  const page = (q: string) => `${origin}/hl/connect/done?${q}`
+  if (!s) return page(`error=${encodeURIComponent('That sign-in took too long or the link was changed. Open your connect link and try again.')}`)
+  const back = (ok: string | null, error?: string) =>
+    s.back === 'page'
+      ? page(ok ? 'connected=1' : `error=${encodeURIComponent(error ?? '')}`)
+      : `${origin}/hell-level/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`
+  if (!code) return back(null, denied ? 'Google sign-in was cancelled.' : 'Google sent no sign-in code.')
+  try {
+    const { email, id } = await finishGoogleConnect(code, origin, s, kind)
+    // Live updates from Google, and their upcoming appointments put on the calendar (they may have missed some while disconnected).
+    void import('./google-sync').then((m) => m.afterGoogleConnect(id)).catch((err) => console.error('[hell-level] google calendar after-connect failed:', err))
+    return back(email)
+  } catch (err) {
+    console.error('[hell-level] calendar connect failed:', err)
+    return back(null, err instanceof Error ? err.message : 'Google sign-in failed.')
+  }
 }
 
 /** A week-long link to send a team member (a client's staff), so they connect their own Google Calendar without a Hub login. */
@@ -129,15 +213,17 @@ export type CalendarConnection = {
   conflicts: boolean
   /** Bookings are written into it. */
   push: boolean
+  /** A booking's event moved or deleted in Google moves or cancels the appointment (GHL's two-way sync). */
+  pull: boolean
   connectedAt: string
   error: string | null
 }
 
-type Row = { id: string; name: string; data: unknown }
+export type Row = { id: string; name: string; data: unknown }
 
 const ids = (v: unknown) => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && !!x && x.length <= 300))].slice(0, 20) : null)
 
-function toConnection(r: Row): CalendarConnection {
+export function toConnection(r: Row): CalendarConnection {
   const d = obj(r.data)
   const calendarId = typeof d.calendarId === 'string' && d.calendarId ? d.calendarId : 'primary'
   return {
@@ -150,6 +236,7 @@ function toConnection(r: Row): CalendarConnection {
     checkIds: ids(d.checkIds) ?? [calendarId],
     conflicts: d.conflicts !== false,
     push: d.push !== false,
+    pull: d.pull !== false,
     connectedAt: String(d.connectedAt ?? ''),
     error: typeof d.error === 'string' ? d.error : null,
   }
@@ -165,10 +252,12 @@ export async function listConnections(accountId: string, db: Db = prisma): Promi
 }
 
 /** Finish Google's sign-in: keep the refresh token (encrypted) for the team member, replacing their earlier connection. */
-export async function finishGoogleConnect(code: string, origin: string, s: ConnectState): Promise<{ email: string }> {
+export async function finishGoogleConnect(code: string, origin: string, s: ConnectState, kind: GoogleAppKind = 'hub'): Promise<{ email: string; id: string }> {
   const staff = await staffRecord(s.accountId, s.staffKey)
   if (!staff) throw new HlInputError('That team member isn’t on the sub-account any more.')
-  const client = getOAuth2Client(origin)
+  const app = kind === 'hl' ? await loadHlApp() : envApp('hub')
+  if (!app) throw new HlInputError('The Google app this sign-in came through isn’t set up any more.')
+  const client = oauthFor(app, origin)
   const { tokens } = await client.getToken(code)
   const granted = (tokens.scope ?? '').split(/\s+/)
   if (!GOOGLE_CALENDAR_SCOPES.slice(0, 2).every((x) => granted.includes(x))) throw new HlInputError('Google didn’t give calendar access. Connect again and leave the calendar boxes ticked on Google’s screen.')
@@ -180,6 +269,7 @@ export async function finishGoogleConnect(code: string, origin: string, s: Conne
   const enc = encryptSecret(tokens.refresh_token)
   const record = {
     provider: 'google',
+    app: kind,
     staffKey: staff.ghlId ?? staff.id,
     staffId: staff.id,
     refresh: Buffer.from(enc.ciphertext).toString('base64'),
@@ -189,21 +279,38 @@ export async function finishGoogleConnect(code: string, origin: string, s: Conne
     push: true,
     connectedAt: new Date().toISOString(),
   }
-  await prisma.$transaction(async (tx) => {
-    const theirs = (await listConnections(s.accountId, tx)).filter((c) => c.staffId === staff.id || isFor(c, s.staffKey))
-    if (theirs.length) await tx.hlRecord.deleteMany({ where: { id: { in: theirs.map((c) => c.id) } } })
-    await tx.hlRecord.create({ data: { accountId: s.accountId, kind: 'calendar_connection', name: email, data: asJson(record) } })
+  const { id, replaced } = await prisma.$transaction(async (tx) => {
+    const theirs = (await rowsOf(s.accountId, tx)).filter((r) => {
+      const c = toConnection(r)
+      return c.staffId === staff.id || isFor(c, s.staffKey)
+    })
+    if (theirs.length) await tx.hlRecord.deleteMany({ where: { id: { in: theirs.map((r) => r.id) } } })
+    const made = await tx.hlRecord.create({ data: { accountId: s.accountId, kind: 'calendar_connection', name: email, data: asJson(record) }, select: { id: true } })
+    return { id: made.id, replaced: theirs }
   })
+  // The replaced connection's live-update channels are closed (best effort; they'd lapse within a week anyway).
+  for (const r of replaced) await stopChannels(r)
   forget()
-  return { email }
+  return { email, id }
 }
 
-export async function updateConnection(accountId: string, id: string, patch: { conflicts?: unknown; push?: unknown; calendarId?: unknown; checkIds?: unknown }): Promise<CalendarConnection> {
+/** Close a connection's Google push channels (src/lib/hl/google-sync.ts opens them). */
+export async function stopChannels(row: Row): Promise<void> {
+  const channels = Array.isArray(obj(row.data).channels) ? (obj(row.data).channels as { id?: string; resourceId?: string }[]) : []
+  if (!channels.length) return
+  await loadHlApp().catch(() => null)
+  const cal = calendarFor(row)
+  if (!cal) return
+  for (const ch of channels) if (ch.id && ch.resourceId) await cal.channels.stop({ requestBody: { id: ch.id, resourceId: ch.resourceId } }).catch(() => undefined)
+}
+
+export async function updateConnection(accountId: string, id: string, patch: { conflicts?: unknown; push?: unknown; pull?: unknown; calendarId?: unknown; checkIds?: unknown }): Promise<CalendarConnection> {
   const row = await prisma.hlRecord.findFirst({ where: { id, accountId, kind: 'calendar_connection' } })
   if (!row) throw new HlInputError('Connection not found.')
   const d = obj(row.data)
   if (typeof patch.conflicts === 'boolean') d.conflicts = patch.conflicts
   if (typeof patch.push === 'boolean') d.push = patch.push
+  if (typeof patch.pull === 'boolean') d.pull = patch.pull
   if (patch.calendarId !== undefined) {
     if (typeof patch.calendarId !== 'string' || !patch.calendarId || patch.calendarId.length > 300) throw new HlInputError('Pick the calendar bookings go into.')
     d.calendarId = patch.calendarId
@@ -221,8 +328,11 @@ export async function updateConnection(accountId: string, id: string, patch: { c
 export async function removeConnection(accountId: string, id: string): Promise<void> {
   const row = await prisma.hlRecord.findFirst({ where: { id, accountId, kind: 'calendar_connection' } })
   if (!row) return
+  await stopChannels(row)
   const token = refreshOf(row)
-  if (token) await getOAuth2Client().revokeToken(token).catch(() => undefined)
+  const kind = appOf(row)
+  const app = kind === 'hl' ? await loadHlApp() : envApp('hub')
+  if (token && app) await oauthFor(app).revokeToken(token).catch(() => undefined)
   await prisma.hlRecord.delete({ where: { id } })
   forget()
 }
@@ -245,14 +355,25 @@ function forget() {
   busyCache.clear()
 }
 
+/** A connection's calendars changed in Google: its busy times are read again next time. */
+export function forgetBusy(connectionId: string): void {
+  for (const key of busyCache.keys()) if (key.startsWith(`${connectionId}|`)) busyCache.delete(key)
+}
+
+/** Swapped in tests: a stand-in for Google's API per connection. */
+export const calendarHooks: { client?: (row: Row) => calendar_v3.Calendar | null } = {}
+
 /** A connection's Google client, from its row (no database read: a booking asks for busy times inside its transaction). */
-function calendarFor(row: Row | undefined): calendar_v3.Calendar | null {
+export function calendarFor(row: Row | undefined): calendar_v3.Calendar | null {
   if (!row) return null
+  if (calendarHooks.client) return calendarHooks.client(row)
   const hit = clients.get(row.id)
   if (hit && Date.now() - hit.at < CLIENT_TTL) return hit.cal
   const token = refreshOf(row)
-  if (!token) return null
-  const auth = getOAuth2Client()
+  // The app that made the sign-in (Hell-level's is read from the Vault outside bookings; see loadHlApp).
+  const app = knownApp(appOf(row))
+  if (!token || !app) return null
+  const auth = oauthFor(app)
   auth.setCredentials({ refresh_token: token })
   const cal = google.calendar({ version: 'v3', auth })
   clients.set(row.id, { at: Date.now(), cal })
@@ -260,7 +381,7 @@ function calendarFor(row: Row | undefined): calendar_v3.Calendar | null {
 }
 
 /** Google's words for a failure, kept on the connection for the Connections page (a revoked sign-in says invalid_grant). */
-async function noteError(id: string, err: unknown, db: Db = prisma): Promise<void> {
+export async function noteError(id: string, err: unknown, db: Db = prisma): Promise<void> {
   const g = err as { message?: string; response?: { data?: { error?: unknown; error_description?: unknown } } }
   const data = g.response?.data
   const message = typeof data?.error_description === 'string' ? data.error_description : typeof data?.error === 'string' ? data.error : (g.message ?? String(err))
@@ -288,6 +409,7 @@ async function clearError(c: CalendarConnection, db: Db = prisma): Promise<void>
 export async function googleCalendars(accountId: string, id: string): Promise<{ id: string; name: string; primary: boolean; canWrite: boolean }[]> {
   const row = await prisma.hlRecord.findFirst({ where: { id, accountId, kind: 'calendar_connection' }, select: { id: true, name: true, data: true } })
   if (!row) throw new HlInputError('Connection not found.')
+  await loadHlApp()
   const cal = calendarFor(row)
   if (!cal) throw new HlInputError('This connection’s Google sign-in can’t be read. Connect again.')
   try {
@@ -359,6 +481,8 @@ async function busyOf(row: Row, c: CalendarConnection, lo: number, hi: number, d
  */
 export async function googleBusy(accountId: string, members: string[], from: Date, to: Date, db: Db = prisma): Promise<Busy[]> {
   if (!members.length) return []
+  // Outside a booking's transaction, Hell-level's Google app may be read fresh; inside, the last read is used.
+  if (db === prisma) await loadHlApp().catch(() => null)
   const conns = (await rowsOf(accountId, db)).map((row) => ({ row, c: toConnection(row) })).filter(({ c }) => c.conflicts && c.checkIds.length && members.some((k) => isFor(c, k)))
   if (!conns.length) return []
   // Whole days, cached a few minutes: the booking page asks a lot.
@@ -390,6 +514,7 @@ const MEET = /^google meet$/i
  */
 export async function syncAppointmentToGoogle(appointmentId: string): Promise<void> {
   try {
+    await loadHlApp().catch(() => null)
     const a = await loadAppointment(appointmentId)
     if (!a || a.source === 'block' || a.ghlId) return
     const meta = obj(a.meta) as { members?: unknown; google?: Record<string, GoogleRef> }

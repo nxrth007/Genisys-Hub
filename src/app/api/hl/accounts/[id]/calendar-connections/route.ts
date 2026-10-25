@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPublicOrigin } from '@/lib/drive'
-import { connectTarget, googleConsentUrl, listConnections, shareableConnectLink } from '@/lib/hl/google-calendar'
+import { connectApp, connectTarget, googleConsentUrl, listConnections, shareableConnectLink } from '@/lib/hl/google-calendar'
 import { HlInputError, hlAccountOr404, hlError, hlGuard, jsonBody } from '@/lib/hl/http'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -12,7 +12,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
-  return NextResponse.json({ connections: await listConnections(id), googleReady: !!(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET) })
+  // Which Google app new connections sign in through: Hell-level's own (open to anyone's account once Google verifies it), the Hub's, or none.
+  return NextResponse.json({ connections: await listConnections(id), googleApp: (await connectApp())?.kind ?? null })
 }
 
 /**
@@ -30,9 +31,9 @@ export async function POST(req: Request, { params }: Ctx) {
     const body = await jsonBody(req)
     const staffKey = typeof body.staffKey === 'string' ? body.staffKey : ''
     if (!staffKey || !(await connectTarget(id, staffKey))) throw new HlInputError('Pick a team member on this sub-account.')
-    if (!process.env.AUTH_GOOGLE_ID || !process.env.AUTH_GOOGLE_SECRET) throw new HlInputError('The Hub’s Google sign-in isn’t set up (AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET).')
+    if (!(await connectApp())) throw new HlInputError('No Google app is set up for calendar connections yet.')
     if (body.action === 'link') return NextResponse.json({ url: shareableConnectLink(id, staffKey) })
-    return NextResponse.json({ url: googleConsentUrl(getPublicOrigin(req), { accountId: id, staffKey, back: 'hub' }) })
+    return NextResponse.json({ url: await googleConsentUrl(getPublicOrigin(req), { accountId: id, staffKey, back: 'hub' }) })
   } catch (err) {
     return hlError(err, 'connect Google Calendar')
   }

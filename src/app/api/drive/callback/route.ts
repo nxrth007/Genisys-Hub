@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { exchangeCode, getPublicOrigin } from '@/lib/drive'
-import { finishGoogleConnect, isCalendarState, readConnectState } from '@/lib/hl/google-calendar'
+import { calendarCallbackRedirect, isCalendarState } from '@/lib/hl/google-calendar'
 import { canAccessSeo } from '@/lib/seo/access'
 import { GSC_OAUTH_SCOPES, GSC_OAUTH_STATE, setGscConnectedAccount } from '@/lib/seo/gsc'
 
@@ -57,20 +57,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/** A calendar sign-in through the Hub's own Google app (Hell-level's own app returns to /api/hl/public/google-calendar/callback). */
 async function calendarCallback(origin: string, code: string | null, state: string, denied: string | null) {
-  const s = readConnectState(state)
-  const page = (q: string) => NextResponse.redirect(`${origin}/hl/connect/done?${q}`)
-  if (!s) return page(`error=${encodeURIComponent('That sign-in took too long or the link was changed. Open your connect link and try again.')}`)
-  const back = (ok: string | null, error?: string) =>
-    s.back === 'page'
-      ? page(ok ? 'connected=1' : `error=${encodeURIComponent(error ?? '')}`)
-      : NextResponse.redirect(`${origin}/hell-level/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`)
-  if (!code) return back(null, denied ? 'Google sign-in was cancelled.' : 'Google sent no sign-in code.')
-  try {
-    const { email } = await finishGoogleConnect(code, origin, s)
-    return back(email)
-  } catch (err) {
-    console.error('[drive/callback] calendar connect failed:', err)
-    return back(null, err instanceof Error ? err.message : 'Google sign-in failed.')
-  }
+  return NextResponse.redirect(await calendarCallbackRedirect(origin, 'hub', code, state, denied))
 }

@@ -1082,7 +1082,7 @@ function ScheduleEditor({ accountId, schedule, calendars }: { accountId: string;
 // Connections
 // ---------------------------------------------------------------------------
 
-type Connection = { id: string; staffKey: string; staffId: string; email: string; calendarId: string; checkIds: string[]; conflicts: boolean; push: boolean; connectedAt: string; error: string | null }
+type Connection = { id: string; staffKey: string; staffId: string; email: string; calendarId: string; checkIds: string[]; conflicts: boolean; push: boolean; pull: boolean; connectedAt: string; error: string | null }
 type GoogleCal = { id: string; name: string; primary: boolean; canWrite: boolean }
 
 const LATER: { group: string; items: { name: string; what: string }[] }[] = [
@@ -1107,7 +1107,7 @@ const LATER: { group: string; items: { name: string; what: string }[] }[] = [
 function ConnectionsTab({ accountId }: { accountId: string }) {
   const sp = useSearchParams()
   const cals = useCalendars(accountId)
-  const conns = useQuery<{ connections: Connection[]; googleReady: boolean }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
+  const conns = useQuery<{ connections: Connection[]; googleApp: 'hl' | 'hub' | null }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
   const staff = cals.data?.staff ?? []
   const list = conns.data?.connections ?? []
   const connFor = (m: StaffRow) => list.find((c) => c.staffId === m.id || c.staffKey === staffKey(m))
@@ -1130,11 +1130,18 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold text-foreground">Google Calendar</p>
             <p className="text-[12.5px] text-muted-foreground">
-              Each team member connects their own Google account. Busy times on it stop people booking them then, and their appointments go into it, moving or coming off when they’re rescheduled or cancelled. Send them a link to connect it themselves (it works for a week), or connect here if it’s your own.
+              Each team member connects their own Google account. Busy times on it stop people booking them then, as soon as Google says they’ve changed. Their appointments go into it, moving or coming off when they’re rescheduled or cancelled, and a booking moved or deleted in Google moves or cancels the appointment, as in GHL. Send them a link to connect it themselves (it works for a week), or connect here if it’s your own.
             </p>
           </div>
         </div>
-        {conns.data && !conns.data.googleReady && <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">The Hub’s Google sign-in isn’t set up on this server (AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET).</p>}
+        {conns.data && conns.data.googleApp === null && (
+          <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">No Google app is set up for calendar connections yet. Add Hell-level’s to the Vault as “Hell-level Google Client ID” and “Hell-level Google Client Secret”.</p>
+        )}
+        {conns.data?.googleApp === 'hub' && (
+          <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">
+            Connections sign in through the Hub’s own Google app for now, which works for Genisys’s own Google accounts only. For contractors’ accounts, add Hell-level’s own Google app to the Vault as “Hell-level Google Client ID” and “Hell-level Google Client Secret”.
+          </p>
+        )}
         <ErrorNote error={cals.error || conns.error} />
         {(cals.isLoading || conns.isLoading) && <Spinner />}
         {!cals.isLoading && !staff.length && <p className="mt-3 text-[13px] text-muted-foreground">No team members yet: add them under Settings → My Staff.</p>}
@@ -1203,7 +1210,7 @@ function StaffConnection({ accountId, member, conn, onCalendars }: { accountId: 
     },
   })
   const patch = useMutation({
-    mutationFn: (body: Partial<Pick<Connection, 'conflicts' | 'push' | 'calendarId' | 'checkIds'>>) => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections/${conn!.id}`, { method: 'PATCH', json: body }),
+    mutationFn: (body: Partial<Pick<Connection, 'conflicts' | 'push' | 'pull' | 'calendarId' | 'checkIds'>>) => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections/${conn!.id}`, { method: 'PATCH', json: body }),
     onSuccess: refresh,
   })
   const remove = useMutation({
@@ -1261,8 +1268,16 @@ function StaffConnection({ accountId, member, conn, onCalendars }: { accountId: 
       )}
       {conn && (
         <div className="flex flex-wrap gap-x-6 gap-y-2 pl-0.5">
-          <Toggle checked={conn.conflicts} disabled={patch.isPending} onChange={(v) => patch.mutate({ conflicts: v })} label="Busy times block bookings" />
-          <Toggle checked={conn.push} disabled={patch.isPending} onChange={(v) => patch.mutate({ push: v })} label="Add bookings to Google Calendar" />
+          {[
+            { label: 'Busy times block bookings', on: conn.conflicts, set: (v: boolean) => patch.mutate({ conflicts: v }) },
+            { label: 'Add bookings to Google Calendar', on: conn.push, set: (v: boolean) => patch.mutate({ push: v }) },
+            { label: 'Moves and deletions in Google change the appointment', on: conn.pull, set: (v: boolean) => patch.mutate({ pull: v }), off: !conn.push },
+          ].map((t) => (
+            <label key={t.label} className={cn('flex items-center gap-2 text-[12.5px] text-foreground/90', t.off && 'opacity-50')}>
+              <Toggle checked={t.on} disabled={patch.isPending || !!t.off} onChange={t.set} label={t.label} />
+              {t.label}
+            </label>
+          ))}
         </div>
       )}
       {conn && choosing && <ChooseCalendars accountId={accountId} conn={conn} onSave={(v) => patch.mutateAsync(v).then(() => setChoosing(false))} saving={patch.isPending} />}

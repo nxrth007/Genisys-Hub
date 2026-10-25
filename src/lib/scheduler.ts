@@ -52,6 +52,7 @@ import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
 import { maybeUpgradeClientAccounts } from './hl/accounts'
 import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
+import { maybeSyncGoogleCalendars } from './hl/google-sync'
 import { maybeFillLogos } from './hl/logo'
 import { checkPendingEmail } from './hl/email'
 import { maybeRefreshDomains } from './hl/domains'
@@ -468,6 +469,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
+    // Google Calendar changes (moves, deletions, new busy time), read every 10 minutes in case a push went missing.
+    void maybeSyncGoogleCalendars()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} Google Calendar change(s) read`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level google calendar sync failed:', err))
     // GHL webhook triggers imported before Hell-level had them get URLs of their own, once.
     void maybeUpgradeWebhookTriggers()
       .then((n) => {

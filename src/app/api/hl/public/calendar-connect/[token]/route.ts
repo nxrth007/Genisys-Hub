@@ -18,5 +18,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!limit.ok) return done('Too many tries from here. Please wait a few minutes.')
   const t = readShareToken(token)
   if (!t || !(await connectTarget(t.accountId, t.staffKey))) return done('This connect link has expired. Ask for a new one.')
-  return NextResponse.redirect(googleConsentUrl(origin, { accountId: t.accountId, staffKey: t.staffKey, back: 'page' }))
+  try {
+    return NextResponse.redirect(await googleConsentUrl(origin, { accountId: t.accountId, staffKey: t.staffKey, back: 'page' }))
+  } catch (err) {
+    return done(err instanceof Error ? err.message : 'Google sign-in isn’t set up yet.')
+  }
 }
