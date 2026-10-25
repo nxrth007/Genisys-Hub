@@ -237,10 +237,13 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           <div className="flex max-h-[calc(100vh-12rem)] flex-col gap-3 overflow-y-auto pr-1">
             {INPUTS.map((f) => {
               const edited = f.key in edits && edits[f.key] !== data.prefill[f.key]
+              // The label names only its input: wrapped round the reset button too, a click on it would reset the field.
               return (
-                <label key={f.key} className="flex flex-col gap-1">
+                <div key={f.key} className="flex flex-col gap-1">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="eyebrow text-muted-foreground/80">{f.label}</span>
+                    <label htmlFor={`a2p-${f.key}`} className="eyebrow text-muted-foreground/80">
+                      {f.label}
+                    </label>
                     {edited && (
                       <button
                         type="button"
@@ -257,6 +260,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                   </span>
                   {f.long ? (
                     <textarea
+                      id={`a2p-${f.key}`}
                       value={values[f.key]}
                       onChange={(e) => setValue(f.key, e.target.value)}
                       placeholder={f.placeholder}
@@ -265,6 +269,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                     />
                   ) : (
                     <input
+                      id={`a2p-${f.key}`}
                       value={values[f.key]}
                       onChange={(e) => setValue(f.key, e.target.value)}
                       placeholder={f.placeholder}
@@ -276,7 +281,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                     <span className="text-[11px] leading-snug text-muted-foreground">They listed: {data.mainServices}</span>
                   )}
                   {f.hint && <span className="text-[11px] leading-snug text-muted-foreground/80">{f.hint}</span>}
-                </label>
+                </div>
               )
             })}
           </div>

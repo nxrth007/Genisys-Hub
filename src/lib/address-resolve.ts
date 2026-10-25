@@ -17,11 +17,13 @@ const cacheKey = (raw: string) => `address.resolve.${createHash('sha1').update(r
 /**
  * The parsed address, with the geocoder filling in whatever the text
  * didn't make clear (usually the city, or the state when only a ZIP or a
- * town was given). Never throws; worst case returns what the text said.
+ * town was given). `zip`: look it up too when only the ZIP is missing (a
+ * toll-free filing needs one). Never throws; worst case returns what the
+ * text said.
  */
-export async function resolveAddress(raw: string | null | undefined): Promise<ResolvedAddress> {
+export async function resolveAddress(raw: string | null | undefined, opts: { zip?: boolean } = {}): Promise<ResolvedAddress> {
   const parsed = parseUsAddress(raw)
-  if (!raw?.trim() || (parsed.city && parsed.state)) return parsed
+  if (!raw?.trim() || (parsed.city && parsed.state && (!opts.zip || parsed.zip))) return parsed
 
   const key = cacheKey(raw)
   try {

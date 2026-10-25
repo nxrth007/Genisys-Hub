@@ -10,6 +10,7 @@ import { getSheetsClient, getWriterAccountEmail } from '@/lib/drive'
  *   Intake Form Completed      ← a finished onboarding form (client-intake-ingest.ts)
  *   Automations Configuration  ← "Mark Completed" on the Automation Copy board
  *   A2P Submitted              ← "Mark Complete" on the A2P board
+ *   Toll-Free Submitted        ← "Mark Complete" on the Toll-Free board (if the sheet has the column)
  *
  * Rows are matched by Contact Email first, then Business, then Client
  * Name. A client with no row yet gets one appended. Columns are found by
@@ -27,6 +28,7 @@ export const TRACKER_STEPS = {
   intake: 'Intake Form Completed',
   automations: 'Automations Configuration',
   a2p: 'A2P Submitted',
+  tollfree: 'Toll-Free Submitted',
 } as const
 export type TrackerStep = keyof typeof TRACKER_STEPS
 

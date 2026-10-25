@@ -21,6 +21,7 @@ import {
   MapPin,
   MessageSquareText,
   Pencil,
+  Phone,
   Search,
   Trash2,
   TrendingUp,
@@ -1162,6 +1163,13 @@ function ClientDetailDialog({
               title="Copy-and-paste board for this client's A2P 10DLC registration in GHL"
             >
               <MessageSquareText className="h-3.5 w-3.5" /> A2P
+            </Link>
+            <Link
+              href={`/clients/${client.id}/toll-free`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition hover:bg-muted"
+              title="Copy-and-paste board for verifying this client's toll-free number in GHL (free; no EIN needed)"
+            >
+              <Phone className="h-3.5 w-3.5" /> Toll-Free
             </Link>
             <Link
               href={`/clients/${client.id}/ghl`}
