@@ -60,9 +60,34 @@ const SCRIPT = `(function () {
 
     // The panel: a card that rises into place (the whole screen on a phone).
     var panel = el('div');
-    var frame = el('iframe', 'width:100%;height:100%;border:0;display:block;background:#F4F5F7');
+    // Until the chat has loaded, a sketch of it: the header in the business's colour with its
+    // logo and name, a couple of grey messages. The chat fades in over it, so opening is never blank.
+    var sketch = el('div', 'position:absolute;top:0;left:0;right:0;bottom:0;background:#F4F5F7;transition:opacity .3s ease');
+    var head = el('div', 'height:92px;box-sizing:border-box;padding:16px;display:flex;align-items:flex-start;gap:12px;background:linear-gradient(135deg,' + mix(color, '#FFFFFF', 0.14) + ' 0%,' + color + ' 46%,' + mix(color, '#000000', 0.16) + ' 100%);color:' + ink + ';font:600 16px/1.25 ' + font);
+    if (cfg.logo) {
+      var mark = el('img', 'width:48px;height:48px;flex:none;border-radius:50%;background:#fff;object-fit:contain;padding:5px;box-sizing:border-box;box-shadow:0 2px 10px rgba(16,24,40,.2)');
+      mark.src = cfg.logo;
+      mark.alt = '';
+      head.appendChild(mark);
+    }
+    var who = el('span', 'padding-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
+    who.textContent = cfg.business || '';
+    head.appendChild(who);
+    sketch.appendChild(head);
+    var lines = el('div', 'margin-top:-13px;border-radius:18px 18px 0 0;background:#F4F5F7;padding:18px 14px 0 52px;display:flex;flex-direction:column;gap:6px');
+    [72, 84].forEach(function (w) { lines.appendChild(el('div', 'height:44px;width:' + w + '%;border-radius:18px 18px 18px 6px;background:#fff;border:1px solid #EEF0F3')); });
+    lines.appendChild(el('div', 'height:220px;margin:10px 0 0 -38px;border-radius:18px;background:#fff;border:1px solid #EAECF0'));
+    sketch.appendChild(lines);
+    panel.appendChild(sketch);
+    var frame = el('iframe', 'position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;background:transparent;opacity:0;transition:opacity .3s ease');
     frame.title = 'Chat with us';
     frame.setAttribute('allow', 'clipboard-write');
+    frame.addEventListener('load', function () {
+      if (!frame.getAttribute('src')) return; // the empty frame's own load, before the chat is asked for
+      frame.style.opacity = '1';
+      sketch.style.opacity = '0';
+      setTimeout(function () { sketch.style.display = 'none'; }, 320);
+    });
     panel.appendChild(frame);
     function preload() { if (!frame.src) frame.src = origin + '/hl/c/' + encodeURIComponent(form) + '?page=' + encodeURIComponent(location.href); }
     var phone = function () { return window.innerWidth < 520; };
