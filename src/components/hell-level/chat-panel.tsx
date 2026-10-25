@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { inkOn, shade } from '@/lib/hl/color'
 import type { HlConsentBox, HlField, HlFormSettings } from '@/lib/hl/types'
+import { BrandAvatar as Avatar, UsFlag, phonePretty as pretty, phoneTyping as typing } from './brand-bits'
 import { Linked } from './public-form'
 
 /**
@@ -38,47 +39,6 @@ const STYLE = `
 @media (pointer: coarse) { .hl-field { font-size: 16px !important } }
 @media (prefers-reduced-motion: reduce) { .hl-in, .hl-dot, .hl-pulse { animation: none !important } }
 `
-
-const pretty = (raw: string) => {
-  const d = raw.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
-  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : raw
-}
-
-/** A US number as it's typed: 631, (631) 555, (631) 555-0142. Pasted +1s are dropped. */
-const typing = (raw: string) => {
-  const d = raw.replace(/\D/g, '').replace(/^1(?=\d{10})/, '').slice(0, 10)
-  if (d.length <= 3) return d
-  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
-}
-
-function Avatar({ logo, business, size, color }: { logo: string | null; business: string; size: number; color: string }) {
-  const initial = business.trim().charAt(0).toUpperCase() || '•'
-  return logo ? (
-    // eslint-disable-next-line @next/next/no-img-element -- the client's own logo, from their website
-    <img src={logo} alt="" width={size} height={size} className="shrink-0 rounded-full bg-white object-contain" style={{ width: size, height: size, padding: size > 36 ? 3 : 2 }} />
-  ) : (
-    <span className="grid shrink-0 place-items-center rounded-full font-semibold" style={{ width: size, height: size, background: color, color: inkOn(color), fontSize: size * 0.42 }}>
-      {initial}
-    </span>
-  )
-}
-
-/** The US flag, drawn (Windows shows the flag emoji as the letters "US"). */
-function UsFlag() {
-  return (
-    <span className="block shrink-0 overflow-hidden rounded-[3px] shadow-[0_0_0_1px_rgba(16,24,40,.1)]">
-      <svg width="20" height="14" viewBox="0 0 20 14" className="block">
-        <rect width="20" height="14" fill="#fff" />
-        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-          <rect key={i} y={(i * 28) / 13} width="20" height={14 / 13} fill="#B22234" />
-        ))}
-        <rect width="8" height={98 / 13} fill="#3C3B6E" />
-        {[0, 1, 2].map((r) => [0, 1, 2].map((c) => <circle key={`${r}${c}`} cx={1.5 + c * 2.5} cy={1.4 + r * 2.4} r=".5" fill="#fff" />))}
-      </svg>
-    </span>
-  )
-}
 
 /** A message from the business; the second of two hugs the first, as chat apps group them. */
 function Bubble({ children, delay = 0, follows = false }: { children: React.ReactNode; delay?: number; follows?: boolean }) {

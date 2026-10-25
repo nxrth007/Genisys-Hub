@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { appointmentByToken } from '@/lib/hl/booking'
+import { BookingFrame } from '@/components/hell-level/booking-frame'
 import { ManageAppointment } from '@/components/hell-level/manage-appointment'
 
 export const dynamic = 'force-dynamic'
@@ -15,11 +16,8 @@ export default async function AppointmentPage({ params, searchParams }: Props) {
   if (!a) notFound()
   const { cancel } = await searchParams
   return (
-    <div className="min-h-screen bg-white text-[#101828]" style={{ colorScheme: 'light', ['--hl-c' as string]: a.calendar?.color ?? '#155EEF' }}>
-      <style>{'html,body{background:#fff!important;color-scheme:light}'}</style>
-      <main className="mx-auto w-full max-w-2xl px-5 py-8">
-        <ManageAppointment token={token} a={a} startCancelling={cancel === '1'} />
-      </main>
-    </div>
+    <BookingFrame color={a.calendar?.color ?? '#155EEF'} business={a.business} logo={a.calendar?.logo ?? null} title="Your appointment" legal={a.calendar?.legal ?? null}>
+      <ManageAppointment token={token} a={a} startCancelling={cancel === '1'} />
+    </BookingFrame>
   )
 }

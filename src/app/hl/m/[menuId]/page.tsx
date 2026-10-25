@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { publicMenu } from '@/lib/hl/service-menus'
+import { BookingFrame } from '@/components/hell-level/booking-frame'
 import { ServiceMenuBooking } from '@/components/hell-level/service-menu'
 import { FrameHeight } from '@/components/hell-level/frame-height'
 
@@ -19,12 +20,11 @@ export default async function ServiceMenuPage({ params, searchParams }: Props) {
   if (!menu) notFound()
   const { page } = await searchParams
   return (
-    <div className="min-h-screen bg-white text-[#101828]" style={{ colorScheme: 'light' }}>
-      <style>{'html,body{background:#fff!important;color-scheme:light}'}</style>
-      <main className="mx-auto flex w-full max-w-4xl px-5 py-6">
+    <>
+      <BookingFrame color={menu.color} business={menu.business} logo={menu.logo} title={menu.name} description={menu.description} legal={menu.services[0]?.calendar.legal ?? null}>
         <ServiceMenuBooking menu={menu} pageUrl={page ?? null} />
-      </main>
+      </BookingFrame>
       <FrameHeight formId={menu.id} />
-    </div>
+    </>
   )
 }

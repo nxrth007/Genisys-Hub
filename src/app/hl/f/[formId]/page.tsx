@@ -21,7 +21,7 @@ export default async function HostedFormPage({ params, searchParams }: Props) {
   const { page } = await searchParams
   const background = formBackground(form.settings)
   return (
-    <div className="min-h-screen" style={{ colorScheme: 'light', background }}>
+    <div data-hl-frame className="min-h-screen" style={{ colorScheme: 'light', background }}>
       <style>{`html,body{background:${background}!important;color-scheme:light}`}</style>
       <main className="mx-auto w-full max-w-xl px-5 py-6">
         <PublicForm formId={form.id} fields={form.fields} settings={form.settings} legal={form.legal} variant="form" pageUrl={page ?? null} logo={form.logo} business={form.business} />

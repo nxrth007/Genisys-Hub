@@ -89,7 +89,7 @@ export async function deleteMenu(accountId: string, id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type MenuService = { calendar: PublicCalendar; group: string; team: { key: string; name: string }[] }
-export type PublicMenu = { id: string; name: string; description: string; business: string; color: string; staffSelection: boolean; services: MenuService[] }
+export type PublicMenu = { id: string; name: string; description: string; business: string; color: string; logo: string | null; staffSelection: boolean; services: MenuService[] }
 
 /** The menu as its page shows it: its live services, grouped as their calendars are; first names only when people can pick who. */
 export async function publicMenu(id: string): Promise<PublicMenu | null> {
@@ -110,5 +110,14 @@ export async function publicMenu(id: string): Promise<PublicMenu | null> {
     services.push({ calendar: pub, group: group?.name ?? 'Services', team: team.length > 1 ? team : [] })
   }
   const profile = readProfile(row.account.profile)
-  return { id: menu.id, name: menu.name, description: menu.description, business: profile.businessName || row.account.name, color: services[0]?.calendar.color ?? '#155EEF', staffSelection: menu.staffSelection, services }
+  return {
+    id: menu.id,
+    name: menu.name,
+    description: menu.description,
+    business: profile.businessName || row.account.name,
+    color: services[0]?.calendar.color ?? (profile.brandColor && /^#[0-9a-f]{6}$/i.test(profile.brandColor) ? profile.brandColor : '#155EEF'),
+    logo: /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
+    staffSelection: menu.staffSelection,
+    services,
+  }
 }

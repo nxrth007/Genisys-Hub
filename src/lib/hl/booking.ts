@@ -32,6 +32,19 @@ type Db = typeof prisma | Prisma.TransactionClient
 const DAY = 86_400_000
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const HEX = /^#[0-9a-f]{6}$/i
+const STOCK_COLOR = '#155EEF'
+
+/**
+ * A booking page's colour: the calendar's own widget colour, else the
+ * business's brand colour (Business Profile), else the calendar's colour. New
+ * calendars start with the stock blue saved as their widget colour, so that
+ * one counts as "not picked" (as forms do).
+ */
+export function calendarColor(s: HlCalendarSettings, brandColor: string | undefined): string {
+  const own = s.widgetColor && HEX.test(s.widgetColor) && s.widgetColor.toUpperCase() !== STOCK_COLOR ? s.widgetColor : null
+  const brand = brandColor && HEX.test(brandColor) ? brandColor : null
+  return own ?? brand ?? (s.eventColor && HEX.test(s.eventColor) ? s.eventColor : STOCK_COLOR)
+}
 
 export type TeamMember = { key: string; name: string; priority: number; location: string | null }
 
@@ -145,6 +158,8 @@ export type PublicCalendar = {
   durations: number[]
   location: string
   color: string
+  /** The business's logo (an image link), for the page's header. */
+  logo: string | null
   consents: HlConsentBox[]
   legal: LegalLinks
   askEmail: boolean
@@ -186,7 +201,8 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     duration: rulesOf(s).duration,
     durations: durationsOf(s),
     location: s.meetingLocation?.trim() || '',
-    color: (s.widgetColor && HEX.test(s.widgetColor) ? s.widgetColor : s.eventColor && HEX.test(s.eventColor) ? s.eventColor : '#155EEF'),
+    color: calendarColor(s, profile.brandColor),
+    logo: /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
     consents,
     legal: resolveLegalLinks(cal.account.id, profile),
     askEmail: s.askEmail !== false,
