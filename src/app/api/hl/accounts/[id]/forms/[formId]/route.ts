@@ -113,6 +113,7 @@ export async function GET(req: Request, { params }: Ctx) {
       privacy: fallback.privacy,
       terms: fallback.terms,
       fromProfile: { privacy: !!profile.privacyUrl, terms: !!profile.termsUrl },
+      logo: /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
     },
   })
 }

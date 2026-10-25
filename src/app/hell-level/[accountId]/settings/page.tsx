@@ -238,6 +238,12 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
       qc.invalidateQueries({ queryKey: ['hl', 'accounts'] })
     },
   })
+  const findLogo = useMutation({
+    mutationFn: () => hlFetch<{ logoUrl: string | null }>(`/api/hl/accounts/${accountId}`, { method: 'PATCH', json: { findLogo: true, website: profile.website ?? '' } }),
+    onSuccess: (r) => {
+      if (r.logoUrl) setProfile((x) => ({ ...x, logoUrl: r.logoUrl ?? '' }))
+    },
+  })
   return (
     <Card className="flex flex-col gap-5 p-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -258,12 +264,26 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
         <p className="text-[15px] font-semibold text-foreground">Business profile</p>
         <p className="mb-4 text-[13px] text-muted-foreground">These fill the {'{{account.*}}'} fields in every automation (GHL’s custom values), and the texting verification.</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          {PROFILE_FIELDS.map((f) => (
+          {PROFILE_FIELDS.filter((f) => f.key !== 'logoUrl').map((f) => (
             <Field key={f.key} label={f.label} hint={f.hint ?? `{{${f.merge}}}`}>
               <Input value={profile[f.key] ?? ''} onChange={(e) => setProfile({ ...profile, [f.key]: e.target.value })} />
             </Field>
           ))}
         </div>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <Field label="Logo" hint="An image link. Forms show it at the top" className="min-w-0 flex-1">
+            <Input value={profile.logoUrl ?? ''} onChange={(e) => setProfile({ ...profile, logoUrl: e.target.value })} placeholder="https://…/logo.png" />
+          </Field>
+          {/^https?:\/\//i.test(profile.logoUrl ?? '') && (
+            // eslint-disable-next-line @next/next/no-img-element -- the client's own image, from their website
+            <img src={profile.logoUrl} alt="Logo" className="h-16 w-auto rounded-md bg-white object-contain p-1.5" />
+          )}
+          <Button loading={findLogo.isPending} onClick={() => findLogo.mutate()} title="Reads their website for its logo">
+            Find it on their website
+          </Button>
+        </div>
+        {findLogo.data && !findLogo.data.logoUrl && <p className="mt-2 text-[12.5px] text-muted-foreground">No logo found on {profile.website || 'their website'}: paste an image link instead.</p>}
+        <ErrorNote error={findLogo.error} />
       </div>
       <ErrorNote error={save.error} />
       <div className="flex flex-wrap justify-between gap-2 border-t border-border pt-5">

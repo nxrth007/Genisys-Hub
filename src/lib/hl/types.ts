@@ -26,6 +26,8 @@ export type HlProfile = {
   /** The client's own privacy policy and terms pages (their website's /privacy and /terms when it has them). Blank = the pages the Hub hosts. */
   privacyUrl?: string
   termsUrl?: string
+  /** The business's logo (an image link): forms show it at the top. A client's is found on their website. */
+  logoUrl?: string
 }
 
 export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: string; hint?: string }[] = [
@@ -42,6 +44,7 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'ein', label: 'EIN', merge: 'account.ein', hint: 'For texting verification. Leave blank for a sole proprietor' },
   { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
   { key: 'termsUrl', label: 'Terms link', merge: 'account.terms_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
+  { key: 'logoUrl', label: 'Logo', merge: 'account.logo_url', hint: 'An image link. Forms show it at the top' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -310,6 +313,8 @@ export type HlFormSettings = {
   inputBorder?: string
   /** The Privacy Policy / Texting terms links under the form (default on). */
   showLegalLinks?: boolean
+  /** The business logo (Business Profile) at the top of the form (default on). */
+  showLogo?: boolean
   /** Review survey: ratings at or above this (out of 5) go to the Google review link; lower ones leave feedback. */
   reviewThreshold?: number
   /** Where those links go for this form. Blank = the sub-account's (Business Profile), else the Hub's hosted pages. */

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { MARKETING_CONSENT_TEXT, SMS_CONSENT_TEXT } from '@/lib/hl/templates'
 import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
 import { Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
@@ -14,7 +15,7 @@ type FormDetail = {
   form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings & { consents: HlConsentBox[] } }
   submissions: { id: string; createdAt: string; data: Record<string, unknown>; pageUrl: string | null; contact: { id: string; firstName: string | null; lastName: string | null } | null }[]
   /** What blank settings fall back to. */
-  defaults: { business: string; privacy: string; terms: string; fromProfile: { privacy: boolean; terms: boolean } }
+  defaults: { business: string; privacy: string; terms: string; fromProfile: { privacy: boolean; terms: boolean }; logo: string | null }
 }
 
 const CONSENT_KINDS: { kind: HlConsentBox['kind']; label: string; text: string }[] = [
@@ -256,6 +257,28 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
                   </div>
                 )
               })}
+            </Card>
+
+            <Card className="flex flex-col gap-3 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[15px] font-semibold text-foreground">Logo</p>
+                  <p className="text-[12.5px] text-muted-foreground">The business logo at the top of the form, from Settings → Business Profile.</p>
+                </div>
+                <Toggle checked={settings.showLogo !== false} onChange={(v) => setSettings({ ...settings, showLogo: v })} label="Show the logo" />
+              </div>
+              {defaults.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element -- the client's own image, from their website
+                <img src={defaults.logo} alt={`${defaults.business} logo`} className={cn('h-16 w-auto self-start rounded-md bg-white object-contain p-1.5', settings.showLogo === false && 'opacity-40')} />
+              ) : (
+                <p className="text-[12.5px] text-muted-foreground">
+                  No logo yet: add one under{' '}
+                  <Link className="underline" href={`/hell-level/${accountId}/settings?tab=business-profile`}>
+                    Settings → Business Profile
+                  </Link>{' '}
+                  (it can find it on their website).
+                </p>
+              )}
             </Card>
 
             <Card className="flex flex-col gap-4 p-5">

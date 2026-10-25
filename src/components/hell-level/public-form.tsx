@@ -39,6 +39,8 @@ export function PublicForm({
   legal,
   variant,
   pageUrl,
+  logo = null,
+  business = '',
 }: {
   formId: string
   fields: HlField[]
@@ -46,6 +48,9 @@ export function PublicForm({
   legal: { privacy: string; terms: string }
   variant: 'form' | 'chat'
   pageUrl: string | null
+  /** The business logo, shown at the top of a form (not the chat panel). */
+  logo?: string | null
+  business?: string
 }) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
@@ -98,6 +103,10 @@ export function PublicForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3.5" style={formStyle(settings)} noValidate>
+      {logo && variant === 'form' && (
+        // eslint-disable-next-line @next/next/no-img-element -- the client's own image, from their website
+        <img src={logo} alt={business ? `${business} logo` : 'Logo'} className="mx-auto mb-1 max-h-24 w-auto max-w-[70%] object-contain" />
+      )}
       {settings.heading && (
         <h2 className={variant === 'chat' ? 'text-[15px] font-medium text-[color-mix(in_srgb,var(--hl-text)_85%,transparent)]' : 'text-[20px] font-semibold text-[var(--hl-text)]'}>{settings.heading}</h2>
       )}

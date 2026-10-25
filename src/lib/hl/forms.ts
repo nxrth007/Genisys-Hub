@@ -37,6 +37,8 @@ export type PublicForm = {
   settings: HlFormSettings & { consents: HlConsentBox[] }
   legal: LegalLinks
   accountId: string
+  /** The business logo at the top, unless the form turns it off. */
+  logo: string | null
 }
 
 export async function publicForm(formId: string): Promise<PublicForm | null> {
@@ -55,6 +57,7 @@ export async function publicForm(formId: string): Promise<PublicForm | null> {
     settings: { ...settings, consentText: undefined, consents },
     legal: resolveLegalLinks(form.account.id, profile, settings),
     accountId: form.account.id,
+    logo: settings.showLogo !== false && /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
   }
 }
 
