@@ -28,7 +28,20 @@ import { publicBase } from './twilio'
  * sync, which already put them in Google.
  */
 
-export const GOOGLE_CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/userinfo.email']
+/**
+ * The narrowest Google permissions that cover every call made (Google's review asks for no more):
+ *   calendar.events: write bookings, read the booking calendar's events, watch them for changes;
+ *   calendar.calendarlist.readonly: list their calendars (calendar.events doesn't cover calendarList.list);
+ *   calendar.events.freebusy: busy times on their other calendars (calendar.events doesn't cover freebusy.query);
+ *   userinfo.email: which account is connected.
+ * Connections made with the broader calendar.readonly before this keep working.
+ */
+export const GOOGLE_CALENDAR_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.events.freebusy',
+  'https://www.googleapis.com/auth/userinfo.email',
+]
 const STATE_PREFIX = 'hl-cal.'
 const STATE_TTL = 60 * 60_000
 const SHARE_TTL = 7 * 86_400_000
@@ -295,7 +308,8 @@ export async function finishGoogleConnect(code: string, origin: string, s: Conne
   const client = oauthFor(app, origin)
   const { tokens } = await client.getToken(code)
   const granted = (tokens.scope ?? '').split(/\s+/)
-  if (!GOOGLE_CALENDAR_SCOPES.slice(0, 2).every((x) => granted.includes(x))) throw new HlInputError('Google didn’t give calendar access. Connect again and leave the calendar boxes ticked on Google’s screen.')
+  // Google lets people untick boxes: every calendar permission is needed (the last, the email, isn't a box).
+  if (!GOOGLE_CALENDAR_SCOPES.slice(0, 3).every((x) => granted.includes(x))) throw new HlInputError('Google didn’t give all the calendar access it needs. Connect again and leave every calendar box ticked on Google’s screen.')
   if (!tokens.refresh_token) throw new HlInputError('Google didn’t give a lasting sign-in. Remove Genisys from the Google account’s third-party access, then connect again.')
   client.setCredentials(tokens)
   const { data } = await google.oauth2({ version: 'v2', auth: client }).userinfo.get()
