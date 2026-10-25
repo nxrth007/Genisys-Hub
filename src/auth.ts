@@ -178,12 +178,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           'hl_user',
         ])
         if (!allowedRoles.has(user.role)) {
-          if (user.role === 'agent_pending') throw new Error('pending')
-          if (user.role === 'agent_denied') throw new Error('denied')
-          if (user.role === 'client_denied') throw new Error('client_denied')
-          if (user.role === 'team_pending') throw new Error('team_pending')
-          if (user.role === 'team_denied') throw new Error('team_denied')
-          throw new Error('denied')
+          if (user.role === 'agent_pending') throw new SignInRefused('pending')
+          if (user.role === 'agent_denied') throw new SignInRefused('denied')
+          if (user.role === 'client_denied') throw new SignInRefused('client_denied')
+          if (user.role === 'team_pending') throw new SignInRefused('team_pending')
+          if (user.role === 'team_denied') throw new SignInRefused('team_denied')
+          throw new SignInRefused('denied')
         }
         if (user.role === 'hl_user') {
           // A login with no sub-account left has nowhere to go.

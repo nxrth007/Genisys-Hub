@@ -27,18 +27,23 @@ function AgentSignInInner() {
 
     setSubmitting(false)
 
-    // NextAuth returns { error: '...' } when authorize() throws or returns null.
-    // We map specific error codes to user-facing routes.
+    // A refused sign-in comes back as error 'CredentialsSignin' with the
+    // reason in `code` (SignInRefused in src/auth.ts). We map those codes
+    // to user-facing routes.
     if (res?.error) {
-      if (res.error === 'pending' || res.error.toLowerCase().includes('pending')) {
+      if (res.code === 'pending') {
         router.push('/signin/agent/pending')
         return
       }
-      if (res.error === 'denied' || res.error.toLowerCase().includes('denied')) {
+      if (res.code === 'denied') {
         router.push('/signin/agent/denied')
         return
       }
-      setError('Invalid email or password.')
+      setError(
+        res.code === 'rate_limited'
+          ? 'Too many tries. Wait 15 minutes and try again.'
+          : 'Invalid email or password.',
+      )
       return
     }
 

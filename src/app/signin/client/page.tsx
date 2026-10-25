@@ -40,25 +40,18 @@ function ClientSignInInner() {
 
     setSubmitting(false)
 
-    // Phase 2 will route client_pending / client_onboarding /
-    // client_denied to dedicated pages. For now we surface a clear
-    // inline error so admin can spot setup issues during the
-    // existing-clients credential rollout.
+    // client_pending / client_onboarding sign in normally (/client adapts
+    // to the role); only client_denied is refused. A refusal comes back as
+    // error 'CredentialsSignin' with the reason in `code` (SignInRefused in
+    // src/auth.ts).
     if (res?.error) {
-      const code = res.error.toLowerCase()
-      if (code.includes('client_pending') || code.includes('client_onboarding')) {
-        setError(
-          'Your account is awaiting onboarding. We will email you once setup is complete.',
-        )
-        return
-      }
-      if (code.includes('client_denied')) {
-        setError(
-          'This account is no longer active. Reach out to your account manager.',
-        )
-        return
-      }
-      setError('Invalid email or password.')
+      setError(
+        res.code === 'client_denied'
+          ? 'This account is no longer active. Reach out to your account manager.'
+          : res.code === 'rate_limited'
+            ? 'Too many tries. Wait 15 minutes and try again.'
+            : 'Invalid email or password.',
+      )
       return
     }
 

@@ -39,25 +39,24 @@ function TeamSignInInner() {
 
     setSubmitting(false)
 
-    // NextAuth maps authorize() throws to res.error. Team #N has its
-    // own two pending / denied error codes so we can land them on
+    // A refused sign-in comes back as error 'CredentialsSignin' with the
+    // reason in `code` (SignInRefused in src/auth.ts). Team #N has its
+    // own two pending / denied codes so we can land them on
     // team-flavored screens instead of the agent ones.
     if (res?.error) {
-      if (
-        res.error === 'team_pending' ||
-        res.error.toLowerCase().includes('team_pending')
-      ) {
+      if (res.code === 'team_pending') {
         router.push('/signin/team/pending')
         return
       }
-      if (
-        res.error === 'team_denied' ||
-        res.error.toLowerCase().includes('team_denied')
-      ) {
+      if (res.code === 'team_denied') {
         router.push('/signin/team/denied')
         return
       }
-      setError('Invalid call-center number or password.')
+      setError(
+        res.code === 'rate_limited'
+          ? 'Too many tries. Wait 15 minutes and try again.'
+          : 'Invalid call-center number or password.',
+      )
       return
     }
 
