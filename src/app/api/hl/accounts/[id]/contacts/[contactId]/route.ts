@@ -44,7 +44,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ runId })
     }
     if (typeof body.cancelRun === 'string') {
-      await cancelRun(body.cancelRun)
+      const cancelled = await cancelRun(body.cancelRun, id, contactId)
+      if (!cancelled) return NextResponse.json({ error: 'Active workflow run not found for this contact' }, { status: 404 })
       return NextResponse.json({ ok: true })
     }
     const data: Prisma.HlContactUpdateInput = {}

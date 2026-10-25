@@ -809,7 +809,13 @@ export async function startWorkflow(workflowId: string, contactId: string): Prom
   return run.id
 }
 
-/** Stop a contact's run (manual "remove from workflow"). */
-export async function cancelRun(runId: string): Promise<void> {
-  await prisma.hlWorkflowRun.updateMany({ where: { id: runId, status: { in: ['running', 'waiting'] } }, data: { status: 'cancelled', lockedAt: null, nextRunAt: null } })
+/** Stop an active run belonging to the authorized account and contact. */
+export async function cancelRun(runId: string, accountId: string, contactId: string): Promise<boolean> {
+  // Keep ownership in the mutation itself: a run ID supplied by the caller
+  // must never let a contact request affect another contact or sub-account.
+  const result = await prisma.hlWorkflowRun.updateMany({
+    where: { id: runId, accountId, contactId, status: { in: ['running', 'waiting'] } },
+    data: { status: 'cancelled', lockedAt: null, nextRunAt: null },
+  })
+  return result.count > 0
 }
