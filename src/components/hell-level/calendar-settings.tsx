@@ -1107,7 +1107,7 @@ const LATER: { group: string; items: { name: string; what: string }[] }[] = [
 function ConnectionsTab({ accountId }: { accountId: string }) {
   const sp = useSearchParams()
   const cals = useCalendars(accountId)
-  const conns = useQuery<{ connections: Connection[]; googleApp: 'hl' | 'hub' | null }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
+  const conns = useQuery<{ connections: Connection[]; googleApp: 'hl' | 'hub' | null; googleAppNote: string | null }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
   const staff = cals.data?.staff ?? []
   const list = conns.data?.connections ?? []
   const connFor = (m: StaffRow) => list.find((c) => c.staffId === m.id || c.staffKey === staffKey(m))
@@ -1135,11 +1135,17 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
           </div>
         </div>
         {conns.data && conns.data.googleApp === null && (
-          <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">No Google app is set up for calendar connections yet. Add Hell-level’s to the Vault as “Hell-level Google Client ID” and “Hell-level Google Client Secret”.</p>
+          <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">No Google app is set up for calendar connections yet. Add Hell-level’s to the Vault as “Hell Level Calendar” (its client ID) and “Hell Level Calendar Secret”.</p>
         )}
         {conns.data?.googleApp === 'hub' && (
           <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">
-            Connections sign in through the Hub’s own Google app for now, which works for Genisys’s own Google accounts only. For contractors’ accounts, add Hell-level’s own Google app to the Vault as “Hell-level Google Client ID” and “Hell-level Google Client Secret”.
+            Connections sign in through the Hub’s own Google app for now, which works for Genisys’s own Google accounts only. For contractors’ accounts, add Hell-level’s own Google app to the Vault as “Hell Level Calendar” (its client ID) and “Hell Level Calendar Secret”.
+          </p>
+        )}
+        {conns.data?.googleAppNote && <p className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[12.5px] text-warning">{conns.data.googleAppNote}</p>}
+        {conns.data?.googleApp === 'hl' && !conns.data.googleAppNote && (
+          <p className="mt-3 text-[12.5px] text-muted-foreground">
+            Connections sign in through Hell-level’s own Google app. Until Google verifies it, people see Google’s “unverified app” screen first and click Advanced to carry on.
           </p>
         )}
         <ErrorNote error={cals.error || conns.error} />

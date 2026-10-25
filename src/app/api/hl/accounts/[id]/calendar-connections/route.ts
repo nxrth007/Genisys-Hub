@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPublicOrigin } from '@/lib/drive'
-import { connectApp, connectTarget, googleConsentUrl, listConnections, shareableConnectLink } from '@/lib/hl/google-calendar'
+import { connectApp, connectTarget, googleConsentUrl, hlAppNote, listConnections, shareableConnectLink } from '@/lib/hl/google-calendar'
 import { HlInputError, hlAccountOr404, hlError, hlGuard, jsonBody } from '@/lib/hl/http'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -13,7 +13,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   // Which Google app new connections sign in through: Hell-level's own (open to anyone's account once Google verifies it), the Hub's, or none.
-  return NextResponse.json({ connections: await listConnections(id), googleApp: (await connectApp())?.kind ?? null })
+  return NextResponse.json({ connections: await listConnections(id), googleApp: (await connectApp())?.kind ?? null, googleAppNote: await hlAppNote() })
 }
 
 /**

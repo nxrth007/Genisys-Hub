@@ -48,9 +48,9 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 
 /**
  * Calendar connections sign in through Hell-level's own Google app once it's
- * set up (env HL_GOOGLE_CLIENT_ID / HL_GOOGLE_CLIENT_SECRET, or the Vault's
- * "Hell-level Google Client ID" / "Hell-level Google Client Secret"). It asks
- * for calendar access only, so Google can verify it for anyone's account.
+ * set up: the Vault's "Hell Level Calendar" (its client ID) and "Hell Level
+ * Calendar Secret", or env HL_GOOGLE_CLIENT_ID / HL_GOOGLE_CLIENT_SECRET. It
+ * asks for calendar access only, so Google can verify it for anyone's account.
  * The Hub's own app (AUTH_GOOGLE_ID) also asks for full Drive, which Google
  * only opens to outside accounts after a paid yearly security assessment, so
  * it's the fallback for Genisys's own accounts. A connection keeps the app it
@@ -61,10 +61,13 @@ type GoogleApp = { kind: GoogleAppKind; id: string; secret: string }
 
 /** Hell-level's app's return address (register it in that app's OAuth client). */
 export const HL_GOOGLE_CALLBACK = '/api/hl/public/google-calendar/callback'
-const VAULT_ID = 'Hell-level Google Client ID'
-const VAULT_SECRET = 'Hell-level Google Client Secret'
+/** Where in the Vault Hell-level's app is, ID then secret: the names it was saved under, then the first ones suggested. Any case. */
+const VAULT_NAMES: [string, string][] = [
+  ['Hell Level Calendar', 'Hell Level Calendar Secret'],
+  ['Hell-level Google Client ID', 'Hell-level Google Client Secret'],
+]
 const APP_TTL = 5 * 60_000
-let vaultApp: { at: number; app: GoogleApp | null } | null = null
+let vaultApp: { at: number; app: GoogleApp | null; note: string | null } | null = null
 
 function envApp(kind: GoogleAppKind): GoogleApp | null {
   const id = kind === 'hl' ? process.env.HL_GOOGLE_CLIENT_ID : process.env.AUTH_GOOGLE_ID
@@ -72,15 +75,47 @@ function envApp(kind: GoogleAppKind): GoogleApp | null {
   return id?.trim() && secret?.trim() ? { kind, id: id.trim(), secret: secret.trim() } : null
 }
 
+const looksLikeClientId = (v: string) => /\.apps\.googleusercontent\.com$/i.test(v)
+
+async function vaultValue(name: string): Promise<string> {
+  const entry = await prisma.vaultEntry.findFirst({ where: { name: { equals: name, mode: 'insensitive' } }, select: { name: true } })
+  return entry ? getSecretByName(entry.name).then((v) => v.trim(), () => '') : ''
+}
+
 /** Hell-level's own app: the environment, else the Vault (read again every few minutes). */
 export async function loadHlApp(): Promise<GoogleApp | null> {
   const env = envApp('hl')
   if (env) return env
   if (vaultApp && Date.now() - vaultApp.at < APP_TTL) return vaultApp.app
-  const read = (name: string) => getSecretByName(name).then((v) => v.trim(), () => '')
-  const [id, secret] = await Promise.all([read(VAULT_ID), read(VAULT_SECRET)])
-  vaultApp = { at: Date.now(), app: id && secret ? { kind: 'hl', id, secret } : null }
-  return vaultApp.app
+  let app: GoogleApp | null = null
+  let note: string | null = null
+  for (const [idName, secretName] of VAULT_NAMES) {
+    const [a, b] = await Promise.all([vaultValue(idName), vaultValue(secretName)])
+    if (!a && !b) continue
+    if (!a || !b) {
+      note = `The Vault has “${a ? idName : secretName}” but not “${a ? secretName : idName}”.`
+      continue
+    }
+    // Saved the other way round works too: the client ID is the one ending in .apps.googleusercontent.com.
+    const [id, secret] = looksLikeClientId(b) && !looksLikeClientId(a) ? [b, a] : [a, b]
+    note = looksLikeClientId(id) ? null : `“${idName}” in the Vault doesn’t look like a Google client ID (those end in .apps.googleusercontent.com).`
+    app = { kind: 'hl', id, secret }
+    break
+  }
+  vaultApp = { at: Date.now(), app, note }
+  return app
+}
+
+/** Read the Vault again next time, not in a few minutes (tests; a Vault change shows within 5 minutes anyway). */
+export function forgetHlApp(): void {
+  vaultApp = null
+}
+
+/** Something wrong with Hell-level's app in the Vault, said on the Connections page. */
+export async function hlAppNote(): Promise<string | null> {
+  if (envApp('hl')) return null
+  await loadHlApp()
+  return vaultApp?.note ?? null
 }
 
 /** An app as last read, for code that mustn't touch the database (busy times inside a booking's transaction). */
