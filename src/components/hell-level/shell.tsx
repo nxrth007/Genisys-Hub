@@ -5,7 +5,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { signOut } from 'next-auth/react'
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Undo2 } from 'lucide-react'
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Sparkles, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { MEMBER_SECTIONS } from '@/lib/hl/member-access'
@@ -56,6 +56,7 @@ const LAST_KEY = 'hl-last-account'
 
 /** The agency view's menu (GHL's agency sidebar, the parts Hell-level has). */
 const AGENCY_NAV = [
+  { href: '/hell-level/agency/ask-ai', label: 'Ask AI', icon: Sparkles },
   { href: '/hell-level/agency/launchpad', label: 'Launchpad', icon: Rocket },
   { href: '/hell-level/agency/dashboard', label: 'Agency Dashboard', icon: LayoutDashboard },
   { href: '/hell-level', label: 'Sub-Accounts', icon: Building2 },
