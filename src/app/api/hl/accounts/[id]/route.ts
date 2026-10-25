@@ -5,6 +5,7 @@ import { mergeProfile, profileForClient, readProfile } from '@/lib/hl/accounts'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { launchpad } from '@/lib/hl/launchpad'
 import { findSiteBrand } from '@/lib/hl/logo'
+import { keepLogo } from '@/lib/hl/media'
 import { setDefaultAccount } from '@/lib/hl/ghl-import'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -59,7 +60,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
       data.timezone = tz
     }
     let profile = readProfile(account.profile)
+    const logoBefore = profile.logoUrl ?? ''
     if (body.profile && typeof body.profile === 'object') profile = mergeProfile(profile, body.profile as Record<string, unknown>)
+    // A pasted logo link from somewhere else (Peakfinity Studio, ChatGPT…) expires: keep a copy here instead.
+    if (profile.logoUrl && profile.logoUrl !== logoBefore) profile = { ...profile, logoUrl: await keepLogo({ accountId: id, url: profile.logoUrl, website: profile.website, by: guard.email }) }
     if (body.refillProfile === true && account.clientId) {
       const fromClient = await profileForClient(account.clientId)
       const filled: Record<string, string> = { ...(profile as Record<string, string>) }

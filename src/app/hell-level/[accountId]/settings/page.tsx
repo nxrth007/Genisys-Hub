@@ -1,15 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { Suspense, useState } from 'react'
+import { Suspense, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Phone, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
+import { Phone, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react'
 import { prettyPhone } from '@/lib/hl/merge'
 import { cn } from '@/lib/utils'
 import { PROFILE_FIELDS, type HlProfile } from '@/lib/hl/types'
 import { textingBadge, useAccount, type PhoneNumberRow } from '@/components/hell-level/bits'
-import { Badge, Button, Card, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Table, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
+import { Badge, Button, Card, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Table, Toggle, copyText, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 import { NotYet, RecordsTable, rv } from '@/components/hell-level/section'
 import { SETTINGS_PAGES } from '@/components/hell-level/nav'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
@@ -242,6 +242,22 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
     mutationFn: () => hlFetch<{ logoUrl: string | null; brandColor: string | null }>(`/api/hl/accounts/${accountId}`, { method: 'PATCH', json: { findLogo: true, website: profile.website ?? '' } }),
     onSuccess: (r) => setProfile((x) => ({ ...x, ...(r.logoUrl ? { logoUrl: r.logoUrl } : {}), ...(r.brandColor ? { brandColor: r.brandColor } : {}) })),
   })
+  // An uploaded logo goes into the sub-account's media and into the field; Save makes it the logo.
+  const file = useRef<HTMLInputElement>(null)
+  const upload = useMutation({
+    mutationFn: (f: File) => {
+      const form = new FormData()
+      form.append('file', f)
+      return hlFetch<{ media: { url: string } }>(`/api/hl/accounts/${accountId}/media`, { method: 'POST', body: form })
+    },
+    onSuccess: (r) => {
+      setProfile((x) => ({ ...x, logoUrl: r.media.url }))
+      qc.invalidateQueries({ queryKey: ['hl', 'media', accountId] })
+    },
+  })
+  // Peakfinity Studio makes the logo: the prompt (from the client's onboarding answers) is ready to copy.
+  const studio = useQuery<{ prompt: string; studioUrl: string }>({ queryKey: ['hl', 'media-prompt', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/media?prompt=1`) })
+  const [promptCopied, setPromptCopied] = useState(false)
   return (
     <Card className="flex flex-col gap-5 p-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -269,7 +285,7 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
           ))}
         </div>
         <div className="mt-4 flex flex-wrap items-end gap-3">
-          <Field label="Logo" hint="An image link. Forms show it at the top" className="min-w-0 flex-1">
+          <Field label="Logo" hint="Upload one, or paste an image link (one from Peakfinity Studio or ChatGPT is copied here when you save, as theirs expire). Forms and the chat show it" className="min-w-0 flex-1">
             <Input value={profile.logoUrl ?? ''} onChange={(e) => setProfile({ ...profile, logoUrl: e.target.value })} placeholder="https://…/logo.png" />
           </Field>
           {/^https?:\/\//i.test(profile.logoUrl ?? '') && (
@@ -286,8 +302,43 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
             Find them on their website
           </Button>
         </div>
-        {findLogo.data && !findLogo.data.logoUrl && !findLogo.data.brandColor && <p className="mt-2 text-[12.5px] text-muted-foreground">Nothing found on {profile.website || 'their website'}: paste a logo link and pick a colour instead.</p>}
-        <ErrorNote error={findLogo.error} />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            ref={file}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) upload.mutate(f)
+              e.target.value = ''
+            }}
+          />
+          <Button size="sm" icon={<Upload className="h-3.5 w-3.5" />} loading={upload.isPending} onClick={() => file.current?.click()}>
+            Upload a logo
+          </Button>
+          <Button
+            size="sm"
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            disabled={!studio.data}
+            title="Copies a logo prompt made from their onboarding answers, and opens Peakfinity Studio"
+            onClick={() => {
+              if (!studio.data) return
+              copyText(studio.data.prompt)
+              window.open(studio.data.studioUrl, '_blank', 'noopener')
+              setPromptCopied(true)
+            }}
+          >
+            No logo? Make one in Peakfinity Studio
+          </Button>
+        </div>
+        {promptCopied && (
+          <p className="mt-2 text-[12.5px] text-muted-foreground">
+            Logo prompt copied, made from their onboarding answers. In Peakfinity Studio, paste it, pick GPT Image 2 (or Nano Banana 2) and generate. Download the one you like, then upload it here and save.
+          </p>
+        )}
+        {findLogo.data && !findLogo.data.logoUrl && !findLogo.data.brandColor && <p className="mt-2 text-[12.5px] text-muted-foreground">Nothing found on {profile.website || 'their website'}: upload a logo and pick a colour instead.</p>}
+        <ErrorNote error={findLogo.error || upload.error || studio.error} />
       </div>
       <ErrorNote error={save.error} />
       <div className="flex flex-wrap justify-between gap-2 border-t border-border pt-5">

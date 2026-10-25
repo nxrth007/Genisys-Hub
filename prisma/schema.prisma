@@ -2283,6 +2283,26 @@ model HlAccount {
   records       HlRecord[]
   domains       HlDomain[]
   a2p           HlA2p?
+  media         HlMedia[]
+}
+
+/// Images a sub-account keeps itself (Media Storage): a logo uploaded here, or
+/// copied in from a link that won't last (Peakfinity Studio's expire after a
+/// week). Served publicly at /hl/media/<id>.<ext> for forms and the chat bubble.
+model HlMedia {
+  id        String    @id @default(cuid())
+  accountId String
+  account   HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name      String
+  mimeType  String
+  sizeBytes Int
+  content   Bytes
+  /// The link it was copied from; null for an upload.
+  sourceUrl String?
+  createdBy String?
+  createdAt DateTime  @default(now())
+
+  @@index([accountId, createdAt])
 }
 
 /// A sub-account's A2P 10DLC registration, so its local numbers can text.
