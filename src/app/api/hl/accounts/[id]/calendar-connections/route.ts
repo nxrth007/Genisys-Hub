@@ -32,7 +32,7 @@ export async function POST(req: Request, { params }: Ctx) {
     const staffKey = typeof body.staffKey === 'string' ? body.staffKey : ''
     if (!staffKey || !(await connectTarget(id, staffKey))) throw new HlInputError('Pick a team member on this sub-account.')
     if (!(await connectApp())) throw new HlInputError('No Google app is set up for calendar connections yet.')
-    if (body.action === 'link') return NextResponse.json({ url: shareableConnectLink(id, staffKey) })
+    if (body.action === 'link') return NextResponse.json({ url: await shareableConnectLink(id, staffKey) })
     return NextResponse.json({ url: await googleConsentUrl(getPublicOrigin(req), { accountId: id, staffKey, back: 'hub' }) })
   } catch (err) {
     return hlError(err, 'connect Google Calendar')

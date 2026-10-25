@@ -28,12 +28,13 @@ export default function GoogleCalendarPrivacyPage() {
         <li>See your Google account’s email address.</li>
         <li>See the list of your calendars: their names and whether you can add events to them.</li>
         <li>
-          See events on the calendars you choose to check for busy times: their start and end times, and whether they’re marked busy or free, cancelled, or declined by you. For a
-          calendar you can only see availability for, just the times it’s busy.
+          See the events on the calendar you choose for bookings (one you own). Of the events it didn’t add, it uses only their start and end times and whether they’re marked busy or
+          free, cancelled, or declined by you.
         </li>
+        <li>See when the other calendars you choose to check are busy: just the busy times, not the events.</li>
         <li>
-          Create, update and delete the appointment events it adds to the calendar you choose for bookings (one you own), including a Google Meet link when the booking calendar uses Meet,
-          and see changes made to that calendar.
+          Create, update and delete the appointment events it adds to that booking calendar, including a Google Meet link when the booking calendar uses Meet, and see changes made to
+          them in Google Calendar.
         </li>
       </ul>
       <p className="text-[14px] text-[#667085]">

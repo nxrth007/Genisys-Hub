@@ -74,6 +74,19 @@ type GoogleApp = { kind: GoogleAppKind; id: string; secret: string }
 
 /** Hell-level's app's return address (register it in that app's OAuth client). */
 export const HL_GOOGLE_CALLBACK = '/api/hl/public/google-calendar/callback'
+
+/**
+ * The address Hell-level's app's sign-in comes back to, once it's set (env
+ * HL_GOOGLE_ORIGIN, e.g. https://hub.leadgenisys.com, this same Hub on a
+ * domain Lead Genisys owns): Google's review wants the app's home page,
+ * privacy policy and return address on the developer's own domain, not a
+ * hosting platform's like onrender.com. Set it only once that domain serves
+ * the Hub. Unset: the sign-in comes back wherever it started.
+ */
+export function hlGoogleOrigin(): string | null {
+  const v = (process.env.HL_GOOGLE_ORIGIN ?? '').trim().replace(/\/+$/, '').toLowerCase()
+  return /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v) ? v : null
+}
 /** Where in the Vault Hell-level's app is, ID then secret: the names it was saved under, then the first ones suggested. Any case. */
 const VAULT_NAMES: [string, string][] = [
   ['Hell Level Calendar', 'Hell Level Calendar Secret'],
@@ -165,11 +178,12 @@ function verify(body: string | undefined, sig: string | undefined, salt: string)
   }
 }
 
-export type ConnectState = { accountId: string; staffKey: string; back: 'hub' | 'page' }
+/** `from`: the Hub address a sign-in from Settings started on, when it comes back to Hell-level's app's own (hlGoogleOrigin), so Settings opens where they're signed in. */
+export type ConnectState = { accountId: string; staffKey: string; back: 'hub' | 'page'; from?: string }
 
 /** A signed, hour-long state for Google's sign-in: which sub-account, which team member, where to come back to. */
 export function connectState(s: ConnectState): string {
-  const body = Buffer.from(JSON.stringify({ a: s.accountId, s: s.staffKey, b: s.back, t: Date.now() })).toString('base64url')
+  const body = Buffer.from(JSON.stringify({ a: s.accountId, s: s.staffKey, b: s.back, ...(s.from ? { f: s.from } : {}), t: Date.now() })).toString('base64url')
   return `${STATE_PREFIX}${body}.${sign(body)}`
 }
 
@@ -180,14 +194,20 @@ export function readConnectState(state: string | null | undefined): ConnectState
   const [body, sig] = state.slice(STATE_PREFIX.length).split('.')
   const d = verify(body, sig, '')
   if (!d || typeof d.a !== 'string' || typeof d.s !== 'string' || typeof d.t !== 'number' || Date.now() - d.t > STATE_TTL) return null
-  return { accountId: d.a, staffKey: d.s, back: d.b === 'page' ? 'page' : 'hub' }
+  return { accountId: d.a, staffKey: d.s, back: d.b === 'page' ? 'page' : 'hub', ...(typeof d.f === 'string' ? { from: d.f } : {}) }
 }
 
-/** Google's consent screen for the calendar scopes, through the app connections use now. `origin` must be the host the sign-in comes back to. */
+/**
+ * Google's consent screen for the calendar scopes, through the app connections
+ * use now. `origin` = the host the sign-in started on; it comes back there too,
+ * unless Hell-level's app has its own address (hlGoogleOrigin).
+ */
 export async function googleConsentUrl(origin: string, s: ConnectState): Promise<string> {
   const app = await connectApp()
   if (!app) throw new HlInputError('No Google app is set up for calendar connections yet.')
-  return oauthFor(app, origin).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_CALENDAR_SCOPES, state: connectState(s) })
+  const home = app.kind === 'hl' ? hlGoogleOrigin() : null
+  const state = connectState(home && home !== origin && s.back === 'hub' ? { ...s, from: origin } : s)
+  return oauthFor(app, home ?? origin).generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: GOOGLE_CALENDAR_SCOPES, state })
 }
 
 /**
@@ -199,10 +219,12 @@ export async function calendarCallbackRedirect(origin: string, kind: GoogleAppKi
   const s = readConnectState(state)
   const page = (q: string) => `${origin}/hl/connect/done?${q}`
   if (!s) return page(`error=${encodeURIComponent('That sign-in took too long or the link was changed. Open your connect link and try again.')}`)
+  // Settings on the Hub address the sign-in started on (where they're signed in), if it's one of ours.
+  const hub = s.from && [publicBase(), hlGoogleOrigin()].includes(s.from) ? s.from : origin
   const back = (ok: string | null, error?: string) =>
     s.back === 'page'
       ? page(ok ? 'connected=1' : `error=${encodeURIComponent(error ?? '')}`)
-      : `${origin}/hell-level/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`
+      : `${hub}/hell-level/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`
   if (!code) return back(null, denied ? 'Google sign-in was cancelled.' : 'Google sent no sign-in code.')
   try {
     const { email, id } = await finishGoogleConnect(code, origin, s, kind)
@@ -215,10 +237,11 @@ export async function calendarCallbackRedirect(origin: string, kind: GoogleAppKi
   }
 }
 
-/** A week-long link to send a team member (a client's staff), so they connect their own Google Calendar without a Hub login. */
-export function shareableConnectLink(accountId: string, staffKey: string): string {
+/** A week-long link to send a team member (a client's staff), so they connect their own Google Calendar without a Hub login. On Hell-level's app's own address when it has one. */
+export async function shareableConnectLink(accountId: string, staffKey: string): Promise<string> {
   const body = Buffer.from(JSON.stringify({ a: accountId, s: staffKey, t: Date.now() })).toString('base64url')
-  return `${publicBase()}/hl/connect/${body}.${sign(`share:${body}`)}`
+  const base = ((await connectApp())?.kind === 'hl' && hlGoogleOrigin()) || publicBase()
+  return `${base}/hl/connect/${body}.${sign(`share:${body}`)}`
 }
 
 export function readShareToken(token: string): { accountId: string; staffKey: string } | null {

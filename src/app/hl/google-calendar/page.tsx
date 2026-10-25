@@ -34,9 +34,10 @@ export default function GoogleCalendarAppPage() {
         <li>Your email address, to show which account is connected.</li>
         <li>The list of your calendars, so you can choose where bookings go and which calendars count as busy.</li>
         <li>
-          The start and end times of events on the calendars you choose, and whether they’re marked busy, cancelled or declined, to work out when you’re free. It doesn’t keep their titles,
-          descriptions or guests.
+          On the calendar bookings go into: the start and end times of your events, and whether they’re marked busy, cancelled or declined, to work out when you’re free. It doesn’t keep
+          their titles, descriptions or guests.
         </li>
+        <li>On the other calendars you choose: only the times they’re busy.</li>
         <li>The appointment events it adds itself, to keep them up to date.</li>
       </ul>
       <p>
