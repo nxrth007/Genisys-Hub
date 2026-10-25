@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { dnsProvider, resolve, splitHost } from './dns-lookup'
+import { dnsProvider, publicRecords, resolve, splitHost } from './dns-lookup'
+import { registration } from './rdap'
 import { LOVABLE_IP, fqdnOf, metaOf, siteRecords, type DomainMeta, type HostConnection } from './domain-shared'
 import { HlInputError } from './http'
 import {
@@ -205,20 +206,31 @@ export type TransferCheck = {
   transferCents: number | null
   records: { host: string; type: string; content: string }[]
   scanError: string | null
+  /** From the public registration record (null when the registry doesn't say). */
+  registrar: string | null
+  registeredAt: Date | null
+  transferableFrom: Date | null
+  transferableNow: boolean | null
+  locked: boolean | null
 }
 
-/** Before asking for the auth code: is it transferable here, what it costs, and what its DNS is now (what gets copied). */
+/** Before asking for the auth code: is it transferable here (and from when), what it costs, and what its DNS is now (what gets copied). */
 export async function checkTransfer(name: string): Promise<TransferCheck> {
   const domain = normalizeDomain(name)
   if (!domain) throw new HlInputError('That isn’t a domain name.')
   const linked = await prisma.hlDomain.findUnique({ where: { name: domain }, include: { account: { select: { name: true } } } })
-  const [check] = await checkDomains([domain])
+  const [[check], reg] = await Promise.all([checkDomains([domain]), registration(domain).catch(() => null)])
   let records: TransferCheck['records'] = []
   let scanError: string | null = null
   try {
     records = (await scanDns(domain)).map((r) => ({ host: r.host, type: r.type, content: r.content }))
   } catch (err) {
-    scanError = errText(err)
+    // Porkbun only scans domains already in the account (it does once the transfer is paid for); until then, read the live DNS here.
+    try {
+      records = await publicRecords(domain)
+    } catch {
+      scanError = errText(err)
+    }
   }
   return {
     name: domain,
@@ -228,6 +240,11 @@ export async function checkTransfer(name: string): Promise<TransferCheck> {
     transferCents: check?.transferCents ?? null,
     records,
     scanError,
+    registrar: reg?.registrar ?? null,
+    registeredAt: reg?.registeredAt ?? null,
+    transferableFrom: reg?.transferableFrom ?? null,
+    transferableNow: reg?.transferableFrom ? reg.transferableFrom.getTime() <= Date.now() : null,
+    locked: reg ? reg.locked : null,
   }
 }
 
@@ -281,6 +298,37 @@ export async function copyDnsForTransfer(id: string, by: string) {
   } catch (err) {
     return addLog(id, by, `Copying the DNS failed: ${errText(err)}`, { lastError: `Copying the DNS failed: ${errText(err)}` })
   }
+}
+
+type LiveRecord = { host: string; type: string; content: string; prio: number | null }
+
+/** A live record as a zone holds it: an MX's priority apart from its server. */
+function asZone(r: { host: string; type: string; content: string }): LiveRecord {
+  if (r.type !== 'MX') return { ...r, prio: null }
+  const [prio, ...server] = r.content.split(/\s+/)
+  return { host: r.host, type: 'MX', content: server.join(' '), prio: Number(prio) || 0 }
+}
+
+const sameValue = (a: string, b: string) => a.toLowerCase().replace(/\.$/, '') === b.toLowerCase().replace(/\.$/, '')
+
+/**
+ * For a parked transfer: what the domain answers with now on its usual names
+ * that the copy here hasn't got. DNS can't be listed, so Porkbun's scan can
+ * miss one, like the key GoHighLevel's email signs with.
+ */
+export async function missingFromCopy(name: string, zone: { host: string; type: string; content: string; prio: number | null }[]): Promise<LiveRecord[]> {
+  const live = (await publicRecords(name)).map(asZone)
+  return live.filter((r) => !zone.some((z) => z.host === r.host && z.type === r.type && sameValue(z.content, r.content) && (r.type !== 'MX' || z.prio === r.prio)))
+}
+
+/** Add what the copy was missing (missingFromCopy) to a parked transfer's DNS. */
+export async function addMissingToCopy(id: string, by: string) {
+  const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
+  if (row.status !== 'held') throw new HlInputError('This domain isn’t waiting on its DNS.')
+  const missing = await missingFromCopy(row.name, await dnsRecords(row.name))
+  if (!missing.length) return row
+  const r = await importDns(row.name, missing.map((m) => ({ ...m, ttl: null })))
+  return addLog(id, by, `Added ${r.created} record(s) the copy was missing: ${missing.map((m) => `${m.type} ${m.host || '@'}`).join(', ')}`)
 }
 
 /** The person checked the copied records: hand the transfer to the registry. */

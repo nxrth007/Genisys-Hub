@@ -63,3 +63,39 @@ export async function dnsProvider(domain: string): Promise<{ provider: string | 
   const provider = PROVIDERS.find(([re]) => nameservers.some((n) => re.test(n)))?.[1] ?? (nameservers.length ? nameservers[0].split('.').slice(-2).join('.') : null)
   return { provider, nameservers }
 }
+
+/** The names a site and email live on, and what to ask each for (a CNAME first: a name with one has no other records of its own). */
+const USUAL: [string, (keyof typeof TYPE_CODE)[]][] = [
+  ['', ['A', 'AAAA', 'MX', 'TXT']],
+  ['www', ['CNAME', 'A', 'AAAA']],
+  ['mail', ['CNAME', 'A']],
+  ['_dmarc', ['CNAME', 'TXT']],
+  // GoHighLevel's email (Mailgun): its signing key and its link tracking.
+  ['smtp._domainkey', ['CNAME', 'TXT']],
+  ['email', ['CNAME']],
+  // Google Workspace's and Microsoft 365's.
+  ['google._domainkey', ['TXT']],
+  ['selector1._domainkey', ['CNAME']],
+  ['selector2._domainkey', ['CNAME']],
+  ['autodiscover', ['CNAME']],
+]
+
+/**
+ * What a domain's DNS answers now on its usual names: a preview of what a
+ * transfer copies. DNS can't be listed, so other names (an email sender's
+ * own subdomain, say) don't show here.
+ */
+export async function publicRecords(domain: string): Promise<{ host: string; type: string; content: string }[]> {
+  const found = await Promise.all(
+    USUAL.map(async ([host, types]) => {
+      const name = host ? `${host}.${domain}` : domain
+      const out: { host: string; type: string; content: string }[] = []
+      for (const type of types) {
+        if (type !== 'CNAME' && out.some((r) => r.type === 'CNAME')) break
+        for (const content of await resolve(name, type)) out.push({ host, type, content })
+      }
+      return out
+    }),
+  )
+  return found.flat()
+}

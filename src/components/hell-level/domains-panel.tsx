@@ -35,6 +35,8 @@ type Detail = {
   nameservers?: Part<string[]> & { onPorkbun: boolean | null }
   forwards?: Part<{ address: string; forwardTo: string }[]>
   hosts?: HostView[]
+  /** A parked transfer: records the domain answers with now that the copy here hasn't got. */
+  missing?: { host: string; type: string; content: string; prio: number | null }[] | null
 }
 type Redirect = { id: string; host: string; location: string; permanent: boolean; includePath: boolean; wildcard: boolean; domainId: string; domain: string }
 type Act = UseMutationResult<{ domain?: DomainRow; needsConfirm?: boolean; message?: string }, Error, Record<string, unknown>>
@@ -479,7 +481,20 @@ function BuyFlow({ accountId, onDone }: { accountId: string; onDone: (id: string
   )
 }
 
-type TransferCheck = { name: string; inPorkbun: boolean; linkedTo: string | null; available: boolean; transferCents: number | null; records: { host: string; type: string; content: string }[]; scanError: string | null }
+type TransferCheck = {
+  name: string
+  inPorkbun: boolean
+  linkedTo: string | null
+  available: boolean
+  transferCents: number | null
+  records: { host: string; type: string; content: string }[]
+  scanError: string | null
+  registrar: string | null
+  registeredAt: string | null
+  transferableFrom: string | null
+  transferableNow: boolean | null
+  locked: boolean | null
+}
 
 function TransferFlow({ accountId, initialName, onDone }: { accountId: string; initialName?: string; onDone: (id: string) => void }) {
   const qc = useQueryClient()
@@ -532,9 +547,10 @@ function TransferFlow({ accountId, initialName, onDone }: { accountId: string; i
       {c && !c.inPorkbun && c.available && <p className="text-[13px] text-warning">Nobody owns {c.name} yet, so there’s nothing to transfer: buy it instead.</p>}
       {c && !c.inPorkbun && !c.available && (
         <>
+          {c.transferableFrom && <TransferWhen c={c} />}
           <div className="rounded-lg border border-border p-4">
             <p className="text-[14px] font-semibold text-foreground">What gets copied</p>
-            <p className="mb-2 text-[12.5px] text-muted-foreground">The DNS the domain answers with now, copied to Porkbun before it moves. You review it before the transfer is released.</p>
+            <p className="mb-2 text-[12.5px] text-muted-foreground">The DNS the domain answers with now (its usual records, below), copied to Porkbun before it moves. Porkbun reads it again when the transfer starts, and you review it before the transfer is released.</p>
             {c.scanError ? (
               <p className="text-[13px] text-warning">Couldn’t read its DNS just now ({c.scanError}). It’s read again when the transfer starts.</p>
             ) : !c.records.length ? (
@@ -585,6 +601,25 @@ function TransferFlow({ accountId, initialName, onDone }: { accountId: string; i
           )}
         </>
       )}
+    </div>
+  )
+}
+
+/** When it can move: 60 days after it was registered or last transferred, and only once it's unlocked where it is now. */
+function TransferWhen({ c }: { c: TransferCheck }) {
+  const ready = !!c.transferableNow
+  return (
+    <div className={`rounded-lg border p-3 text-[13px] ${ready ? 'border-border text-foreground/85' : 'border-warning/40 bg-warning/5 text-foreground/90'}`}>
+      <p>
+        Registered {day(c.registeredAt)}
+        {c.registrar ? ` with ${c.registrar}${/cloudflare/i.test(c.registrar) ? ' (how GoHighLevel registers the domains it sells)' : ''}` : ''}.{' '}
+        {ready ? (
+          <span className="font-medium text-foreground">Past its 60 days: it can transfer now.</span>
+        ) : (
+          <span className="font-medium text-warning">It can’t transfer until {day(c.transferableFrom)} (60 days after it was registered or last moved).</span>
+        )}
+      </p>
+      {c.locked && <p className="mt-1 text-muted-foreground">It’s locked where it is now: unlock it in GoHighLevel (step 3 below) when you get the code.</p>}
     </div>
   )
 }
@@ -754,7 +789,7 @@ function ManageInternal({ accountId, domainId, onBack }: { accountId: string; do
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {d.lastError}
         </p>
       )}
-      {d.status === 'held' && <HeldTransfer d={d} recordCount={detail.data?.records?.data?.length ?? 0} act={act} />}
+      {d.status === 'held' && <HeldTransfer d={d} recordCount={detail.data?.records?.data?.length ?? 0} missing={detail.data?.missing ?? null} act={act} />}
       {d.status === 'transferring' && <MovingTransfer d={d} act={act} />}
       {here && (
         <Tabs
@@ -850,7 +885,7 @@ function ProductsTab({ accountId, d, hosts, forwards, act, onEmail }: { accountI
   )
 }
 
-function HeldTransfer({ d, recordCount, act }: { d: DomainRow; recordCount: number; act: Act }) {
+function HeldTransfer({ d, recordCount, missing, act }: { d: DomainRow; recordCount: number; missing: Detail['missing']; act: Act }) {
   const imported = metaOf(d.meta).imported
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/5 px-5 py-4">
@@ -859,6 +894,22 @@ function HeldTransfer({ d, recordCount, act }: { d: DomainRow; recordCount: numb
         {imported ? `${imported.created + imported.skipped} record(s) were copied from the domain’s current DNS. ` : ''}
         Compare them under DNS Records with GoHighLevel’s DNS page for {d.name} (Settings → Domains & URL Redirects → Manage → DNS Records) and add anything missing, like email (MX) or verification (TXT) records. Nothing moves until you release it.
       </p>
+      {!!missing?.length && (
+        <div className="rounded-md border border-warning/40 bg-background px-3 py-2.5">
+          <p className="text-[13px] font-medium text-warning">The domain answers with {missing.length === 1 ? 'a record' : `${missing.length} records`} the copy hasn’t got: without {missing.length === 1 ? 'it' : 'them'}, what {missing.length === 1 ? 'it serves' : 'they serve'} stops when the domain moves.</p>
+          <div className="mt-1.5 max-h-36 overflow-y-auto">
+            {missing.map((r, i) => (
+              <p key={i} className="truncate font-mono text-[12px] text-foreground/85">
+                {r.type.padEnd(5)} {r.host || '@'} → {r.prio !== null ? `${r.prio} ` : ''}
+                {r.content}
+              </p>
+            ))}
+          </div>
+          <Button size="sm" className="mt-2" loading={act.isPending && act.variables?.action === 'add-missing'} icon={<Plus className="h-3.5 w-3.5" />} onClick={() => act.mutate({ action: 'add-missing' })}>
+            Add {missing.length === 1 ? 'it' : 'them'} to the copy
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" loading={act.isPending && act.variables?.action === 'copy-dns'} icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => act.mutate({ action: 'copy-dns' })}>
           Copy the DNS again
@@ -869,7 +920,8 @@ function HeldTransfer({ d, recordCount, act }: { d: DomainRow; recordCount: numb
           disabled={!recordCount}
           loading={act.isPending && act.variables?.action === 'release'}
           onClick={() => {
-            void confirmAction(`Release the transfer of ${d.name}? GoHighLevel then has up to 5 days to let it go, and the DNS here takes over when it arrives.`, 'Release transfer', { danger: false }).then((ok) => ok && act.mutate({ action: 'release' }))
+            const warn = missing?.length ? ` ${missing.length} record(s) the domain answers with now aren’t in the copy yet.` : ''
+            void confirmAction(`Release the transfer of ${d.name}? GoHighLevel then has up to 5 days to let it go, and the DNS here takes over when it arrives.${warn}`, 'Release transfer', { danger: !!warn }).then((ok) => ok && act.mutate({ action: 'release' }))
           }}
         >
           Records look right: release the transfer

@@ -4,10 +4,12 @@ import type { Prisma } from '@/generated/prisma/client'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import {
   LOVABLE_IP,
+  addMissingToCopy,
   connectLovable,
   copyDnsForTransfer,
   disconnectHost,
   metaOf,
+  missingFromCopy,
   normalizeDomain,
   refreshFromRegistrar,
   refreshTransfer,
@@ -92,7 +94,9 @@ export async function GET(_req: Request, { params }: Ctx) {
       domain = await prisma.hlDomain.update({ where: { id: domain.id }, data: { meta: { ...meta, hosts, emailForwards } as Prisma.InputJsonValue } })
     }
   }
-  return NextResponse.json({ domain, records, nameservers: { ...nameservers, onPorkbun }, forwards, redirects, hosts: (metaOf(domain.meta).hosts ?? []).map(withRecords) })
+  // A parked transfer: what the domain answers with now that the copy hasn't got.
+  const missing = domain.status === 'held' && records.data ? await missingFromCopy(domain.name, records.data).catch(() => null) : null
+  return NextResponse.json({ domain, records, nameservers: { ...nameservers, onPorkbun }, forwards, redirects, hosts: (metaOf(domain.meta).hosts ?? []).map(withRecords), missing })
 }
 
 function recordInput(body: Record<string, unknown>): RecordInput {
@@ -121,7 +125,7 @@ async function log(domainId: string, by: string, what: string, data: Prisma.HlDo
  *   add-redirect { host, location, permanent, includePath, wildcard } / delete-redirect { redirectId }
  *   connect-lovable { rootTxt, wwwTxt? }: point the domain at the client's Lovable site
  *   use-porkbun-ns: answer from the DNS here
- *   copy-dns / release / auth-code { authCode }: a transfer's steps
+ *   copy-dns / add-missing / release / auth-code { authCode }: a transfer's steps
  *   refresh: ask Porkbun where things stand
  */
 export async function POST(req: Request, { params }: Ctx) {
@@ -220,6 +224,9 @@ export async function POST(req: Request, { params }: Ctx) {
       }
       case 'copy-dns':
         await copyDnsForTransfer(domainId, by)
+        break
+      case 'add-missing':
+        await addMissingToCopy(domainId, by)
         break
       case 'release':
         await releaseHeldTransfer(domainId, by)
