@@ -33,7 +33,9 @@ const SCRIPT = `(function () {
   function el(tag, css) { var e = document.createElement(tag); if (css) e.style.cssText = css; return e; }
 
   function start(cfg) {
-    var color = hexOk(s.getAttribute('data-color')) ? s.getAttribute('data-color') : hexOk(cfg.color) ? cfg.color : '#155EEF';
+    // data-color overrides the Hub's colour, except the kit's stock blue: older snippets carry it, and the business's colour should show.
+    var own = s.getAttribute('data-color');
+    var color = hexOk(own) && own.toUpperCase() !== '#155EEF' ? own : hexOk(cfg.color) ? cfg.color : '#155EEF';
     // White on the colour when it reads (3:1), else a deep shade of the colour itself, as the chat panel does.
     var L = lum(color);
     var ink = 1.05 / (L + 0.05) >= 3 || 1.05 / (L + 0.05) >= (L + 0.05) / 0.0603 ? '#FFFFFF' : mix(color, '#000000', 0.78);
