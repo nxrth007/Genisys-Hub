@@ -1,5 +1,5 @@
 import { a2pPrefill, checkboxInformational, checkboxMarketing, forCopy, formatPhone, type A2pSource } from './a2p'
-import { parseUsAddress } from './address-parse'
+import { isPoBox, parseUsAddress } from './address-parse'
 /**
  * Toll-free verification copy for a client: what GHL's form asks for (the
  * number's "Verification Required" link under Settings → Phone System →
@@ -55,11 +55,6 @@ export const TOLL_FREE_LIMITS = { useCase: 500, sample: 1000 } as const
 const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 const v = (value: string, label: string) => clean(value) || `{{${label}}}`
 export const isYes = (s: string | null | undefined) => clean(s).toLowerCase() === 'yes'
-
-/** "PO Box 12", "P.O. Box", "Post Office Box", "POB 5", "Box 45": a mailbox, not where the business is. */
-export function isPoBox(s: string | null | undefined): boolean {
-  return /\b(?:p\.?\s*o\.?\s*(?:box|b\b)|post\s+office\s+box|pob\b|box\s+#?\d+)/i.test(s ?? '')
-}
 
 /** Everything the onboarding answers can fill in. */
 export function tollFreePrefill(src: A2pSource, now = new Date()): TollFreeInputs {

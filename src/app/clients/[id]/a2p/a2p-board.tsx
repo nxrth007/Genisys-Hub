@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
+import { OnboardingNameNote } from '@/components/clients/onboarding-name-note'
 import {
   A2P_CHECKLIST,
   A2P_DEPRECATED,
@@ -23,6 +24,8 @@ type Saved = { values: Partial<A2pInputs>; checks: string[]; updatedAt: string |
 type BoardData = {
   client: { id: string; name: string; siteUrl: string | null; hasIntake: boolean; einStatus: string | null }
   prefill: A2pInputs
+  /** "Legal Business Name" as typed on the onboarding form. */
+  onboardingName: string | null
   mainServices: string | null
   saved: Saved
 }
@@ -299,6 +302,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           </p>
         ) : null}
 
+        <OnboardingNameNote onboardingName={data.onboardingName} businessName={values.businessName} />
         {data.client.einStatus === 'none' && (
           <p className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />

@@ -158,3 +158,31 @@ export function parseUsAddress(raw: string | null | undefined): ResolvedAddress 
   void stateLen
   return out
 }
+
+/** "PO Box 12", "P.O. Box", "Post Office Box", "POB 5", "Box 45": a mailbox, not where a business is. */
+export function isPoBox(s: string | null | undefined): boolean {
+  return /\b(?:p\.?\s*o\.?\s*(?:box|b\b)|post\s+office\s+box|pob\b|box\s+#?\d+)/i.test(s ?? '')
+}
+
+/** A street that ends in its suffix (Rd, St, Ave…), maybe with a unit after it. */
+const STREET_END = new RegExp(`${STREET_SUFFIX.source}(?:\\s+(?:ste|suite|apt|apartment|unit|bldg|building|fl|floor|rm|room|#)\\s*[A-Za-z0-9-]+\\.?)?$`, 'i')
+
+/**
+ * An address typed where a name belongs (the onboarding form's "Legal
+ * Business Name" has had them): a PO box; or a house number and street
+ * with a ZIP; or one ending in Rd, St, Ave… that stands alone or goes on to
+ * ", City". "1 Way Construction" and "Main Street Roofing" stay names.
+ */
+export function looksLikeAddress(s: string | null | undefined): boolean {
+  const t = (s ?? '').replace(/\s+/g, ' ').trim()
+  if (!t) return false
+  if (isPoBox(t)) return true
+  const p = parseUsAddress(t)
+  if (!/^\d+[A-Za-z]?\s+\S/.test(p.street)) return false
+  if (p.zip) return true
+  if (!STREET_END.test(p.street)) return false
+  const at = t.indexOf(p.street)
+  // What's left after the street: nothing (a lone "." the parser dropped), or ", City…".
+  const rest = at < 0 ? null : t.slice(at + p.street.length).replace(/^[\s.]+/, '')
+  return rest !== null && (!rest || rest.startsWith(','))
+}

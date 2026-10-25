@@ -99,6 +99,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({
     client: { id: c.id, name: c.name, siteUrl: c.siteUrl, hasIntake: !!intake, einStatus: c.einStatus },
     prefill,
+    // As typed on the form: the board says so when "Legal Business Name" got an address.
+    onboardingName: intake?.businessName ?? null,
     mainServices: intake?.mainServices ?? null,
     saved: parseSaved(row?.value),
   })

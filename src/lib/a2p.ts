@@ -1,5 +1,5 @@
 import { inferTrade } from './trade'
-import { parseUsAddress } from './address-parse'
+import { looksLikeAddress, parseUsAddress } from './address-parse'
 /**
  * A2P 10DLC registration copy for a client, from the GHL A2P master
  * template (built from real rejections and approvals across A Plus
@@ -148,19 +148,20 @@ function seasonLabel(now: Date): string {
  * trade when there is one (a person has usually checked it), else what
  * the business name, services and about-paragraph say (lib/trade.ts).
  */
-function tradeFor(src: A2pSource): string {
+function tradeFor(src: A2pSource, businessName: string): string {
   const recorded = clean(src.factsTrade)
   if (recorded) {
     // "Fence contractor" / "Painter" → "fence contractor" / "painter"; already a noun phrase.
     return recorded.charAt(0).toLowerCase() + recorded.slice(1)
   }
-  return inferTrade({ businessName: src.intake?.businessName || src.name, mainServices: src.intake?.mainServices, aboutBusiness: src.intake?.aboutBusiness }).trade
+  return inferTrade({ businessName, mainServices: src.intake?.mainServices, aboutBusiness: src.intake?.aboutBusiness }).trade
 }
 
 /** Everything the onboarding answers can fill in. */
 export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
   const i = src.intake
-  const businessName = clean(i?.businessName) || clean(src.name)
+  // Some clients type their address into the form's "Legal Business Name": then the client record's name, if it's a name.
+  const businessName = [i?.businessName, src.name].map(clean).find((n) => n && !looksLikeAddress(n)) ?? ''
   const fullName = clean(i?.fullName) || clean(src.contactName)
   const ownerFirstName = fullName.split(' ')[0] ?? ''
   const address = clean(i?.businessAddress) || clean(src.address)
@@ -182,7 +183,7 @@ export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
     ein: clean(src.ein) || clean(i?.ein),
     contactEmail: clean(i?.leadEmail) || clean(src.contactEmail),
     ownerFirstName,
-    trade: tradeFor(src),
+    trade: tradeFor(src, businessName),
     city,
     state,
     ownership,

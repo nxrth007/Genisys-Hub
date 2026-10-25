@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { TOLL_FREE_CHECKLIST, TOLL_FREE_INPUT_KEYS, isPoBox, tollFreePrefill, type TollFreeInputs } from '@/lib/toll-free'
+import { TOLL_FREE_CHECKLIST, TOLL_FREE_INPUT_KEYS, tollFreePrefill, type TollFreeInputs } from '@/lib/toll-free'
+import { isPoBox } from '@/lib/address-parse'
 import { resolveAddress } from '@/lib/address-resolve'
 
 /**
@@ -103,6 +104,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({
     client: { id: c.id, name: c.name, siteUrl: c.siteUrl, hasIntake: !!intake, einStatus: c.einStatus },
     prefill,
+    // As typed on the form: the board says so when "Legal Business Name" got an address.
+    onboardingName: intake?.businessName ?? null,
     onboardingAddress: address ?? null,
     geocoded,
     mainServices: intake?.mainServices ?? null,

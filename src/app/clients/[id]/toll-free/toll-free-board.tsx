@@ -6,11 +6,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft, Check, ChevronRight, Copy, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
+import { OnboardingNameNote } from '@/components/clients/onboarding-name-note'
 import { blanksIn, forCopy, segments } from '@/lib/a2p'
+import { isPoBox, looksLikeAddress } from '@/lib/address-parse'
 import {
   TOLL_FREE_CHECKLIST,
   TOLL_FREE_REJECTIONS,
-  isPoBox,
   isYes,
   tollFreeFields,
   type TollFreeField,
@@ -22,6 +23,8 @@ type Saved = { values: Partial<TollFreeInputs>; checks: string[]; updatedAt: str
 type BoardData = {
   client: { id: string; name: string; siteUrl: string | null; hasIntake: boolean; einStatus: string | null }
   prefill: TollFreeInputs
+  /** "Legal Business Name" as typed on the onboarding form. */
+  onboardingName: string | null
   onboardingAddress: string | null
   /** The geocoder filled part of the address onboarding didn't give. */
   geocoded: boolean
@@ -219,7 +222,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
   const totalBlanks = useMemo(() => new Set(fields.flatMap((f) => blanksIn(f.text))).size, [fields])
   const site = values.domain ? `https://${values.domain.trim()}` : null
   const poBox = isPoBox(values.street)
-  const nameIsBox = isPoBox(values.businessName) || isPoBox(values.legalName)
+  const nameIsAddress = looksLikeAddress(values.businessName) || looksLikeAddress(values.legalName)
   const addressEdited = (['street', 'city', 'state', 'zip'] as const).some((k) => k in edits)
 
   function setValue(key: keyof TollFreeInputs, value: string) {
@@ -252,7 +255,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             {INPUTS.map((f) => {
               const edited = f.key in edits && edits[f.key] !== data.prefill[f.key]
               const value = values[f.key]
-              const warn = (!f.optional && !value.trim()) || (f.key === 'street' && poBox) || ((f.key === 'businessName' || f.key === 'legalName') && isPoBox(value))
+              const warn = (!f.optional && !value.trim()) || (f.key === 'street' && poBox) || ((f.key === 'businessName' || f.key === 'legalName') && looksLikeAddress(value))
               const resetButton = edited && (
                 <button
                   type="button"
@@ -327,11 +330,12 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             </span>
           </p>
         )}
-        {nameIsBox && (
+        <OnboardingNameNote onboardingName={data.onboardingName} businessName={values.businessName} />
+        {nameIsAddress && (
           <p className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <span>
-              <span className="font-semibold">The business name looks like a PO box address.</span> Fix Business name and Legal name on the left: they should be the
+              <span className="font-semibold">The business name looks like an address.</span> Fix Business name and Legal name on the left: they should be the
               company’s name as the website shows it.
             </span>
           </p>
