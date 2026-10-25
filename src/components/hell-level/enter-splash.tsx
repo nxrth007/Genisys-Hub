@@ -1,19 +1,19 @@
 'use client'
 
-import Image from 'next/image'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AccountsResponse } from './shell'
+import { WhiteFire } from './white-fire'
 import s from './enter-splash.module.css'
 
 /**
  * The entrance to Hell-level: the Hub's sidebar link opens /hell-level?enter=1,
  * and this plays over the CRM (already loading underneath) until "Enter
- * Genisys CRM", which dives into the eye, whites out, swaps the URL to the
- * last sub-account and fades to reveal it. Black, white and grey only.
+ * Genisys CRM", which makes the white fire surge, whites out, swaps the URL
+ * to the last sub-account and fades to reveal it. Black, white and grey only.
  */
 
 const TITLE = 'Hell-level'
@@ -98,15 +98,7 @@ function EnterSplash({ onLeaveStart, onLeaveEnd }: { onLeaveStart: () => void; o
     <div className={cn(s.root, leaving && s.leaving)} role="dialog" aria-modal="true" aria-label="Enter Hell-level">
       <div className={s.art} aria-hidden>
         <div className={s.artInner}>
-          <Image className={s.img} src="/hell-level/arise.webp" alt="" fill preload sizes="(max-width: 820px) 100vw, 60vw" draggable={false} />
-          <Image className={s.aura} src="/hell-level/arise.webp" alt="" fill sizes="(max-width: 820px) 100vw, 60vw" draggable={false} />
-          <span className={cn(s.fog, s.fogA)} />
-          <span className={cn(s.fog, s.fogB)} />
-          <span className={s.sweep} />
-          <span className={s.eye}>
-            <span className={s.eyeFlare} />
-            <span className={s.eyeCore} />
-          </span>
+          <WhiteFire leaving={leavingRef} className={s.fire} />
         </div>
       </div>
       <div className={s.vignette} />
@@ -173,9 +165,8 @@ function EnterSplash({ onLeaveStart, onLeaveEnd }: { onLeaveStart: () => void; o
 type Ember = { x: number; y: number; size: number; vy: number; vx: number; alpha: number; rot: number; spin: number; square: boolean; phase: number }
 
 /**
- * Embers and shards drifting up through the frame (the artwork's own
- * debris, set in motion). Drawn white; the canvas blends with "difference",
- * so over the bright backdrop they read dark. On "Enter" they rush upward.
+ * Sparks and flakes rising off the fire, most from around it and a few
+ * across the whole frame, fading as they climb. On "Enter" they rush upward.
  */
 function Embers({ leaving }: { leaving: React.RefObject<boolean> }) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -189,10 +180,13 @@ function Embers({ leaving }: { leaving: React.RefObject<boolean> }) {
     let h = 0
     let embers: Ember[] = []
     const rand = (a: number, b: number) => a + Math.random() * (b - a)
+    // Where the fire stands (as in white-fire.tsx): right of centre, or centred on a phone.
+    const fireX = () => (w <= 820 ? w * 0.5 : w * 0.36 + w * 0.64 * 0.56)
     const spawn = (y?: number): Ember => {
       const big = Math.random() < 0.12
+      const near = Math.random() < 0.7
       return {
-        x: rand(0, w),
+        x: near ? fireX() + (Math.random() + Math.random() - 1) * Math.min(w, h) * 0.3 : rand(0, w),
         y: y ?? rand(0, h),
         size: rand(0.8, 2.8) * (big ? 2.2 : 1),
         vy: -rand(0.12, 0.6),
@@ -234,7 +228,8 @@ function Embers({ leaving }: { leaving: React.RefObject<boolean> }) {
         e.y += e.vy * warp * (1 + e.size * 0.12)
         e.rot += e.spin * (warp > 1 ? 3 : 1)
         if (e.y < -20) Object.assign(e, spawn(h + 10))
-        const a = e.alpha * intro * (0.62 + 0.38 * Math.sin(e.phase * 1.7))
+        // Fading out over the top third as they cool.
+        const a = e.alpha * intro * (0.62 + 0.38 * Math.sin(e.phase * 1.7)) * Math.min(1, Math.max(0, e.y / (h * 0.34)))
         ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`
         if (warp > 2) {
           // Streaks once they rush.
