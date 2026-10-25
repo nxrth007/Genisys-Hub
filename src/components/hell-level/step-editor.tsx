@@ -1,14 +1,16 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Ban, CalendarClock, Clock, CornerUpLeft, Droplets, FileText, Filter, FilterX, GitBranch, GitFork, ListPlus, ListX, Mail, MailOpen, MessageCircle, MessageSquareReply, PenLine, Puzzle, Smartphone, Tag, UserPen, Zap } from 'lucide-react'
-import { renderTemplate, unknownTokens } from '@/lib/hl/merge'
+import { Ban, CalendarClock, Clock, CornerUpLeft, Droplets, FileText, Filter, FilterX, GitBranch, GitFork, ListPlus, ListX, Mail, MailOpen, MessageCircle, MessageSquareReply, PenLine, Puzzle, Smartphone, Tag, UserPen, Webhook, Zap } from 'lucide-react'
+import { GHL_WEBHOOK_TYPES, ghlWebhookConfig } from '@/lib/hl/ghl-webhook-step'
+import { renderTemplate, unknownTokens, type MergeData } from '@/lib/hl/merge'
 import { APPOINTMENT_STATUSES, MERGE_FIELDS, STEPS, TRIGGERS, type HlCondition, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from './ui'
+import { WebhookStepFields, type FieldGroup } from './webhook-step'
 import { WebhookTriggerFields, newHookId } from './webhook-trigger'
 
-/** A merge field offered in the Insert field menus. */
-export type MergeOption = { token: string; label: string }
+/** What previews and tests fill the extra merge fields with: the webhook trigger's reference, kept test responses. */
+export type MergeSample = Pick<MergeData, 'webhook' | 'responses'>
 
 /** How each action looks on the canvas (GHL colours its action tiles by kind; here in the Hub's chip tones). */
 export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ className?: string }>; bg: string; fg: string }> = {
@@ -35,6 +37,7 @@ export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ classNa
   add_note: { icon: FileText, bg: 'var(--chip-mint)', fg: 'var(--chip-mint-fg)' },
   add_to_workflow: { icon: ListPlus, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
   remove_from_workflow: { icon: ListX, bg: 'var(--chip-blue)', fg: 'var(--chip-blue-fg)' },
+  webhook: { icon: Webhook, bg: 'var(--chip-violet)', fg: 'var(--chip-violet-fg)' },
   ghl: { icon: Puzzle, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' },
 }
 
@@ -122,6 +125,15 @@ export function stepSummary(s: HlStep, stages: HlStage[]): string {
       return c.workflowIds?.length ? `${c.workflowIds.length} workflow${c.workflowIds.length === 1 ? '' : 's'}` : s.type === 'remove_from_workflow' ? 'This workflow' : 'Pick a workflow'
     case 'drip':
       return 'Batches contacts; one goes straight on here'
+    case 'webhook': {
+      let host = ''
+      try {
+        host = new URL(c.url ?? '').host
+      } catch {
+        host = c.url ?? ''
+      }
+      return host ? `${c.method ?? 'POST'} ${host}` : 'No URL yet'
+    }
     case 'ghl':
       return `GoHighLevel: ${s.ghl?.type ?? 'action'} · not in Hell-level yet`
     case 'if_tag':
@@ -141,8 +153,8 @@ function MessageField({
   profile,
   rows = 6,
   hint,
-  extra = [],
-  webhook,
+  groups = [],
+  sample,
 }: {
   label: string
   value: string
@@ -150,10 +162,10 @@ function MessageField({
   profile: HlProfile
   rows?: number
   hint?: string
-  /** The webhook trigger's fields (from its mapping reference). */
-  extra?: MergeOption[]
-  /** The reference request, for the preview. */
-  webhook?: unknown
+  /** Extra merge fields: the webhook trigger's (its mapping reference), Webhook actions' kept responses. */
+  groups?: FieldGroup[]
+  /** Their sample values, for the preview. */
+  sample?: MergeSample
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const insert = (token: string) => {
@@ -168,7 +180,7 @@ function MessageField({
       el.setSelectionRange(start + token.length, start + token.length)
     })
   }
-  const preview = renderTemplate(value, { ...SAMPLE(profile), webhook })
+  const preview = renderTemplate(value, { ...SAMPLE(profile), ...sample })
   const unknown = unknownTokens(value)
   return (
     <div className="flex flex-col gap-1.5">
@@ -185,15 +197,15 @@ function MessageField({
               {m.label}
             </option>
           ))}
-          {extra.length > 0 && (
-            <optgroup label="Inbound webhook">
-              {extra.map((m) => (
+          {groups.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((m) => (
                 <option key={m.token} value={m.token}>
                   {m.label}
                 </option>
               ))}
             </optgroup>
-          )}
+          ))}
         </select>
       </div>
       <Textarea ref={ref} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
@@ -215,8 +227,9 @@ export function StepEditor({
   workflows = [],
   steps = [],
   triggerName,
-  webhookFields = [],
-  webhookSample,
+  fieldGroups = [],
+  sample,
+  accountId,
   onSave,
   onDelete,
 }: {
@@ -226,10 +239,12 @@ export function StepEditor({
   profile: HlProfile
   /** A trigger id → its name (If/Else "Workflow trigger is …"). */
   triggerName?: (id: string) => string | undefined
-  /** The workflow's webhook fields, from its trigger's mapping reference ({{inboundWebhookRequest.*}}). */
-  webhookFields?: MergeOption[]
-  /** That reference request, so previews fill those fields. */
-  webhookSample?: unknown
+  /** Extra merge fields: the webhook trigger's ({{inboundWebhookRequest.*}}) and Webhook actions' kept responses ({{custom_webhook.*}}). */
+  fieldGroups?: FieldGroup[]
+  /** Their sample values, so previews and test requests fill them. */
+  sample?: MergeSample
+  /** For a Webhook action's test request. */
+  accountId?: string
   /** The sub-account's other workflows (Add to / Remove from workflow). */
   workflows?: { id: string; name: string }[]
   /** The workflow's steps (where a Go to jumps). */
@@ -253,14 +268,14 @@ export function StepEditor({
           value={s.config.body ?? ''}
           onChange={(body) => set({ body })}
           profile={profile}
-          extra={webhookFields}
-          webhook={webhookSample}
+          groups={fieldGroups}
+          sample={sample}
           hint="Sent from the sub-account’s number. Only goes to contacts who agreed to texts or called/texted first. A contact’s first text gets “Reply STOP to opt out.” added."
         />
       )}
       {s.type === 'internal_sms' && (
         <>
-          <MessageField label="Text to the owner" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} extra={webhookFields} webhook={webhookSample} rows={5} />
+          <MessageField label="Text to the owner" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} groups={fieldGroups} sample={sample} rows={5} />
           <Field label="Send to" hint={`Blank = the notification phone in the business profile (${profile.notifyPhone || 'not set'}).`}>
             <Input value={s.config.to ?? ''} onChange={(e) => set({ to: e.target.value })} placeholder="(555) 123-4567, (555) 987-6543" />
           </Field>
@@ -271,7 +286,7 @@ export function StepEditor({
           <Field label="Subject">
             <Input value={s.config.subject ?? ''} onChange={(e) => set({ subject: e.target.value })} />
           </Field>
-          <MessageField label="Email to the owner" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} extra={webhookFields} webhook={webhookSample} rows={9} />
+          <MessageField label="Email to the owner" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} groups={fieldGroups} sample={sample} rows={9} />
           <Field label="Send to" hint={`Blank = the notification email in the business profile (${profile.notifyEmail || 'not set'}).`}>
             <Input value={s.config.to ?? ''} onChange={(e) => set({ to: e.target.value })} placeholder="owner@example.com" />
           </Field>
@@ -421,7 +436,7 @@ export function StepEditor({
           <Field label="From name">
             <Input value={s.config.fromName ?? ''} onChange={(e) => set({ fromName: e.target.value })} placeholder="{{user.name}}" />
           </Field>
-          <MessageField label="Email to the contact" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} extra={webhookFields} webhook={webhookSample} rows={10} hint="Emails to contacts go out once a sending domain is set up (Settings → Email Services); until then the workflow carries on without sending." />
+          <MessageField label="Email to the contact" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} groups={fieldGroups} sample={sample} rows={10} hint="Emails to contacts go out once a sending domain is set up (Settings → Email Services); until then the workflow carries on without sending." />
         </>
       )}
       {s.type === 'wait_reply' && (
@@ -452,7 +467,7 @@ export function StepEditor({
           <p className="text-[13px] font-medium text-foreground/90">Set</p>
           {/* Typing {{ offers the merge fields, the webhook's too. */}
           <datalist id="hl-merge-tokens">
-            {[...MERGE_FIELDS, ...webhookFields].map((m) => (
+            {[...MERGE_FIELDS, ...fieldGroups.flatMap((g) => g.options)].map((m) => (
               <option key={m.token} value={m.token}>
                 {m.label}
               </option>
@@ -474,7 +489,7 @@ export function StepEditor({
           </div>
         </div>
       )}
-      {s.type === 'add_note' && <MessageField label="Note" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} extra={webhookFields} webhook={webhookSample} rows={6} />}
+      {s.type === 'add_note' && <MessageField label="Note" value={s.config.body ?? ''} onChange={(body) => set({ body })} profile={profile} groups={fieldGroups} sample={sample} rows={6} />}
       {(s.type === 'add_tag' || s.type === 'remove_tag') && (s.config.tags?.length ?? 0) > 0 && (
         <Field label="Tags" hint="Separate with commas">
           <Input value={(s.config.tags ?? []).join(', ')} onChange={(e) => set({ tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })} />
@@ -555,6 +570,18 @@ export function StepEditor({
             </div>
           ))}
           {(s.config.paths ?? []).reduce((n, p) => n + (Number(p.percent) || 0), 0) !== 100 && <p className="text-[12px] text-warning">The percentages should add up to 100.</p>}
+        </div>
+      )}
+      {s.type === 'webhook' && <WebhookStepFields stepId={s.id} config={s.config} set={set} accountId={accountId} groups={fieldGroups.filter((g) => g.stepId !== s.id)} sample={sample ?? {}} sampleMerge={SAMPLE(profile)} />}
+      {s.type === 'ghl' && GHL_WEBHOOK_TYPES.includes(s.ghl?.type ?? '') && ghlWebhookConfig(s.ghl!.type, s.ghl!.attributes) && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary-soft p-3">
+          <span className="text-[13px] text-foreground/90">
+            Hell-level can send this webhook now.
+            <span className="block text-[12px] text-muted-foreground">Once switched on and saved, runs that reach it send the request to its URL instead of stopping.</span>
+          </span>
+          <Button size="sm" variant="primary" onClick={() => setS({ ...s, type: 'webhook', config: ghlWebhookConfig(s.ghl!.type, s.ghl!.attributes)! })}>
+            Run it in Hell-level
+          </Button>
         </div>
       )}
       {(s.type === 'ghl' || s.type === 'drip') && (

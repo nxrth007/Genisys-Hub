@@ -43,6 +43,8 @@ export type MergeData = {
   links?: Record<string, string> | null
   /** The request that started the run (inbound webhook): {{inboundWebhookRequest.*}}, as GHL names it. */
   webhook?: unknown
+  /** Responses Webhook actions kept, by step id (and GHL's step number): {{custom_webhook.<step>.response.*}}. */
+  responses?: Record<string, { status?: number | null; data?: unknown }> | null
 }
 
 /** GHL's scope for an inbound webhook's request, and a shorter one. */
@@ -121,6 +123,15 @@ function value(path: string, d: MergeData): string | null {
   const dot = raw.indexOf('.')
   if (WEBHOOK_SCOPES.includes((dot < 0 ? raw : raw.slice(0, dot)).toLowerCase())) {
     return webhookText(dot < 0 ? d.webhook : pathValue(d.webhook, raw.slice(dot + 1)))
+  }
+  // A Webhook action's kept response: {{custom_webhook.<step>.response.<field>}} or {{custom_webhook.<step>.status}}.
+  if ((dot < 0 ? raw : raw.slice(0, dot)).toLowerCase() === 'custom_webhook') {
+    const [step, part, ...field] = raw.slice(dot + 1).split('.')
+    const saved = dot < 0 ? undefined : d.responses?.[step]
+    if (!saved) return ''
+    if (part?.toLowerCase() === 'status') return saved.status == null ? '' : String(saved.status)
+    if (part?.toLowerCase() === 'response') return webhookText(field.length ? pathValue(saved.data, field.join('.')) : saved.data)
+    return ''
   }
   const [scope, ...rest] = path.trim().toLowerCase().split('.')
   const key = rest.join('.').replace(/\s+/g, '_')
@@ -206,7 +217,7 @@ export function unknownTokens(text: string): string[] {
     const bare = m[1].trim().toLowerCase()
     if (bare === 'reschedule_link' || bare === 'cancellation_link') continue
     const scope = bare.split('.')[0]
-    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link', ...WEBHOOK_SCOPES].includes(scope)) out.push(m[0])
+    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link', 'custom_webhook', ...WEBHOOK_SCOPES].includes(scope)) out.push(m[0])
   }
   return out
 }

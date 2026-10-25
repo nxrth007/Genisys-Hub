@@ -192,8 +192,24 @@ export type HlStepType =
   | 'add_to_workflow'
   | 'remove_from_workflow'
   | 'drip'
+  /** A request to another app (src/lib/hl/outbound-webhook.ts): GHL's Webhook and Custom Webhook. */
+  | 'webhook'
   /** A GoHighLevel action Hell-level can't run yet: shown as it was; a run stops there. */
   | 'ghl'
+
+/** How a Webhook action proves who it is to the other app (GHL's Authorization options). */
+export type HlWebhookAuth = {
+  type: 'none' | 'basic' | 'bearer' | 'api_key'
+  username?: string
+  password?: string
+  token?: string
+  /** api_key: the header or query parameter's name, and its value. */
+  key?: string
+  value?: string
+  in?: 'header' | 'query'
+}
+
+export const WEBHOOK_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
 /** One test in an if/else branch, in GHL's terms (contact_reply, contact_detail, trigger…). */
 export type HlCondition = { type: string; subType?: string; operator: string; value?: unknown }
@@ -248,6 +264,25 @@ export type HlStep = {
     window?: { days: number[]; start: string; end: string }
     /** send_email: who it's from (merge fields allowed). */
     fromName?: string
+    /** webhook: the request. The URL, headers, parameters and body take merge fields. */
+    method?: (typeof WEBHOOK_METHODS)[number]
+    url?: string
+    /** webhook: what it carries: the contact's details (GHL's Webhook), a body written here, form fields, or nothing. */
+    bodyType?: 'contact' | 'raw' | 'form' | 'none'
+    rawBody?: string
+    /** webhook, raw body: its content type (blank = JSON). */
+    contentType?: string
+    /** webhook: form fields, or with the contact's details GHL's "custom data" pairs. */
+    data?: { key: string; value: string }[]
+    headers?: { key: string; value: string }[]
+    params?: { key: string; value: string }[]
+    auth?: HlWebhookAuth
+    /** webhook: keep the response for later steps, {{custom_webhook.<step>.response.*}}. */
+    saveResponse?: boolean
+    /** webhook: a test response; the builder offers its fields to later steps. */
+    sampleResponse?: unknown
+    /** webhook: GHL's number for this step, which imported steps use to read its response. */
+    ref?: string
   }
   /** Linked (imported) workflows: the step after this one; null = the end. Absent = the next in the list. */
   next?: string | null
@@ -259,7 +294,7 @@ export type HlStep = {
   ghl?: { type: string; attributes?: unknown }
 }
 
-export type StepGroup = 'Communication' | 'Timing' | 'Contact' | 'Pipeline' | 'Logic' | 'Workflow'
+export type StepGroup = 'Communication' | 'Timing' | 'Contact' | 'Pipeline' | 'Logic' | 'Workflow' | 'Send data'
 
 export const STEPS: { type: HlStepType; label: string; group: StepGroup; pick?: false }[] = [
   { type: 'send_sms', label: 'Send SMS', group: 'Communication' },
@@ -285,6 +320,7 @@ export const STEPS: { type: HlStepType; label: string; group: StepGroup; pick?: 
   { type: 'split', label: 'Split', group: 'Logic', pick: false },
   { type: 'add_to_workflow', label: 'Add to workflow', group: 'Workflow' },
   { type: 'remove_from_workflow', label: 'Remove from workflow', group: 'Workflow' },
+  { type: 'webhook', label: 'Webhook', group: 'Send data' },
   { type: 'ghl', label: 'GoHighLevel action', group: 'Workflow', pick: false },
 ]
 

@@ -87,6 +87,9 @@ export function webhookPaths(payload: unknown, max = 150): { path: string; sampl
 /** The merge token for a field ("" = the whole request). */
 export const webhookToken = (path: string) => (path ? `{{inboundWebhookRequest.${path}}}` : '{{inboundWebhookRequest}}')
 
+/** The merge token for a field of a Webhook action's kept response ("" = all of it). */
+export const responseToken = (step: string, path: string) => `{{custom_webhook.${step}.response${path ? `.${path}` : ''}}}`
+
 /**
  * Does a consent field say yes? The field is the one picked as consent, and
  * forms send a box only when it's ticked, so any value counts except the

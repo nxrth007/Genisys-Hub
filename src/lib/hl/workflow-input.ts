@@ -1,5 +1,5 @@
 import { HlInputError } from './http'
-import { APPOINTMENT_STATUSES, HOOK_ID_PATTERN, STEPS, TRIGGERS, WEBHOOK_MAPPING, type HlBranch, type HlCondition, type HlStep, type HlTrigger, type HlWebhookMapping } from './types'
+import { APPOINTMENT_STATUSES, HOOK_ID_PATTERN, STEPS, TRIGGERS, WEBHOOK_MAPPING, WEBHOOK_METHODS, type HlBranch, type HlCondition, type HlStep, type HlTrigger, type HlWebhookMapping } from './types'
 
 /** The largest request a webhook trigger keeps as its reference (its fields fill the builder's menu). */
 const MAX_REFERENCE = 50_000
@@ -190,6 +190,41 @@ export function cleanSteps(raw: unknown): HlStep[] {
         return out({ workflowIds: list(c.workflowIds).map((x) => s(x, 60)).filter((x): x is string => !!x), ...(type === 'remove_from_workflow' && c.all === true ? { all: true } : {}) })
       case 'drip':
         return out({})
+      case 'webhook': {
+        if (!s(c.url, 2000)) throw new HlInputError(`Step ${i + 1}: add the webhook’s URL.`)
+        const kv = (v: unknown) =>
+          list(v)
+            .slice(0, 40)
+            .map(rec)
+            .filter((p) => s(p.key, 200))
+            .map((p) => ({ key: s(p.key, 200)!, value: typeof p.value === 'string' ? p.value.slice(0, 4000) : '' }))
+        const a = rec(c.auth)
+        const authType = (['basic', 'bearer', 'api_key'] as const).find((x) => x === a.type)
+        const sample = c.sampleResponse
+        return out({
+          method: WEBHOOK_METHODS.find((m) => m === String(c.method ?? '').toUpperCase()) ?? 'POST',
+          url: s(c.url, 2000),
+          bodyType: (['contact', 'raw', 'form', 'none'] as const).find((x) => x === c.bodyType) ?? 'contact',
+          ...(typeof c.rawBody === 'string' && c.rawBody.trim() ? { rawBody: c.rawBody.slice(0, 100_000) } : {}),
+          ...(s(c.contentType, 100) ? { contentType: s(c.contentType, 100) } : {}),
+          ...(kv(c.data).length ? { data: kv(c.data) } : {}),
+          ...(kv(c.headers).length ? { headers: kv(c.headers) } : {}),
+          ...(kv(c.params).length ? { params: kv(c.params) } : {}),
+          ...(authType
+            ? {
+                auth: {
+                  type: authType,
+                  ...(authType === 'basic' ? { username: s(a.username, 500) ?? '', password: typeof a.password === 'string' ? a.password.slice(0, 2000) : '' } : {}),
+                  ...(authType === 'bearer' ? { token: typeof a.token === 'string' ? a.token.trim().slice(0, 4000) : '' } : {}),
+                  ...(authType === 'api_key' ? { key: s(a.key, 200) ?? '', value: typeof a.value === 'string' ? a.value.slice(0, 4000) : '', in: a.in === 'query' ? ('query' as const) : ('header' as const) } : {}),
+                },
+              }
+            : {}),
+          ...(c.saveResponse === true ? { saveResponse: true } : {}),
+          ...(sample !== undefined && sample !== null && (JSON.stringify(sample)?.length ?? Infinity) <= MAX_REFERENCE ? { sampleResponse: sample } : {}),
+          ...(s(c.ref, 20) ? { ref: s(c.ref, 20) } : {}),
+        })
+      }
       case 'ghl': {
         const paths = pathsOf(c.paths)
         return out(paths.length ? { paths } : {})

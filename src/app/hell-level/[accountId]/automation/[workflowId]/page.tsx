@@ -8,7 +8,8 @@ import { ArrowLeft, CornerUpLeft, Play, Plus, Search, Trash2, X } from 'lucide-r
 import { cn } from '@/lib/utils'
 import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
-import { webhookPaths, webhookToken } from '@/lib/hl/webhook-shared'
+import { responseToken, webhookPaths, webhookToken } from '@/lib/hl/webhook-shared'
+import type { FieldGroup } from '@/components/hell-level/webhook-step'
 import { contactLabel, useAccount, type ContactRow } from '@/components/hell-level/bits'
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, conditionText, stepSummary } from '@/components/hell-level/step-editor'
 import { PanZoomCanvas } from '@/components/hell-level/canvas'
@@ -70,6 +71,7 @@ const DEFAULTS: Record<HlStepType, HlStep['config']> = {
   split: { paths: [] },
   add_to_workflow: { workflowIds: [] },
   remove_from_workflow: { workflowIds: [] },
+  webhook: { method: 'POST', url: '', bodyType: 'contact' },
   ghl: {},
 }
 
@@ -165,9 +167,19 @@ export default function WorkflowBuilderPage() {
 
   const published = draft.status === 'published'
   const triggers = triggersOf(draft)
-  // The webhook trigger's mapping reference: its fields go in the actions' Insert field menus, its values in their previews.
+  // Extra fields for the actions' Insert field menus (and their previews): the webhook trigger's mapping
+  // reference, and the test responses Webhook actions keep for later steps.
   const hookSample = triggers.find((t) => t.type === 'inbound_webhook' && t.reference)?.reference?.payload
-  const webhookFields = hookSample !== undefined ? webhookPaths(hookSample).map((f) => ({ token: webhookToken(f.path), label: f.path || 'The whole request' })) : []
+  const kept = draft.steps.filter((s) => s.type === 'webhook' && s.config.saveResponse && s.config.sampleResponse !== undefined && s.config.sampleResponse !== null)
+  const fieldGroups: FieldGroup[] = [
+    ...(hookSample !== undefined ? [{ label: 'Inbound webhook', options: webhookPaths(hookSample).map((f) => ({ token: webhookToken(f.path), label: f.path || 'The whole request' })) }] : []),
+    ...kept.map((s) => ({
+      label: `Response: ${s.name || 'Webhook'}`,
+      stepId: s.id,
+      options: [{ token: `{{custom_webhook.${s.id}.status}}`, label: 'Status code' }, ...webhookPaths(s.config.sampleResponse).map((f) => ({ token: responseToken(s.id, f.path), label: f.path || 'The whole response' }))],
+    })),
+  ]
+  const sample = { webhook: hookSample, responses: Object.fromEntries(kept.map((s) => [s.id, { status: 200, data: s.config.sampleResponse }])) }
   const setSteps = (steps: HlStep[]) => update({ steps })
   const setTriggers = (next: HlTrigger[]) => update({ triggers: next, trigger: next[0] })
   const editing = drawer?.kind === 'step' ? draft.steps.find((s) => s.id === drawer.id) : undefined
@@ -353,8 +365,9 @@ export default function WorkflowBuilderPage() {
                     workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt)}
                     steps={draft.steps}
                     triggerName={ctx.triggerName}
-                    webhookFields={webhookFields}
-                    webhookSample={hookSample}
+                    fieldGroups={fieldGroups}
+                    sample={sample}
+                    accountId={accountId}
                     onSave={(s) => {
                       setSteps(draft.steps.map((x) => (x.id === s.id ? s : x)))
                       setDrawer(null)
@@ -560,7 +573,7 @@ function Arms({ step, arms, ctx }: { step: HlStep; arms: FlowArm[]; ctx: Ctx }) 
 
 function ActionPicker({ onPick }: { onPick: (t: HlStepType) => void }) {
   const [q, setQ] = useState('')
-  const groups = ['Communication', 'Timing', 'Contact', 'Pipeline', 'Logic', 'Workflow'] as const
+  const groups = ['Communication', 'Timing', 'Contact', 'Pipeline', 'Logic', 'Workflow', 'Send data'] as const
   const shown = STEPS.filter((s) => s.pick !== false && s.label.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <div className="flex flex-col gap-4">

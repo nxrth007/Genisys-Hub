@@ -12,6 +12,7 @@ import { emailList, phoneList, toE164 } from './phone'
 import { publicBase } from './twilio'
 import type { HlBranch, HlCondition, HlStage, HlStep, HlTrigger, HlTriggerType } from './types'
 import { pathValue, webhookText } from './webhook-shared'
+import { callWebhook, contactPayload, keptResponse } from './outbound-webhook'
 
 /**
  * The workflow engine. A trigger (form sent, missed call, reply…) starts a
@@ -187,6 +188,7 @@ function nextMorning(timezone: string, at = new Date()): Date {
 type Ctx = {
   runId: string
   workflowId: string
+  workflowName: string
   accountId: string
   timezone: string
   contact: HlContact
@@ -331,6 +333,13 @@ async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null
       .replace(/^(inboundWebhookRequest|webhook)(\.|$)/i, '')
     const raw = path ? pathValue(c.context.webhook, path) : c.context.webhook
     return textHolds(webhookText(raw).trim().toLowerCase(), op, cond.value)
+  }
+  // GHL's "Custom Webhook" conditions: a field of a Webhook action's kept response ("3.response.status").
+  if (cond.type === 'custom_webhook') {
+    const path = String(cond.subType ?? '')
+      .replace(/^\{\{\s*|\s*\}\}$/g, '')
+      .replace(/^custom_webhook\./i, '')
+    return textHolds(renderTemplate(`{{custom_webhook.${path}}}`, c.merge).trim().toLowerCase(), op, cond.value)
   }
   // GHL's "Opportunity" conditions: the stage of the contact's open opportunity.
   if (cond.type === 'opportunities' && cond.subType === 'pipelineStageId') {
@@ -590,6 +599,38 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       }
       return ids.includes(c.workflowId) ? { ok: true, detail: 'Removed from this workflow', stop: true } : { ok: true, detail: 'Removed from the other workflow' }
     }
+    case 'webhook': {
+      // Tried 3 times when the other app is down, busy or silent (a minute, then 5 minutes apart), then the run carries on.
+      const tries = { ...rec(c.context.webhookTries) }
+      const attempt = Number(tries[step.id] ?? 0)
+      const r = await callWebhook(cfg, render, () =>
+        contactPayload({
+          contact: c.contact,
+          accountId: c.accountId,
+          profile,
+          workflow: { id: c.workflowId, name: c.workflowName },
+          trigger: Object.fromEntries(Object.entries({ type: c.context.trigger, form: c.merge.form, call: c.merge.call, webhook: c.merge.webhook }).filter(([, v]) => v !== null && v !== undefined)),
+          custom: Object.fromEntries((cfg.data ?? []).map((d) => [render(d.key).trim(), render(d.value)]).filter(([k]) => k)),
+        }),
+      )
+      if (r.retry && attempt < 2) {
+        tries[step.id] = attempt + 1
+        c.context.webhookTries = tries
+        return { ok: false, detail: `${r.detail}: trying again in ${attempt === 0 ? 'a minute' : '5 minutes'}`, waitUntil: new Date(Date.now() + (attempt === 0 ? 60_000 : 300_000)), retryStep: true }
+      }
+      if (step.id in tries) {
+        delete tries[step.id]
+        c.context.webhookTries = tries
+      }
+      if (cfg.saveResponse) {
+        // Later steps read it by this step's id, and imported ones by GHL's step number.
+        const kept = { status: r.status, data: keptResponse(r.data) }
+        const responses = { ...rec(c.context.responses), [step.id]: kept, ...(cfg.ref ? { [cfg.ref]: kept } : {}) }
+        c.context.responses = responses
+        c.merge.responses = responses as MergeData['responses']
+      }
+      return { ok: r.ok, detail: r.ok ? `${r.detail} (${(r.ms / 1000).toFixed(1)} s)` : `${r.detail}${attempt ? ` (tried ${attempt + 1} times)` : ''}: carried on` }
+    }
     case 'ghl':
       return { ok: false, detail: `“${step.name || step.ghl?.type || 'GoHighLevel action'}” is a GoHighLevel action Hell-level can’t run yet (${step.ghl?.type ?? 'unknown'}): stopped here`, stop: true }
     default:
@@ -642,6 +683,7 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
   const ctx: Ctx = {
     runId,
     workflowId: run.workflowId,
+    workflowName: run.workflow.name,
     accountId: run.accountId,
     timezone: run.account.timezone,
     contact: run.contact,
@@ -658,6 +700,7 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
       appointment,
       links: { review: trackedLink(run.contact.id, 'review') },
       webhook: context.webhook ?? null,
+      responses: rec(context.responses) as MergeData['responses'],
     },
   }
 

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { HlInputError } from './http'
 import type { HlBranch, HlCondition, HlStep, HlTrigger } from './types'
+import { ghlWebhookConfig } from './ghl-webhook-step'
 import { ensureHookIds } from './webhooks'
 
 /**
@@ -336,6 +337,17 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
       case 'drip':
         step = { ...base, type: 'drip', config: {}, ghl: { type: 'drip', attributes: a } }
         break
+      case 'webhook':
+      case 'custom_webhook': {
+        const config = ghlWebhookConfig(String(t.type), a, t.stepIndex)
+        if (config) step = { ...base, type: 'webhook', config, ghl }
+        else {
+          // OAuth2: its token lives in GHL's own connection, so nothing here can sign the request.
+          unsupported.push(`${String(t.type)}:oauth2`)
+          step = { ...base, type: 'ghl', config: {}, ghl: { type: String(t.type), attributes: a } }
+        }
+        break
+      }
       default: {
         unsupported.push(String(t.type))
         // A step that forks (Find contact: found / not found) keeps its paths, so the tree under it is drawn as in GHL.
