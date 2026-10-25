@@ -167,6 +167,9 @@ export default auth((req) => {
   // link they were sent has no Hub account: the signed state is the access
   // there (src/lib/hl/google-calendar.ts). Every other use stays gated.
   if (pathname === '/api/drive/callback' && req.nextUrl.searchParams.get('state')?.startsWith('hl-cal.')) return NextResponse.next()
+  // Google Search Console's ownership files (public/google<16 hex>.html): Google fetches them signed out.
+  // Only files committed there exist, so nobody else can verify the Hub as theirs.
+  if (/^\/google[0-9a-f]{16}\.html$/.test(pathname)) return NextResponse.next()
 
   const session = req.auth
   if (!session) {
