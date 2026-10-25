@@ -172,6 +172,11 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
               <Field label="Heading">
                 <Input value={settings.heading ?? ''} onChange={(e) => setSettings({ ...settings, heading: e.target.value })} />
               </Field>
+              {chat && (
+                <Field label="Pop-up greeting" hint="Pops up beside the chat button a few seconds in, with the logo. Blank: the heading. A single space: none">
+                  <Input value={settings.greeting ?? ''} onChange={(e) => setSettings({ ...settings, greeting: e.target.value === '' ? undefined : e.target.value })} placeholder={settings.heading || 'Hi there! Have a question? Text us here.'} />
+                </Field>
+              )}
               <Field label="Button text">
                 <Input value={settings.submitLabel ?? ''} onChange={(e) => setSettings({ ...settings, submitLabel: e.target.value })} />
               </Field>

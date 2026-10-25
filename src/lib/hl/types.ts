@@ -315,6 +315,8 @@ export type HlFormSettings = {
   showLegalLinks?: boolean
   /** The business logo (Business Profile) at the top of the form (default on). */
   showLogo?: boolean
+  /** Chat widget: the message that pops up beside the button, as GHL's does ('' = none; unset = the heading). */
+  greeting?: string
   /** Review survey: ratings at or above this (out of 5) go to the Google review link; lower ones leave feedback. */
   reviewThreshold?: number
   /** Where those links go for this form. Blank = the sub-account's (Business Profile), else the Hub's hosted pages. */

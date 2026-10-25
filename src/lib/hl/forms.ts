@@ -41,6 +41,12 @@ export type PublicForm = {
   logo: string | null
 }
 
+/** The chat widget's pop-up message: its own, else the heading; none when it's been blanked. */
+export function greetingOf(s: HlFormSettings): string | null {
+  if (s.greeting !== undefined) return s.greeting.trim() || null
+  return s.heading?.trim() || 'Hi there! Have a question? Text us here.'
+}
+
 export async function publicForm(formId: string): Promise<PublicForm | null> {
   const form = await prisma.hlForm.findUnique({ where: { id: formId }, include: { account: { select: { id: true, name: true, profile: true, archivedAt: true } } } })
   if (!form || form.archivedAt || form.account.archivedAt) return null

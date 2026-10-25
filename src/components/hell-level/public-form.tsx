@@ -176,6 +176,15 @@ export function PublicForm({
   )
 }
 
+/** The chat panel's close button: it lives in the iframe, so it asks the widget on the client's page to close. */
+export function ChatClose() {
+  return (
+    <button type="button" aria-label="Close chat" onClick={() => window.parent.postMessage({ hlChat: 'close' }, '*')} className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full text-[22px] leading-none opacity-80 transition hover:bg-white/20 hover:opacity-100">
+      ×
+    </button>
+  )
+}
+
 /** The Privacy policy · Texting terms line under a form (off when the form hides it). */
 export function LegalFooter({ settings, legal, short }: { settings: HlFormSettings; legal: { privacy: string; terms: string }; short?: boolean }) {
   if (settings.showLegalLinks === false) return null

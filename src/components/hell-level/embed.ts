@@ -14,7 +14,7 @@ export function embedCode(origin: string, f: EmbedForm): string {
 
 export function lovablePrompt(origin: string, f: EmbedForm): string {
   return f.kind === 'chat'
-    ? `Add our chat widget to every page of the site. Load this script once, in the root layout, just before the closing body tag, and don't remove any other scripts:\n\n${embedCode(origin, f)}`
+    ? `Add our chat widget to every page of the site. Load this script once, in the root layout, just before the closing body tag. Remove the old GoHighLevel / LeadConnector chat widget (its <chat-widget> tag and its leadconnectorhq loader script), so there's only one chat bubble; don't remove any other scripts:\n\n${embedCode(origin, f)}`
     : `Replace the quote form on the contact / get-a-quote section with our hosted form. Embed this iframe where the form is (full width), keep the surrounding heading and layout, and include the small script right after it so the iframe resizes to fit. Remove any old GoHighLevel form embed:\n\n${embedCode(origin, f)}`
 }
 
