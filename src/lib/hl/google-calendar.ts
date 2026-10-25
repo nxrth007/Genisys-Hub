@@ -30,14 +30,14 @@ import { publicBase } from './twilio'
 
 /**
  * The narrowest Google permissions that cover every call made (Google's review asks for no more):
- *   calendar.events: write bookings, read the booking calendar's events, watch them for changes;
- *   calendar.calendarlist.readonly: list their calendars (calendar.events doesn't cover calendarList.list);
- *   calendar.events.freebusy: busy times on their other calendars (calendar.events doesn't cover freebusy.query);
+ *   calendar.events.owned: write bookings into a calendar they own, read its events, watch it for changes;
+ *   calendar.calendarlist.readonly: list their calendars (the events scopes don't cover calendarList.list);
+ *   calendar.events.freebusy: busy times on their other calendars (the events scopes don't cover freebusy.query);
  *   userinfo.email: which account is connected.
- * Connections made with the broader calendar.readonly before this keep working.
+ * Connections made with the broader calendar.events / calendar.readonly before this keep working.
  */
 export const GOOGLE_CALENDAR_SCOPES = [
-  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.events.owned',
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'https://www.googleapis.com/auth/calendar.events.freebusy',
   'https://www.googleapis.com/auth/userinfo.email',
@@ -465,7 +465,8 @@ export async function googleCalendars(accountId: string, id: string): Promise<{ 
     const r = await cal.calendarList.list({ minAccessRole: 'freeBusyReader', maxResults: 250 })
     return (r.data.items ?? [])
       .filter((x) => x.id && !x.deleted)
-      .map((x) => ({ id: x.primary ? 'primary' : x.id!, name: x.summaryOverride || x.summary || x.id!, primary: !!x.primary, canWrite: x.accessRole === 'owner' || x.accessRole === 'writer' }))
+      // Bookings go only into a calendar they own (the permission asked for is calendar.events.owned).
+      .map((x) => ({ id: x.primary ? 'primary' : x.id!, name: x.summaryOverride || x.summary || x.id!, primary: !!x.primary, canWrite: x.accessRole === 'owner' }))
       .sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name))
   } catch (err) {
     await noteError(id, err)

@@ -21,7 +21,7 @@ export default function GoogleCalendarAppPage() {
           <strong>No double bookings.</strong> Times they’re busy in the Google calendars they choose aren’t offered on their booking pages.
         </li>
         <li>
-          <strong>Bookings go into Google Calendar.</strong> Each appointment booked with them is added to the calendar they choose, with the customer’s name, contact details and a reschedule
+          <strong>Bookings go into Google Calendar.</strong> Each appointment booked with them is added to the calendar of their own they choose, with the customer’s name, contact details and a reschedule
           link, and a Google Meet link when the booking calendar uses Meet. It’s updated when the appointment is rescheduled and removed when it’s cancelled.
         </li>
         <li>

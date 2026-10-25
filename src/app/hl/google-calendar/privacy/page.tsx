@@ -32,13 +32,13 @@ export default function GoogleCalendarPrivacyPage() {
           calendar you can only see availability for, just the times it’s busy.
         </li>
         <li>
-          Create, update and delete the appointment events it adds to the calendar you choose for bookings, including a Google Meet link when the booking calendar uses Meet, and see changes
-          made to those events.
+          Create, update and delete the appointment events it adds to the calendar you choose for bookings (one you own), including a Google Meet link when the booking calendar uses Meet,
+          and see changes made to that calendar.
         </li>
       </ul>
       <p className="text-[14px] text-[#667085]">
-        Google permissions requested: view and edit events on your calendars; see the list of your calendars; see the availability on calendars you have access to; and see your email
-        address.
+        Google permissions requested: see, create, change and delete events on calendars you own; see the list of your calendars; see the availability on calendars you have access to;
+        and see your email address.
       </p>
 
       <h2>How we use it</h2>

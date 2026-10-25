@@ -58,11 +58,12 @@ async function patchData(id: string, change: (d: Data) => void): Promise<void> {
   await prisma.hlRecord.update({ where: { id }, data: { data: asJson(d) } })
 }
 
-/** The calendars a connection watches: where its bookings go, and the ones whose busy times count. */
-const watched = (row: Row) => {
-  const c = toConnection(row)
-  return [...new Set([c.calendarId, ...(c.conflicts ? c.checkIds : [])])]
-}
+/**
+ * The calendar a connection watches: the one its bookings go into, which they own. Their other
+ * calendars may only be readable as free/busy (the permission asked for is calendar.events.owned),
+ * so their busy times come from the few-minute busy cache instead.
+ */
+const watched = (row: Row) => [toConnection(row).calendarId]
 
 const googleCode = (err: unknown) => Number((err as { code?: unknown }).code ?? (err as { response?: { status?: unknown } }).response?.status ?? 0)
 
