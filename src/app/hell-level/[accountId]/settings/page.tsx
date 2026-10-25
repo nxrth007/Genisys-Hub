@@ -15,6 +15,7 @@ import { SETTINGS_PAGES } from '@/components/hell-level/nav'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { ImportPanel } from '@/components/hell-level/import-panel'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
+import { EmailPanel } from '@/components/hell-level/email-panel'
 import { StaffPanel } from '@/components/hell-level/staff-panel'
 import { A2pTexting } from '@/components/hell-level/a2p-panel'
 import { CalendarSettingsPanel } from '@/components/hell-level/calendar-settings'
@@ -163,7 +164,11 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
     case 'calendars':
       return <CalendarSettingsPanel accountId={accountId} />
     case 'email-services':
-      return <NotYet title="Email Services" what="A sending domain so email to leads comes from the client’s own address. Owner notifications go out through the Hub’s Google account today." />
+      return (
+        <Panel title="Email Services" description="Email from the client’s own domain: automations and Conversations send it, and replies come back into Conversations.">
+          <EmailPanel accountId={accountId} />
+        </Panel>
+      )
     case 'whatsapp':
       return <NotYet title="WhatsApp" what="WhatsApp Business messaging in Conversations." />
     case 'reputation':

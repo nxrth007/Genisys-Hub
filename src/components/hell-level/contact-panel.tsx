@@ -117,6 +117,13 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
           </span>
           <Toggle checked={c.dnd} onChange={(v) => patch.mutate({ dnd: v })} label="Do not disturb" />
         </label>
+        <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
+          <span>
+            No email
+            <span className="block text-[12px] text-muted-foreground">{c.emailDnd ? `Since they ${c.emailDndReason === 'set by hand' ? 'were set by hand' : (c.emailDndReason ?? 'unsubscribed')}` : 'Bounces, spam reports and unsubscribes switch this on'}</span>
+          </span>
+          <Toggle checked={!!c.emailDnd} onChange={(v) => patch.mutate({ emailDnd: v })} label="No email" />
+        </label>
       </div>
 
       <div>

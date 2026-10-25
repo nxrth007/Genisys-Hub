@@ -4,6 +4,7 @@ import type { HlContact, HlWorkflow, Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { addTags, removeTags } from './contacts'
 import { renderTemplate, type MergeAppointment, type MergeData } from './merge'
+import { sendEmailToContact } from './email'
 import { sendInternalEmail, sendInternalSms, sendSmsToContact } from './messages'
 import { replyIntent } from './intent'
 import { trackedLink } from './links'
@@ -365,9 +366,11 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       const r = await sendSmsToContact({ accountId: c.accountId, contactId: c.contact.id, body: render(cfg.body), by: 'automation', runId: c.runId })
       return { ok: r.ok, detail: r.detail }
     }
-    case 'send_email':
-      // Emails to leads need a sending domain set up first (GHL's Email Services); until then the run carries on without it.
-      return { ok: false, detail: `Email to the contact isn’t set up in Hell-level yet: “${render(cfg.subject) || 'email'}” not sent, carried on` }
+    case 'send_email': {
+      // From the client's own address (Settings → Email Services); until that's set up the run carries on without it.
+      const r = await sendEmailToContact({ accountId: c.accountId, contactId: c.contact.id, subject: render(cfg.subject), body: render(cfg.body), fromName: cfg.fromName ? render(cfg.fromName) : undefined, by: 'automation', runId: c.runId, bulk: true })
+      return { ok: r.ok, detail: r.ok ? r.detail : `${r.detail}: “${render(cfg.subject) || 'email'}” not sent, carried on` }
+    }
     case 'internal_sms': {
       const to = phoneList(cfg.to?.trim() ? render(cfg.to) : profile.notifyPhone)
       const r = await sendInternalSms(c.accountId, to, render(cfg.body))

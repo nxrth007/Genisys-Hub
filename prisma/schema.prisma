@@ -2284,6 +2284,7 @@ model HlAccount {
   domains       HlDomain[]
   a2p           HlA2p?
   media         HlMedia[]
+  emailDomain   HlEmailDomain?
 }
 
 /// Images a sub-account keeps itself (Media Storage): a logo uploaded here, or
@@ -2303,6 +2304,37 @@ model HlMedia {
   createdAt DateTime  @default(now())
 
   @@index([accountId, createdAt])
+}
+
+/// A sub-account's email (Settings → Email Services; GHL's LC Email), through
+/// Mailgun: sent from the client's own domain, with a subdomain of it
+/// ("mail.forte.com") carrying the sending records and taking replies, which
+/// land in Conversations (src/lib/hl/email.ts).
+model HlEmailDomain {
+  id         String    @id @default(cuid())
+  accountId  String    @unique
+  account    HlAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// The client's domain, and the subdomain of it Mailgun sends from and takes replies on.
+  rootDomain String
+  domain     String    @unique
+  /// "From": the name, and the address's part before the @ on the client's domain.
+  fromName   String?
+  fromLocal  String    @default("hello")
+  /// Copies replies to the owner's email (Business Profile → notification email).
+  forwardReplies Boolean @default(true)
+  /// verifying (records added, waiting on Mailgun) | active | failed
+  status     String    @default("verifying")
+  /// porkbun: Hell-level wrote the records. external: the client's DNS host has them to add.
+  dnsMode    String
+  /// The records Mailgun asked for, each with whether it checks out.
+  records    Json      @default("[]")
+  routeId    String?
+  lastError  String?
+  checkedAt  DateTime?
+  verifiedAt DateTime?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 /// A sub-account's A2P 10DLC registration, so its local numbers can text.
@@ -2402,6 +2434,9 @@ model HlContact {
   marketingConsentAt DateTime?
   /// Texted STOP: nothing goes out until they text START.
   dnd           Boolean   @default(false)
+  /// Unsubscribed from email, or an email to them bounced or was marked spam: no more email.
+  emailDnd       Boolean  @default(false)
+  emailDndReason String?
   /// Form answers and anything else worth keeping, by field key.
   fields        Json      @default("{}")
   /// Conversation summary for the inbox list.

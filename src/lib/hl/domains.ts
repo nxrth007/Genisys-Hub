@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { dnsProvider, publicRecords, resolve, splitHost } from './dns-lookup'
+import { maybeSetUpEmail } from './email'
 import { registration } from './rdap'
 import { LOVABLE_IP, fqdnOf, metaOf, siteRecords, type DomainMeta, type HostConnection } from './domain-shared'
 import { HlInputError } from './http'
@@ -140,6 +141,7 @@ export async function buyDomain(o: { accountId: string; name: string; costCents:
   }
   await refreshFromRegistrar([row.id]).catch(() => {})
   console.log(`[hell-level] ${o.by} bought ${domain} for ${money(o.costCents)} (account ${o.accountId})`)
+  void maybeSetUpEmail(o.accountId, domain, o.by)
   return prisma.hlDomain.findUniqueOrThrow({ where: { id: row.id } })
 }
 
@@ -148,10 +150,16 @@ export async function retryPurchase(id: string, by: string) {
   const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
   if (row.origin !== 'bought' || row.status !== 'failed' || !row.costCents) throw new HlInputError('Nothing to retry.')
   const inAccount = (await listRegistrarDomains()).some((d) => d.name === row.name)
-  if (inAccount) return addLog(id, by, 'Found it in the Porkbun account: the purchase went through', { status: 'active', lastError: null })
+  if (inAccount) {
+    const done = await addLog(id, by, 'Found it in the Porkbun account: the purchase went through', { status: 'active', lastError: null })
+    void maybeSetUpEmail(row.accountId, row.name, by)
+    return done
+  }
   try {
     const r = await registerDomain(row.name, row.costCents, `hl-buy-${row.id}`)
-    return addLog(id, by, `Bought for ${money(r.costCents)}`, { status: 'active', orderId: r.orderId, lastError: null })
+    const done = await addLog(id, by, `Bought for ${money(r.costCents)}`, { status: 'active', orderId: r.orderId, lastError: null })
+    void maybeSetUpEmail(row.accountId, row.name, by)
+    return done
   } catch (err) {
     if (err instanceof PorkbunError && err.code !== 'NETWORK') {
       await prisma.hlDomain.delete({ where: { id } })
@@ -191,6 +199,7 @@ export async function linkDomain(o: { accountId: string; name: string; by: strin
       log: [{ at: new Date().toISOString(), by: o.by, what: 'Linked from the Porkbun account' }] as unknown as Prisma.InputJsonValue,
     },
   })
+  void maybeSetUpEmail(o.accountId, domain, o.by)
   return row
 }
 
@@ -365,6 +374,7 @@ export async function refreshTransfer(id: string, by = 'hell-level') {
       }
     }
     await refreshFromRegistrar([id]).catch(() => {})
+    void maybeSetUpEmail(row.accountId, row.name, by)
   } else if (t.status === 'CANCELED') {
     await addLog(id, by, `Transfer cancelled${t.description ? `: ${t.description}` : ''}`, { status: 'failed', transferStatus: t.status, lastError: t.description ?? 'The transfer was cancelled. Check the domain is unlocked in GoHighLevel and the code is current, then start again.' })
   } else {

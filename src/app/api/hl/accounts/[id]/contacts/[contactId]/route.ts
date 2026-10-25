@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 }
 
 /**
- * PATCH { firstName?, lastName?, phone?, email?, tags?, smsConsent?, dnd?, read?: true,
+ * PATCH { firstName?, lastName?, phone?, email?, tags?, smsConsent?, dnd?, emailDnd?, read?: true,
  *         addToWorkflow?: workflowId, cancelRun?: runId }
  */
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -71,6 +71,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
       data.smsConsentAt = body.smsConsent ? new Date() : null
     }
     if (typeof body.dnd === 'boolean') data.dnd = body.dnd
+    if (typeof body.emailDnd === 'boolean') {
+      data.emailDnd = body.emailDnd
+      data.emailDndReason = body.emailDnd ? 'set by hand' : null
+    }
     if (typeof body.starred === 'boolean') data.starred = body.starred
     if (body.read === true) data.unread = 0
     const updated = await prisma.hlContact.update({ where: { id: contactId }, data })

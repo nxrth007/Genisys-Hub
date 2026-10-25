@@ -59,6 +59,8 @@ export type HlTriggerType =
   | 'chat_submitted'
   | 'missed_call'
   | 'inbound_sms'
+  /** A contact emailed the sub-account (a reply to its email, src/lib/hl/email.ts). */
+  | 'inbound_email'
   | 'contact_created'
   | 'tag_added'
   | 'opportunity_stage'
@@ -114,6 +116,7 @@ export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?
   { type: 'chat_submitted', label: 'Chat widget submitted', hint: 'Someone sends a message through the chat bubble' },
   { type: 'missed_call', label: 'Missed call', hint: 'A call to the sub-account’s number isn’t answered' },
   { type: 'inbound_sms', label: 'Customer replied', hint: 'A contact texts the sub-account’s number' },
+  { type: 'inbound_email', label: 'Customer replied by email', hint: 'A contact emails the sub-account, usually answering its email' },
   { type: 'contact_created', label: 'Contact created', hint: 'A new contact is added, any way' },
   { type: 'tag_added', label: 'Contact tag', hint: 'A tag is put on a contact' },
   { type: 'opportunity_stage', label: 'Pipeline stage changed', hint: 'An opportunity moves into a stage' },

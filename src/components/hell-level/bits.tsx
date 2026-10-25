@@ -57,6 +57,9 @@ export type ContactRow = {
   source: string | null
   smsConsent: boolean
   dnd: boolean
+  /** Unsubscribed from email, or it bounced or was marked spam (emailDndReason says which). */
+  emailDnd?: boolean
+  emailDndReason?: string | null
   starred: boolean
   fields: Record<string, unknown>
   lastMessageAt: string | null

@@ -3,12 +3,12 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, MessagesSquare, Phone, PhoneIncoming, PhoneMissed, Search, Send, Star, StickyNote, TriangleAlert } from 'lucide-react'
+import { FileText, Mail, MessagesSquare, Phone, PhoneIncoming, PhoneMissed, Search, Send, Star, StickyNote, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { contactLabel, useAccount } from '@/components/hell-level/bits'
 import { ContactPanel, type ContactDetail } from '@/components/hell-level/contact-panel'
-import { Avatar, Button, Empty, ErrorNote, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/hell-level/ui'
+import { Avatar, Button, Empty, ErrorNote, Input, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/hell-level/ui'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/hell-level/section'
 
 type Conversation = {
@@ -193,8 +193,15 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
   const qc = useQueryClient()
   const account = useAccount(accountId)
   const c = detail.contact
-  const [mode, setMode] = useState<'sms' | 'note'>('sms')
+  const [mode, setMode] = useState<'sms' | 'email' | 'note'>('sms')
   const [text, setText] = useState('')
+  const [subject, setSubject] = useState('')
+  // Email: whether the sub-account can send it (Settings → Email Services).
+  const email = useQuery<{ setup: { status: string; fromLocal: string; rootDomain: string } | null }>({
+    queryKey: ['hl', 'email', accountId],
+    queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/email`),
+    enabled: mode === 'email',
+  })
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -202,9 +209,10 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
   }, [detail.messages.length])
 
   const send = useMutation({
-    mutationFn: () => hlFetch<{ ok: boolean; detail: string }>(`/api/hl/accounts/${accountId}/contacts/${c.id}/messages`, { method: 'POST', json: { kind: mode, body: text } }),
+    mutationFn: () => hlFetch<{ ok: boolean; detail: string }>(`/api/hl/accounts/${accountId}/contacts/${c.id}/messages`, { method: 'POST', json: { kind: mode, body: text, ...(mode === 'email' ? { subject } : {}) } }),
     onSuccess: () => {
       setText('')
+      setSubject('')
       qc.invalidateQueries({ queryKey: ['hl', 'contact', accountId, c.id] })
       qc.invalidateQueries({ queryKey: ['hl', 'conversations', accountId] })
     },
@@ -219,7 +227,15 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
     },
   })
   const number = account.data?.numbers[0] ?? null
+  const setup = email.data?.setup ?? null
   const warning = useMemo(() => {
+    if (mode === 'email') {
+      if (!c.email) return 'This contact has no email address.'
+      if (c.emailDnd) return `No more email to this contact: they ${c.emailDndReason ?? 'unsubscribed'}.`
+      if (email.data && !setup) return 'Email isn’t set up for this sub-account yet (Settings → Email Services).'
+      if (setup && setup.status !== 'active') return 'Email is still being verified (Settings → Email Services).'
+      return null
+    }
     if (mode !== 'sms') return null
     if (!c.phone) return 'This contact has no phone number.'
     if (c.dnd) return 'This contact texted STOP. Nothing goes out until they text START.'
@@ -227,7 +243,7 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
     if (number.kind === 'toll_free' && number.verificationStatus !== 'approved') return 'Texting isn’t approved yet: the number’s toll-free verification is still with Twilio.'
     if (!c.smsConsent) return 'No texting consent recorded. If they agreed, switch on “Agreed to texts” on the right.'
     return null
-  }, [mode, c, number])
+  }, [mode, c, number, email.data, setup])
 
   return (
     <>
@@ -269,6 +285,9 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
             <button type="button" onClick={() => setMode('sms')} className={cn('flex items-center gap-1.5 pb-1', mode === 'sms' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
               <Send className="h-3.5 w-3.5" /> SMS
             </button>
+            <button type="button" onClick={() => setMode('email')} className={cn('flex items-center gap-1.5 pb-1', mode === 'email' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
+              <Mail className="h-3.5 w-3.5" /> Email
+            </button>
             <button type="button" onClick={() => setMode('note')} className={cn('flex items-center gap-1.5 pb-1', mode === 'note' ? 'border-b-2 border-warning text-warning' : 'text-muted-foreground')}>
               <StickyNote className="h-3.5 w-3.5" /> Internal note
             </button>
@@ -277,6 +296,9 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
             <p className="mb-2 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {warning}
             </p>
+          )}
+          {mode === 'email' && (
+            <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" className="mb-2" />
           )}
           <form
             onSubmit={(e) => {
@@ -289,21 +311,22 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // An email is written over several lines: Enter only sends texts and notes.
+                if (mode !== 'email' && e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   if (text.trim()) send.mutate()
                 }
               }}
-              rows={2}
-              placeholder={mode === 'sms' ? 'Type a text message (Enter to send, Shift+Enter for a new line)' : 'Write a note only your team sees'}
-              className="max-h-40 min-h-[44px] flex-1 resize-none border-0 bg-transparent shadow-none focus:ring-0"
+              rows={mode === 'email' ? 5 : 2}
+              placeholder={mode === 'sms' ? 'Type a text message (Enter to send, Shift+Enter for a new line)' : mode === 'email' ? 'Write the email' : 'Write a note only your team sees'}
+              className={cn('min-h-[44px] flex-1 resize-none border-0 bg-transparent shadow-none focus:ring-0', mode === 'email' ? 'max-h-72' : 'max-h-40')}
             />
             <Button type="submit" variant="primary" loading={send.isPending} disabled={!text.trim()}>
-              {mode === 'sms' ? 'Send' : 'Save note'}
+              {mode === 'note' ? 'Save note' : 'Send'}
             </Button>
           </form>
           <div className="mt-1.5 flex justify-between text-[11.5px] text-muted-foreground/70">
-            <span>{mode === 'sms' && number ? `From ${prettyPhone(number.number)}` : ''}</span>
+            <span>{mode === 'sms' && number ? `From ${prettyPhone(number.number)}` : mode === 'email' && setup ? `From ${setup.fromLocal}@${setup.rootDomain}${c.email ? ` to ${c.email}` : ''}` : ''}</span>
             {mode === 'sms' && <span>{text.length} characters · {Math.max(1, Math.ceil(text.length / 153))} segment(s)</span>}
           </div>
           {send.error && <ErrorNote error={send.error} />}
@@ -350,6 +373,26 @@ function MessageRow({ m }: { m: ContactDetail['messages'][number] }) {
   }
   const out = m.direction === 'outbound'
   const failed = m.status === 'failed' || m.status === 'undelivered'
+  if (m.channel === 'email') {
+    const subject = typeof m.meta?.subject === 'string' ? m.meta.subject : '(no subject)'
+    return (
+      <div className={cn('flex flex-col', out ? 'items-end' : 'items-start')}>
+        <div className={cn('w-full max-w-[80%] rounded-2xl border px-4 py-3', out ? 'rounded-br-md border-primary/30 bg-primary-soft' : 'rounded-bl-md border-border bg-card', failed && 'border-destructive/40 bg-destructive/10')}>
+          <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
+            <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{subject}</span>
+          </p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground/90">{m.body}</p>
+        </div>
+        <p className={cn('mt-1 text-[11.5px]', failed ? 'text-destructive' : 'text-muted-foreground/70')}>
+          {fmtDateTime(m.createdAt)} · Email{!out && m.from ? ` from ${m.from}` : ''}
+          {m.meta?.automatic ? ' · Automatic reply' : ''}
+          {out && ` · ${m.by === 'automation' ? 'Automation' : (m.by ?? '').split('@')[0] || 'Staff'}`}
+          {out && ` · ${failed ? `Failed${m.error ? `: ${m.error}` : ''}` : m.status === 'delivered' ? 'Delivered' : 'Sent'}`}
+        </p>
+      </div>
+    )
+  }
   return (
     <div className={cn('flex flex-col', out ? 'items-end' : 'items-start')}>
       <div
