@@ -7,7 +7,6 @@ import {
   Globe,
   Image,
   LayoutDashboard,
-  LayoutGrid,
   MessageCircle,
   Network,
   Receipt,
@@ -31,7 +30,7 @@ export type Section = {
   key: string
   label: string
   icon: LucideIcon
-  /** "top": Launchpad … Payments. "grow": AI Agents … App Marketplace (below the divider). */
+  /** "top": Launchpad … Payments. "grow": AI Agents … Reporting (below the divider). */
   group: 'top' | 'grow'
   tabs?: SectionTab[]
   badge?: string
@@ -211,7 +210,6 @@ export const SECTIONS: Section[] = [
       { key: 'appointment-report', label: 'Appointment Report' },
     ],
   },
-  { key: 'app-marketplace', label: 'App Marketplace', icon: LayoutGrid, group: 'grow' },
 ]
 
 export const SETTINGS_SECTION: Section = { key: 'settings', label: 'Settings', icon: Settings, group: 'grow' }

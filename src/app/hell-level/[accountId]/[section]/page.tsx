@@ -26,7 +26,6 @@ const PAGES: Record<string, Record<string, { title: string; what: string }>> = {
     certificates: { title: 'Certificates', what: 'Certificates for finishing a course.' },
     'client-portal': { title: 'Client Portal', what: 'One login for the business’s customers to reach courses and communities.' },
   },
-  'app-marketplace': { '': { title: 'App Marketplace', what: 'Third-party apps for GHL sub-accounts. Hell-level’s integrations live under Settings → Integrations.' } },
 }
 
 export default function SectionPage() {
