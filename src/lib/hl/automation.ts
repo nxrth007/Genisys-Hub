@@ -11,6 +11,7 @@ import { trackedLink } from './links'
 import { emailList, phoneList, toE164 } from './phone'
 import { publicBase } from './twilio'
 import type { HlBranch, HlCondition, HlStage, HlStep, HlTrigger, HlTriggerType } from './types'
+import { pathValue, webhookText } from './webhook-shared'
 
 /**
  * The workflow engine. A trigger (form sent, missed call, reply…) starts a
@@ -39,7 +40,9 @@ export type TriggerEvent = {
   status?: string
   /** link_clicked: which tracked link. */
   link?: string
-  /** Saved on the run for merge fields: { form: {...} } / { call: {...} } / { appointmentId }. */
+  /** inbound_webhook: whose URL was called. */
+  hookId?: string
+  /** Saved on the run for merge fields: { form: {...} } / { call: {...} } / { appointmentId } / { webhook }. */
   context?: Record<string, unknown>
 }
 
@@ -97,6 +100,8 @@ function triggerMatches(t: HlTrigger, e: TriggerEvent): boolean {
     if (phrases.length && !replyMatches(e.text ?? '', phrases, t.match)) return false
   }
   if (t.type === 'link_clicked' && t.link && t.link !== e.link) return false
+  // Each webhook trigger answers only its own URL.
+  if (t.type === 'inbound_webhook' && (!t.hookId || t.hookId !== e.hookId)) return false
   if (t.type === 'tag_added' && t.tag?.trim() && t.tag.trim().toLowerCase() !== (e.tag ?? '').toLowerCase()) return false
   if (t.type === 'opportunity_stage' || t.type === 'opportunity_created') {
     if (t.stageId && t.stageId !== e.stageId) return false
@@ -269,6 +274,18 @@ async function latestReply(c: Ctx): Promise<string | null> {
 
 const asList = (v: unknown) => (Array.isArray(v) ? v : [v]).map((x) => String(x ?? '').trim().toLowerCase()).filter(Boolean)
 
+/** A text value (lower case) against a condition's values, with GHL's operators. null = an operator Hell-level doesn't know. */
+function textHolds(value: string, op: string, wanted: unknown): boolean | null {
+  const want = asList(wanted)
+  if (op === '==') return want.includes(value)
+  if (op === '!=') return !want.includes(value)
+  if (op === 'contain' || op === 'contains') return want.some((w) => value.includes(w))
+  if (op === 'notContain' || op === 'not_contains') return !want.some((w) => value.includes(w))
+  if (op === 'is_empty' || op === 'is-empty') return !value
+  if (op === 'is_not_empty' || op === 'is-not-empty') return !!value
+  return null
+}
+
 /** One GHL if/else condition. null = a kind Hell-level can't check yet (counts as not met). */
 async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null> {
   const op = cond.operator
@@ -305,15 +322,15 @@ async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null
     const key = String(cond.subType ?? '')
     const core: Record<string, unknown> = { first_name: c.contact.firstName, last_name: c.contact.lastName, email: c.contact.email, phone: c.contact.phone, source: c.contact.source }
     const raw = key in core ? core[key] : rec(c.contact.fields)[key]
-    const value = String(raw ?? '').toLowerCase()
-    const want = asList(cond.value)
-    if (op === '==') return want.includes(value)
-    if (op === '!=') return !want.includes(value)
-    if (op === 'contain' || op === 'contains') return want.some((w) => value.includes(w))
-    if (op === 'notContain') return !want.some((w) => value.includes(w))
-    if (op === 'is_empty' || op === 'is-empty') return !value
-    if (op === 'is_not_empty' || op === 'is-not-empty') return !!value
-    return null
+    return textHolds(String(raw ?? '').toLowerCase(), op, cond.value)
+  }
+  // GHL's "Inbound Webhook Trigger" conditions: a field of the request that started the run.
+  if (cond.type === 'inboundWebhookRequest' || cond.type === 'webhook') {
+    const path = String(cond.subType ?? '')
+      .replace(/^\{\{\s*|\s*\}\}$/g, '')
+      .replace(/^(inboundWebhookRequest|webhook)(\.|$)/i, '')
+    const raw = path ? pathValue(c.context.webhook, path) : c.context.webhook
+    return textHolds(webhookText(raw).trim().toLowerCase(), op, cond.value)
   }
   // GHL's "Opportunity" conditions: the stage of the contact's open opportunity.
   if (cond.type === 'opportunities' && cond.subType === 'pipelineStageId') {
@@ -640,6 +657,7 @@ export async function advanceRun(runId: string, depth = 0): Promise<void> {
       call: (context.call as Record<string, unknown>) ?? null,
       appointment,
       links: { review: trackedLink(run.contact.id, 'review') },
+      webhook: context.webhook ?? null,
     },
   }
 

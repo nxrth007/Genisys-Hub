@@ -51,6 +51,7 @@ import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
 import { maybeUpgradeClientAccounts } from './hl/accounts'
+import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
 import { maybeFillLogos } from './hl/logo'
 import { checkPendingEmail } from './hl/email'
 import { maybeRefreshDomains } from './hl/domains'
@@ -467,6 +468,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
+    // GHL webhook triggers imported before Hell-level had them get URLs of their own, once.
+    void maybeUpgradeWebhookTriggers()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} workflow(s) given inbound webhook URLs`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level webhook trigger upgrade failed:', err))
     // Email set up on a domain whose records aren't through yet: checked every 5 minutes.
     void checkPendingEmail().catch((err) => console.error('[scheduler] hell-level email check failed:', err))
     // Sub-accounts with a website and no logo get their site's (twice a day).

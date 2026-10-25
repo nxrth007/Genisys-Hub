@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { HlInputError } from './http'
 import type { HlBranch, HlCondition, HlStep, HlTrigger } from './types'
+import { ensureHookIds } from './webhooks'
 
 /**
  * GoHighLevel workflows as they really are: the folders, every trigger, and
@@ -420,6 +421,9 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
         }
         case 'validation_error':
           return { ...base, type: 'sms_error' }
+        case 'inbound_webhook':
+          // Its URL is Hell-level's own, given (or kept) when the workflow is saved.
+          return { ...base, type: 'inbound_webhook' }
         default:
           return { ...base, type: 'ghl' }
       }
@@ -475,11 +479,22 @@ export async function importGhlWorkflows(accountId: string, x: GhlExport): Promi
   for (const t of items) {
     const def = rec(x.workflows[t.id].def)
     const { steps, unsupported } = convertSteps(arr(rec(def.workflowData).templates).map(rec), refs)
-    const triggers = convertTriggers(x.workflows[t.id].trig, refs)
+    const existing = await prisma.hlWorkflow.findUnique({ where: { id: ids.get(t.id)! }, select: { meta: true, publishedAt: true, triggers: true } })
+    // A webhook trigger keeps its URL, field picks and reference through a re-import, so whatever posts to it keeps working.
+    const before = new Map((Array.isArray(existing?.triggers) ? (existing.triggers as HlTrigger[]) : []).filter((tr) => tr.hookId).map((tr) => [tr.id, tr]))
+    const ghlReference = rec(def.inboundWebhookReference).payload
+    const triggers = await ensureHookIds(
+      ids.get(t.id)!,
+      convertTriggers(x.workflows[t.id].trig, refs).map((tr) => {
+        if (tr.type !== 'inbound_webhook') return tr
+        const kept = before.get(tr.id)
+        const reference = kept?.reference ?? (ghlReference !== undefined && (JSON.stringify(ghlReference)?.length ?? Infinity) <= 50_000 ? { at: new Date().toISOString(), payload: ghlReference } : undefined)
+        return { ...tr, ...(kept?.hookId ? { hookId: kept.hookId } : {}), ...(kept?.mapping ? { mapping: kept.mapping } : {}), ...(reference ? { reference } : {}) }
+      }),
+    )
     for (const u of unsupported) result.unsupported[u] = (result.unsupported[u] ?? 0) + 1
     for (const tr of triggers) if (tr.type === 'ghl') result.idleTriggers[tr.ghl?.type ?? 'unknown'] = (result.idleTriggers[tr.ghl?.type ?? 'unknown'] ?? 0) + 1
     const published = (str(def.status) ?? t.status) === 'published'
-    const existing = await prisma.hlWorkflow.findUnique({ where: { id: ids.get(t.id)! }, select: { meta: true, publishedAt: true } })
     await prisma.hlWorkflow.update({
       where: { id: ids.get(t.id)! },
       data: {

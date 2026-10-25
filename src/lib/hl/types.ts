@@ -71,8 +71,40 @@ export type HlTriggerType =
   | 'manual'
   /** A contact opened a tracked link from a text ({{trigger_link.review}}): GHL's "Trigger link clicked". */
   | 'link_clicked'
-  /** A GoHighLevel trigger Hell-level doesn't have (Facebook lead form, inbound webhook…): shown, never fires. */
+  /** Another app posted to the trigger's own URL (src/lib/hl/webhooks.ts): GHL's "Inbound webhook". */
+  | 'inbound_webhook'
+  /** A GoHighLevel trigger Hell-level doesn't have (Facebook lead form…): shown, never fires. */
   | 'ghl'
+
+/**
+ * Where an inbound webhook's request keeps the contact's details: paths like
+ * "email" or "contact.phone". Blank = looked for under their usual names
+ * (consent never is: only a field picked here records it).
+ */
+export type HlWebhookMapping = {
+  email?: string
+  phone?: string
+  firstName?: string
+  lastName?: string
+  fullName?: string
+  /** A field that says they agreed to texts (true, yes, on, checked…). */
+  consent?: string
+  /** A field that says they agreed to promotional texts. */
+  marketingConsent?: string
+}
+
+export const WEBHOOK_MAPPING: { key: keyof HlWebhookMapping; label: string }[] = [
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'firstName', label: 'First name' },
+  { key: 'lastName', label: 'Last name' },
+  { key: 'fullName', label: 'Full name' },
+  { key: 'consent', label: 'Agreed to texts' },
+  { key: 'marketingConsent', label: 'Agreed to promotional texts' },
+]
+
+/** An inbound webhook's URL key: random, URL-safe. */
+export const HOOK_ID_PATTERN = /^[A-Za-z0-9_-]{24,64}$/
 
 export type HlTrigger = {
   type: HlTriggerType
@@ -104,6 +136,12 @@ export type HlTrigger = {
   status?: string
   /** link_clicked: which tracked link ("review"). Blank = any. */
   link?: string
+  /** inbound_webhook: the secret part of its URL, /api/hl/public/hooks/<hookId>. A new trigger gets a new one, as in GHL. */
+  hookId?: string
+  /** inbound_webhook: where the contact's details are in a request. */
+  mapping?: HlWebhookMapping
+  /** inbound_webhook: GHL's "mapping reference", a request whose fields the builder offers as {{inboundWebhookRequest.*}}. */
+  reference?: { at: string; payload: unknown }
   /** GHL's own trigger as it was: the card shows it, and its filters are kept. */
   ghl?: { type: string; conditions?: unknown[] }
 }
@@ -126,6 +164,7 @@ export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?
   { type: 'sms_error', label: 'Text failed: invalid number', hint: 'A text bounces because the number can’t get texts (GHL’s Twilio validation error)' },
   { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
   { type: 'link_clicked', label: 'Trigger link clicked', hint: 'A contact opens a tracked link from a text, like the review link' },
+  { type: 'inbound_webhook', label: 'Inbound webhook', hint: 'Another app sends data to this trigger’s own URL: Zapier, a website’s form, a CRM' },
   { type: 'ghl', label: 'GoHighLevel trigger', hint: 'A GoHighLevel trigger Hell-level doesn’t have yet; it never fires here', pick: false },
 ]
 

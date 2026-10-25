@@ -1,5 +1,8 @@
 import { HlInputError } from './http'
-import { APPOINTMENT_STATUSES, STEPS, TRIGGERS, type HlBranch, type HlCondition, type HlStep, type HlTrigger } from './types'
+import { APPOINTMENT_STATUSES, HOOK_ID_PATTERN, STEPS, TRIGGERS, WEBHOOK_MAPPING, type HlBranch, type HlCondition, type HlStep, type HlTrigger, type HlWebhookMapping } from './types'
+
+/** The largest request a webhook trigger keeps as its reference (its fields fill the builder's menu). */
+const MAX_REFERENCE = 50_000
 
 const s = (v: unknown, max = 1600) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined)
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {})
@@ -33,6 +36,21 @@ export function cleanTrigger(raw: unknown): HlTrigger {
   }
   if (type === 'appointment_booked' || type === 'appointment_status') out.calendarId = s(t.calendarId)
   if (type === 'appointment_status') out.status = (APPOINTMENT_STATUSES as readonly string[]).includes(String(t.status)) ? String(t.status) : undefined
+  if (type === 'inbound_webhook') {
+    // A missing or malformed URL key is replaced when the workflow is saved (ensureHookIds).
+    if (typeof t.hookId === 'string' && HOOK_ID_PATTERN.test(t.hookId)) out.hookId = t.hookId
+    const m = rec(t.mapping)
+    const mapping: HlWebhookMapping = {}
+    for (const { key } of WEBHOOK_MAPPING) {
+      const path = s(m[key], 200)
+      if (path) mapping[key] = path
+    }
+    if (Object.keys(mapping).length) out.mapping = mapping
+    const ref = rec(t.reference)
+    if (ref.payload !== undefined && ref.payload !== null && (JSON.stringify(ref.payload)?.length ?? Infinity) <= MAX_REFERENCE) {
+      out.reference = { at: s(ref.at, 40) ?? new Date().toISOString(), payload: ref.payload }
+    }
+  }
   const ghl = rec(t.ghl)
   if (s(ghl.type, 80)) out.ghl = { type: s(ghl.type, 80)!, conditions: list(ghl.conditions).slice(0, 30) }
   return out

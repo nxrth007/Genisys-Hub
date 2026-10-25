@@ -1,4 +1,5 @@
 import type { HlProfile } from './types'
+import { pathValue, webhookText } from './webhook-shared'
 
 /**
  * {{merge.fields}} in automation and message text, GHL style. Client-safe:
@@ -40,7 +41,12 @@ export type MergeData = {
   appointment?: MergeAppointment | null
   /** The contact's tracked links ({{trigger_link.review}}). */
   links?: Record<string, string> | null
+  /** The request that started the run (inbound webhook): {{inboundWebhookRequest.*}}, as GHL names it. */
+  webhook?: unknown
 }
+
+/** GHL's scope for an inbound webhook's request, and a shorter one. */
+const WEBHOOK_SCOPES = ['inboundwebhookrequest', 'webhook']
 
 /** "Tuesday, October 28, 2026 at 2:00 PM EDT" and its parts, in the appointment's zone. */
 export function appointmentTimes(a: Pick<MergeAppointment, 'startTime' | 'timezone'>) {
@@ -110,6 +116,12 @@ function value(path: string, d: MergeData): string | null {
   // GHL's unscoped {{reschedule_link}} / {{cancellation_link}}.
   const bare = path.trim().toLowerCase()
   if (bare === 'reschedule_link' || bare === 'cancellation_link') return appointmentValue(bare, d.appointment)
+  // A webhook's own field names keep their case and spacing.
+  const raw = path.trim()
+  const dot = raw.indexOf('.')
+  if (WEBHOOK_SCOPES.includes((dot < 0 ? raw : raw.slice(0, dot)).toLowerCase())) {
+    return webhookText(dot < 0 ? d.webhook : pathValue(d.webhook, raw.slice(dot + 1)))
+  }
   const [scope, ...rest] = path.trim().toLowerCase().split('.')
   const key = rest.join('.').replace(/\s+/g, '_')
   const str = (v: unknown) => (v === null || v === undefined ? '' : Array.isArray(v) ? v.join(', ') : String(v))
@@ -194,7 +206,7 @@ export function unknownTokens(text: string): string[] {
     const bare = m[1].trim().toLowerCase()
     if (bare === 'reschedule_link' || bare === 'cancellation_link') continue
     const scope = bare.split('.')[0]
-    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link'].includes(scope)) out.push(m[0])
+    if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link', ...WEBHOOK_SCOPES].includes(scope)) out.push(m[0])
   }
   return out
 }

@@ -8,6 +8,7 @@ import { ArrowLeft, CornerUpLeft, Play, Plus, Search, Trash2, X } from 'lucide-r
 import { cn } from '@/lib/utils'
 import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
+import { webhookPaths, webhookToken } from '@/lib/hl/webhook-shared'
 import { contactLabel, useAccount, type ContactRow } from '@/components/hell-level/bits'
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, conditionText, stepSummary } from '@/components/hell-level/step-editor'
 import { PanZoomCanvas } from '@/components/hell-level/canvas'
@@ -164,6 +165,9 @@ export default function WorkflowBuilderPage() {
 
   const published = draft.status === 'published'
   const triggers = triggersOf(draft)
+  // The webhook trigger's mapping reference: its fields go in the actions' Insert field menus, its values in their previews.
+  const hookSample = triggers.find((t) => t.type === 'inbound_webhook' && t.reference)?.reference?.payload
+  const webhookFields = hookSample !== undefined ? webhookPaths(hookSample).map((f) => ({ token: webhookToken(f.path), label: f.path || 'The whole request' })) : []
   const setSteps = (steps: HlStep[]) => update({ steps })
   const setTriggers = (next: HlTrigger[]) => update({ triggers: next, trigger: next[0] })
   const editing = drawer?.kind === 'step' ? draft.steps.find((s) => s.id === drawer.id) : undefined
@@ -314,6 +318,8 @@ export default function WorkflowBuilderPage() {
                     stages={allStages}
                     calendars={calendars.data?.calendars ?? []}
                     pipelines={pipelines.data?.pipelines ?? []}
+                    accountId={accountId}
+                    workflowId={workflowId}
                     onSave={(t) => {
                       setTriggers(drawer.index < triggers.length ? triggers.map((x, j) => (j === drawer.index ? t : x)) : [...triggers, t])
                       setDrawer(null)
@@ -347,6 +353,8 @@ export default function WorkflowBuilderPage() {
                     workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt)}
                     steps={draft.steps}
                     triggerName={ctx.triggerName}
+                    webhookFields={webhookFields}
+                    webhookSample={hookSample}
                     onSave={(s) => {
                       setSteps(draft.steps.map((x) => (x.id === s.id ? s : x)))
                       setDrawer(null)
@@ -420,6 +428,7 @@ function triggerDetail(t: HlTrigger, forms: { id: string; name: string }[], pipe
     return phrases ? (t.match === 'exact' ? `Reply is exactly ${phrases}` : `Reply contains ${phrases}`) : 'Any reply'
   }
   if (t.type === 'link_clicked') return t.link === 'review' ? 'The review link' : 'Any tracked link'
+  if (t.type === 'inbound_webhook') return 'Requests to its own URL'
   if (t.type === 'tag_added') return t.tag ? `Tag “${t.tag}”` : 'Any tag'
   if (t.type === 'opportunity_stage' || t.type === 'opportunity_created') {
     const pipeline = pipelines.find((p) => p.id === t.pipelineId)

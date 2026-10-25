@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { startWorkflow } from '@/lib/hl/automation'
+import { asTriggers, startWorkflow } from '@/lib/hl/automation'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
+import type { HlTrigger } from '@/lib/hl/types'
+import { ensureHookIds, forgetHooks } from '@/lib/hl/webhooks'
 import { cleanSteps, cleanTrigger, cleanTriggers } from '@/lib/hl/workflow-input'
 
 type Ctx = { params: Promise<{ id: string; workflowId: string }> }
@@ -46,17 +48,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ workflow: await prisma.hlWorkflow.update({ where: { id: workflowId }, data: { deletedAt: null } }) })
     }
     const data: Prisma.HlWorkflowUpdateInput = {}
+    let triggers: HlTrigger[] | null = null
     const name = str(body.name)
     if (name) data.name = name
     if ('folder' in body) data.folder = str(body.folder)
-    if (body.triggers !== undefined) {
+    if (body.triggers !== undefined || body.trigger !== undefined) {
       // Several triggers (GHL's way): the first is also kept as `trigger` for what reads one.
-      const triggers = cleanTriggers(body.triggers)
-      data.triggers = triggers as unknown as Prisma.InputJsonValue
+      // Webhook triggers each keep (or get) a URL of their own.
+      triggers = await ensureHookIds(workflowId, body.triggers !== undefined ? cleanTriggers(body.triggers) : [cleanTrigger(body.trigger)])
+      data.triggers = (body.triggers !== undefined ? triggers : []) as unknown as Prisma.InputJsonValue
       data.trigger = triggers[0] as unknown as Prisma.InputJsonValue
-    } else if (body.trigger !== undefined) {
-      data.trigger = cleanTrigger(body.trigger) as unknown as Prisma.InputJsonValue
-      data.triggers = []
     }
     if (body.steps !== undefined) data.steps = cleanSteps(body.steps) as unknown as Prisma.InputJsonValue
     if (typeof body.allowReentry === 'boolean') data.allowReentry = body.allowReentry
@@ -67,7 +68,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
       data.status = body.status
       if (body.status === 'published' && workflow.status !== 'published') data.publishedAt = new Date()
     }
-    return NextResponse.json({ workflow: await prisma.hlWorkflow.update({ where: { id: workflowId }, data }) })
+    const updated = await prisma.hlWorkflow.update({ where: { id: workflowId }, data })
+    // A webhook trigger that was removed takes its test requests with it, as in GHL.
+    if (triggers) await forgetHooks(id, asTriggers(workflow), triggers)
+    return NextResponse.json({ workflow: updated })
   } catch (err) {
     return hlError(err, 'update workflow')
   }
