@@ -239,10 +239,8 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
     },
   })
   const findLogo = useMutation({
-    mutationFn: () => hlFetch<{ logoUrl: string | null }>(`/api/hl/accounts/${accountId}`, { method: 'PATCH', json: { findLogo: true, website: profile.website ?? '' } }),
-    onSuccess: (r) => {
-      if (r.logoUrl) setProfile((x) => ({ ...x, logoUrl: r.logoUrl ?? '' }))
-    },
+    mutationFn: () => hlFetch<{ logoUrl: string | null; brandColor: string | null }>(`/api/hl/accounts/${accountId}`, { method: 'PATCH', json: { findLogo: true, website: profile.website ?? '' } }),
+    onSuccess: (r) => setProfile((x) => ({ ...x, ...(r.logoUrl ? { logoUrl: r.logoUrl } : {}), ...(r.brandColor ? { brandColor: r.brandColor } : {}) })),
   })
   return (
     <Card className="flex flex-col gap-5 p-6">
@@ -264,7 +262,7 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
         <p className="text-[15px] font-semibold text-foreground">Business profile</p>
         <p className="mb-4 text-[13px] text-muted-foreground">These fill the {'{{account.*}}'} fields in every automation (GHL’s custom values), and the texting verification.</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          {PROFILE_FIELDS.filter((f) => f.key !== 'logoUrl').map((f) => (
+          {PROFILE_FIELDS.filter((f) => f.key !== 'logoUrl' && f.key !== 'brandColor').map((f) => (
             <Field key={f.key} label={f.label} hint={f.hint ?? `{{${f.merge}}}`}>
               <Input value={profile[f.key] ?? ''} onChange={(e) => setProfile({ ...profile, [f.key]: e.target.value })} />
             </Field>
@@ -278,11 +276,17 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
             // eslint-disable-next-line @next/next/no-img-element -- the client's own image, from their website
             <img src={profile.logoUrl} alt="Logo" className="h-16 w-auto rounded-md bg-white object-contain p-1.5" />
           )}
-          <Button loading={findLogo.isPending} onClick={() => findLogo.mutate()} title="Reads their website for its logo">
-            Find it on their website
+          <Field label="Brand colour" hint="Forms and the chat widget" className="w-44">
+            <div className="flex items-center gap-2">
+              <input type="color" value={/^#[0-9a-f]{6}$/i.test(profile.brandColor ?? '') ? profile.brandColor : '#155EEF'} onChange={(e) => setProfile({ ...profile, brandColor: e.target.value.toUpperCase() })} className="h-9 w-11 cursor-pointer rounded-md border border-border" />
+              <Input value={profile.brandColor ?? ''} onChange={(e) => setProfile({ ...profile, brandColor: e.target.value })} placeholder="#155EEF" className="font-mono text-[12.5px]" />
+            </div>
+          </Field>
+          <Button loading={findLogo.isPending} onClick={() => findLogo.mutate()} title="Reads their website for its logo and colour">
+            Find them on their website
           </Button>
         </div>
-        {findLogo.data && !findLogo.data.logoUrl && <p className="mt-2 text-[12.5px] text-muted-foreground">No logo found on {profile.website || 'their website'}: paste an image link instead.</p>}
+        {findLogo.data && !findLogo.data.logoUrl && !findLogo.data.brandColor && <p className="mt-2 text-[12.5px] text-muted-foreground">Nothing found on {profile.website || 'their website'}: paste a logo link and pick a colour instead.</p>}
         <ErrorNote error={findLogo.error} />
       </div>
       <ErrorNote error={save.error} />

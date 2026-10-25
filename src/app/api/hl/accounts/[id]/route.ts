@@ -4,7 +4,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { mergeProfile, profileForClient, readProfile } from '@/lib/hl/accounts'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { launchpad } from '@/lib/hl/launchpad'
-import { findSiteLogo } from '@/lib/hl/logo'
+import { findSiteBrand } from '@/lib/hl/logo'
 import { setDefaultAccount } from '@/lib/hl/ghl-import'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -40,10 +40,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
       await setDefaultAccount(id)
       return NextResponse.json({ ok: true })
     }
-    // "Find it on their website": the logo on the site (the one typed in the form, else the profile's), not saved yet.
+    // "Find them on their website": the logo and brand colour on the site (the one typed in the form, else the profile's), not saved yet.
     if (body.findLogo === true) {
       const site = str(body.website) || readProfile(account.profile).website || ''
-      return NextResponse.json({ logoUrl: site ? await findSiteLogo(site).catch(() => null) : null })
+      const found = site ? await findSiteBrand(site).catch(() => null) : null
+      return NextResponse.json({ logoUrl: found?.logo ?? null, brandColor: found?.color ?? null })
     }
     const data: Prisma.HlAccountUpdateInput = {}
     const name = str(body.name)

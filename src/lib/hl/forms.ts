@@ -41,6 +41,16 @@ export type PublicForm = {
   logo: string | null
 }
 
+/** The kit's stock blue: a form still on it takes the business's brand colour instead. */
+export const STOCK_FORM_COLOR = '#155EEF'
+
+/** A form's colour: its own, else the business's brand colour (Business Profile), else the stock blue. */
+export function formColor(s: HlFormSettings, brandColor: string | undefined): string {
+  const own = s.color && /^#[0-9a-f]{6}$/i.test(s.color) && s.color.toUpperCase() !== STOCK_FORM_COLOR ? s.color : null
+  const brand = brandColor && /^#[0-9a-f]{6}$/i.test(brandColor) ? brandColor : null
+  return own ?? brand ?? s.color ?? STOCK_FORM_COLOR
+}
+
 /** The chat widget's pop-up message: its own, else the heading; none when it's been blanked. */
 export function greetingOf(s: HlFormSettings): string | null {
   if (s.greeting !== undefined) return s.greeting.trim() || null
@@ -60,7 +70,7 @@ export async function publicForm(formId: string): Promise<PublicForm | null> {
     name: form.name,
     business,
     fields: asFields(form.fields),
-    settings: { ...settings, consentText: undefined, consents },
+    settings: { ...settings, color: formColor(settings, profile.brandColor), consentText: undefined, consents },
     legal: resolveLegalLinks(form.account.id, profile, settings),
     accountId: form.account.id,
     logo: settings.showLogo !== false && /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,

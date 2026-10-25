@@ -28,6 +28,8 @@ export type HlProfile = {
   termsUrl?: string
   /** The business's logo (an image link): forms show it at the top. A client's is found on their website. */
   logoUrl?: string
+  /** The business's colour (#hex): forms and the chat widget use it unless a form picks its own. Found on their website. */
+  brandColor?: string
 }
 
 export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: string; hint?: string }[] = [
@@ -45,6 +47,7 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
   { key: 'termsUrl', label: 'Terms link', merge: 'account.terms_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
   { key: 'logoUrl', label: 'Logo', merge: 'account.logo_url', hint: 'An image link. Forms show it at the top' },
+  { key: 'brandColor', label: 'Brand colour', merge: 'account.brand_color', hint: 'Forms and the chat widget use it' },
 ]
 
 // ---------------------------------------------------------------------------

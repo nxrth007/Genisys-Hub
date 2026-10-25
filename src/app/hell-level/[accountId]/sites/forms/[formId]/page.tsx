@@ -24,9 +24,9 @@ const CONSENT_KINDS: { kind: HlConsentBox['kind']; label: string; text: string }
 ]
 
 /** Colours a form can set, with the plain look's values when it doesn't. */
-const COLOURS: { key: keyof HlFormSettings; label: string; fallback: string }[] = [
-  { key: 'color', label: 'Button', fallback: '#155EEF' },
-  { key: 'buttonText', label: 'Button text', fallback: '#FFFFFF' },
+const COLOURS: { key: keyof HlFormSettings; label: string; fallback: string; hint?: string }[] = [
+  { key: 'color', label: 'Button', fallback: '#155EEF', hint: 'Left on #155EEF: the brand colour (Business Profile)' },
+  { key: 'buttonText', label: 'Button text', fallback: '#FFFFFF', hint: 'Blank: white, or dark on a light colour' },
   { key: 'textColor', label: 'Heading and labels', fallback: '#101828' },
   { key: 'inputBackground', label: 'Input background', fallback: '#FFFFFF' },
   { key: 'inputText', label: 'Input text', fallback: '#101828' },
@@ -197,21 +197,28 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
                 </Button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Background" hint={chat ? 'The chat panel' : 'Behind the whole form'}>
-                  <div className="flex items-center gap-2">
-                    <ColourInput value={settings.background === 'transparent' ? '#FFFFFF' : settings.background} fallback="#FFFFFF" disabled={settings.background === 'transparent'} onChange={(v) => setSettings({ ...settings, background: v })} />
-                    {!chat && (
-                      <label className="flex items-center gap-1.5 whitespace-nowrap text-[12.5px] text-muted-foreground">
-                        <input type="checkbox" checked={settings.background === 'transparent'} onChange={(e) => setSettings({ ...settings, background: e.target.checked ? 'transparent' : undefined })} /> None
-                      </label>
-                    )}
-                  </div>
-                </Field>
-                {COLOURS.map((c) => (
-                  <Field key={c.key} label={c.label}>
-                    <ColourInput value={settings[c.key] as string | undefined} fallback={c.fallback} onChange={(v) => setSettings({ ...settings, [c.key]: v })} />
+                {chat ? (
+                  // The chat panel has its own look, in one colour: the button, the header and Send.
+                  <Field label="Colour" hint="Left on #155EEF: the brand colour (Business Profile)">
+                    <ColourInput value={settings.color} fallback="#155EEF" onChange={(v) => setSettings({ ...settings, color: v })} />
                   </Field>
-                ))}
+                ) : (
+                  <>
+                    <Field label="Background" hint="Behind the whole form">
+                      <div className="flex items-center gap-2">
+                        <ColourInput value={settings.background === 'transparent' ? '#FFFFFF' : settings.background} fallback="#FFFFFF" disabled={settings.background === 'transparent'} onChange={(v) => setSettings({ ...settings, background: v })} />
+                        <label className="flex items-center gap-1.5 whitespace-nowrap text-[12.5px] text-muted-foreground">
+                          <input type="checkbox" checked={settings.background === 'transparent'} onChange={(e) => setSettings({ ...settings, background: e.target.checked ? 'transparent' : undefined })} /> None
+                        </label>
+                      </div>
+                    </Field>
+                    {COLOURS.map((c) => (
+                      <Field key={c.key} label={c.label} hint={c.hint}>
+                        <ColourInput value={settings[c.key] as string | undefined} fallback={c.fallback} onChange={(v) => setSettings({ ...settings, [c.key]: v })} />
+                      </Field>
+                    ))}
+                  </>
+                )}
               </div>
             </Card>
 

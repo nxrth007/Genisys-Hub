@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fillLegalLinksFromSite } from './legal-links'
-import { fillLogoFromSite } from './logo'
+import { fillBrandFromSite } from './logo'
 
 /**
  * The site we built for a client went live (or moved to a new address): its
@@ -10,7 +10,7 @@ import { fillLogoFromSite } from './logo'
  * onboards, usually before their site exists, so its website starts blank
  * (or as the domain they named). Now it takes the new site, reads the site's
  * privacy and terms pages for the forms and texting registration, and finds
- * the logo there.
+ * the logo and brand colour there.
  */
 
 const host = (u: string | null | undefined) => {
@@ -33,5 +33,5 @@ export async function syncClientSite(clientId: string, siteUrl: string, priorSit
   await fillLegalLinksFromSite(account.id, true)
   // A logo the old site gave way to the new site's; one set by hand (from elsewhere) stays.
   const logoFromOldSite = !!p.logoUrl && !!priorSiteUrl && host(p.logoUrl) === host(priorSiteUrl)
-  await fillLogoFromSite(account.id, logoFromOldSite)
+  await fillBrandFromSite(account.id, logoFromOldSite)
 }

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { inkOn } from './color'
 import type { HlFormSettings } from './types'
 
 /**
@@ -13,7 +14,8 @@ export function formStyle(s: HlFormSettings): CSSProperties {
   const pick = (v: string | undefined, fallback: string) => (v && HEX.test(v) ? v : fallback)
   return {
     ['--hl-c' as string]: pick(s.color, '#155EEF'),
-    ['--hl-btn-text' as string]: pick(s.buttonText, '#FFFFFF'),
+    // Unset: white, or dark where white wouldn't read on the colour (a gold brand colour, say).
+    ['--hl-btn-text' as string]: pick(s.buttonText, inkOn(pick(s.color, '#155EEF'))),
     ['--hl-text' as string]: pick(s.textColor, '#101828'),
     ['--hl-input-bg' as string]: pick(s.inputBackground, '#FFFFFF'),
     ['--hl-input-text' as string]: pick(s.inputText, '#101828'),

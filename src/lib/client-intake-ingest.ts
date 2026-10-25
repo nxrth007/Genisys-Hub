@@ -9,7 +9,7 @@ import { startGbpForNewIntake } from '@/lib/gbp-setup'
 import { onboardingText, textTeam } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { createAccountForClient } from '@/lib/hl/accounts'
-import { fillLogoFromSite } from '@/lib/hl/logo'
+import { fillBrandFromSite } from '@/lib/hl/logo'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -200,8 +200,8 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // so every new client gets one with the starter pipeline, forms and automations.
     // Nothing texts until someone buys the client a number.
     void createAccountForClient(id)
-      // A client who already has a website gets its logo straight away; others when their site goes live.
-      .then((a) => fillLogoFromSite(a.id))
+      // A client who already has a website gets its logo and colour straight away; others when their site goes live.
+      .then((a) => fillBrandFromSite(a.id))
       .catch((err) => console.warn(`[client-onboarding] hell-level sub-account for ${id}:`, err))
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.
