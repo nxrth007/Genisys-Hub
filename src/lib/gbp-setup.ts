@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
 import { setClientCustomValue } from '@/lib/ghl-automation-values'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
-import { getSecretByName } from '@/lib/vault-service'
+import { PLACES_KEY_ENTRY, placesApiKey } from '@/lib/places-key'
 import { markTeamEdits, readMeta } from '@/lib/seo/client-facts'
 import type { BusinessFacts } from '@/lib/seo/types'
 import { randomBytes } from 'node:crypto'
@@ -43,7 +43,6 @@ import {
 
 const KEY = (id: string) => `gbp.client.${id}`
 const SMS_VAULT_ENTRY = 'GHL Genisys Token'
-const MAPS_KEY_ENTRY = 'Google Maps Key'
 const REMIND_EVERY_MS = 3 * 86_400_000
 const MAX_REMINDERS = 5
 
@@ -203,8 +202,8 @@ const words = (s: string) =>
   )
 
 /**
- * Search Google Maps (Places API, New) for the business. Needs the Vault's
- * "Google Maps Key" with the Places API (New) enabled. Read-only.
+ * Search Google Maps (Places API, New) for the business, with the Vault's
+ * "Places API (New)" key (lib/places-key.ts). Read-only.
  */
 export async function lookupExistingListing(id: string): Promise<GbpState['lookup']> {
   const board = await gbpBoard(id)
@@ -215,7 +214,7 @@ export async function lookupExistingListing(id: string): Promise<GbpState['looku
   const query = [x.businessName, city].filter(Boolean).join(' ')
   const result: NonNullable<GbpState['lookup']> = { at: now(), query, candidates: [], error: null }
   try {
-    const key = (await getSecretByName(MAPS_KEY_ENTRY)).trim()
+    const key = await placesApiKey()
     const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
       headers: {
@@ -261,9 +260,9 @@ export async function lookupExistingListing(id: string): Promise<GbpState['looku
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     result.error = /not found in \/vault|Vault entry/i.test(msg)
-      ? `Add the "${MAPS_KEY_ENTRY}" to the Vault to search Google Maps.`
+      ? `Add the "${PLACES_KEY_ENTRY}" key to the Vault to search Google Maps.`
       : /has not been used|disabled|not enabled|PERMISSION_DENIED|API_KEY_SERVICE_BLOCKED|does not have permission|not authorized to use this API/i.test(msg)
-        ? `Google Maps search is off for this key: enable “Places API (New)” on the "${MAPS_KEY_ENTRY}" in Google Cloud. (${msg})`
+        ? `Google Maps search is off for this key: enable “Places API (New)” for the Vault’s "${PLACES_KEY_ENTRY}" key in Google Cloud. (${msg})`
         : msg
   }
   const state = await load(id)

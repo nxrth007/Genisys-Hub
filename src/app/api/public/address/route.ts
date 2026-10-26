@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSecretByName } from '@/lib/vault-service'
+import { placesApiKey } from '@/lib/places-key'
 import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 /**
@@ -10,8 +10,8 @@ import { checkRateLimit, clientIp } from '@/lib/rate-limit'
  *   GET ?q=<typed>&session=<id>     → { suggestions: [{ id, main, secondary }] }
  *   GET ?place=<id>&session=<id>    → { address, street, city, state, zip }
  *
- * Google Places Autocomplete (New) through the Hub's "Google Maps Key", so the
- * form needs no key of its own; one session token per address typed bills the
+ * Google Places Autocomplete (New) through the Vault's "Places API (New)" key
+ * (lib/places-key.ts), so the form needs no key of its own; one session token per address typed bills the
  * lookups as one. Public, since the form's visitors have no Hub login: it
  * answers only the form's own origins, rate-limits each visitor and caps the
  * day's lookups. Anything going wrong answers with no suggestions, and the form
@@ -20,7 +20,6 @@ import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
-const KEY_ENTRY = 'Google Maps Key'
 const ORIGINS = [/^https:\/\/clientonboarding\.leadgenisys\.com$/, /^https:\/\/[a-z0-9-]+\.lovable\.app$/, /^https:\/\/[a-z0-9-]+\.lovableproject\.com$/]
 const SESSION = /^[A-Za-z0-9-]{8,64}$/
 const PLACE = /^[A-Za-z0-9_-]{10,300}$/
@@ -38,7 +37,7 @@ class LookupError extends Error {
 let cachedKey: { key: string; at: number } | null = null
 async function mapsKey(): Promise<string> {
   if (cachedKey && Date.now() - cachedKey.at < 10 * 60_000) return cachedKey.key
-  const key = (await getSecretByName(KEY_ENTRY)).trim()
+  const key = await placesApiKey()
   cachedKey = { key, at: Date.now() }
   return key
 }
