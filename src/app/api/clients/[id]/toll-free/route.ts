@@ -75,6 +75,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           ein: true,
           mainServices: true,
           aboutBusiness: true,
+          businessContact: true,
         },
       },
     },

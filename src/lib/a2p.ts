@@ -73,6 +73,8 @@ export type A2pSource = {
     ein: string | null
     mainServices?: string | null
     aboutBusiness?: string | null
+    /** "Business Contact Information": free text that sometimes carries the email or phone. */
+    businessContact?: string | null
   } | null
   /** The SEO engine's read of the trade, when the client has an SEO site with recorded facts. */
   factsTrade?: string | null
