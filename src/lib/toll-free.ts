@@ -1,4 +1,4 @@
-import { a2pPrefill, checkboxInformational, checkboxMarketing, forCopy, formatPhone, type A2pSource } from './a2p'
+import { a2pPrefill, checkboxInformational, checkboxMarketing, forCopy, phoneIn, type A2pSource } from './a2p'
 import { isPoBox, parseUsAddress } from './address-parse'
 /**
  * Toll-free verification copy for a client: what GHL's form asks for (the
@@ -61,6 +61,8 @@ export function tollFreePrefill(src: A2pSource, now = new Date()): TollFreeInput
   const a = a2pPrefill(src, now)
   const fullName = clean(src.intake?.fullName) || clean(src.contactName)
   const [first = '', ...rest] = fullName.split(' ')
+  // A middle initial isn't part of the last name: "Calvin D Miller" → Miller.
+  const last = rest.filter((w, i) => i === rest.length - 1 || !/^[a-z]\.?$/i.test(w)).join(' ')
   const addr = parseUsAddress(a.address)
   return {
     businessName: a.businessName,
@@ -68,9 +70,9 @@ export function tollFreePrefill(src: A2pSource, now = new Date()): TollFreeInput
     ein: a.ein,
     trade: a.trade,
     contactFirstName: first,
-    contactLastName: rest.join(' '),
+    contactLastName: last,
     contactEmail: a.contactEmail,
-    contactPhone: formatPhone(src.contactPhone || src.intake?.customerPhone),
+    contactPhone: phoneIn(src.contactPhone, src.intake?.customerPhone, src.intake?.businessContact),
     street: addr.street,
     city: addr.city || a.city,
     state: addr.stateName || a.state,

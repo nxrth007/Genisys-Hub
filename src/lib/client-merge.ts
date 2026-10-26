@@ -108,12 +108,15 @@ export async function mergeClients(keepId: string, dropId: string, opts: { useOt
     }
     if (siteToKeep) await tx.seoSite.update({ where: { id: siteToKeep.id }, data: { name } })
 
-    const a2p = await tx.appSetting.findMany({ where: { key: { in: [`a2p.client.${keepId}`, `a2p.client.${dropId}`] } } })
-    if (a2p.length === 1 && a2p[0].key.endsWith(dropId)) {
-      await tx.appSetting.update({ where: { id: a2p[0].id }, data: { key: `a2p.client.${keepId}` } })
-      moved['A2P board'] = 1
-    } else if (a2p.length === 2) {
-      await tx.appSetting.deleteMany({ where: { key: `a2p.client.${dropId}` } })
+    // The copy boards' saved values: the kept client's win.
+    for (const [prefix, label] of [['a2p.client.', 'A2P board'], ['tollfree.client.', 'Toll-Free board']] as const) {
+      const rows = await tx.appSetting.findMany({ where: { key: { in: [`${prefix}${keepId}`, `${prefix}${dropId}`] } } })
+      if (rows.length === 1 && rows[0].key.endsWith(dropId)) {
+        await tx.appSetting.update({ where: { id: rows[0].id }, data: { key: `${prefix}${keepId}` } })
+        moved[label] = 1
+      } else if (rows.length === 2) {
+        await tx.appSetting.deleteMany({ where: { key: `${prefix}${dropId}` } })
+      }
     }
 
     const k = keep as unknown as Record<string, unknown>

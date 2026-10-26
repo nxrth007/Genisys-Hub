@@ -116,6 +116,27 @@ export function formatPhone(raw: string | null | undefined): string {
   return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : s
 }
 
+const EMAIL_IN = /[^\s@,;:<>()"']+@[^\s@,;:<>()"']+\.[a-z]{2,}/i
+const PHONE_IN = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/
+
+/** The first email in these, in order. Some client records hold a phone number in the email field (Calvin's). */
+export function emailIn(...values: (string | null | undefined)[]): string {
+  for (const v of values) {
+    const m = clean(v).match(EMAIL_IN)
+    if (m) return m[0]
+  }
+  return ''
+}
+
+/** The first US phone number in these, in order, formatted. */
+export function phoneIn(...values: (string | null | undefined)[]): string {
+  for (const v of values) {
+    const m = clean(v).match(PHONE_IN)
+    if (m) return formatPhone(m[0])
+  }
+  return ''
+}
+
 /** Years in business from answers like "2001", "since 1999" or "25 years". */
 export function yearsInBusiness(raw: string | null | undefined, now: Date): number | null {
   const s = clean(raw)
@@ -211,7 +232,7 @@ export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
     businessName,
     legalName: businessName,
     ein: clean(src.ein) || clean(i?.ein),
-    contactEmail: clean(i?.leadEmail) || clean(src.contactEmail),
+    contactEmail: emailIn(i?.leadEmail, src.contactEmail, i?.businessContact),
     ownerFirstName,
     trade: tradeFor(src, businessName),
     city,
@@ -220,7 +241,7 @@ export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
     serviceArea,
     address,
     domain: hostOnly(src.siteUrl) || hostOnly(i?.domainName) || hostOnly(i?.website) || hostOnly(src.website),
-    phone: formatPhone(i?.customerPhone || src.contactPhone),
+    phone: phoneIn(i?.customerPhone, src.contactPhone, i?.businessContact),
     promoLabel: seasonLabel(now),
     offer: '',
     offerBy: '',
