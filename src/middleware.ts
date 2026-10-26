@@ -63,6 +63,10 @@ const PUBLIC_PATHS = [
   // account; the secret token in the URL is the access (src/lib/gbp-setup.ts).
   '/gbp-setup',
   '/api/public/gbp',
+  // Address suggestions for the client onboarding form's Business Address box:
+  // its visitors have no Hub login; the route answers only the form's origins
+  // and rate-limits itself (src/app/api/public/address/route.ts).
+  '/api/public/address',
   // Client onboarding intake form posts here with a shared secret.
   '/api/webhooks/client-onboarding',
   // Client sub-account workflows post form / chat leads here (?secret=).
