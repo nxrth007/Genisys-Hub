@@ -24,8 +24,11 @@ type Saved = { values: Partial<A2pInputs>; checks: string[]; updatedAt: string |
 type BoardData = {
   client: { id: string; name: string; siteUrl: string | null; hasIntake: boolean; einStatus: string | null }
   prefill: A2pInputs
-  /** "Legal Business Name" as typed on the onboarding form. */
+  /** "Legal Business Name" and "Business Address" as typed on the onboarding form. */
   onboardingName: string | null
+  onboardingAddress: string | null
+  /** The two were the wrong way round, and are put back. */
+  swapped: boolean
   mainServices: string | null
   saved: Saved
 }
@@ -302,7 +305,12 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           </p>
         ) : null}
 
-        <OnboardingNameNote onboardingName={data.onboardingName} businessName={values.businessName} />
+        <OnboardingNameNote
+          onboardingName={data.onboardingName}
+          onboardingAddress={data.onboardingAddress}
+          swapped={data.swapped}
+          businessName={values.businessName}
+        />
         {data.client.einStatus === 'none' && (
           <p className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />

@@ -157,14 +157,44 @@ function tradeFor(src: A2pSource, businessName: string): string {
   return inferTrade({ businessName, mainServices: src.intake?.mainServices, aboutBusiness: src.intake?.aboutBusiness }).trade
 }
 
+/** Words a business name has and a town doesn't. */
+const BUSINESS_WORD =
+  /\b(?:llc|inc|corp|co|company|services?|maintenance|solutions|enterprises?|group|contracting|contractors?|construction|builders?|bros|sons|pros?)\b|\w['’]s\b/i
+
+/** A business name typed where the address belongs: no number, no state, and a trade or business word ("Calvins construction"). */
+function looksLikeBusinessName(s: string): boolean {
+  if (!s || /\d/.test(s) || parseUsAddress(s).state) return false
+  return BUSINESS_WORD.test(s) || !!inferTrade({ businessName: s }).trade
+}
+
+/**
+ * The business's name and address from onboarding. Some clients answer
+ * "Legal Business Name" with their address (Jake's Property Maintenance: a
+ * PO box), some swap the two boxes (Calvin: "17434 Copeland ln" as the name,
+ * "Calvins construction" as the address). An address is never the name:
+ * swapped boxes are put back; otherwise the client record's name is used if
+ * someone has fixed it, or there's no name.
+ */
+export function onboardingNameAndAddress(src: A2pSource): { name: string; address: string; swapped: boolean } {
+  const typedName = clean(src.intake?.businessName)
+  const typedAddress = clean(src.intake?.businessAddress) || clean(src.address)
+  const record = clean(src.name)
+  const recordName = record && !looksLikeAddress(record) ? record : ''
+  if (looksLikeAddress(typedName) && looksLikeBusinessName(typedAddress)) {
+    // A client record fixed in the Hub since (Edit on the client) wins.
+    const recordAddress = clean(src.address)
+    const fixedAddress = recordAddress && recordAddress !== typedAddress && !looksLikeBusinessName(recordAddress) ? recordAddress : ''
+    return { name: recordName || typedAddress, address: fixedAddress || typedName, swapped: true }
+  }
+  return { name: typedName && !looksLikeAddress(typedName) ? typedName : recordName, address: typedAddress, swapped: false }
+}
+
 /** Everything the onboarding answers can fill in. */
 export function a2pPrefill(src: A2pSource, now = new Date()): A2pInputs {
   const i = src.intake
-  // Some clients type their address into the form's "Legal Business Name": then the client record's name, if it's a name.
-  const businessName = [i?.businessName, src.name].map(clean).find((n) => n && !looksLikeAddress(n)) ?? ''
+  const { name: businessName, address } = onboardingNameAndAddress(src)
   const fullName = clean(i?.fullName) || clean(src.contactName)
   const ownerFirstName = fullName.split(' ')[0] ?? ''
-  const address = clean(i?.businessAddress) || clean(src.address)
   const { city, state } = cityState(address)
   const years = yearsInBusiness(i?.yearStarted, now)
   const ownership =

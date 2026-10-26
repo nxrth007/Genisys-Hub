@@ -26,6 +26,8 @@ type BoardData = {
   /** "Legal Business Name" as typed on the onboarding form. */
   onboardingName: string | null
   onboardingAddress: string | null
+  /** The form's name and address answers were the wrong way round, and are put back. */
+  swapped: boolean
   /** The geocoder filled part of the address onboarding didn't give. */
   geocoded: boolean
   mainServices: string | null
@@ -330,7 +332,12 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             </span>
           </p>
         )}
-        <OnboardingNameNote onboardingName={data.onboardingName} businessName={values.businessName} />
+        <OnboardingNameNote
+          onboardingName={data.onboardingName}
+          onboardingAddress={data.onboardingAddress}
+          swapped={data.swapped}
+          businessName={values.businessName}
+        />
         {nameIsAddress && (
           <p className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
