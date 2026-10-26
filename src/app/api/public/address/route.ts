@@ -25,6 +25,16 @@ const ORIGINS = [/^https:\/\/clientonboarding\.leadgenisys\.com$/, /^https:\/\/[
 const SESSION = /^[A-Za-z0-9-]{8,64}$/
 const PLACE = /^[A-Za-z0-9_-]{10,300}$/
 
+/** Google's status ("PERMISSION_DENIED", "INVALID_ARGUMENT") rides along to the answer; its message stays in the log. */
+class LookupError extends Error {
+  constructor(
+    message: string,
+    readonly reason: string,
+  ) {
+    super(message)
+  }
+}
+
 let cachedKey: { key: string; at: number } | null = null
 async function mapsKey(): Promise<string> {
   if (cachedKey && Date.now() - cachedKey.at < 10 * 60_000) return cachedKey.key
@@ -70,9 +80,9 @@ export async function GET(req: NextRequest) {
       const data = (await res.json().catch(() => ({}))) as {
         formattedAddress?: string
         addressComponents?: { longText?: string; shortText?: string; types?: string[] }[]
-        error?: { message?: string }
+        error?: { message?: string; status?: string }
       }
-      if (!res.ok) throw new Error(data.error?.message || `Places HTTP ${res.status}`)
+      if (!res.ok) throw new LookupError(data.error?.message || `Places HTTP ${res.status}`, data.error?.status || `HTTP_${res.status}`)
       const part = (type: string, short = false) => {
         const c = data.addressComponents?.find((x) => x.types?.includes(type))
         return (short ? c?.shortText : c?.longText) ?? ''
@@ -99,9 +109,9 @@ export async function GET(req: NextRequest) {
     })
     const data = (await res.json().catch(() => ({}))) as {
       suggestions?: { placePrediction?: { placeId?: string; text?: { text?: string }; structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } } } }[]
-      error?: { message?: string }
+      error?: { message?: string; status?: string }
     }
-    if (!res.ok) throw new Error(data.error?.message || `Places HTTP ${res.status}`)
+    if (!res.ok) throw new LookupError(data.error?.message || `Places HTTP ${res.status}`, data.error?.status || `HTTP_${res.status}`)
     const suggestions = (data.suggestions ?? [])
       .map((s) => s.placePrediction)
       .filter((p): p is NonNullable<typeof p> => !!p?.placeId)
@@ -113,6 +123,6 @@ export async function GET(req: NextRequest) {
     return json({ suggestions })
   } catch (err) {
     console.warn('[address] lookup failed:', err instanceof Error ? err.message : err)
-    return json({ suggestions: [] }, 502)
+    return json({ suggestions: [], reason: err instanceof LookupError ? err.reason : 'lookup_failed' }, 502)
   }
 }
