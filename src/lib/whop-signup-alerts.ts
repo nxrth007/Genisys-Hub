@@ -93,3 +93,24 @@ export async function maybeAlertWhopSignups(): Promise<number> {
     inFlight = false
   }
 }
+
+/**
+ * Shared with the Whop webhook (/api/webhooks/whop): claim a membership id so
+ * it's announced once, whichever of the webhook or the 5-minute poll sees it
+ * first. Returns true when the caller should announce it (not seen before).
+ *
+ * If the poller hasn't taken its baseline yet, nothing is written: creating the
+ * state here would make the first poll treat every old membership as new and
+ * text about all of them. The baseline will include this membership anyway.
+ * TODO: the read-modify-write isn't atomic with the poller; a sign-up landing
+ * in the exact same instant as a poll could still be texted twice.
+ */
+export async function claimWhopSignup(membershipId: string): Promise<boolean> {
+  const row = await prisma.appSetting.findUnique({ where: { key: KEY } })
+  if (!row) return true
+  const state = JSON.parse(row.value) as State
+  if (state.seen.includes(membershipId)) return false
+  const next: State = { seen: [...state.seen, membershipId].slice(-1000), since: state.since }
+  await prisma.appSetting.update({ where: { key: KEY }, data: { value: JSON.stringify(next) } })
+  return true
+}

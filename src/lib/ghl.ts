@@ -904,6 +904,108 @@ export async function upsertContactByPhone(
 }
 
 /**
+ * Upsert a contact by EMAIL (then phone) and stamp Whop sign-up details on it.
+ * Used by the Whop webhook (/api/webhooks/whop).
+ *
+ *  - Finds an existing contact by email (GHL duplicate search), then by phone,
+ *    so a sign-up updates the lead already in GHL instead of duplicating it.
+ *  - Never replaces an existing real first/last name; names are only written
+ *    when the contact has none (or only carries the Whop username).
+ *  - Adds `tags` (additive) and writes custom fields looked up by key or name
+ *    on the location; missing custom fields are skipped and reported back.
+ */
+export async function upsertContactByEmail(
+  vaultEntryName: string,
+  params: {
+    email: string
+    phone?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    companyName?: string | null
+    /** Whop username, used only to tell "named after the username" from a real name. */
+    username?: string | null
+    tags?: string[]
+    /** Custom field key (e.g. `whop_membership_id`) → value. */
+    customFields?: Record<string, string | null | undefined>
+  },
+): Promise<{ id: string; created: boolean; skippedFields: string[] }> {
+  const { locationId } = await resolveToken(vaultEntryName)
+  const email = params.email.trim().toLowerCase()
+  type C = { id: string; firstName?: string | null; lastName?: string | null; phone?: string | null; companyName?: string | null }
+
+  let existing: C | null = null
+  try {
+    const q = new URLSearchParams({ locationId, email })
+    const res = (await ghlFetch(`/contacts/search/duplicate?${q}`, vaultEntryName, { method: 'GET' })) as { contact?: C | null }
+    if (res.contact?.id) existing = res.contact
+  } catch (err) {
+    console.warn('[ghl] upsertContactByEmail: email lookup failed, trying phone:', err)
+  }
+  if (!existing && params.phone) {
+    const byPhone = await findContactByPhone(vaultEntryName, params.phone)
+    if (byPhone) {
+      const full = (await ghlFetch(`/contacts/${byPhone.id}`, vaultEntryName, { method: 'GET' }).catch(() => ({}))) as { contact?: C }
+      existing = full.contact?.id ? full.contact : { id: byPhone.id }
+    }
+  }
+
+  // Custom fields: resolve ids by fieldKey (`contact.<key>`) or name.
+  const skippedFields: string[] = []
+  const customFields: { id: string; field_value: string }[] = []
+  const wanted = Object.entries(params.customFields ?? {}).filter(([, v]) => !!v) as [string, string][]
+  if (wanted.length) {
+    let defs: { id: string; name?: string; fieldKey?: string }[] = []
+    try {
+      const res = (await ghlFetch(`/locations/${locationId}/customFields?model=contact`, vaultEntryName, { method: 'GET' })) as { customFields?: typeof defs }
+      defs = res.customFields ?? []
+    } catch (err) {
+      console.warn('[ghl] upsertContactByEmail: could not list custom fields:', err)
+    }
+    const norm = (x: string) => x.toLowerCase().replace(/^contact\./, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+    for (const [key, value] of wanted) {
+      const def = defs.find((d) => (d.fieldKey && norm(d.fieldKey) === norm(key)) || (d.name && norm(d.name) === norm(key)))
+      if (def) customFields.push({ id: def.id, field_value: value })
+      else skippedFields.push(key)
+    }
+    if (skippedFields.length) console.warn(`[ghl] upsertContactByEmail: custom field(s) not found on location, skipped: ${skippedFields.join(', ')}`)
+  }
+
+  const user = params.username?.trim().toLowerCase()
+  const placeholder = (v?: string | null) => !v?.trim() || (!!user && v.trim().toLowerCase() === user)
+  const body: Record<string, unknown> = {}
+  const nameIsReal = params.firstName && (!user || params.firstName.trim().toLowerCase() !== user)
+  if (!existing || (placeholder(existing.firstName) && placeholder(existing.lastName))) {
+    if (params.firstName && (nameIsReal || !existing)) body.firstName = params.firstName
+    if (params.lastName) body.lastName = params.lastName
+  }
+  if (params.phone && (!existing || !existing.phone)) body.phone = normalizePhone(params.phone)
+  if (params.companyName && (!existing || !existing.companyName)) body.companyName = params.companyName
+  if (customFields.length) body.customFields = customFields
+
+  let id: string
+  let created = false
+  if (existing) {
+    id = existing.id
+    if (Object.keys(body).length) {
+      await ghlFetch(`/contacts/${id}`, vaultEntryName, { method: 'PUT', body: JSON.stringify(body) })
+    }
+  } else {
+    const res = (await ghlFetch('/contacts/', vaultEntryName, {
+      method: 'POST',
+      body: JSON.stringify({ locationId, email, ...body, tags: params.tags ?? [] }),
+    })) as { contact?: { id?: string }; id?: string }
+    const newId = res.contact?.id || res.id
+    if (!newId) throw new Error('GHL did not return a contact id after create')
+    id = newId
+    created = true
+  }
+  if (!created && params.tags?.length) {
+    await ghlFetch(`/contacts/${id}/tags`, vaultEntryName, { method: 'POST', body: JSON.stringify({ tags: params.tags }) })
+  }
+  return { id, created, skippedFields }
+}
+
+/**
  * Send an SMS to a phone number via GHL. Wraps upsertContactByPhone and
  * /conversations/messages (type=SMS). The conversationId is optional —
  * GHL auto-routes via the contact's default conversation when omitted.
