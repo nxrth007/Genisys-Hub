@@ -750,6 +750,9 @@ model Client {
   seoSite           SeoSite?
   /// The client's Hell-level sub-account (src/lib/hl).
   hlAccount         HlAccount?
+
+  journeyStages ClientJourneyStage[]
+  journeyEvents ClientJourneyEvent[]
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
@@ -2798,4 +2801,39 @@ model HlDomain {
 
   @@index([accountId])
   @@index([status])
+}
+
+/// Fulfillment journey per client (src/lib/client-journey.ts):
+/// signup -> intake -> subaccount -> website -> a2p -> qa.
+/// One row per (client, stage); status is pending | in_progress | done | blocked.
+model ClientJourneyStage {
+  id          String    @id @default(cuid())
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  stage       String
+  status      String    @default("pending")
+  note        String?   @db.Text
+  startedAt   DateTime?
+  completedAt DateTime?
+  blockedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([clientId, stage])
+  @@index([stage, status])
+}
+
+/// Append-only audit trail of journey changes.
+model ClientJourneyEvent {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  stage      String
+  fromStatus String?
+  toStatus   String
+  note       String?  @db.Text
+  actor      String?
+  createdAt  DateTime @default(now())
+
+  @@index([clientId, createdAt])
 }

@@ -5,6 +5,8 @@ import { getCrmProvider, GHL_AGENCY_KEY_VAULT_NAME } from '@/lib/crm/provider'
 import { claimWhopSignup } from '@/lib/whop-signup-alerts'
 import { textTeam, whopSignupText } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { prisma } from '@/lib/prisma'
+import { recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { extractWhopSignup, payloadShape, verifyWhopSignature, type WhopSignup } from '@/lib/whop-webhook'
 
 /**
@@ -110,6 +112,16 @@ async function handleSignup(m: WhopSignup) {
     }
   } else {
     await hubAlert(`:warning: *Whop sign-up with no email* (${m.membershipId ?? 'no membership id'}) — not added to GHL.`).catch(() => {})
+  }
+
+  // Journey: tick sign-up for a client already on file with this email
+  // (new sign-ups usually have no Client yet; intake ingest catches those up).
+  if (m.email) {
+    const email = m.email
+    await recordJourney(`signup ${m.membershipId}`, async () => {
+      const client = await prisma.client.findFirst({ where: { contactEmail: { equals: email, mode: 'insensitive' } }, select: { id: true } })
+      if (client) await setJourneyStage(client.id, 'signup', 'done', { note: `Whop membership ${m.membershipId ?? ''}`.trim(), actor: 'whop-webhook' })
+    })
   }
 
   // Announce once, shared with the 5-minute poller in whop-signup-alerts.ts.
