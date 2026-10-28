@@ -5,19 +5,22 @@ import { looksLikeAddress } from '@/lib/address-parse'
 /**
  * Some clients answer the onboarding form's "Legal Business Name" with their
  * address, or swap it with "Business Address". The A2P and Toll-Free boards
- * don't take an address as the name (onboardingNameAndAddress in
- * src/lib/a2p.ts puts swapped boxes back, else uses the client record's name
- * or none), and this says what happened.
+ * never take an address as the name: onboardingNameAndAddress in
+ * src/lib/a2p.ts uses it as the address and puts swapped boxes back, and the
+ * name is otherwise the client record's or none. This says what happened.
  */
 export function OnboardingNameNote({
   onboardingName,
   onboardingAddress,
   swapped,
+  streetFromName,
   businessName,
 }: {
   onboardingName: string | null
   onboardingAddress: string | null
   swapped: boolean
+  /** The address is the one typed as the name. */
+  streetFromName: boolean
   businessName: string
 }) {
   if (swapped) {
@@ -44,7 +47,7 @@ export function OnboardingNameNote({
       <AlertTriangle className={cn('mt-0.5 h-4 w-4 shrink-0', filled ? 'text-muted-foreground' : 'text-amber-500')} />
       <span>
         <span className="font-semibold">On the onboarding form, “Legal Business Name” was answered with an address</span> (“{onboardingName}”), so it isn’t
-        used here.{' '}
+        the name here{streetFromName ? ': it’s the street address' : ''}.{' '}
         {filled
           ? 'Business name comes from the client record instead. Check it against their IRS EIN letter (CP-575).'
           : 'Ask the client for the business’s legal name: it’s on their IRS EIN letter (CP-575), above the mailing address. Fix the client’s name in the Hub too (Edit on the client).'}

@@ -29,6 +29,8 @@ type BoardData = {
   onboardingAddress: string | null
   /** The two were the wrong way round, and are put back. */
   swapped: boolean
+  /** The address is the one typed as "Legal Business Name". */
+  streetFromName: boolean
   mainServices: string | null
   saved: Saved
 }
@@ -309,6 +311,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           onboardingName={data.onboardingName}
           onboardingAddress={data.onboardingAddress}
           swapped={data.swapped}
+          streetFromName={data.streetFromName}
           businessName={values.businessName}
         />
         {data.client.einStatus === 'none' && (

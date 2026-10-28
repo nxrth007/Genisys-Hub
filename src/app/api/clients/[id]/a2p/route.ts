@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { A2P_CHECKLIST, A2P_INPUT_KEYS, a2pPrefill, onboardingNameAndAddress, splitCities, type A2pInputs } from '@/lib/a2p'
-import { resolveAddress } from '@/lib/address-resolve'
+import { A2P_CHECKLIST, A2P_INPUT_KEYS, a2pPrefill, areaHint, boardFacts, onboardingNameAndAddress, type A2pInputs } from '@/lib/a2p'
+import { parseUsAddress } from '@/lib/address-parse'
+import { completeAddress } from '@/lib/address-resolve'
 
 /**
  * GET /api/clients/:id/a2p — the A2P board: what the onboarding answers
@@ -83,25 +84,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { intakes, seoSite, ...c } = client
   const intake = intakes[0] ?? null
-  const facts = seoSite?.facts && typeof seoSite.facts === 'object' ? (seoSite.facts as { trade?: unknown }) : null
-  const factsTrade = typeof facts?.trade === 'string' ? facts.trade : null
   const row = await prisma.appSetting.findUnique({ where: { key: keyFor(id) } })
 
-  const src = { ...c, intake, factsTrade }
+  const src = { ...c, intake, ...boardFacts(seoSite?.facts) }
   const prefill = a2pPrefill(src)
-  const { swapped } = onboardingNameAndAddress(src)
+  const { swapped, streetFromName } = onboardingNameAndAddress(src)
   // The form only asks for a business address; when the text alone doesn't
-  // give a city and state, the geocoder does (looked up once per address).
-  // That's the address with swapped boxes put back; a street on its own is
-  // looked up in the first city they serve, not anywhere in the country, and
-  // that city counts only if the map finds the street there.
-  if (prefill.address && (!prefill.city || !prefill.state)) {
-    const firstCity = splitCities(intake?.cities ?? '')[0]
-    const hinted = !prefill.city && !prefill.state && !!firstCity
-    const r = await resolveAddress(hinted ? `${prefill.address}, ${firstCity}` : prefill.address)
-    if (!hinted || r.source === 'geocoded') {
-      if (r.city && !prefill.city) prefill.city = r.city
-      if (r.stateName && !prefill.state) prefill.state = r.stateName
+  // give a city and state, the map does (looked up once per address). That's
+  // the address wherever onboarding put it (src/lib/a2p.ts); a street with no
+  // town is looked up where the business works, and then gets its town,
+  // state and ZIP here too.
+  if (!prefill.city || !prefill.state) {
+    const r = await completeAddress(prefill.address, areaHint(src))
+    if (r.city && !prefill.city) prefill.city = r.city
+    if (r.stateName && !prefill.state) prefill.state = r.stateName
+    const typed = parseUsAddress(prefill.address)
+    if (typed.street && !typed.city && !typed.state && !typed.zip && r.city && r.state) {
+      prefill.address = `${typed.street}, ${r.city}, ${[r.state, r.zip].filter(Boolean).join(' ')}`
     }
     if (!prefill.primaryCities && prefill.city) prefill.primaryCities = prefill.city
   }
@@ -112,6 +111,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // As typed on the form: the board says so when "Legal Business Name" got an address, or the two boxes were swapped.
     onboardingName: intake?.businessName ?? null,
     onboardingAddress: intake?.businessAddress ?? c.address ?? null,
+    streetFromName,
     swapped,
     mainServices: intake?.mainServices ?? null,
     saved: parseSaved(row?.value),

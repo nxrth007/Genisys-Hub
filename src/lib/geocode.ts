@@ -234,7 +234,8 @@ export async function geocodeComponents(query: string): Promise<AddressComponent
     const a = hit.address ?? {}
     return {
       street: [a.house_number, a.road].filter(Boolean).join(' ') || null,
-      city: a.city ?? a.town ?? a.village ?? a.hamlet ?? null,
+      // OpenStreetMap names some places by their municipality: "City of Albany", "Town of Colonie".
+      city: (a.city ?? a.town ?? a.village ?? a.hamlet)?.replace(/^(?:city|town|village|borough) of\s+/i, '') ?? null,
       state: stateCode(a.state) ?? null,
       zip: a.postcode ?? null,
     }

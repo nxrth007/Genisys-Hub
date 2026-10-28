@@ -164,6 +164,36 @@ export function isPoBox(s: string | null | undefined): boolean {
   return /\b(?:p\.?\s*o\.?\s*(?:box|b\b)|post\s+office\s+box|pob\b|box\s+#?\d+)/i.test(s ?? '')
 }
 
+/** A house number and street ("25 Woodlawn ave", "123 Main St, Minden NV"), or a PO box. A town, or a name, has none. */
+export function hasStreet(s: string | null | undefined): boolean {
+  const t = (s ?? '').trim()
+  return !!t && (isPoBox(t) || /^\d+[A-Za-z]?\s+\S/.test(parseUsAddress(t).street))
+}
+
+/** A house number, then up to five words ending in Rd, St, Ave… The number can't be the end of a phone number. */
+const STREET_IN = new RegExp(`(?:^|[\\s,:])(\\d{1,6}[A-Za-z]?\\s+(?:[\\w.'’-]*[A-Za-z][\\w.'’-]*\\s+){0,4}?${STREET_SUFFIX.source})`, 'i')
+
+/**
+ * A street address written inside other text, such as "Business Contact
+ * Information" ("Jason, (929) 668-8790, 25 Woodlawn Ave, Albany NY 12208"):
+ * the street, with the town, state and ZIP after it when it has them.
+ */
+export function streetIn(text: string | null | undefined): string {
+  const t = (text ?? '').replace(/\s+/g, ' ')
+  const m = STREET_IN.exec(t)
+  if (!m) return ''
+  const street = clean(m[1])
+  // What follows it, up to an email, link or phone number.
+  let tail = t.slice(m.index + m[0].length)
+  const stop = tail.search(/[;|]|\S+@\S+|https?:\/\/|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)
+  if (stop >= 0) tail = tail.slice(0, stop)
+  const zip = /\b\d{5}(?:-\d{4})?\b/.exec(tail)
+  if (zip) tail = tail.slice(0, zip.index + zip[0].length)
+  const full = clean(`${street}${tail}`)
+  const p = parseUsAddress(full)
+  return p.state || p.zip ? full : street
+}
+
 /** A street that ends in its suffix (Rd, St, Ave…), maybe with a unit after it. */
 const STREET_END = new RegExp(`${STREET_SUFFIX.source}(?:\\s+(?:ste|suite|apt|apartment|unit|bldg|building|fl|floor|rm|room|#)\\s*[A-Za-z0-9-]+\\.?)?$`, 'i')
 

@@ -1,5 +1,5 @@
 import { inferTrade } from './trade'
-import { looksLikeAddress, parseUsAddress } from './address-parse'
+import { hasStreet, looksLikeAddress, parseUsAddress, streetIn } from './address-parse'
 /**
  * A2P 10DLC registration copy for a client, from the GHL A2P master
  * template (built from real rejections and approvals across A Plus
@@ -78,6 +78,15 @@ export type A2pSource = {
   } | null
   /** The SEO engine's read of the trade, when the client has an SEO site with recorded facts. */
   factsTrade?: string | null
+  /** The SEO site's recorded name, city and state ("Albany", "NY"); see boardFacts. */
+  facts?: { businessName: string | null; primaryCity: string | null; state: string | null } | null
+}
+
+/** What the boards take from an SEO site's recorded facts (BusinessFacts in src/lib/seo/types.ts). */
+export function boardFacts(raw: unknown): Pick<A2pSource, 'factsTrade' | 'facts'> {
+  const f = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const s = (k: string) => (typeof f?.[k] === 'string' ? (f[k] as string) : null)
+  return f ? { factsTrade: s('trade'), facts: { businessName: s('businessName'), primaryCity: s('primaryCity'), state: s('state') } } : { factsTrade: null, facts: null }
 }
 
 const STATES: Record<string, string> = {
@@ -174,8 +183,8 @@ function seasonLabel(now: Date): string {
 function tradeFor(src: A2pSource, businessName: string): string {
   const recorded = clean(src.factsTrade)
   if (recorded) {
-    // "Fence contractor" / "Painter" → "fence contractor" / "painter"; already a noun phrase.
-    return recorded.charAt(0).toLowerCase() + recorded.slice(1)
+    // "Fence contractor" / "Cleaning Services" → "fence contractor" / "cleaning service": the noun after "a", acronyms (HVAC) kept.
+    return recorded.replace(/\b[A-Z][a-z]+\b/g, (w) => w.toLowerCase()).replace(/\bservices$/i, 'service')
   }
   return inferTrade({ businessName, mainServices: src.intake?.mainServices, aboutBusiness: src.intake?.aboutBusiness }).trade
 }
@@ -190,26 +199,120 @@ function looksLikeBusinessName(s: string): boolean {
   return BUSINESS_WORD.test(s) || !!inferTrade({ businessName: s }).trade
 }
 
+/** Letters and digits, without a closing LLC or Inc: "Heavy On The Move LLC" and heavyonthemove.org compare equal. */
+const nameKey = (s: string | null | undefined) =>
+  clean(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(?:llc|inc|corp|co|company|ltd)$/, '')
+
 /**
- * The business's name and address from onboarding. Some clients answer
- * "Legal Business Name" with their address (Jake's Property Maintenance: a
- * PO box), some swap the two boxes (Calvin: "17434 Copeland ln" as the name,
- * "Calvins construction" as the address). An address is never the name:
- * swapped boxes are put back; otherwise the client record's name is used if
- * someone has fixed it, or there's no name.
+ * The business's name wherever the Hub knows it apart from "Business
+ * Address": the name answer and the client record (unless they're
+ * addresses), the SEO facts, and the website's and emails' domains.
  */
-export function onboardingNameAndAddress(src: A2pSource): { name: string; address: string; swapped: boolean } {
+function knownNames(src: A2pSource): string[] {
+  const names = [src.intake?.businessName, src.name, src.facts?.businessName].filter((n) => !looksLikeAddress(n))
+  const hosts = [src.siteUrl, src.intake?.domainName, src.intake?.website, src.website].map(hostOnly)
+  const mail = [src.intake?.leadEmail, src.contactEmail].map((e) => emailIn(e).split('@')[1] ?? '')
+  const labels = [...hosts, ...mail].map((h) => h.replace(/^www\./, '').split('.')[0])
+  return [...names, ...labels].map(nameKey).filter((k) => k.length >= 4)
+}
+
+/** Only a state, maybe with its ZIP ("NY", "TX 78130"): what follows a town. */
+function stateOnly(s: string): boolean {
+  const p = parseUsAddress(s)
+  return !!(p.state || p.zip) && !p.city && !p.street
+}
+
+/**
+ * The business's own name taken out of an address: "Heavy on the move"
+ * leaves nothing, "25 Woodlawn ave, Heavy on the move" the street. A town
+ * before a state stays, even one the business is named after ("123 Main
+ * St, Austin, TX").
+ */
+function splitOffName(address: string, names: string[]): { rest: string; name: string } {
+  const isName = (s: string) => names.includes(nameKey(s))
+  if (!address || !names.length) return { rest: address, name: '' }
+  if (isName(address)) return { rest: '', name: address }
+  const parts = address.split(/\s*,\s*/).filter(Boolean)
+  if (parts.length > 1) {
+    const at = parts.findIndex((p, i) => isName(p) && !(i < parts.length - 1 && stateOnly(parts[i + 1])))
+    return at < 0 ? { rest: address, name: '' } : { rest: parts.filter((_, i) => i !== at).join(', '), name: parts[at] }
+  }
+  const words = address.split(' ')
+  for (let k = words.length - 1; k >= 1; k--) {
+    const tail = words.slice(-k).join(' ')
+    if (isName(tail)) return { rest: words.slice(0, -k).join(' '), name: tail }
+    const head = words.slice(0, k).join(' ')
+    if (isName(head)) return { rest: words.slice(k).join(' '), name: head }
+  }
+  return { rest: address, name: '' }
+}
+
+/** A town or state, not a name: it has a state or ZIP, or it's a city they serve. */
+function isPlace(s: string, src: A2pSource): boolean {
+  const p = parseUsAddress(s)
+  if (p.state || p.zip) return true
+  const served = [...splitCities(clean(src.intake?.cities)), clean(src.facts?.primaryCity)].map((c) => nameKey(parseUsAddress(c).city || c))
+  return served.includes(nameKey(s))
+}
+
+/**
+ * The business's name and address from onboarding. Clients have answered
+ * "Legal Business Name" with their address (Jake's Property Maintenance: a
+ * PO box) and swapped the two boxes (Calvin: "17434 Copeland ln" as the
+ * name, "Calvins construction" as the address; Heavy on the Move: "25
+ * Woodlawn ave" and "Heavy on the move"). An address is never the name, and
+ * the name is never the address or its town:
+ * - A street in "Legal Business Name" is the address whenever "Business
+ *   Address" has none, with the town it gives if it gives one.
+ * - "Business Address" holding the business's name means the boxes were
+ *   swapped. It's the name when it matches the client record, the SEO
+ *   facts or the website's or email's domain, or reads like a company.
+ * - The name is taken out of an address ("25 Woodlawn ave, Heavy on the
+ *   move"). With no street left, one written in the client record or in
+ *   "Business Contact Information" is used.
+ * The name is otherwise the client record's, if someone has fixed it, or
+ * none. streetFromName: the address is the one typed as the name.
+ */
+export function onboardingNameAndAddress(src: A2pSource): { name: string; address: string; swapped: boolean; streetFromName: boolean } {
   const typedName = clean(src.intake?.businessName)
   const typedAddress = clean(src.intake?.businessAddress) || clean(src.address)
   const record = clean(src.name)
   const recordName = record && !looksLikeAddress(record) ? record : ''
-  if (looksLikeAddress(typedName) && looksLikeBusinessName(typedAddress)) {
-    // A client record fixed in the Hub since (Edit on the client) wins.
-    const recordAddress = clean(src.address)
-    const fixedAddress = recordAddress && recordAddress !== typedAddress && !looksLikeBusinessName(recordAddress) ? recordAddress : ''
-    return { name: recordName || typedAddress, address: fixedAddress || typedName, swapped: true }
+  const recordAddress = clean(src.address)
+  const { rest, name: nameInAddress } = splitOffName(typedAddress, knownNames(src))
+  if (looksLikeAddress(typedName) && !hasStreet(rest)) {
+    const boxName = nameInAddress || (looksLikeBusinessName(rest) ? rest : '')
+    const town = rest && rest !== boxName && isPlace(rest, src) ? rest : ''
+    const street = town ? `${typedName}, ${town}` : typedName
+    if (boxName) {
+      // Swapped boxes. A client record address fixed in the Hub since (Edit on the client) wins.
+      const fixedAddress = recordAddress && recordAddress !== typedAddress && hasStreet(recordAddress) ? recordAddress : ''
+      return { name: recordName || boxName, address: fixedAddress || street, swapped: true, streetFromName: !fixedAddress }
+    }
+    return { name: recordName, address: street, swapped: false, streetFromName: true }
   }
-  return { name: typedName && !looksLikeAddress(typedName) ? typedName : recordName, address: typedAddress, swapped: false }
+  const name = typedName && !looksLikeAddress(typedName) ? typedName : recordName
+  if (hasStreet(rest)) return { name, address: rest, swapped: false, streetFromName: false }
+  // "Business Address" has no street (only the name again, or a town).
+  const elsewhere = streetIn(recordAddress) || streetIn(src.intake?.businessContact)
+  const p = parseUsAddress(elsewhere)
+  const town = elsewhere && !p.city && !p.state && !p.zip && rest && isPlace(rest, src) ? rest : ''
+  return { name, address: elsewhere ? (town ? `${elsewhere}, ${town}` : elsewhere) : rest, swapped: false, streetFromName: false }
+}
+
+/**
+ * Where the business works, to look up a street that came with no town:
+ * the SEO facts' city and state ("Albany, NY"), else the first city they
+ * serve.
+ */
+export function areaHint(src: A2pSource): string {
+  const served = parseUsAddress(splitCities(clean(src.intake?.cities))[0] ?? '')
+  const city = clean(src.facts?.primaryCity) || served.city
+  const state = clean(src.facts?.state) || served.state
+  return city ? [city, state].filter(Boolean).join(', ') : ''
 }
 
 /** Everything the onboarding answers can fill in. */

@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { HlA2p, Prisma } from '@/generated/prisma/client'
 import { parseUsAddress } from '@/lib/address-parse'
-import { a2pPrefill, type A2pInputs } from '@/lib/a2p'
+import { a2pPrefill, boardFacts, type A2pInputs } from '@/lib/a2p'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { asSettings, consentsOf } from './forms'
@@ -193,8 +193,7 @@ async function boardFor(clientId: string): Promise<A2pInputs | null> {
   ])
   if (!client) return null
   const { intakes, seoSite, ...c } = client
-  const facts = seoSite?.facts && typeof seoSite.facts === 'object' ? (seoSite.facts as { trade?: unknown }) : null
-  const prefill = a2pPrefill({ ...c, intake: intakes[0] ?? null, factsTrade: typeof facts?.trade === 'string' ? facts.trade : null })
+  const prefill = a2pPrefill({ ...c, intake: intakes[0] ?? null, ...boardFacts(seoSite?.facts) })
   try {
     const values = (JSON.parse(saved?.value ?? '{}') as { values?: Partial<A2pInputs> }).values ?? {}
     for (const [k, v] of Object.entries(values)) if (typeof v === 'string' && v.trim()) (prefill as Record<string, string>)[k] = v.trim()

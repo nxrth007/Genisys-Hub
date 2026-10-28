@@ -28,6 +28,10 @@ type BoardData = {
   onboardingAddress: string | null
   /** The form's name and address answers were the wrong way round, and are put back. */
   swapped: boolean
+  /** The onboarding text the address was read from (either box, or "Business Contact Information"). */
+  addressFrom: string | null
+  /** The address is the one typed as "Legal Business Name". */
+  streetFromName: boolean
   /** The geocoder filled part of the address onboarding didn't give. */
   geocoded: boolean
   mainServices: string | null
@@ -310,8 +314,8 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
                   {f.key === 'trade' && data.mainServices && (
                     <span className="text-[11px] leading-snug text-muted-foreground">They listed: {data.mainServices}</span>
                   )}
-                  {f.key === 'street' && data.onboardingAddress && (
-                    <span className="text-[11px] leading-snug text-muted-foreground">Onboarding said: {data.onboardingAddress}</span>
+                  {f.key === 'street' && (data.addressFrom || data.onboardingAddress) && (
+                    <span className="text-[11px] leading-snug text-muted-foreground">Onboarding said: {data.addressFrom || data.onboardingAddress}</span>
                   )}
                   {f.hint && <span className="text-[11px] leading-snug text-muted-foreground/80">{f.hint}</span>}
                 </div>
@@ -336,6 +340,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           onboardingName={data.onboardingName}
           onboardingAddress={data.onboardingAddress}
           swapped={data.swapped}
+          streetFromName={data.streetFromName}
           businessName={values.businessName}
         />
         {nameIsAddress && (
@@ -358,7 +363,8 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
         ) : null}
         {data.geocoded && !addressEdited && !poBox && (
           <p className="rounded-xl border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
-            Onboarding didn’t give the whole address, so part of it came from the map. Check the street, city and ZIP on Google Maps before submitting.
+            Onboarding didn’t give the whole address, so part of it came from the map and where the business works. Check the street, city and ZIP on Google
+            Maps before submitting.
           </p>
         )}
         {data.client.einStatus === 'none' && (

@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { TOLL_FREE_CHECKLIST, TOLL_FREE_INPUT_KEYS, tollFreePrefill, type TollFreeInputs } from '@/lib/toll-free'
-import { onboardingNameAndAddress, splitCities } from '@/lib/a2p'
-import { isPoBox } from '@/lib/address-parse'
-import { resolveAddress } from '@/lib/address-resolve'
+import { areaHint, boardFacts, onboardingNameAndAddress } from '@/lib/a2p'
+import { completeAddress } from '@/lib/address-resolve'
 
 /**
  * GET /api/clients/:id/toll-free — the Toll-Free board: what the onboarding
@@ -84,31 +83,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const { intakes, seoSite, ...c } = client
   const intake = intakes[0] ?? null
-  const facts = seoSite?.facts && typeof seoSite.facts === 'object' ? (seoSite.facts as { trade?: unknown }) : null
-  const factsTrade = typeof facts?.trade === 'string' ? facts.trade : null
   const row = await prisma.appSetting.findUnique({ where: { key: keyFor(id) } })
 
-  const src = { ...c, intake, factsTrade }
+  const src = { ...c, intake, ...boardFacts(seoSite?.facts) }
   const prefill = tollFreePrefill(src)
-  // The address with swapped name and address boxes put back (src/lib/a2p.ts).
-  const { address, swapped } = onboardingNameAndAddress(src)
-  // The form only asks for one address line; the geocoder fills a missing
-  // city, state or ZIP. Not for a PO box: the street address replaces it.
+  // The address wherever onboarding put it, without the business's name in it (src/lib/a2p.ts).
+  const { address, swapped, streetFromName } = onboardingNameAndAddress(src)
+  // The form only asks for one address line; the map fills a missing city,
+  // state or ZIP, looking up a street with no town where the business works.
   let geocoded = false
-  if (address && (!prefill.city || !prefill.state || !prefill.zip) && !isPoBox(address)) {
-    // A street on its own is looked up in the first city they serve, not anywhere in the country,
-    // and that city counts only if the map finds the street there.
-    const firstCity = splitCities(intake?.cities ?? '')[0]
-    const hinted = !prefill.city && !prefill.state && !prefill.zip && !!firstCity
-    const r = await resolveAddress(hinted ? `${address}, ${firstCity}` : address, { zip: true })
-    if (!hinted || r.source === 'geocoded') {
-      const before = [prefill.street, prefill.city, prefill.state, prefill.zip].join('|')
-      prefill.street ||= r.street
-      prefill.city ||= r.city
-      prefill.state ||= r.stateName
-      prefill.zip ||= r.zip
-      geocoded = [prefill.street, prefill.city, prefill.state, prefill.zip].join('|') !== before
-    }
+  if (!prefill.city || !prefill.state || !prefill.zip) {
+    const r = await completeAddress(address, areaHint(src), { zip: true })
+    const before = [prefill.street, prefill.city, prefill.state, prefill.zip].join('|')
+    prefill.street ||= r.street
+    prefill.city ||= r.city
+    prefill.state ||= r.stateName
+    prefill.zip ||= r.zip
+    geocoded = [prefill.street, prefill.city, prefill.state, prefill.zip].join('|') !== before
   }
 
   return NextResponse.json({
@@ -117,6 +108,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // As typed on the form: the board says so when "Legal Business Name" got an address, or the two boxes were swapped.
     onboardingName: intake?.businessName ?? null,
     onboardingAddress: intake?.businessAddress ?? c.address ?? null,
+    // The onboarding text the address was read from, and whether it was typed as the name.
+    addressFrom: address || null,
+    streetFromName,
     swapped,
     geocoded,
     mainServices: intake?.mainServices ?? null,
