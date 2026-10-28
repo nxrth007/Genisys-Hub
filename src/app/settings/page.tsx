@@ -32,10 +32,13 @@ import {
   Headphones,
   Receipt,
   ArrowRight,
+  EyeOff,
+  ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GhlSubaccountsSection } from './ghl-subaccounts-section'
 import { LeadAlertsSection } from './lead-alerts-section'
+import { RenderCostsSection } from './render-costs-section'
 // Importing from the client-safe constants module — pulling from
 // `lib/reminders` would drag Prisma + Drive helpers into the browser
 // bundle.
@@ -119,36 +122,71 @@ export default function SettingsPage() {
 
       <ScheduledBriefsSection />
 
-      <SlackTestSection />
-
-      <ClientSlackDeliverySection />
-
-      <ClientWorkspaceProvisioningSection />
-
       <GhlSubaccountsSection />
-
-      <ClientAlertsSection />
-
-      <LeadAlertsSection />
-
-      <ClientEmailAlertsSection />
-
-      <ClientRecordingLinksSection />
-
-      <PpaInvoicingSection />
 
       <TwilioTestSection />
 
-      <SheetMaintenanceSection />
-
-      <SecondarySheetsSection />
-
-      <AppointmentRemindersSection />
-
-      <SolarApiUsageSection />
+      <RenderCostsSection />
 
       <ComingSoonSection />
+
+      <HiddenSections />
     </div>
+  )
+}
+
+/**
+ * Settings for features that aren't in use (Alex, 2026-10-27), kept rather
+ * than deleted and folded away at the bottom. Hiding changes nothing about
+ * what they do: anything switched on keeps running. They mount only when
+ * opened, so the closed group makes no requests.
+ */
+const HIDDEN_SECTIONS: { title: string; Section: React.ComponentType }[] = [
+  { title: 'Slack — Send test DM', Section: SlackTestSection },
+  { title: 'Client → Slack delivery', Section: ClientSlackDeliverySection },
+  { title: 'Slack channel auto-provisioning', Section: ClientWorkspaceProvisioningSection },
+  { title: 'Client Alerts (SMS)', Section: ClientAlertsSection },
+  { title: 'Lead texts for No EIN clients', Section: LeadAlertsSection },
+  { title: 'Client Alerts (Email)', Section: ClientEmailAlertsSection },
+  { title: 'Call recordings for clients', Section: ClientRecordingLinksSection },
+  { title: 'PPA bi-weekly invoicing', Section: PpaInvoicingSection },
+  { title: 'Sheet maintenance (admin)', Section: SheetMaintenanceSection },
+  { title: 'Partner sheets', Section: SecondarySheetsSection },
+  { title: 'Appointment SMS reminders', Section: AppointmentRemindersSection },
+  { title: 'Solar API usage', Section: SolarApiUsageSection },
+]
+
+function HiddenSections() {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="rounded-xl border border-dashed border-border p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-3 text-left"
+      >
+        <span>
+          <span className="flex items-center gap-2 font-semibold">
+            <EyeOff className="h-4 w-4 text-muted-foreground" />
+            Hidden
+          </span>
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Settings for features that aren&apos;t in use. Hiding them doesn&apos;t switch anything off.
+          </span>
+        </span>
+        <ChevronDown className={cn('mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition', open && 'rotate-180')} />
+      </button>
+      {open ? (
+        <div className="mt-6 space-y-8">
+          {HIDDEN_SECTIONS.map(({ title, Section }) => (
+            <Section key={title} />
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground/80">{HIDDEN_SECTIONS.map((s) => s.title).join(' · ')}</p>
+      )}
+    </section>
   )
 }
 

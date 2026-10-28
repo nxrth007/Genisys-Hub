@@ -44,6 +44,9 @@ async function call<T>(key: string, path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+/** The same GET, for the other Render reader (lib/render-costs.ts). */
+export const renderGet = call
+
 async function hubService(key: string): Promise<Service> {
   const list = await call<{ service: Service }[]>(key, `/services?name=${SERVICE_NAME}&limit=20`)
   const service = list.map((x) => x.service).find((s) => s.name === SERVICE_NAME)
