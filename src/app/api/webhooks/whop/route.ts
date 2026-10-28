@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { getSecretByName } from '@/lib/vault-service'
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
-import { upsertContactByEmail } from '@/lib/ghl'
+import { getCrmProvider, GHL_AGENCY_KEY_VAULT_NAME } from '@/lib/crm/provider'
 import { claimWhopSignup } from '@/lib/whop-signup-alerts'
 import { textTeam, whopSignupText } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
@@ -24,6 +24,8 @@ import { extractWhopSignup, payloadShape, verifyWhopSignature, type WhopSignup }
 const SECRET_ENTRY = 'Whop Webhook Secret'
 /** The Genisys GHL location new sign-ups land in. */
 const GHL_VAULT_ENTRY = 'GHL Genisys Token'
+/** Tried when GHL_VAULT_ENTRY is missing or its call fails. */
+const GHL_FALLBACK_VAULT_ENTRY = GHL_AGENCY_KEY_VAULT_NAME
 const SIGNUP_TAG = 'whop-signup'
 const HANDLED = new Set(['membership.activated'])
 const ACKNOWLEDGED = new Set(['membership.updated', 'payment.succeeded'])
@@ -86,7 +88,7 @@ async function handleSignup(m: WhopSignup) {
   if (m.email) {
     const [firstName, ...rest] = (m.name ?? '').split(/\s+/).filter(Boolean)
     try {
-      const res = await upsertContactByEmail(GHL_VAULT_ENTRY, {
+      const res = await getCrmProvider().upsertContactByEmail([GHL_VAULT_ENTRY, GHL_FALLBACK_VAULT_ENTRY], {
         email: m.email,
         phone: m.phone,
         firstName: firstName ?? m.username,
@@ -101,7 +103,7 @@ async function handleSignup(m: WhopSignup) {
           business_name: m.businessName,
         },
       })
-      console.log(`[whop-webhook] ${m.membershipId}: GHL contact ${res.id} ${res.created ? 'created' : 'updated'}${res.skippedFields.length ? `; missing custom fields: ${res.skippedFields.join(', ')}` : ''}`)
+      console.log(`[whop-webhook] ${m.membershipId}: GHL contact ${res.id} ${res.created ? 'created' : 'updated'}${res.credential !== GHL_VAULT_ENTRY ? ` (via fallback "${res.credential}")` : ''}${res.skippedFields.length ? `; missing custom fields: ${res.skippedFields.join(', ')}` : ''}`)
     } catch (err) {
       console.error(`[whop-webhook] ${m.membershipId}: GHL upsert failed:`, err)
       await hubAlert(`:warning: *Whop sign-up didn't reach GHL* — ${label}. ${err instanceof Error ? err.message.slice(0, 300) : 'Unknown error'}`).catch(() => {})
