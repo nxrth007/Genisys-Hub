@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { BotId, OfficeBot, OfficeHandoff, OfficeStatus } from '@/lib/office/mapping'
 import { corners, findPath, pathLength, pointAlong, type Cell } from '@/lib/office/path'
-import { COS_VISIT, DESKS, GRID, GRID_H, GRID_W, IDLE_SPOTS, ITEMS, WALL_SCREEN, visitSpot, type Item } from '@/lib/office/layout'
+import { COS_VISIT, DESKS, GRID, GRID_H, GRID_W, IDLE_SPOTS, ITEMS, WALL_SCREEN, visitSpot, botDepth, itemDepth, type Item } from '@/lib/office/layout'
 import { PALETTES, STATUS_META, type OfficeTheme, type Palette } from './theme'
 
 const HW = 32 // half tile width
@@ -37,10 +37,6 @@ function Box({ x, y, w, d, h, z = 0, top, left, right, opacity = 1, stroke }: { 
       <polygon points={pts(P(x, y, t), P(x + w, y, t), P(x + w, y + d, t), P(x, y + d, t))} fill={top} stroke={stroke} strokeWidth={stroke ? 0.6 : 0} />
     </g>
   )
-}
-
-function itemDepth(i: Item) {
-  return i.x + i.w - 0.5 + (i.y + i.d - 0.5)
 }
 
 function renderItem(i: Item, pal: Palette, deskGlow: Record<string, string>): ReactElement | null {
@@ -204,17 +200,32 @@ function BubbleIcon({ icon, color }: { icon: OfficeBot['icon']; color: string })
   }
 }
 
-function Bot({ bot, pos, moving, reduced, glow, t }: { bot: OfficeBot; pos: Cell; moving: boolean; reduced: boolean; glow: number; t: number }) {
+type BotProps = { bot: OfficeBot; pos: Cell; moving: boolean; reduced: boolean; glow: number; t: number }
+
+const bobOf = (bot: OfficeBot, reduced: boolean, t: number) => (reduced ? 0 : Math.sin(t / 420 + bot.name.length) * 2.5)
+
+/** Ground part (shadow + colour ring): depth-sorted with the furniture. */
+function BotGround({ bot, pos, reduced, glow, t }: BotProps) {
   const [sx, sy] = P(pos.x, pos.y)
-  const status = STATUS_META[bot.status]
-  const bob = reduced ? 0 : Math.sin(t / 420 + bot.name.length) * 2.5
-  const hy = sy - 40 + bob
-  const tagW = Math.max(40, bot.name.length * 6.6 + 14)
+  const bob = bobOf(bot, reduced, t)
   return (
     <g>
       <ellipse cx={sx} cy={sy} rx={15} ry={7.5} fill="#000" opacity={0.4 - bob * 0.02} />
       <ellipse cx={sx} cy={sy} rx={17} ry={8.5} fill="none" stroke={bot.color} strokeWidth={2.4} opacity={0.9} filter={glow > 0.5 ? 'url(#office-glow)' : undefined} />
       <ellipse cx={sx} cy={sy} rx={17} ry={8.5} fill={bot.color} opacity={0.12 * glow} />
+    </g>
+  )
+}
+
+/** Head, name tag and bubbles: drawn above all furniture so desks/glass never hide them. */
+function BotTop({ bot, pos, moving, reduced, glow, t }: BotProps) {
+  const [sx, sy] = P(pos.x, pos.y)
+  const status = STATUS_META[bot.status]
+  const bob = bobOf(bot, reduced, t)
+  const hy = sy - 40 + bob
+  const tagW = Math.max(40, bot.name.length * 6.6 + 14)
+  return (
+    <g>
       {/* head */}
       <g transform={`translate(${sx},${hy})`}>
         <line x1={0} y1={-13} x2={0} y2={-19} stroke="#94a3b8" strokeWidth={1.4} />
@@ -412,13 +423,19 @@ export default function OfficeScene({ bots, handoffs, theme, paused, wallStat }:
   }, [pal])
 
   const t = clock.current
-  const botLayers: Layer[] = bots.map((b) => {
+  const botParts = bots.map((b) => {
     const m = motion.current.get(b.id)
     const pos = m?.pos ?? center(homes.get(b.id) ?? IDLE_SPOTS[0])
     const moving = !!m && m.dist < m.len
-    return { key: `bot-${b.id}`, depth: pos.x + pos.y - 1 + 0.1, el: <Bot bot={b} pos={pos} moving={moving} reduced={reduced} glow={pal.glow} t={t} /> }
+    const props: BotProps = { bot: b, pos, moving, reduced, glow: pal.glow, t }
+    const depth = botDepth(pos)
+    return {
+      ground: { key: `bot-${b.id}`, depth, el: <BotGround {...props} /> } as Layer,
+      top: { key: `bot-top-${b.id}`, depth, el: <BotTop {...props} /> } as Layer,
+    }
   })
-  const layers = [...furniture, ...botLayers].sort((a, b) => a.depth - b.depth)
+  const layers = [...furniture, ...botParts.map((p) => p.ground)].sort((a, b) => a.depth - b.depth)
+  const tops = botParts.map((p) => p.top).sort((a, b) => a.depth - b.depth)
 
   // Wall screen (meeting room) in the y=0 wall plane.
   const [wx, wy] = P(WALL_SCREEN.x, 0, 100)
@@ -473,6 +490,10 @@ export default function OfficeScene({ bots, handoffs, theme, paused, wallStat }:
         <g key={l.key}>{l.el}</g>
       ))}
       <rect x={minX} y={minY} width={maxX - minX} height={maxY - minY} fill={pal.ambient} opacity={pal.ambientOpacity} pointerEvents="none" style={{ mixBlendMode: 'multiply' }} />
+      {/* Bot heads/name tags above everything (after ambient so they stay legible at night). */}
+      {tops.map((l) => (
+        <g key={l.key}>{l.el}</g>
+      ))}
     </svg>
   )
 }

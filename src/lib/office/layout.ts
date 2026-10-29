@@ -143,3 +143,25 @@ export function visitSpot(target: Cell): Cell {
 }
 
 export type DeskAssignment = Record<BotId, Desk>
+
+/** Painter's-order depth of an item (larger = drawn later / nearer the viewer). */
+export function itemDepth(i: Item): number {
+  return i.x + i.w - 0.5 + (i.y + i.d - 0.5)
+}
+
+/**
+ * Painter's-order depth of a bot's ground layer at `pos` (cell-centre coords).
+ * The plain isometric depth sorts a bot seated in front of a wide desk
+ * *before* that desk (the desk's far corner wins), hiding the bot. A bot
+ * standing within ~1 cell on the viewer side of a desk is lifted just past it.
+ */
+export function botDepth(pos: Cell, desks: Desk[] = DESKS): number {
+  let depth = pos.x + pos.y - 1 + 0.1
+  for (const { item } of desks) {
+    const front = item.y + item.d
+    const inFront = pos.y > front && pos.y <= front + 1.5
+    const alongside = pos.x >= item.x - 0.5 && pos.x <= item.x + item.w + 0.5
+    if (inFront && alongside) depth = Math.max(depth, itemDepth(item) + 0.01)
+  }
+  return depth
+}

@@ -171,3 +171,22 @@ test('office layout: every seat and spot is walkable and mutually reachable', ()
   assert.equal(layout.DESKS.length, 10)
   assert.ok(layout.DESKS.length >= ROSTER.length)
 })
+
+test('botDepth: seated bots sort after desks in front, before desks behind', () => {
+  const { DESKS, botDepth, itemDepth } = layout
+  for (const d of DESKS) {
+    const pos = { x: d.seat.x + 0.5, y: d.seat.y + 0.5 }
+    const front = d.seat.y >= d.item.y + d.item.d
+    if (front) assert.ok(botDepth(pos) > itemDepth(d.item), `${d.id}: bot in front must draw after desk`)
+    else assert.ok(botDepth(pos) < itemDepth(d.item), `${d.id}: bot behind must draw before desk (head is overlaid)`)
+  }
+})
+
+test('botDepth helper: plain depth away from desks, lifted just past a desk behind it', () => {
+  const { botDepth, itemDepth, DESKS } = layout
+  const pos = { x: 3.5, y: 12.5 }
+  assert.equal(botDepth(pos), 3.5 + 12.5 - 1 + 0.1)
+  const cos = DESKS.find((d) => d.id === 'desk-cos')
+  assert.equal(botDepth({ x: 2.5, y: 2.5 }), itemDepth(cos.item) + 0.01)
+  assert.equal(botDepth({ x: 2.5, y: 2.5 }, []), 2.5 + 2.5 - 1 + 0.1)
+})
