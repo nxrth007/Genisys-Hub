@@ -20,6 +20,8 @@ import { getSeoSettings, isoWeekLabel, zonedParts } from './settings'
 import { syncAllClientFacts } from './client-facts'
 import { advanceSearchConsole } from './gsc-connect'
 import { seoAlert } from './slack'
+import { hubAlertThrottled } from '@/lib/hub-alerts'
+import { isKeyBlocked } from '@/lib/llm'
 import type { RunStage, RunStatus } from './types'
 
 /**
@@ -223,6 +225,8 @@ async function processNextRun(): Promise<'idle' | 'advanced' | 'failed'> {
 
 function classify(err: unknown): { fatal: boolean; message: string } {
   const message = err instanceof Error ? err.message : String(err)
+  // Missing / refused / paused / out-of-credit LLM key: stop now, no retries.
+  if (isKeyBlocked(err)) return { fatal: true, message }
   if (err instanceof FatalRunError || err instanceof FatalClaudeError || err instanceof BudgetExceededError || err instanceof TruncatedError) {
     return { fatal: true, message }
   }
@@ -285,7 +289,9 @@ export async function driveRun(runId: string, lease: Date): Promise<'advanced' |
     const { fatal, message } = classify(err)
     const attempts = ctx?.run.attempts ?? 1
     const giveUp = fatal || attempts >= MAX_ATTEMPTS
-    console.error(`[seo] run ${runId} failed at ${ctx?.run.stage ?? '?'} (attempt ${attempts}):`, err)
+    const blocked = isKeyBlocked(err)
+    if (blocked) console.warn(`[seo] run ${runId} ${message}`)
+    else console.error(`[seo] run ${runId} failed at ${ctx?.run.stage ?? '?'} (attempt ${attempts}):`, err)
     if (ctx) {
       ctx.log(ctx.run.stage as RunStage, message, 'error')
       await ctx
@@ -296,7 +302,10 @@ export async function driveRun(runId: string, lease: Date): Promise<'advanced' |
               { error: `Retrying after: ${message}`, leaseUntil: new Date(Date.now() + attempts * 5 * 60_000) },
         )
         .catch(() => {})
-      if (giveUp) {
+      if (giveUp && blocked) {
+        // One alert per few hours across all runs, not one per site.
+        await hubAlertThrottled('seo-llm-key-blocked', 6 * 60 * 60_000, `:no_entry: *SEO* — runs are ${message}. Fix the key in the Vault (or set "LLM Provider"), then re-run.`)
+      } else if (giveUp) {
         await seoAlert(`:warning: *SEO* — ${ctx.site.name}: ${ctx.run.kind} run failed at *${ctx.run.stage}*: ${message}`)
       }
     }
