@@ -45,6 +45,7 @@ import { reconcileOnboardingSheet } from './onboarding-sheet'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
+import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
@@ -473,6 +474,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
       })
       .catch((err) => console.error('[scheduler] whop sign-up check failed:', err))
+    // Render monitor: failed deploys, error logs, health check → text Ethan (every 5 min, RENDER_MONITOR_ENABLED=1).
+    void maybeRunRenderMonitor()
+      .then((r) => {
+        if (r?.problems.length) console.log(`[scheduler] render monitor: ${r.problems.length} problem(s), ${r.sent} text(s) sent`)
+      })
+      .catch((err) => console.error('[scheduler] render monitor failed:', err instanceof Error ? err.message : String(err)))
     // Hell-level: resume automation runs whose wait is over, and check
     // toll-free verifications Twilio is still reviewing (every 30 min).
     void recoverStuckRuns()
