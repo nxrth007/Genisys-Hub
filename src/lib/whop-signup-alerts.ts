@@ -3,6 +3,7 @@ import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { getWhopCompanyId, listWhopMemberships, listWhopOrders, whopConfigured, type WhopMembership } from '@/lib/whop'
 import { textTeam, whopSignupText } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { claimSignup, isUniqueViolation, type ClaimSource, type ClaimStore } from '@/lib/whop-signup-claim'
 
 /**
  * Text Alex and Ethan when someone signs up on Whop.
@@ -75,7 +76,14 @@ export async function maybeAlertWhopSignups(): Promise<number> {
     const seen = new Set(state.seen)
     const fresh = memberships.filter((m) => !seen.has(m.id) && JOINED.has(m.status.toLowerCase()))
     // Oldest first, so the texts arrive in the order people joined.
+    let announced = 0
     for (const m of fresh.reverse()) {
+      // The webhook may have announced it already; the claim row decides atomically.
+      if (!(await claimWhopSignup(m.id, 'poll'))) {
+        seen.add(m.id)
+        continue
+      }
+      announced++
       const name = await signupName(m)
       const text = whopSignupText({ name, email: m.customerEmail, username: m.customerUsername, product: m.productTitle, price: m.renewalPrice, link: hubLink('/payments') })
       const sent = await textTeam(text, 'Whop sign-up')
@@ -88,29 +96,33 @@ export async function maybeAlertWhopSignups(): Promise<number> {
     }
     // Only joined memberships are remembered: a checkout still in draft is announced once it turns active.
     await save({ seen: [...seen].slice(-1000), since: state.since })
-    return fresh.length
+    return announced
   } finally {
     inFlight = false
   }
 }
 
+/** The WhopSignupClaim table as an atomic insert-or-ignore store (primary key = membership id). */
+export const prismaClaimStore: ClaimStore = {
+  async insertIfAbsent(membershipId, source) {
+    try {
+      await prisma.whopSignupClaim.create({ data: { membershipId, source } })
+      return true
+    } catch (err) {
+      if (isUniqueViolation(err)) return false
+      throw err
+    }
+  },
+}
+
 /**
- * Shared with the Whop webhook (/api/webhooks/whop): claim a membership id so
- * it's announced once, whichever of the webhook or the 5-minute poll sees it
- * first. Returns true when the caller should announce it (not seen before).
- *
- * If the poller hasn't taken its baseline yet, nothing is written: creating the
- * state here would make the first poll treat every old membership as new and
- * text about all of them. The baseline will include this membership anyway.
- * TODO: the read-modify-write isn't atomic with the poller; a sign-up landing
- * in the exact same instant as a poll could still be texted twice.
+ * Shared by the Whop webhook (/api/webhooks/whop) and the 5-minute poll: claim
+ * a membership id so it's announced once, whichever sees it first. Returns
+ * true when the caller should announce it. Atomic: the claim is an insert into
+ * WhopSignupClaim keyed by membership id, so two concurrent callers can't both
+ * win, and the webhook no longer rewrites the poll's `seen` list (which the
+ * poll could overwrite).
  */
-export async function claimWhopSignup(membershipId: string): Promise<boolean> {
-  const row = await prisma.appSetting.findUnique({ where: { key: KEY } })
-  if (!row) return true
-  const state = JSON.parse(row.value) as State
-  if (state.seen.includes(membershipId)) return false
-  const next: State = { seen: [...state.seen, membershipId].slice(-1000), since: state.since }
-  await prisma.appSetting.update({ where: { key: KEY }, data: { value: JSON.stringify(next) } })
-  return true
+export async function claimWhopSignup(membershipId: string, source: ClaimSource = 'webhook'): Promise<boolean> {
+  return claimSignup(prismaClaimStore, membershipId, source)
 }
