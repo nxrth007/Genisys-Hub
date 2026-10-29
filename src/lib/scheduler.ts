@@ -42,6 +42,7 @@ import { runSeoTick } from './seo/engine'
 import { maybeRunLovableGitWatch } from './seo/lovable-git-watch'
 import { maybeCheckStalePublishes, maybeRunSeoWatch } from './seo/site-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
+import { backfillFromSheet, sheetSyncEnabled } from './tracker/sheet-sync'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
@@ -185,6 +186,10 @@ let countyBackfillInFlight = false
 const ONBOARDING_SHEET_INTERVAL_MS = 10 * 60 * 1000
 let lastOnboardingSheetAt = 0
 let onboardingSheetInFlight = false
+/** DB tracker <- tracker sheet, only when TRACKER_SHEET_SYNC=1. */
+const TRACKER_SHEET_INTERVAL_MS = 15 * 60 * 1000
+let lastTrackerSheetAt = 0
+let trackerSheetInFlight = false
 const COUNTY_BACKFILL_BATCH = 20
 
 /**
@@ -379,6 +384,25 @@ export function initScheduler() {
             sheetImportInFlight = false
           }
         }
+      }
+    }
+
+    // Tracker sheet -> DB tracker (src/lib/tracker). Off unless
+    // TRACKER_SHEET_SYNC=1; read-only on the sheet; never throws.
+    if (sheetSyncEnabled()) {
+      const now = Date.now()
+      if (now - lastTrackerSheetAt >= TRACKER_SHEET_INTERVAL_MS && !trackerSheetInFlight) {
+        lastTrackerSheetAt = now
+        trackerSheetInFlight = true
+        void backfillFromSheet({ dryRun: false, actor: 'sheet-sync' })
+          .then((r) => {
+            if (r.error) console.warn(`[scheduler] tracker sheet sync: ${r.error}`)
+            else if (r.counts.create || r.counts.update) console.log(`[scheduler] tracker sheet sync: ${r.counts.create} created, ${r.counts.update} updated`)
+          })
+          .catch((err) => console.error('[scheduler] tracker sheet sync failed:', err))
+          .finally(() => {
+            trackerSheetInFlight = false
+          })
       }
     }
 

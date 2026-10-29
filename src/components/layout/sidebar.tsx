@@ -33,6 +33,7 @@ import {
   LogOut,
   Flame,
   Bot,
+  ListChecks,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canAccessPayments } from '@/lib/payments-access'
@@ -88,6 +89,7 @@ const SIMPLIFIED_NAV: NavItem[] = [
   // for history; they just aren't in the nav.
   { href: '/crm', label: 'CRM', icon: MessageSquare },
   { href: '/clients', label: 'Clients', icon: Building2 },
+  { href: '/tracker', label: 'Tracker', icon: ListChecks },
   { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
   { href: '/google-profiles', label: 'Google Profiles', icon: MapPin },
   // Documents — Ethan needs the pinned financials + Mary client
@@ -109,6 +111,7 @@ const FULL_NAV: NavItem[] = [
   { href: '/calendar', label: 'Calendar', icon: Calendar },
   // Call Center and Call Center 2 retired 2026-09-26 (see SIMPLIFIED_NAV).
   { href: '/clients', label: 'Clients', icon: Building2 },
+  { href: '/tracker', label: 'Tracker', icon: ListChecks },
   { href: '/automation-copy', label: 'Automation Copy', icon: ClipboardCopy },
   { href: '/google-profiles', label: 'Google Profiles', icon: MapPin },
   { href: '/notion', label: 'Notion', icon: CheckSquare },

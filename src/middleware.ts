@@ -63,6 +63,9 @@ const PUBLIC_PATHS = [
   // account; the secret token in the URL is the access (src/lib/gbp-setup.ts).
   '/gbp-setup',
   '/api/public/gbp',
+  // A client's read-only onboarding status page: no Hub account; the signed
+  // token in the URL is the access (src/lib/tracker/token.ts).
+  '/status',
   // Address suggestions for the client onboarding form's Business Address box:
   // its visitors have no Hub login; the route answers only the form's origins
   // and rate-limits itself (src/app/api/public/address/route.ts).

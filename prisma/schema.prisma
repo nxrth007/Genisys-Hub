@@ -753,6 +753,7 @@ model Client {
 
   journeyStages ClientJourneyStage[]
   journeyEvents ClientJourneyEvent[]
+  tracker       ClientTracker?
   subaccountMatchSuggestions SubaccountMatchSuggestion[]
 }
 
@@ -2864,4 +2865,33 @@ model WhopSignupClaim {
   membershipId String   @id
   source       String
   claimedAt    DateTime @default(now())
+}
+
+/// DB copy of the "Client Onboarding Tracker" Google Sheet (src/lib/tracker):
+/// one row per client, the sheet's columns, and a status per step
+/// (pending | done). Changes are audited in ClientJourneyEvent with
+/// stage "tracker.<step>". publicTokenNonce is mixed into the client's
+/// signed status link; rotating it (or nulling it) revokes old links.
+model ClientTracker {
+  id                    String    @id @default(cuid())
+  clientId              String    @unique
+  client                Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientName            String?
+  business              String?
+  contactEmail          String?
+  startDate             String?
+  signupStatus          String    @default("pending")
+  intakeStatus          String    @default("pending")
+  automationsStatus     String    @default("pending")
+  a2pStatus             String    @default("pending")
+  tollFreeStatus        String    @default("pending")
+  /// Sheet columns the Hub doesn't model, header -> cell text.
+  extra                 Json?
+  /// hub | sheet: who created the row.
+  source                String    @default("hub")
+  sheetRow              Int?
+  sheetSyncedAt         DateTime?
+  publicTokenNonce      String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }

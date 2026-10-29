@@ -42,6 +42,11 @@ export function RootShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
+  if (pathname.startsWith('/status/')) {
+    // A client's public read-only onboarding status page: no Hub chrome.
+    return <>{children}</>
+  }
+
   if (pathname.startsWith('/gbp-setup/')) {
     // A client's public Google Business Profile setup page: no Hub chrome.
     return <>{children}</>
