@@ -15,6 +15,8 @@
  * #genisys-alerts, and can be retried from Settings → GHL sub-accounts.
  */
 import { prisma } from './prisma'
+import { advanceJourneyStage, blockJourneyStage, recordJourney, setJourneyStage } from './client-journey'
+import { getCrmProvider } from './crm/provider'
 import { hubAlert, hubLink } from './hub-alerts'
 import { STATE_CODE_TO_NAME } from './address'
 import { parseUsAddress } from './address-parse'
@@ -291,7 +293,12 @@ export async function provisionGhlSubAccountForNewClient(
 ): Promise<ProvisionResult> {
   try {
     const settings = await getGhlSubaccountSettings()
-    if (!settings.enabled) return { ok: false, status: 'skipped', reason: 'automation is off' }
+    if (!settings.enabled) {
+      await recordJourney(`subaccount waiting ${clientId}`, () =>
+        setJourneyStage(clientId, 'subaccount', 'in_progress', { note: 'Automatic creation is off — create the sub-account in GHL and link it.', actor: 'system' }),
+      )
+      return { ok: false, status: 'skipped', reason: 'automation is off' }
+    }
     if (receivedAt.getTime() < Date.parse(settings.since)) {
       return { ok: false, status: 'skipped', reason: 'submission is from before the automation was switched on' }
     }
@@ -365,7 +372,14 @@ export async function provisionGhlSubAccount(
   const input = buildLocationInput(client, intake, snapshotId)
   const hubUrl = hubLink(`/clients?focus=${client.id}`)
 
-  const fail = async (reason: string): Promise<ProvisionResult> => {
+  const fail = async (reason: string, opts: { blocked?: boolean } = {}): Promise<ProvisionResult> => {
+    // Plan / permission refusals block the journey stage; anything else
+    // stays in progress with the error noted. Never throws.
+    await recordJourney(`subaccount failure ${client.id}`, () =>
+      opts.blocked
+        ? blockJourneyStage(client.id, 'subaccount', reason, { actor: 'system' })
+        : setJourneyStage(client.id, 'subaccount', 'in_progress', { note: reason, actor: 'system' }),
+    )
     await prisma.client
       .update({ where: { id: client.id }, data: { ghlProvisionStatus: 'failed', ghlProvisionError: reason } })
       .catch((err) => console.error(`[ghl-subaccount] couldn't record failure for ${client.id}:`, err))
@@ -418,6 +432,9 @@ export async function provisionGhlSubAccount(
       await hubAlert(
         `:link: *GHL sub-account already existed* — linked *${existing.name}* to the client instead of creating another (the snapshot wasn't re-loaded). <${ghlLocationUrl(existing.id)}|Open in GHL> · <${hubUrl}|Open client>`,
       )
+      await recordJourney(`subaccount linked ${client.id}`, () =>
+        advanceJourneyStage(client.id, 'subaccount', { note: `Linked existing sub-account ${existing.id}`, actor: 'system' }),
+      )
       return { ok: true, status: 'linked', locationId: existing.id, name: existing.name }
     }
 
@@ -446,15 +463,19 @@ export async function provisionGhlSubAccount(
       void refreshSnapshotStatus(client.id, { alertOnFailure: true })
     }, SNAPSHOT_FOLLOW_UP_MS).unref?.()
 
+    await recordJourney(`subaccount created ${client.id}`, () =>
+      advanceJourneyStage(client.id, 'subaccount', { note: `Created sub-account ${id}`, actor: 'system' }),
+    )
     return { ok: true, status: 'created', locationId: id, name: input.name }
   } catch (err) {
     // The plan or the key refuses creation, so every later attempt would
     // be refused too: switch the automation off rather than keep asking.
-    if (err instanceof GhlAgencyError && (err.status === 401 || err.status === 403)) {
+    if (getCrmProvider().isPermissionError(err)) {
       const settings = await getGhlSubaccountSettings()
       if (settings.enabled) await updateGhlSubaccountSettings({ enabled: false })
       return await fail(
         `${describe(err)}${settings.enabled ? '\n*Automatic sub-account creation is now switched off* so it stops trying. Link the sub-account from the client card once it’s made by hand.' : ''}`,
+        { blocked: true },
       )
     }
     const unsure = !(err instanceof GhlAgencyError) || err.status === null || err.status >= 500
@@ -807,7 +828,7 @@ export function parseLocationId(raw: string): string | null {
  */
 export async function linkGhlSubAccount(
   clientId: string,
-  opts: { locationId?: string | null; replace?: boolean } = {},
+  opts: { locationId?: string | null; replace?: boolean; actor?: string | null } = {},
 ): Promise<LinkResult> {
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -863,6 +884,9 @@ export async function linkGhlSubAccount(
     })
     await hubAlert(
       `:link: *GHL sub-account linked* — *${found.name || expectedName}* is now ${client.name}'s${client.ghlLocationId ? ' (replacing the one linked before)' : ''}. <${ghlLocationUrl(found.id)}|Open in GHL> · <${hubLink(`/clients?focus=${client.id}`)}|Open client>`,
+    )
+    await recordJourney(`subaccount manual link ${client.id}`, () =>
+      advanceJourneyStage(client.id, 'subaccount', { note: `Linked by hand to GHL location ${found.id}`, actor: opts.actor ?? null }),
     )
     return { ok: true, status: 'linked', locationId: found.id, name: found.name || expectedName }
   } catch (err) {

@@ -8,6 +8,7 @@ import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 import { startGbpForNewIntake } from '@/lib/gbp-setup'
 import { onboardingText, textTeam } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { advanceJourneyStage, getJourney, recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { createAccountForClient } from '@/lib/hl/accounts'
 import { fillBrandFromSite } from '@/lib/hl/logo'
 
@@ -173,6 +174,13 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       onboardingText({ business: who, owner: data.fullName?.trim() || null, city: city || null, created, link: hubLink(`/clients?focus=${clientId}`) }),
       'Onboarding form',
     ).catch((err) => console.warn(`[client-onboarding] team text failed for ${clientId}:`, err))
+    // Journey (src/lib/client-journey.ts): an intake means sign-up is past and intake is done.
+    const journeyFor = clientId
+    void recordJourney(`intake ${journeyFor}`, async () => {
+      const j = await getJourney(journeyFor)
+      if (j.stages[0].status !== 'done') await setJourneyStage(journeyFor, 'signup', 'done', { note: 'Implied by intake form', actor: 'system' })
+      await advanceJourneyStage(journeyFor, 'intake', { note: `Intake ${intake.id} (${source})`, actor: 'system' })
+    })
     // Ethan's onboarding tracker: tick "Intake Form Completed" (adds the client's row if there isn't one yet).
     void markTrackerStep('intake', { emails: [data.leadEmail], business: who, name: data.fullName ?? null }, { addIfMissing: true })
       .then((r) => {
