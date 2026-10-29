@@ -69,6 +69,8 @@ const PUBLIC_PATHS = [
   '/api/public/address',
   // Client onboarding intake form posts here with a shared secret.
   '/api/webhooks/client-onboarding',
+  // Whop membership webhooks; the route verifies Whop's signature itself.
+  '/api/webhooks/whop',
   // Client sub-account workflows post form / chat leads here (?secret=).
   '/api/webhooks/ghl-lead',
   // Hell-level (src/lib/hl): what the public and Twilio reach. /hl serves the
