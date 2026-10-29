@@ -210,6 +210,13 @@ export function withExternalApi(
       const data = await handler(req, auth)
       return NextResponse.json({ ok: true, data }, { headers })
     } catch (err) {
+      const retry = (err as { retryAfterMs?: number } | null)?.retryAfterMs
+      if (typeof retry === 'number') {
+        return NextResponse.json(
+          { error: 'rate_limited' },
+          { status: 429, headers: { ...headers, 'retry-after': String(Math.ceil(retry / 1000)) } },
+        )
+      }
       console.error('[external-api]', req.nextUrl.pathname, err)
       return NextResponse.json(
         { error: 'internal_error' },
