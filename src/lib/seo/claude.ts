@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
-import { requireSecret } from './secrets'
+import { getSecret } from './secrets'
+import { buildClient, LlmKeyBlockedError, selectProvider, type LlmClient, type LlmConfig } from '@/lib/llm'
 import type { ClaudeUsage, ResearchResult } from './types'
 
 /**
@@ -31,6 +32,27 @@ const PRICES: Record<string, { in: number; out: number; w5m: number; w1h: number
   'claude-sonnet-5': { in: 2, out: 10, w5m: 2.5, w1h: 4, read: 0.2 },
 }
 const WEB_SEARCH_USD = 0.01
+/** Rough per-MTok prices for non-Anthropic providers (budget cap only). */
+const ALT_PRICES: Record<string, { in: number; out: number }> = {
+  'gpt-5-mini': { in: 0.25, out: 2 },
+  'gpt-5': { in: 1.25, out: 10 },
+  'grok-4-fast': { in: 0.2, out: 0.5 },
+  'grok-4': { in: 3, out: 15 },
+}
+const ALT_DEFAULT_PRICE = { in: 3, out: 15 }
+
+/** Vault/env LLM settings; key values stay in memory only. */
+export async function loadLlmConfig(): Promise<LlmConfig> {
+  const [provider, model, baseUrl, anthropic, openai, xai] = await Promise.all([
+    getSecret('llmProvider'),
+    getSecret('llmModel'),
+    getSecret('llmBaseUrl'),
+    getSecret('anthropic'),
+    getSecret('openai'),
+    getSecret('xai'),
+  ])
+  return { provider, model, baseUrl, keys: { anthropic, openai, xai } }
+}
 
 export class RefusalError extends Error {
   constructor(
@@ -59,23 +81,67 @@ export class ClaudeSession {
   readonly usage: ClaudeUsage
 
   private constructor(
-    private readonly client: Anthropic,
+    private readonly client: Anthropic | null,
     readonly model: string,
     private readonly budgetUsd: number,
     startingUsage: ClaudeUsage,
+    /** Set when the Vault's "LLM Provider" picks a non-Anthropic provider. */
+    private readonly alt: LlmClient | null = null,
   ) {
     this.usage = { ...startingUsage }
   }
 
-  static async open(o: { model: string; budgetUsd: number; usage?: ClaudeUsage | null }): Promise<ClaudeSession> {
+  static async open(o: { model: string; budgetUsd: number; usage?: ClaudeUsage | null; config?: LlmConfig }): Promise<ClaudeSession> {
+    const cfg = o.config ?? (await loadLlmConfig())
+    const sel = selectProvider(cfg)
+    if (sel.provider !== 'anthropic') {
+      // Throws LlmKeyBlockedError when the chosen provider has no key.
+      const alt = buildClient(cfg, o.model)
+      return new ClaudeSession(null, alt.model, o.budgetUsd, o.usage ?? emptyUsage(), alt)
+    }
+    // Default: today's behavior (Anthropic SDK, model from SEO settings unless "LLM Model" is set explicitly).
+    const apiKey = cfg.keys.anthropic
+    if (!apiKey) throw new LlmKeyBlockedError('anthropic', 'no Anthropic API key in the Vault ("Anthropic API Key") or ANTHROPIC_API_KEY')
     const client = new Anthropic({
-      apiKey: await requireSecret('anthropic'),
+      apiKey,
       // An ANTHROPIC_AUTH_TOKEN in the environment alongside a key is a 401.
       authToken: null,
       maxRetries: 3,
       timeout: 15 * 60_000,
     })
-    return new ClaudeSession(client, o.model, o.budgetUsd, o.usage ?? emptyUsage())
+    return new ClaudeSession(client, (sel.explicit && sel.model) || o.model, o.budgetUsd, o.usage ?? emptyUsage())
+  }
+
+  get provider(): string {
+    return this.alt?.provider ?? 'anthropic'
+  }
+
+  /** Non-Anthropic path: one plain completion with budget + usage accounting. */
+  private async altComplete(label: string, alt: LlmClient, req: Parameters<LlmClient['complete']>[0]) {
+    this.assertBudget(label)
+    let r
+    for (let attempt = 0; ; attempt++) {
+      try {
+        r = await alt.complete({ ...req, signal: AbortSignal.timeout(10 * 60_000) })
+        break
+      } catch (err) {
+        const status = (err as { status?: number }).status
+        if (err instanceof LlmKeyBlockedError) throw err
+        if (status !== undefined && status >= 400 && status < 500 && status !== 429 && status !== 408) {
+          throw new FatalClaudeError(`${alt.provider} API (${label}): ${err instanceof Error ? err.message : String(err)}`)
+        }
+        if (attempt >= 2) throw err
+        await new Promise((res) => setTimeout(res, Math.min(60_000, 5_000 * 2 ** attempt)))
+      }
+    }
+    const p = ALT_PRICES[r.model] ?? ALT_PRICES[alt.model] ?? ALT_DEFAULT_PRICE
+    this.usage.calls += 1
+    this.usage.inputTokens += r.usage.inputTokens
+    this.usage.outputTokens += r.usage.outputTokens
+    this.usage.costUsd = Math.round((this.usage.costUsd + (r.usage.inputTokens * p.in + r.usage.outputTokens * p.out) / 1e6) * 10_000) / 10_000
+    if (r.stopReason === 'refusal') throw new RefusalError(null, null)
+    if (r.stopReason === 'max_tokens') throw new TruncatedError(`The ${alt.provider} answer was cut off (max_tokens).`)
+    return r
   }
 
   get spentUsd(): number {
@@ -118,6 +184,7 @@ export class ClaudeSession {
     label: string,
     body: Omit<Anthropic.Beta.MessageCreateParamsNonStreaming, 'model' | 'betas' | 'fallbacks' | 'stream'>,
   ): Promise<Anthropic.Beta.BetaMessage> {
+    if (!this.client) throw new Error('No Anthropic client for this session.')
     this.assertBudget(label)
     for (let attempt = 0; ; attempt++) {
       try {
@@ -132,6 +199,16 @@ export class ClaudeSession {
         return message
       } catch (err) {
         if (!(err instanceof Anthropic.APIError) || err instanceof Anthropic.APIUserAbortError) throw err
+        const errText = `${err.message} ${JSON.stringify(err.error ?? '')}`
+        // Key refused / paused / out of credit: a blocked run, not a retry.
+        if (
+          err instanceof Anthropic.AuthenticationError ||
+          err instanceof Anthropic.PermissionDeniedError ||
+          err.status === 402 ||
+          (err instanceof Anthropic.BadRequestError && /credit balance|billing/i.test(errText))
+        ) {
+          throw new LlmKeyBlockedError('anthropic', `${err.status} from Anthropic (${label})`)
+        }
         if (
           err instanceof Anthropic.AuthenticationError ||
           err instanceof Anthropic.PermissionDeniedError ||
@@ -144,7 +221,7 @@ export class ClaudeSession {
         }
         const details = (err.error as { error?: { details?: { error_code?: string } } } | undefined)?.error?.details
         if (err instanceof Anthropic.RateLimitError && details?.error_code === 'enforced_spend_limit_reached') {
-          throw new FatalClaudeError('The Anthropic account hit its monthly spend limit.')
+          throw new LlmKeyBlockedError('anthropic', 'the Anthropic account hit its monthly spend limit')
         }
         const retryable =
           err instanceof Anthropic.RateLimitError ||
@@ -173,6 +250,16 @@ export class ClaudeSession {
     maxSearches: number
     maxFetches: number
   }): Promise<ResearchResult> {
+    if (this.alt) {
+      // No server-side web search on the OpenAI-compatible path: the model
+      // works from the site dossier and its own knowledge.
+      const r = await this.altComplete(o.label, this.alt, {
+        system: o.system,
+        messages: [{ role: 'user', content: `${o.context}\n\n${o.task}` }],
+        maxTokens: 16_000,
+      })
+      return { digest: r.text.trim(), sources: [], toolErrors: [`web research unavailable on ${this.alt.provider} — notes are from the site dossier only`] }
+    }
     const tools: Anthropic.Beta.BetaToolUnion[] = [
       {
         type: 'web_search_20260209',
@@ -231,6 +318,15 @@ export class ClaudeSession {
     effort: 'low' | 'medium' | 'high'
     maxTokens?: number
   }): Promise<T> {
+    if (this.alt) {
+      const r = await this.altComplete(o.label, this.alt, {
+        system: `${o.system}\n\nRespond with a single JSON object only, matching the provided schema.`,
+        messages: [{ role: 'user', content: `${o.context}\n\n${o.task}` }],
+        maxTokens: o.maxTokens ?? 32_000,
+        json: { schema: structuredSchema(o.schema), name: 'result' },
+      })
+      return parseJsonText(r.text, o.schema, this.alt.provider)
+    }
     const format = { type: 'json_schema' as const, schema: structuredSchema(o.schema) }
     const m = await this.stream(o.label, {
       max_tokens: o.maxTokens ?? 32_000,
@@ -379,4 +475,17 @@ function parseStructured<T>(m: Anthropic.Beta.BetaMessage, schema: z.ZodType<T>)
     }
   }
   throw new Error(`Claude returned output that doesn't match the expected shape (${lastIssue}).`)
+}
+
+function parseJsonText<T>(raw: string, schema: z.ZodType<T>, provider: string): T {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim()
+  let issue: string
+  try {
+    const parsed = schema.safeParse(JSON.parse(cleaned))
+    if (parsed.success) return parsed.data
+    issue = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+  } catch (err) {
+    issue = err instanceof Error ? err.message : 'invalid JSON'
+  }
+  throw new Error(`${provider} returned output that doesn't match the expected shape (${issue}).`)
 }

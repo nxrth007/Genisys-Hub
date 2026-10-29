@@ -75,6 +75,42 @@ const SPECS = {
     contains: ['lovable'],
     looksRight: (v) => v.startsWith('lov_'),
   },
+  // Alternative LLM providers (src/lib/llm). Unused unless "LLM Provider" says so.
+  openai: {
+    label: 'OpenAI API key',
+    exact: ['OpenAI API Key', 'OpenAI', 'OPENAI_API_KEY'],
+    contains: ['openai'],
+    looksRight: (v) => v.startsWith('sk-') && !v.startsWith('sk-ant-'),
+    env: 'OPENAI_API_KEY',
+  },
+  xai: {
+    label: 'xAI API key',
+    exact: ['xAI API Key', 'xAI', 'Grok API Key', 'XAI_API_KEY'],
+    contains: ['xai', 'grok'],
+    looksRight: (v) => v.startsWith('xai-'),
+    env: 'XAI_API_KEY',
+  },
+  llmProvider: {
+    label: 'LLM provider (anthropic | openai | xai)',
+    exact: ['LLM Provider'],
+    contains: [],
+    looksRight: (v) => /^(anthropic|claude|openai|gpt|xai|x\.ai|grok)$/i.test(v),
+    env: 'LLM_PROVIDER',
+  },
+  llmModel: {
+    label: 'LLM model name',
+    exact: ['LLM Model'],
+    contains: [],
+    looksRight: (v) => /^[\w.:\/-]{2,80}$/.test(v),
+    env: 'LLM_MODEL',
+  },
+  llmBaseUrl: {
+    label: 'LLM base URL (OpenAI-compatible)',
+    exact: ['LLM Base URL'],
+    contains: [],
+    looksRight: (v) => /^https:\/\//.test(v),
+    env: 'LLM_BASE_URL',
+  },
 } satisfies Record<string, Spec>
 
 export type SecretKind = keyof typeof SPECS
