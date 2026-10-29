@@ -174,6 +174,9 @@ export type SeoSiteSummary = {
 }
 
 export type SeoOverviewResponse = {
+  /** Global kill switch (env SEO_PAUSED or AppSetting seo.paused): nothing SEO runs while true. */
+  paused: boolean
+  pause: { paused: boolean; source: 'env' | 'setting' | null; pausedAt: string | null; pausedBy: string | null }
   integrations: SeoIntegrations
   settings: SeoSettings
   /** Next scheduled weekly run, or null when the schedule is off. */

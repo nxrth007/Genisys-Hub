@@ -39,6 +39,7 @@ import { maybeRunScheduledBulkCredentials } from './bulk-credentials-scheduled-r
 import { processPpaInvoicingForAllClients } from './ppa-invoicing'
 import { expireOldChatAttachments } from './chat-attachment-expiry'
 import { runSeoTick } from './seo/engine'
+import { seoPaused } from './seo/pause'
 import { maybeRunLovableGitWatch } from './seo/lovable-git-watch'
 import { maybeCheckStalePublishes, maybeRunSeoWatch } from './seo/site-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
@@ -426,34 +427,56 @@ export function initScheduler() {
     // schedule is due (off by default, set in the Hub), poll runs waiting on
     // a build or a publish, and advance one run. Fire-and-forget; the engine
     // shares one in-flight tick per process and leases each run in the DB.
-    void runSeoTick()
-      .then((r) => {
-        if (r.enqueued || r.failed) {
-          console.log(`[scheduler] seo: ${r.enqueued} enqueued, ${r.advanced} advanced, ${r.failed} failed`)
+    // Global SEO kill switch (SEO_PAUSED env or seo.paused AppSetting):
+    // skip every SEO job this tick; nothing is canceled or deleted.
+    void seoPaused()
+      .catch(() => false)
+      .then((paused) => {
+        if (paused) {
+          console.log('[scheduler] seo: automation paused — skipping SEO tick, watchers, publish check and sync heal')
+          return
         }
-      })
-      .catch((err) => console.error('[scheduler] seo tick failed:', err))
+        void runSeoTick()
+          .then((r) => {
+            if (r.enqueued || r.failed) {
+              console.log(`[scheduler] seo: ${r.enqueued} enqueued, ${r.advanced} advanced, ${r.failed} failed`)
+            }
+          })
+          .catch((err) => console.error('[scheduler] seo tick failed:', err))
 
-    // New Lovable projects -> GitHub: once a day from 13:00 UTC, flag the ones
-    // not connected yet and link the repos of the ones that are. Fire-and-forget.
-    void maybeRunLovableGitWatch()
-      .then((r) => {
-        if (r) {
-          console.log(
-            `[scheduler] lovable git watch: ${r.error ? `failed: ${r.error}` : r.started ? 'baseline taken' : `${r.newProjects} new, ${r.needsGithub} need GitHub, ${r.connected} connected, ${r.attached} linked`}`,
-          )
-        }
-      })
-      .catch((err) => console.error('[scheduler] lovable git watch failed:', err))
+        // New Lovable projects -> GitHub: once a day from 13:00 UTC, flag the ones
+        // not connected yet and link the repos of the ones that are. Fire-and-forget.
+        void maybeRunLovableGitWatch()
+          .then((r) => {
+            if (r) {
+              console.log(
+                `[scheduler] lovable git watch: ${r.error ? `failed: ${r.error}` : r.started ? 'baseline taken' : `${r.newProjects} new, ${r.needsGithub} need GitHub, ${r.connected} connected, ${r.attached} linked`}`,
+              )
+            }
+          })
+          .catch((err) => console.error('[scheduler] lovable git watch failed:', err))
 
-    // SEO site watch: once a day from 14:00 UTC, re-check every live site and
-    // its posts from the outside plus Search Console, and post one digest.
-    // Every half hour, alert once per merged run that still isn't live a day later.
-    void maybeRunSeoWatch()
-      .then((r) => {
-        if (r) console.log(`[scheduler] seo watch: ${r.sites} sites, ${r.problems.length} problems (${r.newCount} new)`)
+        // SEO site watch: once a day from 14:00 UTC, re-check every live site and
+        // its posts from the outside plus Search Console, and post one digest.
+        // Every half hour, alert once per merged run that still isn't live a day later.
+        void maybeRunSeoWatch()
+          .then((r) => {
+            if (r) console.log(`[scheduler] seo watch: ${r.sites} sites, ${r.problems.length} problems (${r.newCount} new)`)
+          })
+          .catch((err) => console.error('[scheduler] seo watch failed:', err))
+        // Lovable ↔ GitHub: nudge Lovable when it misses an engine merge, and merge
+        // edits it parked on lovable-sync back into main (every 10 min).
+        void maybeHealLovableSync()
+          .then((r) => {
+            if (r.nudged || r.merged || r.conflicts) console.log(`[scheduler] lovable sync: ${r.nudged} nudged, ${r.merged} merged, ${r.conflicts} conflict(s)`)
+          })
+          .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
+        void maybeCheckStalePublishes()
+          .then((n) => {
+            if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)
+          })
+          .catch((err) => console.error('[scheduler] seo publish check failed:', err))
       })
-      .catch((err) => console.error('[scheduler] seo watch failed:', err))
     // Google Business Profile: remind owners who were texted the verification
     // checklist and still haven't verified (every 3 days, daytime Eastern only).
     void maybeSendGbpReminders()
@@ -461,13 +484,6 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] google profile: ${n} verification reminder(s) texted`)
       })
       .catch((err) => console.error('[scheduler] google profile reminders failed:', err))
-    // Lovable ↔ GitHub: nudge Lovable when it misses an engine merge, and merge
-    // edits it parked on lovable-sync back into main (every 10 min).
-    void maybeHealLovableSync()
-      .then((r) => {
-        if (r.nudged || r.merged || r.conflicts) console.log(`[scheduler] lovable sync: ${r.nudged} nudged, ${r.merged} merged, ${r.conflicts} conflict(s)`)
-      })
-      .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
     // Whop: text Alex and Ethan about new memberships (checks every 5 min).
     void maybeAlertWhopSignups()
       .then((n) => {
@@ -542,11 +558,6 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} domain transfer(s) moved on`)
       })
       .catch((err) => console.error('[scheduler] hell-level domain check failed:', err))
-    void maybeCheckStalePublishes()
-      .then((n) => {
-        if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)
-      })
-      .catch((err) => console.error('[scheduler] seo publish check failed:', err))
 
     // County backfill (fire-and-forget) — drains existing appointments
     // missing a county a batch at a time. Concurrent with the rest of

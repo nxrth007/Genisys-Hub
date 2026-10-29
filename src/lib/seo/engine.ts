@@ -16,6 +16,7 @@ import {
   STAGES,
   type RunContext,
 } from './pipeline'
+import { SeoPausedError, seoPaused } from './pause'
 import { getSeoSettings, isoWeekLabel, zonedParts } from './settings'
 import { syncAllClientFacts } from './client-facts'
 import { advanceSearchConsole } from './gsc-connect'
@@ -71,6 +72,8 @@ export function runSeoTick(): Promise<TickResult> {
 
 async function tickSeoEngine(): Promise<TickResult> {
   const result: TickResult = { enqueued: 0, advanced: 0, failed: 0 }
+  // Global kill switch: no enqueue, no polling, no facts/LLM/GitHub calls.
+  if (await seoPaused()) return result
   result.enqueued = await enqueueWeeklyIfDue(new Date())
   await pollWaitingRuns()
   // Cheap, and never throws: connecting sites to Search Console happens between runs.
@@ -162,6 +165,7 @@ export async function enqueueWeeklyIfDue(now: Date): Promise<number> {
 
 /** Queue a run by hand ("Run now"). Manual runs never collide with the scheduled one. */
 export async function enqueueManualRun(siteId: string, kind: 'weekly' | 'foundation'): Promise<string> {
+  if (await seoPaused()) throw new SeoPausedError()
   const settings = await getSeoSettings()
   const active = await prisma.seoRun.findFirst({
     where: { siteId, kind, status: { in: ['queued', 'running', 'awaiting_ci', 'awaiting_review', 'awaiting_publish'] } },
@@ -201,6 +205,7 @@ async function claim(runId: string, now: Date): Promise<Date | null> {
 }
 
 async function processNextRun(): Promise<'idle' | 'advanced' | 'failed'> {
+  if (await seoPaused()) return 'idle'
   const now = new Date()
   const candidates = await prisma.seoRun.findMany({
     where: {
@@ -244,6 +249,11 @@ export async function driveRun(runId: string, lease: Date): Promise<'advanced' |
   try {
     ctx = await loadRunContext(runId, lease)
     if (!ctx) return 'failed'
+    if (await seoPaused()) {
+      // Paused: hand the run back untouched (same stage), resumable on unpause.
+      await ctx.save({ status: 'queued', leaseUntil: null })
+      return 'advanced'
+    }
     if (ctx.site.archivedAt) {
       ctx.log('engine', 'The site was archived — run canceled', 'warn')
       await ctx.save({ status: 'canceled', finishedAt: new Date(), leaseUntil: null })
@@ -257,6 +267,12 @@ export async function driveRun(runId: string, lease: Date): Promise<'advanced' |
     for (let guard = 0; guard < 12 && stage !== 'done'; guard++) {
       const fn = STAGES[stage]
       if (!fn) throw new FatalRunError(`Unknown stage "${stage}"`)
+      if (guard > 0 && (await seoPaused())) {
+        // Paused between stages: release the lease and park it at the next stage.
+        ctx.log('engine', 'SEO automation paused — run parked, resumes on unpause', 'warn')
+        await ctx.save({ status: 'queued', leaseUntil: null })
+        break
+      }
       await ctx.renewLease(LEASE_MS)
       const out = await fn(ctx)
       const waiting = out.status !== 'running'

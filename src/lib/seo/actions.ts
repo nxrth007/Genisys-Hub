@@ -4,6 +4,7 @@ import type { CreateSiteBody, RunActionBody, UpdateSiteBody } from './api-types'
 import { ClaudeSession } from './claude'
 import { fetchPage } from './crawl'
 import { enqueueManualRun } from './engine'
+import { SeoPausedError } from './pause'
 import { deleteBranch, getBranchHead, getPullRequest, getRepo } from './github'
 import { lovableChannel, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
@@ -233,6 +234,7 @@ export async function startRun(siteId: string, kind: 'weekly' | 'foundation'): P
   try {
     return await enqueueManualRun(siteId, kind)
   } catch (err) {
+    if (err instanceof SeoPausedError) throw err
     throw new SeoInputError(err instanceof Error ? err.message : 'Couldn’t start the run.')
   }
 }

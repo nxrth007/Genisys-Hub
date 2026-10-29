@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { canAccessSeo } from './access'
 import { SeoInputError } from './actions'
 import { runSeoTick } from './engine'
+import { SeoPausedError } from './pause'
 
 /** The signed-in user's email when they may use SEO, else a 403 response to return. */
 export async function seoGuard(): Promise<{ email: string } | NextResponse> {
@@ -13,6 +14,7 @@ export async function seoGuard(): Promise<{ email: string } | NextResponse> {
 }
 
 export function seoError(err: unknown, where: string): NextResponse {
+  if (err instanceof SeoPausedError) return NextResponse.json({ error: err.message, paused: true }, { status: 409 })
   if (err instanceof SeoInputError) return NextResponse.json({ error: err.message }, { status: 400 })
   console.error(`[seo] ${where} failed:`, err)
   return NextResponse.json({ error: err instanceof Error ? err.message : 'Something went wrong.' }, { status: 500 })
