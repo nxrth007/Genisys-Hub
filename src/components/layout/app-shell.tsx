@@ -13,13 +13,14 @@ import { MobileSidebar } from './mobile-sidebar'
  *
  * Mobile: thin top bar with a hamburger that opens the sidebar in a drawer.
  *
- * Home is the one full-bleed page: the globe owns the whole canvas, so
- * the content padding every other page relies on is dropped there.
+ * Home and Office are full-bleed: the globe / the isometric office own the
+ * whole canvas, so the content padding every other page relies on is
+ * dropped there.
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
-  const fullBleed = pathname === '/home'
+  const fullBleed = pathname === '/home' || pathname === '/office'
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
