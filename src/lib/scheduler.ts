@@ -13,6 +13,7 @@
  *     templates live in the RemindersConfig + ReminderTemplate tables.
  */
 import cron from 'node-cron'
+import { scanSubaccounts } from './subaccount-autolink'
 import { prisma } from './prisma'
 import { buildAndSendBrief, buildAndSendSmsBrief } from './morning-brief'
 import {
@@ -199,6 +200,10 @@ const COUNTY_BACKFILL_BATCH = 20
  * whitespace don't matter. An exact-match check would have meant typing
  * "On" left everything stopped with no indication why.
  */
+const SUBACCOUNT_AUTOLINK_ENABLED = ['on', 'true', '1', 'yes', 'enabled'].includes(
+  (process.env.SUBACCOUNT_AUTOLINK_ENABLED ?? '').trim().toLowerCase(),
+)
+
 const LEGACY_SOLAR_JOBS = ['on', 'true', '1', 'yes', 'enabled'].includes(
   (process.env.LEGACY_SOLAR_JOBS ?? '').trim().toLowerCase(),
 )
@@ -208,6 +213,24 @@ export function initScheduler() {
   initialized = true
 
   console.log('[scheduler] Starting cron jobs (every minute)')
+
+  // Hourly GHL sub-account auto-link scan. OFF unless
+  // SUBACCOUNT_AUTOLINK_ENABLED=1 so a deploy changes nothing by itself.
+  if (SUBACCOUNT_AUTOLINK_ENABLED) {
+    let autolinkInFlight = false
+    cron.schedule('17 * * * *', async () => {
+      if (autolinkInFlight) return
+      autolinkInFlight = true
+      try {
+        const r = await scanSubaccounts()
+        console.log(`[scheduler] sub-account scan: linked ${r.linked.length}, needs review ${r.needsReview.length}, failed ${r.failed.length}`)
+      } catch (err) {
+        console.error('[scheduler] sub-account scan failed:', err)
+      } finally {
+        autolinkInFlight = false
+      }
+    })
+  }
 
   // Tick every minute, check if any user's brief is due.
   cron.schedule('* * * * *', async () => {

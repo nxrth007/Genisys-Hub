@@ -753,6 +753,7 @@ model Client {
 
   journeyStages ClientJourneyStage[]
   journeyEvents ClientJourneyEvent[]
+  subaccountMatchSuggestions SubaccountMatchSuggestion[]
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
@@ -2836,4 +2837,23 @@ model ClientJourneyEvent {
   createdAt  DateTime @default(now())
 
   @@index([clientId, createdAt])
+}
+
+/// Sub-account auto-link scan (src/lib/subaccount-autolink.ts): pairs that
+/// need a human look or were rejected, so scans don't re-suggest them.
+/// status is needs_review | rejected.
+model SubaccountMatchSuggestion {
+  id           String   @id @default(cuid())
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  locationId   String
+  locationName String
+  score        Int
+  reasons      Json
+  status       String   @default("needs_review")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([clientId, locationId])
+  @@index([status])
 }

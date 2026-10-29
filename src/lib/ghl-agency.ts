@@ -154,14 +154,21 @@ export async function getAgencyContext(opts: { fresh?: boolean } = {}): Promise<
 // Sub-accounts (locations)
 // -------------------------------------------------------------------------
 
-export type AgencyLocation = { id: string; name: string }
+export type AgencyLocation = { id: string; name: string; phone?: string | null; email?: string | null }
 
 function toLocations(raw: unknown): AgencyLocation[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap((l) => {
     const r = l as Record<string, unknown>
     const id = typeof r.id === 'string' ? r.id : typeof r._id === 'string' ? r._id : null
-    return id ? [{ id, name: typeof r.name === 'string' ? r.name : '' }] : []
+    return id
+      ? [{
+          id,
+          name: typeof r.name === 'string' ? r.name : '',
+          phone: typeof r.phone === 'string' ? r.phone : null,
+          email: typeof r.email === 'string' ? r.email : null,
+        }]
+      : []
   })
 }
 
