@@ -126,3 +126,32 @@ export async function renderDeploys(opts: { deployId?: string; limit?: number } 
     log: pick ? { deploy: pick.id, status: pick.status, lines: await buildLog(key, service, pick) } : null,
   }
 }
+
+/**
+ * Search the Hub's runtime (app) logs for a substring over the last
+ * `minutes`. Read-only; the Render key never leaves the server and each
+ * line is passed through redactSecrets before it is returned.
+ */
+export async function searchRuntimeLogs(opts: { text: string; minutes: number; limit: number }) {
+  const { redactSecrets } = await import('@/lib/log-redact')
+  const key = await getSecretByName(RENDER_VAULT_NAME)
+  const service = await hubService(key)
+  const q = new URLSearchParams({
+    ownerId: service.ownerId,
+    resource: service.id,
+    type: 'app',
+    startTime: new Date(Date.now() - opts.minutes * 60_000).toISOString(),
+    endTime: new Date().toISOString(),
+    direction: 'backward',
+    limit: String(opts.limit),
+  })
+  if (opts.text) q.append('text', opts.text)
+  const r = await call<{ logs: { message: string; timestamp: string }[]; hasMore: boolean }>(key, `/logs?${q}`)
+  return {
+    service: service.name,
+    hasMore: r.hasMore,
+    lines: (r.logs ?? [])
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      .map((l) => ({ at: l.timestamp, message: redactSecrets(l.message).slice(0, 4000) })),
+  }
+}
