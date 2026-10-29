@@ -109,6 +109,46 @@ function initials(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
+/** Global kill switch: a loud banner while paused, and a Pause/Resume toggle. */
+function PausedBanner({ pause }: { pause: SeoOverviewResponse['pause'] | undefined }) {
+  const qc = useQueryClient()
+  const toggle = useMutation({
+    mutationFn: (paused: boolean) => seoFetch<{ pause: SeoOverviewResponse['pause'] }>('/api/seo/pause', { method: 'PATCH', body: { paused } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: seoKeys.overview }),
+  })
+  if (!pause) return null
+  if (!pause.paused) {
+    return (
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className={btnSecondary}
+          disabled={toggle.isPending}
+          onClick={() => {
+            if (window.confirm('Pause ALL SEO automation (runs, watchers, publishes) until you resume? Nothing is deleted.')) toggle.mutate(true)
+          }}
+        >
+          Pause all SEO automation
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <div>
+        <strong>SEO automation paused.</strong> No runs, watchers, syncs or publishes happen until it’s resumed. Nothing was canceled or deleted.
+        {pause.source === 'env' ? ' Paused by the SEO_PAUSED environment variable — unset it on Render to resume.' : pause.pausedBy ? ` Paused by ${pause.pausedBy}.` : ''}
+        {toggle.error instanceof Error ? ` ${toggle.error.message}` : ''}
+      </div>
+      {pause.source === 'setting' && (
+        <button type="button" className={btnSecondary} disabled={toggle.isPending} onClick={() => toggle.mutate(false)}>
+          Resume SEO automation
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function SeoDashboard({ gscNotice }: { gscNotice?: GscNotice }) {
   const router = useRouter()
   const now = useNow()
@@ -194,6 +234,7 @@ export function SeoDashboard({ gscNotice }: { gscNotice?: GscNotice }) {
         />
       ) : (
         <>
+          <PausedBanner pause={data.pause} />
           <Notice notice={notice} onClose={() => setNotice(null)} />
           <StatsRow sites={sites} spend={data.spend} />
           <Attention sites={sites} now={now} />

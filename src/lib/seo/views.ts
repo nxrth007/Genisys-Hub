@@ -1,3 +1,4 @@
+import { seoPauseState } from './pause'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import type {
@@ -474,7 +475,7 @@ export async function integrations(): Promise<SeoIntegrations> {
 }
 
 export async function overview(): Promise<SeoOverviewResponse> {
-  const [settings, sites, clients, integ] = await Promise.all([
+  const [settings, sites, clients, integ, pause] = await Promise.all([
     getSeoSettings(),
     prisma.seoSite.findMany({
       where: { archivedAt: null },
@@ -488,6 +489,7 @@ export async function overview(): Promise<SeoOverviewResponse> {
       orderBy: { name: 'asc' },
     }),
     integrations(),
+    seoPauseState(),
   ])
   const ids = sites.map((s) => s.id)
   const [latestRuns, counts, scores, spend, liveFoundations] = await Promise.all([
@@ -506,6 +508,8 @@ export async function overview(): Promise<SeoOverviewResponse> {
   ])
   const latestBySite = new Map(latestRuns.map((r) => [r.siteId, r]))
   return {
+    paused: pause.paused,
+    pause,
     integrations: integ,
     settings,
     nextRunAt: nextScheduledRun(settings, new Date()),

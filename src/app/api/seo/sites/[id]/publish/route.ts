@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { publishSiteNow } from '@/lib/seo/actions'
 import { seoError, seoGuard } from '@/lib/seo/http'
+import { assertSeoNotPaused } from '@/lib/seo/pause'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -14,6 +15,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   if (guard instanceof NextResponse) return guard
   const { id } = await params
   try {
+    await assertSeoNotPaused()
     return NextResponse.json(await publishSiteNow(id, guard.email))
   } catch (err) {
     return seoError(err, 'publish site')
