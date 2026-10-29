@@ -2857,3 +2857,11 @@ model SubaccountMatchSuggestion {
   @@unique([clientId, locationId])
   @@index([status])
 }
+
+/// One row per Whop membership already announced (webhook or 5-minute poll).
+/// The primary key is the lock: whoever inserts first announces; the other skips.
+model WhopSignupClaim {
+  membershipId String   @id
+  source       String
+  claimedAt    DateTime @default(now())
+}
