@@ -3,7 +3,7 @@ import type { NextConfig } from 'next'
 const nextConfig: NextConfig = {
   // Playwright is launched from the worker only, and it ships native
   // code the bundler must not try to pack.
-  serverExternalPackages: ['playwright', 'playwright-core'],
+  serverExternalPackages: ['playwright', 'playwright-core', 'imapflow'],
   // Removed `output: 'standalone'` — it conflicts with `next start` on Render
   // (Next.js 16 warns that standalone requires `node .next/standalone/server.js`
   // instead, which complicates env var passthrough). Standard mode works fine

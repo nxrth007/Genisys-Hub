@@ -25,6 +25,8 @@ export type PageSnap = {
   buttons: string[]
   texts: string[]
   links: { text: string; href: string }[]
+  /** Remember-device checkboxes, when the page has them. */
+  checks?: { text: string; checked: boolean }[]
   body: string
 }
 
@@ -34,6 +36,10 @@ export type BrowserAction =
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
   | { type: 'wait_otp'; channel: string }
+  | { type: 'fill_otp' }
+  | { type: 'press_enter' }
+  | { type: 'click_verify'; words: string[] }
+  | { type: 'remember' }
   | { type: 'pause' }
 
 export type DriveResult = {
@@ -42,6 +48,8 @@ export type DriveResult = {
   detail: string
   /** Create was clicked and GHL didn't confirm. Don't automatically try again. */
   uncertain: boolean
+  /** Left the login and the code page for the agency dashboard. */
+  reachedAgency?: boolean
 }
 
 export type DriveInput = {
@@ -58,7 +66,11 @@ export type RunState = {
   wentToList: boolean
   clickedNav: boolean
   loginPhase: 0 | 1 | 2 | 3
-  otpPhase: 0 | 1 | 2
+  otpPhase: number
+  rememberTicked: boolean
+  trustNote: string
+  /** Pauses after the code was typed, waiting to leave the code page. */
+  otpSettle: number
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -83,6 +95,9 @@ export function initialRunState(): RunState {
     clickedNav: false,
     loginPhase: 0,
     otpPhase: 0,
+    rememberTicked: false,
+    trustNote: '',
+    otpSettle: 0,
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -108,6 +123,34 @@ const PICK_KEYS = ['country', 'state', 'timezone'] as const
 
 export function norm(s: string | null | undefined): string {
   return (s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return url.split('?')[0] || url
+  }
+}
+
+/** The agency app, not the login interstitial whose query string mentions sub-accounts. */
+export function isAgencyHome(snap: PageSnap): boolean {
+  if (isLogin(snap) || isOtp(snap) || isSecurityCodeGate(snap)) return false
+  return /agency_dashboard|\/sub-accounts|\/accounts/.test(pathOf(snap.url))
+}
+
+function rememberChoice(snap: PageSnap): { text: string; checked: boolean } | undefined {
+  return (snap.checks || []).find((c) => /remember|trust this device|trusted device|don.?t ask|do not ask/.test(norm(c.text)))
+}
+
+/** Button and input labels for a failed code page. Digit codes are blanked out. */
+export function pageDiagnostics(snap: PageSnap): string {
+  const redact = (s: string) => s.replace(/\b\d{4,8}\b/g, '••••')
+  const buttons = snap.buttons.slice(0, 25).join(' | ') || '(none)'
+  const inputs = snap.fields.slice(0, 15).map((f) => [f.tag, f.type, f.key || '', redact(f.text || '')].filter(Boolean).join(' ')).join('; ') || '(none)'
+  const checks = (snap.checks || []).map((c) => `${c.text}${c.checked ? ' (checked)' : ''}`).join(' | ')
+  const body = redact(snap.body || '').slice(0, 400)
+  return [`url: ${snap.url}`, `buttons: ${buttons}`, `inputs: ${inputs}`, checks ? `checks: ${checks}` : '', `text: ${body}`].filter(Boolean).join('\n')
 }
 
 export function locationIdFromUrl(url: string): string | null {
@@ -279,17 +322,30 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     if (isOtp(snap)) {
       const channel = s.codeChannel || securityCodeChannel(snap)
       if (s.otpPhase === 0 && !input.hasOtp) return act({ ...s, codeChannel: channel }, { type: 'wait_otp', channel })
-      if (s.otpPhase === 0) {
-        return act({ ...s, otpPhase: 1, codeChannel: channel }, { type: 'fill', key: 'otp', words: input.labels.otp })
+      const box = rememberChoice(snap)
+      if (!s.rememberTicked && box && !box.checked) {
+        const days = box.text.match(/(\d+)\s*days/i)?.[1]
+        const note = days
+          ? `GHL’s checkbox says this browser stays trusted for ${days} days.`
+          : 'A remember-this-device box was ticked. HighLevel’s login has commonly kept that trust for 30 days; this page did not state a number.'
+        return act({ ...s, rememberTicked: true, trustNote: note, codeChannel: channel }, { type: 'remember' })
       }
-      if (s.otpPhase === 1) {
-        return act({ ...s, otpPhase: 2 }, { type: 'click', words: input.labels.verify, exact: true })
+      if (s.otpPhase < 2) {
+        return act({ ...s, otpPhase: 2, codeChannel: channel, rememberTicked: true }, { type: 'fill_otp' })
       }
+      // GHL often submits itself once every digit box is filled. Give that a moment.
+      if (s.otpPhase === 2) return act({ ...s, otpPhase: 3, stalls: 0 }, { type: 'pause' })
+      if (s.otpPhase === 3) return act({ ...s, otpPhase: 4 }, { type: 'press_enter' })
+      if (s.otpPhase === 4) return act({ ...s, otpPhase: 5, stalls: 0 }, { type: 'pause' })
+      if (s.otpPhase === 5) {
+        return act({ ...s, otpPhase: 6 }, { type: 'click_verify', words: input.labels.verify ?? ['Verify', 'Confirm Code', 'Login', 'Sign in'] })
+      }
+      if (s.otpSettle < 4) return act({ ...s, otpSettle: s.otpSettle + 1, stalls: 0 }, { type: 'pause' })
       return done(s, {
         status: 'needs_human',
         locationId: null,
         uncertain: false,
-        detail: 'GHL asked for a verification code and did not accept the one that was entered. Send a fresh code and retry.',
+        detail: `The security code was typed but the page did not leave the code screen, so it was not accepted.\n${pageDiagnostics(snap)}`,
       })
     }
 
@@ -478,12 +534,20 @@ export async function driveUntil(
   let otpAlerted = false
   let otpPolls = 0
   let steps = 0
+  let reachedAgency = false
+  let lastSnap: PageSnap | null = null
+  const finish = (result: DriveResult): DriveResult => {
+    const detail = state.trustNote && !result.detail.includes(state.trustNote) ? `${result.detail}\n${state.trustNote}` : result.detail
+    return { ...result, detail, ...(reachedAgency ? { reachedAgency: true } : {}) }
+  }
 
   while (steps < maxSteps) {
     const snap = await io.snapshot()
+    lastSnap = snap
+    if (isAgencyHome(snap)) reachedAgency = true
     const step = nextGhlAction(snap, current, state)
     state = step.state
-    if (step.kind === 'done') return step.result
+    if (step.kind === 'done') return finish(step.result)
     if (step.action.type === 'wait_otp') {
       const channel = step.action.channel
       const where = channel ? ` GHL is sending it by ${channel}.` : ''
@@ -496,12 +560,12 @@ export async function driveUntil(
       }
       otpPolls += 1
       if ((otpStarted !== null && now() - otpStarted >= otpBudget) || otpPolls >= OTP_POLL_CAP) {
-        return {
+        return finish({
           status: 'needs_human',
           locationId: null,
           uncertain: false,
-          detail: `GHL asked for a security code${channel ? ` (${channel})` : ''} and none was entered within 12 minutes, so the page was closed. A retry sends a new code. The login session was saved.`,
-        }
+          detail: `GHL asked for a security code${channel ? ` (${channel})` : ''} and none was entered within 12 minutes, so the page was closed. A retry sends a new code. The login session was saved.${lastSnap ? `\n${pageDiagnostics(lastSnap)}` : ''}`,
+        })
       }
       const code = await io.pullOtp(2000)
       if (code) current = { ...current, hasOtp: true }
@@ -525,15 +589,26 @@ export async function driveUntil(
         if (!state.missing.includes(key)) state = { ...state, missing: [...state.missing, key] }
         continue
       }
+      if (step.action.type === 'fill_otp') {
+        return finish({
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `Could not type the security code. ${message}${lastSnap ? `\n${pageDiagnostics(lastSnap)}` : ''}`,
+        })
+      }
+      if (step.action.type === 'click_verify' || step.action.type === 'press_enter' || step.action.type === 'remember') {
+        continue
+      }
       throw err
     }
   }
-  return {
+  return finish({
     status: 'failed',
     locationId: null,
     uncertain: state.submitted,
     detail: state.submitted
       ? 'Timed out after clicking Create. Check GHL before retrying — it may have gone through.'
       : 'Timed out before the form was finished. The GHL page may have changed or the session was stuck.',
-  }
+  })
 }

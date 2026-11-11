@@ -45,6 +45,7 @@ const session = loadTs(join(dir, 'session.ts'))
 const plan = loadTs(join(dir, 'plan.ts'))
 const pageSource = loadTs(join(dir, 'page-source.ts'))
 const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
+const otpMail = loadTs(join(dir, 'otp-mail.ts'))
 
 const {
   workerEnabled,
@@ -60,7 +61,7 @@ const { browserFieldsFromLocation, readBrowserFields } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
-const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl } = plan
+const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome } = plan
 
 function env(overrides) {
   return overrides
@@ -362,9 +363,13 @@ test('a code that arrives while the prompt is up gets typed', async () => {
     { now: () => now },
   )
   assert.equal(prompted.length, 1)
-  assert.equal(actions.some((a) => a.type === 'fill' && a.key === 'otp'), true)
+  assert.equal(actions.some((a) => a.type === 'fill_otp'), true)
+  assert.equal(actions.some((a) => a.type === 'press_enter'), true)
+  assert.equal(actions.some((a) => a.type === 'click_verify'), true)
   assert.equal(result.status, 'needs_human')
-  assert.match(result.detail, /did not accept/)
+  assert.match(result.detail, /did not leave the code screen/)
+  assert.match(result.detail, /buttons:/)
+  assert.doesNotMatch(result.detail, /654321/)
 })
 
 test('bundled Chromium libraries are prepended, and the launch stays small', () => {
@@ -446,4 +451,79 @@ test('the in-page script is plain JavaScript with no host imports', () => {
   assert.equal(typeof fn, 'function')
   assert.equal(pageSource.GHL_PAGE_SOURCE.includes('require('), false)
   assert.equal(pageSource.GHL_PAGE_SOURCE.includes('process.env'), false)
+})
+
+test('a remember-this-device box is ticked before the code is typed', () => {
+  const page = snap({
+    url: 'https://app.gohighlevel.com/login/verify',
+    fields: [{ key: 'otp', tag: 'input', type: 'text', value: '', text: 'code' }],
+    checks: [{ text: 'Remember this device for 30 days', checked: false }],
+    body: 'enter the verification code',
+  })
+  const step = nextGhlAction(page, { ...input('create'), hasOtp: true }, initialRunState())
+  assert.equal(step.action.type, 'remember')
+  assert.match(step.state.trustNote, /30 days/)
+  const typed = nextGhlAction(page, { ...input('create'), hasOtp: true }, step.state)
+  assert.equal(typed.action.type, 'fill_otp')
+})
+
+test('the login interstitial is not treated as the agency dashboard', () => {
+  const interstitial = snap({
+    url: 'https://app.gohighlevel.com/?url=%252Fsub-accounts%252Faccounts',
+    buttons: ['send security code'],
+    body: 'send security code to continue',
+  })
+  assert.equal(isAgencyHome(interstitial), false)
+  const home = snap({ url: 'https://app.gohighlevel.com/sub-accounts', body: 'accounts' })
+  assert.equal(isAgencyHome(home), true)
+})
+
+test('code-page diagnostics blank out digit codes', () => {
+  const text = pageDiagnostics(snap({
+    url: 'https://app.gohighlevel.com/login/verify',
+    buttons: ['Confirm Code'],
+    fields: [{ key: 'otp', tag: 'input', type: 'text', value: '', text: 'code 654321' }],
+    body: 'the code 654321 was not accepted',
+  }))
+  assert.match(text, /Confirm Code/)
+  assert.doesNotMatch(text, /654321/)
+})
+
+test('only a HighLevel security-code email after Send is used', () => {
+  const { extractSecurityCode, isHighLevelSecurityMail, pickSecurityCode, imapSettings } = otpMail
+  assert.equal(extractSecurityCode('Your security code is 654321'), '654321')
+  assert.equal(extractSecurityCode('Hello from the team'), null)
+  assert.equal(isHighLevelSecurityMail('HighLevel <noreply@gohighlevel.com>', 'Your security code', '654321'), true)
+  assert.equal(isHighLevelSecurityMail('Ethan <ethan@leadgenisys.com>', 'security code', '654321'), false)
+  assert.equal(isHighLevelSecurityMail('noreply@gohighlevel.com', 'Your November newsletter', 'new features'), false)
+  const sent = new Date('2026-11-11T22:07:00.000Z')
+  const code = pickSecurityCode(
+    [
+      {
+        from: 'noreply@gohighlevel.com',
+        subject: 'Your security code',
+        body: 'Your security code is 111111',
+        receivedAt: new Date('2026-11-11T22:06:00.000Z'),
+      },
+      {
+        from: 'billing@example.com',
+        subject: 'Invoice 222222',
+        body: 'amount due',
+        receivedAt: new Date('2026-11-11T22:08:00.000Z'),
+      },
+      {
+        from: 'HighLevel <noreply@leadconnectorhq.com>',
+        subject: 'Login code',
+        body: 'Your login code is 654321',
+        receivedAt: new Date('2026-11-11T22:07:20.000Z'),
+      },
+    ],
+    sent,
+  )
+  assert.equal(code, '654321')
+  assert.equal(imapSettings({}), null)
+  assert.equal(
+    imapSettings({ GHL_OTP_IMAP_HOST: 'imap.gmail.com', GHL_OTP_IMAP_USER: 'ethan@leadgenisys.com', GHL_OTP_IMAP_PASSWORD: 'app-password' }).port,
+    993,
+  )
 })

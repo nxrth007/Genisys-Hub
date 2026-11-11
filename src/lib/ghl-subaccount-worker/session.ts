@@ -1,8 +1,9 @@
 /**
  * The GHL browser session (Playwright storageState) and a one-time
- * verification code, encrypted with the same VAULT_MASTER_KEY as the
- * Vault. Cookies are credentials; they don't sit in plaintext in
- * AppSetting.
+ * verification code. Both are encrypted with VAULT_MASTER_KEY and
+ * stored in Postgres AppSetting (`ghlSubaccountWorker.session` and
+ * `ghlSubaccountWorker.otp`). Render has no persistent disk, so the
+ * cookies are not written to a file.
  */
 import { decryptSecret, encryptSecret } from '@/lib/crypto'
 

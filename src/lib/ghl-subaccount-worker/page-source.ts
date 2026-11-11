@@ -160,8 +160,10 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     var seen = {}
     var bnodes = collect('button, a, [role="button"]')
     for (var b = 0; b < bnodes.length; b++) {
-      var bt = textOf(bnodes[b])
-      if (!seen[bt]) { seen[bt] = 1; buttons.push(bt) }
+      var bt = textOf(bnodes[b]) || norm(bnodes[b].getAttribute('aria-label') || bnodes[b].getAttribute('title') || '')
+      if (!bt || seen[bt]) continue
+      seen[bt] = 1
+      buttons.push(bt)
     }
     var texts = []
     var tseen = {}
@@ -178,9 +180,27 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
       if (!lt || lt.length > 80) continue
       links.push({ text: lt, href: anchors[a].href || '' })
     }
+    var checks = []
+    var cboxes = document.querySelectorAll('input[type=checkbox], [role=checkbox]')
+    for (var c = 0; c < cboxes.length && checks.length < 12; c++) {
+      var box = cboxes[c]
+      if (!visible(box) && box.getAttribute('role') !== 'checkbox') continue
+      var clabel = ''
+      if (box.id) {
+        var clab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(box.id) : box.id) + '"]')
+        if (clab) clabel = textOf(clab)
+      }
+      if (!clabel && box.closest) {
+        var cwrap = box.closest('label')
+        if (cwrap) clabel = textOf(cwrap)
+      }
+      if (!clabel && box.parentElement) clabel = textOf(box.parentElement)
+      if (!clabel) continue
+      checks.push({ text: clabel, checked: !!(box.checked || box.getAttribute('aria-checked') === 'true') })
+    }
     var body = ''
     try { body = String((document.body && document.body.innerText) || '').slice(0, 2500).toLowerCase() } catch (e) { body = '' }
-    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, body: body }
+    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, checks: checks, body: body }
   }
   if (cmd.op === 'snapshot') return snapshot()
   if (cmd.op === 'fill' || cmd.op === 'pick') {
@@ -215,6 +235,107 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     var btn = clickable(target)
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The control is disabled' }
     btn.click()
+    return { ok: true }
+  }
+  function typeInto(el, value) {
+    el.focus()
+    setValue(el, value)
+    try {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true }))
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: value, bubbles: true }))
+    } catch (e) {}
+  }
+  function digitBoxes() {
+    var inputs = inputsOf()
+    var boxes = []
+    for (var i = 0; i < inputs.length; i++) {
+      var el = inputs[i]
+      if (!visible(el)) continue
+      var type = (el.type || '').toLowerCase()
+      if (type === 'hidden' || type === 'checkbox' || type === 'radio' || type === 'password' || type === 'submit') continue
+      if (el.getAttribute('maxlength') === '1' || el.maxLength === 1) boxes.push(el)
+    }
+    return boxes
+  }
+  if (cmd.op === 'fillOtp') {
+    var code = String(cmd.value || '')
+    var boxes = digitBoxes()
+    if (boxes.length >= 4 && code.length >= 4 && boxes.length >= code.length) {
+      for (var d = 0; d < code.length; d++) typeInto(boxes[d], code.charAt(d))
+      return { ok: true, mode: 'boxes' }
+    }
+    var one = fieldFor((labels.otp || []), 'otp')
+    if (!one) {
+      var inputs = inputsOf()
+      for (var j = 0; j < inputs.length; j++) {
+        var cand = inputs[j]
+        if (!visible(cand)) continue
+        var ct = (cand.type || '').toLowerCase()
+        if (ct === 'hidden' || ct === 'checkbox' || ct === 'radio' || ct === 'password') continue
+        one = cand
+        break
+      }
+    }
+    if (!one) return { ok: false, error: 'No code box on the page' }
+    typeInto(one, code)
+    return { ok: true, mode: 'single' }
+  }
+  if (cmd.op === 'pressEnter') {
+    var active = document.activeElement || document.body
+    try {
+      active.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }))
+      active.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }))
+    } catch (e) {}
+    if (active && active.form && active.form.requestSubmit) {
+      try { active.form.requestSubmit() } catch (e2) {}
+    }
+    return { ok: true }
+  }
+  if (cmd.op === 'remember') {
+    var nodes = document.querySelectorAll('input[type=checkbox], [role=checkbox]')
+    for (var r = 0; r < nodes.length; r++) {
+      var box = nodes[r]
+      var label = ''
+      if (box.id) {
+        var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(box.id) : box.id) + '"]')
+        if (lab) label = textOf(lab)
+      }
+      if (!label && box.closest) {
+        var wrap = box.closest('label')
+        if (wrap) label = textOf(wrap)
+      }
+      if (!label && box.parentElement) label = textOf(box.parentElement)
+      if (!/remember|trust this device|trusted device|don.t ask|do not ask/.test(label)) continue
+      var on = box.checked || box.getAttribute('aria-checked') === 'true'
+      if (!on) clickable(box).click()
+      var days = (label.match(/(\\d+)\\s*days/) || [])[1] || ''
+      return { ok: true, ticked: true, label: label, days: days }
+    }
+    return { ok: true, ticked: false }
+  }
+  if (cmd.op === 'clickVerify') {
+    var words = cmd.words || []
+    var target = findByText(words, false)
+    if (!target) {
+      var submits = document.querySelectorAll('button, input[type=submit], [role=button]')
+      for (var s = 0; s < submits.length; s++) {
+        if (!visible(submits[s])) continue
+        var aria = norm(submits[s].getAttribute('aria-label') || submits[s].getAttribute('title') || '')
+        var labelText = textOf(submits[s])
+        var hit = submits[s].getAttribute('type') === 'submit' && !labelText
+        for (var w = 0; w < words.length && !hit; w++) {
+          var want = norm(words[w])
+          if (!want) continue
+          if (labelText && (labelText === want || labelText.indexOf(want) !== -1)) hit = true
+          if (aria && (aria === want || aria.indexOf(want) !== -1)) hit = true
+        }
+        if (hit) { target = submits[s]; break }
+      }
+    }
+    if (!target) return { ok: false, error: 'No verify button' }
+    var submitBtn = clickable(target)
+    if (submitBtn.disabled || submitBtn.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The control is disabled' }
+    submitBtn.click()
     return { ok: true }
   }
   return { ok: false, error: 'Unknown action' }

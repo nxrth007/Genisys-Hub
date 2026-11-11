@@ -74,6 +74,20 @@ async function snapshotPage(page: Page, labels: GhlLabels): Promise<PageSnap> {
   return { ...EMPTY_SNAP, url: page.url() }
 }
 
+async function runAcrossFrames(page: Page, cmd: Record<string, unknown>): Promise<{ ok?: boolean; error?: string } | null> {
+  let last: { ok?: boolean; error?: string } | null = null
+  for (const frame of page.frames()) {
+    try {
+      const res = await runCommand(frame, cmd)
+      if (res?.ok) return res
+      if (res) last = res
+    } catch (err) {
+      last = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+  return last
+}
+
 async function performAction(
   page: Page,
   action: BrowserAction,
@@ -90,7 +104,29 @@ async function performAction(
     await sleep(800, signal)
     return
   }
-  if (action.type === 'wait_otp') return
+  if (action.type === 'wait_otp' || action.type === 'press_enter') {
+    if (action.type === 'press_enter') {
+      await runAcrossFrames(page, { op: 'pressEnter', labels })
+    }
+    return
+  }
+  if (action.type === 'remember') {
+    await runAcrossFrames(page, { op: 'remember', labels })
+    await sleep(300, signal)
+    return
+  }
+  if (action.type === 'fill_otp') {
+    const cmd = { op: 'fillOtp', value: secrets.otp, labels }
+    const res = await runAcrossFrames(page, cmd)
+    if (!res?.ok) throw new Error(res?.error || 'No code box on the page')
+    await sleep(400, signal)
+    return
+  }
+  if (action.type === 'click_verify') {
+    await runAcrossFrames(page, { op: 'clickVerify', words: action.words, labels })
+    await sleep(900, signal)
+    return
+  }
 
   const value =
     action.type === 'fill' && action.key === 'password'
