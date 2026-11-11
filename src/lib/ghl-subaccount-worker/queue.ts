@@ -38,6 +38,7 @@ import {
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
 import { ghlLabels } from './labels'
+import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
 import { openString, sealString } from './session'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
@@ -504,6 +505,8 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   const mode = workerMode()
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), JOB_TIMEOUT_MS)
+  let codeSentAt = 0
+  let lastImapAt = 0
   try {
     const result = await runCreateInBrowser({
       fields: ready,
@@ -517,9 +520,26 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       signal: ac.signal,
       pullOtp: async (ms) => {
         await extendLease(14 * 60 * 1000).catch(() => {})
-        return pollOtp(job.clientId, ms)
+        const pasted = await pollOtp(job.clientId, 0)
+        if (pasted) return pasted
+        const started = codeSentAt || Date.now()
+        if (imapSettings() && Date.now() - started < 3 * 60 * 1000 && Date.now() - lastImapAt >= 8_000) {
+          lastImapAt = Date.now()
+          try {
+            const mailed = await fetchLatestSecurityCode(new Date(started))
+            if (mailed) return mailed
+          } catch (err) {
+            console.warn(
+              '[ghl-subaccount-worker] inbox read failed; waiting for a pasted code:',
+              err instanceof Error ? err.message : err,
+            )
+          }
+        }
+        if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms))
+        return null
       },
       onOtpPrompt: async (detail) => {
+        if (!codeSentAt) codeSentAt = Date.now()
         await extendLease(14 * 60 * 1000).catch(() => {})
         await saveJob(id, lease, { detail }).catch((err) => {
           if (!(err instanceof LeaseLost)) console.warn('[ghl-subaccount-worker] could not record the code wait:', err)
@@ -528,7 +548,16 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         await hubAlert(`:key: *GHL wants a verification code* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
       },
     })
-    if (result.storageState) await saveSession(result.storageState).catch((err) => console.warn('[ghl-subaccount-worker] session save:', err))
+    if (result.storageState) {
+      await saveSession(result.storageState).catch((err) => console.warn('[ghl-subaccount-worker] session save:', err))
+      if (result.reachedAgency) {
+        await appendLog(
+          id,
+          lease,
+          'Refreshed the saved GHL browser session in Postgres after the agency dashboard loaded. The cookies live in the database, not on disk.',
+        ).catch(() => {})
+      }
+    }
 
     if (result.status === 'created' || result.status === 'already') {
       const linked = await linkGhlSubAccount(job.clientId, {
