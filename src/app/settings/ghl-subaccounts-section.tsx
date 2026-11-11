@@ -58,6 +58,20 @@ export function GhlSubaccountsSection() {
     retry: (count, err) => !(err instanceof ForbiddenError) && count < 2,
   })
 
+  const workerLive = useQuery({
+    queryKey: ['ghl-subaccount-worker'],
+    queryFn: async () =>
+      readJson<{
+        alerts?: { channel: string; ok: boolean | null; detail: string | null }
+        jobs?: Array<{ id: string; clientId: string; clientName: string; status: string; detail: string | null }>
+      }>(await fetch('/api/admin/ghl-subaccount-worker')),
+    enabled: !(config.error instanceof ForbiddenError),
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs ?? []
+      return jobs.some((j) => j.status === 'running' || j.status === 'needs_human') ? 4000 : false
+    },
+  })
+
   const update = useMutation({
     mutationFn: async (patch: { enabled?: boolean; snapshotId?: string }) =>
       readJson(
@@ -123,8 +137,11 @@ export function GhlSubaccountsSection() {
       setOtp('')
       setOtpNotice({
         ok: !!r.ok,
-        text: r.ok ? `Code sent${r.requeued ? ` — ${r.requeued} waiting job${r.requeued === 1 ? '' : 's'} queued again` : ''}.` : r.reason || 'Could not send the code.',
+        text: r.ok
+          ? 'Code sent. If the browser is still on the code page, it types it now. If that page already closed, press Retry — GHL will send a new code.'
+          : r.reason || 'Could not send the code.',
       })
+      qc.invalidateQueries({ queryKey: ['ghl-subaccount-worker'] })
     },
     onError: (err) => setOtpNotice({ ok: false, text: (err as Error).message }),
   })
@@ -134,6 +151,10 @@ export function GhlSubaccountsSection() {
   const settings = config.data?.settings
   const enabled = !!settings?.enabled
   const workerOn = !!config.data?.worker?.enabled
+  const alerts = workerLive.data?.alerts
+  const codeJobs = (workerLive.data?.jobs ?? []).filter(
+    (j) => (j.status === 'running' || j.status === 'needs_human') && /code|otp|security|verification/i.test(j.detail || ''),
+  )
   const snapshotValue = snapshotDraft ?? settings?.snapshotId ?? ''
   const snapshotDirty = snapshotDraft !== null && snapshotDraft.trim() !== settings?.snapshotId
 
@@ -159,7 +180,7 @@ export function GhlSubaccountsSection() {
             When a new onboarding submission becomes a new client, a sub-account is created in the GHL agency
             — named like <span className="font-medium text-foreground/90">Randy: J&amp;R Painting</span> — with
             the snapshot below loaded, and linked on the client. Uses the <code>GHL Agency Key</code> from the
-            Vault. Clients from earlier submissions are never touched; results post to #genisys-alerts.
+            Vault. Clients from earlier submissions are never touched; results post to #{alerts?.channel || 'genisys-alerts'} (<code>HUB_ALERT_CHANNEL</code>).
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             Agency Unlimited can&apos;t create sub-accounts by API. The browser worker does it from the dashboard
@@ -173,6 +194,31 @@ export function GhlSubaccountsSection() {
           </p>
         </div>
       </div>
+
+      {alerts?.ok === false && (
+        <div className="mt-4 rounded-lg border border-warning/40 bg-warning/15 px-4 py-3 text-sm text-foreground">
+          <p className="font-medium">Slack alerts are not getting through</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            #{alerts.channel} {alerts.detail || 'could not be posted to'}. Set <code>HUB_ALERT_CHANNEL</code> to a channel the Slack bot is in.
+            Until then, a verification code shows here.
+          </p>
+        </div>
+      )}
+
+      {codeJobs.length > 0 && (
+        <div className="mt-4 rounded-lg border border-warning/40 bg-warning/15 px-4 py-3 text-sm">
+          <p className="font-medium">GoHighLevel is waiting for a security code</p>
+          <ul className="mt-2 space-y-2">
+            {codeJobs.map((j) => (
+              <li key={j.id}>
+                <span className="font-medium">{j.clientName}</span>
+                <span className="ml-2 rounded bg-warning/20 px-1.5 py-0.5 text-[11px] font-semibold">{j.status === 'running' ? 'page still open' : 'needs a person'}</span>
+                {j.detail && <p className="mt-1 text-xs text-muted-foreground">{j.detail}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {config.isError && (
         <Notice ok={false}>Couldn&apos;t load: {(config.error as Error).message}</Notice>
@@ -250,12 +296,14 @@ export function GhlSubaccountsSection() {
 
       {check && <CheckResult check={check} onUseSnapshot={(id) => update.mutate({ snapshotId: id })} />}
 
-      {workerOn && (
+      {(workerOn || codeJobs.length > 0) && (
         <div className="mt-4 rounded-lg border border-border bg-background px-4 py-3">
           <p className="text-sm font-medium">GHL verification code</p>
           <p className="text-xs text-muted-foreground">
-            If a job stops for a login code, paste it here. The browser waits about three minutes, and a code sent
-            after that queues the job again. Slack (#genisys-alerts) is pinged when one is needed.
+            When GHL shows “Send security code”, the worker clicks it and keeps that page open for 12 minutes.
+            Paste the code here (or POST <code>{'{"otp":"..."}'}</code> to the worker webhook). The browser types it
+            and then saves the login so the next job can skip this. If the 12 minutes already passed, press Retry —
+            that sends a new code.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <input

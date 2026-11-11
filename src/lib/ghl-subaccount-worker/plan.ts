@@ -33,7 +33,7 @@ export type BrowserAction =
   | { type: 'click'; words: string[]; exact?: boolean }
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
-  | { type: 'wait_otp' }
+  | { type: 'wait_otp'; channel: string }
   | { type: 'pause' }
 
 export type DriveResult = {
@@ -59,6 +59,12 @@ export type RunState = {
   clickedNav: boolean
   loginPhase: 0 | 1 | 2 | 3
   otpPhase: 0 | 1 | 2
+  /** Email was chosen when GHL offered email and phone. */
+  codeMethodChosen: boolean
+  /** "Send security code" was clicked; waiting for the box. */
+  codeSent: boolean
+  codeChannel: string
+  codeSendWaits: number
   searched: boolean
   openedCreate: boolean
   openedAdd: boolean
@@ -77,6 +83,10 @@ export function initialRunState(): RunState {
     clickedNav: false,
     loginPhase: 0,
     otpPhase: 0,
+    codeMethodChosen: false,
+    codeSent: false,
+    codeChannel: '',
+    codeSendWaits: 0,
     searched: false,
     openedCreate: false,
     openedAdd: false,
@@ -124,8 +134,51 @@ export function isLogin(snap: PageSnap): boolean {
 export function isOtp(snap: PageSnap): boolean {
   if (isLogin(snap)) return false
   if (snap.fields.some((f) => f.key === 'otp')) return true
-  return /verification code|two-factor|two factor|authenticator|one-time code|one time code|enter the code|6-digit/.test(snap.body)
+  // The interstitial's only control is "Send security code". That is not the entry box.
+  if (isSecurityCodeGate(snap)) return false
+  return /verification code|security code|two-factor|two factor|authenticator|one-time code|one time code|enter the code|6-digit/.test(snap.body)
     && snap.fields.some((f) => f.type === 'text' || f.type === 'tel' || f.type === 'number' || f.tag === 'input')
+}
+
+/**
+ * After the password, GHL often shows a page whose only button is
+ * "Send security code" (sometimes with an email/phone choice) before
+ * the code box exists. The live dry run stopped here.
+ */
+export function isSecurityCodeGate(snap: PageSnap): boolean {
+  if (snap.fields.some((f) => f.key === 'password' || f.type === 'password')) return false
+  if (snap.fields.some((f) => f.key === 'name')) return false
+  return snap.buttons.some((b) => /send security code|^send code$/.test(norm(b)))
+}
+
+/** Where the code is going, from the words on the page. Empty-ish if GHL didn't say. */
+export function securityCodeChannel(snap: PageSnap): string {
+  const body = snap.body || ''
+  const buttons = snap.buttons.map(norm)
+  const emailAddr = body.match(/[a-z0-9][a-z0-9.*+_]*@[a-z0-9.*]+\.[a-z]{2,}/i)?.[0]
+  const phone = body.match(/(?:\+?\d[\d\s().*-]{6,}\d)/)?.[0]
+  const emailBtn = buttons.some((b) => b === 'email' || b === 'email me')
+  const phoneBtn = buttons.some((b) => b === 'sms' || b === 'text' || b === 'phone' || b === 'text message' || b.includes('text message'))
+  const emailBody = /\bemail\b/.test(body)
+  const phoneBody = /\b(text message|sms|phone)\b/.test(body) || (/\btext\b/.test(body) && !/context/.test(body))
+  if ((emailBody || emailBtn) && (phoneBody || phoneBtn)) {
+    return emailAddr
+      ? `email (${emailAddr}); a text option was also on the page`
+      : 'email (a text option was also on the page)'
+  }
+  if (emailAddr && (emailBody || emailBtn || !phoneBody)) return `email (${emailAddr})`
+  if (emailBody || emailBtn) return 'email'
+  if (phone && (phoneBody || phoneBtn)) return `text message (${phone.trim()})`
+  if (phoneBody || phoneBtn) return 'text message'
+  return 'the login’s email or phone (the page did not say which)'
+}
+
+function codeMethods(snap: PageSnap): { email: boolean; phone: boolean } {
+  const buttons = snap.buttons.map(norm)
+  return {
+    email: buttons.some((b) => b === 'email' || b === 'email me'),
+    phone: buttons.some((b) => b === 'sms' || b === 'text' || b === 'phone' || b === 'text message' || b.includes('text message')),
+  }
 }
 
 function onForm(snap: PageSnap): boolean {
@@ -224,9 +277,10 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     }
 
     if (isOtp(snap)) {
-      if (s.otpPhase === 0 && !input.hasOtp) return act(s, { type: 'wait_otp' })
+      const channel = s.codeChannel || securityCodeChannel(snap)
+      if (s.otpPhase === 0 && !input.hasOtp) return act({ ...s, codeChannel: channel }, { type: 'wait_otp', channel })
       if (s.otpPhase === 0) {
-        return act({ ...s, otpPhase: 1 }, { type: 'fill', key: 'otp', words: input.labels.otp })
+        return act({ ...s, otpPhase: 1, codeChannel: channel }, { type: 'fill', key: 'otp', words: input.labels.otp })
       }
       if (s.otpPhase === 1) {
         return act({ ...s, otpPhase: 2 }, { type: 'click', words: input.labels.verify, exact: true })
@@ -237,6 +291,32 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
         uncertain: false,
         detail: 'GHL asked for a verification code and did not accept the one that was entered. Send a fresh code and retry.',
       })
+    }
+
+    if (isSecurityCodeGate(snap)) {
+      const channel = securityCodeChannel(snap)
+      const methods = codeMethods(snap)
+      if (!s.codeMethodChosen && methods.email && methods.phone) {
+        return act(
+          { ...s, codeMethodChosen: true, codeChannel: channel.includes('email') ? channel : 'email' },
+          { type: 'click', words: ['Email'], exact: true },
+        )
+      }
+      if (!s.codeSent) {
+        return act(
+          { ...s, codeSent: true, codeMethodChosen: true, codeChannel: s.codeChannel || channel },
+          { type: 'click', words: input.labels.sendSecurityCode ?? ['Send security code', 'Send code'] },
+        )
+      }
+      if (s.codeSendWaits >= 8) {
+        return done(s, {
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `Clicked “Send security code” (${s.codeChannel || channel}) but the code box never appeared. Check that button on the GHL page, or set GHL_SUBACCOUNT_WORKER_LABELS.`,
+        })
+      }
+      return act({ ...s, codeSendWaits: s.codeSendWaits + 1, stalls: 0 }, { type: 'pause' })
     }
 
     const formOpen = onForm(snap)
@@ -373,8 +453,11 @@ export type PageIo = {
   onOtpPrompt(detail: string): Promise<void>
 }
 
+export const OTP_WAIT_MS = 12 * 60 * 1000
 const DEFAULT_MAX_STEPS = 48
-const DEFAULT_OTP_BUDGET_MS = 3 * 60 * 1000
+const DEFAULT_OTP_BUDGET_MS = OTP_WAIT_MS
+/** Fuse if pullOtp returns immediately. 12 minutes at 2s per poll is 360. */
+const OTP_POLL_CAP = 450
 
 /**
  * Drive one create until it finishes. `pullOtp` is asked while a
@@ -402,20 +485,22 @@ export async function driveUntil(
     state = step.state
     if (step.kind === 'done') return step.result
     if (step.action.type === 'wait_otp') {
+      const channel = step.action.channel
+      const where = channel ? ` GHL is sending it by ${channel}.` : ''
       if (!otpAlerted) {
         otpAlerted = true
         otpStarted = now()
         await io.onOtpPrompt(
-          `GHL is asking for a verification code for ${input.fields.name}. Paste it in Settings → GHL sub-accounts, or POST {"otp":"..."} to the worker webhook. The page stays open for about 3 minutes.`,
+          `Waiting for a GHL security code for ${input.fields.name}.${where} Paste it in Settings → GHL sub-accounts, or POST {"otp":"..."} to /api/webhooks/ghl-subaccount-worker. The page stays open for 12 minutes.`,
         )
       }
       otpPolls += 1
-      if ((otpStarted !== null && now() - otpStarted >= otpBudget) || otpPolls >= 100) {
+      if ((otpStarted !== null && now() - otpStarted >= otpBudget) || otpPolls >= OTP_POLL_CAP) {
         return {
           status: 'needs_human',
           locationId: null,
           uncertain: false,
-          detail: 'GHL asked for a verification code and none arrived within 3 minutes. Send the code and the job will resume; the browser session was kept.',
+          detail: `GHL asked for a security code${channel ? ` (${channel})` : ''} and none was entered within 12 minutes, so the page was closed. A retry sends a new code. The login session was saved.`,
         }
       }
       const code = await io.pullOtp(2000)
