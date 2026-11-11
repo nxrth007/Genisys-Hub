@@ -5,6 +5,7 @@
  * Even then the worker fills the form and stops (dry_run) until
  * GHL_SUBACCOUNT_WORKER_MODE=create. A second process can enqueue
  * while this one stays out of Chromium: set GHL_SUBACCOUNT_WORKER_RUN=0.
+ * The normal setup is the opposite: this Hub process runs the one browser.
  */
 
 const ON = ['on', 'true', '1', 'yes', 'enabled']

@@ -4,10 +4,14 @@
  * action the planner asked for. Tests never import it.
  */
 import type { Browser, BrowserContext, Frame, Page } from 'playwright'
+import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
 import { driveUntil, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
+
+/** One Chromium at a time. A second launch would sit on top of the Hub's memory. */
+let browserOpen = false
 
 export type BrowserRunOptions = {
   fields: BrowserFields
@@ -141,6 +145,9 @@ function parseStorage(raw: string | null): unknown {
 
 export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<BrowserRunResult> {
   if (opts.signal?.aborted) throw new Error('The job ran out of time.')
+  if (browserOpen) throw new Error('A browser is already open. The worker runs one Chromium at a time and closes it when the job finishes.')
+  browserOpen = true
+  prepareChromiumEnv()
   const pw = (await import('playwright')) as typeof import('playwright')
   let browser: Browser | null = null
   let context: BrowserContext | null = null
@@ -149,7 +156,7 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
     browser = await pw.chromium.launch({
       headless: opts.headless,
       executablePath: opts.executablePath || undefined,
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      args: chromiumLaunchArgs(),
     })
     const onAbort = () => {
       void browser?.close().catch(() => {})
@@ -196,5 +203,6 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
   } finally {
     await context?.close().catch(() => {})
     await browser?.close().catch(() => {})
+    browserOpen = false
   }
 }

@@ -43,6 +43,7 @@ const trigger = loadTs(join(dir, 'trigger.ts'))
 const session = loadTs(join(dir, 'session.ts'))
 const plan = loadTs(join(dir, 'plan.ts'))
 const pageSource = loadTs(join(dir, 'page-source.ts'))
+const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 
 const {
   workerEnabled,
@@ -363,6 +364,26 @@ test('a code that arrives while the prompt is up gets typed', async () => {
   assert.equal(actions.some((a) => a.type === 'fill' && a.key === 'otp'), true)
   assert.equal(result.status, 'needs_human')
   assert.match(result.detail, /did not accept/)
+})
+
+test('bundled Chromium libraries are prepended, and the launch stays small', () => {
+  const { prependLibraryPath, missingBundledSonames, chromiumLaunchArgs, systemChromium, prepareChromiumEnv } = chromiumHost
+  assert.equal(prependLibraryPath(undefined, []), undefined)
+  assert.equal(prependLibraryPath('/usr/lib', ['/app/.chromium-libs/usr/lib']), '/app/.chromium-libs/usr/lib:/usr/lib')
+  assert.equal(prependLibraryPath('/app/.chromium-libs/usr/lib', ['/app/.chromium-libs/usr/lib']), '/app/.chromium-libs/usr/lib')
+  assert.deepEqual(missingBundledSonames(['libc.so.6', 'libnss3.so'], new Set()), ['libnss3.so'])
+  assert.deepEqual(missingBundledSonames(['libnss3.so'], new Set(['libnss3.so'])), [])
+  assert.ok(chromiumLaunchArgs().includes('--disable-dev-shm-usage'))
+  assert.ok(chromiumLaunchArgs().includes('--renderer-process-limit=1'))
+  assert.equal(systemChromium({}), false)
+  assert.equal(systemChromium({ GHL_SUBACCOUNT_CHROMIUM: 'system' }), true)
+  const env = {}
+  prepareChromiumEnv('/tmp/does-not-exist-chromium-libs', env)
+  assert.equal(env.PLAYWRIGHT_BROWSERS_PATH, '0')
+  assert.equal(env.LD_LIBRARY_PATH, undefined)
+  const system = { GHL_SUBACCOUNT_CHROMIUM: 'system' }
+  prepareChromiumEnv(process.cwd(), system)
+  assert.equal(system.PLAYWRIGHT_BROWSERS_PATH, undefined)
 })
 
 test('the in-page script is plain JavaScript with no host imports', () => {

@@ -1,13 +1,11 @@
-# Browser worker for GHL sub-account creation.
+# Optional fallback. The Hub web service (native Node, 1c-2g) runs the
+# browser itself. Use this image only if that service runs out of its
+# 2 GB while a job is open.
 #
-# Render → New → Background Worker → Docker, point the Dockerfile at
-# this file, and set the env vars in .env.example (the GHL_SUBACCOUNT_*
-# block). The image tag matches the `playwright` dependency so Chromium
-# and the driver are the same version.
-#
-# Do not set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD on this service. Set
-# GHL_SUBACCOUNT_WORKER_RUN=0 on the Hub web service so only this
-# process drives the browser.
+# Render → New → Background Worker → Docker. Set
+# GHL_SUBACCOUNT_CHROMIUM=system (this image already has the libraries)
+# and GHL_SUBACCOUNT_WORKER_RUN=0 on the web service.
+# The image tag matches the `playwright` dependency.
 FROM mcr.microsoft.com/playwright:v1.65.0-noble
 
 WORKDIR /app
@@ -18,6 +16,7 @@ RUN npm ci --include=dev
 COPY . .
 RUN npx prisma generate
 ENV NODE_ENV=production
+ENV GHL_SUBACCOUNT_CHROMIUM=system
 # Left off here on purpose. Set GHL_SUBACCOUNT_WORKER_ENABLED=1 on the
 # service when you want it to log in. MODE stays dry_run until you set
 # GHL_SUBACCOUNT_WORKER_MODE=create.

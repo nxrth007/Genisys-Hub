@@ -550,7 +550,7 @@ async function executeClaimed(id: string, lease: Date): Promise<string> {
     console.error(`[ghl-subaccount-worker] ${job.clientId} attempt ${attempts}:`, message)
     if (environmentFailure(message) || attempts >= MAX_ATTEMPTS) {
       const detail = environmentFailure(message)
-        ? `The browser didn't start: ${message}. On Render this process needs Playwright's Chromium (see the worker Dockerfile) and about 2 GB of RAM.`
+        ? `The browser didn't start: ${message}. The Hub build should run node scripts/install-render-chromium.mjs (Playwright's Chromium plus the Debian libraries it needs). A Docker worker is only the fallback.`
         : `Gave up after ${attempts} tries: ${message}`
       await saveJob(id, lease, { status: 'failed', leaseUntil: null, lastError: detail, detail, finishedAt: new Date() }).catch(() => {})
       await markClient(job.clientId, 'failed', detail)

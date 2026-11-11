@@ -13,13 +13,17 @@ services:
   - type: web
     name: genisys-hub
     runtime: node
-    plan: starter # $7/mo — 512MB RAM, always on. Upgrade later if needed.
+    # Live service is already 1c-2g (1 CPU, 2 GB). Do not set this back to
+    # starter: that plan is 512 MB and cannot hold Chromium next to the Hub.
+    plan: 1c-2g
     region: oregon
     branch: main
     # NODE_ENV=production tells npm to skip devDependencies by default, but
     # Next.js + Prisma + Tailwind need their build-time tools. `--include=dev`
     # overrides that just for install, without affecting runtime behavior.
-    buildCommand: npm install --include=dev && npm run build && npx prisma migrate deploy
+    # The extra node script unpacks Playwright's Chromium and the Debian 12
+    # libraries it needs. Native Node cannot apt-get those libraries.
+    buildCommand: npm install --include=dev && node scripts/install-render-chromium.mjs && npm run build && npx prisma migrate deploy
     startCommand: npm run start
     healthCheckPath: /api/health
     envVars:
@@ -51,21 +55,24 @@ services:
         value: "+18772573649"
       - key: ANTHROPIC_API_KEY
         sync: false
-      # The browser worker is off until GHL_SUBACCOUNT_WORKER_ENABLED=1.
-      # Skip the Chromium download on this web service; a separate worker
-      # (docker/ghl-subaccount-worker.Dockerfile) installs it. Running the
-      # browser in this service means dropping this variable, installing
-      # Chromium in the build, and moving off the 512MB starter plan.
+      # Don't let npm install pull Firefox and WebKit. The build script
+      # installs Chromium into node_modules (PLAYWRIGHT_BROWSERS_PATH=0).
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
         value: "1"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"
+      # Leave unset (off) until you are ready. Do not put a value here:
+      # a blueprint sync would overwrite the switch you set in the dashboard.
+      - key: GHL_SUBACCOUNT_WORKER_ENABLED
+        sync: false
 
-# Optional second service, not created by this file: a background worker
-# that runs docker/ghl-subaccount-worker.Dockerfile. Give it the same
-# DATABASE_URL, VAULT_MASTER_KEY and GHL login as the web service, set
-# GHL_SUBACCOUNT_WORKER_ENABLED=1, and set GHL_SUBACCOUNT_WORKER_RUN=0
-# on the web service so only one process opens Chromium. Standard (2 GB)
-# is the smallest plan that holds Chromium comfortably. Leave MODE as
-# dry_run until a rehearsal looks right, then set MODE=create.
+# Optional fallback, not created by this file: a Docker background worker
+# from docker/ghl-subaccount-worker.Dockerfile, only if a job makes this
+# service run out of its 2 GB. Give it the same DATABASE_URL and
+# VAULT_MASTER_KEY, set GHL_SUBACCOUNT_CHROMIUM=system and
+# GHL_SUBACCOUNT_WORKER_ENABLED=1 there, and set
+# GHL_SUBACCOUNT_WORKER_RUN=0 on this web service so Chromium is not
+# opened twice. That second service is extra cost. The default is not to.
 
 databases:
   - name: genisys-hub-db
