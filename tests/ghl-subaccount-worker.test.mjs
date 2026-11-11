@@ -405,6 +405,42 @@ test('chromium install does nothing off Render, and nothing when the worker is o
   assert.match(system.stdout, /system/)
 })
 
+test('a Send security code page is the 2FA step, not a missing form', () => {
+  const gate = snap({
+    url: 'https://app.gohighlevel.com/?url=%252Fsub-accounts%252Faccounts',
+    buttons: ['Send security code'],
+    body: 'we will email a security code to a***@leadgenisys.com',
+  })
+  const step = nextGhlAction(gate, input('create'), initialRunState())
+  assert.equal(step.kind, 'action')
+  assert.equal(step.action.type, 'click')
+  assert.ok(step.action.words.some((w) => /send security code/i.test(w)))
+  assert.match(step.state.codeChannel, /email/)
+  const waiting = nextGhlAction(gate, input('create'), step.state)
+  assert.equal(waiting.action.type, 'pause')
+  const box = snap({
+    url: gate.url,
+    buttons: [],
+    fields: [{ key: 'otp', tag: 'input', type: 'text', value: '', text: 'security code' }],
+    body: 'enter the security code emailed to a***@leadgenisys.com',
+  })
+  const otp = nextGhlAction(box, input('create'), waiting.state)
+  assert.equal(otp.action.type, 'wait_otp')
+  assert.match(otp.action.channel, /email/)
+})
+
+test('email is chosen when GHL offers email and text', () => {
+  const gate = snap({
+    url: 'https://app.gohighlevel.com/login/verify',
+    buttons: ['Email', 'Text message', 'Send security code'],
+    body: 'choose how to receive your security code',
+  })
+  const step = nextGhlAction(gate, input('create'), initialRunState())
+  assert.equal(step.action.type, 'click')
+  assert.deepEqual(step.action.words, ['Email'])
+  assert.equal(step.action.exact, true)
+})
+
 test('the in-page script is plain JavaScript with no host imports', () => {
   const fn = new Function(`return (${pageSource.GHL_PAGE_SOURCE})`)()
   assert.equal(typeof fn, 'function')

@@ -43,8 +43,8 @@ import { openString, sealString } from './session'
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const SESSION_KEY = 'ghlSubaccountWorker.session'
 const OTP_KEY = 'ghlSubaccountWorker.otp'
-const LEASE_MS = 8 * 60 * 1000
-const JOB_TIMEOUT_MS = 7 * 60 * 1000
+const LEASE_MS = 20 * 60 * 1000
+const JOB_TIMEOUT_MS = 18 * 60 * 1000
 const ACTOR = 'ghl-subaccount-worker'
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -428,7 +428,18 @@ async function markClient(clientId: string, status: string, error: string | null
   }).catch((err) => console.error(`[ghl-subaccount-worker] client status ${clientId}:`, err))
 }
 
-async function executeClaimed(id: string, lease: Date): Promise<string> {
+async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
+  let lease = claimedLease
+  const extendLease = async (ms: number) => {
+    const next = new Date(Date.now() + ms)
+    if (next.getTime() <= lease.getTime()) return
+    const res = await prisma.ghlSubaccountJob.updateMany({
+      where: { id, leaseUntil: lease },
+      data: { leaseUntil: next },
+    })
+    if (res.count === 0) throw new LeaseLost()
+    lease = next
+  }
   const job = await prisma.ghlSubaccountJob.findFirst({
     where: { id, leaseUntil: lease },
     include: { client: { select: { id: true, name: true, ghlLocationId: true } } },
@@ -504,8 +515,16 @@ async function executeClaimed(id: string, lease: Date): Promise<string> {
       headless: workerHeadless(),
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined,
       signal: ac.signal,
-      pullOtp: (ms) => pollOtp(job.clientId, ms),
+      pullOtp: async (ms) => {
+        await extendLease(14 * 60 * 1000).catch(() => {})
+        return pollOtp(job.clientId, ms)
+      },
       onOtpPrompt: async (detail) => {
+        await extendLease(14 * 60 * 1000).catch(() => {})
+        await saveJob(id, lease, { detail }).catch((err) => {
+          if (!(err instanceof LeaseLost)) console.warn('[ghl-subaccount-worker] could not record the code wait:', err)
+        })
+        await markClient(job.clientId, 'creating', detail)
         await hubAlert(`:key: *GHL wants a verification code* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
       },
     })

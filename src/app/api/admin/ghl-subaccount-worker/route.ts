@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { hubAlertDelivery } from '@/lib/hub-alerts'
 import { recentWorkerJobs, submitWorkerOtp, workerCutoff, workerPublicStatus } from '@/lib/ghl-subaccount-worker/queue'
 
 /**
@@ -12,13 +13,15 @@ import { recentWorkerJobs, submitWorkerOtp, workerCutoff, workerPublicStatus } f
 export async function GET() {
   const denial = await requireAdmin()
   if (denial) return denial
-  const [jobs, since] = await Promise.all([
+  const [jobs, since, alerts] = await Promise.all([
     recentWorkerJobs(),
     workerPublicStatus().enabled ? workerCutoff().catch(() => null) : Promise.resolve(null),
+    hubAlertDelivery(),
   ])
   return NextResponse.json({
     worker: workerPublicStatus(),
     since: since?.toISOString() ?? null,
+    alerts,
     jobs,
   })
 }

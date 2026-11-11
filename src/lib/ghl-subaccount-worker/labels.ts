@@ -32,6 +32,7 @@ export const DEFAULT_GHL_LABELS: GhlLabels = {
   signIn: ['Sign in', 'Sign In', 'Log in', 'Login'],
   verify: ['Verify', 'Continue', 'Confirm', 'Submit'],
   submit: ['Create', 'Save', 'Add'],
+  sendSecurityCode: ['Send security code', 'Send code'],
 }
 
 export function ghlLabels(overrideJson?: string | null): GhlLabels {
