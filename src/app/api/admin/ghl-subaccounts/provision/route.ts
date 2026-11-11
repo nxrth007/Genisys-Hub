@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { workerEnabled } from '@/lib/ghl-subaccount-worker/config'
+import { enqueueClient } from '@/lib/ghl-subaccount-worker/queue'
 import { provisionGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 
 /**
@@ -25,6 +27,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'clientId is required' }, { status: 400 })
   }
 
+  // Agency Unlimited can't create by API. When the browser worker is on,
+  // Retry queues that instead of a call GHL will refuse.
+  if (workerEnabled()) {
+    const result = await enqueueClient(body.clientId, { trigger: 'manual', force: true })
+    return NextResponse.json(result, { status: result.ok || result.status === 'skipped' ? 200 : 502 })
+  }
   const result = await provisionGhlSubAccount(body.clientId, { manual: true })
   return NextResponse.json(result, { status: result.ok || result.status === 'skipped' ? 200 : 502 })
 }

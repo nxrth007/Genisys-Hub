@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma'
 import { looksLikePhoneNumber, promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
 import { provisionGhlSubAccountForNewClient } from '@/lib/ghl-subaccount-provisioning'
+import { workerEnabled } from '@/lib/ghl-subaccount-worker/config'
+import { enqueueGhlSubaccountForNewClient } from '@/lib/ghl-subaccount-worker/queue'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
@@ -215,9 +217,17 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // linked to a client on file already has (or deliberately lacks) one.
     if (created) {
       const timeKnown = !!data.receivedAt || source === 'webhook'
-      void provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
-        if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
-      })
+      // The browser worker replaces the API create, which Agency Unlimited refuses.
+      if (workerEnabled()) {
+        void enqueueGhlSubaccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
+          if (!r.ok) console.log(`[client-onboarding] GHL browser job for ${id} skipped: ${r.reason}`)
+          else console.log(`[client-onboarding] GHL browser job for ${id} ${r.status}`)
+        })
+      } else {
+        void provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
+          if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
+        })
+      }
     }
   } else {
     const why =

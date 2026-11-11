@@ -10,7 +10,8 @@ import type {
   GhlSubaccountSettings,
 } from '@/lib/ghl-subaccount-provisioning'
 
-type ConfigResponse = { settings: GhlSubaccountSettings; recent: GhlProvisionRow[] }
+type WorkerStatus = { enabled: boolean; runsBrowser: boolean; mode: 'dry_run' | 'create'; headless: boolean; dashboard: string }
+type ConfigResponse = { settings: GhlSubaccountSettings; recent: GhlProvisionRow[]; worker?: WorkerStatus }
 
 class ForbiddenError extends Error {}
 
@@ -47,6 +48,9 @@ export function GhlSubaccountsSection() {
   const [snapshotDraft, setSnapshotDraft] = useState<string | null>(null)
   const [check, setCheck] = useState<GhlConnectionCheck | null>(null)
   const [retryNotice, setRetryNotice] = useState<{ ok: boolean; text: string } | null>(null)
+  const [otp, setOtp] = useState('')
+  const [otpClient, setOtpClient] = useState('')
+  const [otpNotice, setOtpNotice] = useState<{ ok: boolean; text: string } | null>(null)
 
   const config = useQuery<ConfigResponse>({
     queryKey: ['ghl-subaccounts'],
@@ -90,7 +94,15 @@ export function GhlSubaccountsSection() {
     onSuccess: (r) => {
       setRetryNotice(
         r.ok
-          ? { ok: true, text: `${r.status === 'linked' ? 'Linked' : 'Created'} “${r.name}”.` }
+          ? {
+              ok: true,
+              text:
+                r.status === 'queued'
+                  ? `Queued “${r.name}” for the browser worker.`
+                  : r.status === 'already'
+                    ? `“${r.name}” is already queued or done.`
+                    : `${r.status === 'linked' ? 'Linked' : 'Created'} “${r.name}”.`,
+            }
           : { ok: false, text: r.reason || 'Retry failed.' },
       )
       qc.invalidateQueries({ queryKey: ['ghl-subaccounts'] })
@@ -98,10 +110,30 @@ export function GhlSubaccountsSection() {
     onError: (err) => setRetryNotice({ ok: false, text: (err as Error).message }),
   })
 
+  const sendCode = useMutation({
+    mutationFn: async () =>
+      readJson<{ ok?: boolean; reason?: string; requeued?: number }>(
+        await fetch('/api/admin/ghl-subaccount-worker', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: otp.trim(), ...(otpClient.trim() ? { clientId: otpClient.trim() } : {}) }),
+        }),
+      ),
+    onSuccess: (r) => {
+      setOtp('')
+      setOtpNotice({
+        ok: !!r.ok,
+        text: r.ok ? `Code sent${r.requeued ? ` — ${r.requeued} waiting job${r.requeued === 1 ? '' : 's'} queued again` : ''}.` : r.reason || 'Could not send the code.',
+      })
+    },
+    onError: (err) => setOtpNotice({ ok: false, text: (err as Error).message }),
+  })
+
   if (config.error instanceof ForbiddenError) return null
 
   const settings = config.data?.settings
   const enabled = !!settings?.enabled
+  const workerOn = !!config.data?.worker?.enabled
   const snapshotValue = snapshotDraft ?? settings?.snapshotId ?? ''
   const snapshotDirty = snapshotDraft !== null && snapshotDraft.trim() !== settings?.snapshotId
 
@@ -128,6 +160,16 @@ export function GhlSubaccountsSection() {
             — named like <span className="font-medium text-foreground/90">Randy: J&amp;R Painting</span> — with
             the snapshot below loaded, and linked on the client. Uses the <code>GHL Agency Key</code> from the
             Vault. Clients from earlier submissions are never touched; results post to #genisys-alerts.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Agency Unlimited can&apos;t create sub-accounts by API. The browser worker does it from the dashboard
+            instead, and only when <code>GHL_SUBACCOUNT_WORKER_ENABLED</code> is set on Render. It stays a dry run
+            (fills the form, does not press Create) until <code>GHL_SUBACCOUNT_WORKER_MODE=create</code>.
+            {config.data?.worker
+              ? workerOn
+                ? ` This server has it ${config.data.worker.runsBrowser ? 'running' : 'enqueueing only'} in ${config.data.worker.mode === 'create' ? 'create' : 'dry-run'} mode.`
+                : ' This server has it switched off.'
+              : ''}
           </p>
         </div>
       </div>
@@ -208,6 +250,40 @@ export function GhlSubaccountsSection() {
 
       {check && <CheckResult check={check} onUseSnapshot={(id) => update.mutate({ snapshotId: id })} />}
 
+      {workerOn && (
+        <div className="mt-4 rounded-lg border border-border bg-background px-4 py-3">
+          <p className="text-sm font-medium">GHL verification code</p>
+          <p className="text-xs text-muted-foreground">
+            If a job stops for a login code, paste it here. The browser waits about three minutes, and a code sent
+            after that queues the job again. Slack (#genisys-alerts) is pinged when one is needed.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="Code from GHL"
+              autoComplete="one-time-code"
+              className="w-36 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-sm"
+            />
+            <input
+              value={otpClient}
+              onChange={(e) => setOtpClient(e.target.value)}
+              placeholder="Client id (optional)"
+              className="w-56 rounded-md border border-border bg-card px-3 py-1.5 font-mono text-sm"
+            />
+            <button
+              type="button"
+              disabled={sendCode.isPending || otp.trim().length < 4}
+              onClick={() => sendCode.mutate()}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90 disabled:opacity-50"
+            >
+              {sendCode.isPending ? 'Sending…' : 'Send code'}
+            </button>
+          </div>
+          {otpNotice && <Notice ok={otpNotice.ok}>{otpNotice.text}</Notice>}
+        </div>
+      )}
+
       {config.data && config.data.recent.length > 0 && (
         <div className="mt-6">
           <p className="text-sm font-medium">Latest</p>
@@ -243,7 +319,7 @@ export function GhlSubaccountsSection() {
                       GHL <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
-                  {enabled && (r.status === 'failed' || r.status === 'creating' || r.status === 'not started') && (
+                  {(enabled || workerOn) && (r.status === 'failed' || r.status === 'creating' || r.status === 'not started' || r.status === 'dry_run') && (
                     <button
                       type="button"
                       disabled={retry.isPending}

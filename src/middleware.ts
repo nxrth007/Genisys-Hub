@@ -72,6 +72,8 @@ const PUBLIC_PATHS = [
   '/api/public/address',
   // Client onboarding intake form posts here with a shared secret.
   '/api/webhooks/client-onboarding',
+  // Same shared-secret shape as the onboarding webhook. The route checks it.
+  '/api/webhooks/ghl-subaccount-worker',
   // Whop membership webhooks; the route verifies Whop's signature itself.
   '/api/webhooks/whop',
   // Client sub-account workflows post form / chat leads here (?secret=).

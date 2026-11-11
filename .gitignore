@@ -38,6 +38,10 @@ next-env.d.ts
 # render build artifacts
 .render-build/
 
+# Debian libraries unpacked for Chromium on Render's native runtime.
+# Rebuilt by scripts/install-render-chromium.mjs during the Render build.
+.chromium-libs/
+
 # Local Claude Code state — worktrees are full duplicate checkouts of
 # this repo and must never be committed into it.
 .claude/

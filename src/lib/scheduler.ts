@@ -14,6 +14,7 @@
  */
 import cron from 'node-cron'
 import { scanSubaccounts } from './subaccount-autolink'
+import { runGhlSubaccountWorkerTick } from './ghl-subaccount-worker/queue'
 import { prisma } from './prisma'
 import { buildAndSendBrief, buildAndSendSmsBrief } from './morning-brief'
 import {
@@ -445,6 +446,18 @@ export function initScheduler() {
           })
       }
     }
+
+    // GHL sub-account browser worker. Off unless
+    // GHL_SUBACCOUNT_WORKER_ENABLED is set; a no-op tick otherwise.
+    // Fire-and-forget so a multi-minute browser run doesn't hold the
+    // rest of this minute's jobs. One in-flight tick per process.
+    void runGhlSubaccountWorkerTick()
+      .then((r) => {
+        if (r.claimed || r.enqueued || r.outcome) {
+          console.log(`[scheduler] ghl sub-account worker: ${JSON.stringify(r)}`)
+        }
+      })
+      .catch((err) => console.error('[scheduler] ghl sub-account worker failed:', err))
 
     // SEO engine (Hub -> SEO). Every tick: enqueue the week's runs once the
     // schedule is due (off by default, set in the Hub), poll runs waiting on

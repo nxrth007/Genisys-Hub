@@ -6,6 +6,10 @@
  * ("Randy: J&R Painting") — with the onboarding snapshot loaded, and links
  * it on the Client (ghlLocationId, ghlSubaccountUrl).
  *
+ * Creating by API is refused on Agency Unlimited. The browser worker
+ * (src/lib/ghl-subaccount-worker/) does the same job through the dashboard
+ * when GHL_SUBACCOUNT_WORKER_ENABLED is on, and this API path stays off.
+ *
  * Only NEW submissions: anything received before the automation was
  * switched on is left alone, so clients who already have a sub-account
  * never get a second one. Turning it off and on again moves that line to
@@ -18,6 +22,7 @@ import { prisma } from './prisma'
 import { advanceJourneyStage, blockJourneyStage, recordJourney, setJourneyStage } from './client-journey'
 import { getCrmProvider } from './crm/provider'
 import { hubAlert, hubLink } from './hub-alerts'
+import { workerEnabled, workerMode } from './ghl-subaccount-worker/config'
 import { STATE_CODE_TO_NAME } from './address'
 import { parseUsAddress } from './address-parse'
 import { looksLikePhoneNumber } from './client-from-intake'
@@ -644,6 +649,7 @@ async function recentClientsNeverProvisioned(): Promise<GhlProvisionRow[]> {
     }),
   ])
   const since = Date.parse(settings.since)
+  const worker = workerEnabled()
   return clients.map((c) => {
     const first = c.intakes[0]?.receivedAt ?? c.createdAt
     // A client created from its submission is stamped with the submission's time.
@@ -652,14 +658,21 @@ async function recentClientsNeverProvisioned(): Promise<GhlProvisionRow[]> {
       ? 'Not created: the submission was linked to a client already on file, and only new clients get one automatically.'
       : first.getTime() < since
         ? `Not created: submitted ${first.toLocaleString('en-US', { timeZone: 'America/New_York' })} ET, before the automation went live.`
-        : !settings.enabled
-          ? 'Not created: the automation is switched off.'
-          : 'Not created automatically.'
+        : worker
+          ? `Not created yet. The browser worker is on${workerMode() === 'create' ? ' and will press Create' : ' in dry-run mode (it fills the form and stops)'}.`
+          : !settings.enabled
+            ? 'Not created: the automation is switched off.'
+            : 'Not created automatically.'
+    const hint = worker
+      ? 'Press Create to queue it now.'
+      : settings.enabled
+        ? 'Press Create to make it now.'
+        : 'Make it in GHL, then link it from the client card.'
     return {
       clientId: c.id,
       clientName: c.name,
       status: 'not started',
-      error: `${why} ${settings.enabled ? 'Press Create to make it now.' : 'Make it in GHL, then link it from the client card.'}`,
+      error: `${why} ${hint}`,
       locationId: null,
       url: null,
       snapshotStatus: null,
@@ -828,7 +841,7 @@ export function parseLocationId(raw: string): string | null {
  */
 export async function linkGhlSubAccount(
   clientId: string,
-  opts: { locationId?: string | null; replace?: boolean; actor?: string | null } = {},
+  opts: { locationId?: string | null; replace?: boolean; actor?: string | null; note?: string | null } = {},
 ): Promise<LinkResult> {
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -886,7 +899,7 @@ export async function linkGhlSubAccount(
       `:link: *GHL sub-account linked* — *${found.name || expectedName}* is now ${client.name}'s${client.ghlLocationId ? ' (replacing the one linked before)' : ''}. <${ghlLocationUrl(found.id)}|Open in GHL> · <${hubLink(`/clients?focus=${client.id}`)}|Open client>`,
     )
     await recordJourney(`subaccount manual link ${client.id}`, () =>
-      advanceJourneyStage(client.id, 'subaccount', { note: `Linked by hand to GHL location ${found.id}`, actor: opts.actor ?? null }),
+      advanceJourneyStage(client.id, 'subaccount', { note: opts.note?.trim() || `Linked by hand to GHL location ${found.id}`, actor: opts.actor ?? null }),
     )
     return { ok: true, status: 'linked', locationId: found.id, name: found.name || expectedName }
   } catch (err) {
@@ -943,7 +956,7 @@ async function saveExtensionState(state: ExtensionState): Promise<void> {
 export async function extensionQueue(limit = 5): Promise<ExtensionJob[]> {
   const settings = await getGhlSubaccountSettings()
   const since = new Date(settings.since)
-  const [clients, state] = await Promise.all([
+  const [clients, state, busyJobs] = await Promise.all([
     prisma.client.findMany({
       where: {
         archivedAt: null,
@@ -964,7 +977,12 @@ export async function extensionQueue(limit = 5): Promise<ExtensionJob[]> {
       },
     }),
     extensionState(),
+    prisma.ghlSubaccountJob.findMany({
+      where: { status: { in: ['queued', 'running', 'needs_human', 'dry_run', 'succeeded'] } },
+      select: { clientId: true },
+    }),
   ])
+  const busy = new Set(busyJobs.map((j) => j.clientId))
 
   let snapshotName: string | null = null
   try {
@@ -976,6 +994,8 @@ export async function extensionQueue(limit = 5): Promise<ExtensionJob[]> {
 
   const jobs: ExtensionJob[] = []
   for (const c of clients) {
+    // The browser worker owns this client. Offering it to the extension too would make two sub-accounts.
+    if (busy.has(c.id)) continue
     if (looksLikePhoneNumber(c.name.trim())) continue
     const intake = c.intakes[0] ?? null
     // A submission linked to a client already on file isn't a new client.

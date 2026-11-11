@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { workerPublicStatus } from '@/lib/ghl-subaccount-worker/queue'
 import {
   getGhlSubaccountSettings,
   recentGhlProvisioning,
@@ -20,7 +21,7 @@ export async function GET() {
   if (denial) return denial
 
   const [settings, recent] = await Promise.all([getGhlSubaccountSettings(), recentGhlProvisioning()])
-  return NextResponse.json({ settings, recent })
+  return NextResponse.json({ settings, recent, worker: workerPublicStatus() })
 }
 
 export async function PATCH(req: Request) {

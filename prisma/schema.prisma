@@ -755,6 +755,38 @@ model Client {
   journeyEvents ClientJourneyEvent[]
   tracker       ClientTracker?
   subaccountMatchSuggestions SubaccountMatchSuggestion[]
+  /// Browser-worker job that creates this client's GHL sub-account (one row).
+  ghlSubaccountJob GhlSubaccountJob?
+}
+
+/// One queued attempt to create a client's GHL sub-account through the
+/// agency dashboard (Playwright), because the locations API is refused
+/// on Agency Unlimited. One row per client so a submission can't queue
+/// a second sub-account. See src/lib/ghl-subaccount-worker/.
+model GhlSubaccountJob {
+  id            String    @id @default(cuid())
+  clientId      String    @unique
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  intakeId      String?
+  /// queued | running | needs_human | dry_run | succeeded | failed | canceled
+  status        String    @default("queued")
+  attempts      Int       @default(0)
+  /// Fencing token. Only the holder of this exact lease may finish the job.
+  leaseUntil    DateTime?
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?   @db.Text
+  detail        String?   @db.Text
+  locationId    String?
+  /// BrowserFields the form is filled with. No passwords.
+  payload       Json
+  log           Json?
+  /// intake | sweep | webhook | manual | otp
+  trigger       String    @default("intake")
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the
