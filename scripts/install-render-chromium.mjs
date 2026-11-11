@@ -9,11 +9,19 @@
  * bookworm package index and the .deb files are fetched over HTTPS and
  * unpacked with dpkg-deb into .chromium-libs.
  *
- * Run from the repo root, on Linux, during the Render build:
- *   node scripts/install-render-chromium.mjs
+ * `npm run build` runs this first (package.json `prebuild`). Render's
+ * build command stays `npm install --include=dev && npm run build &&
+ * npx prisma migrate deploy`.
  *
- * No-ops on macOS/Windows (local dev) and when GHL_SUBACCOUNT_CHROMIUM=system
- * (the optional Docker image, which already has the libraries).
+ * It downloads only when both are true:
+ *   - RENDER=true (set by Render; local machines and CI do not have it)
+ *   - GHL_SUBACCOUNT_WORKER_ENABLED is on
+ * Otherwise it exits 0 immediately, including when the worker flag is
+ * off, so a Hub deploy does not depend on Debian or Playwright's CDN.
+ *
+ * GHL_SUBACCOUNT_CHROMIUM=system also skips (the optional Docker image
+ * already has the libraries). PLAYWRIGHT_BROWSERS_PATH is set here and
+ * again at launch; it does not have to be set on the service.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -204,18 +212,30 @@ function neededSonames(chrome) {
   })
 }
 
-if (process.platform !== 'linux') {
-  log('skipping (not Linux). On a Mac or Windows machine, `npx playwright install chromium` is enough for a local dry run.')
-  process.exit(0)
-}
+const workerOn = ['on', 'true', '1', 'yes', 'enabled'].includes((process.env.GHL_SUBACCOUNT_WORKER_ENABLED ?? '').trim().toLowerCase())
 if ((process.env.GHL_SUBACCOUNT_CHROMIUM ?? '').trim().toLowerCase() === 'system') {
   log('skipping bundled libraries (GHL_SUBACCOUNT_CHROMIUM=system).')
   process.exit(0)
 }
+if ((process.env.RENDER ?? '').trim().toLowerCase() !== 'true') {
+  log('skipping (not a Render build).')
+  process.exit(0)
+}
+if (!workerOn) {
+  log('skipping (GHL_SUBACCOUNT_WORKER_ENABLED is off). The Hub build does not download Chromium until the worker is switched on.')
+  process.exit(0)
+}
+if (process.platform !== 'linux') {
+  log('skipping (Render build is not Linux).')
+  process.exit(0)
+}
 
+// Playwright 1.65 does not download browsers during npm install. This
+// puts Chromium inside node_modules, which the Render deploy keeps.
+// Unset a skip flag if one was inherited, so this explicit install runs.
 process.env.PLAYWRIGHT_BROWSERS_PATH = '0'
 delete process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
-log('installing Playwright Chromium into node_modules (PLAYWRIGHT_BROWSERS_PATH=0)')
+log('installing Playwright Chromium into node_modules')
 execFileSync('npx', ['playwright', 'install', 'chromium'], { stdio: 'inherit', env: process.env })
 
 log('reading the Debian bookworm package index')

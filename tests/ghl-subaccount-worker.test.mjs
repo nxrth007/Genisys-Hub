@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -384,6 +385,24 @@ test('bundled Chromium libraries are prepended, and the launch stays small', () 
   const system = { GHL_SUBACCOUNT_CHROMIUM: 'system' }
   prepareChromiumEnv(process.cwd(), system)
   assert.equal(system.PLAYWRIGHT_BROWSERS_PATH, undefined)
+})
+
+test('chromium install does nothing off Render, and nothing when the worker is off', () => {
+  const script = join(root, 'scripts/install-render-chromium.mjs')
+  const run = (extra) =>
+    spawnSync(process.execPath, [script], {
+      encoding: 'utf8',
+      env: { ...process.env, RENDER: '', GHL_SUBACCOUNT_WORKER_ENABLED: '', GHL_SUBACCOUNT_CHROMIUM: '', ...extra },
+    })
+  const local = run({ RENDER: '', GHL_SUBACCOUNT_WORKER_ENABLED: '1' })
+  assert.equal(local.status, 0)
+  assert.match(local.stdout, /not a Render build/)
+  const off = run({ RENDER: 'true', GHL_SUBACCOUNT_WORKER_ENABLED: '' })
+  assert.equal(off.status, 0)
+  assert.match(off.stdout, /ENABLED is off/)
+  const system = run({ RENDER: 'true', GHL_SUBACCOUNT_WORKER_ENABLED: '1', GHL_SUBACCOUNT_CHROMIUM: 'system' })
+  assert.equal(system.status, 0)
+  assert.match(system.stdout, /system/)
 })
 
 test('the in-page script is plain JavaScript with no host imports', () => {

@@ -21,9 +21,10 @@ services:
     # NODE_ENV=production tells npm to skip devDependencies by default, but
     # Next.js + Prisma + Tailwind need their build-time tools. `--include=dev`
     # overrides that just for install, without affecting runtime behavior.
-    # The extra node script unpacks Playwright's Chromium and the Debian 12
-    # libraries it needs. Native Node cannot apt-get those libraries.
-    buildCommand: npm install --include=dev && node scripts/install-render-chromium.mjs && npm run build && npx prisma migrate deploy
+    # Do not add a Chromium step here. `npm run build` runs
+    # scripts/install-render-chromium.mjs first, and only on Render when
+    # the worker flag is on. This is the command the live service already uses.
+    buildCommand: npm install --include=dev && npm run build && npx prisma migrate deploy
     startCommand: npm run start
     healthCheckPath: /api/health
     envVars:
@@ -55,14 +56,10 @@ services:
         value: "+18772573649"
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Don't let npm install pull Firefox and WebKit. The build script
-      # installs Chromium into node_modules (PLAYWRIGHT_BROWSERS_PATH=0).
-      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
-        value: "1"
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "0"
-      # Leave unset (off) until you are ready. Do not put a value here:
-      # a blueprint sync would overwrite the switch you set in the dashboard.
+      # Leave unset (off) until you are ready. Turning it on starts a new
+      # deploy, and that build is the one that downloads Chromium.
+      # Do not put a value here: a blueprint sync would overwrite the
+      # switch you set in the dashboard.
       - key: GHL_SUBACCOUNT_WORKER_ENABLED
         sync: false
 
