@@ -41,7 +41,7 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     }
     return out
   }
-  function findByText(words, exact) {
+  function findByText(words, exact, contains) {
     var wants = []
     for (var i = 0; i < (words || []).length; i++) wants.push(norm(words[i]))
     var nodes = collect('button, a, [role="button"], [role="menuitem"], [role="option"], li, div, span')
@@ -52,6 +52,10 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
       for (var w = 0; w < wants.length; w++) {
         if (exact) {
           if (t === wants[w]) ok = true
+        } else if (contains) {
+          var tw = t.replace(/^[+\\uFF0B]\\s*/, '')
+          var ww = wants[w].replace(/^[+\\uFF0B]\\s*/, '')
+          if (tw === ww || (ww.length > 4 && tw.indexOf(ww) !== -1)) ok = true
         } else if (t === wants[w] || t.indexOf(wants[w] + ' ') === 0 || t.slice(-(wants[w].length + 1)) === ' ' + wants[w]) {
           ok = true
         }
@@ -230,7 +234,7 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     return { ok: true }
   }
   if (cmd.op === 'click') {
-    var target = findByText(cmd.words || [], !!cmd.exact)
+    var target = findByText(cmd.words || [], !!cmd.exact, !!cmd.contains)
     if (!target) return { ok: false, error: 'Could not find ' + (cmd.words || []).join(' / ') }
     var btn = clickable(target)
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The control is disabled' }

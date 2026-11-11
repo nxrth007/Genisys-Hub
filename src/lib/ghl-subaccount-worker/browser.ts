@@ -143,6 +143,7 @@ async function performAction(
     key: 'key' in action ? action.key : undefined,
     words: 'words' in action ? action.words : [],
     exact: 'exact' in action ? action.exact : false,
+    contains: 'contains' in action ? action.contains : false,
     value,
     labels,
   }

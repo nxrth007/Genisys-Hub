@@ -32,7 +32,7 @@ export type PageSnap = {
 
 export type BrowserAction =
   | { type: 'goto'; url: string }
-  | { type: 'click'; words: string[]; exact?: boolean }
+  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean }
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
   | { type: 'wait_otp'; channel: string }
@@ -71,6 +71,14 @@ export type RunState = {
   trustNote: string
   /** Pauses after the code was typed, waiting to leave the code page. */
   otpSettle: number
+  /** Pauses after clicking Sub-Accounts, so the list can render. */
+  navWaits: number
+  /** How many list URLs have been opened. */
+  listGotos: number
+  /** Snapshot was chosen in the blank-vs-snapshot modal. */
+  choseSnapshot: boolean
+  /** URL and buttons at each navigation step, for the job detail. */
+  navTrail: string[]
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -98,6 +106,10 @@ export function initialRunState(): RunState {
     rememberTicked: false,
     trustNote: '',
     otpSettle: 0,
+    navWaits: 0,
+    listGotos: 0,
+    choseSnapshot: false,
+    navTrail: [],
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -228,8 +240,42 @@ function onForm(snap: PageSnap): boolean {
   return !!fieldByKey(snap, 'name')
 }
 
-function onList(snap: PageSnap, labels: GhlLabels): boolean {
-  return /sub-accounts|agency_dashboard|\/accounts\b/i.test(snap.url) || hasButton(snap, labels.createButton)
+/** "+ Create Sub-Account" and the older wording, ignoring a leading plus. */
+export function isCreateSubAccountButton(text: string): boolean {
+  const t = norm(text).replace(/^[+\uFF0B]\s*/, '')
+  return /create sub-?account|add sub-?account|new sub-?account/.test(t)
+}
+
+function hasCreateButton(snap: PageSnap): boolean {
+  return snap.buttons.some(isCreateSubAccountButton)
+}
+
+function hasSubAccountsNav(snap: PageSnap): boolean {
+  return snap.buttons.some((b) => /^(sub-?accounts?|sub accounts?)(\b|$)/.test(norm(b)))
+}
+
+/** The blank-vs-snapshot modal. The left-nav item "account snapshots" is not this. */
+function snapshotWizardButton(snap: PageSnap): string | null {
+  const buttons = snap.buttons.filter((b) => !/account snapshots/.test(norm(b)))
+  const blank = buttons.some((b) => /\bblank\b|from scratch|start from scratch|empty account/.test(norm(b)))
+  if (!blank) return null
+  return buttons.find((b) => /\bsnapshot\b/.test(norm(b))) ?? null
+}
+
+export function listCandidates(listUrl: string): string[] {
+  let origin = 'https://app.gohighlevel.com'
+  try {
+    origin = new URL(listUrl).origin
+  } catch {
+    // keep the default agency origin
+  }
+  return [`${origin}/accounts/sub-accounts`, `${origin}/sub-accounts`, `${origin}/agency/sub-accounts`, `${origin}/agency/accounts`]
+}
+
+function withNote(state: RunState, snap: PageSnap, what: string): RunState {
+  const buttons = snap.buttons.slice(0, 10).join(', ') || '(none)'
+  const line = `${what}: ${snap.url || '(no url)'} | ${buttons}`
+  return { ...state, navTrail: [...state.navTrail, line].slice(-12) }
 }
 
 function existingLocation(snap: PageSnap, name: string): string | null | undefined {
@@ -378,7 +424,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     const formOpen = onForm(snap)
     // Some GHL wizards ask for the snapshot before the business fields exist.
     // Don't record those fields as missing until the page that has them.
-    const snapshotStep = !formOpen && !!fieldByKey(snap, 'snapshot') && (s.openedCreate || s.wentToList)
+    const snapshotStep = !formOpen && !!fieldByKey(snap, 'snapshot') && (s.openedCreate || hasCreateButton(snap))
     if (formOpen || snapshotStep) {
       if (formOpen) {
         for (const key of TEXT_KEYS) {
@@ -455,44 +501,89 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
       )
     }
 
-    const existing = existingLocation(snap, input.fields.name)
-    if (existing !== undefined) {
-      return done(s, {
-        status: 'already',
-        locationId: existing,
-        uncertain: false,
-        detail: `A sub-account named "${input.fields.name}" is already in the list, so nothing new was created.`,
+    if (s.openedCreate && !s.choseSnapshot) {
+      const choice = snapshotWizardButton(snap)
+      if (choice) {
+        return act(withNote({ ...s, choseSnapshot: true }, snap, 'choose snapshot'), {
+          type: 'click',
+          words: [choice, 'From snapshot', 'Use snapshot', 'Snapshot'],
+          contains: true,
+        })
+      }
+    }
+    if (s.openedCreate && !s.openedAdd && hasButton(snap, input.labels.addBusiness)) {
+      return act({ ...s, openedAdd: true }, { type: 'click', words: input.labels.addBusiness, contains: true })
+    }
+    // The modal is opening or the details form is not in the snapshot yet.
+    // Don't leave this page for another URL.
+    if (s.openedCreate && !onForm(snap)) {
+      if (s.stalls + 1 >= STALL_LIMIT) {
+        const trail = s.navTrail.length ? `\nSteps:\n${s.navTrail.join('\n')}` : ''
+        return done(s, {
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `Couldn't find the create-sub-account form.\n${pageDiagnostics(snap)}${trail}`,
+        })
+      }
+      return act(withNote({ ...s, stalls: s.stalls + 1 }, snap, 'waiting for the create form'), { type: 'pause' })
+    }
+
+    if (hasCreateButton(snap) && !s.openedCreate) {
+      const existing = existingLocation(snap, input.fields.name)
+      if (existing !== undefined) {
+        return done(s, {
+          status: 'already',
+          locationId: existing,
+          uncertain: false,
+          detail: `A sub-account named "${input.fields.name}" is already in the list, so nothing new was created.`,
+        })
+      }
+      if (!s.searched && fieldByKey(snap, 'search')) {
+        return act({ ...s, searched: true, wentToList: true }, { type: 'fill', key: 'search', words: input.labels.search, value: input.fields.name })
+      }
+      const label = snap.buttons.find(isCreateSubAccountButton) || 'Create Sub-Account'
+      return act(withNote({ ...s, openedCreate: true, wentToList: true }, snap, 'click create'), {
+        type: 'click',
+        words: [label, ...(input.labels.createButton ?? [])],
+        contains: true,
       })
     }
 
-    if (!s.wentToList && !onList(snap, input.labels)) {
-      return act({ ...s, wentToList: true }, { type: 'goto', url: input.listUrl })
+    // /accounts is the agency shell (left nav). The sub-account list is the
+    // view behind "Sub-Accounts", which is what carries the create button.
+    if (!s.clickedNav && hasSubAccountsNav(snap)) {
+      return act(withNote({ ...s, clickedNav: true }, snap, 'click Sub-Accounts'), {
+        type: 'click',
+        words: input.labels.subAccountsNav ?? ['Sub-Accounts', 'Sub Accounts'],
+        contains: true,
+      })
     }
-    if (!s.wentToList) s = { ...s, wentToList: true }
-
-    if (!s.searched && fieldByKey(snap, 'search')) {
-      return act({ ...s, searched: true }, { type: 'fill', key: 'search', words: input.labels.search, value: input.fields.name })
+    const candidates = listCandidates(input.listUrl)
+    const navSettled = !hasSubAccountsNav(snap) || s.clickedNav
+    if (navSettled && s.clickedNav && s.navWaits < 2 && s.listGotos === 0) {
+      return act(withNote({ ...s, navWaits: s.navWaits + 1 }, snap, 'waiting for the sub-account list'), { type: 'pause' })
     }
-    if (!s.openedCreate && hasButton(snap, input.labels.createButton)) {
-      return act({ ...s, openedCreate: true }, { type: 'click', words: input.labels.createButton })
-    }
-    if (s.openedCreate && !s.openedAdd && hasButton(snap, input.labels.addBusiness)) {
-      return act({ ...s, openedAdd: true }, { type: 'click', words: input.labels.addBusiness })
-    }
-    if (!s.clickedNav && hasButton(snap, input.labels.subAccountsNav)) {
-      return act({ ...s, clickedNav: true }, { type: 'click', words: input.labels.subAccountsNav })
+    if (navSettled && s.listGotos < candidates.length) {
+      let i = s.listGotos
+      while (i < candidates.length && pathOf(snap.url) === pathOf(candidates[i]!)) i += 1
+      if (i < candidates.length) {
+        const url = candidates[i]!
+        return act(withNote({ ...s, listGotos: i + 1, wentToList: true }, snap, `open ${url}`), { type: 'goto', url })
+      }
+      s = { ...s, listGotos: i, wentToList: true }
     }
 
     if (s.stalls + 1 >= STALL_LIMIT) {
-      const saw = snap.buttons.slice(0, 8).join(', ') || '(no buttons)'
+      const trail = s.navTrail.length ? `\nSteps:\n${s.navTrail.join('\n')}` : ''
       return done(s, {
         status: 'needs_human',
         locationId: null,
         uncertain: false,
-        detail: `Couldn't find the create-sub-account form on ${snap.url || 'the page'}. Buttons seen: ${saw}. GHL's wording may have changed — set GHL_SUBACCOUNT_WORKER_LABELS, or the session may not be in the agency view.`,
+        detail: `Couldn't find the create-sub-account form.\n${pageDiagnostics(snap)}${trail}`,
       })
     }
-    return act({ ...s, stalls: s.stalls + 1 }, { type: 'pause' })
+    return act(withNote({ ...s, stalls: s.stalls + 1 }, snap, 'still no create form'), { type: 'pause' })
   }
   return done(s, {
     status: 'needs_human',

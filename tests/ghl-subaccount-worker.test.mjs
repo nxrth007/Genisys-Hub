@@ -61,7 +61,7 @@ const { browserFieldsFromLocation, readBrowserFields } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
-const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome } = plan
+const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates } = plan
 
 function env(overrides) {
   return overrides
@@ -332,6 +332,8 @@ test('a page with none of the form stops for a person', async () => {
   )
   assert.equal(result.status, 'needs_human')
   assert.match(result.detail, /Couldn't find the create-sub-account form/)
+  assert.match(result.detail, /https:\/\/app\.gohighlevel\.com\/sub-accounts/)
+  assert.match(result.detail, /buttons:/)
 })
 
 test('a code that arrives while the prompt is up gets typed', async () => {
@@ -490,13 +492,48 @@ test('code-page diagnostics blank out digit codes', () => {
 })
 
 test('only a HighLevel security-code email after Send is used', () => {
-  const { extractSecurityCode, isHighLevelSecurityMail, pickSecurityCode, imapSettings } = otpMail
+  const { extractSecurityCode, senderLooksHighLevel, classifySecurityMail, pickSecurityCode, imapSettings } = otpMail
   assert.equal(extractSecurityCode('Your security code is 654321'), '654321')
   assert.equal(extractSecurityCode('Hello from the team'), null)
-  assert.equal(isHighLevelSecurityMail('HighLevel <noreply@gohighlevel.com>', 'Your security code', '654321'), true)
-  assert.equal(isHighLevelSecurityMail('Ethan <ethan@leadgenisys.com>', 'security code', '654321'), false)
-  assert.equal(isHighLevelSecurityMail('noreply@gohighlevel.com', 'Your November newsletter', 'new features'), false)
+  assert.equal(extractSecurityCode('<td>6</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td>'), '654321')
+  assert.equal(extractSecurityCode('November 2026 newsletter'), null)
+  assert.equal(senderLooksHighLevel('HighLevel <noreply@gohighlevel.com>'), true)
+  assert.equal(senderLooksHighLevel('alerts@msgsndr.com'), true)
+  assert.equal(senderLooksHighLevel('no-reply@leadconnectorhq.com'), true)
+  assert.equal(senderLooksHighLevel('Ethan <ethan@leadgenisys.com>'), false)
   const sent = new Date('2026-11-11T22:07:00.000Z')
+  const early = classifySecurityMail(
+    {
+      from: 'noreply@msgsndr.com',
+      subject: 'code',
+      body: '482910',
+      receivedAt: new Date('2026-11-11T22:04:00.000Z'),
+    },
+    sent,
+  )
+  assert.equal(early.accept, false)
+  assert.match(early.reason, /before the send click/)
+  const html = classifySecurityMail(
+    {
+      from: 'HighLevel <notifications@example.com>',
+      subject: 'Security code',
+      body: '<div>Your security code is</div><b>482910</b>',
+      receivedAt: new Date('2026-11-11T22:05:30.000Z'),
+    },
+    sent,
+  )
+  assert.equal(html.accept, true)
+  assert.equal(html.code, '482910')
+  const news = classifySecurityMail(
+    {
+      from: 'noreply@gohighlevel.com',
+      subject: 'Your November newsletter',
+      body: 'new features for 2026',
+      receivedAt: new Date('2026-11-11T22:08:00.000Z'),
+    },
+    sent,
+  )
+  assert.equal(news.accept, false)
   const code = pickSecurityCode(
     [
       {
@@ -526,4 +563,55 @@ test('only a HighLevel security-code email after Send is used', () => {
     imapSettings({ GHL_OTP_IMAP_HOST: 'imap.gmail.com', GHL_OTP_IMAP_USER: 'ethan@leadgenisys.com', GHL_OTP_IMAP_PASSWORD: 'app-password' }).port,
     993,
   )
+})
+
+test('the agency shell clicks Sub-Accounts and records the page before giving up', async () => {
+  const shell = snap({
+    url: 'https://app.gohighlevel.com/accounts',
+    buttons: ['ai suite new', 'ask ai', 'launchpad', 'agency dashboard', 'prospecting', 'sub-accounts', 'account snapshots', 'reselling'],
+  })
+  const first = nextGhlAction(shell, input('create'), initialRunState())
+  assert.equal(first.action.type, 'click')
+  assert.equal(first.action.contains, true)
+  assert.equal(first.action.words.some((word) => /sub-account/i.test(word)), true)
+  assert.match(first.state.navTrail[0], /https:\/\/app\.gohighlevel\.com\/accounts/)
+  const actions = []
+  const result = await driveUntil(
+    {
+      snapshot: async () => shell,
+      perform: async (action) => {
+        actions.push(action)
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    input('create'),
+    { maxSteps: 20 },
+  )
+  assert.equal(actions[0].type, 'click')
+  assert.equal(result.status, 'needs_human')
+  assert.match(result.detail, /Couldn't find the create-sub-account form/)
+  assert.match(result.detail, /https:\/\/app\.gohighlevel\.com\/accounts/)
+  assert.match(result.detail, /sub-accounts/)
+  assert.match(result.detail, /Steps:/)
+  assert.equal(listCandidates('https://app.gohighlevel.com/accounts')[0], 'https://app.gohighlevel.com/accounts/sub-accounts')
+})
+
+test('the create button tolerates a leading plus, then the snapshot choice is taken', () => {
+  const list = snap({
+    url: 'https://app.gohighlevel.com/accounts/sub-accounts',
+    buttons: ['+ Create Sub-Account', 'sub-accounts'],
+  })
+  const step = nextGhlAction(list, input('create'), initialRunState())
+  assert.equal(step.action.type, 'click')
+  assert.equal(step.action.contains, true)
+  assert.match(step.action.words[0], /Create Sub-Account/)
+  const modal = snap({
+    url: 'https://app.gohighlevel.com/accounts/sub-accounts',
+    buttons: ['Start from scratch', 'From snapshot'],
+  })
+  const next = nextGhlAction(modal, input('create'), step.state)
+  assert.equal(next.action.type, 'click')
+  assert.match(next.action.words[0], /snapshot/i)
+  assert.equal(next.state.choseSnapshot, true)
 })
