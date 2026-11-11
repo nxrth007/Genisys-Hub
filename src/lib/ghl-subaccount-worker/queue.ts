@@ -414,7 +414,7 @@ async function appendLog(id: string, lease: Date, msg: string): Promise<void> {
   })
   if (!row) throw new LeaseLost()
   const prev = Array.isArray(row.log) ? row.log : []
-  const next = [...prev, { at: new Date().toISOString(), msg: msg.slice(0, 400) }].slice(-40)
+  const next = [...prev, { at: new Date().toISOString(), msg: msg.slice(0, 4000) }].slice(-60)
   await saveJob(id, lease, { log: next as Prisma.InputJsonValue })
 }
 
@@ -525,14 +525,16 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         const started = codeSentAt || Date.now()
         if (imapSettings() && Date.now() - started < 3 * 60 * 1000 && Date.now() - lastImapAt >= 8_000) {
           lastImapAt = Date.now()
+          const notes: string[] = []
           try {
-            const mailed = await fetchLatestSecurityCode(new Date(started))
+            const mailed = await fetchLatestSecurityCode(new Date(started), process.env, (line) => notes.push(line))
+            if (notes.length) await appendLog(id, lease, notes.join('\n')).catch(() => {})
             if (mailed) return mailed
           } catch (err) {
-            console.warn(
-              '[ghl-subaccount-worker] inbox read failed; waiting for a pasted code:',
-              err instanceof Error ? err.message : err,
-            )
+            const message = err instanceof Error ? err.message : String(err)
+            notes.push(`IMAP read failed: ${message.slice(0, 300)}`)
+            await appendLog(id, lease, notes.join('\n')).catch(() => {})
+            console.warn('[ghl-subaccount-worker] inbox read failed; waiting for a pasted code:', message)
           }
         }
         if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms))

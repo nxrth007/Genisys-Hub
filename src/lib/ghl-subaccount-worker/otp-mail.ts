@@ -1,10 +1,11 @@
 /**
  * Read a HighLevel security code from the Google Workspace mailbox
- * that already receives those emails. Read-only: the fetch uses
- * BODY.PEEK, sets no flags, and deletes nothing.
+ * that already receives those emails. Read-only: each mailbox is opened
+ * with EXAMINE and the fetch uses BODY.PEEK. Nothing is marked and
+ * nothing is deleted.
  *
  * IMAP SINCE is date-only, so the search is wide and the real cutoff
- * is the moment Send security code was clicked.
+ * is the Send click, with about two minutes of clock skew.
  */
 
 export type OtpImapSettings = {
@@ -13,6 +14,8 @@ export type OtpImapSettings = {
   user: string
   password: string
 }
+
+export type OtpMailLog = (line: string) => void
 
 export function imapSettings(env: NodeJS.ProcessEnv = process.env): OtpImapSettings | null {
   const host = env.GHL_OTP_IMAP_HOST?.trim()
@@ -23,22 +26,50 @@ export function imapSettings(env: NodeJS.ProcessEnv = process.env): OtpImapSetti
   return { host, port: Number.isFinite(port) && port > 0 ? port : 993, user, password }
 }
 
-const HIGHLEVEL_FROM = /(?:^|[.@])(?:gohighlevel\.com|leadconnectorhq\.com|msgsndr\.com)\b|highlevel/i
-const CODE_TALK = /security code|verification code|one[- ]time (?:password|code)|login code|sign[- ]in code|\botp\b/i
+const HIGHLEVEL_SENDER = /highlevel|gohighlevel|leadconnector|msgsndr/i
+/** How far before the Send click a message may still be the code we just asked for. */
+export const OTP_CLOCK_SKEW_MS = 2 * 60 * 1000
+const MAILBOXES = ['INBOX', '[Gmail]/All Mail']
 
-/** The From address has to be HighLevel, and the mail has to be about a code. */
-export function isHighLevelSecurityMail(from: string, subject: string, body: string): boolean {
-  if (!HIGHLEVEL_FROM.test(from)) return false
-  return CODE_TALK.test(`${subject}\n${body}`)
+export function senderLooksHighLevel(from: string): boolean {
+  return HIGHLEVEL_SENDER.test(from)
+}
+
+/** Quoted-printable and tags removed, so a code split by markup still reads as digits. */
+export function htmlToText(raw: string): string {
+  const decoded = raw.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, hex: string) => {
+    const code = Number.parseInt(hex, 16)
+    return code >= 32 && code < 127 ? String.fromCharCode(code) : ' '
+  })
+  const spaced = decoded
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
+    .replace(/&amp;/gi, '&')
+  const tight = spaced.replace(/[ \t\f\v]+/g, ' ')
+  const joined = decoded.replace(/<[^>]+>/g, '')
+  return `${tight}\n${joined}`.replace(/\s+/g, ' ').trim()
+}
+
+function isYear(digits: string): boolean {
+  return digits.length === 4 && /^(19|20)\d{2}$/.test(digits)
 }
 
 export function extractSecurityCode(text: string): string | null {
-  const labeled = text.match(
-    /(?:security code|verification code|one[- ]time (?:password|code)|login code|sign[- ]in code|your code(?: is)?)\D{0,40}(\d{4,8})/i,
+  const plain = htmlToText(text)
+  const labeled = plain.match(
+    /(?:security code|verification code|one[- ]time (?:password|code)|login code|sign[- ]in code|your code(?: is)?|\botp\b)\D{0,40}(\d{4,8})(?!\d)/i,
   )
   if (labeled?.[1]) return labeled[1]
-  const standalone = text.match(/(?:^|[\r\n])\s*(\d{6})\s*(?:[\r\n]|$)/)
-  return standalone?.[1] ?? null
+  const re = /(?:^|\D)(\d{4,8})(?=\D|$)/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(plain))) {
+    if (isYear(match[1]!)) continue
+    return match[1]!
+  }
+  return null
 }
 
 export type MailHit = {
@@ -48,18 +79,43 @@ export type MailHit = {
   receivedAt: Date
 }
 
-/** Newest HighLevel security-code mail at or after the Send click. */
+export type MailDecision = {
+  accept: boolean
+  reason: string
+  code: string | null
+}
+
+export function classifySecurityMail(message: MailHit, sentAt: Date): MailDecision {
+  const cutoff = sentAt.getTime() - OTP_CLOCK_SKEW_MS
+  if (message.receivedAt.getTime() < cutoff) {
+    return { accept: false, reason: `before the send click (${message.receivedAt.toISOString()})`, code: null }
+  }
+  if (!senderLooksHighLevel(message.from)) {
+    return { accept: false, reason: 'sender is not HighLevel', code: null }
+  }
+  const code = extractSecurityCode(`${message.subject}\n${message.body}`)
+  if (!code) return { accept: false, reason: 'no 4-8 digit code in the subject or body', code: null }
+  return { accept: true, reason: `accepted ${code.length}-digit code`, code }
+}
+
+/** Newest HighLevel security-code mail at or after the Send click, minus clock skew. */
 export function pickSecurityCode(messages: MailHit[], sentAt: Date): string | null {
-  const cutoff = sentAt.getTime() - 15_000
-  const hits = messages
-    .filter((m) => m.receivedAt.getTime() >= cutoff)
-    .filter((m) => isHighLevelSecurityMail(m.from, m.subject, m.body))
-    .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+  const hits = [...messages].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
   for (const message of hits) {
-    const code = extractSecurityCode(`${message.subject}\n${message.body}`)
-    if (code) return code
+    const decision = classifySecurityMail(message, sentAt)
+    if (decision.accept && decision.code) return decision.code
   }
   return null
+}
+
+function redactDigits(value: string): string {
+  return value.replace(/\d{4,8}/g, (digits) => '•'.repeat(digits.length))
+}
+
+function safeImapError(err: unknown, password: string): string {
+  let message = err instanceof Error ? err.message : String(err)
+  if (password && message.includes(password)) message = message.split(password).join('(password)')
+  return message.slice(0, 300)
 }
 
 type ImapAddress = { name?: string; address?: string }
@@ -69,26 +125,34 @@ type ImapMessage = {
   source?: Buffer
 }
 
+type ImapClient = {
+  connect: () => Promise<void>
+  logout: () => Promise<void>
+  getMailboxLock: (path: string, options?: { readOnly?: boolean }) => Promise<{ release: () => void }>
+  search: (query: Record<string, unknown>, opts: { uid: boolean }) => Promise<number[] | false>
+  fetch: (
+    range: number[],
+    query: Record<string, unknown>,
+    opts: { uid: boolean },
+  ) => AsyncIterable<ImapMessage>
+}
+
 /**
- * Poll the inbox. Returns null when IMAP is not configured or no
- * matching code has arrived. Never marks mail read and never deletes.
+ * Poll INBOX and All Mail. Returns null when IMAP is not configured or
+ * no matching code has arrived. The log receives connect, mailbox,
+ * search, and per-message decisions, with passwords and digit codes removed.
  */
-export async function fetchLatestSecurityCode(sentAt: Date, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+export async function fetchLatestSecurityCode(
+  sentAt: Date,
+  env: NodeJS.ProcessEnv = process.env,
+  log: OtpMailLog = () => {},
+): Promise<string | null> {
   const settings = imapSettings(env)
-  if (!settings) return null
-  const { ImapFlow } = (await import('imapflow')) as {
-    ImapFlow: new (opts: Record<string, unknown>) => {
-      connect: () => Promise<void>
-      logout: () => Promise<void>
-      getMailboxLock: (path: string, options?: { readOnly?: boolean }) => Promise<{ release: () => void }>
-      search: (query: Record<string, unknown>, opts: { uid: boolean }) => Promise<number[] | false>
-      fetch: (
-        range: number[],
-        query: Record<string, unknown>,
-        opts: { uid: boolean },
-      ) => AsyncIterable<ImapMessage>
-    }
+  if (!settings) {
+    log('IMAP not configured (GHL_OTP_IMAP_HOST, GHL_OTP_IMAP_USER, or GHL_OTP_IMAP_PASSWORD is empty).')
+    return null
   }
+  const { ImapFlow } = (await import('imapflow')) as { ImapFlow: new (opts: Record<string, unknown>) => ImapClient }
   const client = new ImapFlow({
     host: settings.host,
     port: settings.port,
@@ -99,25 +163,69 @@ export async function fetchLatestSecurityCode(sentAt: Date, env: NodeJS.ProcessE
     greetingTimeout: 15_000,
     socketTimeout: 20_000,
   })
-  await client.connect()
-  let lock: { release: () => void } | null = null
   try {
-    lock = await client.getMailboxLock('INBOX', { readOnly: true })
-    const since = new Date(sentAt.getTime() - 24 * 60 * 60 * 1000)
-    const found = await client.search({ since }, { uid: true })
-    const uids = Array.isArray(found) ? found.slice(-25) : []
-    if (!uids.length) return null
-    const hits: MailHit[] = []
-    for await (const msg of client.fetch(uids, { envelope: true, internalDate: true, source: true }, { uid: true })) {
-      const from = (msg.envelope?.from || []).map((a) => `${a.name || ''} ${a.address || ''}`).join(' ')
-      const subject = msg.envelope?.subject || ''
-      const body = msg.source ? msg.source.toString('utf8') : ''
-      const receivedAt = msg.internalDate ? new Date(msg.internalDate) : new Date(0)
-      hits.push({ from, subject, body, receivedAt })
+    await client.connect()
+    log(`IMAP connected to ${settings.host}:${settings.port} as ${settings.user} (read-only).`)
+  } catch (err) {
+    log(`IMAP connect/auth failed: ${safeImapError(err, settings.password)}`)
+    return null
+  }
+  const cutoff = new Date(sentAt.getTime() - OTP_CLOCK_SKEW_MS).toISOString()
+  const since = new Date(sentAt.getTime() - 24 * 60 * 60 * 1000)
+  const sinceDay = since.toISOString().slice(0, 10)
+  const hits: MailHit[] = []
+  const seen = new Set<string>()
+  try {
+    for (const box of MAILBOXES) {
+      let lock: { release: () => void } | null = null
+      try {
+        lock = await client.getMailboxLock(box, { readOnly: true })
+        log(`Mailbox selected read-only (EXAMINE): ${box}`)
+        const found = await client.search({ since }, { uid: true })
+        const uids = Array.isArray(found) ? found : []
+        log(`Search ${box} SINCE ${sinceDay} (IMAP date-only; keep mail at or after ${cutoff}): ${uids.length} hit(s).`)
+        const recent = uids.slice(-15)
+        let duplicates = 0
+        if (recent.length) {
+          for await (const msg of client.fetch(recent, { envelope: true, internalDate: true, source: true }, { uid: true })) {
+            const from = (msg.envelope?.from || []).map((a) => `${a.name || ''} ${a.address || ''}`.trim()).join(', ')
+            const subject = msg.envelope?.subject || ''
+            const body = msg.source ? msg.source.toString('utf8') : ''
+            const receivedAt = msg.internalDate ? new Date(msg.internalDate) : new Date(0)
+            const key = `${from}\n${subject}\n${receivedAt.toISOString()}`
+            if (seen.has(key)) {
+              duplicates += 1
+              continue
+            }
+            seen.add(key)
+            hits.push({ from, subject, body, receivedAt })
+          }
+        }
+        if (duplicates) log(`Skipped ${duplicates} duplicate message(s) already read in another mailbox.`)
+      } catch (err) {
+        log(`Mailbox ${box} failed: ${safeImapError(err, settings.password)}`)
+      } finally {
+        lock?.release()
+      }
     }
-    return pickSecurityCode(hits, sentAt)
+    const ranked = [...hits].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+    let chosen: string | null = null
+    let chosenAt = ''
+    for (const message of ranked) {
+      const decision = classifySecurityMail(message, sentAt)
+      log(
+        `candidate from="${redactDigits(message.from).slice(0, 120)}" subject="${redactDigits(message.subject).slice(0, 140)}" date=${message.receivedAt.toISOString()} — ${decision.reason}`,
+      )
+      if (!chosen && decision.accept && decision.code) {
+        chosen = decision.code
+        chosenAt = message.receivedAt.toISOString()
+      }
+    }
+    if (!ranked.length) log('No candidate messages in INBOX or [Gmail]/All Mail.')
+    if (chosen) log(`Using the newest accepted code (${chosen.length} digits, received ${chosenAt}).`)
+    else if (ranked.length) log('No candidate was a HighLevel security code after the send click.')
+    return chosen
   } finally {
-    lock?.release()
     await client.logout().catch(() => {})
   }
 }
