@@ -1,5 +1,10 @@
 # Genisys Hub — GHL sub-accounts (Chrome extension)
 
+The Hub can also do this without Chrome staying open: the browser worker
+in `src/lib/ghl-subaccount-worker/` (Playwright on Render). It is off
+until `GHL_SUBACCOUNT_WORKER_ENABLED` is set. This extension is the
+fallback that uses a browser you're already signed into.
+
 GHL doesn't allow "create sub-account" by API on the agency's current plan, so this
 extension does it from a signed-in GHL tab, the way a person would:
 

@@ -51,6 +51,21 @@ services:
         value: "+18772573649"
       - key: ANTHROPIC_API_KEY
         sync: false
+      # The browser worker is off until GHL_SUBACCOUNT_WORKER_ENABLED=1.
+      # Skip the Chromium download on this web service; a separate worker
+      # (docker/ghl-subaccount-worker.Dockerfile) installs it. Running the
+      # browser in this service means dropping this variable, installing
+      # Chromium in the build, and moving off the 512MB starter plan.
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+
+# Optional second service, not created by this file: a background worker
+# that runs docker/ghl-subaccount-worker.Dockerfile. Give it the same
+# DATABASE_URL, VAULT_MASTER_KEY and GHL login as the web service, set
+# GHL_SUBACCOUNT_WORKER_ENABLED=1, and set GHL_SUBACCOUNT_WORKER_RUN=0
+# on the web service so only one process opens Chromium. Standard (2 GB)
+# is the smallest plan that holds Chromium comfortably. Leave MODE as
+# dry_run until a rehearsal looks right, then set MODE=create.
 
 databases:
   - name: genisys-hub-db
