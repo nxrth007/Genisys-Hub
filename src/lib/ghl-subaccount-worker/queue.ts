@@ -38,7 +38,7 @@ import {
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
-import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, shouldAutoRetest } from './heartbeat'
+import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, mayClaimRequeuedJob, requeueCommitOf, runningCommit, shouldAutoRetest, skipNewerBuildLog } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
 import { openString, sealString } from './session'
@@ -545,7 +545,7 @@ export function installWorkerLifecycle(): void {
 }
 
 export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number> {
-  if (workerMode() === 'create') return 0
+  if (shuttingDown || workerMode() === 'create') return 0
   if (!autoRetestDue(workerBootedAt, now)) return 0
   if (retestDone || retestRunning) return 0
   retestRunning = true
@@ -555,6 +555,7 @@ export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number
       select: { id: true, status: true, payload: true, log: true },
     })
     let requeued = 0
+    const commit = runningCommit()
     for (const row of rows) {
       if (retestedThisBoot.has(row.id)) continue
       const name = readBrowserFields(row.payload)?.name || ''
@@ -562,6 +563,10 @@ export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number
       retestedThisBoot.add(row.id)
       const prev = Array.isArray(row.log) ? row.log : []
       const log = [...prev, jobLogEntry('Auto-retest after deploy')].slice(-60)
+      const payload = {
+        ...(row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload) ? row.payload : {}),
+        requeuedByCommit: commit,
+      }
       const res = await prisma.ghlSubaccountJob.updateMany({
         where: { id: row.id, status: row.status },
         data: {
@@ -570,6 +575,7 @@ export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number
           heartbeatAt: null,
           nextAttemptAt: new Date(),
           finishedAt: null,
+          payload: payload as Prisma.InputJsonValue,
           log: log as Prisma.InputJsonValue,
         },
       })
@@ -848,6 +854,26 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   }
 }
 
+const skippedNewerBuild = new Set<string>()
+
+async function noteSkippedNewerBuild(id: string, sha: string): Promise<void> {
+  if (skippedNewerBuild.has(id)) return
+  skippedNewerBuild.add(id)
+  const message = skipNewerBuildLog(sha)
+  console.warn(`[ghl-subaccount-worker] ${message}`)
+  const row = await prisma.ghlSubaccountJob.findFirst({
+    where: { id, status: 'queued' },
+    select: { log: true },
+  })
+  if (!row) return
+  const prev = Array.isArray(row.log) ? row.log : []
+  const log = [...prev, jobLogEntry(message)].slice(-60)
+  await prisma.ghlSubaccountJob.updateMany({
+    where: { id, status: 'queued' },
+    data: { log: log as Prisma.InputJsonValue },
+  })
+}
+
 async function claimOne(): Promise<{ id: string; lease: Date } | null> {
   if (shuttingDown) return null
   const now = new Date()
@@ -861,15 +887,30 @@ async function claimOne(): Promise<{ id: string; lease: Date } | null> {
     where: due,
     orderBy: { nextAttemptAt: 'asc' },
     take: 5,
-    select: { id: true },
+    select: { id: true, payload: true },
   })
+  const mine = runningCommit()
   for (const c of candidates) {
+    if (shuttingDown) return null
+    const required = requeueCommitOf(c.payload)
+    if (!mayClaimRequeuedJob(required, mine)) {
+      await noteSkippedNewerBuild(c.id, required || mine)
+      continue
+    }
     const lease = newLease(now.getTime())
     const res = await prisma.ghlSubaccountJob.updateMany({
       where: { id: c.id, ...due },
       data: { status: 'running', leaseUntil: lease, heartbeatAt: new Date(), attempts: { increment: 1 } },
     })
-    if (res.count === 1) return { id: c.id, lease }
+    if (res.count !== 1) continue
+    if (shuttingDown) {
+      await prisma.ghlSubaccountJob.updateMany({
+        where: { id: c.id, leaseUntil: lease, status: 'running' },
+        data: { status: 'queued', leaseUntil: null, heartbeatAt: null, nextAttemptAt: new Date(), attempts: { decrement: 1 } },
+      })
+      return null
+    }
+    return { id: c.id, lease }
   }
   return null
 }

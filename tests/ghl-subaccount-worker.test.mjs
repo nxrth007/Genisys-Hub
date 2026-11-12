@@ -92,6 +92,12 @@ test('a running job with no heartbeat for 3 minutes is stale', () => {
   assert.equal(heartbeat.stampJobLog('Auto-retest after deploy', '3ba4fba'), '[3ba4fba] Auto-retest after deploy')
   assert.equal(heartbeat.stampJobLog('[3ba4fba] Auto-retest after deploy', '3ba4fba'), '[3ba4fba] Auto-retest after deploy')
   assert.equal(heartbeat.jobLogEntry('Screenshot abc at step details form bottom', new Date('2026-11-12T02:59:19.000Z'), '3ba4fba').msg, '[3ba4fba] Screenshot abc at step details form bottom')
+  assert.equal(heartbeat.requeueCommitOf({ name: 'Test: Acme', requeuedByCommit: '0dc1e5b' }), '0dc1e5b')
+  assert.equal(heartbeat.requeueCommitOf({ name: 'Test: Acme' }), null)
+  assert.equal(heartbeat.mayClaimRequeuedJob(null, '751cb91'), true)
+  assert.equal(heartbeat.mayClaimRequeuedJob('0dc1e5b', '0dc1e5b'), true)
+  assert.equal(heartbeat.mayClaimRequeuedJob('0dc1e5b', '751cb91'), false)
+  assert.equal(heartbeat.skipNewerBuildLog('0dc1e5b'), 'skipping job requeued by newer build 0dc1e5b')
 })
 
 test('worker stays off, and dry-run, until the env says otherwise', () => {
