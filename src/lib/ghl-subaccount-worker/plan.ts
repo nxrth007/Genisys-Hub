@@ -755,7 +755,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           status: 'needs_human',
           locationId: null,
           uncertain: false,
-          detail: 'The snapshot modal is open but the snapshot name is not known. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the card title, for example Master Template.',
+          detail: 'The snapshot modal is open but the snapshot name is not known. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the card title, for example Final Master Client Sub Acc Snapshot.',
         })
       }
       const picked = chooseSnapshotCard(snap.cards || [], snap.cardRefs, choice, input.fields.snapshotId)

@@ -406,7 +406,7 @@ export function GhlSubaccountsSection() {
                     <button
                       type="button"
                       disabled={recheck.isPending}
-                      title="Re-reads the snapshot push status and screenshots the location snapshot page. Does not create a sub-account or press Load snapshot."
+                      title="Re-reads GHL's load status for the configured snapshot on this sub-account. Does not create a sub-account or load a snapshot."
                       onClick={() => recheck.mutate(r.clientId)}
                       className="rounded-md border border-border px-2 py-1 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                     >

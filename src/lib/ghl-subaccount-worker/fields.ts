@@ -123,7 +123,8 @@ export type SnapshotChoice = {
 
 /**
  * The snapshot to load. A queued payload can keep an old id after Settings
- * or the snapshot name (Master Template) has moved on.
+ * or the env has moved on. The client kit is "Final Master Client Sub Acc
+ * Snapshot" (pHagdFFJPsZBnn8ACSHK, My snapshots), the Settings default.
  */
 export function resolveSnapshotChoice(input: {
   payloadId?: string | null
@@ -205,21 +206,53 @@ export function describeSnapshotPush(status: SnapshotPushStatus | null, requeste
     .join(' ')
 }
 
-export function snapshotSettingsUrls(origin: string, locationId: string): string[] {
-  const base = origin.replace(/\/$/, '')
-  const id = encodeURIComponent(locationId)
-  return [
-    `${base}/v2/location/${id}/settings/snapshot`,
-    `${base}/v2/location/${id}/settings/snapshots`,
-    `${base}/location/${id}/settings/snapshot`,
-  ]
-}
+/** How long a new sub-account may take to finish loading its snapshot. */
+export const SNAPSHOT_WAIT_MS = 20 * 60 * 1000
+/** How often the worker asks GHL for the load status while it waits. */
+export const SNAPSHOT_POLL_MS = 60 * 1000
+/** Creating with a snapshot starts the load at once. No status record after this long means it never started. */
+export const SNAPSHOT_START_GRACE_MS = 5 * 60 * 1000
 
-const LOAD_SNAPSHOT = /^(load snapshot|push snapshot|push to sub-account)$/i
+export type SnapshotWaitStep = { done: false; note: string } | { done: true; ok: boolean; note: string }
 
-/** The only button a post-create load may press. Create and Add Sub-Account are never this. */
-export function loadSnapshotButton(labels: string[]): string | null {
-  return labels.find((label) => LOAD_SNAPSHOT.test(label.trim())) ?? null
+/**
+ * One reading of GHL's load status for this snapshot on this location.
+ * GHL's own "completed" is the success signal. A status record for some
+ * other location counts as no record.
+ */
+export function snapshotWaitStep(input: {
+  status: SnapshotPushStatus | null
+  locationId: string
+  snapshotLabel: string
+  elapsedMs: number
+  waitMs?: number
+  startGraceMs?: number
+}): SnapshotWaitStep {
+  const waitMs = input.waitMs ?? SNAPSHOT_WAIT_MS
+  const graceMs = input.startGraceMs ?? SNAPSHOT_START_GRACE_MS
+  const minutes = Math.round(input.elapsedMs / 60_000)
+  const status = input.status && (!input.status.locationId || input.status.locationId === input.locationId) ? input.status : null
+  const state = snapshotImportState(status)
+  const label = input.snapshotLabel
+  const pending = status?.pending.length ? ` Still pending: ${status.pending.join(', ')}.` : ''
+  const failedParts = status?.failed.length ? ` Failed parts: ${status.failed.join(', ')}.` : ''
+  if (state === 'applied') {
+    if (failedParts) {
+      return { done: true, ok: false, note: `GHL finished loading ${label}, but some parts failed.${failedParts} Open the sub-account and check what is missing.` }
+    }
+    return { done: true, ok: true, note: `GHL finished loading ${label} into this sub-account.` }
+  }
+  if (state === 'failed') {
+    return { done: true, ok: false, note: `GHL says loading ${label} failed (status "${status?.status}").${failedParts}` }
+  }
+  if (state === 'missing' && input.elapsedMs >= graceMs) {
+    return { done: true, ok: false, note: `GHL never started loading ${label} into this sub-account. There was still no load status after ${minutes} minutes.` }
+  }
+  if (input.elapsedMs >= waitMs) {
+    return { done: true, ok: false, note: `GHL was still loading ${label} after ${minutes} minutes (status "${status?.status ?? 'none'}").${pending}` }
+  }
+  if (state === 'missing') return { done: false, note: `Waiting for GHL to start loading ${label}.` }
+  return { done: false, note: `GHL is loading ${label} (status "${status?.status}").${pending}` }
 }
 
 /**

@@ -47,8 +47,6 @@ const pageSource = loadTs(join(dir, 'page-source.ts'))
 const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 const otpMail = loadTs(join(dir, 'otp-mail.ts'))
 const snapshotCard = loadTs(join(dir, 'snapshot-card.ts'))
-const snapshotLoad = loadTs(join(dir, 'snapshot-load.ts'))
-const snapshotCatalog = loadTs(join(dir, 'snapshot-catalog.ts'))
 const heartbeat = loadTs(join(dir, 'heartbeat.ts'))
 
 const {
@@ -57,9 +55,6 @@ const {
   workerMode,
   workerPaused,
   backfillIntakeIds,
-  snapshotRecheckLocationIds,
-  snapshotDiagnosticEnabled,
-  snapshotPushAfterCreate,
   retryDelayMs,
   MAX_ATTEMPTS,
   subAccountListUrl,
@@ -67,7 +62,7 @@ const {
   parseAgencyLogin,
 } = config
 const { ghlLabels } = labelsMod
-const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolveSnapshotChoice, snapshotImportState, describeSnapshotPush, readSnapshotPushStatus, loadSnapshotButton, snapshotSettingsUrls } = fieldsMod
+const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolveSnapshotChoice, snapshotImportState, describeSnapshotPush, readSnapshotPushStatus, snapshotWaitStep, SNAPSHOT_WAIT_MS, SNAPSHOT_START_GRACE_MS } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
@@ -124,12 +119,6 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.deepEqual(backfillIntakeIds({}), ['cmwd3jnao001m3hsct1totiqp'])
   assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: '' }), [])
   assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: 'cmwd3jnao001m3hsct1totiqp, other' }), ['cmwd3jnao001m3hsct1totiqp', 'other'])
-  assert.deepEqual(snapshotRecheckLocationIds({}), [])
-  assert.deepEqual(snapshotRecheckLocationIds({ GHL_SNAPSHOT_RECHECK_LOCATION_IDS: '1MQb8TlVXLcwNgO24RAU' }), ['1MQb8TlVXLcwNgO24RAU'])
-  assert.equal(snapshotPushAfterCreate({}), false)
-  assert.equal(snapshotPushAfterCreate({ GHL_SNAPSHOT_PUSH_AFTER_CREATE: '1' }), true)
-  assert.equal(snapshotDiagnosticEnabled({}), false)
-  assert.equal(snapshotDiagnosticEnabled({ GHL_SNAPSHOT_DIAGNOSTIC: '1' }), true)
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')
@@ -258,207 +247,9 @@ test('form fields follow the API payload, with United States spelled out', () =>
   assert.match(describeSnapshotPush(raw, '1MQb8TlVXLcwNgO24RAU', 'PsOYVeuIfXR7soMIiMcI'), /GET \/snapshots\/snapshot-status\/PsOYVeuIfXR7soMIiMcI\/location\/1MQb8TlVXLcwNgO24RAU/)
   assert.match(describeSnapshotPush(raw, '1MQb8TlVXLcwNgO24RAU', 'PsOYVeuIfXR7soMIiMcI'), /not a count of records/)
   assert.match(describeSnapshotPush(raw, 'other-location', 'PsOYVeuIfXR7soMIiMcI'), /which is not other-location/)
-  assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create', 'Load snapshot']), 'Load snapshot')
-  assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create']), null)
-  assert.equal(snapshotSettingsUrls('https://app.gohighlevel.com', '1MQb8TlVXLcwNgO24RAU')[0], 'https://app.gohighlevel.com/v2/location/1MQb8TlVXLcwNgO24RAU/settings/snapshot')
 })
 
-test('a snapshot load stays on one location and counts real records', () => {
-  const locationId = '1MQb8TlVXLcwNgO24RAU'
-  const page = `https://app.gohighlevel.com/v2/location/${locationId}/settings/snapshot`
-  assert.deepEqual(snapshotLoad.snapshotLoadLocationIds({}), [])
-  assert.deepEqual(snapshotLoad.snapshotLoadLocationIds({ GHL_SNAPSHOT_LOAD_LOCATION_IDS: locationId }), [locationId])
-  assert.deepEqual(snapshotLoad.pendingSnapshotLoads([locationId, 'other'], [locationId]), ['other'])
-  assert.equal(snapshotLoad.snapshotRecordsLanded({ pipelines: 0, workflows: 4, funnels: 2 }), false)
-  assert.equal(snapshotLoad.snapshotRecordsLanded({ pipelines: 2, workflows: 4, funnels: 3 }), true)
-  assert.equal(snapshotLoad.snapshotLoadUrlAllowed(`https://app.gohighlevel.com/accounts/search?location=${locationId}`, locationId), false)
-  assert.equal(snapshotLoad.snapshotLoadUrlAllowed(page, locationId), true)
-  const progress = snapshotLoad.freshSnapshotLoad()
-  const open = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Add Sub-Account', 'Create', 'Load snapshot'],
-    body: 'Snapshot settings',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress,
-  })
-  assert.equal(open.type, 'click')
-  assert.equal(open.click.label, 'Load snapshot')
-  const pick = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Add Sub-Account', 'Master Template', 'Other snapshot'],
-    body: 'Choose a snapshot',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress: open.click.progress,
-  })
-  assert.equal(pick.click.label, 'Master Template')
-  const overwrite = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Overwrite existing data', 'Skip conflicts', 'Proceed'],
-    body: 'Import options',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress: pick.click.progress,
-  })
-  assert.equal(overwrite.click.label, 'Overwrite existing data')
-  const confirm = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Add Sub-Account', 'Proceed'],
-    body: 'Import options',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress: overwrite.click.progress,
-  })
-  assert.equal(confirm.click.label, 'Proceed')
-  const done = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Add Sub-Account'],
-    body: 'Import started',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress: confirm.click.progress,
-  })
-  assert.equal(done.type, 'stop')
-  assert.equal(done.ok, true)
-  const wrong = snapshotLoad.nextSnapshotLoadAction({
-    url: 'https://app.gohighlevel.com/v2/location/someone-else/settings/snapshot',
-    locationId,
-    labels: ['Load snapshot'],
-    body: 'Snapshot',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress,
-  })
-  assert.equal(wrong.ok, false)
-  const pipelines = snapshotLoad.countsFromAssetPayload(
-    `https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${locationId}`,
-    { pipelines: [{ id: 'p1' }, { id: 'p2' }] },
-    locationId,
-  )
-  assert.equal(pipelines.pipelines, 2)
-  assert.equal(snapshotLoad.countsFromAssetPayload(
-    'https://services.leadconnectorhq.com/opportunities/pipelines?locationId=someone-else',
-    { pipelines: [{ id: 'p1' }] },
-    locationId,
-  ), null)
-  const tags = snapshotLoad.countsFromAssetPayload(
-    `https://services.leadconnectorhq.com/locations/${locationId}/tags`,
-    { tags: [{ name: 'New' }, { name: 'Hot' }] },
-    locationId,
-  )
-  assert.equal(tags.tags, 2)
-  const fields = snapshotLoad.countsFromAssetPayload(
-    `https://services.leadconnectorhq.com/locations/${locationId}/customFields`,
-    { customFields: [{ id: 'f1' }] },
-    locationId,
-  )
-  assert.equal(fields.customFields, 1)
-  assert.equal(snapshotLoad.countsFromAssetPayload(
-    `https://services.leadconnectorhq.com/snapshots/snapshot-status/snap/location/${locationId}`,
-    { pipelines: [{ id: 'p1' }] },
-    locationId,
-  ), null)
-  assert.deepEqual(snapshotLoad.verifyCheckTimes(15 * 60 * 1000, 2 * 60 * 1000), [0, 120000, 240000, 360000, 480000, 600000, 720000, 840000])
-  const missing = snapshotLoad.nextSnapshotLoadAction({
-    url: page,
-    locationId,
-    labels: ['Save', 'Account Snapshots', 'Delete'],
-    body: 'settings',
-    snapshotName: 'Master Template',
-    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
-    progress: snapshotLoad.freshSnapshotLoad(),
-  })
-  assert.equal(missing.ok, false)
-  assert.match(missing.reason, /Visible controls: Save \| Account Snapshots \| Delete/)
-  const source = { pipelines: 3, workflows: 0, funnels: 2, customFields: 4, tags: null }
-  const landed = snapshotLoad.locationContentLanded(
-    { pipelines: 3, workflows: 0, funnels: 1, customFields: 4, tags: 0 },
-    source,
-  )
-  assert.equal(landed.ok, true)
-  const short = snapshotLoad.locationContentLanded(
-    { pipelines: 0, workflows: 0, funnels: 1, customFields: 4, tags: 0 },
-    source,
-  )
-  assert.equal(short.ok, false)
-  assert.match(short.reason, /pipelines/)
-})
-
-test('the snapshot catalog keeps both Master Templates and ignores a push document', () => {
-  const { readSnapshotCatalog, chooseSnapshotMenuAction, chooseLocationTarget, confirmPushControl, isUnsafeSnapshotControl, configuredSnapshotHint } = snapshotCatalog
-  const rows = readSnapshotCatalog(
-    {
-      snapshots: [
-        {
-          id: 'PsOYVeuIfXR7soMIiMcI',
-          name: 'Master Template',
-          type: 'imported',
-          assets: { pipelines: [], workflows: [], funnels: [], customFields: [], tags: [] },
-        },
-        {
-          _id: 'pHagdFFJPsZBnn8ACSHK',
-          name: 'Master Template',
-          type: 'own',
-          snapshotData: {
-            pipelines: [{ id: 'p1' }, { id: 'p2' }],
-            workflows: [{ id: 'w1' }],
-            funnels: [{ id: 'f1' }],
-            customFields: [{ id: 'c1' }],
-            tags: [{ name: 'Hot' }],
-          },
-        },
-      ],
-      data: {
-        id: 'doc1',
-        locationId: '1MQb8TlVXLcwNgO24RAU',
-        status: 'completed',
-        completed: ['funnels', 'workflow', 'pipelines'],
-        pending: [],
-      },
-    },
-    'GET /snapshots/?companyId=agency',
-  )
-  assert.equal(rows.length, 2)
-  const empty = rows.find((row) => row.id === 'PsOYVeuIfXR7soMIiMcI')
-  const full = rows.find((row) => row.id === 'pHagdFFJPsZBnn8ACSHK')
-  assert.equal(empty.counts.pipelines, 0)
-  assert.equal(empty.type, 'imported')
-  assert.equal(full.counts.pipelines, 2)
-  assert.equal(full.counts.workflows, 1)
-  assert.equal(full.counts.tags, 1)
-  assert.match(configuredSnapshotHint(rows, 'PsOYVeuIfXR7soMIiMcI', 'Master Template'), /pHagdFFJPsZBnn8ACSHK/)
-  const menu = chooseSnapshotMenuAction(['Share', 'Delete', 'Create Sub-Account', 'Push to sub-account'])
-  assert.equal(menu.ok, true)
-  assert.equal(menu.label, 'Push to sub-account')
-  const several = chooseSnapshotMenuAction(['Push snapshot', 'Load snapshot', 'Delete'])
-  assert.equal(several.ok, false)
-  assert.match(several.reason, /Visible menu: .*Delete/)
-  assert.equal(isUnsafeSnapshotControl('Delete'), true)
-  assert.equal(isUnsafeSnapshotControl('Select all'), true)
-  const one = chooseLocationTarget(
-    ['Test: Snapshot Check LLC', 'Test: Snapshot Check LLC 2'],
-    '1MQb8TlVXLcwNgO24RAU',
-    'Test: Snapshot Check LLC',
-  )
-  assert.equal(one.ok, true)
-  assert.equal(one.label, 'Test: Snapshot Check LLC')
-  const none = chooseLocationTarget(['Other LLC'], '1MQb8TlVXLcwNgO24RAU', 'Test: Snapshot Check LLC')
-  assert.equal(none.ok, false)
-  assert.match(none.reason, /Visible locations: Other LLC/)
-  const many = chooseLocationTarget(
-    ['Test: Snapshot Check LLC', 'Test: Snapshot Check LLC'],
-    '',
-    'Test: Snapshot Check LLC',
-  )
-  assert.equal(many.ok, false)
-  assert.equal(confirmPushControl(['Cancel', 'Create Sub-Account', 'Push']).label, 'Push')
-  assert.equal(confirmPushControl(['Next']).finishes, false)
+test('a duplicate snapshot title is picked by its id, or not at all', () => {
   const ambiguous = chooseSnapshotCard(
     ['Master Template', 'Master Template'],
     [
@@ -481,6 +272,44 @@ test('the snapshot catalog keeps both Master Templates and ignores a push docume
   )
   assert.equal(unnamed.ok, false)
   assert.match(unnamed.detail, /Nothing was created/)
+})
+
+test('after a create, GHL load status decides: completed passes, anything else waits or alerts', () => {
+  const loc = 'newLoc123456789012345'
+  const label = '"Final Master Client Sub Acc Snapshot" (pHagdFFJPsZBnn8ACSHK)'
+  const at = (status, elapsedMin) =>
+    snapshotWaitStep({ status, locationId: loc, snapshotLabel: label, elapsedMs: elapsedMin * 60_000 })
+  const doc = (fields) => readSnapshotPushStatus({ id: 'doc1', locationId: loc, ...fields })
+
+  const ok = at(doc({ status: 'completed', completed: ['workflows', 'funnels'] }), 3)
+  assert.deepEqual([ok.done, ok.ok], [true, true])
+  assert.match(ok.note, /finished loading/)
+
+  const partial = at(doc({ status: 'completed', completed: ['workflows'], failed: ['wordpress'] }), 3)
+  assert.deepEqual([partial.done, partial.ok], [true, false])
+  assert.match(partial.note, /Failed parts: wordpress/)
+
+  const failed = at(doc({ status: 'failed' }), 1)
+  assert.deepEqual([failed.done, failed.ok], [true, false])
+
+  const loading = doc({ status: 'processing', completed: ['funnels', 'workflow'], pending: ['wordpress'] })
+  assert.equal(at(loading, 10).done, false)
+  const late = at(loading, SNAPSHOT_WAIT_MS / 60_000)
+  assert.deepEqual([late.done, late.ok], [true, false])
+  assert.match(late.note, /still loading.*Still pending: wordpress/)
+
+  assert.equal(at(null, 1).done, false)
+  const never = at(null, SNAPSHOT_START_GRACE_MS / 60_000)
+  assert.deepEqual([never.done, never.ok], [true, false])
+  assert.match(never.note, /never started/)
+
+  const elsewhere = snapshotWaitStep({
+    status: readSnapshotPushStatus({ id: 'doc2', locationId: 'someOtherLocation', status: 'completed' }),
+    locationId: loc,
+    snapshotLabel: label,
+    elapsedMs: 60_000,
+  })
+  assert.equal(elsewhere.done, false)
 })
 
 test('a page snapshot id that is not the configured snapshot stops before create', () => {

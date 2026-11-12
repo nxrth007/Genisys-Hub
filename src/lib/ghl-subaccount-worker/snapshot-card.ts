@@ -246,107 +246,17 @@ export function visibleControlLabels(scope?: ParentNode): string[] {
   return out
 }
 
-/** Rows for this snapshot. An id in an attribute or as the whole text wins over the name. */
-export function matchingSnapshotRows(target: { name: string; id: string }, scope?: ParentNode): Element[] {
-  const attrBlob = (el: Element) => {
-    const names = ['id', 'data-id', 'data-snapshot-id', 'data-snapshotid', 'href', 'data-value']
-    const bits: string[] = []
-    for (const name of names) {
-      const value = el.getAttribute ? el.getAttribute(name) : null
-      if (value) bits.push(value)
-    }
-    return bits.join(' ')
-  }
-  const rowOf = (el: Element) => {
-    let current: Element | null = el
-    for (let depth = 0; current && depth < 8; depth++) {
-      const role = (current.getAttribute && current.getAttribute('role')) || ''
-      if (role === 'row' || role === 'listitem' || current.tagName === 'LI' || current.tagName === 'TR' || current.tagName === 'ARTICLE') {
-        return current
-      }
-      current = current.parentElement
-    }
-    return el.parentElement || el
-  }
-  const root = scope || (typeof document !== 'undefined' ? document.body : null)
-  if (!root || !root.querySelectorAll) return []
-  const nodes = Array.from(root.querySelectorAll('*'))
-  const rows: Element[] = []
-  const seen = new Set<Element>()
-  const add = (el: Element) => {
-    const row = rowOf(el)
-    if (seen.has(row)) return
-    seen.add(row)
-    rows.push(row)
-  }
-  if (target.id) {
-    const hosts: Element[] = []
-    let smallest = Infinity
-    for (const el of nodes) {
-      const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
-      if (!attrBlob(el).includes(target.id) && text !== target.id) continue
-      const size = el.querySelectorAll('*').length
-      if (size < smallest) {
-        smallest = size
-        hosts.length = 0
-        hosts.push(el)
-      } else if (size === smallest) hosts.push(el)
-    }
-    for (const host of hosts) add(host)
-    if (rows.length) return rows
-  }
-  const want = target.name.replace(/\s+/g, ' ').trim().toLowerCase()
-  if (!want) return []
-  for (const el of nodes) {
-    let raw = ''
-    for (let i = 0; i < el.childNodes.length; i++) {
-      const node = el.childNodes[i]
-      if (node && node.nodeType === 3) raw += node.textContent || ''
-    }
-    if (raw.replace(/\s+/g, ' ').trim().toLowerCase() !== want) continue
-    add(el)
-  }
-  return rows
-}
-
-export function snapshotRowCount(target: { name: string; id: string }, scope?: ParentNode): number {
-  return matchingSnapshotRows(target, scope).length
-}
-
-/** The one snapshot row. Zero or several matches return null so the caller can abort. */
-export function locateSnapshotRow(target: { name: string; id: string }, scope?: ParentNode): Element | null {
-  const rows = matchingSnapshotRows(target, scope)
-  return rows.length === 1 ? rows[0] : null
-}
-
-/** The action menu on one snapshot row. Sent to the page, so it does not call out. */
-export function locateRowMenu(row: Element | null): Element | null {
-  if (!row || !row.querySelectorAll) return null
-  const nodes = Array.from(row.querySelectorAll('button, a, [role="button"]'))
-  const labelOf = (el: Element) =>
-    `${(el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || ''} ${el.textContent || ''}`
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
-  const menu = nodes.find((el) => /menu|more|action|kebab|option|ellipsis|\.\.\./.test(labelOf(el)))
-  if (menu) return menu
-  return nodes.find((el) => !labelOf(el) || labelOf(el) === '...') || null
-}
-
-export function dialogChoiceLabels(scope?: ParentNode): string[] {
-  const root =
-    scope ||
-    (typeof document !== 'undefined' ? document.querySelector('[role="dialog"], [aria-modal="true"]') || document.body : null)
-  if (!root || !root.querySelectorAll) return []
+/** Button, tab, and menu labels to log when a control is missing. */
+export function visibleControls(labels: string[], limit = 40): string {
   const out: string[] = []
   const seen = new Set<string>()
-  const nodes = Array.from(root.querySelectorAll('[role="option"], [role="checkbox"], [role="radio"], label, li'))
-  for (const el of nodes) {
-    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+  for (const raw of labels) {
+    const text = raw.replace(/\s+/g, ' ').trim()
     const key = text.toLowerCase()
-    if (!text || text.length > 160 || seen.has(key)) continue
+    if (!text || seen.has(key)) continue
     seen.add(key)
     out.push(text)
+    if (out.length >= limit) break
   }
-  return out
+  return out.join(' | ') || '(none)'
 }

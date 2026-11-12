@@ -7,9 +7,9 @@ import { prisma } from '@/lib/prisma'
  * POST /api/admin/ghl-subaccount-worker/recheck
  * { clientId }
  *
- * Re-reads GHL's last snapshot push for this client's location and
- * screenshots the location snapshot page. It does not create a
- * sub-account and it does not press Load snapshot.
+ * Re-reads GHL's last load of the configured snapshot into this
+ * client's location, through the agency API. No browser; it does not
+ * create a sub-account or load a snapshot.
  */
 export async function POST(req: Request) {
   const denial = await requireAdmin()
