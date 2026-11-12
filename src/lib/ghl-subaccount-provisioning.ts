@@ -23,6 +23,7 @@ import { advanceJourneyStage, blockJourneyStage, recordJourney, setJourneyStage 
 import { getCrmProvider } from './crm/provider'
 import { hubAlert, hubLink } from './hub-alerts'
 import { workerEnabled, workerMode } from './ghl-subaccount-worker/config'
+import { isHeartbeatStale } from './ghl-subaccount-worker/heartbeat'
 import { STATE_CODE_TO_NAME } from './address'
 import { parseUsAddress } from './address-parse'
 import { looksLikePhoneNumber } from './client-from-intake'
@@ -586,6 +587,8 @@ export type GhlProvisionRow = {
   url: string | null
   snapshotStatus: string | null
   at: string | null
+  /** True when the browser job is running but its heartbeat is older than 3 minutes. */
+  staleRunning?: boolean
 }
 
 /** The latest automatic (and manual) attempts, refreshing snapshot progress for fresh ones. */
@@ -610,16 +613,27 @@ export async function recentGhlProvisioning(limit = 20): Promise<GhlProvisionRow
   const refreshed = new Map<string, string | null>()
   await Promise.all(needsRefresh.map(async (r) => refreshed.set(r.id, await refreshSnapshotStatus(r.id))))
 
-  const attempted: GhlProvisionRow[] = rows.map((r) => ({
-    clientId: r.id,
-    clientName: r.name,
-    status: r.ghlProvisionStatus ?? 'unknown',
-    error: r.ghlProvisionError,
-    locationId: r.ghlLocationId,
-    url: r.ghlLocationId ? ghlLocationUrl(r.ghlLocationId) : r.ghlSubaccountUrl,
-    snapshotStatus: refreshed.get(r.id) ?? r.ghlSnapshotStatus,
-    at: r.ghlProvisionedAt?.toISOString() ?? null,
-  }))
+  const jobs = rows.length
+    ? await prisma.ghlSubaccountJob.findMany({
+        where: { clientId: { in: rows.map((r) => r.id) } },
+        select: { clientId: true, status: true, heartbeatAt: true, updatedAt: true },
+      })
+    : []
+  const jobByClient = new Map(jobs.map((job) => [job.clientId, job]))
+  const attempted: GhlProvisionRow[] = rows.map((r) => {
+    const job = jobByClient.get(r.id)
+    return {
+      clientId: r.id,
+      clientName: r.name,
+      status: r.ghlProvisionStatus ?? 'unknown',
+      error: r.ghlProvisionError,
+      locationId: r.ghlLocationId,
+      url: r.ghlLocationId ? ghlLocationUrl(r.ghlLocationId) : r.ghlSubaccountUrl,
+      snapshotStatus: refreshed.get(r.id) ?? r.ghlSnapshotStatus,
+      at: r.ghlProvisionedAt?.toISOString() ?? null,
+      staleRunning: job?.status === 'running' && isHeartbeatStale(job.heartbeatAt, job.updatedAt),
+    }
+  })
   return [...(await recentClientsNeverProvisioned()), ...attempted]
 }
 

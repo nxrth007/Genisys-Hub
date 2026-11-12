@@ -47,6 +47,7 @@ const pageSource = loadTs(join(dir, 'page-source.ts'))
 const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 const otpMail = loadTs(join(dir, 'otp-mail.ts'))
 const snapshotCard = loadTs(join(dir, 'snapshot-card.ts'))
+const heartbeat = loadTs(join(dir, 'heartbeat.ts'))
 
 const {
   workerEnabled,
@@ -68,6 +69,16 @@ const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagn
 function env(overrides) {
   return overrides
 }
+
+test('a running job with no heartbeat for 3 minutes is stale', () => {
+  const { isHeartbeatStale, HEARTBEAT_STALE_MS, ABANDONED_JOB_LOG } = heartbeat
+  const now = Date.parse('2026-11-12T01:55:00.000Z')
+  assert.equal(isHeartbeatStale(new Date(now - HEARTBEAT_STALE_MS - 1000), new Date(now), now), true)
+  assert.equal(isHeartbeatStale(new Date(now - 10_000), new Date(now - HEARTBEAT_STALE_MS - 1000), now), false)
+  assert.equal(isHeartbeatStale(null, new Date(now - HEARTBEAT_STALE_MS - 1000), now), true)
+  assert.equal(isHeartbeatStale(null, new Date(now - 10_000), now), false)
+  assert.equal(ABANDONED_JOB_LOG, 'Recovered a job abandoned by a restarted instance')
+})
 
 test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.equal(workerEnabled(env({})), false)
