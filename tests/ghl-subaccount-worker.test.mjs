@@ -63,7 +63,7 @@ const { browserFieldsFromLocation, readBrowserFields } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
-const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard } = plan
+const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard, isCreateSubAccountButton, isSubAccountListReady } = plan
 
 function env(overrides) {
   return overrides
@@ -612,10 +612,39 @@ test('the agency shell clicks Sub-Accounts, then records the page after it settl
   assert.match(result.detail, /click Sub-Accounts: https:\/\/app\.gohighlevel\.com\/sub-accounts/)
   assert.match(result.detail, /href=https:\/\/app\.gohighlevel\.com\/sub-accounts/)
   assert.match(result.detail, /frames=\[https:\/\/app\.gohighlevel\.com\/sub-accounts\]/)
-  assert.equal(listCandidates('https://app.gohighlevel.com/accounts')[0], 'https://app.gohighlevel.com/accounts/sub-accounts')
+  assert.equal(listCandidates('https://app.gohighlevel.com/accounts')[0], 'https://app.gohighlevel.com/sub-accounts')
+  assert.equal(listCandidates('https://app.gohighlevel.com/accounts').some((url) => url.endsWith('/accounts/sub-accounts')), false)
   const frames = pageDiagnostics(shell)
   assert.match(frames, /frames:/)
   assert.match(frames, /https:\/\/app\.gohighlevel\.com\/accounts/)
+})
+
+test('the loading empty state is not the list, and create new is not the create button', () => {
+  assert.equal(isCreateSubAccountButton('create new'), false)
+  assert.equal(isCreateSubAccountButton('Create Sub-Account'), true)
+  assert.equal(isCreateSubAccountButton('+ Create Sub-Account'), true)
+  const loading = snap({
+    url: 'https://app.gohighlevel.com/sub-accounts/accounts',
+    buttons: ['create new', 'sub-accounts'],
+    body: 'sub-accounts start creating sub-accounts to manage your clients crm, automations',
+  })
+  assert.equal(isSubAccountListReady(loading), false)
+  const step = nextGhlAction(loading, input('create'), { ...initialRunState(), clickedNav: true })
+  assert.equal(step.action.type, 'wait_list')
+  const still = nextGhlAction(loading, input('create'), step.state)
+  assert.notEqual(still.action?.type, 'click')
+  assert.equal(still.action?.words?.some((word) => /create new/i.test(word)) || false, false)
+  const ready = snap({
+    url: 'https://app.gohighlevel.com/sub-accounts/accounts',
+    buttons: ['Create Sub-Account', 'create new'],
+    body: '60 sub-accounts',
+  })
+  assert.equal(isSubAccountListReady(ready), true)
+  const click = nextGhlAction(ready, input('create'), { ...initialRunState(), clickedNav: true, listWaited: true })
+  assert.equal(click.action.type, 'click')
+  assert.deepEqual(click.action.words, ['Create Sub-Account'])
+  assert.equal(click.action.exact, true)
+  assert.equal(click.action.settle, 'modal')
 })
 
 test('a configured list URL is tried before any guessed path', () => {
@@ -757,8 +786,9 @@ test('the create button tolerates a leading plus, then the snapshot choice is ta
   })
   const step = nextGhlAction(list, input('create'), initialRunState())
   assert.equal(step.action.type, 'click')
-  assert.equal(step.action.contains, true)
-  assert.match(step.action.words[0], /Create Sub-Account/)
+  assert.equal(step.action.exact, true)
+  assert.equal(step.action.settle, 'modal')
+  assert.deepEqual(step.action.words, ['+ Create Sub-Account'])
   const modal = snap({
     url: 'https://app.gohighlevel.com/accounts/sub-accounts',
     buttons: ['Start from scratch', 'From snapshot'],

@@ -40,7 +40,8 @@ export type PageSnap = {
 
 export type BrowserAction =
   | { type: 'goto'; url: string; settle?: boolean }
-  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean; settle?: boolean }
+  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean; settle?: boolean | 'modal' }
+  | { type: 'wait_list' }
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
   | { type: 'wait_otp'; channel: string }
@@ -88,6 +89,8 @@ export type RunState = {
   navWaits: number
   /** How many list URLs have been opened. */
   listGotos: number
+  /** Already waited out the sub-account list skeleton. */
+  listWaited: boolean
   /** Snapshot was chosen in the blank-vs-snapshot modal. */
   choseSnapshot: boolean
   /** URL and buttons after each navigation has settled. */
@@ -129,6 +132,7 @@ export function initialRunState(): RunState {
     otpSettle: 0,
     navWaits: 0,
     listGotos: 0,
+    listWaited: false,
     choseSnapshot: false,
     navTrail: [],
     pendingStep: '',
@@ -280,22 +284,24 @@ function fieldLabelNote(snap: PageSnap): string {
   return labels.length ? `Fields on the form: ${labels.join(', ')}.` : 'No field labels were visible on the form.'
 }
 
-/** "+ Create Sub-Account", "Add Sub-Account", and a "+ Add" control. */
+/** The list's own button. The header control "create new" is not this. */
 export function isCreateSubAccountButton(text: string): boolean {
-  const raw = norm(text)
-  const t = raw.replace(/^[+\uFF0B]\s*/, '')
-  if (/^[+\uFF0B]\s*add$/.test(raw)) return true
-  return /create sub-?account|add sub-?account|new sub-?account/.test(t)
+  return /^[+＋]?\s*create sub-?account$/.test(norm(text))
 }
 
-/** How long to wait for the sub-account list to render after a navigation. */
-export const LIST_RENDER_WAIT_MS = 30_000
+/** How long to wait for the real sub-account list, including one reload. */
+export const LIST_RENDER_WAIT_MS = 45_000
 
-/**
- * Text that means the sub-account list has rendered. Passed to a RegExp
- * inside the page and inside every frame.
- */
-export const LIST_READY_PATTERN = 'create\\s+sub-?account|add\\s+sub-?account|(?:^|\\n)\\s*\\+\\s*add\\s*(?:\\n|$)|\\d+\\s+sub-?accounts'
+export function isSubAccountListReady(snap: PageSnap): boolean {
+  if (snap.buttons.some(isCreateSubAccountButton)) return true
+  const blob = `${snap.body}\n${(snap.texts || []).join('\n')}\n${snap.buttons.join('\n')}`
+  if (/start creating sub-?accounts/.test(blob)) return false
+  return /\d+\s+sub-?accounts?\b/.test(blob)
+}
+
+function onSubAccountsPath(url: string): boolean {
+  return /\/sub-accounts(\/|$)/i.test(pathOf(url))
+}
 
 const DEFAULT_SNAPSHOT_TABS = ['Imported Snapshots', 'My Snapshots', 'Snapshot Templates']
 
@@ -346,7 +352,7 @@ export function listCandidates(listUrl: string): string[] {
   } catch {
     // keep the default agency origin
   }
-  return [`${origin}/accounts/sub-accounts`, `${origin}/sub-accounts`, `${origin}/agency/sub-accounts`, `${origin}/agency/accounts`]
+  return [`${origin}/sub-accounts`, `${origin}/agency/sub-accounts`, `${origin}/agency/accounts`]
 }
 
 function describeSnap(snap: PageSnap): string {
@@ -655,7 +661,23 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
       return act(beginStep({ ...s, stalls: s.stalls + 1 }, 'waiting for the create form'), { type: 'pause' })
     }
 
-    if (hasCreateButton(snap) && !s.openedCreate) {
+    // The left nav is the way in. Guessed URLs are only for when that item
+    // is not on the page. /accounts/sub-accounts is a blank route, so it is
+    // not one of them.
+    if (!s.clickedNav && hasSubAccountsNav(snap) && !onSubAccountsPath(snap.url)) {
+      return act(beginStep({ ...s, clickedNav: true }, 'click Sub-Accounts'), {
+        type: 'click',
+        words: input.labels.subAccountsNav ?? ['Sub-Accounts', 'Sub Accounts'],
+        contains: true,
+        settle: true,
+      })
+    }
+    if (onSubAccountsPath(snap.url) && !isSubAccountListReady(snap) && !s.listWaited) {
+      return act(beginStep({ ...s, listWaited: true, clickedNav: true }, 'wait for the sub-account list'), { type: 'wait_list' })
+    }
+
+    const createLabel = snap.buttons.find(isCreateSubAccountButton)
+    if (createLabel && !s.openedCreate) {
       const existing = existingLocation(snap, input.fields.name)
       if (existing !== undefined) {
         return done(s, {
@@ -668,25 +690,15 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
       if (!s.searched && fieldByKey(snap, 'search')) {
         return act({ ...s, searched: true, wentToList: true }, { type: 'fill', key: 'search', words: input.labels.search, value: input.fields.name })
       }
-      const label = snap.buttons.find(isCreateSubAccountButton) || 'Create Sub-Account'
-      return act(beginStep({ ...s, openedCreate: true, wentToList: true }, 'click create'), {
+      return act(beginStep({ ...s, openedCreate: true, wentToList: true }, 'click Create Sub-Account'), {
         type: 'click',
-        words: [label, ...(input.labels.createButton ?? [])],
-        contains: true,
+        words: [createLabel],
+        exact: true,
+        settle: 'modal',
       })
     }
 
-    // The agency shell's left nav is the real way in. Guessed paths are a
-    // last resort, and only after this click has had a chance to render.
-    if (!s.clickedNav && hasSubAccountsNav(snap)) {
-      return act(beginStep({ ...s, clickedNav: true }, 'click Sub-Accounts'), {
-        type: 'click',
-        words: input.labels.subAccountsNav ?? ['Sub-Accounts', 'Sub Accounts'],
-        contains: true,
-        settle: true,
-      })
-    }
-    if (!hasCreateButton(snap) && (s.clickedNav || !hasSubAccountsNav(snap))) {
+    if (!onSubAccountsPath(snap.url) && (s.clickedNav || !hasSubAccountsNav(snap))) {
       const override = input.listUrlOverride?.trim() || ''
       if (override && !s.triedOverride && pathOf(snap.url) !== pathOf(override)) {
         return act(beginStep({ ...s, triedOverride: true, wentToList: true }, `open configured list ${override}`), {
