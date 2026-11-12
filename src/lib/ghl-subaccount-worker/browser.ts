@@ -6,6 +6,15 @@
 import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwright'
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import { loadSnapshotButton, snapshotSettingsUrls, type BrowserFields } from './fields'
+import {
+  countsFromAssetPayload,
+  freshSnapshotLoad,
+  locationAssetPages,
+  nextSnapshotLoadAction,
+  snapshotLoadUrlAllowed,
+  type AssetCounts,
+  type SnapshotLoadProgress,
+} from './snapshot-load'
 import type { GhlLabels } from './labels'
 import { driveUntil, LIST_RENDER_WAIT_MS, bestSaveLabel, snapshotIdFromUrl, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
@@ -853,6 +862,239 @@ export async function inspectLocationSnapshot(opts: {
   } finally {
     await context?.close().catch(() => {})
     await browser?.close().catch(() => {})
+    browserOpen = false
+  }
+}
+
+async function openWorkerBrowser(opts: { storageState: string | null; headless: boolean; executablePath?: string }): Promise<{ browser: Browser; context: BrowserContext; page: Page } | null> {
+  if (browserOpen) return null
+  browserOpen = true
+  try {
+    prepareChromiumEnv()
+    const pw = (await import('playwright')) as typeof import('playwright')
+    const browser = await pw.chromium.launch({
+      headless: opts.headless,
+      executablePath: opts.executablePath || undefined,
+      args: chromiumLaunchArgs(),
+    })
+    const context = await browser.newContext({
+      storageState: parseStorage(opts.storageState) as Awaited<ReturnType<BrowserContext['storageState']>> | undefined,
+      viewport: { width: 1440, height: 900 },
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+    })
+    const page = await context.newPage()
+    page.setDefaultTimeout(20_000)
+    return { browser, context, page }
+  } catch (err) {
+    browserOpen = false
+    throw err
+  }
+}
+
+async function loadPageView(page: Page, labels: GhlLabels): Promise<{ url: string; body: string; labels: string[] }> {
+  const snap = await snapshotPage(page, labels)
+  const extra = await page.evaluate(() => {
+    const out: string[] = []
+    document.querySelectorAll('label, [role="checkbox"], [role="radio"]').forEach((el) => {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (text && text.length < 120) out.push(text)
+    })
+    return out
+  }).catch(() => [] as string[])
+  return { url: page.url(), body: snap.body || '', labels: [...(snap.buttons || []), ...extra] }
+}
+
+async function clickLabel(page: Page, labels: GhlLabels, label: string, contains: boolean): Promise<boolean> {
+  for (const frame of page.frames()) {
+    try {
+      const res = await runCommand(frame, { op: 'click', words: [label], exact: !contains, contains, labels })
+      if (res?.ok) return true
+    } catch {
+      // Another frame may hold the control.
+    }
+  }
+  return false
+}
+
+export type SnapshotLoadBrowserResult = {
+  busy: boolean
+  clicked: boolean
+  notes: string[]
+  before: Buffer | null
+  after: Buffer | null
+}
+
+/**
+ * Open one location's snapshot settings and load Master Template.
+ * It never opens the create-sub-account flow.
+ */
+export async function loadSnapshotOnLocation(opts: {
+  locationId: string
+  origin: string
+  snapshotName: string
+  snapshotId: string
+  labels: GhlLabels
+  storageState: string | null
+  headless: boolean
+  executablePath?: string
+}): Promise<SnapshotLoadBrowserResult> {
+  const opened = await openWorkerBrowser(opts)
+  if (!opened) return { busy: true, clicked: false, notes: ['Snapshot load skipped: a browser is already open.'], before: null, after: null }
+  const { browser, context, page } = opened
+  const notes: string[] = []
+  let before: Buffer | null = null
+  let after: Buffer | null = null
+  let progress: SnapshotLoadProgress = freshSnapshotLoad()
+  try {
+    let view = { url: '', body: '', labels: [] as string[] }
+    for (const url of snapshotSettingsUrls(opts.origin, opts.locationId)) {
+      if (!snapshotLoadUrlAllowed(url, opts.locationId)) continue
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(1500)
+      view = await loadPageView(page, opts.labels)
+      if (/snapshot/i.test(`${view.body}\n${view.labels.join('\n')}`) || /sign in|log in/i.test(view.body)) break
+    }
+    if (!snapshotLoadUrlAllowed(page.url(), opts.locationId)) {
+      return { busy: false, clicked: false, notes: [`Refusing to continue. Landed on ${page.url()}, which is not location ${opts.locationId}.`], before, after }
+    }
+    try {
+      before = await capturePage(page)
+    } catch {
+      before = null
+    }
+    let stalls = 0
+    for (let step = 0; step < 8; step++) {
+      const decision = nextSnapshotLoadAction({
+        url: page.url(),
+        locationId: opts.locationId,
+        labels: view.labels,
+        body: view.body,
+        snapshotName: opts.snapshotName,
+        snapshotId: opts.snapshotId,
+        progress,
+      })
+      if (decision.type === 'stop') {
+        if (!decision.ok && stalls < 3) {
+          stalls += 1
+          await page.waitForTimeout(1000)
+          view = await loadPageView(page, opts.labels)
+          continue
+        }
+        notes.push(decision.reason)
+        break
+      }
+      if (!snapshotLoadUrlAllowed(page.url(), opts.locationId)) {
+        notes.push(`Stopped before clicking "${decision.click.label}". The page left location ${opts.locationId}.`)
+        break
+      }
+      const landed = await clickLabel(page, opts.labels, decision.click.label, decision.click.contains)
+      if (!landed) {
+        notes.push(`Could not press "${decision.click.label}".`)
+        break
+      }
+      notes.push(`Pressed "${decision.click.label}".`)
+      progress = decision.click.progress
+      stalls = 0
+      await page.waitForTimeout(1200)
+      view = await loadPageView(page, opts.labels)
+    }
+    try {
+      after = await capturePage(page)
+    } catch {
+      after = null
+    }
+    return { busy: false, clicked: progress.confirmed, notes, before, after }
+  } finally {
+    await context.close().catch(() => {})
+    await browser.close().catch(() => {})
+    browserOpen = false
+  }
+}
+
+/** Count pipelines, workflows, and funnels in one location. Does not click create or load. */
+export async function countLocationAssets(opts: {
+  locationId: string
+  origin: string
+  labels: GhlLabels
+  storageState: string | null
+  headless: boolean
+  executablePath?: string
+}): Promise<{ counts: AssetCounts; notes: string[]; busy: boolean }> {
+  const counts: AssetCounts = { pipelines: null, workflows: null, funnels: null }
+  const opened = await openWorkerBrowser(opts)
+  if (!opened) return { counts, notes: ['Record count skipped: a browser is already open.'], busy: true }
+  const { browser, context, page } = opened
+  const notes: string[] = []
+  const take = (part: Partial<AssetCounts> | null) => {
+    if (!part) return
+    if (typeof part.pipelines === 'number') counts.pipelines = part.pipelines
+    if (typeof part.workflows === 'number') counts.workflows = part.workflows
+    if (typeof part.funnels === 'number') counts.funnels = part.funnels
+  }
+  page.on('response', (res) => {
+    const url = res.url()
+    if (!url.includes(opts.locationId)) return
+    const type = res.headers()['content-type'] || ''
+    if (!type.includes('json')) return
+    void res.json().then((body) => take(countsFromAssetPayload(url, body, opts.locationId))).catch(() => {})
+  })
+  try {
+    for (const asset of locationAssetPages(opts.origin, opts.locationId)) {
+      if (!snapshotLoadUrlAllowed(asset.url, opts.locationId)) continue
+      await page.goto(asset.url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(2500)
+      notes.push(`Opened ${asset.kind} at ${page.url()}.`)
+    }
+    const fetched = await page.evaluate(async (locationId) => {
+      const tokenOf = () => {
+        const direct = ['token', 'id_token', 'access_token', 'authToken']
+        for (let i = 0; i < direct.length; i++) {
+          const raw = localStorage.getItem(direct[i])
+          if (raw && raw.length > 20) return raw.replace(/^"|"$/g, '')
+        }
+        for (let i = 0; i < localStorage.length; i++) {
+          const raw = localStorage.getItem(localStorage.key(i) || '')
+          if (!raw) continue
+          if (raw.indexOf('eyJ') === 0) return raw
+          try {
+            const parsed = JSON.parse(raw) as { token?: unknown }
+            if (parsed && typeof parsed.token === 'string' && parsed.token.length > 20) return parsed.token
+          } catch {
+            // Not a JSON token.
+          }
+        }
+        return ''
+      }
+      const token = tokenOf()
+      const hosts = ['https://services.leadconnectorhq.com', 'https://backend.leadconnectorhq.com']
+      const paths = [
+        { kind: 'pipelines', path: `/opportunities/pipelines?locationId=${locationId}` },
+        { kind: 'workflows', path: `/workflows/?locationId=${locationId}` },
+        { kind: 'funnels', path: `/funnels/funnel/list?locationId=${locationId}&limit=50&offset=0` },
+      ]
+      const out: { kind: string; url: string; body: unknown }[] = []
+      for (let h = 0; h < hosts.length; h++) {
+        for (let p = 0; p < paths.length; p++) {
+          const url = hosts[h] + paths[p].path
+          try {
+            const res = await fetch(url, {
+              headers: token ? { Authorization: `Bearer ${token}`, Version: '2021-07-28' } : { Version: '2021-07-28' },
+            })
+            if (!res.ok) continue
+            out.push({ kind: paths[p].kind, url, body: await res.json() })
+          } catch {
+            // The next host may accept the session.
+          }
+        }
+      }
+      return out
+    }, opts.locationId).catch(() => [] as { kind: string; url: string; body: unknown }[])
+    for (const row of fetched) take(countsFromAssetPayload(row.url, row.body, opts.locationId))
+    return { counts, notes, busy: false }
+  } finally {
+    await context.close().catch(() => {})
+    await browser.close().catch(() => {})
     browserOpen = false
   }
 }
