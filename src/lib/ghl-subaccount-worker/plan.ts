@@ -38,6 +38,8 @@ export type PageSnap = {
   tabs?: string[]
   /** Snapshot card titles inside the template modal. */
   cards?: string[]
+  /** Visible dialogs, modals, and drawers. */
+  overlays?: string[]
   body: string
 }
 
@@ -196,14 +198,18 @@ function rememberChoice(snap: PageSnap): { text: string; checked: boolean } | un
 export function pageDiagnostics(snap: PageSnap): string {
   const redact = (s: string) => s.replace(/\b\d{4,8}\b/g, '••••')
   const buttons = snap.buttons.slice(0, 25).join(' | ') || '(none)'
-  const inputs = snap.fields.slice(0, 15).map((f) => [f.tag, f.type, f.key || '', redact(f.text || '')].filter(Boolean).join(' ')).join('; ') || '(none)'
+  const inputs = snap.fields.slice(0, 40).map((f) => {
+    const bits = [f.tag, f.type, f.key || '', redact(f.text || ''), f.placeholder ? `placeholder=${redact(f.placeholder)}` : ''].filter(Boolean)
+    return bits.join(' ')
+  }).join('; ') || '(none)'
   const checks = (snap.checks || []).map((c) => `${c.text}${c.checked ? ' (checked)' : ''}`).join(' | ')
+  const overlays = (snap.overlays || []).slice(0, 12).map((item) => redact(item)).join(' | ') || '(none)'
   const body = redact(snap.body || '').slice(0, 400)
   const frames = (snap.frames || []).map((frame) => {
     const seen = frame.buttons.slice(0, 8).join(', ') || '(none)'
     return `${frame.url || '(no url)'} | inputs=${frame.fieldCount} | ${seen}`
   })
-  return [`url: ${snap.url}`, `buttons: ${buttons}`, `inputs: ${inputs}`, checks ? `checks: ${checks}` : '', frames.length ? `frames:\n${frames.join('\n')}` : '', `text: ${body}`].filter(Boolean).join('\n')
+  return [`url: ${snap.url}`, `buttons: ${buttons}`, `inputs: ${inputs}`, `overlays: ${overlays}`, checks ? `checks: ${checks}` : '', frames.length ? `frames:\n${frames.join('\n')}` : '', `text: ${body}`].filter(Boolean).join('\n')
 }
 
 export function locationIdFromUrl(url: string): string | null {

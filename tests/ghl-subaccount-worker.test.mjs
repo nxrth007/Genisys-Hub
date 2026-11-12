@@ -78,6 +78,10 @@ test('a running job with no heartbeat for 3 minutes is stale', () => {
   assert.equal(isHeartbeatStale(null, new Date(now - HEARTBEAT_STALE_MS - 1000), now), true)
   assert.equal(isHeartbeatStale(null, new Date(now - 10_000), now), false)
   assert.equal(ABANDONED_JOB_LOG, 'Recovered a job abandoned by a restarted instance')
+  assert.equal(heartbeat.shouldAutoRetest('dry_run', 'needs_human', 'Test: Master'), true)
+  assert.equal(heartbeat.shouldAutoRetest('create', 'needs_human', 'Test: Master'), false)
+  assert.equal(heartbeat.shouldAutoRetest('dry_run', 'needs_human', 'Randy: Painting'), false)
+  assert.equal(heartbeat.shouldAutoRetest('dry_run', 'failed', 'Test: Master'), false)
 })
 
 test('worker stays off, and dry-run, until the env says otherwise', () => {
@@ -786,6 +790,12 @@ test('the snapshot card is the ancestor of the exact title, not the MT avatar', 
   plainCard.append(initials, label)
   plain.append(plainCard)
   assert.equal(locateSnapshotCard('Master Template', plain), plainCard)
+  const manual = element('div')
+  const manualText = element('span')
+  manualText.append(textNode('Add manually'))
+  manual.append(manualText)
+  assert.equal(snapshotCard.locateAddManually(manual), manualText)
+  assert.deepEqual(snapshotCard.ADD_MANUALLY_ATTEMPTS, ['innermost click', 'clickable ancestor', 'mouse centre'])
   assert.equal(redactCardHtml('<div>code 654321</div>' + 'x'.repeat(1600)).length, 1500)
   assert.equal(redactCardHtml('<div>code 654321</div>').includes('654321'), false)
 })

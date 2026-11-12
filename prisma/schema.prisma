@@ -788,8 +788,23 @@ model GhlSubaccountJob {
   finishedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  shots         GhlSubaccountJobShot[]
 
   @@index([status, nextAttemptAt])
+}
+
+/// A page image from a sub-account browser run. Only the latest few
+/// are kept; the bytes are the picture, not a URL.
+model GhlSubaccountJobShot {
+  id        String           @id @default(cuid())
+  jobId     String
+  job       GhlSubaccountJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  step      String
+  mime      String
+  data      Bytes
+  createdAt DateTime         @default(now())
+
+  @@index([jobId, createdAt])
 }
 
 /// PPA invoice records — one row per bi-weekly invoice the

@@ -9,7 +9,7 @@ import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
 import { driveUntil, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
-import { locateSnapshotCard, redactCardHtml } from './snapshot-card'
+import { ADD_MANUALLY_ATTEMPTS, locateAddManually, locateSnapshotCard, redactCardHtml } from './snapshot-card'
 
 /** One Chromium at a time. A second launch would sit on top of the Hub's memory. */
 let browserOpen = false
@@ -26,6 +26,9 @@ export type BrowserRunOptions = {
   storageState: string | null
   pullOtp: (waitMs: number) => Promise<string | null>
   onOtpPrompt: (detail: string) => Promise<void>
+  /** JPEG of the current page. Dry-run steps and failures. */
+  capture?: (step: string, image: Buffer) => Promise<void>
+  onNote?: (line: string) => Promise<void>
   headless: boolean
   executablePath?: string
   signal?: AbortSignal
@@ -55,7 +58,7 @@ async function runCommand(frame: Frame, cmd: Record<string, unknown>): Promise<C
 }
 
 async function snapshotPage(page: Page, labels: GhlLabels): Promise<PageSnap> {
-  const merged: PageSnap = { url: page.url(), fields: [], buttons: [], texts: [], links: [], checks: [], tabs: [], cards: [], frames: [], body: '' }
+  const merged: PageSnap = { url: page.url(), fields: [], buttons: [], texts: [], links: [], checks: [], tabs: [], cards: [], overlays: [], frames: [], body: '' }
   for (const frame of page.frames()) {
     try {
       const snap = (await runCommand(frame, { op: 'snapshot', labels })) as PageSnap
@@ -87,6 +90,13 @@ async function snapshotPage(page: Page, labels: GhlLabels): Promise<PageSnap> {
         if (!seenCards.has(card)) {
           seenCards.add(card)
           merged.cards!.push(card)
+        }
+      }
+      const seenOverlays = new Set(merged.overlays || [])
+      for (const overlay of snap.overlays || []) {
+        if (!seenOverlays.has(overlay)) {
+          seenOverlays.add(overlay)
+          merged.overlays!.push(overlay)
         }
       }
       if ((snap.body || '').length > merged.body.length) merged.body = snap.body
@@ -292,13 +302,110 @@ async function runAcrossFrames(page: Page, cmd: Record<string, unknown>): Promis
   return last
 }
 
+async function findAddManually(page: Page): Promise<ElementHandle<Element> | null> {
+  for (const frame of page.frames()) {
+    const handle = await frame.evaluateHandle(locateAddManually).catch(() => null)
+    const el = handle && 'asElement' in handle ? handle.asElement() : null
+    if (el) return el
+    await handle?.dispose().catch(() => {})
+  }
+  return null
+}
+
+async function manualStepOpened(page: Page, beforeUrl: string, signal?: AbortSignal): Promise<boolean> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error('The job ran out of time.')
+    if (page.url() !== beforeUrl) return true
+    for (const frame of page.frames()) {
+      try {
+        const hit = await frame.evaluate(() => {
+          const shown = (el: Element) => {
+            const rect = el.getBoundingClientRect()
+            const style = getComputedStyle(el)
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+          }
+          const labelOf = (el: Element) => {
+            let label = ''
+            if ((el as HTMLInputElement).id) {
+              const lab = document.querySelector('label[for="' + CSS.escape((el as HTMLInputElement).id) + '"]')
+              if (lab) label = lab.textContent || ''
+            }
+            const wrap = el.closest ? el.closest('label') : null
+            if (!label && wrap) label = wrap.textContent || ''
+            return `${label} ${el.getAttribute('aria-label') || ''} ${(el as HTMLInputElement).placeholder || ''}`
+          }
+          const inputs = Array.from(document.querySelectorAll('input, textarea, select'))
+          if (inputs.some((el) => shown(el) && /business name|company|first name|email|phone|address/i.test(labelOf(el)))) return true
+          const overlays = Array.from(document.querySelectorAll('[role=dialog], .modal, [class*=drawer], [class*=Drawer]'))
+          return overlays.some((el) => shown(el))
+        })
+        if (hit) return true
+      } catch {
+        // This frame is navigating.
+      }
+    }
+    await sleep(300, signal)
+  }
+  return false
+}
+
+async function openAddManually(page: Page, signal: AbortSignal | undefined, adopt: (page: Page) => void): Promise<string> {
+  const beforeUrl = page.url()
+  const el = await findAddManually(page)
+  if (!el) throw new Error('Could not find “Add manually” on the business search page.')
+  let popup: Page | null = null
+  const onPage = (next: Page) => {
+    popup = next
+  }
+  page.context().on('page', onPage)
+  const opened = async (method: string) => {
+    if (popup) {
+      adopt(popup)
+      await popup.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
+      return `${method} + new page`
+    }
+    return method
+  }
+  try {
+    await el.scrollIntoViewIfNeeded().catch(() => {})
+    await el.click({ timeout: 3000 }).catch(() => {})
+    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[0])
+
+    const ancestor = await el.evaluateHandle((node) => node.closest('a, button, [role="button"], [class*="cursor-pointer"]'))
+    const anc = ancestor.asElement()
+    if (anc) await anc.click({ timeout: 3000 }).catch(() => {})
+    await ancestor.dispose().catch(() => {})
+    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[1])
+
+    const box = await el.boundingBox()
+    if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2).catch(() => {})
+    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[2])
+    throw new Error('Add manually did not open a details form, dialog, or new page. Tried innermost click, clickable ancestor, and a mouse click at the centre.')
+  } finally {
+    page.context().off('page', onPage)
+    await el.dispose().catch(() => {})
+  }
+}
+
+async function capturePage(page: Page): Promise<Buffer> {
+  const previous = page.viewportSize()
+  if (!previous || previous.width > 1280) await page.setViewportSize({ width: 1280, height: previous?.height || 900 }).catch(() => {})
+  try {
+    return await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60, animations: 'disabled' })
+  } finally {
+    if (previous && previous.width > 1280) await page.setViewportSize(previous).catch(() => {})
+  }
+}
+
 async function performAction(
   page: Page,
   action: BrowserAction,
   labels: GhlLabels,
   secrets: { password: string; otp: string },
-  signal?: AbortSignal,
-): Promise<{ href?: string }> {
+  signal: AbortSignal | undefined,
+  adopt: (page: Page) => void,
+): Promise<{ href?: string; note?: string }> {
   if (action.type === 'pause') {
     await sleep(900, signal)
     return {}
@@ -340,6 +447,12 @@ async function performAction(
     await runAcrossFrames(page, { op: 'clickVerify', words: action.words, labels })
     await sleep(900, signal)
     return {}
+  }
+
+  if (action.type === 'click' && action.words.some((word) => /add manually/i.test(word))) {
+    const method = await openAddManually(page, signal, adopt)
+    if (action.settle === 'form') await waitForDetailsForm(page, signal)
+    return { note: `Add manually opened via ${method}.` }
   }
 
   const value =
@@ -442,10 +555,20 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
     const page = await context.newPage()
     page.setDefaultTimeout(20_000)
     let navHref = ''
+    let active = page
+    const shoot = async (step: string) => {
+      if (!opts.capture) return
+      try {
+        const image = await capturePage(active)
+        await opts.capture(step, image)
+      } catch (err) {
+        console.warn('[ghl-subaccount-worker] screenshot:', err instanceof Error ? err.message : err)
+      }
+    }
     const result = await driveUntil(
       {
         snapshot: async () => {
-          const snap = await snapshotPage(page, opts.labels)
+          const snap = await snapshotPage(active, opts.labels)
           if (navHref) {
             snap.navHref = navHref
             navHref = ''
@@ -453,8 +576,24 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           return snap
         },
         perform: async (action) => {
-          const done = await performAction(page, action, opts.labels, secrets, opts.signal)
+          const done = await performAction(active, action, opts.labels, secrets, opts.signal, (next) => {
+            active = next
+          })
           if (done.href) navHref = done.href
+          if (done.note) await opts.onNote?.(done.note)
+          if (opts.mode !== 'create') {
+            const step =
+              action.type === 'click'
+                ? `click ${action.words.slice(0, 3).join(' / ')}`
+                : action.type === 'goto'
+                  ? `goto ${action.url}`
+                  : action.type === 'select_card'
+                    ? `select ${action.name}`
+                    : action.type === 'wait_list'
+                      ? 'wait for list'
+                      : ''
+            if (step) await shoot(step.slice(0, 160))
+          }
         },
         pullOtp: async (waitMs) => {
           const code = await opts.pullOtp(waitMs)
@@ -475,6 +614,9 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
         snapshotTab: opts.snapshotTab,
       },
     )
+    if (opts.capture && (result.status === 'needs_human' || result.status === 'failed')) {
+      await shoot(`failure:${result.status}`)
+    }
     let storageState: string | null = null
     try {
       storageState = JSON.stringify(await context.storageState())

@@ -24,3 +24,8 @@ export function isHeartbeatStale(
   if (Number.isNaN(at)) return true
   return now - at > HEARTBEAT_STALE_MS
 }
+
+/** Dry-run boots requeue a needs_human job whose form name starts with Test:. */
+export function shouldAutoRetest(mode: string, status: string, name: string): boolean {
+  return mode !== 'create' && status === 'needs_human' && name.startsWith('Test:')
+}

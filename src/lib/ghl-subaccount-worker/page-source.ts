@@ -246,7 +246,20 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
         cards.push(own)
       }
     }
-    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, checks: checks, tabs: tabs, cards: cards, body: body }
+    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, checks: checks, tabs: tabs, cards: cards, overlays: overlayTexts(), body: body }
+  }
+  function overlayTexts() {
+    var out = []
+    var seen = {}
+    var nodes = document.querySelectorAll('[role=dialog], .modal, [class*=drawer], [class*=Drawer], [class*=modal]')
+    for (var i = 0; i < nodes.length && out.length < 12; i++) {
+      if (!visible(nodes[i])) continue
+      var t = textOf(nodes[i]).slice(0, 160)
+      if (!t || seen[t]) continue
+      seen[t] = 1
+      out.push(t)
+    }
+    return out
   }
   if (cmd.op === 'snapshot') return snapshot()
   if (cmd.op === 'fill' || cmd.op === 'pick') {
