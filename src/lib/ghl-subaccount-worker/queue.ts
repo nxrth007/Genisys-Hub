@@ -13,6 +13,7 @@
  * the browser.
  */
 import { Prisma } from '@/generated/prisma/client'
+import { resolveAddress } from '@/lib/address-resolve'
 import { looksLikePhoneNumber, promoteIntakeToClient } from '@/lib/client-from-intake'
 import { distinctBusinessNames } from '@/lib/client-name'
 import { getAgencyContext, getSnapshotPushStatus, GhlAgencyError, listAllLocations, listSnapshots } from '@/lib/ghl-agency'
@@ -41,8 +42,10 @@ import {
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import {
+  addressGapQuery,
   browserFieldsFromLocation,
   describeSnapshotPush,
+  fillAddressGaps,
   missingForGhlCreate,
   readBrowserFields,
   resolveSnapshotChoice,
@@ -847,7 +850,20 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       "The snapshot's name isn't known, so the form wasn't submitted. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the name in GHL's snapshot dropdown, or GHL_SUBACCOUNT_SNAPSHOT_ID to its id.",
     )
   }
-  const ready: BrowserFields = { ...readyFields, snapshotName }
+  let ready: BrowserFields = { ...readyFields, snapshotName }
+  const gapQuery = addressGapQuery(ready)
+  if (gapQuery) {
+    const found = await resolveAddress(gapQuery, { zip: true }).catch(() => null)
+    const fill = fillAddressGaps(ready, found)
+    if (fill.filled.length) {
+      ready = fill.fields
+      await appendLog(
+        id,
+        lease,
+        `The onboarding address was missing parts GHL requires. Filled from the address lookup for "${gapQuery}": ${fill.filled.join(', ')}.`,
+      ).catch(() => {})
+    }
+  }
   const missing = missingForGhlCreate(ready)
   if (missing.length) {
     return failHuman(

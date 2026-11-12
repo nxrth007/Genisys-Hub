@@ -1514,3 +1514,34 @@ test('MST outside Arizona means Mountain time with daylight saving', () => {
   assert.equal(tz.reconcileTimezone(null, 'America/Chicago'), 'America/Chicago')
   assert.equal(tz.reconcileTimezone(undefined, undefined), undefined)
 })
+
+test('a missing zip is looked up only when the address names its city or state', () => {
+  const { addressGapQuery, fillAddressGaps, missingForGhlCreate } = fieldsMod
+  const dl = browserFieldsFromLocation({
+    name: 'D & L Property Services LLC',
+    snapshotId: 'pHagdFFJPsZBnn8ACSHK',
+    address: '430 North Station Parkway',
+    city: 'Farmington',
+    state: 'Utah',
+    timezone: 'America/Denver',
+  })
+  assert.equal(addressGapQuery(dl), '430 North Station Parkway, Farmington, Utah')
+  const found = { street: '430 North Station Parkway', city: 'Farmington', state: 'UT', stateName: 'Utah', zip: '84025', source: 'geocoded' }
+  const filled = fillAddressGaps(dl, found)
+  assert.equal(filled.fields.postalCode, '84025')
+  assert.deepEqual(filled.filled, ['zip code 84025'])
+  assert.deepEqual(missingForGhlCreate(filled.fields), [])
+
+  // A bare street is never looked up across the whole country.
+  assert.equal(addressGapQuery({ ...dl, city: '', state: '', postalCode: '', timezone: '' }), null)
+  // A whole address needs no lookup.
+  assert.equal(addressGapQuery({ ...dl, postalCode: '84025' }), null)
+  // A lookup that lands in another state is ignored.
+  assert.deepEqual(fillAddressGaps(dl, { ...found, state: 'ID', stateName: 'Idaho' }).filled, [])
+  // A state from the lookup brings its time zone; what was typed is kept.
+  const noState = fillAddressGaps({ ...dl, state: '', timezone: '' }, found)
+  assert.equal(noState.fields.state, 'Utah')
+  assert.equal(noState.fields.timezone, 'America/Denver')
+  assert.equal(noState.fields.city, 'Farmington')
+  assert.equal(fillAddressGaps(dl, null).filled.length, 0)
+})

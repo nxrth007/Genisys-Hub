@@ -6,6 +6,8 @@
  * name, phone, address and snapshot stay in lockstep with the by-hand
  * board. The browser types "United States" where the API sends "US".
  */
+import type { ResolvedAddress } from '@/lib/address-parse'
+import { timezoneForStateName } from '@/lib/timezone'
 
 export type BrowserFields = {
   name: string
@@ -124,6 +126,57 @@ const REQUIRED_FOR_GHL: { key: keyof BrowserFields; label: string }[] = [
 /** Plain-English names of the required fields that are empty. */
 export function missingForGhlCreate(fields: BrowserFields): string[] {
   return REQUIRED_FOR_GHL.filter(({ key }) => !String(fields[key] || '').trim()).map(({ label }) => label)
+}
+
+/**
+ * The address to look up when the zip, city or state is missing, or null.
+ * Only an address that already names its city or state is looked up: a
+ * bare street could match the wrong town anywhere in the country.
+ */
+export function addressGapQuery(fields: BrowserFields): string | null {
+  const street = fields.address.trim()
+  const city = fields.city.trim()
+  const state = fields.state.trim()
+  const zip = fields.postalCode.trim()
+  if (!street || !(city || state)) return null
+  if (zip && city && state) return null
+  return [street, city, [state, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+}
+
+/**
+ * Fill only the empty zip, city and state from the address lookup, then the
+ * time zone from the state. What the client typed is never replaced, and a
+ * lookup that lands in a different state is ignored.
+ */
+export function fillAddressGaps(fields: BrowserFields, found: ResolvedAddress | null): { fields: BrowserFields; filled: string[] } {
+  if (!found) return { fields, filled: [] }
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+  const typedState = fields.state.trim()
+  if (typedState && found.state && !same(typedState, found.state) && !same(typedState, found.stateName)) {
+    return { fields, filled: [] }
+  }
+  const out: BrowserFields = { ...fields }
+  const filled: string[] = []
+  if (!out.postalCode.trim() && found.zip) {
+    out.postalCode = found.zip
+    filled.push(`zip code ${found.zip}`)
+  }
+  if (!out.city.trim() && found.city) {
+    out.city = found.city
+    filled.push(`city ${found.city}`)
+  }
+  if (!out.state.trim() && (found.stateName || found.state)) {
+    out.state = found.stateName || found.state
+    filled.push(`state ${out.state}`)
+  }
+  if (!out.timezone.trim() && out.state.trim()) {
+    const zone = timezoneForStateName(out.state)
+    if (zone) {
+      out.timezone = zone
+      filled.push(`time zone ${zone}`)
+    }
+  }
+  return { fields: out, filled }
 }
 
 /** The dropdown text. The id is the fallback when the name was never resolved. */
