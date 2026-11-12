@@ -84,6 +84,113 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
   function skipType(type) {
     return type === 'hidden' || type === 'checkbox' || type === 'radio' || type === 'submit' || type === 'button' || type === 'file'
   }
+  function cleanLabel(s) {
+    return norm(s).replace(/[*：:]+$/g, '').replace(/\\s+/g, ' ').trim()
+  }
+  function ownText(el) {
+    if (!el || !el.childNodes) return ''
+    var t = ''
+    for (var i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) t += ' ' + (el.childNodes[i].textContent || '')
+    }
+    return cleanLabel(t)
+  }
+  function shortText(el) {
+    if (!el || el.nodeType !== 1) return ''
+    var own = ownText(el)
+    if (own && own.length <= 60) return own
+    if (el.querySelector && el.querySelector('input, textarea, select, [role=combobox]')) return ''
+    var t = cleanLabel(el.innerText || el.textContent || '')
+    return t.length && t.length <= 60 ? t : ''
+  }
+  function precedingText(el) {
+    var node = el
+    for (var depth = 0; depth < 5 && node; depth++) {
+      var prev = node.previousElementSibling
+      var hops = 0
+      while (prev && hops < 4) {
+        var t = shortText(prev)
+        if (t) return t
+        prev = prev.previousElementSibling
+        hops++
+      }
+      node = node.parentElement
+    }
+    return ''
+  }
+  function parentLabelText(el) {
+    var parent = el.parentElement
+    for (var depth = 0; depth < 4 && parent; depth++) {
+      var labs = parent.querySelectorAll ? parent.querySelectorAll('label') : []
+      for (var i = 0; i < labs.length; i++) {
+        if (labs[i] === el) continue
+        if (labs[i].contains && labs[i].contains(el)) continue
+        var t = shortText(labs[i])
+        if (t) return t
+      }
+      parent = parent.parentElement
+    }
+    return ''
+  }
+  function humanize(s) {
+    return norm(String(s || '').replace(/[_./]+/g, ' ')).replace(/\\b(input|field|form|hl)\\b/g, ' ').replace(/\\s+/g, ' ').trim()
+  }
+  function described(el) {
+    var labelText = ''
+    if (el.id) {
+      var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]')
+      if (lab) labelText = cleanLabel(lab.textContent || '')
+    }
+    if (!labelText && el.closest) {
+      var wrap = el.closest('label')
+      if (wrap) labelText = cleanLabel(wrap.textContent || '')
+    }
+    if (!labelText) labelText = parentLabelText(el)
+    var aria = el.getAttribute ? cleanLabel(el.getAttribute('aria-label') || '') : ''
+    if (!aria && el.getAttribute && el.getAttribute('aria-labelledby')) {
+      var ids = String(el.getAttribute('aria-labelledby')).split(/\\s+/)
+      var parts = []
+      for (var i = 0; i < ids.length; i++) {
+        var node = document.getElementById(ids[i])
+        if (node) parts.push(shortText(node) || cleanLabel(node.textContent || ''))
+      }
+      aria = cleanLabel(parts.join(' '))
+    }
+    var name = el.getAttribute ? norm(el.getAttribute('name') || '') : ''
+    var id = norm(el.id || '')
+    var placeholder = el.placeholder ? norm(el.placeholder) : ''
+    var nearby = precedingText(el)
+    return {
+      text: labelText || aria || nearby || '',
+      aria: aria,
+      name: name,
+      id: id,
+      placeholder: placeholder,
+      nearby: nearby
+    }
+  }
+  function clueBits(info) {
+    return [norm(info.text), norm(info.aria), norm(info.placeholder), humanize(info.name), humanize(info.id), norm(info.nearby)]
+  }
+  function fieldKeyFromBits(bits) {
+    var keys = Object.keys(labels)
+    for (var i = 0; i < keys.length; i++) {
+      if (/^(submit|createButton|signIn|verify|sendSecurityCode|addManually|subAccountsNav|addBusiness)$/.test(keys[i])) continue
+      var wants = wordsOf(keys[i])
+      for (var j = 0; j < wants.length; j++) {
+        for (var k = 0; k < bits.length; k++) {
+          var bit = bits[k]
+          var word = wants[j]
+          if (!bit || !word) continue
+          var strict = k >= 3
+          if (strict) {
+            if (bit === word || (word.length > 4 && (bit.indexOf(word + ' ') === 0 || bit.slice(-(word.length + 1)) === ' ' + word))) return keys[i]
+          } else if (hitWord(bit, word)) return keys[i]
+        }
+      }
+    }
+    return null
+  }
   function fieldFor(words, key) {
     var wants = []
     for (var i = 0; i < (words || []).length; i++) wants.push(norm(words[i]))
@@ -104,10 +211,29 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
       if (!visible(el)) continue
       var type = (el.type || '').toLowerCase()
       if (skipType(type)) continue
-      var bits = [norm(el.placeholder), norm(el.name), norm(el.getAttribute('aria-label')), norm(el.id)]
+      var info = described(el)
+      var bits = clueBits(info)
       for (var k = 0; k < bits.length; k++) {
         for (var w2 = 0; w2 < wants.length; w2++) {
-          if (bits[k] && hitWord(bits[k], wants[w2])) return el
+          var strict = k >= 3
+          var bit = bits[k]
+          var word = wants[w2]
+          if (!bit || !word) continue
+          if (strict) {
+            if (bit === word || (word.length > 4 && (bit.indexOf(word + ' ') === 0 || bit.slice(-(word.length + 1)) === ' ' + word))) return el
+          } else if (hitWord(bit, wants[w2])) return el
+        }
+      }
+    }
+    var dropdowns = dropdownCandidates()
+    for (var d = 0; d < dropdowns.length; d++) {
+      var drop = dropdowns[d]
+      if (!visible(drop)) continue
+      var dinfo = described(drop)
+      var dbits = clueBits(dinfo)
+      for (var dk = 0; dk < dbits.length; dk++) {
+        for (var dw = 0; dw < wants.length; dw++) {
+          if (hitWord(dbits[dk], wants[dw]) || dbits[dk] === wants[dw]) return drop
         }
       }
     }
@@ -123,38 +249,111 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     return null
   }
   function fieldKey(el) {
-    var labelText = ''
-    if (el.id) {
-      var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]')
-      if (lab) labelText = norm(lab.textContent).replace(/\\*$/, '').trim()
+    return fieldKeyFromBits(clueBits(described(el)))
+  }
+  function dropdownCandidates() {
+    return document.querySelectorAll('[role=combobox], [aria-haspopup=listbox], [class*=select], [class*=Select], [class*=dropdown], [class*=Dropdown]')
+  }
+  function looksLikeDropdown(el) {
+    if (!el || el.nodeType !== 1) return false
+    var tag = el.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'OPTION') return false
+    var role = String(el.getAttribute('role') || '').toLowerCase()
+    if (role === 'combobox' || el.getAttribute('aria-haspopup') === 'listbox') return true
+    var box = el.getBoundingClientRect()
+    if (!box || box.height < 8 || box.height > 160 || box.width < 8) return false
+    if (el.querySelectorAll && el.querySelectorAll('input, textarea, select').length > 1) return false
+    return /select|dropdown/i.test(String(el.className || ''))
+  }
+  function dropdownValue(el) {
+    var node = el.querySelector && el.querySelector('[aria-selected=true], [class*=single-value], [class*=singleValue]')
+    var t = node ? cleanLabel(node.textContent || '') : ''
+    if (!t && el.getAttribute) t = cleanLabel(el.getAttribute('aria-valuetext') || '')
+    return t
+  }
+  function labeledControl(el) {
+    if (!el || el.nodeType !== 1) return false
+    var tag = el.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'OPTION') return false
+    var box = el.getBoundingClientRect()
+    if (!box || box.height < 8 || box.height > 180 || box.width < 8) return false
+    if (el.querySelectorAll && el.querySelectorAll('input, textarea, select').length > 1) return false
+    return true
+  }
+  function pushDropdown(el, fields, seen, forcedText) {
+    if (!looksLikeDropdown(el) && !(forcedText && labeledControl(el))) return
+    for (var i = 0; i < seen.length; i++) {
+      if (seen[i] === el) return
+      if (seen[i].contains && seen[i].contains(el)) return
+      if (el.contains && el.contains(seen[i])) return
     }
-    if (!labelText) {
-      var wrap = el.closest('label')
-      if (wrap) labelText = norm(wrap.textContent).replace(/\\*$/, '').trim()
+    var info = described(el)
+    if (forcedText && !info.text) info.text = forcedText
+    if (forcedText && !info.nearby) info.nearby = forcedText
+    var key = fieldKeyFromBits(clueBits(info))
+    if (!key && forcedText) key = fieldKeyFromBits([norm(forcedText), norm(forcedText)])
+    if (key !== 'country' && key !== 'state' && key !== 'timezone' && key !== 'snapshot') return
+    seen.push(el)
+    fields.push({
+      key: key,
+      tag: 'dropdown',
+      type: 'dropdown',
+      value: dropdownValue(el),
+      text: info.text || forcedText || '',
+      placeholder: info.placeholder,
+      name: info.name,
+      id: info.id,
+      aria: info.aria,
+      nearby: info.nearby || forcedText || ''
+    })
+  }
+  function collectDropdowns(fields) {
+    var seen = []
+    var nodes = dropdownCandidates()
+    for (var i = 0; i < nodes.length; i++) pushDropdown(nodes[i], fields, seen, '')
+    var texts = document.querySelectorAll('label, span, p, div')
+    for (var j = 0; j < texts.length; j++) {
+      var own = ownText(texts[j])
+      if (!/^(country|time zone|timezone|state|province)$/.test(own)) continue
+      var next = texts[j].nextElementSibling
+      if (next) pushDropdown(next, fields, seen, own)
+      var parent = texts[j].parentElement
+      if (!parent || !parent.querySelector) continue
+      var combo = parent.querySelector('[role=combobox], [aria-haspopup=listbox], button, [role=button]')
+      if (combo && combo !== texts[j]) pushDropdown(combo, fields, seen, own)
     }
-    var bits = [labelText, norm(el.placeholder), norm(el.getAttribute('aria-label')), norm(el.name)]
-    var keys = Object.keys(labels)
-    for (var i = 0; i < keys.length; i++) {
-      var wants = wordsOf(keys[i])
-      for (var j = 0; j < wants.length; j++) {
-        for (var k = 0; k < bits.length; k++) {
-          if (hitWord(bits[k], wants[j])) return keys[i]
-        }
+  }
+  function inFormChrome(el) {
+    return !!(el.closest && el.closest('[role=dialog], [role=alertdialog], [class*=drawer], [class*=Drawer], [class*=modal], [class*=Modal], footer, [class*=footer], [class*=Footer], form'))
+  }
+  function listedControl(el) {
+    if (visible(el)) return true
+    if (!inFormChrome(el)) return false
+    var st = window.getComputedStyle(el)
+    return st.display !== 'none' && st.visibility !== 'hidden'
+  }
+  function rawText(el) {
+    var t = ''
+    try { t = (el && (el.innerText || el.textContent)) || '' } catch (e) { t = '' }
+    if (!t && el && el.getAttribute) t = el.getAttribute('aria-label') || el.getAttribute('value') || el.getAttribute('title') || ''
+    return String(t || '').replace(/\\s+/g, ' ').trim()
+  }
+  function saveButtonLabels() {
+    var out = []
+    var seen = {}
+    var nodes = document.querySelectorAll('button, a, [role=button], input[type=submit], [class*=btn], [class*=button]')
+    for (var i = 0; i < nodes.length; i++) {
+      if (!listedControl(nodes[i])) continue
+      var raw = rawText(nodes[i])
+      var t = norm(raw).replace(/^[+＋]\\s*/, '')
+      if (!t || seen[t]) continue
+      if (/^(create new|add manually|cancel|search)$/.test(t) || t.indexOf('back to') === 0) continue
+      if (/^(save changes|add sub-account|create sub-account|save|create|add|submit|done)$/.test(t)) {
+        seen[t] = 1
+        out.push(raw)
       }
     }
-    return null
-  }
-  function labelFor(el) {
-    var labelText = ''
-    if (el.id) {
-      var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]')
-      if (lab) labelText = textOf(lab)
-    }
-    if (!labelText && el.closest) {
-      var wrap = el.closest('label')
-      if (wrap) labelText = textOf(wrap)
-    }
-    return labelText
+    return out
   }
   function snapshot() {
     var fields = []
@@ -164,23 +363,38 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
       if (!visible(el)) continue
       var type = (el.type || '').toLowerCase()
       if (skipType(type)) continue
+      var info = described(el)
       fields.push({
         key: fieldKey(el),
         tag: el.tagName.toLowerCase(),
         type: type || (el.tagName === 'SELECT' ? 'select' : 'text'),
         value: el.value || '',
-        text: norm(labelFor(el) || el.getAttribute('aria-label') || ''),
-        placeholder: norm(el.placeholder || '')
+        text: info.text,
+        placeholder: info.placeholder,
+        name: info.name,
+        id: info.id,
+        aria: info.aria,
+        nearby: info.nearby
       })
     }
+    collectDropdowns(fields)
     var buttons = []
     var seen = {}
     var bnodes = collect('button, a, [role="button"], [role="tab"]')
     for (var b = 0; b < bnodes.length; b++) {
-      var bt = textOf(bnodes[b]) || norm(bnodes[b].getAttribute('aria-label') || bnodes[b].getAttribute('title') || '')
+      var raw = rawText(bnodes[b])
+      var bt = norm(raw)
       if (!bt || seen[bt]) continue
       seen[bt] = 1
-      buttons.push(bt)
+      buttons.push(raw)
+    }
+    var saves = saveButtonLabels()
+    for (var sv = 0; sv < saves.length; sv++) {
+      var saveKey = norm(saves[sv]).replace(/^[+＋]\\s*/, '')
+      if (!seen[saveKey]) {
+        seen[saveKey] = 1
+        buttons.push(saves[sv])
+      }
     }
     var texts = []
     var tseen = {}
@@ -262,6 +476,24 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     return out
   }
   if (cmd.op === 'snapshot') return snapshot()
+  if (cmd.op === 'scrollForm') {
+    var scrolled = 0
+    function tryScroll(el) {
+      if (!el || el.scrollHeight == null) return
+      if (el.scrollHeight > el.clientHeight + 8) {
+        el.scrollTop = el.scrollHeight
+        scrolled++
+      }
+    }
+    tryScroll(document.scrollingElement || document.documentElement)
+    tryScroll(document.body)
+    var boxes = document.querySelectorAll('[role=dialog], [role=alertdialog], .modal, [class*=drawer], [class*=Drawer], [class*=modal], [class*=Modal], form, [class*=overflow], [class*=scroll], [class*=content]')
+    for (var si = 0; si < boxes.length; si++) tryScroll(boxes[si])
+    var every = document.querySelectorAll('div, section, form, aside')
+    for (var sj = 0; sj < every.length && sj < 2500; sj++) tryScroll(every[sj])
+    try { window.scrollTo(0, (document.body && document.body.scrollHeight) || 0) } catch (eScroll) {}
+    return { ok: true, scrolled: scrolled, buttons: saveButtonLabels() }
+  }
   if (cmd.op === 'fill' || cmd.op === 'pick') {
     var el = fieldFor(cmd.words || [], cmd.key)
     if (!el) return { ok: false, error: 'Could not find a field for ' + (cmd.words || []).join(' / ') }

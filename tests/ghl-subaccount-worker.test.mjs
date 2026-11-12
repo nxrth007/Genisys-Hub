@@ -79,6 +79,8 @@ test('a running job with no heartbeat for 3 minutes is stale', () => {
   assert.equal(isHeartbeatStale(null, new Date(now - 10_000), now), false)
   assert.equal(ABANDONED_JOB_LOG, 'Recovered a job abandoned by a restarted instance')
   assert.equal(heartbeat.shouldAutoRetest('dry_run', 'needs_human', 'Test: Master'), true)
+  assert.equal(heartbeat.shouldAutoRetest('dry_run', 'dry_run', 'Test: Master'), true)
+  assert.equal(heartbeat.shouldAutoRetest('create', 'dry_run', 'Test: Master'), false)
   assert.equal(heartbeat.shouldAutoRetest('create', 'needs_human', 'Test: Master'), false)
   assert.equal(heartbeat.shouldAutoRetest('dry_run', 'needs_human', 'Randy: Painting'), false)
   assert.equal(heartbeat.shouldAutoRetest('dry_run', 'failed', 'Test: Master'), false)
@@ -708,7 +710,12 @@ test('the snapshot modal opens Imported first and selects the card by its exact 
       { key: 'email', tag: 'input', type: 'email', value: '', text: 'email' },
     ],
   })
-  const dry = nextGhlAction(form, named, { ...pick.state, filled: ['name', 'email', 'phone', 'firstName', 'lastName'], missing: [] })
+  const ready = { ...pick.state, filled: ['name', 'email', 'phone', 'firstName', 'lastName'], missing: [] }
+  const scrolled = nextGhlAction(form, named, ready)
+  assert.equal(scrolled.action.type, 'scroll_form')
+  const recorded = nextGhlAction(form, named, scrolled.state)
+  assert.equal(recorded.action.type, 'record_form')
+  const dry = nextGhlAction(form, named, recorded.state)
   assert.equal(dry.kind, 'done')
   assert.equal(dry.result.status, 'dry_run')
   assert.match(dry.result.detail, /stopped before Create/)
@@ -922,4 +929,236 @@ test('the create button tolerates a leading plus, then the snapshot choice is ta
   assert.equal(next.action.type, 'click')
   assert.match(next.action.words[0], /snapshot/i)
   assert.equal(next.state.choseSnapshot, true)
+})
+
+test('the details form names unlabeled inputs, scrolls to the save button, and fills without saving', async () => {
+  const browserSrc = readFileSync(join(dir, 'browser.ts'), 'utf8')
+  assert.match(browserSrc, /capture\('details form bottom'\)/)
+  assert.match(browserSrc, /capture\('details form filled'\)/)
+
+  class El {
+    constructor(tag, props = {}) {
+      this.nodeType = 1
+      this.tagName = tag.toUpperCase()
+      this.id = props.id || ''
+      this.className = props.className || ''
+      this.type = props.type || ''
+      this.placeholder = props.placeholder || ''
+      this.value = props.value || ''
+      this.nameAttr = props.name || ''
+      this.role = props.role || ''
+      this.aria = props.aria || ''
+      this.width = props.width ?? 140
+      this.height = props.height ?? 32
+      this.scrollHeight = props.scrollHeight ?? 48
+      this.clientHeight = props.clientHeight ?? 48
+      this.scrollTop = 0
+      this.parentElement = null
+      this.childNodes = []
+      if (props.text) this.childNodes.push({ nodeType: 3, textContent: props.text, parentElement: this })
+      for (const child of props.children || []) this.append(child)
+    }
+    append(child) {
+      child.parentElement = this
+      this.childNodes.push(child)
+    }
+    get textContent() {
+      return this.childNodes.map((node) => node.textContent || '').join('')
+    }
+    get innerText() {
+      return this.textContent
+    }
+    get children() {
+      return this.childNodes.filter((node) => node.nodeType === 1)
+    }
+    get previousElementSibling() {
+      const kids = this.parentElement ? this.parentElement.children : []
+      const index = kids.indexOf(this)
+      return index > 0 ? kids[index - 1] : null
+    }
+    get nextElementSibling() {
+      const kids = this.parentElement ? this.parentElement.children : []
+      const index = kids.indexOf(this)
+      return index >= 0 && index < kids.length - 1 ? kids[index + 1] : null
+    }
+    getAttribute(name) {
+      if (name === 'class') return this.className
+      if (name === 'id') return this.id
+      if (name === 'name') return this.nameAttr || null
+      if (name === 'role') return this.role || null
+      if (name === 'type') return this.type || null
+      if (name === 'aria-label') return this.aria || null
+      return null
+    }
+    getBoundingClientRect() {
+      return { width: this.width, height: this.height, top: 0, left: 0 }
+    }
+    querySelectorAll(selector) {
+      const out = []
+      const walk = (node) => {
+        for (const child of node.children) {
+          if (matches(child, selector)) out.push(child)
+          walk(child)
+        }
+      }
+      walk(this)
+      return out
+    }
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] || null
+    }
+    closest(selector) {
+      if (this.nodeType === 1 && matches(this, selector)) return this
+      return this.parentElement ? this.parentElement.closest(selector) : null
+    }
+    contains(other) {
+      return other === this || (!!other && !!other.parentElement && this.contains(other.parentElement))
+    }
+  }
+  function matches(el, selector) {
+    return selector.split(',').some((part) => matchesOne(el, part.trim()))
+  }
+  function matchesOne(el, sel) {
+    if (!el || el.nodeType !== 1) return false
+    const tag = /^[a-z]+/i.exec(sel)
+    if (tag && el.tagName !== tag[0].toUpperCase()) return false
+    const attrs = [...sel.matchAll(/\[([^\]=*^$~|]+)(?:([*^$~|]?=)([^\]]+))?\]/g)]
+    for (const attr of attrs) {
+      const name = attr[1]
+      const op = attr[2]
+      const raw = String(attr[3] || '').replace(/^["']|["']$/g, '')
+      const have = el.getAttribute(name)
+      if (!op) {
+        if (have == null) return false
+        continue
+      }
+      const left = String(have || '')
+      if (op === '=' && left !== raw) return false
+      if (op === '*=' && !left.toLowerCase().includes(raw.toLowerCase())) return false
+    }
+    for (const found of sel.matchAll(/\.([A-Za-z0-9_-]+)/g)) {
+      if (!el.className.split(/\s+/).includes(found[1])) return false
+    }
+    if (!tag && attrs.length === 0 && !sel.includes('.')) return false
+    return true
+  }
+  const field = (label, control) => new El('div', { children: [new El('span', { text: label }), control] })
+  const dialog = new El('div', {
+    role: 'dialog',
+    className: 'drawer',
+    scrollHeight: 1600,
+    clientHeight: 500,
+    children: [
+      field('Business name', new El('input', { name: 'business_name' })),
+      new El('input', { name: 'business_email' }),
+      new El('input', { id: 'website' }),
+      new El('input', { aria: 'Business phone' }),
+      field('Zip', new El('input')),
+      field('Country', new El('div', { className: 'n-select', role: 'combobox' })),
+      field('Time Zone', new El('div', { role: 'combobox', className: 'n-select' })),
+      field('State', new El('div', { role: 'combobox', className: 'n-select' })),
+      new El('button', { text: 'Save Changes', width: 0, height: 0 }),
+    ],
+  })
+  const body = new El('body', { children: [dialog] })
+  const documentMock = {
+    body,
+    documentElement: body,
+    scrollingElement: body,
+    querySelector(selector) {
+      return body.querySelector(selector)
+    },
+    querySelectorAll(selector) {
+      const own = matches(body, selector) ? [body] : []
+      return [...own, ...body.querySelectorAll(selector)]
+    },
+    getElementById(id) {
+      const all = body.querySelectorAll('*')
+      return all.find((node) => node.id === id) || (body.id === id ? body : null)
+    },
+  }
+  const previous = { document: global.document, window: global.window, location: global.location }
+  global.document = documentMock
+  global.window = {
+    getComputedStyle() {
+      return { overflowY: 'auto', display: 'block', visibility: 'visible' }
+    },
+    scrollTo() {},
+  }
+  global.location = { href: 'https://app.gohighlevel.com/accounts/create' }
+  const page = new Function(`return (${pageSource.GHL_PAGE_SOURCE})`)()
+  let shot
+  try {
+    shot = page({ op: 'snapshot', labels: ghlLabels() })
+    const scrolled = page({ op: 'scrollForm' })
+    assert.equal(dialog.scrollTop, dialog.scrollHeight)
+    assert.ok(scrolled.buttons.some((label) => label === 'Save Changes'))
+  } finally {
+    global.document = previous.document
+    global.window = previous.window
+    global.location = previous.location
+  }
+  const byKey = Object.fromEntries(shot.fields.filter((item) => item.key).map((item) => [item.key, item]))
+  assert.equal(byKey.email.name, 'business_email')
+  assert.equal(byKey.website.id, 'website')
+  assert.equal(byKey.phone.aria, 'business phone')
+  assert.equal(byKey.postalCode.nearby, 'zip')
+  assert.equal(byKey.country.type, 'dropdown')
+  assert.equal(byKey.timezone.type, 'dropdown')
+  assert.equal(byKey.state.type, 'dropdown')
+  assert.ok(shot.buttons.includes('Save Changes'))
+
+  const form = {
+    ...shot,
+    url: 'https://app.gohighlevel.com/accounts/create?snapshot=PsOYVeuIfXR7soMIiMcI',
+    links: shot.links || [],
+    texts: shot.texts || [],
+    checks: [],
+  }
+  const actions = []
+  const result = await driveUntil(
+    {
+      snapshot: async () => form,
+      perform: async (action) => {
+        actions.push(action.type === 'click' ? action : { type: action.type, key: action.key, value: action.value })
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    {
+      ...input('dry_run'),
+      fields: browserFieldsFromLocation(
+        {
+          name: 'Test: Acme',
+          snapshotId: 'pHagdFFJPsZBnn8ACSHK',
+          phone: '+15551230000',
+          address: '1 Main',
+          city: 'Tampa',
+          state: 'FL',
+          postalCode: '33602',
+          country: 'US',
+          website: 'https://acme.example',
+          timezone: 'America/New_York',
+          prospectInfo: { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com' },
+        },
+        { snapshotName: 'Master Template' },
+      ),
+    },
+    { maxSteps: 30 },
+  )
+  assert.equal(actions[0].type, 'scroll_form')
+  assert.equal(actions.some((action) => action.type === 'record_form'), true)
+  assert.equal(actions.some((action) => action.type === 'click'), false)
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'email' && action.value === 'ada@example.com'), true)
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'name' && action.value === 'Test: Acme'), true)
+  assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'country' && action.value === 'United States'), true)
+  assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'timezone' && action.value === 'America/New_York'), true)
+  assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'state' && action.value === 'FL'), true)
+  assert.equal(result.status, 'dry_run')
+  assert.match(result.detail, /Save Changes/)
+  assert.match(result.detail, /country="United States" \(dropdown/)
+  assert.match(result.detail, /timezone="America\/New_York" \(dropdown/)
+  assert.match(result.detail, /email="ada@example.com"/)
+  const fieldsLine = result.detail.match(/Fields: ([^.]+)\./)[1]
+  assert.equal(fieldsLine.split(', ').includes('input'), false)
 })

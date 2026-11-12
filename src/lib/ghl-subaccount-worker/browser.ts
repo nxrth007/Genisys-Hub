@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwr
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
-import { driveUntil, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
+import { driveUntil, LIST_RENDER_WAIT_MS, bestSaveLabel, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
 import { ADD_MANUALLY_ATTEMPTS, locateAddManually, locateSnapshotCard, redactCardHtml, runSearchAddManually } from './snapshot-card'
 
@@ -36,7 +36,7 @@ export type BrowserRunOptions = {
 
 export type BrowserRunResult = DriveResult & { storageState: string | null }
 
-type CommandResult = { ok?: boolean; retry?: boolean; error?: string; href?: string; url?: string; fields?: unknown }
+type CommandResult = { ok?: boolean; retry?: boolean; error?: string; href?: string; url?: string; fields?: unknown; buttons?: string[] }
 
 const EMPTY_SNAP: PageSnap = { url: '', fields: [], buttons: [], texts: [], links: [], body: '' }
 
@@ -405,6 +405,21 @@ async function openAddManually(
   }
 }
 
+async function scrollDetailsForm(page: Page): Promise<string[]> {
+  const found: string[] = []
+  for (const frame of page.frames()) {
+    try {
+      const res = await runCommand(frame, { op: 'scrollForm' })
+      for (const button of res?.buttons || []) {
+        if (button && !found.includes(button)) found.push(button)
+      }
+    } catch {
+      // A frame can be navigating.
+    }
+  }
+  return found
+}
+
 async function capturePage(page: Page): Promise<Buffer> {
   const previous = page.viewportSize()
   if (!previous || previous.width > 1280) await page.setViewportSize({ width: 1280, height: previous?.height || 900 }).catch(() => {})
@@ -471,6 +486,17 @@ async function performAction(
   if (action.type === 'add_manually') {
     await openAddManually(page, signal, adopt, log, capture)
     await waitForDetailsForm(page, signal)
+    return {}
+  }
+
+  if (action.type === 'scroll_form') {
+    const found = await scrollDetailsForm(page)
+    await capture('details form bottom')
+    return { note: `Save button: ${bestSaveLabel(found)}` }
+  }
+
+  if (action.type === 'record_form') {
+    await capture('details form filled')
     return {}
   }
 
@@ -623,6 +649,9 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           )
           if (done.href) navHref = done.href
           if (done.note) await opts.onNote?.(done.note)
+          if (opts.mode !== 'create' && (action.type === 'fill' || action.type === 'pick') && action.key !== 'password') {
+            await opts.onNote?.(`Set ${action.key} = ${action.value ?? ''}`)
+          }
           if (opts.mode !== 'create') {
             const step =
               action.type === 'click'

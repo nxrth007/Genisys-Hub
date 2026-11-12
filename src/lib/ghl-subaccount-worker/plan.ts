@@ -16,10 +16,18 @@ export type PageField = {
   tag: string
   type: string
   value: string
-  /** Visible label or aria-label. */
+  /** Visible label, aria-label, or nearby text. */
   text: string
   /** Placeholder, kept separate so a dry run can record both. */
   placeholder?: string
+  /** input name attribute. */
+  name?: string
+  /** input id attribute. */
+  id?: string
+  /** aria-label or aria-labelledby text. */
+  aria?: string
+  /** Short text from the parent label or the preceding sibling. */
+  nearby?: string
 }
 
 export type PageSnap = {
@@ -55,6 +63,8 @@ export type BrowserAction =
   | { type: 'click_verify'; words: string[] }
   | { type: 'select_card'; name: string }
   | { type: 'add_manually' }
+  | { type: 'scroll_form' }
+  | { type: 'record_form' }
   | { type: 'remember' }
   | { type: 'pause' }
 
@@ -113,6 +123,10 @@ export type RunState = {
   snapshotTabsTried: string[]
   /** Add manually was clicked on the Google business-search step. */
   manualAdded: boolean
+  /** The details drawer was scrolled so the footer button is in view. */
+  formScrolled: boolean
+  /** Dry run already captured the filled form. */
+  formRecorded: boolean
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -150,6 +164,8 @@ export function initialRunState(): RunState {
     snapshotChosen: false,
     snapshotTabsTried: [],
     manualAdded: false,
+    formScrolled: false,
+    formRecorded: false,
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -170,8 +186,9 @@ export function initialRunState(): RunState {
 const STALL_LIMIT = 4
 const POST_SUBMIT_WAITS = 8
 
-const TEXT_KEYS = ['name', 'phone', 'address', 'city', 'postalCode', 'website', 'email', 'firstName', 'lastName'] as const
-const PICK_KEYS = ['country', 'state', 'timezone'] as const
+/** Business fields, in the order a person reads the details form. */
+const DETAIL_KEYS = ['firstName', 'lastName', 'email', 'name', 'phone', 'address', 'city', 'state', 'postalCode', 'country', 'website', 'timezone'] as const
+const LABEL_SKIP = new Set(['submit', 'createButton', 'signIn', 'verify', 'sendSecurityCode', 'addManually', 'subAccountsNav', 'addBusiness'])
 
 export function norm(s: string | null | undefined): string {
   return (s || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -311,22 +328,85 @@ function isSnapshotModal(snap: PageSnap): boolean {
   return /select snapshot template/.test(snap.body)
 }
 
-function fieldLabelNote(snap: PageSnap): string {
-  const parts = snap.fields.map((field) => {
-    const bits = [field.text, field.placeholder].filter(Boolean)
-    return bits.join(' / ') || field.key || field.tag
+function humanize(value: string | null | undefined): string {
+  return norm(value).replace(/[_./]+/g, ' ').replace(/\b(input|field|form|hl)\b/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function looseHit(text: string, word: string): boolean {
+  if (!text || !word) return false
+  if (word.length <= 4) return text === word
+  return text === word || text.includes(word)
+}
+
+/** name, id, and nearby text must be the label, not a sentence that mentions it. */
+function strictHit(text: string, word: string): boolean {
+  if (!text || !word) return false
+  if (text === word) return true
+  if (word.length <= 4) return false
+  return text.startsWith(`${word} `) || text.endsWith(` ${word}`)
+}
+
+export function fieldDisplayName(field: PageField): string {
+  const name = field.text || field.aria || field.nearby || humanize(field.name) || humanize(field.id) || field.key || ''
+  if (field.placeholder && norm(field.placeholder) !== norm(name)) return `${name || field.tag} / ${field.placeholder}`
+  return name || field.placeholder || field.tag
+}
+
+export function isDropdownField(field: PageField): boolean {
+  return field.tag === 'select' || field.tag === 'dropdown' || field.type === 'select' || field.type === 'select-one' || field.type === 'dropdown'
+}
+
+/** Fill a null key from the label, aria-label, nearby text, name, or id. */
+export function assignFieldKeys(fields: PageField[], labels: GhlLabels): PageField[] {
+  return fields.map((field) => {
+    if (field.key) return field
+    const loose = [field.text, field.aria, field.placeholder].map((bit) => norm(bit))
+    const strict = [field.nearby, humanize(field.name), humanize(field.id)].map((bit) => norm(bit))
+    for (const key of Object.keys(labels)) {
+      if (LABEL_SKIP.has(key)) continue
+      for (const word of labels[key] || []) {
+        const want = norm(word)
+        if (loose.some((bit) => looseHit(bit, want)) || strict.some((bit) => strictHit(bit, want))) {
+          return { ...field, key }
+        }
+      }
+    }
+    return field
   })
+}
+
+function fieldLabelNote(snap: PageSnap): string {
+  const parts = snap.fields.map((field) => fieldDisplayName(field))
   return parts.length ? `Fields: ${parts.join(', ')}.` : 'No field labels were visible on the form.'
 }
 
+const SAVE_RANK = [/^save changes$/, /^add sub-?account$/, /^save$/, /^create$/, /^[+＋]?\s*create sub-?account$/, /^add$/, /^submit$/, /^done$/]
+
+/** The footer control. "Create new" is the header and is not this. */
+export function bestSaveLabel(buttons: string[]): string {
+  const skip = (text: string) => /^(create new|add manually|cancel|search)$/.test(text) || text.startsWith('back to')
+  const entries = buttons
+    .map((raw) => ({ raw: raw.replace(/\s+/g, ' ').trim(), text: norm(raw).replace(/^[+＋]\s*/, '') }))
+    .filter((item) => item.raw && !skip(item.text))
+  for (const rank of SAVE_RANK) {
+    const hit = entries.find((item) => rank.test(item.text))
+    if (hit) return hit.raw
+  }
+  return '(no save button seen)'
+}
+
 function finalSaveLabel(snap: PageSnap): string {
-  const skip = /create new|create sub-?account|back to|add manually|cancel|search/
-  const hit = snap.buttons.find((button) => {
-    const text = norm(button)
-    if (!text || skip.test(text)) return false
-    return /^(save|create|submit|add|done|continue|next)$/.test(text) || /save|create account|add account/.test(text)
+  return bestSaveLabel(snap.buttons)
+}
+
+function setNote(snap: PageSnap, input: DriveInput, state: RunState): string {
+  const parts = DETAIL_KEYS.filter((key) => input.fields[key] && state.filled.includes(key)).map((key) => {
+    const field = fieldByKey(snap, key)
+    const how = field && isDropdownField(field) ? 'dropdown' : 'text'
+    const label = field ? fieldDisplayName(field) : key
+    return `${key}=${JSON.stringify(input.fields[key])} (${how}, "${label}")`
   })
-  return hit || '(no save button seen)'
+  return parts.length ? `Set ${parts.join(', ')}.` : ''
 }
 
 /** The list's own button. The header control "create new" is not this. */
@@ -447,6 +527,7 @@ export type Step =
   | { kind: 'done'; result: DriveResult; state: RunState }
 
 export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState): Step {
+  snap = { ...snap, fields: assignFieldKeys(snap.fields || [], input.labels) }
   let s = noteSettled(state, snap)
   if (snapshotIdFromUrl(snap.url)) s = { ...s, snapshotChosen: true, snapshotTried: true }
   for (let guard = 0; guard < 30; guard++) {
@@ -600,12 +681,13 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
       })
     }
 
-    // Some GHL wizards ask for the snapshot before the business fields exist.
-    // Don't record those fields as missing until the page that has them.
     const snapshotStep = !formOpen && !!fieldByKey(snap, 'snapshot') && (s.openedCreate || hasCreateButton(snap))
+    if (formOpen && !s.formScrolled) {
+      return act({ ...s, formScrolled: true }, { type: 'scroll_form' })
+    }
     if (formOpen || snapshotStep) {
       if (formOpen) {
-        for (const key of TEXT_KEYS) {
+        for (const key of DETAIL_KEYS) {
           const value = input.fields[key]
           if (!value || s.filled.includes(key) || s.missing.includes(key)) continue
           const field = fieldByKey(snap, key)
@@ -617,21 +699,11 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
             s = { ...s, filled: [...s.filled, key] }
             continue
           }
-          return act({ ...s, filled: [...s.filled, key] }, { type: 'fill', key, words: input.labels[key] ?? [key], value })
-        }
-        for (const key of PICK_KEYS) {
-          const value = input.fields[key]
-          if (!value || s.filled.includes(key) || s.missing.includes(key)) continue
-          const field = fieldByKey(snap, key)
-          if (!field) {
-            s = { ...s, missing: [...s.missing, key] }
-            continue
+          const words = input.labels[key] ?? [key]
+          if (isDropdownField(field)) {
+            return act({ ...s, filled: [...s.filled, key] }, { type: 'pick', key, words, value })
           }
-          if (norm(field.value)) {
-            s = { ...s, filled: [...s.filled, key] }
-            continue
-          }
-          return act({ ...s, filled: [...s.filled, key] }, { type: 'pick', key, words: input.labels[key] ?? [key], value })
+          return act({ ...s, filled: [...s.filled, key] }, { type: 'fill', key, words, value })
         }
       }
       if (!s.snapshotTried && !s.snapshotChosen) {
@@ -666,16 +738,19 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
         return act({ ...s, stalls: s.stalls + 1 }, { type: 'pause' })
       }
       if (input.mode === 'dry_run') {
+        if (!s.formRecorded) return act({ ...s, formRecorded: true }, { type: 'record_form' })
+        const saveLabel = finalSaveLabel(snap)
         return done(s, {
           status: 'dry_run',
           locationId: null,
           uncertain: false,
-          detail: `Reached the details form for "${input.fields.name}" and stopped before Create (${finalSaveLabel(snap)}). ${fieldLabelNote(snap)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
+          detail: `Reached the details form for "${input.fields.name}" and stopped before Create (${saveLabel}). ${fieldLabelNote(snap)} ${setNote(snap, input, s)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
         })
       }
+      const saveLabel = finalSaveLabel(snap)
       return act(
         { ...s, submitted: true, urlBeforeSubmit: snap.url },
-        { type: 'click', words: input.labels.submit, exact: true },
+        { type: 'click', words: saveLabel === '(no save button seen)' ? input.labels.submit : [saveLabel], exact: true },
       )
     }
 
