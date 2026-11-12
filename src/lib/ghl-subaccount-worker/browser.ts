@@ -5,7 +5,7 @@
  */
 import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwright'
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
-import type { BrowserFields } from './fields'
+import { loadSnapshotButton, snapshotSettingsUrls, type BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
 import { driveUntil, LIST_RENDER_WAIT_MS, bestSaveLabel, snapshotIdFromUrl, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
@@ -744,6 +744,112 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
       storageState = null
     }
     return { ...result, storageState }
+  } finally {
+    await context?.close().catch(() => {})
+    await browser?.close().catch(() => {})
+    browserOpen = false
+  }
+}
+
+export type SnapshotInspectResult = { note: string; image: Buffer | null; pushed: boolean }
+
+/**
+ * Open a location's snapshot settings page and screenshot it.
+ * `push` may press only Load snapshot / Push snapshot / Push to sub-account.
+ * It never presses Create or Add Sub-Account.
+ */
+export async function inspectLocationSnapshot(opts: {
+  locationId: string
+  origin: string
+  push: boolean
+  labels: GhlLabels
+  storageState: string | null
+  headless: boolean
+  executablePath?: string
+}): Promise<SnapshotInspectResult> {
+  if (browserOpen) {
+    return { note: 'Screenshot skipped: a browser is already open.', image: null, pushed: false }
+  }
+  browserOpen = true
+  prepareChromiumEnv()
+  const pw = (await import('playwright')) as typeof import('playwright')
+  let browser: Browser | null = null
+  let context: BrowserContext | null = null
+  try {
+    browser = await pw.chromium.launch({
+      headless: opts.headless,
+      executablePath: opts.executablePath || undefined,
+      args: chromiumLaunchArgs(),
+    })
+    context = await browser.newContext({
+      storageState: parseStorage(opts.storageState) as Awaited<ReturnType<BrowserContext['storageState']>> | undefined,
+      viewport: { width: 1440, height: 900 },
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+    })
+    const page = await context.newPage()
+    page.setDefaultTimeout(20_000)
+    const urls = snapshotSettingsUrls(opts.origin, opts.locationId)
+    let opened = urls[0]
+    let snap: PageSnap | null = null
+    for (const url of urls) {
+      opened = url
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(1500)
+      snap = await snapshotPage(page, opts.labels)
+      const text = `${snap.body || ''}\n${(snap.buttons || []).join('\n')}`
+      if (/snapshot/i.test(text) || /sign in|log in|password/i.test(text)) break
+    }
+    if (!snap) throw new Error('No snapshot settings page was opened.')
+    const buttons = snap.buttons || []
+    const signedOut = /sign in|log in|password/i.test(snap.body || '')
+    let image: Buffer | null = null
+    try {
+      image = await capturePage(page)
+    } catch {
+      image = null
+    }
+    if (signedOut) {
+      return {
+        note: `Opened ${opened}. The page is signed out, so nothing was clicked. Buttons: ${buttons.slice(0, 12).join(', ') || '(none)'}.`,
+        image,
+        pushed: false,
+      }
+    }
+    const load = opts.push ? loadSnapshotButton(buttons) : null
+    if (!opts.push || !load) {
+      const held = opts.push ? 'Load snapshot was not on the page, so nothing was clicked.' : 'Nothing was clicked.'
+      return {
+        note: `Opened ${opened}. ${held} Buttons: ${buttons.slice(0, 12).join(', ') || '(none)'}.`,
+        image,
+        pushed: false,
+      }
+    }
+    let clicked = false
+    for (const frame of page.frames()) {
+      try {
+        const res = await runCommand(frame, { op: 'click', words: [load], exact: true, labels: opts.labels })
+        if (res?.ok) {
+          clicked = true
+          break
+        }
+      } catch {
+        // Another frame may hold the button.
+      }
+    }
+    await page.waitForTimeout(1500)
+    try {
+      image = await capturePage(page)
+    } catch {
+      // Keep the first shot.
+    }
+    return {
+      note: clicked
+        ? `Opened ${opened} and pressed "${load}". No other button was pressed.`
+        : `Opened ${opened}. "${load}" was visible but the click did not land. Nothing else was pressed.`,
+      image,
+      pushed: clicked,
+    }
   } finally {
     await context?.close().catch(() => {})
     await browser?.close().catch(() => {})

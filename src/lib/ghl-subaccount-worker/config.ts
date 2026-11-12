@@ -55,6 +55,20 @@ export function backfillIntakeIds(env: NodeJS.ProcessEnv = process.env): string[
   return env.GHL_BACKFILL_INTAKE_IDS.split(/[,\s]+/).map((id) => id.trim()).filter(Boolean)
 }
 
+/** Locations whose snapshot status is re-read on boot. Unset rechecks nothing. */
+export function snapshotRecheckLocationIds(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.GHL_SNAPSHOT_RECHECK_LOCATION_IDS ?? '').split(/[,\s]+/).map((id) => id.trim()).filter(Boolean)
+}
+
+/**
+ * After a sub-account exists, open its snapshot page and press Load snapshot.
+ * Off unless GHL_SNAPSHOT_PUSH_AFTER_CREATE is on. The create form's snapshot
+ * field is not this load.
+ */
+export function snapshotPushAfterCreate(env: NodeJS.ProcessEnv = process.env): boolean {
+  return envOn(env.GHL_SNAPSHOT_PUSH_AFTER_CREATE)
+}
+
 export function workerHeadless(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = token(env.GHL_SUBACCOUNT_WORKER_HEADLESS)
   if (!raw) return true

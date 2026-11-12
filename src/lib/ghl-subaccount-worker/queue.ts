@@ -20,7 +20,7 @@ import { buildLocationInput, firstNameOf, getGhlSubaccountSettings, linkGhlSubAc
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
-import { runCreateInBrowser } from './browser'
+import { inspectLocationSnapshot, runCreateInBrowser } from './browser'
 import {
   loginFromEnv,
   MAX_ATTEMPTS,
@@ -29,6 +29,9 @@ import {
   retryDelayMs,
   subAccountListUrl,
   listUrlOverride,
+  dashboardOrigin,
+  snapshotPushAfterCreate,
+  snapshotRecheckLocationIds,
   VAULT_LOGIN_NAME,
   VAULT_WEBHOOK_SECRET_NAME,
   WORKER_SINCE_GRACE_MS,
@@ -40,7 +43,7 @@ import {
   workerRunsBrowser,
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
-import { browserFieldsFromLocation, readBrowserFields, resolveSnapshotChoice, snapshotImportState, type BrowserFields } from './fields'
+import { browserFieldsFromLocation, describeSnapshotPush, readBrowserFields, resolveSnapshotChoice, snapshotImportState, type BrowserFields } from './fields'
 import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, mayClaimRequeuedJob, requeueCommitOf, runningCommit, shouldAutoRetest, skipNewerBuildLog } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
@@ -569,6 +572,69 @@ let retestDone = false
 /** When this process loaded the worker. The retiring instance can still claim for a short overlap. */
 const workerBootedAt = Date.now()
 
+/** Read one location's last snapshot push and screenshot its snapshot page. Does not create or load anything. */
+export async function recheckSnapshotLocation(locationId: string): Promise<string> {
+  const settings = await getGhlSubaccountSettings().catch(() => null)
+  const snapshotId = process.env.GHL_SUBACCOUNT_SNAPSHOT_ID?.trim() || settings?.snapshotId || ''
+  let line = snapshotId
+    ? ''
+    : `Snapshot recheck for ${locationId} skipped: no snapshot id is configured.`
+  if (snapshotId) {
+    try {
+      const status = await getSnapshotPushStatus(await getAgencyContext(), snapshotId, locationId)
+      line = describeSnapshotPush(status, locationId, snapshotId)
+    } catch (err) {
+      line = `Couldn't read snapshot status for ${snapshotId} on ${locationId}: ${describe(err)}`
+    }
+  }
+  let image: Buffer | null = null
+  if (!workerRunsBrowser()) {
+    line = `${line} Screenshot skipped: this process is not running the browser.`
+  } else {
+    try {
+      const seen = await inspectLocationSnapshot({
+        locationId,
+        origin: dashboardOrigin(process.env.GHL_AGENCY_DASHBOARD_URL),
+        push: false,
+        labels: ghlLabels(process.env.GHL_SUBACCOUNT_WORKER_LABELS),
+        storageState: await loadSession(),
+        headless: workerHeadless(),
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined,
+      })
+      line = `${line} ${seen.note}`
+      image = seen.image
+    } catch (err) {
+      line = `${line} Screenshot skipped: ${describe(err)}`
+    }
+  }
+  console.log(`[ghl-subaccount-worker] ${line}`)
+  const job = await prisma.ghlSubaccountJob.findFirst({
+    where: { locationId },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, log: true },
+  })
+  if (job) {
+    const prev = Array.isArray(job.log) ? job.log : []
+    let log = [...prev, jobLogEntry(line)].slice(-60)
+    if (image) {
+      try {
+        const shot = await prisma.ghlSubaccountJobShot.create({
+          data: { jobId: job.id, step: 'snapshot recheck', mime: 'image/jpeg', data: Uint8Array.from(image) },
+          select: { id: true },
+        })
+        log = [...log, jobLogEntry(`Screenshot ${shot.id} at step snapshot recheck`)].slice(-60)
+      } catch (err) {
+        log = [...log, jobLogEntry(`Screenshot save failed at step snapshot recheck: ${describe(err).slice(0, 300)}`)].slice(-60)
+      }
+    }
+    await prisma.ghlSubaccountJob.update({
+      where: { id: job.id },
+      data: { log: log as Prisma.InputJsonValue, detail: line.slice(0, 2000) },
+    })
+  }
+  return line
+}
+
 /** Stop claiming work when Render shuts this process down, and give the in-flight job back. */
 export function installWorkerLifecycle(): void {
   if (lifecycleInstalled) return
@@ -583,6 +649,12 @@ export function installWorkerLifecycle(): void {
   process.once('SIGINT', stop)
   void recoverAbandonedJobs().catch((err) => console.warn('[ghl-subaccount-worker] startup recovery:', err))
   void enqueueMissedIntakes().catch((err) => console.warn('[ghl-subaccount-worker] missed intakes:', err))
+  const recheckIds = snapshotRecheckLocationIds()
+  if (recheckIds.length) {
+    void (async () => {
+      for (const locationId of recheckIds) await recheckSnapshotLocation(locationId)
+    })().catch((err) => console.warn('[ghl-subaccount-worker] snapshot recheck:', err))
+  }
   const wait = Math.max(0, AUTO_RETEST_DELAY_MS - (Date.now() - workerBootedAt))
   setTimeout(() => {
     void retestNeedsHumanTestJobs().catch((err) => console.warn('[ghl-subaccount-worker] auto-retest:', err))
@@ -726,11 +798,9 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       try {
         const status = await getSnapshotPushStatus(await getAgencyContext(), readyFields.snapshotId, locationId)
         const state = snapshotImportState(status)
-        const label = status
-          ? `${status.status}; completed: ${status.completed.join(', ') || '(none)'}; pending: ${status.pending.join(', ') || '(none)'}`
-          : 'no snapshot-status record'
-        last = `Snapshot "${readyFields.snapshotName || readyFields.snapshotId}" (${readyFields.snapshotId}) on ${locationId}: ${label}.`
-        if (state === 'applied' || state === 'loading') return { ok: true, detail: last }
+        last = describeSnapshotPush(status, locationId, readyFields.snapshotId)
+        if (status?.locationId && status.locationId !== locationId) return { ok: false, detail: last }
+        if (state === 'applied') return { ok: true, detail: last }
         if (state === 'failed') return { ok: false, detail: `${last} The snapshot import failed.` }
       } catch (err) {
         last = `Couldn't read snapshot status for ${readyFields.snapshotId} on ${locationId}: ${describe(err)}`
@@ -739,11 +809,29 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     }
     return {
       ok: false,
-      detail: `${last} Add manually keeps the snapshot id on the form URL, but that does not load the snapshot. Load "${readyFields.snapshotName || readyFields.snapshotId}" into this sub-account by hand.`,
+      detail: `${last} A processing status with asset types listed as completed is not a finished import. Add manually keeps the snapshot id on the form URL, but that does not load the snapshot. Load "${readyFields.snapshotName || readyFields.snapshotId}" into this sub-account by hand, or set GHL_SNAPSHOT_PUSH_AFTER_CREATE=1 so the next create presses Load snapshot.`,
     }
   }
 
   const acceptLocation = async (locationId: string, detail: string): Promise<string> => {
+    if (workerMode() === 'create' && snapshotPushAfterCreate()) {
+      await appendLog(id, lease, 'GHL_SNAPSHOT_PUSH_AFTER_CREATE is on. Opening the location snapshot page and pressing Load snapshot only. This does not create another sub-account.').catch(() => {})
+      try {
+        const pushed = await inspectLocationSnapshot({
+          locationId,
+          origin: dashboardOrigin(process.env.GHL_AGENCY_DASHBOARD_URL),
+          push: true,
+          labels: ghlLabels(process.env.GHL_SUBACCOUNT_WORKER_LABELS),
+          storageState: await loadSession(),
+          headless: workerHeadless(),
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined,
+        })
+        await appendLog(id, lease, pushed.note).catch(() => {})
+        if (pushed.image) await saveJobShot(id, lease, pushed.pushed ? 'snapshot loaded' : 'snapshot load page', pushed.image).catch(() => {})
+      } catch (err) {
+        await appendLog(id, lease, `Snapshot load was not pressed: ${describe(err)}`).catch(() => {})
+      }
+    }
     if (workerMode() === 'create') {
       const check = await confirmSnapshot(locationId)
       await appendLog(id, lease, check.detail).catch(() => {})

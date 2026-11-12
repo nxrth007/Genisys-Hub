@@ -143,6 +143,22 @@ export function GhlSubaccountsSection() {
     onError: (err) => setRetryNotice({ ok: false, text: (err as Error).message }),
   })
 
+  const recheck = useMutation({
+    mutationFn: async (clientId: string) =>
+      readJson<{ ok?: boolean; detail?: string }>(
+        await fetch('/api/admin/ghl-subaccount-worker/recheck', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId }),
+        }),
+      ),
+    onSuccess: (r) => {
+      setRetryNotice({ ok: !!r.ok, text: r.detail || 'Snapshot recheck finished.' })
+      qc.invalidateQueries({ queryKey: ['ghl-subaccounts'] })
+    },
+    onError: (err) => setRetryNotice({ ok: false, text: (err as Error).message }),
+  })
+
   const sendCode = useMutation({
     mutationFn: async () =>
       readJson<{ ok?: boolean; reason?: string; requeued?: number }>(
@@ -385,6 +401,17 @@ export function GhlSubaccountsSection() {
                     >
                       GHL <ExternalLink className="h-3 w-3" />
                     </a>
+                  )}
+                  {r.locationId && (
+                    <button
+                      type="button"
+                      disabled={recheck.isPending}
+                      title="Re-reads the snapshot push status and screenshots the location snapshot page. Does not create a sub-account or press Load snapshot."
+                      onClick={() => recheck.mutate(r.clientId)}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+                    >
+                      {recheck.isPending && recheck.variables === r.clientId ? 'Rechecking…' : 'Recheck snapshot'}
+                    </button>
                   )}
                   {(enabled || workerOn) && (r.status === 'failed' || r.status === 'creating' || r.status === 'not started' || r.status === 'dry_run') && (
                     <button

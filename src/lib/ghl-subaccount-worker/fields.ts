@@ -146,11 +146,92 @@ export function resolveSnapshotChoice(input: {
   return { id: input.payloadId?.trim() || '', name: input.payloadName?.trim() || '', source: 'payload' }
 }
 
-/** GHL's snapshot-status payload. `missing` means this snapshot was never started on the location. */
+/** Last snapshot-push document from GET /snapshots/snapshot-status/:snapshotId/location/:locationId. */
+export type SnapshotPushStatus = {
+  id: string | null
+  locationId: string | null
+  status: string
+  /** Asset type names the push document lists as finished. Not a count of records in the location. */
+  completed: string[]
+  pending: string[]
+  failed: string[]
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+export function readSnapshotPushStatus(data: unknown): SnapshotPushStatus | null {
+  if (!data || typeof data !== 'object') return null
+  const row = data as Record<string, unknown>
+  if (typeof row.status !== 'string' || !row.status.trim()) return null
+  return {
+    id: typeof row.id === 'string' ? row.id : null,
+    locationId: typeof row.locationId === 'string' ? row.locationId : null,
+    status: row.status,
+    completed: stringList(row.completed),
+    pending: stringList(row.pending),
+    failed: [...stringList(row.failed), ...stringList(row.errors)],
+  }
+}
+
+/**
+ * What the status call actually said. `completed` is a list of asset
+ * types on the push document (funnels, workflow, …), not proof those
+ * records exist in the location.
+ */
+export function describeSnapshotPush(status: SnapshotPushStatus | null, requestedLocationId: string, snapshotId: string): string {
+  const endpoint = `GET /snapshots/snapshot-status/${snapshotId}/location/${requestedLocationId}`
+  if (!status) {
+    return `${endpoint} returned no snapshot-status record. That call is the last push for this snapshot and location, not the snapshot's own asset list.`
+  }
+  const where = !status.locationId
+    ? 'The response has no locationId, so it was not checked against this location.'
+    : status.locationId === requestedLocationId
+      ? `The response locationId is ${status.locationId}.`
+      : `The response locationId is ${status.locationId}, which is not ${requestedLocationId}.`
+  const failed = status.failed.length ? `Failed items: ${status.failed.join(', ')}.` : 'No failed items in the response.'
+  return [
+    `${endpoint} is GHL's last snapshot push for that location.`,
+    `Status "${status.status}".`,
+    'completed and pending are asset type names on that push document, not a count of records that landed in the location.',
+    `Completed types: ${status.completed.join(', ') || '(none)'}.`,
+    `Pending types: ${status.pending.join(', ') || '(none)'}.`,
+    failed,
+    where,
+    status.id ? `Document ${status.id}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+export function snapshotSettingsUrls(origin: string, locationId: string): string[] {
+  const base = origin.replace(/\/$/, '')
+  const id = encodeURIComponent(locationId)
+  return [
+    `${base}/v2/location/${id}/settings/snapshot`,
+    `${base}/v2/location/${id}/settings/snapshots`,
+    `${base}/location/${id}/settings/snapshot`,
+  ]
+}
+
+const LOAD_SNAPSHOT = /^(load snapshot|push snapshot|push to sub-account)$/i
+
+/** The only button a post-create load may press. Create and Add Sub-Account are never this. */
+export function loadSnapshotButton(labels: string[]): string | null {
+  return labels.find((label) => LOAD_SNAPSHOT.test(label.trim())) ?? null
+}
+
+/**
+ * `missing` means this snapshot was never started on the location.
+ * A processing push can already list asset types under `completed`;
+ * that list does not mean the push finished or that the location has those assets.
+ */
 export function snapshotImportState(status: { status: string; completed?: string[]; pending?: string[] } | null | undefined): 'applied' | 'loading' | 'missing' | 'failed' {
   if (!status || !status.status?.trim()) return 'missing'
   if (/fail|error/i.test(status.status)) return 'failed'
-  if (/complete|success|done|finish/i.test(status.status) || (status.completed || []).length > 0) return 'applied'
-  if (/process|pend|load|import|queue|progress/i.test(status.status) || (status.pending || []).length > 0) return 'loading'
+  if (/process|pend|load|import|queue|progress/i.test(status.status)) return 'loading'
+  if (/complete|success|done|finish/i.test(status.status)) return 'applied'
+  if ((status.pending || []).length > 0) return 'loading'
   return 'missing'
 }
