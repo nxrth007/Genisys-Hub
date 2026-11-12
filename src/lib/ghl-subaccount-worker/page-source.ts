@@ -415,7 +415,7 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     collectDropdowns(fields)
     var buttons = []
     var seen = {}
-    var bnodes = collect('button, a, [role="button"], [role="tab"]')
+    var bnodes = collect('button, a, [role="button"], [role="tab"], [role="menuitem"]')
     for (var b = 0; b < bnodes.length; b++) {
       var raw = rawText(bnodes[b])
       var bt = norm(raw)
