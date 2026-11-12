@@ -150,3 +150,203 @@ export function locateAddManually(scope?: unknown): Element | null {
   }
   return best
 }
+
+/**
+ * These functions are sent to the GHL page as source (`toString`).
+ * Each one keeps its helpers inside so the page does not need this module.
+ */
+
+/** Prefer the card whose attributes contain the snapshot id. Falls back to the exact title. */
+export function locateSnapshotCardById(target: { name: string; id: string }, scope?: ParentNode): Element | null {
+  const attrBlob = (el: Element) => {
+    const names = ['id', 'data-id', 'data-snapshot-id', 'data-snapshotid', 'href', 'data-value']
+    const bits: string[] = []
+    for (const name of names) {
+      const value = el.getAttribute ? el.getAttribute(name) : null
+      if (value) bits.push(value)
+    }
+    return bits.join(' ')
+  }
+  const root =
+    scope ||
+    (typeof document !== 'undefined' ? document.querySelector('[role="dialog"], [aria-modal="true"]') || document.body : null)
+  if (!root || !target.id) return null
+  const nodes = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : []
+  let host: Element | null = null
+  let smallest = Infinity
+  for (const el of nodes) {
+    if (!attrBlob(el).includes(target.id)) continue
+    const size = el.querySelectorAll ? el.querySelectorAll('*').length : 0
+    if (size < smallest) {
+      host = el
+      smallest = size
+    }
+  }
+  if (!host) return null
+  let el: Element | null = host
+  while (el) {
+    const tag = (el.tagName || '').toUpperCase()
+    const role = (el.getAttribute && el.getAttribute('role')) || ''
+    const cls = (el.getAttribute && el.getAttribute('class')) || ''
+    if (tag === 'A' || tag === 'BUTTON' || role === 'button' || /cursor-pointer/i.test(cls)) return el
+    el = el.parentElement
+  }
+  return host
+}
+
+/** Cards that expose a snapshot id on themselves or their parent. */
+export function listSnapshotCardRefs(scope?: ParentNode): { name: string; id: string }[] {
+  const attrBlob = (el: Element) => {
+    const names = ['id', 'data-id', 'data-snapshot-id', 'data-snapshotid', 'href', 'data-value']
+    const bits: string[] = []
+    for (const name of names) {
+      const value = el.getAttribute ? el.getAttribute(name) : null
+      if (value) bits.push(value)
+    }
+    return bits.join(' ')
+  }
+  const root = scope || (typeof document !== 'undefined' ? document.body : null)
+  if (!root || !root.querySelectorAll) return []
+  const out: { name: string; id: string }[] = []
+  const seen = new Set<string>()
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    let raw = ''
+    for (let i = 0; i < el.childNodes.length; i++) {
+      const node = el.childNodes[i]
+      if (node && node.nodeType === 3) raw += node.textContent || ''
+    }
+    const name = raw.replace(/\s+/g, ' ').trim()
+    if (name.length < 3 || name.length > 80) continue
+    const blob = `${attrBlob(el)} ${el.parentElement ? attrBlob(el.parentElement) : ''}`
+    const ids = blob.match(/[A-Za-z0-9_-]{16,32}/g) || []
+    for (const id of ids) {
+      if (id === name || seen.has(id)) continue
+      seen.add(id)
+      out.push({ name, id })
+    }
+  }
+  return out
+}
+
+/** Visible button, menu, tab, and option labels. Logged when a control cannot be found. */
+export function visibleControlLabels(scope?: ParentNode): string[] {
+  const root = scope || (typeof document !== 'undefined' ? document.body : null)
+  if (!root || !root.querySelectorAll) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const nodes = Array.from(root.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"]'))
+  for (const el of nodes) {
+    const text = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || (el.textContent || '')
+    const label = text.replace(/\s+/g, ' ').trim()
+    const key = label.toLowerCase()
+    if (!label || label.length > 120 || seen.has(key)) continue
+    seen.add(key)
+    out.push(label)
+  }
+  return out
+}
+
+/** Rows for this snapshot. An id in an attribute or as the whole text wins over the name. */
+export function matchingSnapshotRows(target: { name: string; id: string }, scope?: ParentNode): Element[] {
+  const attrBlob = (el: Element) => {
+    const names = ['id', 'data-id', 'data-snapshot-id', 'data-snapshotid', 'href', 'data-value']
+    const bits: string[] = []
+    for (const name of names) {
+      const value = el.getAttribute ? el.getAttribute(name) : null
+      if (value) bits.push(value)
+    }
+    return bits.join(' ')
+  }
+  const rowOf = (el: Element) => {
+    let current: Element | null = el
+    for (let depth = 0; current && depth < 8; depth++) {
+      const role = (current.getAttribute && current.getAttribute('role')) || ''
+      if (role === 'row' || role === 'listitem' || current.tagName === 'LI' || current.tagName === 'TR' || current.tagName === 'ARTICLE') {
+        return current
+      }
+      current = current.parentElement
+    }
+    return el.parentElement || el
+  }
+  const root = scope || (typeof document !== 'undefined' ? document.body : null)
+  if (!root || !root.querySelectorAll) return []
+  const nodes = Array.from(root.querySelectorAll('*'))
+  const rows: Element[] = []
+  const seen = new Set<Element>()
+  const add = (el: Element) => {
+    const row = rowOf(el)
+    if (seen.has(row)) return
+    seen.add(row)
+    rows.push(row)
+  }
+  if (target.id) {
+    const hosts: Element[] = []
+    let smallest = Infinity
+    for (const el of nodes) {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (!attrBlob(el).includes(target.id) && text !== target.id) continue
+      const size = el.querySelectorAll('*').length
+      if (size < smallest) {
+        smallest = size
+        hosts.length = 0
+        hosts.push(el)
+      } else if (size === smallest) hosts.push(el)
+    }
+    for (const host of hosts) add(host)
+    if (rows.length) return rows
+  }
+  const want = target.name.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!want) return []
+  for (const el of nodes) {
+    let raw = ''
+    for (let i = 0; i < el.childNodes.length; i++) {
+      const node = el.childNodes[i]
+      if (node && node.nodeType === 3) raw += node.textContent || ''
+    }
+    if (raw.replace(/\s+/g, ' ').trim().toLowerCase() !== want) continue
+    add(el)
+  }
+  return rows
+}
+
+export function snapshotRowCount(target: { name: string; id: string }, scope?: ParentNode): number {
+  return matchingSnapshotRows(target, scope).length
+}
+
+/** The one snapshot row. Zero or several matches return null so the caller can abort. */
+export function locateSnapshotRow(target: { name: string; id: string }, scope?: ParentNode): Element | null {
+  const rows = matchingSnapshotRows(target, scope)
+  return rows.length === 1 ? rows[0] : null
+}
+
+/** The action menu on one snapshot row. Sent to the page, so it does not call out. */
+export function locateRowMenu(row: Element | null): Element | null {
+  if (!row || !row.querySelectorAll) return null
+  const nodes = Array.from(row.querySelectorAll('button, a, [role="button"]'))
+  const labelOf = (el: Element) =>
+    `${(el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || ''} ${el.textContent || ''}`
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+  const menu = nodes.find((el) => /menu|more|action|kebab|option|ellipsis|\.\.\./.test(labelOf(el)))
+  if (menu) return menu
+  return nodes.find((el) => !labelOf(el) || labelOf(el) === '...') || null
+}
+
+export function dialogChoiceLabels(scope?: ParentNode): string[] {
+  const root =
+    scope ||
+    (typeof document !== 'undefined' ? document.querySelector('[role="dialog"], [aria-modal="true"]') || document.body : null)
+  if (!root || !root.querySelectorAll) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const nodes = Array.from(root.querySelectorAll('[role="option"], [role="checkbox"], [role="radio"], label, li'))
+  for (const el of nodes) {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim()
+    const key = text.toLowerCase()
+    if (!text || text.length > 160 || seen.has(key)) continue
+    seen.add(key)
+    out.push(text)
+  }
+  return out
+}

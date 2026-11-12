@@ -61,6 +61,15 @@ export function snapshotRecheckLocationIds(env: NodeJS.ProcessEnv = process.env)
 }
 
 /**
+ * Boot lists My Snapshots and Imported Snapshots from the page JSON.
+ * Read-only: it does not create, push, or delete. Off unless
+ * GHL_SNAPSHOT_DIAGNOSTIC is on.
+ */
+export function snapshotDiagnosticEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return envOn(env.GHL_SNAPSHOT_DIAGNOSTIC)
+}
+
+/**
  * After a sub-account exists, open its snapshot page and press Load snapshot.
  * Off unless GHL_SNAPSHOT_PUSH_AFTER_CREATE is on. The create form's snapshot
  * field is not this load.

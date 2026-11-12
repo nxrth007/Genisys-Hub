@@ -46,6 +46,8 @@ export type PageSnap = {
   tabs?: string[]
   /** Snapshot card titles inside the template modal. */
   cards?: string[]
+  /** Cards whose DOM exposed a snapshot id. */
+  cardRefs?: { name: string; id: string }[]
   /** Visible dialogs, modals, and drawers. */
   overlays?: string[]
   body: string
@@ -61,7 +63,7 @@ export type BrowserAction =
   | { type: 'fill_otp' }
   | { type: 'press_enter' }
   | { type: 'click_verify'; words: string[] }
-  | { type: 'select_card'; name: string }
+  | { type: 'select_card'; name: string; id?: string }
   | { type: 'add_manually' }
   | { type: 'scroll_form' }
   | { type: 'record_form' }
@@ -469,6 +471,37 @@ export function exactSnapshotCard(cards: string[], name: string): string | null 
   return cards.find((card) => norm(card) === want) ?? null
 }
 
+/**
+ * The card to click. An id on the card wins. Two cards with the same
+ * name and different ids are not guessed.
+ */
+export function chooseSnapshotCard(
+  cards: string[],
+  refs: { name: string; id: string }[] | undefined,
+  name: string,
+  id: string,
+): { ok: true; name: string; id: string } | { ok: false; detail: string } {
+  const wantName = norm(name)
+  const wantId = id.trim()
+  const list = refs || []
+  if (wantId) {
+    const byId = list.filter((ref) => ref.id === wantId)
+    if (byId.length === 1) return { ok: true, name: byId[0].name || name, id: wantId }
+    if (byId.length > 1) return { ok: false, detail: `More than one card has snapshot id ${wantId}. Nothing was created.` }
+  }
+  const sameName = list.filter((ref) => norm(ref.name) === wantName && ref.id)
+  const distinct = [...new Set(sameName.map((ref) => ref.id))]
+  if (distinct.length > 1) {
+    return {
+      ok: false,
+      detail: `More than one snapshot is named "${name}": ${distinct.join(', ')}. Set GHL_SUBACCOUNT_SNAPSHOT_ID to the one that has assets. Nothing was created.`,
+    }
+  }
+  const card = exactSnapshotCard(cards, name)
+  if (!card) return { ok: false, detail: '' }
+  return { ok: true, name: card, id: wantId || distinct[0] || '' }
+}
+
 function hasCreateButton(snap: PageSnap): boolean {
   return snap.buttons.some(isCreateSubAccountButton)
 }
@@ -565,10 +598,27 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
   const formOpenNow = onForm(snap)
   const urlSnapshot = snapshotIdFromUrl(snap.url)
   const snapField = fieldByKey(snap, 'snapshot')
+  const wantedSnapshot = input.fields.snapshotId.trim()
   // A snapshot id on the URL is the card that was selected. It does not fill a
-  // snapshot control that is still empty on the details form.
-  if (urlSnapshot && !(formOpenNow && snapField && !norm(snapField.value))) {
+  // snapshot control that is still empty on the details form. A different id
+  // than the one configured is not accepted.
+  if (urlSnapshot && wantedSnapshot && urlSnapshot !== wantedSnapshot && !s.submitted) {
+    return done(s, {
+      status: 'needs_human',
+      locationId: null,
+      uncertain: false,
+      detail: `The page URL snapshot is ${urlSnapshot}, not the configured snapshot ${wantedSnapshot}. Nothing was created.\n${pageDiagnostics(snap)}`,
+    })
+  }
+  if (urlSnapshot && !s.snapshotChosen && !(formOpenNow && snapField && !norm(snapField.value))) {
+    const readName = (snap.cardRefs || []).find((ref) => ref.id === urlSnapshot)?.name || input.fields.snapshotName || '(name not on the page)'
     s = { ...s, snapshotChosen: true, snapshotTried: true }
+    if (!formOpenNow) {
+      return act(s, {
+        type: 'note',
+        text: `Selected snapshot read back from the page URL: id=${urlSnapshot} name="${readName}".`,
+      })
+    }
   }
   for (let guard = 0; guard < 30; guard++) {
     if (s.submitted) {
@@ -708,11 +758,20 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           detail: 'The snapshot modal is open but the snapshot name is not known. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the card title, for example Master Template.',
         })
       }
-      const card = exactSnapshotCard(snap.cards || [], choice)
-      if (card) {
-        return act(beginStep({ ...s, snapshotChosen: true, snapshotTried: true, openedCreate: true }, `select snapshot ${choice}`), {
+      const picked = chooseSnapshotCard(snap.cards || [], snap.cardRefs, choice, input.fields.snapshotId)
+      if (!picked.ok && picked.detail) {
+        return done(s, {
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `${picked.detail}\n${pageDiagnostics(snap)}`,
+        })
+      }
+      if (picked.ok) {
+        return act(beginStep({ ...s, snapshotChosen: true, snapshotTried: true, openedCreate: true }, `select snapshot ${picked.name}`), {
           type: 'select_card',
-          name: choice,
+          name: picked.name,
+          id: picked.id,
         })
       }
       const order = snapshotTabPlan(input.snapshotTab)

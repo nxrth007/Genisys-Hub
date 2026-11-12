@@ -48,6 +48,7 @@ const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 const otpMail = loadTs(join(dir, 'otp-mail.ts'))
 const snapshotCard = loadTs(join(dir, 'snapshot-card.ts'))
 const snapshotLoad = loadTs(join(dir, 'snapshot-load.ts'))
+const snapshotCatalog = loadTs(join(dir, 'snapshot-catalog.ts'))
 const heartbeat = loadTs(join(dir, 'heartbeat.ts'))
 
 const {
@@ -57,6 +58,7 @@ const {
   workerPaused,
   backfillIntakeIds,
   snapshotRecheckLocationIds,
+  snapshotDiagnosticEnabled,
   snapshotPushAfterCreate,
   retryDelayMs,
   MAX_ATTEMPTS,
@@ -69,7 +71,7 @@ const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolve
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
-const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard, isCreateSubAccountButton, isSubAccountListReady, snapshotIdFromUrl } = plan
+const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard, chooseSnapshotCard, isCreateSubAccountButton, isSubAccountListReady, snapshotIdFromUrl } = plan
 
 function env(overrides) {
   return overrides
@@ -126,6 +128,8 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.deepEqual(snapshotRecheckLocationIds({ GHL_SNAPSHOT_RECHECK_LOCATION_IDS: '1MQb8TlVXLcwNgO24RAU' }), ['1MQb8TlVXLcwNgO24RAU'])
   assert.equal(snapshotPushAfterCreate({}), false)
   assert.equal(snapshotPushAfterCreate({ GHL_SNAPSHOT_PUSH_AFTER_CREATE: '1' }), true)
+  assert.equal(snapshotDiagnosticEnabled({}), false)
+  assert.equal(snapshotDiagnosticEnabled({ GHL_SNAPSHOT_DIAGNOSTIC: '1' }), true)
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')
@@ -343,6 +347,156 @@ test('a snapshot load stays on one location and counts real records', () => {
     { pipelines: [{ id: 'p1' }] },
     locationId,
   ), null)
+  const tags = snapshotLoad.countsFromAssetPayload(
+    `https://services.leadconnectorhq.com/locations/${locationId}/tags`,
+    { tags: [{ name: 'New' }, { name: 'Hot' }] },
+    locationId,
+  )
+  assert.equal(tags.tags, 2)
+  const fields = snapshotLoad.countsFromAssetPayload(
+    `https://services.leadconnectorhq.com/locations/${locationId}/customFields`,
+    { customFields: [{ id: 'f1' }] },
+    locationId,
+  )
+  assert.equal(fields.customFields, 1)
+  assert.equal(snapshotLoad.countsFromAssetPayload(
+    `https://services.leadconnectorhq.com/snapshots/snapshot-status/snap/location/${locationId}`,
+    { pipelines: [{ id: 'p1' }] },
+    locationId,
+  ), null)
+  assert.deepEqual(snapshotLoad.verifyCheckTimes(15 * 60 * 1000, 2 * 60 * 1000), [0, 120000, 240000, 360000, 480000, 600000, 720000, 840000])
+  const missing = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Save', 'Account Snapshots', 'Delete'],
+    body: 'settings',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress: snapshotLoad.freshSnapshotLoad(),
+  })
+  assert.equal(missing.ok, false)
+  assert.match(missing.reason, /Visible controls: Save \| Account Snapshots \| Delete/)
+  const source = { pipelines: 3, workflows: 0, funnels: 2, customFields: 4, tags: null }
+  const landed = snapshotLoad.locationContentLanded(
+    { pipelines: 3, workflows: 0, funnels: 1, customFields: 4, tags: 0 },
+    source,
+  )
+  assert.equal(landed.ok, true)
+  const short = snapshotLoad.locationContentLanded(
+    { pipelines: 0, workflows: 0, funnels: 1, customFields: 4, tags: 0 },
+    source,
+  )
+  assert.equal(short.ok, false)
+  assert.match(short.reason, /pipelines/)
+})
+
+test('the snapshot catalog keeps both Master Templates and ignores a push document', () => {
+  const { readSnapshotCatalog, chooseSnapshotMenuAction, chooseLocationTarget, confirmPushControl, isUnsafeSnapshotControl, configuredSnapshotHint } = snapshotCatalog
+  const rows = readSnapshotCatalog(
+    {
+      snapshots: [
+        {
+          id: 'PsOYVeuIfXR7soMIiMcI',
+          name: 'Master Template',
+          type: 'imported',
+          assets: { pipelines: [], workflows: [], funnels: [], customFields: [], tags: [] },
+        },
+        {
+          _id: 'pHagdFFJPsZBnn8ACSHK',
+          name: 'Master Template',
+          type: 'own',
+          snapshotData: {
+            pipelines: [{ id: 'p1' }, { id: 'p2' }],
+            workflows: [{ id: 'w1' }],
+            funnels: [{ id: 'f1' }],
+            customFields: [{ id: 'c1' }],
+            tags: [{ name: 'Hot' }],
+          },
+        },
+      ],
+      data: {
+        id: 'doc1',
+        locationId: '1MQb8TlVXLcwNgO24RAU',
+        status: 'completed',
+        completed: ['funnels', 'workflow', 'pipelines'],
+        pending: [],
+      },
+    },
+    'GET /snapshots/?companyId=agency',
+  )
+  assert.equal(rows.length, 2)
+  const empty = rows.find((row) => row.id === 'PsOYVeuIfXR7soMIiMcI')
+  const full = rows.find((row) => row.id === 'pHagdFFJPsZBnn8ACSHK')
+  assert.equal(empty.counts.pipelines, 0)
+  assert.equal(empty.type, 'imported')
+  assert.equal(full.counts.pipelines, 2)
+  assert.equal(full.counts.workflows, 1)
+  assert.equal(full.counts.tags, 1)
+  assert.match(configuredSnapshotHint(rows, 'PsOYVeuIfXR7soMIiMcI', 'Master Template'), /pHagdFFJPsZBnn8ACSHK/)
+  const menu = chooseSnapshotMenuAction(['Share', 'Delete', 'Create Sub-Account', 'Push to sub-account'])
+  assert.equal(menu.ok, true)
+  assert.equal(menu.label, 'Push to sub-account')
+  const several = chooseSnapshotMenuAction(['Push snapshot', 'Load snapshot', 'Delete'])
+  assert.equal(several.ok, false)
+  assert.match(several.reason, /Visible menu: .*Delete/)
+  assert.equal(isUnsafeSnapshotControl('Delete'), true)
+  assert.equal(isUnsafeSnapshotControl('Select all'), true)
+  const one = chooseLocationTarget(
+    ['Test: Snapshot Check LLC', 'Test: Snapshot Check LLC 2'],
+    '1MQb8TlVXLcwNgO24RAU',
+    'Test: Snapshot Check LLC',
+  )
+  assert.equal(one.ok, true)
+  assert.equal(one.label, 'Test: Snapshot Check LLC')
+  const none = chooseLocationTarget(['Other LLC'], '1MQb8TlVXLcwNgO24RAU', 'Test: Snapshot Check LLC')
+  assert.equal(none.ok, false)
+  assert.match(none.reason, /Visible locations: Other LLC/)
+  const many = chooseLocationTarget(
+    ['Test: Snapshot Check LLC', 'Test: Snapshot Check LLC'],
+    '',
+    'Test: Snapshot Check LLC',
+  )
+  assert.equal(many.ok, false)
+  assert.equal(confirmPushControl(['Cancel', 'Create Sub-Account', 'Push']).label, 'Push')
+  assert.equal(confirmPushControl(['Next']).finishes, false)
+  const ambiguous = chooseSnapshotCard(
+    ['Master Template', 'Master Template'],
+    [
+      { name: 'Master Template', id: 'PsOYVeuIfXR7soMIiMcI' },
+      { name: 'Master Template', id: 'pHagdFFJPsZBnn8ACSHK' },
+    ],
+    'Master Template',
+    'pHagdFFJPsZBnn8ACSHK',
+  )
+  assert.equal(ambiguous.ok, true)
+  assert.equal(ambiguous.id, 'pHagdFFJPsZBnn8ACSHK')
+  const unnamed = chooseSnapshotCard(
+    ['Master Template'],
+    [
+      { name: 'Master Template', id: 'PsOYVeuIfXR7soMIiMcI' },
+      { name: 'Master Template', id: 'pHagdFFJPsZBnn8ACSHK' },
+    ],
+    'Master Template',
+    '',
+  )
+  assert.equal(unnamed.ok, false)
+  assert.match(unnamed.detail, /Nothing was created/)
+})
+
+test('a page snapshot id that is not the configured snapshot stops before create', () => {
+  const search = snap({
+    url: 'https://app.gohighlevel.com/accounts/search?snapshot=PsOYVeuIfXR7soMIiMcI',
+    buttons: ['Add manually', 'Create Sub-Account'],
+    body: 'add manually',
+    fields: [{ key: 'search', tag: 'input', type: 'text', value: '', text: 'search' }],
+  })
+  const step = nextGhlAction(search, input('create'), { ...initialRunState(), openedCreate: true })
+  assert.equal(step.kind, 'done')
+  assert.equal(step.result.status, 'needs_human')
+  assert.match(step.result.detail, /PsOYVeuIfXR7soMIiMcI/)
+  assert.match(step.result.detail, /pHagdFFJPsZBnn8ACSHK/)
+  assert.match(step.result.detail, /Nothing was created/)
+  assert.match(step.result.detail, /Visible controls|buttons:/)
 })
 
 test('agency login parses JSON or two lines and rejects a bare password', () => {
@@ -985,7 +1139,11 @@ test('the business search step opens Add manually and a dry run records the form
   })
   assert.equal(snapshotIdFromUrl(search.url), 'PsOYVeuIfXR7soMIiMcI')
   const opened = { ...initialRunState(), openedCreate: true, snapshotChosen: true }
-  const step = nextGhlAction(search, input('dry_run'), opened)
+  const matched = {
+    ...input('dry_run'),
+    fields: { ...input('dry_run').fields, snapshotId: 'PsOYVeuIfXR7soMIiMcI', snapshotName: 'Master Template' },
+  }
+  const step = nextGhlAction(search, matched, opened)
   assert.equal(step.action.type, 'add_manually')
   const form = snap({
     url: 'https://app.gohighlevel.com/accounts/create',
@@ -1008,7 +1166,7 @@ test('the business search step opens Add manually and a dry run records the form
       pullOtp: async () => null,
       onOtpPrompt: async () => {},
     },
-    input('dry_run'),
+    matched,
     { maxSteps: 20 },
   )
   assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'search'), false)
@@ -1072,7 +1230,10 @@ test('a failed search-page Add manually keeps the extended diagnostics', async (
       pullOtp: async () => null,
       onOtpPrompt: async () => {},
     },
-    input('dry_run'),
+    {
+      ...input('dry_run'),
+      fields: { ...input('dry_run').fields, snapshotId: 'PsOYVeuIfXR7soMIiMcI', snapshotName: 'Master Template' },
+    },
     { maxSteps: 6 },
   )
   assert.equal(result.status, 'needs_human')
@@ -1304,7 +1465,7 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
       fields: browserFieldsFromLocation(
         {
           name: 'Test: Acme',
-          snapshotId: 'pHagdFFJPsZBnn8ACSHK',
+          snapshotId: 'PsOYVeuIfXR7soMIiMcI',
           phone: '+15551230000',
           address: '1 Main',
           city: 'Tampa',
@@ -1361,6 +1522,8 @@ test('a text-looking country and time zone are still picked, and a missing first
       ...input('dry_run'),
       fields: {
         ...input('dry_run').fields,
+        snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+        snapshotName: 'Master Template',
         name: 'Wilson Construction',
         firstName: '',
         country: 'United States',
@@ -1412,7 +1575,13 @@ test('Add Sub-Account counts as created from a toast or the exact list row', asy
     },
     {
       ...input('create'),
-      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+      fields: {
+        ...input('create').fields,
+        snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+        name: 'Brett: Wilson Construction',
+        firstName: 'Brett',
+        snapshotName: 'Master Template',
+      },
     },
     { maxSteps: 12 },
   )
@@ -1436,7 +1605,13 @@ test('Add Sub-Account counts as created from a toast or the exact list row', asy
     },
     {
       ...input('create'),
-      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+      fields: {
+        ...input('create').fields,
+        snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+        name: 'Brett: Wilson Construction',
+        firstName: 'Brett',
+        snapshotName: 'Master Template',
+      },
     },
     { maxSteps: 16 },
   )
@@ -1458,7 +1633,13 @@ test('an empty snapshot field is still filled when the URL already names a snaps
     form,
     {
       ...input('create'),
-      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+      fields: {
+        ...input('create').fields,
+        snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+        name: 'Brett: Wilson Construction',
+        firstName: 'Brett',
+        snapshotName: 'Master Template',
+      },
     },
     { ...initialRunState(), formScrolled: true },
   )
