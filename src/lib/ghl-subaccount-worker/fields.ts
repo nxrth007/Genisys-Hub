@@ -113,3 +113,44 @@ export function readBrowserFields(value: unknown): BrowserFields | null {
 export function snapshotChoice(fields: BrowserFields): string {
   return fields.snapshotName.trim() || fields.snapshotId.trim()
 }
+
+export type SnapshotChoice = {
+  id: string
+  name: string
+  /** env_id beats a listed name, which beats Settings, which beats the queued payload. */
+  source: 'env_id' | 'snapshot_name' | 'settings' | 'payload'
+}
+
+/**
+ * The snapshot to load. A queued payload can keep an old id after Settings
+ * or the snapshot name (Master Template) has moved on.
+ */
+export function resolveSnapshotChoice(input: {
+  payloadId?: string | null
+  payloadName?: string | null
+  envId?: string | null
+  envName?: string | null
+  settingsId?: string | null
+  listed?: { id: string; name: string }[] | null
+}): SnapshotChoice {
+  const listed = input.listed || []
+  const byName = (name: string) => listed.find((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())
+  const byId = (id: string) => listed.find((item) => item.id === id)
+  const envId = input.envId?.trim() || ''
+  if (envId) return { id: envId, name: byId(envId)?.name || input.envName?.trim() || input.payloadName?.trim() || '', source: 'env_id' }
+  const envName = input.envName?.trim() || ''
+  const named = envName ? byName(envName) : undefined
+  if (named) return { id: named.id, name: named.name, source: 'snapshot_name' }
+  const settingsId = input.settingsId?.trim() || ''
+  if (settingsId) return { id: settingsId, name: byId(settingsId)?.name || input.envName?.trim() || input.payloadName?.trim() || '', source: 'settings' }
+  return { id: input.payloadId?.trim() || '', name: input.payloadName?.trim() || '', source: 'payload' }
+}
+
+/** GHL's snapshot-status payload. `missing` means this snapshot was never started on the location. */
+export function snapshotImportState(status: { status: string; completed?: string[]; pending?: string[] } | null | undefined): 'applied' | 'loading' | 'missing' | 'failed' {
+  if (!status || !status.status?.trim()) return 'missing'
+  if (/fail|error/i.test(status.status)) return 'failed'
+  if (/complete|success|done|finish/i.test(status.status) || (status.completed || []).length > 0) return 'applied'
+  if (/process|pend|load|import|queue|progress/i.test(status.status) || (status.pending || []).length > 0) return 'loading'
+  return 'missing'
+}

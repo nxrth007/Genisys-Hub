@@ -14,7 +14,7 @@
  */
 import { Prisma } from '@/generated/prisma/client'
 import { looksLikePhoneNumber } from '@/lib/client-from-intake'
-import { getAgencyContext, listAllLocations, listSnapshots } from '@/lib/ghl-agency'
+import { getAgencyContext, getSnapshotPushStatus, listAllLocations, listSnapshots } from '@/lib/ghl-agency'
 import { buildLocationInput, firstNameOf, getGhlSubaccountSettings, linkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
 import { prisma } from '@/lib/prisma'
@@ -34,10 +34,11 @@ import {
   workerEnabled,
   workerHeadless,
   workerMode,
+  workerPaused,
   workerRunsBrowser,
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
-import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
+import { browserFieldsFromLocation, readBrowserFields, resolveSnapshotChoice, snapshotImportState, type BrowserFields } from './fields'
 import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, mayClaimRequeuedJob, requeueCommitOf, runningCommit, shouldAutoRetest, skipNewerBuildLog } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
@@ -64,6 +65,7 @@ export type TickResult = {
   outcome?: string
   promoted?: number
   recovered?: number
+  paused?: boolean
 }
 
 class LeaseLost extends Error {
@@ -545,7 +547,7 @@ export function installWorkerLifecycle(): void {
 }
 
 export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number> {
-  if (shuttingDown || workerMode() === 'create') return 0
+  if (shuttingDown || workerPaused() || workerMode() === 'create') return 0
   if (!autoRetestDue(workerBootedAt, now)) return 0
   if (retestDone || retestRunning) return 0
   retestRunning = true
@@ -637,24 +639,80 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   const name = fields?.name || job.client.name
   const board = hubLink(`/clients/${job.clientId}/ghl`)
 
-  const failHuman = async (detail: string): Promise<string> => {
+  const failHuman = async (detail: string, locationId?: string | null): Promise<string> => {
     await appendLog(id, lease, detail).catch(() => {})
-    await saveJob(id, lease, { status: 'needs_human', leaseUntil: null, detail, lastError: detail, finishedAt: new Date() })
+    await saveJob(id, lease, {
+      status: 'needs_human',
+      leaseUntil: null,
+      detail,
+      lastError: detail,
+      finishedAt: new Date(),
+      ...(locationId ? { locationId } : {}),
+    })
     await markClient(job.clientId, 'failed', detail)
     await hubAlert(`:warning: *GHL sub-account needs a person* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
     return 'needs_human'
   }
 
   if (!fields) return failHuman('The queued job has no form fields on it.')
-  if (job.client.ghlLocationId) {
-    await saveJob(id, lease, {
-      status: 'succeeded',
-      leaseUntil: null,
-      locationId: job.client.ghlLocationId,
-      detail: 'The client was already linked to a sub-account.',
-      finishedAt: new Date(),
-    })
+  let listed: { id: string; name: string }[] = []
+  try {
+    listed = await listSnapshots(await getAgencyContext())
+  } catch (err) {
+    await appendLog(id, lease, `Couldn't list agency snapshots (${describe(err)}). The queued snapshot id will be used only if nothing else names Master Template.`).catch(() => {})
+  }
+  const settings = await getGhlSubaccountSettings().catch(() => null)
+  const choice = resolveSnapshotChoice({
+    payloadId: fields.snapshotId,
+    payloadName: fields.snapshotName,
+    envId: process.env.GHL_SUBACCOUNT_SNAPSHOT_ID,
+    envName: process.env.GHL_SUBACCOUNT_SNAPSHOT_NAME,
+    settingsId: settings?.snapshotId,
+    listed,
+  })
+  const snapshotNote =
+    choice.id === fields.snapshotId
+      ? `Using snapshot "${choice.name || choice.id}" (${choice.id}) from ${choice.source}.`
+      : `Using snapshot "${choice.name || choice.id}" (${choice.id}) from ${choice.source}. It overrides the queued snapshotId ${fields.snapshotId}.`
+  await appendLog(id, lease, snapshotNote).catch(() => {})
+  const readyFields: BrowserFields = { ...fields, snapshotId: choice.id, snapshotName: choice.name || fields.snapshotName }
+
+  const confirmSnapshot = async (locationId: string): Promise<{ ok: boolean; detail: string }> => {
+    let last = `GHL has no snapshot import for "${readyFields.snapshotName || readyFields.snapshotId}" (${readyFields.snapshotId}) on ${locationId}.`
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const status = await getSnapshotPushStatus(await getAgencyContext(), readyFields.snapshotId, locationId)
+        const state = snapshotImportState(status)
+        const label = status
+          ? `${status.status}; completed: ${status.completed.join(', ') || '(none)'}; pending: ${status.pending.join(', ') || '(none)'}`
+          : 'no snapshot-status record'
+        last = `Snapshot "${readyFields.snapshotName || readyFields.snapshotId}" (${readyFields.snapshotId}) on ${locationId}: ${label}.`
+        if (state === 'applied' || state === 'loading') return { ok: true, detail: last }
+        if (state === 'failed') return { ok: false, detail: `${last} The snapshot import failed.` }
+      } catch (err) {
+        last = `Couldn't read snapshot status for ${readyFields.snapshotId} on ${locationId}: ${describe(err)}`
+      }
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 5000))
+    }
+    return {
+      ok: false,
+      detail: `${last} Add manually keeps the snapshot id on the form URL, but that does not load the snapshot. Load "${readyFields.snapshotName || readyFields.snapshotId}" into this sub-account by hand.`,
+    }
+  }
+
+  const acceptLocation = async (locationId: string, detail: string): Promise<string> => {
+    if (workerMode() === 'create') {
+      const check = await confirmSnapshot(locationId)
+      await appendLog(id, lease, check.detail).catch(() => {})
+      if (!check.ok) return failHuman(`${detail} ${check.detail}`, locationId)
+      detail = `${detail} ${check.detail}`
+    }
+    await saveJob(id, lease, { status: 'succeeded', leaseUntil: null, locationId, detail, lastError: null, finishedAt: new Date() })
     return 'succeeded'
+  }
+
+  if (job.client.ghlLocationId) {
+    return acceptLocation(job.client.ghlLocationId, 'The client was already linked to a sub-account.')
   }
 
   try {
@@ -666,26 +724,19 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         note: `Browser worker linked existing sub-account ${existing.id} instead of creating another`,
       })
       if (!linked.ok) return failHuman(`A sub-account named "${fields.name}" already exists, and it could not be linked: ${linked.reason}`)
-      await saveJob(id, lease, {
-        status: 'succeeded',
-        leaseUntil: null,
-        locationId: existing.id,
-        detail: `Linked the existing sub-account "${existing.name}".`,
-        finishedAt: new Date(),
-      })
-      return 'succeeded'
+      return acceptLocation(existing.id, `Linked the existing sub-account "${existing.name}".`)
     }
   } catch (err) {
     await appendLog(id, lease, `Couldn't list sub-accounts before creating (${describe(err)}). Continuing in the browser.`)
   }
 
-  const snapshotName = fields.snapshotName || (await resolveSnapshotName(fields.snapshotId))
+  const snapshotName = readyFields.snapshotName || (await resolveSnapshotName(readyFields.snapshotId))
   if (!snapshotName) {
     return failHuman(
-      "The snapshot's name isn't known, so the form wasn't submitted. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the name in GHL's snapshot dropdown, or confirm the agency key can list snapshots.",
+      "The snapshot's name isn't known, so the form wasn't submitted. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the name in GHL's snapshot dropdown, or GHL_SUBACCOUNT_SNAPSHOT_ID to its id.",
     )
   }
-  const ready: BrowserFields = { ...fields, snapshotName }
+  const ready: BrowserFields = { ...readyFields, snapshotName }
   await saveJob(id, lease, { payload: ready as unknown as Prisma.InputJsonValue })
   await markClient(job.clientId, 'creating', null)
 
@@ -755,13 +806,11 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     })
     if (result.observedSnapshotId) {
       const queued = fields.snapshotId
-      const same = result.observedSnapshotId === queued
+      const used = ready.snapshotId
       await appendLog(
         id,
         lease,
-        same
-          ? `GHL snapshot id from the page URL: ${result.observedSnapshotId}.`
-          : `GHL snapshot id from the page URL: ${result.observedSnapshotId}. The queued payload still has snapshotId ${queued}.`,
+        `GHL snapshot id from the page URL: ${result.observedSnapshotId}. Verifying snapshot ${used}${used === queued ? '' : ` (queued payload had ${queued})`}.`,
       ).catch(() => {})
     }
     if (result.storageState) {
@@ -782,17 +831,9 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         note: `Browser worker ${result.status === 'created' ? 'created' : 'found'} sub-account ${result.locationId || fields.name}`,
       })
       if (!linked.ok) {
-        return failHuman(`${result.detail || 'GHL accepted it'} The Hub couldn't link it: ${linked.reason}`)
+        return failHuman(`${result.detail || 'GHL accepted it'} The Hub couldn't link it: ${linked.reason}`, result.locationId)
       }
-      await saveJob(id, lease, {
-        status: 'succeeded',
-        leaseUntil: null,
-        locationId: linked.locationId,
-        detail: result.detail || null,
-        lastError: null,
-        finishedAt: new Date(),
-      })
-      return 'succeeded'
+      return acceptLocation(linked.locationId || result.locationId, result.detail || `Created the sub-account ${result.locationId}.`)
     }
 
     if (result.status === 'dry_run') {
@@ -822,18 +863,8 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
             actor: ACTOR,
             note: `Browser worker created sub-account ${found.id}; the page did not show a location id, so it was linked from the agency list`,
           })
-          if (!linked.ok) return failHuman(`${result.detail || 'GHL may have created it.'} The Hub couldn't link "${found.name}": ${linked.reason}`)
-          const detail = `Created "${found.name}" with snapshot "${ready.snapshotName}". The page did not show a location id; it was found on the agency list and linked.`
-          await appendLog(id, lease, detail).catch(() => {})
-          await saveJob(id, lease, {
-            status: 'succeeded',
-            leaseUntil: null,
-            locationId: linked.locationId,
-            detail,
-            lastError: null,
-            finishedAt: new Date(),
-          })
-          return 'succeeded'
+          if (!linked.ok) return failHuman(`${result.detail || 'GHL may have created it.'} The Hub couldn't link "${found.name}": ${linked.reason}`, found.id)
+          return acceptLocation(linked.locationId || found.id, `Created "${found.name}". The page did not show a location id; it was found on the agency list and linked.`)
         }
         return failHuman(`${result.detail || 'GHL needs a person before this can continue.'} Searched the agency list for "${fields.name}" and it was not there.`)
       }
@@ -910,7 +941,7 @@ async function noteSkippedNewerBuild(id: string, sha: string): Promise<void> {
 }
 
 async function claimOne(): Promise<{ id: string; lease: Date } | null> {
-  if (shuttingDown) return null
+  if (shuttingDown || workerPaused()) return null
   const now = new Date()
   const due: Prisma.GhlSubaccountJobWhereInput = {
     OR: [
@@ -951,9 +982,18 @@ async function claimOne(): Promise<{ id: string; lease: Date } | null> {
 }
 
 let inFlight = false
+let pauseLogged = false
 
 export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
   if (!workerEnabled()) return { enabled: false, ran: false, enqueued: 0, claimed: false }
+  if (workerPaused()) {
+    if (!pauseLogged) {
+      console.warn('[ghl-subaccount-worker] paused by GHL_SUBACCOUNT_WORKER_PAUSED. Not claiming jobs.')
+      pauseLogged = true
+    }
+    return { enabled: true, ran: false, enqueued: 0, claimed: false, paused: true }
+  }
+  pauseLogged = false
   const recovered = await recoverAbandonedJobs().catch((err) => {
     console.warn('[ghl-subaccount-worker] recovery:', err)
     return 0

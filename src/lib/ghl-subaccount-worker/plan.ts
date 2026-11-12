@@ -562,7 +562,14 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
   input = { ...input, fields: { ...input.fields, name: accountName.name } }
   snap = { ...snap, fields: assignFieldKeys(snap.fields || [], input.labels) }
   let s = noteSettled(state, snap)
-  if (snapshotIdFromUrl(snap.url)) s = { ...s, snapshotChosen: true, snapshotTried: true }
+  const formOpenNow = onForm(snap)
+  const urlSnapshot = snapshotIdFromUrl(snap.url)
+  const snapField = fieldByKey(snap, 'snapshot')
+  // A snapshot id on the URL is the card that was selected. It does not fill a
+  // snapshot control that is still empty on the details form.
+  if (urlSnapshot && !(formOpenNow && snapField && !norm(snapField.value))) {
+    s = { ...s, snapshotChosen: true, snapshotTried: true }
+  }
   for (let guard = 0; guard < 30; guard++) {
     if (s.submitted) {
       const id = locationIdFromUrl(snap.url)

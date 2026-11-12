@@ -53,6 +53,7 @@ const {
   workerEnabled,
   workerRunsBrowser,
   workerMode,
+  workerPaused,
   retryDelayMs,
   MAX_ATTEMPTS,
   subAccountListUrl,
@@ -60,7 +61,7 @@ const {
   parseAgencyLogin,
 } = config
 const { ghlLabels } = labelsMod
-const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName } = fieldsMod
+const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolveSnapshotChoice, snapshotImportState } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
@@ -111,6 +112,9 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.equal(workerMode(env({ GHL_SUBACCOUNT_WORKER_ENABLED: '1' })), 'dry_run')
   assert.equal(workerMode(env({ GHL_SUBACCOUNT_WORKER_MODE: 'create' })), 'create')
   assert.equal(workerMode(env({ GHL_SUBACCOUNT_WORKER_MODE: 'CREATE' })), 'create')
+  assert.equal(workerPaused(env({})), false)
+  assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: '1' })), true)
+  assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: 'on' })), true)
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')
@@ -201,6 +205,31 @@ test('form fields follow the API payload, with United States spelled out', () =>
   )
   assert.equal(composed.name, 'Brett: Wilson Construction')
   assert.equal(composed.firstName, 'Brett')
+  const listed = [
+    { id: 'PsOYVeuIfXR7soMIiMcI', name: 'Master Template' },
+    { id: 'pHagdFFJPsZBnn8ACSHK', name: 'Old default' },
+  ]
+  const byName = resolveSnapshotChoice({
+    payloadId: 'pHagdFFJPsZBnn8ACSHK',
+    payloadName: '',
+    envName: 'Master Template',
+    settingsId: 'pHagdFFJPsZBnn8ACSHK',
+    listed,
+  })
+  assert.equal(byName.id, 'PsOYVeuIfXR7soMIiMcI')
+  assert.equal(byName.source, 'snapshot_name')
+  const byEnv = resolveSnapshotChoice({
+    payloadId: 'pHagdFFJPsZBnn8ACSHK',
+    envId: 'PsOYVeuIfXR7soMIiMcI',
+    envName: 'Master Template',
+    settingsId: 'pHagdFFJPsZBnn8ACSHK',
+    listed,
+  })
+  assert.equal(byEnv.source, 'env_id')
+  assert.equal(snapshotImportState(null), 'missing')
+  assert.equal(snapshotImportState({ status: 'processing', pending: ['funnels'] }), 'loading')
+  assert.equal(snapshotImportState({ status: 'completed', completed: ['workflows'] }), 'applied')
+  assert.equal(snapshotImportState({ status: 'failed' }), 'failed')
 })
 
 test('agency login parses JSON or two lines and rejects a bare password', () => {
@@ -1301,4 +1330,27 @@ test('Add Sub-Account counts as created from a toast or the exact list row', asy
   assert.equal(found.status, 'created')
   assert.equal(found.locationId, 'NewLoc123456')
   assert.match(found.detail, /sub-account list/)
+})
+
+test('an empty snapshot field is still filled when the URL already names a snapshot', () => {
+  const form = snap({
+    url: 'https://app.gohighlevel.com/accounts/search?snapshot=PsOYVeuIfXR7soMIiMcI',
+    buttons: ['Add Sub-Account'],
+    fields: [
+      { key: 'name', tag: 'input', type: 'text', value: 'Brett: Wilson Construction', text: 'business name' },
+      { key: 'snapshot', tag: 'input', type: 'text', value: '', text: 'snapshot' },
+    ],
+  })
+  const step = nextGhlAction(
+    form,
+    {
+      ...input('create'),
+      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+    },
+    { ...initialRunState(), formScrolled: true },
+  )
+  assert.equal(step.kind, 'action')
+  assert.equal(step.action.type, 'pick')
+  assert.equal(step.action.key, 'snapshot')
+  assert.equal(step.action.value, 'Master Template')
 })
