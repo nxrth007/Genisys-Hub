@@ -43,6 +43,18 @@ export function workerPaused(env: NodeJS.ProcessEnv = process.env): boolean {
   return envOn(env.GHL_SUBACCOUNT_WORKER_PAUSED)
 }
 
+/** The one intake boot may split off an existing client. Empty env means this id only. */
+export const DEFAULT_BACKFILL_INTAKE_ID = 'cmwd3jnao001m3hsct1totiqp'
+
+/**
+ * GHL_BACKFILL_INTAKE_IDS is a comma-separated list. Unset keeps the
+ * default id. An explicit empty value backfills nothing.
+ */
+export function backfillIntakeIds(env: NodeJS.ProcessEnv = process.env): string[] {
+  if (env.GHL_BACKFILL_INTAKE_IDS === undefined) return [DEFAULT_BACKFILL_INTAKE_ID]
+  return env.GHL_BACKFILL_INTAKE_IDS.split(/[,\s]+/).map((id) => id.trim()).filter(Boolean)
+}
+
 export function workerHeadless(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = token(env.GHL_SUBACCOUNT_WORKER_HEADLESS)
   if (!raw) return true

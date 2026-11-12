@@ -13,7 +13,8 @@
  * the browser.
  */
 import { Prisma } from '@/generated/prisma/client'
-import { looksLikePhoneNumber } from '@/lib/client-from-intake'
+import { looksLikePhoneNumber, promoteIntakeToClient } from '@/lib/client-from-intake'
+import { distinctBusinessNames } from '@/lib/client-name'
 import { getAgencyContext, getSnapshotPushStatus, listAllLocations, listSnapshots } from '@/lib/ghl-agency'
 import { buildLocationInput, firstNameOf, getGhlSubaccountSettings, linkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
@@ -35,6 +36,7 @@ import {
   workerHeadless,
   workerMode,
   workerPaused,
+  backfillIntakeIds,
   workerRunsBrowser,
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
@@ -389,6 +391,46 @@ export async function enqueueGhlSubaccountForNewClient(
   return enqueueClient(clientId, { trigger: 'intake', receivedAt, timeKnown: opts.timeKnown, createdNewClient: true })
 }
 
+/** Split only the intakes named by GHL_BACKFILL_INTAKE_IDS (default: Snapshot Check LLC). Idempotent. */
+export async function enqueueMissedIntakes(): Promise<number> {
+  if (!workerEnabled()) return 0
+  const ids = backfillIntakeIds()
+  if (!ids.length) return 0
+  const rows = await prisma.clientIntake.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      businessName: true,
+      receivedAt: true,
+      client: { select: { name: true } },
+    },
+  })
+  const found = new Set(rows.map((row) => row.id))
+  for (const id of ids) {
+    if (!found.has(id)) console.log(`[client-onboarding] GHL browser job skipped for intake ${id}: not found`)
+  }
+  let queued = 0
+  for (const row of rows) {
+    if (!row.businessName || !row.client || !distinctBusinessNames(row.businessName, row.client.name)) {
+      console.log(`[client-onboarding] GHL browser job skipped for intake ${row.id}: business name already matches ${row.client?.name ?? 'no client'}`)
+      continue
+    }
+    await prisma.clientIntake.update({ where: { id: row.id }, data: { clientId: null } })
+    const promoted = await promoteIntakeToClient(row.id)
+    if (!promoted) {
+      console.log(`[client-onboarding] GHL browser job skipped for intake ${row.id}: could not create a client for "${row.businessName}"`)
+      continue
+    }
+    const res = await enqueueGhlSubaccountForNewClient(promoted.clientId, row.receivedAt, { timeKnown: true })
+    if (!res.ok) console.log(`[client-onboarding] GHL browser job for intake ${row.id} skipped: ${res.reason}`)
+    else {
+      console.log(`[client-onboarding] GHL browser job for intake ${row.id} ${res.status} as "${res.name}"`)
+      if (res.status === 'queued') queued += 1
+    }
+  }
+  return queued
+}
+
 export async function sweepEligibleClients(): Promise<number> {
   if (!workerEnabled()) return 0
   const since = await workerCutoff()
@@ -540,6 +582,7 @@ export function installWorkerLifecycle(): void {
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
   void recoverAbandonedJobs().catch((err) => console.warn('[ghl-subaccount-worker] startup recovery:', err))
+  void enqueueMissedIntakes().catch((err) => console.warn('[ghl-subaccount-worker] missed intakes:', err))
   const wait = Math.max(0, AUTO_RETEST_DELAY_MS - (Date.now() - workerBootedAt))
   setTimeout(() => {
     void retestNeedsHumanTestJobs().catch((err) => console.warn('[ghl-subaccount-worker] auto-retest:', err))

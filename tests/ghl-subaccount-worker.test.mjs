@@ -54,6 +54,7 @@ const {
   workerRunsBrowser,
   workerMode,
   workerPaused,
+  backfillIntakeIds,
   retryDelayMs,
   MAX_ATTEMPTS,
   subAccountListUrl,
@@ -115,6 +116,9 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.equal(workerPaused(env({})), false)
   assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: '1' })), true)
   assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: 'on' })), true)
+  assert.deepEqual(backfillIntakeIds({}), ['cmwd3jnao001m3hsct1totiqp'])
+  assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: '' }), [])
+  assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: 'cmwd3jnao001m3hsct1totiqp, other' }), ['cmwd3jnao001m3hsct1totiqp', 'other'])
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')
@@ -1353,4 +1357,13 @@ test('an empty snapshot field is still filled when the URL already names a snaps
   assert.equal(step.action.type, 'pick')
   assert.equal(step.action.key, 'snapshot')
   assert.equal(step.action.value, 'Master Template')
+})
+
+test('a different business name is not linked just because the EIN and phone match', () => {
+  const dedupe = loadTs(join(root, 'src/lib/client-name.ts'))
+  assert.equal(dedupe.distinctBusinessNames('Snapshot Check LLC', 'TEST Dry Run LLC'), true)
+  assert.equal(dedupe.distinctBusinessNames('A Plus Fence LLC', 'Aplus Fence'), false)
+  assert.equal(dedupe.mayLinkIntake('Snapshot Check LLC', 'TEST Dry Run LLC', ['same EIN', 'same phone', 'same website']), false)
+  assert.equal(dedupe.mayLinkIntake('Aplus Fence', 'A Plus Fence LLC', ['same name, give or take spacing / LLC']), true)
+  assert.equal(dedupe.mayLinkIntake('Elite Roofing', 'Elite Solar', ['similar name']), false)
 })

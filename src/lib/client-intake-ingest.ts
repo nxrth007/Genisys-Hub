@@ -221,13 +221,17 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       if (workerEnabled()) {
         void enqueueGhlSubaccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
           if (!r.ok) console.log(`[client-onboarding] GHL browser job for ${id} skipped: ${r.reason}`)
-          else console.log(`[client-onboarding] GHL browser job for ${id} ${r.status}`)
+          else console.log(`[client-onboarding] GHL browser job for ${id} ${r.status} as "${r.name}"`)
         })
       } else {
         void provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
           if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
+          else console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}`)
         })
       }
+    } else if (workerEnabled()) {
+      const why = matched ? `${matched.name} (${matched.why})` : 'a client already on file'
+      console.log(`[client-onboarding] GHL browser job skipped for intake ${intake.id}: linked to ${why}, not a new client`)
     }
   } else {
     const why =

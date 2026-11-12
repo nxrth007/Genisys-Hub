@@ -1,5 +1,8 @@
 ﻿import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from './prisma'
+import { SAME_NAME, SIMILAR_NAME, compactName, coreName, mayLinkIntake } from './client-name'
+
+export { compactName, coreName, distinctBusinessNames, mayLinkIntake } from './client-name'
 
 /**
  * Telling duplicate clients apart and finding them (merging is client-merge.ts).
@@ -12,23 +15,6 @@ import { prisma } from './prisma'
  */
 
 const GENERIC_HOSTS = /(^|\.)(lovable\.app|gmail\.com|yahoo\.com|outlook\.com|hotmail\.com|icloud\.com|facebook\.com|google\.com|business\.site|wixsite\.com|godaddysites\.com)$/
-
-const LEGAL_WORDS = /\b(llc|l l c|inc|incorporated|co|corp|corporation|company|ltd|pllc|the|and)\b/g
-const TRADE_WORDS =
-  /\b(construction|constructions|contracting|contractors?|builders?|building|roofing|roofers?|roof|solar|energy|power|fence|fencing|plumbing|hvac|heating|cooling|air|electric|electrical|remodeling|renovations?|exteriors?|interiors?|home|homes|improvements?|services?|solutions|group|enterprises?|pros?|landscaping|lawn|painting|concrete|windows?|doors?|siding|gutters?|pools?|llc)\b/g
-
-const words = (name: string | null | undefined) =>
-  (name ?? '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(LEGAL_WORDS, ' ')
-
-/** "A-Plus Fence & Construction, LLC" → "aplusfenceconstruction". */
-export function compactName(name: string | null | undefined): string {
-  return words(name).replace(/\s+/g, '')
-}
-
-/** The part of the name that isn't the trade: "A Plus Fence & Construction" → "aplus". */
-export function coreName(name: string | null | undefined): string {
-  return words(name).replace(TRADE_WORDS, ' ').replace(/\s+/g, '')
-}
 
 export const digits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 
@@ -107,9 +93,6 @@ export function identityOf(c: IdentitySource): Identity {
   return id
 }
 
-const SAME_NAME = 'same name, give or take spacing / LLC'
-const SIMILAR_NAME = 'similar name'
-
 /** Why two identities are the same business, strongest first. Empty when they aren't. */
 export function sameBusiness(a: Identity, b: Identity): string[] {
   const shared = (x: Set<string>, y: Set<string>) => [...x].some((v) => y.has(v))
@@ -138,9 +121,7 @@ export async function findClientForIntake(intake: IntakeIdentity): Promise<{ id:
   const mine = identityOf({ intakes: [intake] })
   const clients = await prisma.client.findMany({ select: IDENTITY_SELECT })
   const all = clients.map((c) => ({ c, why: sameBusiness(mine, identityOf(c)) })).filter((h) => h.why.length)
-  // A similar name alone ("Elite Roofing" / "Elite Solar") is only a hint for the
-  // duplicates list; it links a submission when something else matches too.
-  const hits = all.filter((h) => !(h.why.length === 1 && h.why[0] === SIMILAR_NAME))
+  const hits = all.filter((h) => mayLinkIntake(intake.businessName, h.c.name, h.why))
   if (!hits.length) return null
   // EIN or name beats a lone shared phone or email (a bookkeeper's email can cover two businesses).
   const strong = hits.filter((h) => h.why.includes('same EIN') || h.why.includes(SAME_NAME) || (h.why.includes(SIMILAR_NAME) && h.why.length > 1))
