@@ -38,6 +38,11 @@ export function workerMode(env: NodeJS.ProcessEnv = process.env): WorkerMode {
   return token(env.GHL_SUBACCOUNT_WORKER_MODE) === 'create' ? 'create' : 'dry_run'
 }
 
+/** Hold the queue. Create mode stays configured, but this process will not claim a job. */
+export function workerPaused(env: NodeJS.ProcessEnv = process.env): boolean {
+  return envOn(env.GHL_SUBACCOUNT_WORKER_PAUSED)
+}
+
 export function workerHeadless(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = token(env.GHL_SUBACCOUNT_WORKER_HEADLESS)
   if (!raw) return true

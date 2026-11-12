@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwr
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
-import { driveUntil, LIST_RENDER_WAIT_MS, bestSaveLabel, type BrowserAction, type DriveResult, type PageSnap } from './plan'
+import { driveUntil, LIST_RENDER_WAIT_MS, bestSaveLabel, snapshotIdFromUrl, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
 import { ADD_MANUALLY_ATTEMPTS, locateAddManually, locateSnapshotCard, redactCardHtml, runSearchAddManually } from './snapshot-card'
 
@@ -640,6 +640,7 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           return snap
         },
         perform: async (action) => {
+          const beforeSnapshot = action.type === 'add_manually' ? snapshotIdFromUrl(active.url()) : null
           const done = await performAction(
             active,
             action,
@@ -658,6 +659,24 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           if (done.note) await opts.onNote?.(done.note)
           else if (opts.mode !== 'create' && (action.type === 'fill' || action.type === 'pick') && action.key !== 'password') {
             await opts.onNote?.(`Set ${action.key} = ${action.value ?? ''}`)
+          }
+          if (action.type === 'add_manually') {
+            const afterSnapshot = snapshotIdFromUrl(active.url())
+            const before = beforeSnapshot || '(none)'
+            const after = afterSnapshot || '(none)'
+            await opts.onNote?.(
+              beforeSnapshot && beforeSnapshot !== afterSnapshot
+                ? `Add manually dropped the snapshot query. Before: ${before}. After: ${after}.`
+                : `Snapshot query before Add manually: ${before}. After: ${after}.`,
+            )
+          }
+          if (
+            opts.mode === 'create' &&
+            action.type === 'click' &&
+            action.words.some((word) => /add sub-?account|^save( changes)?$|^create$/i.test(word))
+          ) {
+            const snapshot = opts.fields.snapshotName || opts.fields.snapshotId
+            await opts.onNote?.(`Submitting "${action.words[0]}" with snapshot "${snapshot}".`)
           }
           if (opts.mode !== 'create') {
             const step =
@@ -700,6 +719,23 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
     }
     if (result.status === 'needs_human' || result.status === 'failed') {
       await shoot(`failure:${result.status}`)
+    }
+    if ((result.status === 'created' || result.status === 'already') && result.locationId && opts.mode === 'create') {
+      const url = `https://app.gohighlevel.com/v2/location/${result.locationId}/dashboard`
+      try {
+        await active.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+        await sleep(1500, opts.signal)
+        const seen = await snapshotPage(active, opts.labels)
+        const blob = `${seen.body || ''}\n${(seen.overlays || []).join('\n')}`
+        const importing = /import|loading snapshot|snapshot is being|installing snapshot/i.test(blob)
+        await opts.onNote?.(
+          `Opened the new location ${url}. ${importing ? 'The page mentions a snapshot import.' : 'The page did not mention a snapshot import.'} Text: ${blob.replace(/\s+/g, ' ').slice(0, 300)}`,
+        )
+        await shoot('location after create')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        await opts.onNote?.(`Could not open the new location to check the snapshot: ${message}`)
+      }
     }
     let storageState: string | null = null
     try {
