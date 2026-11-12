@@ -1238,3 +1238,67 @@ test('a text-looking country and time zone are still picked, and a missing first
   assert.match(result.detail, /country="United States" \(dropdown/)
   assert.match(result.detail, /first name is missing/)
 })
+
+test('Add Sub-Account counts as created from a toast or the exact list row', async () => {
+  assert.equal(plan.createSuccessCopy(snap({ body: 'sub-account has been created', buttons: ['Add Sub-Account'] })), true)
+  assert.equal(plan.createSuccessCopy(snap({ body: 'start creating sub-accounts', buttons: ['Add Sub-Account'] })), false)
+  const named = plan.listedSubAccount(
+    snap({ links: [{ text: 'Test: TEST Dry Run LLC', href: 'https://app.gohighlevel.com/v2/location/AbCdEfGhIj12/dashboard' }] }),
+    'Test: TEST Dry Run LLC',
+  )
+  assert.equal(named.locationId, 'AbCdEfGhIj12')
+
+  const form = snap({
+    url: 'https://app.gohighlevel.com/accounts/search?snapshot=PsOYVeuIfXR7soMIiMcI',
+    buttons: ['Add Sub-Account'],
+    fields: [{ key: 'name', tag: 'input', type: 'text', value: 'Brett: Wilson Construction', text: 'business name' }],
+  })
+  const toast = snap({
+    ...form,
+    overlays: ['Sub-account has been created'],
+    body: 'sub-account has been created',
+  })
+  let clicked = false
+  const toasted = await driveUntil(
+    {
+      snapshot: async () => (clicked ? toast : form),
+      perform: async (action) => {
+        if (action.type === 'click') clicked = true
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    {
+      ...input('create'),
+      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+    },
+    { maxSteps: 12 },
+  )
+  assert.equal(toasted.status, 'created')
+  assert.match(toasted.detail, /confirmed/)
+
+  let listed = false
+  const list = snap({
+    url: 'https://app.gohighlevel.com/sub-accounts',
+    buttons: ['Create Sub-Account'],
+    links: [{ text: 'Brett: Wilson Construction', href: 'https://app.gohighlevel.com/v2/location/NewLoc123456/dashboard' }],
+  })
+  const found = await driveUntil(
+    {
+      snapshot: async () => (listed ? list : form),
+      perform: async (action) => {
+        if (action.type === 'goto') listed = true
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    {
+      ...input('create'),
+      fields: { ...input('create').fields, name: 'Brett: Wilson Construction', firstName: 'Brett', snapshotName: 'Master Template' },
+    },
+    { maxSteps: 16 },
+  )
+  assert.equal(found.status, 'created')
+  assert.equal(found.locationId, 'NewLoc123456')
+  assert.match(found.detail, /sub-account list/)
+})

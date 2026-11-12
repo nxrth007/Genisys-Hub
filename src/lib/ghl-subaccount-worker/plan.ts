@@ -145,6 +145,8 @@ export type RunState = {
   submitted: boolean
   urlBeforeSubmit: string
   postSubmitWaits: number
+  /** After Add Sub-Account, opened the list once to look for the new row. */
+  confirmListed: boolean
   stalls: number
 }
 
@@ -183,6 +185,7 @@ export function initialRunState(): RunState {
     submitted: false,
     urlBeforeSubmit: '',
     postSubmitWaits: 0,
+    confirmListed: false,
     stalls: 0,
   }
 }
@@ -524,6 +527,22 @@ function missingNote(state: RunState): string {
   return state.missing.length ? `Not on the form: ${state.missing.join(', ')}.` : ''
 }
 
+/** Toast, banner, or button copy GHL shows after Add Sub-Account. The button label itself is not this. */
+export function createSuccessCopy(snap: PageSnap): boolean {
+  const blob = [snap.body || '', ...(snap.overlays || []), ...snap.buttons, ...snap.texts].join('\n')
+  return /sub-?accounts? (has been |was )?(created|added|saved)|accounts? (has been |was )?(created|added)|locations? (has been |was )?(created|added)|successfully (created|added|saved)|(created|added|saved) successfully/.test(blob)
+}
+
+/** Exact sub-account name already visible as a list row or link. */
+export function listedSubAccount(snap: PageSnap, name: string): { locationId: string | null } | null {
+  const want = norm(name)
+  if (!want) return null
+  const link = snap.links.find((item) => norm(item.text) === want)
+  if (link) return { locationId: locationIdFromUrl(link.href) }
+  if ([...snap.buttons, ...snap.texts].some((item) => norm(item) === want)) return { locationId: null }
+  return null
+}
+
 function done(state: RunState, result: DriveResult): { kind: 'done'; result: DriveResult; state: RunState } {
   return { kind: 'done', result, state }
 }
@@ -548,25 +567,38 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     if (s.submitted) {
       const id = locationIdFromUrl(snap.url)
       if (id && snap.url !== s.urlBeforeSubmit) {
-        return done(s, { status: 'created', locationId: id, detail: missingNote(s), uncertain: false })
+        return done(s, { status: 'created', locationId: id, detail: missingNote(s) || `GHL opened the new sub-account (${id}).`, uncertain: false })
       }
-      if (/sub-account created|successfully created|account created|location created/.test(snap.body)) {
-        return done(s, { status: 'created', locationId: id, detail: missingNote(s) || 'GHL said it was created.', uncertain: !id })
+      if (createSuccessCopy(snap)) {
+        return done(s, {
+          status: 'created',
+          locationId: id,
+        detail: `GHL confirmed "${input.fields.name}" was created. ${missingNote(s)}`.trim(),
+          uncertain: !id,
+        })
       }
-      if (!onForm(snap) && !isLogin(snap) && !isOtp(snap) && s.postSubmitWaits >= 2) {
+      const listed = listedSubAccount(snap, input.fields.name)
+      if (listed) {
+        return done(s, {
+          status: 'created',
+          locationId: listed.locationId,
+          detail: `Found "${input.fields.name}" in the sub-account list after Add Sub-Account.`,
+          uncertain: !listed.locationId,
+        })
+      }
+      if (!s.confirmListed && (s.postSubmitWaits >= 2 || !onForm(snap))) {
+        return act(beginStep({ ...s, confirmListed: true }, 'open the sub-account list to confirm'), {
+          type: 'goto',
+          url: input.listUrl,
+          settle: true,
+        })
+      }
+      if ((!onForm(snap) && s.confirmListed && s.postSubmitWaits >= 2) || s.postSubmitWaits >= POST_SUBMIT_WAITS) {
         return done(s, {
           status: 'needs_human',
           locationId: id,
           uncertain: true,
-          detail: `Clicked Create and the form closed, but no sub-account id was on the page. Check GHL for "${input.fields.name}" before resuming — a retry links that name instead of creating another. ${missingNote(s)}`.trim(),
-        })
-      }
-      if (s.postSubmitWaits >= POST_SUBMIT_WAITS) {
-        return done(s, {
-          status: 'needs_human',
-          locationId: null,
-          uncertain: true,
-          detail: `Clicked Create but GHL stayed on the form. It may still have been created — check GHL for "${input.fields.name}" before resuming. ${missingNote(s)}`.trim(),
+          detail: `Clicked Add Sub-Account for "${input.fields.name}" but the page did not show a new location or the exact name in the list. ${onForm(snap) ? 'The details form was still open.' : 'The form had closed.'} ${missingNote(s)}`.trim(),
         })
       }
       return act({ ...s, postSubmitWaits: s.postSubmitWaits + 1, stalls: s.stalls }, { type: 'pause' })

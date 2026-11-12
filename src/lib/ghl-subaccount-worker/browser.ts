@@ -659,6 +659,14 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           else if (opts.mode !== 'create' && (action.type === 'fill' || action.type === 'pick') && action.key !== 'password') {
             await opts.onNote?.(`Set ${action.key} = ${action.value ?? ''}`)
           }
+          if (
+            opts.mode === 'create' &&
+            action.type === 'click' &&
+            action.words.some((word) => /add sub-?account|^save( changes)?$|^create$/i.test(word))
+          ) {
+            const snapshot = opts.fields.snapshotName || opts.fields.snapshotId
+            await opts.onNote?.(`Submitting "${action.words[0]}" with snapshot "${snapshot}".`)
+          }
           if (opts.mode !== 'create') {
             const step =
               action.type === 'click'

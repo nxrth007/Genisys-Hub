@@ -638,6 +638,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   const board = hubLink(`/clients/${job.clientId}/ghl`)
 
   const failHuman = async (detail: string): Promise<string> => {
+    await appendLog(id, lease, detail).catch(() => {})
     await saveJob(id, lease, { status: 'needs_human', leaseUntil: null, detail, lastError: detail, finishedAt: new Date() })
     await markClient(job.clientId, 'failed', detail)
     await hubAlert(`:warning: *GHL sub-account needs a person* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
@@ -774,7 +775,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       }
     }
 
-    if (result.status === 'created' || result.status === 'already') {
+    if ((result.status === 'created' || result.status === 'already') && result.locationId) {
       const linked = await linkGhlSubAccount(job.clientId, {
         locationId: result.locationId,
         actor: ACTOR,
@@ -802,6 +803,40 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     }
 
     if (result.status === 'needs_human' || result.uncertain) {
+      if (result.uncertain) {
+        await appendLog(id, lease, `Add Sub-Account did not confirm on the page. Searching the agency list for "${fields.name}".`).catch(() => {})
+        let found: { id: string; name: string } | null = null
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            found = await findExistingByName(fields.name)
+          } catch (err) {
+            await appendLog(id, lease, `Couldn't list sub-accounts after Add Sub-Account (${describe(err)}).`).catch(() => {})
+            break
+          }
+          if (found) break
+          await new Promise((resolve) => setTimeout(resolve, 4000))
+        }
+        if (found) {
+          const linked = await linkGhlSubAccount(job.clientId, {
+            locationId: found.id,
+            actor: ACTOR,
+            note: `Browser worker created sub-account ${found.id}; the page did not show a location id, so it was linked from the agency list`,
+          })
+          if (!linked.ok) return failHuman(`${result.detail || 'GHL may have created it.'} The Hub couldn't link "${found.name}": ${linked.reason}`)
+          const detail = `Created "${found.name}" with snapshot "${ready.snapshotName}". The page did not show a location id; it was found on the agency list and linked.`
+          await appendLog(id, lease, detail).catch(() => {})
+          await saveJob(id, lease, {
+            status: 'succeeded',
+            leaseUntil: null,
+            locationId: linked.locationId,
+            detail,
+            lastError: null,
+            finishedAt: new Date(),
+          })
+          return 'succeeded'
+        }
+        return failHuman(`${result.detail || 'GHL needs a person before this can continue.'} Searched the agency list for "${fields.name}" and it was not there.`)
+      }
       return failHuman(result.detail || 'GHL needs a person before this can continue.')
     }
 
