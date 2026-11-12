@@ -29,6 +29,7 @@ export const DEFAULT_GHL_LABELS: GhlLabels = {
   subAccountsNav: ['Sub-Accounts', 'Sub Accounts'],
   createButton: ['+ Create Sub-Account', 'Create Sub-Account'],
   addBusiness: ['Add a new business', 'Add new business', 'New business'],
+  addManually: ['Add manually'],
   signIn: ['Sign in', 'Sign In', 'Log in', 'Login'],
   verify: ['Verify', 'Continue', 'Confirm', 'Submit', 'Confirm Code', 'Verify Code', 'Login', 'Sign in', 'Sign In', 'Log in', 'Done', 'Next'],
   submit: ['Create', 'Save', 'Add'],

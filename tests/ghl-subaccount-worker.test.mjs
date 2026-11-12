@@ -64,7 +64,7 @@ const { browserFieldsFromLocation, readBrowserFields } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
-const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard, isCreateSubAccountButton, isSubAccountListReady } = plan
+const { nextGhlAction, driveUntil, initialRunState, locationIdFromUrl, pageDiagnostics, isAgencyHome, listCandidates, snapshotTabPlan, exactSnapshotCard, isCreateSubAccountButton, isSubAccountListReady, snapshotIdFromUrl } = plan
 
 function env(overrides) {
   return overrides
@@ -788,6 +788,53 @@ test('the snapshot card is the ancestor of the exact title, not the MT avatar', 
   assert.equal(locateSnapshotCard('Master Template', plain), plainCard)
   assert.equal(redactCardHtml('<div>code 654321</div>' + 'x'.repeat(1600)).length, 1500)
   assert.equal(redactCardHtml('<div>code 654321</div>').includes('654321'), false)
+})
+
+test('the business search step opens Add manually and a dry run records the form', async () => {
+  const search = snap({
+    url: 'https://app.gohighlevel.com/accounts/search?snapshot=PsOYVeuIfXR7soMIiMcI&s_type=imported',
+    fields: [{ key: 'search', tag: 'input', type: 'text', value: '', text: 'search', placeholder: 'search' }],
+    buttons: ['back to sub-accounts'],
+    body: 'add manually google maps',
+  })
+  assert.equal(snapshotIdFromUrl(search.url), 'PsOYVeuIfXR7soMIiMcI')
+  const opened = { ...initialRunState(), openedCreate: true, snapshotChosen: true }
+  const step = nextGhlAction(search, input('dry_run'), opened)
+  assert.equal(step.action.type, 'click')
+  assert.deepEqual(step.action.words, ['Add manually'])
+  assert.equal(step.action.settle, 'form')
+  const form = snap({
+    url: 'https://app.gohighlevel.com/accounts/create',
+    buttons: ['Save', 'create new'],
+    fields: [
+      { key: 'name', tag: 'input', type: 'text', value: '', text: 'business name', placeholder: 'acme painting' },
+      { key: 'email', tag: 'input', type: 'email', value: '', text: 'email', placeholder: '' },
+      { key: 'phone', tag: 'input', type: 'tel', value: '', text: 'phone', placeholder: '' },
+    ],
+  })
+  let manual = false
+  const actions = []
+  const result = await driveUntil(
+    {
+      snapshot: async () => (manual ? form : search),
+      perform: async (action) => {
+        actions.push(action)
+        if (action.type === 'click' && action.words && action.words.includes('Add manually')) manual = true
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    input('dry_run'),
+    { maxSteps: 20 },
+  )
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'search'), false)
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'name'), true)
+  assert.equal(actions.some((action) => action.type === 'click' && action.exact), false)
+  assert.equal(result.status, 'dry_run')
+  assert.match(result.detail, /business name/)
+  assert.match(result.detail, /acme painting/)
+  assert.match(result.detail, /Save/)
+  assert.equal(result.observedSnapshotId, 'PsOYVeuIfXR7soMIiMcI')
 })
 
 test('the create button tolerates a leading plus, then the snapshot choice is taken', () => {

@@ -381,6 +381,8 @@ async function performAction(
               }
               await waitForSnapshotModal(page, signal)
             }
+          } else if (action.type === 'click' && action.settle === 'form') {
+            await waitForDetailsForm(page, signal)
           } else if (action.type === 'click' && action.settle) {
             await waitForListRender(page, signal)
           } else {

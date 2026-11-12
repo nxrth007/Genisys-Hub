@@ -669,6 +669,17 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         await hubAlert(`:key: *GHL wants a verification code* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
       },
     })
+    if (result.observedSnapshotId) {
+      const queued = fields.snapshotId
+      const same = result.observedSnapshotId === queued
+      await appendLog(
+        id,
+        lease,
+        same
+          ? `GHL snapshot id from the page URL: ${result.observedSnapshotId}.`
+          : `GHL snapshot id from the page URL: ${result.observedSnapshotId}. The queued payload still has snapshotId ${queued}.`,
+      ).catch(() => {})
+    }
     if (result.storageState) {
       await saveSession(result.storageState).catch((err) => console.warn('[ghl-subaccount-worker] session save:', err))
       if (result.reachedAgency) {

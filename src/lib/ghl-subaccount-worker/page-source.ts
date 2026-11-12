@@ -169,7 +169,8 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
         tag: el.tagName.toLowerCase(),
         type: type || (el.tagName === 'SELECT' ? 'select' : 'text'),
         value: el.value || '',
-        text: norm(labelFor(el) || el.getAttribute('aria-label') || el.placeholder || el.name || '')
+        text: norm(labelFor(el) || el.getAttribute('aria-label') || ''),
+        placeholder: norm(el.placeholder || '')
       })
     }
     var buttons = []
