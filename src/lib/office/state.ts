@@ -3,7 +3,7 @@
  * the pure mapping in ./mapping.ts. Read-only; no new tables.
  */
 import { prisma } from '@/lib/prisma'
-import { deriveOffice, emptyInput, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
+import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
 const DAY = 24 * 60 * 60_000
 const FEED_WINDOW = 3 * DAY
@@ -22,7 +22,8 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
     }
   }
 
-  const [events, stages, intakes, claims, matches, runs, a2p, render] = await Promise.all([
+  const openSince = new Date(now.getTime() - SUBACCOUNT_OPEN_MS)
+  const [events, stages, intakes, claims, matches, runs, a2p, render, subaccountJobs] = await Promise.all([
     safe('journey events', () =>
       prisma.clientJourneyEvent.findMany({
         where: { createdAt: { gte: since } },
@@ -67,6 +68,20 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         select: { id: true, stage: true, note: true, updatedAt: true, account: { select: { name: true } } },
       }), []),
     safe('render monitor', () => prisma.appSetting.findUnique({ where: { key: 'render.monitor' } }), null),
+    safe('sub-account jobs', () =>
+      prisma.ghlSubaccountJob.findMany({
+        where: {
+          client: { is: { archivedAt: null } },
+          OR: [
+            { status: { in: ['queued', 'running'] } },
+            { status: { in: ['needs_human', 'failed'] }, updatedAt: { gte: openSince } },
+            { updatedAt: { gte: since } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 40,
+        select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+      }), []),
   ])
 
   input.journeyEvents = events.map((e) => ({ ...e, clientName: e.client?.name ?? 'a client' }))
@@ -77,6 +92,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   input.seoRuns = runs.map((r) => ({ ...r, siteName: r.site?.name ?? 'a site' }))
   input.a2p = a2p.map((a) => ({ id: a.id, stage: a.stage, note: a.note, updatedAt: a.updatedAt, accountName: a.account?.name ?? 'a sub-account' }))
   input.render = parseRenderState(render?.value ?? null, now)
+  input.subaccountJobs = subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' }))
 
   return deriveOffice(input, now)
 }

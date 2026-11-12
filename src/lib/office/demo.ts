@@ -35,6 +35,10 @@ export function demoInput(now: Date): OfficeInput {
     ],
     a2p: [{ id: 'a1', accountName: 'Example Pools', stage: 'brand_pending', note: null, updatedAt: m(14) }],
     render: { enabled: true, heartbeatFailures: 0, openProblems: 0, lastDigestAt: m(30) },
+    subaccountJobs: [
+      { id: 'j1', clientName: c, status: 'running', detail: null, updatedAt: m(1), heartbeatAt: m(0.3), nextAttemptAt: m(2), finishedAt: null },
+      { id: 'j2', clientName: 'Sample Plumbing', status: 'succeeded', detail: 'Created "Sam: Sample Plumbing" (sample)', updatedAt: m(25), heartbeatAt: m(25), nextAttemptAt: m(30), finishedAt: m(25) },
+    ],
   }
 }
 

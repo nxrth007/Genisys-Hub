@@ -190,3 +190,37 @@ test('botDepth helper: plain depth away from desks, lifted just past a desk behi
   assert.equal(botDepth({ x: 2.5, y: 2.5 }), itemDepth(cos.item) + 0.01)
   assert.equal(botDepth({ x: 2.5, y: 2.5 }, []), 2.5 + 2.5 - 1 + 0.1)
 })
+
+test('Atlas shows the sub-account worker: creating, queued, needs you, failed, stalled', () => {
+  const job = (id, status, extra = {}) => ({ id, clientName: `Client ${id}`, status, detail: null, updatedAt: ago(1), heartbeatAt: ago(0.2), nextAttemptAt: ago(2), finishedAt: null, ...extra })
+  const run = (jobs) => bot(deriveOffice({ ...emptyInput(), subaccountJobs: jobs }, NOW), 'atlas')
+
+  assert.equal(run([]).status, 'idle')
+  assert.equal(run([]).task, 'No sub-accounts to create or link')
+  assert.equal(run([job('a', 'running')]).status, 'browsing')
+  assert.match(run([job('a', 'running')]).task, /Creating GHL sub-account for Client a/)
+  assert.equal(run([job('a', 'queued')]).status, 'thinking')
+
+  const waiting = run([job('a', 'queued', { nextAttemptAt: ago(50) })])
+  assert.equal(waiting.status, 'needs_you')
+  assert.match(waiting.task, /waiting 50 min for the worker/)
+
+  const stalled = run([job('a', 'running', { heartbeatAt: ago(5) })])
+  assert.equal(stalled.status, 'error')
+  assert.match(stalled.task, /stalled/)
+
+  const person = run([job('a', 'needs_human', { detail: 'missing: zip code', finishedAt: ago(3) })])
+  assert.equal(person.status, 'needs_you')
+  assert.match(person.task, /needs you: missing: zip code/)
+  assert.equal(run([job('a', 'needs_human', { finishedAt: ago(20 * 24 * 60) })]).status, 'idle', 'old problems age out')
+
+  const two = run([job('a', 'needs_human', { finishedAt: ago(3) }), job('b', 'queued', { nextAttemptAt: ago(60) })])
+  assert.equal(two.task, '2 sub-accounts need you')
+
+  // A failure outranks a person-needed item and work in progress.
+  assert.equal(run([job('a', 'failed', { finishedAt: ago(2) }), job('b', 'running'), job('c', 'needs_human', { finishedAt: ago(1) })]).status, 'error')
+
+  const done = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'succeeded', { detail: 'Created "Sam: A"', finishedAt: ago(2) })] }, NOW)
+  assert.equal(bot(done, 'atlas').icon, 'check')
+  assert.ok(done.activity.some((a) => a.botId === 'atlas' && /Created the GHL sub-account for Client a/.test(a.text) && a.tone === 'done'))
+})

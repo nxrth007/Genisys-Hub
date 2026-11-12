@@ -40,7 +40,9 @@ import {
   backfillIntakeIds,
   workerRunsBrowser,
 } from './config'
-import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
+import { autoEnqueueAllowed, intakeTimeKnown, looksLikeNonAnswer, NON_ANSWER_REASON } from './eligibility'
+import { STUCK_AFTER_MS, WAITING_AFTER_MS } from './alert-text'
+import { textWorkerProblem } from './alerts'
 import {
   addressGapQuery,
   browserFieldsFromLocation,
@@ -296,8 +298,15 @@ export async function enqueueClient(
       createdNewClient: facts.createdNewClient,
       hasLocation: false,
       phoneNamed: looksLikePhoneNumber(client.name.trim()),
+      nonAnswerNamed: looksLikeNonAnswer(client.name),
     })
-    if (!allowed.ok) return { ok: false, status: 'skipped', reason: allowed.reason }
+    if (!allowed.ok) {
+      // Texted when the form arrives, not on every sweep that skips the client again.
+      if (allowed.reason === NON_ANSWER_REASON && opts.trigger === 'intake') {
+        await textWorkerProblem({ key: clientId, kind: 'name', client: client.name, link: hubLink(`/clients?focus=${clientId}`) })
+      }
+      return { ok: false, status: 'skipped', reason: allowed.reason }
+    }
   }
 
   const settings = await getGhlSubaccountSettings()
@@ -722,9 +731,14 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     include: { client: { select: { id: true, name: true, ghlLocationId: true } } },
   })
   if (!job) return 'lost'
+  // Registered at once, so a shutdown at any point hands the job straight back to the queue.
+  const ac = new AbortController()
+  liveJob = { id, getLease: () => lease, abort: () => ac.abort(), released: false }
   const fields = readBrowserFields(job.payload)
   const name = fields?.name || job.client.name
   const board = hubLink(`/clients/${job.clientId}/ghl`)
+  const textTeamAbout = (kind: 'needs_human' | 'failed' | 'code', reason: string, link = board) =>
+    textWorkerProblem({ key: id, kind, client: job.client.name, subAccountName: name, reason, link })
 
   const failHuman = async (detail: string, locationId?: string | null): Promise<string> => {
     await appendLog(id, lease, detail).catch(() => {})
@@ -738,6 +752,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     })
     await markClient(job.clientId, 'failed', detail)
     await hubAlert(`:warning: *GHL sub-account needs a person* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
+    await textTeamAbout('needs_human', detail)
     return 'needs_human'
   }
 
@@ -875,13 +890,11 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
 
   const login = await loadLogin()
   const mode = workerMode()
-  const ac = new AbortController()
   let timer = setTimeout(() => ac.abort(), JOB_TIMEOUT_MS)
   extendWall = (ms: number) => {
     clearTimeout(timer)
     timer = setTimeout(() => ac.abort(), ms)
   }
-  liveJob = { id, getLease: () => lease, abort: () => ac.abort(), released: false }
   await touchHeartbeat(id, lease).catch(() => {})
   const heartbeat = setInterval(() => {
     void touchHeartbeat(id, lease).catch(() => {})
@@ -939,6 +952,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
         })
         await markClient(job.clientId, 'creating', detail)
         await hubAlert(`:key: *GHL wants a verification code* — *${name}* — ${detail} <${board}|Open the sub-account board>`)
+        await textTeamAbout('code', '', hubLink('/settings#ghl-subaccounts'))
       },
     })
     if (result.observedSnapshotId) {
@@ -1018,6 +1032,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       await saveJob(id, lease, { status: 'failed', leaseUntil: null, heartbeatAt: null, lastError: detail, detail, finishedAt: new Date() }).catch(() => {})
       await markClient(job.clientId, 'failed', detail)
       await hubAlert(`:warning: *GHL sub-account worker timed out* — *${name}* — ${detail} <${board}|Create it by hand>`)
+      await textTeamAbout('failed', detail)
       return 'failed'
     }
     const attempts = job.attempts
@@ -1029,6 +1044,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       await saveJob(id, lease, { status: 'failed', leaseUntil: null, lastError: detail, detail, finishedAt: new Date() }).catch(() => {})
       await markClient(job.clientId, 'failed', detail)
       await hubAlert(`:warning: *GHL sub-account worker failed* — *${name}* — ${detail} <${board}|Create it by hand>`)
+      await textTeamAbout('failed', detail)
       return 'failed'
     }
     const wait = retryDelayMs(attempts)
@@ -1090,13 +1106,13 @@ async function claimOne(): Promise<{ id: string; lease: Date } | null> {
     where: due,
     orderBy: { nextAttemptAt: 'asc' },
     take: 5,
-    select: { id: true, payload: true },
+    select: { id: true, payload: true, nextAttemptAt: true },
   })
   const mine = runningCommit()
   for (const c of candidates) {
     if (shuttingDown) return null
     const required = requeueCommitOf(c.payload)
-    if (!mayClaimRequeuedJob(required, mine)) {
+    if (!mayClaimRequeuedJob(required, mine, now.getTime() - c.nextAttemptAt.getTime())) {
       await noteSkippedNewerBuild(c.id, required || mine)
       continue
     }
@@ -1119,7 +1135,50 @@ async function claimOne(): Promise<{ id: string; lease: Date } | null> {
 }
 
 let inFlight = false
+let inFlightSince = 0
 let pauseLogged = false
+
+/**
+ * Text the team when the queue stops moving: the job in hand has run far
+ * longer than any real create, or queued jobs have waited too long for a
+ * worker. Runs on every tick, even while a job is in flight. Each job is
+ * texted once (alerts.ts).
+ */
+async function watchForStalls(now = Date.now()): Promise<void> {
+  const live = liveJob
+  if (live && inFlightSince && now - inFlightSince > STUCK_AFTER_MS) {
+    const row = await prisma.ghlSubaccountJob.findUnique({
+      where: { id: live.id },
+      select: { clientId: true, payload: true, client: { select: { name: true } } },
+    })
+    if (row) {
+      await textWorkerProblem({
+        key: live.id,
+        kind: 'stuck',
+        client: row.client.name,
+        subAccountName: readBrowserFields(row.payload)?.name,
+        reason: `It started ${Math.round((now - inFlightSince) / 60_000)} minutes ago.`,
+        link: hubLink(`/clients/${row.clientId}/ghl`),
+      })
+    }
+  }
+  const overdue = await prisma.ghlSubaccountJob.findMany({
+    where: { status: 'queued', nextAttemptAt: { lt: new Date(now - WAITING_AFTER_MS) } },
+    orderBy: { nextAttemptAt: 'asc' },
+    take: 5,
+    select: { id: true, nextAttemptAt: true, payload: true, client: { select: { name: true } } },
+  })
+  for (const job of overdue) {
+    await textWorkerProblem({
+      key: job.id,
+      kind: 'waiting',
+      client: job.client.name,
+      subAccountName: readBrowserFields(job.payload)?.name,
+      reason: `${Math.round((now - job.nextAttemptAt.getTime()) / 60_000)} minutes`,
+      link: hubLink('/settings#ghl-subaccounts'),
+    })
+  }
+}
 
 export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
   if (!workerEnabled()) return { enabled: false, ran: false, enqueued: 0, claimed: false }
@@ -1139,6 +1198,7 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
     console.warn('[ghl-subaccount-worker] auto-retest:', err)
     return 0
   })
+  await watchForStalls().catch((err) => console.warn('[ghl-subaccount-worker] stall check:', err))
   if (shuttingDown) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   if (inFlight) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   inFlight = true
@@ -1155,8 +1215,18 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
     if (!workerRunsBrowser()) return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
     const claimed = await claimOne()
     if (!claimed) return { enabled: true, ran: true, enqueued, claimed: false, promoted, recovered }
-    const outcome = await executeClaimed(claimed.id, claimed.lease)
-    return { enabled: true, ran: true, enqueued, claimed: true, outcome, promoted, recovered }
+    inFlightSince = Date.now()
+    try {
+      // A job handed back at shutdown loses its lease mid-step; that is expected, not an error.
+      const outcome = await executeClaimed(claimed.id, claimed.lease).catch((err) => {
+        if (err instanceof LeaseLost) return 'lost'
+        throw err
+      })
+      return { enabled: true, ran: true, enqueued, claimed: true, outcome, promoted, recovered }
+    } finally {
+      inFlightSince = 0
+      if (liveJob?.id === claimed.id) liveJob = null
+    }
   } finally {
     inFlight = false
   }

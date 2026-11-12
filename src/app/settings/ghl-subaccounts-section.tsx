@@ -204,7 +204,7 @@ export function GhlSubaccountsSection() {
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card p-6">
+    <section id="ghl-subaccounts" className="scroll-mt-20 rounded-xl border border-border bg-card p-6">
       <div className="flex items-start gap-3">
         <div className="rounded-lg bg-muted p-2">
           <Building2 className="h-5 w-5 text-foreground/80" />

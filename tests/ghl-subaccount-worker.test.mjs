@@ -1545,3 +1545,37 @@ test('a missing zip is looked up only when the address names its city or state',
   assert.equal(noState.fields.city, 'Farmington')
   assert.equal(fillAddressGaps(dl, null).filled.length, 0)
 })
+
+test('worker problems text the team in plain words, once per job, never for test runs', () => {
+  const alerts = loadTs(join(dir, 'alert-text.ts'))
+  const link = 'https://genisys-hub.onrender.com/clients/c1/ghl'
+  const needs = alerts.workerAlertText('needs_human', 'D & L Property Services LLC', "GHL needs a street address, city, zip code and time zone to create a sub-account. This client's onboarding answers are missing: zip code. Nothing was submitted to GHL.", link)
+  assert.match(needs, /^Genisys Hub: the GHL sub-account for D & L Property Services LLC needs a person\./)
+  assert.match(needs, /Open: https:\/\/genisys-hub\.onrender\.com\/clients\/c1\/ghl$/)
+  assert.ok(needs.length <= 320, needs.length)
+  assert.match(alerts.workerAlertText('code', 'Acme', '', link), /sign-in code/)
+  assert.match(alerts.workerAlertText('waiting', 'Acme', '52 minutes', link), /Acme has waited 52 minutes for its GHL sub-account/)
+  assert.match(alerts.workerAlertText('stuck', 'Acme', 'It started 74 minutes ago.', link), /looks stuck\. It started 74 minutes ago\./)
+  assert.match(alerts.workerAlertText('name', 'No', '', link), /"No" gave a business name that looks like a non-answer/)
+  assert.equal(alerts.textsTeamFor('Test: Snapshot Check 2 LLC'), false)
+  assert.equal(alerts.textsTeamFor('LeRoy: D & L Property Services LLC'), true)
+  assert.equal(alerts.shortReason('short'), 'short')
+  const long = 'First sentence is here and it says what went wrong in some detail. ' + 'x'.repeat(300)
+  assert.equal(alerts.shortReason(long), 'First sentence is here and it says what went wrong in some detail.')
+  assert.ok(alerts.STUCK_AFTER_MS > 40 * 60_000, 'longer than a real job: 20 min browser + 20 min snapshot wait')
+})
+
+test('a business name that is a non-answer does not get a sub-account by itself', () => {
+  const { looksLikeNonAnswer, NON_ANSWER_REASON } = eligibility
+  for (const name of ['No', 'no.', ' N/A ', 'none', 'Yes', '-', '', '???']) assert.equal(looksLikeNonAnswer(name), true, name)
+  for (const name of ['D & L Property Services LLC', 'No Limits Roofing', 'BNB Contractors', 'K&P Remodeling LLC']) assert.equal(looksLikeNonAnswer(name), false, name)
+  const base = { receivedAt: new Date('2026-11-12T20:00:00Z'), since: new Date('2026-11-11T21:02:00Z'), timeKnown: true, createdNewClient: true, hasLocation: false, phoneNamed: false }
+  assert.deepEqual(autoEnqueueAllowed({ ...base, nonAnswerNamed: true }), { ok: false, reason: NON_ANSWER_REASON })
+  assert.equal(autoEnqueueAllowed({ ...base, nonAnswerNamed: false }).ok, true)
+})
+
+test('a job held for a build that is gone can be claimed after ten minutes', () => {
+  assert.equal(heartbeat.mayClaimRequeuedJob('0dc1e5b', '751cb91', 9 * 60_000), false)
+  assert.equal(heartbeat.mayClaimRequeuedJob('0dc1e5b', '751cb91', 11 * 60_000), true)
+  assert.equal(heartbeat.mayClaimRequeuedJob(null, '751cb91', 0), true)
+})

@@ -24,7 +24,7 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'alfred', name: 'Alfred', role: 'Chief of Staff', color: '#f5c542', source: 'All journey events + every other bot' },
   { id: 'wren', name: 'Wren', role: 'Whop signup intake', color: '#38bdf8', source: 'Journey stage "signup", WhopSignupClaim' },
   { id: 'ivy', name: 'Ivy', role: 'Onboarding form', color: '#a78bfa', source: 'ClientIntake, journey stage "intake"' },
-  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion' },
+  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob' },
   { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website"' },
   { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
@@ -70,6 +70,12 @@ export const STALE_MS = 24 * 60 * 60_000
 export const ERROR_MS = 24 * 60 * 60_000
 /** Handoffs this recent are animated. */
 export const HANDOFF_MS = 30 * 60_000
+/** A running sub-account job beats every 20 seconds; this much silence means it stalled. */
+export const SUBACCOUNT_STALL_MS = 3 * 60_000
+/** A queued sub-account job nobody has picked up for this long means the worker isn't taking jobs. */
+export const SUBACCOUNT_WAIT_MS = 45 * 60_000
+/** A sub-account job that needs a person, or failed, stays open this long. */
+export const SUBACCOUNT_OPEN_MS = 14 * 24 * 60 * 60_000
 
 // ---------- input (plain rows from state.ts) ----------
 
@@ -101,6 +107,17 @@ export type SeoRunIn = {
 }
 export type A2pIn = { id: string; accountName: string; stage: string; note: string | null; updatedAt: Date }
 export type RenderMonitorIn = { enabled: boolean; heartbeatFailures: number; openProblems: number; lastDigestAt: Date | null } | null
+/** One GhlSubaccountJob: the browser worker that creates a client's GHL sub-account. */
+export type SubaccountJobIn = {
+  id: string
+  clientName: string
+  status: string
+  detail: string | null
+  updatedAt: Date
+  heartbeatAt: Date | null
+  nextAttemptAt: Date
+  finishedAt: Date | null
+}
 
 export type OfficeInput = {
   journeyEvents: JourneyEventIn[]
@@ -111,6 +128,7 @@ export type OfficeInput = {
   seoRuns: SeoRunIn[]
   a2p: A2pIn[]
   render: RenderMonitorIn
+  subaccountJobs: SubaccountJobIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -122,6 +140,7 @@ export const emptyInput = (): OfficeInput => ({
   seoRuns: [],
   a2p: [],
   render: null,
+  subaccountJobs: [],
 })
 
 // ---------- output ----------
@@ -290,6 +309,55 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     })
   }
 
+  // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.
+  const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000))
+  const needsPerson: { name: string; at: Date; why: string }[] = []
+  const broken: { text: string; at: Date }[] = []
+  for (const j of input.subaccountJobs) {
+    const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
+    const ended = j.finishedAt ?? j.updatedAt
+    if (j.status === 'running') {
+      const beat = j.heartbeatAt ?? j.updatedAt
+      if (age(beat) > SUBACCOUNT_STALL_MS) {
+        broken.push({ text: `Sub-account job for ${j.clientName} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat })
+      } else {
+        add('atlas', { status: 'browsing', task: `Creating GHL sub-account for ${j.clientName}`, icon: 'globe', at: j.updatedAt })
+      }
+    } else if (j.status === 'queued') {
+      const waited = t - j.nextAttemptAt.getTime()
+      if (waited > SUBACCOUNT_WAIT_MS) {
+        needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker` })
+      } else {
+        add('atlas', { status: 'thinking', task: `Sub-account queued for ${j.clientName}`, icon: 'dots', at: j.updatedAt })
+      }
+    } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+      needsPerson.push({ name: j.clientName, at: ended, why })
+      feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Sub-account for ${j.clientName} needs a person${why}`, 'needs_you')
+    } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+      broken.push({ text: clip(`Sub-account for ${j.clientName} failed${why}`), at: ended })
+      feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Sub-account for ${j.clientName} failed${why}`, 'error')
+    } else if (j.status === 'succeeded') {
+      const verb = /^created\b/i.test(j.detail ?? '') ? 'Created' : 'Linked'
+      feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `${verb} the GHL sub-account for ${j.clientName}`, 'done')
+      if (age(ended) <= DONE_MS) add('atlas', { status: 'browsing', task: `${verb} the GHL sub-account for ${j.clientName}`, icon: 'check', at: ended })
+    } else if (j.status === 'dry_run') {
+      feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Rehearsed the sub-account for ${j.clientName} (dry run)`, 'thinking')
+    }
+  }
+  if (broken.length) {
+    const newest = broken.reduce((a, b) => (b.at > a.at ? b : a))
+    add('atlas', { status: 'error', task: broken.length === 1 ? newest.text : `${broken.length} sub-account jobs failed or stalled`, icon: 'error', at: newest.at })
+  }
+  if (needsPerson.length) {
+    const newest = needsPerson.reduce((a, b) => (b.at > a.at ? b : a))
+    add('atlas', {
+      status: 'needs_you',
+      task: needsPerson.length === 1 ? clip(`Sub-account for ${newest.name} needs you${newest.why}`) : `${needsPerson.length} sub-accounts need you`,
+      icon: 'alert',
+      at: newest.at,
+    })
+  }
+
   // SEO runs.
   for (const r of input.seoRuns) {
     const started = r.startedAt ?? r.createdAt
@@ -336,7 +404,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     alfred: 'All quiet — nothing to coordinate',
     wren: 'Waiting for Whop signups',
     ivy: 'Waiting for onboarding forms',
-    atlas: 'No sub-accounts to link',
+    atlas: 'No sub-accounts to create or link',
     forge: 'No website builds in flight',
     echo: 'No A2P filings moving',
     tally: 'Nothing to check off',

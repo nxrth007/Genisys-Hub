@@ -40,9 +40,16 @@ export function requeueCommitOf(payload: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-/** A job requeued by another build stays on the queue for that build. */
-export function mayClaimRequeuedJob(requeuedBy: string | null, mine: string): boolean {
-  return !requeuedBy || requeuedBy === mine
+/** After this long, the build that requeued a job is gone (a deploy finishes in minutes). */
+export const REQUEUE_HOLD_MS = 10 * 60_000
+
+/**
+ * A job requeued by another build stays on the queue for that build, but
+ * only for REQUEUE_HOLD_MS: if that build was replaced before it claimed
+ * the job, any build may take it, so the job can't be stranded.
+ */
+export function mayClaimRequeuedJob(requeuedBy: string | null, mine: string, waitedMs = 0): boolean {
+  return !requeuedBy || requeuedBy === mine || waitedMs > REQUEUE_HOLD_MS
 }
 
 export function skipNewerBuildLog(sha: string): string {
