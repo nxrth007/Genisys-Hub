@@ -38,7 +38,7 @@ import {
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
-import { ABANDONED_JOB_LOG, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, isHeartbeatStale, JOB_WALL_MS } from './heartbeat'
+import { ABANDONED_JOB_LOG, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, isHeartbeatStale, JOB_WALL_MS, shouldAutoRetest } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
 import { openString, sealString } from './session'
@@ -532,6 +532,54 @@ export function installWorkerLifecycle(): void {
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
   void recoverAbandonedJobs().catch((err) => console.warn('[ghl-subaccount-worker] startup recovery:', err))
+  void retestNeedsHumanTestJobs().catch((err) => console.warn('[ghl-subaccount-worker] auto-retest:', err))
+}
+
+const retestedThisBoot = new Set<string>()
+
+export async function retestNeedsHumanTestJobs(): Promise<number> {
+  if (workerMode() === 'create') return 0
+  const rows = await prisma.ghlSubaccountJob.findMany({
+    where: { status: 'needs_human' },
+    select: { id: true, payload: true, log: true },
+  })
+  let requeued = 0
+  for (const row of rows) {
+    if (retestedThisBoot.has(row.id)) continue
+    const name = readBrowserFields(row.payload)?.name || ''
+    if (!shouldAutoRetest(workerMode(), 'needs_human', name)) continue
+    retestedThisBoot.add(row.id)
+    const prev = Array.isArray(row.log) ? row.log : []
+    const log = [...prev, { at: new Date().toISOString(), msg: 'Auto-retest after deploy' }].slice(-60)
+    const res = await prisma.ghlSubaccountJob.updateMany({
+      where: { id: row.id, status: 'needs_human' },
+      data: {
+        status: 'queued',
+        leaseUntil: null,
+        heartbeatAt: null,
+        nextAttemptAt: new Date(),
+        finishedAt: null,
+        log: log as Prisma.InputJsonValue,
+      },
+    })
+    requeued += res.count
+  }
+  return requeued
+}
+
+async function saveJobShot(id: string, lease: Date, step: string, image: Buffer): Promise<void> {
+  const shot = await prisma.ghlSubaccountJobShot.create({
+    data: { jobId: id, step: step.slice(0, 180), mime: 'image/jpeg', data: Uint8Array.from(image) },
+    select: { id: true },
+  })
+  const older = await prisma.ghlSubaccountJobShot.findMany({
+    where: { jobId: id },
+    orderBy: { createdAt: 'desc' },
+    skip: 8,
+    select: { id: true },
+  })
+  if (older.length) await prisma.ghlSubaccountJobShot.deleteMany({ where: { id: { in: older.map((row) => row.id) } } })
+  await appendLog(id, lease, `Screenshot ${shot.id} at step ${step.slice(0, 180)}`).catch(() => {})
 }
 
 async function touchHeartbeat(id: string, lease: Date): Promise<void> {
@@ -637,6 +685,14 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       headless: workerHeadless(),
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined,
       signal: ac.signal,
+      onNote: async (line) => {
+        await appendLog(id, lease, line).catch(() => {})
+      },
+      capture: async (step, image) => {
+        await saveJobShot(id, lease, step, image).catch((err) => {
+          console.warn('[ghl-subaccount-worker] screenshot save:', err instanceof Error ? err.message : err)
+        })
+      },
       pullOtp: async (ms) => {
         await extendLease(14 * 60 * 1000).catch(() => {})
         const pasted = await pollOtp(job.clientId, 0)
