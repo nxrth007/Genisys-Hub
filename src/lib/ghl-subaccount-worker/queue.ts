@@ -43,6 +43,7 @@ import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import {
   browserFieldsFromLocation,
   describeSnapshotPush,
+  missingForGhlCreate,
   readBrowserFields,
   resolveSnapshotChoice,
   SNAPSHOT_POLL_MS,
@@ -847,6 +848,12 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     )
   }
   const ready: BrowserFields = { ...readyFields, snapshotName }
+  const missing = missingForGhlCreate(ready)
+  if (missing.length) {
+    return failHuman(
+      `GHL needs a street address, city, zip code and time zone to create a sub-account. This client's onboarding answers are missing: ${missing.join(', ')}. Nothing was submitted to GHL. Fix the client's address (or time zone) in the Hub, then press Create again.`,
+    )
+  }
   await saveJob(id, lease, { payload: ready as unknown as Prisma.InputJsonValue })
   await markClient(job.clientId, 'creating', null)
 

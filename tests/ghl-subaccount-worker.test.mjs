@@ -1486,3 +1486,31 @@ test('a different business name is not linked just because the EIN and phone mat
   assert.equal(dedupe.mayLinkIntake('Aplus Fence', 'A Plus Fence LLC', ['same name, give or take spacing / LLC']), true)
   assert.equal(dedupe.mayLinkIntake('Elite Roofing', 'Elite Solar', ['similar name']), false)
 })
+
+test('a create stops before GHL when a field its form requires is missing', () => {
+  const base = browserFieldsFromLocation({
+    name: 'D & L Property Services LLC',
+    snapshotId: 'pHagdFFJPsZBnn8ACSHK',
+    address: '430 North Station Parkway',
+    city: 'Farmington',
+    state: 'Utah',
+    postalCode: '84025',
+    timezone: 'America/Denver',
+    prospectInfo: { firstName: 'LeRoy', lastName: 'S', email: 'owner@example.com' },
+  })
+  assert.deepEqual(fieldsMod.missingForGhlCreate(base), [])
+  assert.deepEqual(fieldsMod.missingForGhlCreate({ ...base, postalCode: '' }), ['zip code'])
+  assert.deepEqual(fieldsMod.missingForGhlCreate({ ...base, city: ' ', postalCode: '', timezone: '' }), ['city', 'zip code', 'time zone'])
+  assert.deepEqual(fieldsMod.missingForGhlCreate({ ...base, website: '', state: '' }), [])
+})
+
+test('MST outside Arizona means Mountain time with daylight saving', () => {
+  const tz = loadTs(join(root, 'src/lib/timezone.ts'))
+  assert.equal(tz.reconcileTimezone('America/Phoenix', 'America/Denver'), 'America/Denver')
+  assert.equal(tz.reconcileTimezone('America/Phoenix', 'America/Boise'), 'America/Boise')
+  assert.equal(tz.reconcileTimezone('America/Phoenix', 'America/Phoenix'), 'America/Phoenix')
+  assert.equal(tz.reconcileTimezone('America/Phoenix', 'America/Los_Angeles'), 'America/Phoenix')
+  assert.equal(tz.reconcileTimezone('America/New_York', 'America/Denver'), 'America/New_York')
+  assert.equal(tz.reconcileTimezone(null, 'America/Chicago'), 'America/Chicago')
+  assert.equal(tz.reconcileTimezone(undefined, undefined), undefined)
+})

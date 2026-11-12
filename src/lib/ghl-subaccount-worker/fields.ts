@@ -109,6 +109,23 @@ export function readBrowserFields(value: unknown): BrowserFields | null {
   return out
 }
 
+/**
+ * GHL's Add Sub-Account form marks these required (seen 2026-11-12).
+ * Country is always filled. Without one of these GHL closes the form and
+ * creates nothing, without saying why.
+ */
+const REQUIRED_FOR_GHL: { key: keyof BrowserFields; label: string }[] = [
+  { key: 'address', label: 'street address' },
+  { key: 'city', label: 'city' },
+  { key: 'postalCode', label: 'zip code' },
+  { key: 'timezone', label: 'time zone' },
+]
+
+/** Plain-English names of the required fields that are empty. */
+export function missingForGhlCreate(fields: BrowserFields): string[] {
+  return REQUIRED_FOR_GHL.filter(({ key }) => !String(fields[key] || '').trim()).map(({ label }) => label)
+}
+
 /** The dropdown text. The id is the fallback when the name was never resolved. */
 export function snapshotChoice(fields: BrowserFields): string {
   return fields.snapshotName.trim() || fields.snapshotId.trim()

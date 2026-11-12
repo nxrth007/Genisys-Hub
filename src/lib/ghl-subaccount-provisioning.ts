@@ -28,7 +28,7 @@ import { isHeartbeatStale } from './ghl-subaccount-worker/heartbeat'
 import { STATE_CODE_TO_NAME } from './address'
 import { parseUsAddress } from './address-parse'
 import { looksLikePhoneNumber } from './client-from-intake'
-import { parseTimezoneInput, stateCodeFromAddress, timezoneForAddress } from './timezone'
+import { parseTimezoneInput, reconcileTimezone, stateCodeFromAddress, timezoneForAddress } from './timezone'
 import {
   createLocation,
   getAgencyContext,
@@ -162,11 +162,9 @@ const ZONE_WORDS: Array<[RegExp, string]> = [
 
 /** "Eastern", "PST", "Central time", "America/Chicago" → IANA; else from the address' state. */
 function timezoneFor(answer: string | null | undefined, address: string | null | undefined): string | undefined {
-  const parsed = parseTimezoneInput(answer)
-  if (parsed) return parsed
-  const word = answer ? ZONE_WORDS.find(([re]) => re.test(answer))?.[1] : undefined
-  if (word) return word
-  return stateCodeFromAddress(address) ? timezoneForAddress(address) : undefined
+  const fromAnswer = parseTimezoneInput(answer) || (answer ? ZONE_WORDS.find(([re]) => re.test(answer))?.[1] : undefined)
+  const fromAddress = stateCodeFromAddress(address) ? timezoneForAddress(address) : undefined
+  return reconcileTimezone(fromAnswer, fromAddress)
 }
 
 function addressFields(raw: string | null | undefined): Pick<CreateLocationInput, 'address' | 'city' | 'state' | 'postalCode'> {

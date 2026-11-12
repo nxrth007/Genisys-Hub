@@ -132,6 +132,23 @@ export function stateCodeFromAddress(address: string | null | undefined): string
  * is also surfaced on the reminder row so admins can see what the
  * scheduler decided.
  */
+/** Mountain-time zones that keep daylight saving. Only Arizona stays on MST all year. */
+const MOUNTAIN_DST_ZONES = new Set(['America/Denver', 'America/Boise'])
+
+/**
+ * A typed time zone, checked against the address. People outside Arizona
+ * write "MST" to mean Mountain time, which keeps daylight saving, so a
+ * Phoenix answer with a Utah or Colorado address becomes that state's zone.
+ * Otherwise the typed answer wins, then the address.
+ */
+export function reconcileTimezone(
+  fromAnswer: string | null | undefined,
+  fromAddress: string | null | undefined,
+): string | undefined {
+  if (fromAnswer === 'America/Phoenix' && fromAddress && MOUNTAIN_DST_ZONES.has(fromAddress)) return fromAddress
+  return fromAnswer || fromAddress || undefined
+}
+
 export function timezoneForAddress(address: string | null | undefined): string {
   const code = stateCodeFromAddress(address)
   if (!code) return DEFAULT_TIMEZONE
