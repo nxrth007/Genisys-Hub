@@ -7,7 +7,7 @@ import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwr
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
-import { driveUntil, LIST_READY_PATTERN, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
+import { driveUntil, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
 import { locateSnapshotCard, redactCardHtml } from './snapshot-card'
 
@@ -99,10 +99,6 @@ async function snapshotPage(page: Page, labels: GhlLabels): Promise<PageSnap> {
   return { ...EMPTY_SNAP, url: page.url(), frames: [{ url: page.url(), buttons: [], fieldCount: 0 }] }
 }
 
-async function frameUrls(page: Page): Promise<string[]> {
-  return page.frames().map((frame) => frame.url())
-}
-
 async function anyFrameMatches(page: Page, pattern: string): Promise<boolean> {
   for (const frame of page.frames()) {
     try {
@@ -121,17 +117,51 @@ async function anyFrameMatches(page: Page, pattern: string): Promise<boolean> {
   return false
 }
 
-async function waitForListRender(page: Page, before: string[], signal?: AbortSignal): Promise<void> {
-  const deadline = Date.now() + LIST_RENDER_WAIT_MS
-  const previous = new Set(before)
+async function subAccountListReady(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    try {
+      const hit = await Promise.race([
+        frame.evaluate(() => {
+          const labelOf = (el: Element) => (el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()
+          const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+          if (buttons.some((el) => /^\+?\s*create sub-?account$/i.test(labelOf(el)))) return true
+          const body = (document.body && document.body.innerText) || ''
+          if (/start creating sub-?accounts/i.test(body)) return false
+          return /\d+\s+sub-?accounts?\b/i.test(body)
+        }),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000)),
+      ])
+      if (hit) return true
+    } catch {
+      // A frame can be navigating.
+    }
+  }
+  return false
+}
+
+async function waitForListRender(page: Page, signal?: AbortSignal): Promise<void> {
+  const started = Date.now()
+  const deadline = started + LIST_RENDER_WAIT_MS
+  let reloaded = false
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error('The job ran out of time.')
-    const now = await frameUrls(page)
-    const changed = now.some((url) => url && url !== 'about:blank' && !previous.has(url))
-    const ready = await anyFrameMatches(page, LIST_READY_PATTERN)
-    if (changed && ready) return
+    if (await subAccountListReady(page)) return
+    if (!reloaded && Date.now() - started > 15_000) {
+      reloaded = true
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {})
+    }
+    await sleep(500, signal)
+  }
+}
+
+async function waitForSnapshotModal(page: Page, signal?: AbortSignal): Promise<boolean> {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error('The job ran out of time.')
+    if (await anyFrameMatches(page, 'select snapshot template')) return true
     await sleep(400, signal)
   }
+  return false
 }
 
 async function waitForDetailsForm(page: Page, signal?: AbortSignal): Promise<void> {
@@ -273,10 +303,13 @@ async function performAction(
     await sleep(900, signal)
     return {}
   }
+  if (action.type === 'wait_list') {
+    await waitForListRender(page, signal)
+    return {}
+  }
   if (action.type === 'goto') {
-    const before = action.settle ? await frameUrls(page) : []
     await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-    if (action.settle) await waitForListRender(page, before, signal)
+    if (action.settle) await waitForListRender(page, signal)
     else await sleep(800, signal)
     return {}
   }
@@ -319,7 +352,6 @@ async function performAction(
           : action.type === 'pick'
             ? action.value
             : undefined
-  const before = action.type === 'click' && action.settle ? await frameUrls(page) : []
   const cmd = {
     op: action.type,
     key: 'key' in action ? action.key : undefined,
@@ -337,8 +369,23 @@ async function performAction(
       try {
         const res = await runCommand(frame, cmd)
         if (res?.ok) {
-          if (action.type === 'click' && action.settle) await waitForListRender(page, before, signal)
-          else await sleep(action.type === 'click' ? 900 : 250, signal)
+          if (action.type === 'click' && action.settle === 'modal') {
+            if (!(await waitForSnapshotModal(page, signal))) {
+              for (const frame of page.frames()) {
+                try {
+                  const again = await runCommand(frame, cmd)
+                  if (again?.ok) break
+                } catch {
+                  // The next frame may hold the button.
+                }
+              }
+              await waitForSnapshotModal(page, signal)
+            }
+          } else if (action.type === 'click' && action.settle) {
+            await waitForListRender(page, signal)
+          } else {
+            await sleep(action.type === 'click' ? 900 : 250, signal)
+          }
           return { href: res.href }
         }
         if (res?.error) last = res.error
