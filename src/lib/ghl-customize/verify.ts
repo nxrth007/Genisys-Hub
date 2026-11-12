@@ -215,10 +215,20 @@ export function failureSamples(json: unknown, check: WorkflowCheck, max = 900): 
     .join(' | ')
 }
 
-/** Names of every named object in a payload, counted, so a save can be compared with the workflow as it loaded. */
-export function namedNodeCounts(json: unknown): Map<string, number> {
-  const counts = new Map<string, number>()
-  const seen = new Set<string>()
+/**
+ * A workflow step as GHL stores it (seen 2026-11-12): an id, a name, a type,
+ * and its place in the chain (order/next/parentKey) or its settings
+ * (attributes). Settings objects that also carry a name are not steps; GHL
+ * drops some of those when the builder saves, so counting them flagged
+ * steps as removed that were still there.
+ */
+function isStep(o: Obj): boolean {
+  return typeof o.id === 'string' && typeof o.name === 'string' && typeof o.type === 'string' && ('next' in o || 'parentKey' in o || 'order' in o || isObj(o.attributes))
+}
+
+/** Every step in a payload, by id: its name. */
+export function workflowSteps(json: unknown): Map<string, string> {
+  const steps = new Map<string, string>()
   let visited = 0
   const walk = (v: unknown, depth: number) => {
     if (visited > 50_000 || depth > 14) return
@@ -228,28 +238,28 @@ export function namedNodeCounts(json: unknown): Map<string, number> {
       return
     }
     if (!isObj(v)) return
-    const name = nameOf(v)
-    if (name) {
-      const key = `${normName(name)}|${nodeKey(v)}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        counts.set(normName(name), (counts.get(normName(name)) ?? 0) + 1)
-      }
-    }
+    if (isStep(v)) steps.set(v.id as string, normName(v.name as string))
     for (const item of Object.values(v)) walk(item, depth + 1)
   }
   walk(json, 0)
+  return steps
+}
+
+function nameCounts(steps: Map<string, string>): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const name of steps.values()) counts.set(name, (counts.get(name) ?? 0) + 1)
   return counts
 }
 
 /**
  * Steps that appear or disappear between two loads of the same workflow
- * (the workflow as it opened, and as it reloads after the save). Workflow AI
- * is told not to add or remove steps; this is how the job notices if it did.
+ * (as it opened, and as it reopens after the save), by name, so a step
+ * Workflow AI rebuilt under the same name doesn't count. Workflow AI is told
+ * not to add or remove steps; this is how the job notices if it did.
  */
 export function stepNameChanges(before: unknown, after: unknown): { added: string[]; removed: string[] } {
-  const a = namedNodeCounts(before)
-  const b = namedNodeCounts(after)
+  const a = nameCounts(workflowSteps(before))
+  const b = nameCounts(workflowSteps(after))
   const added: string[] = []
   const removed: string[] = []
   for (const [name, n] of b) if (n > (a.get(name) ?? 0)) added.push(name)

@@ -197,6 +197,33 @@ test('steps added or removed between two loads are noticed', () => {
   assert.deepEqual(changes.added, ['add tag'])
   assert.deepEqual(changes.removed, ['wait 2 minutes'])
   assert.deepEqual(verify.stepNameChanges(before, payload(missed)), { added: [], removed: [] })
+  // Workflow AI rebuilt a step under the same name (a new id): not a change.
+  const rebuilt = payload(missed)
+  rebuilt.workflowData.templates = rebuilt.workflowData.templates.map((t) => (t.name === 'Text Back the Caller' ? { ...t, id: 't2b' } : t))
+  assert.deepEqual(verify.stepNameChanges(before, rebuilt), { added: [], removed: [] })
+  assert.equal(verify.workflowSteps(before).size, 5)
+})
+
+test("GHL dropping a name from a step's settings on save is not a removed step (seen 2026-11-12)", () => {
+  // The snapshot's wait step also carried its name in its settings; the builder's save dropped that copy.
+  const step = (id, name, type, attributes, extra = {}) => ({ id, order: 1, attributes, name, type, parentKey: 'p', next: 'n', ...extra })
+  const before = {
+    id: 'wf',
+    name: 'Website Chat Widget Form Submitted',
+    templates: [
+      step('a', 'Add Contact Tag', 'add_contact_tag', { tags: ['quote requested'] }),
+      step('w', 'Wait 30 Seconds', 'wait', { type: 'time', name: 'Wait 30 Seconds', startAfter: { value: 30, type: 'seconds' } }, { advanceCanvasMeta: { isDisabled: false } }),
+    ],
+  }
+  const after = {
+    id: 'wf',
+    name: 'Website Chat Widget Form Submitted',
+    templates: [step('a', 'Add Contact Tag', 'add_contact_tag', { tags: ['quote requested'] }), step('w', 'Wait 30 Seconds', 'wait', { type: 'time', startAfter: { value: 30, type: 'seconds' } })],
+  }
+  assert.deepEqual(verify.stepNameChanges(before, after), { added: [], removed: [] })
+  assert.deepEqual([...verify.workflowSteps(before).values()], ['add contact tag', 'wait 30 seconds'])
+  const gone = { ...after, templates: after.templates.slice(0, 1) }
+  assert.deepEqual(verify.stepNameChanges(before, gone), { added: [], removed: ['wait 30 seconds'] })
 })
 
 test('only sub-accounts the worker created, with the site link in, are customized by themselves', () => {

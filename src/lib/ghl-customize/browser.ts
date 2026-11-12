@@ -23,7 +23,7 @@ import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
 import { WORKFLOW_FOLDERS, type WorkflowTask } from './copy'
 import { aiDeclined } from './eligibility'
-import { failureSamples, findNamedNodes, stepNameChanges, verifyWorkflowJson, type WorkflowCheck } from './verify'
+import { failureSamples, findNamedNodes, stepNameChanges, stepSample, verifyWorkflowJson, workflowSteps, type WorkflowCheck } from './verify'
 
 export type WorkflowOutcome = {
   id: string
@@ -690,11 +690,17 @@ async function customizeOne(run: Run, task: WorkflowTask): Promise<WorkflowOutco
     }
     // Steps added or removed (Workflow AI is told not to): only comparable when both loads came from the same address.
     const changes = before && shortUrl(before.url) === shortUrl(after.url) ? stepNameChanges(before.json, after.json) : null
-    if (changes && (changes.added.length || changes.removed.length)) {
+    if (before && changes && (changes.added.length || changes.removed.length)) {
       const what = [changes.added.length ? `added ${changes.added.join(', ')}` : '', changes.removed.length ? `removed ${changes.removed.join(', ')}` : ''].filter(Boolean).join('; ')
+      const named = [...changes.removed, ...changes.added].slice(0, 2)
+      const opened = before.json
+      await run.note(
+        `Step check for "${task.name}" (${what}). As it opened: ${named.map((n) => stepSample(opened, n, 500)).join(' | ')}. Reopened: ${named.map((n) => stepSample(after.json, n, 500)).join(' | ')}`,
+      )
       return { ...base, status: 'needs_human', workflowId, detail: `Saved with the Hub's copy, but the workflow's steps changed (${what}). Check it in GHL.` }
     }
-    return { ...base, status: 'done', workflowId, detail: `Saved and reopened: ${stored.summary}.` }
+    const steps = workflowSteps(after.json).size
+    return { ...base, status: 'done', workflowId, detail: `Saved and reopened: ${stored.summary}${changes ? `, and all ${steps} steps are still there` : ''}.` }
   }
   return { ...base, status: 'needs_human', workflowId, detail: `Two tries, nothing saved. ${lastProblem}` }
 }

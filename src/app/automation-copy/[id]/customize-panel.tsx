@@ -220,7 +220,7 @@ function Status({ view }: { view: CustomizeView }) {
     <p className={cn(box, 'border-amber-500/30 bg-amber-500/10')}>
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
       <span>
-        {job.status === 'held' ? 'Waiting. ' : job.status === 'failed' ? 'Failed. ' : 'Needs you. '}
+        {job.status === 'held' ? '' : job.status === 'failed' ? 'Failed. ' : 'Needs you. '}
         {job.detail}
       </span>
     </p>

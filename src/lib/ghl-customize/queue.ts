@@ -102,7 +102,7 @@ export type QueueResult =
   | { ok: false; status: 'held' | 'skipped' | 'failed'; reason: string; jobId?: string }
 
 function heldDetail(blanks: string[]): string {
-  return `Waiting on the ${blankNames(blanks)}: missing or incomplete on the Automation Copy board, and the copy can't go into GHL like that. Fix it there and the Hub runs it as soon as it's right.`
+  return `Waiting on the ${blankNames(blanks)}: missing or incomplete on the Automation Copy board, and the copy can't go into GHL like that. Fix it there, then press Customize in GHL now (with automatic runs on, the Hub picks it up by itself).`
 }
 
 /**
