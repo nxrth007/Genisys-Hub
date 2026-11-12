@@ -23,6 +23,7 @@ import { advanceJourneyStage, blockJourneyStage, recordJourney, setJourneyStage 
 import { getCrmProvider } from './crm/provider'
 import { hubAlert, hubLink } from './hub-alerts'
 import { workerEnabled, workerMode } from './ghl-subaccount-worker/config'
+import { ghlSubAccountName } from './ghl-subaccount-worker/fields'
 import { isHeartbeatStale } from './ghl-subaccount-worker/heartbeat'
 import { STATE_CODE_TO_NAME } from './address'
 import { parseUsAddress } from './address-parse'
@@ -113,7 +114,7 @@ export async function updateGhlSubaccountSettings(
 // Building the sub-account from the onboarding answers
 // -------------------------------------------------------------------------
 
-function firstNameOf(fullName: string | null | undefined): string | null {
+export function firstNameOf(fullName: string | null | undefined): string | null {
   const first = fullName?.trim().split(/\s+/)[0]?.replace(/[.,;:]+$/, '')
   if (!first) return null
   // "randy" → "Randy"; anything with capitals in it is left as they typed it.
@@ -127,9 +128,7 @@ function lastNameOf(fullName: string | null | undefined): string | null {
 
 /** "Randy Smith" + "J&R Painting" → "Randy: J&R Painting". Just the business when there's no name. */
 export function subAccountName(contactName: string | null | undefined, businessName: string): string {
-  const first = firstNameOf(contactName)
-  const business = businessName.trim()
-  return first ? `${first}: ${business}` : business
+  return ghlSubAccountName(firstNameOf(contactName), businessName).name
 }
 
 const normalizeName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()

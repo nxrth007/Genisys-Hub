@@ -8,7 +8,7 @@
  * and only then Create).
  */
 import type { BrowserFields } from './fields'
-import { snapshotChoice } from './fields'
+import { ghlSubAccountName, snapshotChoice } from './fields'
 import type { GhlLabels } from './labels'
 
 export type PageField = {
@@ -65,6 +65,7 @@ export type BrowserAction =
   | { type: 'add_manually' }
   | { type: 'scroll_form' }
   | { type: 'record_form' }
+  | { type: 'note'; text: string }
   | { type: 'remember' }
   | { type: 'pause' }
 
@@ -127,6 +128,8 @@ export type RunState = {
   formScrolled: boolean
   /** Dry run already captured the filled form. */
   formRecorded: boolean
+  /** The missing-first-name warning was written to the job log. */
+  nameWarned: boolean
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -166,6 +169,7 @@ export function initialRunState(): RunState {
     manualAdded: false,
     formScrolled: false,
     formRecorded: false,
+    nameWarned: false,
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -356,6 +360,14 @@ export function isDropdownField(field: PageField): boolean {
   return field.tag === 'select' || field.tag === 'dropdown' || field.type === 'select' || field.type === 'select-one' || field.type === 'dropdown'
 }
 
+/** Country and time zone are custom dropdowns even when the snapshot sees a text input. */
+const ALWAYS_PICK = new Set(['country', 'timezone'])
+
+function controlHow(field: PageField | undefined, key: string): 'dropdown' | 'text' {
+  if (ALWAYS_PICK.has(key) || (field && isDropdownField(field))) return 'dropdown'
+  return 'text'
+}
+
 /** Fill a null key from the label, aria-label, nearby text, name, or id. */
 export function assignFieldKeys(fields: PageField[], labels: GhlLabels): PageField[] {
   return fields.map((field) => {
@@ -402,7 +414,7 @@ function finalSaveLabel(snap: PageSnap): string {
 function setNote(snap: PageSnap, input: DriveInput, state: RunState): string {
   const parts = DETAIL_KEYS.filter((key) => input.fields[key] && state.filled.includes(key)).map((key) => {
     const field = fieldByKey(snap, key)
-    const how = field && isDropdownField(field) ? 'dropdown' : 'text'
+    const how = controlHow(field, key)
     const label = field ? fieldDisplayName(field) : key
     return `${key}=${JSON.stringify(input.fields[key])} (${how}, "${label}")`
   })
@@ -527,6 +539,8 @@ export type Step =
   | { kind: 'done'; result: DriveResult; state: RunState }
 
 export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState): Step {
+  const accountName = ghlSubAccountName(input.fields.firstName, input.fields.name)
+  input = { ...input, fields: { ...input.fields, name: accountName.name } }
   snap = { ...snap, fields: assignFieldKeys(snap.fields || [], input.labels) }
   let s = noteSettled(state, snap)
   if (snapshotIdFromUrl(snap.url)) s = { ...s, snapshotChosen: true, snapshotTried: true }
@@ -685,6 +699,9 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     if (formOpen && !s.formScrolled) {
       return act({ ...s, formScrolled: true }, { type: 'scroll_form' })
     }
+    if (formOpen && accountName.warning && !s.nameWarned) {
+      return act({ ...s, nameWarned: true }, { type: 'note', text: accountName.warning })
+    }
     if (formOpen || snapshotStep) {
       if (formOpen) {
         for (const key of DETAIL_KEYS) {
@@ -695,12 +712,12 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
             s = { ...s, missing: [...s.missing, key] }
             continue
           }
-          if (norm(field.value)) {
+          if (norm(field.value) && !(key === 'name' && norm(field.value) !== norm(value))) {
             s = { ...s, filled: [...s.filled, key] }
             continue
           }
           const words = input.labels[key] ?? [key]
-          if (isDropdownField(field)) {
+          if (isDropdownField(field) || ALWAYS_PICK.has(key)) {
             return act({ ...s, filled: [...s.filled, key] }, { type: 'pick', key, words, value })
           }
           return act({ ...s, filled: [...s.filled, key] }, { type: 'fill', key, words, value })
@@ -744,7 +761,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           status: 'dry_run',
           locationId: null,
           uncertain: false,
-          detail: `Reached the details form for "${input.fields.name}" and stopped before Create (${saveLabel}). ${fieldLabelNote(snap)} ${setNote(snap, input, s)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
+          detail: `Reached the details form for "${input.fields.name}" and stopped before Create (${saveLabel}). ${accountName.warning ?? ''} ${fieldLabelNote(snap)} ${setNote(snap, input, s)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
         })
       }
       const saveLabel = finalSaveLabel(snap)

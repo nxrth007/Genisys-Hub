@@ -60,7 +60,7 @@ const {
   parseAgencyLogin,
 } = config
 const { ghlLabels } = labelsMod
-const { browserFieldsFromLocation, readBrowserFields } = fieldsMod
+const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
@@ -182,6 +182,19 @@ test('form fields follow the API payload, with United States spelled out', () =>
   assert.equal(readBrowserFields(fields).phone, '+15551230000')
   assert.equal(readBrowserFields({ snapshotId: 'x' }), null)
   assert.equal(readBrowserFields(null), null)
+  const named = ghlSubAccountName('Brett', '  Wilson Construction  ')
+  assert.equal(named.name, 'Brett: Wilson Construction')
+  assert.equal(named.warning, null)
+  assert.equal(ghlSubAccountName('Brett', 'Brett: Wilson Construction').name, 'Brett: Wilson Construction')
+  assert.equal(ghlSubAccountName('brett', 'Brett:  Wilson Construction').name, 'brett: Wilson Construction')
+  const fallback = ghlSubAccountName('  ', 'Wilson Construction')
+  assert.equal(fallback.name, 'Wilson Construction')
+  assert.match(fallback.warning, /first name is missing/)
+  const composed = browserFieldsFromLocation(
+    { name: 'Wilson Construction', snapshotId: 'snap1', prospectInfo: { firstName: 'Brett', lastName: 'Wilson', email: 'brett@example.com' } },
+  )
+  assert.equal(composed.name, 'Brett: Wilson Construction')
+  assert.equal(composed.firstName, 'Brett')
 })
 
 test('agency login parses JSON or two lines and rejects a bare password', () => {
@@ -1001,6 +1014,7 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
     getBoundingClientRect() {
       return { width: this.width, height: this.height, top: 0, left: 0 }
     }
+    click() {}
     querySelectorAll(selector) {
       const out = []
       const walk = (node) => {
@@ -1063,6 +1077,7 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
       new El('input', { aria: 'Business phone' }),
       field('Zip', new El('input')),
       field('Country', new El('div', { className: 'n-select', role: 'combobox' })),
+      new El('li', { role: 'option', text: 'United States' }),
       field('Time Zone', new El('div', { role: 'combobox', className: 'n-select' })),
       field('State', new El('div', { role: 'combobox', className: 'n-select' })),
       new El('button', { text: 'Save Changes', width: 0, height: 0 }),
@@ -1101,6 +1116,9 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
     const scrolled = page({ op: 'scrollForm' })
     assert.equal(dialog.scrollTop, dialog.scrollHeight)
     assert.ok(scrolled.buttons.some((label) => label === 'Save Changes'))
+    const picked = page({ op: 'pick', key: 'country', value: 'United States', words: ['Country'], labels: ghlLabels() })
+    assert.equal(picked.ok, true)
+    assert.equal(picked.selected, 'United States')
   } finally {
     global.document = previous.document
     global.window = previous.window
@@ -1158,7 +1176,7 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
   assert.equal(actions.some((action) => action.type === 'record_form'), true)
   assert.equal(actions.some((action) => action.type === 'click'), false)
   assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'email' && action.value === 'ada@example.com'), true)
-  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'name' && action.value === 'Test: Acme'), true)
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'name' && action.value === 'Ada: Test: Acme'), true)
   assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'country' && action.value === 'United States'), true)
   assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'timezone' && action.value === 'America/New_York'), true)
   assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'state' && action.value === 'FL'), true)
@@ -1169,4 +1187,48 @@ test('the details form names unlabeled inputs, scrolls to the save button, and f
   assert.match(result.detail, /email="ada@example.com"/)
   const fieldsLine = result.detail.match(/Fields: ([^.]+)\./)[1]
   assert.equal(fieldsLine.split(', ').includes('input'), false)
+})
+
+test('a text-looking country and time zone are still picked, and a missing first name is only the business name', async () => {
+  const form = snap({
+    url: 'https://app.gohighlevel.com/accounts/create?snapshot=PsOYVeuIfXR7soMIiMcI',
+    buttons: ['Add Sub-Account'],
+    fields: [
+      { key: 'name', tag: 'input', type: 'text', value: '', text: 'business name' },
+      { key: 'country', tag: 'input', type: 'text', value: '', text: 'country' },
+      { key: 'timezone', tag: 'input', type: 'text', value: '', text: 'time zone' },
+    ],
+  })
+  const actions = []
+  const result = await driveUntil(
+    {
+      snapshot: async () => form,
+      perform: async (action) => {
+        actions.push(action)
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    {
+      ...input('dry_run'),
+      fields: {
+        ...input('dry_run').fields,
+        name: 'Wilson Construction',
+        firstName: '',
+        country: 'United States',
+        timezone: 'America/New_York',
+      },
+    },
+    { maxSteps: 16 },
+  )
+  assert.equal(actions.some((action) => action.type === 'note' && /first name is missing/.test(action.text)), true)
+  assert.equal(actions.some((action) => action.type === 'fill' && action.key === 'name' && action.value === 'Wilson Construction'), true)
+  assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'country' && action.value === 'United States'), true)
+  assert.equal(actions.some((action) => action.type === 'pick' && action.key === 'timezone' && action.value === 'America/New_York'), true)
+  assert.equal(actions.some((action) => action.type === 'fill' && (action.key === 'country' || action.key === 'timezone')), false)
+  assert.equal(actions.some((action) => action.type === 'click'), false)
+  assert.equal(result.status, 'dry_run')
+  assert.match(result.detail, /Add Sub-Account/)
+  assert.match(result.detail, /country="United States" \(dropdown/)
+  assert.match(result.detail, /first name is missing/)
 })

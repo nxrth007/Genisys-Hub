@@ -15,7 +15,7 @@
 import { Prisma } from '@/generated/prisma/client'
 import { looksLikePhoneNumber } from '@/lib/client-from-intake'
 import { getAgencyContext, listAllLocations, listSnapshots } from '@/lib/ghl-agency'
-import { buildLocationInput, getGhlSubaccountSettings, linkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
+import { buildLocationInput, firstNameOf, getGhlSubaccountSettings, linkGhlSubAccount } from '@/lib/ghl-subaccount-provisioning'
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
@@ -300,7 +300,7 @@ export async function enqueueClient(
   )
   const fields = browserFieldsFromLocation(input, {
     email: client.contactEmail ?? intake?.leadEmail,
-    firstName: input.prospectInfo?.firstName,
+    firstName: input.prospectInfo?.firstName ?? firstNameOf(client.contactName ?? intake?.fullName),
     lastName: input.prospectInfo?.lastName,
     snapshotName: process.env.GHL_SUBACCOUNT_SNAPSHOT_NAME?.trim() || null,
   })
