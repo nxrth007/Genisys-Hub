@@ -1354,3 +1354,12 @@ test('an empty snapshot field is still filled when the URL already names a snaps
   assert.equal(step.action.key, 'snapshot')
   assert.equal(step.action.value, 'Master Template')
 })
+
+test('a different business name is not linked just because the EIN and phone match', () => {
+  const dedupe = loadTs(join(root, 'src/lib/client-name.ts'))
+  assert.equal(dedupe.distinctBusinessNames('Snapshot Check LLC', 'TEST Dry Run LLC'), true)
+  assert.equal(dedupe.distinctBusinessNames('A Plus Fence LLC', 'Aplus Fence'), false)
+  assert.equal(dedupe.mayLinkIntake('Snapshot Check LLC', 'TEST Dry Run LLC', ['same EIN', 'same phone', 'same website']), false)
+  assert.equal(dedupe.mayLinkIntake('Aplus Fence', 'A Plus Fence LLC', ['same name, give or take spacing / LLC']), true)
+  assert.equal(dedupe.mayLinkIntake('Elite Roofing', 'Elite Solar', ['similar name']), false)
+})
