@@ -773,6 +773,9 @@ model GhlSubaccountJob {
   attempts      Int       @default(0)
   /// Fencing token. Only the holder of this exact lease may finish the job.
   leaseUntil    DateTime?
+  /// Last proof the holder is still alive. A running row older than a
+  /// few minutes is put back on the queue.
+  heartbeatAt   DateTime?
   nextAttemptAt DateTime  @default(now())
   lastError     String?   @db.Text
   detail        String?   @db.Text

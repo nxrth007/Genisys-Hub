@@ -14,7 +14,7 @@
  */
 import cron from 'node-cron'
 import { scanSubaccounts } from './subaccount-autolink'
-import { runGhlSubaccountWorkerTick } from './ghl-subaccount-worker/queue'
+import { installWorkerLifecycle, runGhlSubaccountWorkerTick } from './ghl-subaccount-worker/queue'
 import { prisma } from './prisma'
 import { buildAndSendBrief, buildAndSendSmsBrief } from './morning-brief'
 import {
@@ -219,6 +219,7 @@ export function initScheduler() {
   if (initialized) return
   initialized = true
 
+  installWorkerLifecycle()
   console.log('[scheduler] Starting cron jobs (every minute)')
 
   // Hourly GHL sub-account auto-link scan. OFF unless

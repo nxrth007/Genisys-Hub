@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, Building2, Check, CheckCircle2, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { isHeartbeatStale } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { cn } from '@/lib/utils'
 import type {
   GhlConnectionCheck,
@@ -28,6 +29,15 @@ const STATUS_STYLES: Record<string, string> = {
   creating: 'bg-muted text-foreground/80',
   failed: 'bg-destructive/10 text-destructive',
   'not started': 'bg-warning/15 text-warning',
+}
+
+function creatingIsStale(
+  row: GhlProvisionRow,
+  jobs: Array<{ clientId: string; status: string; heartbeatAt: string | null; updatedAt: string }> | undefined,
+): boolean {
+  const live = jobs?.find((job) => job.clientId === row.clientId)
+  if (live?.status === 'running') return isHeartbeatStale(live.heartbeatAt, live.updatedAt)
+  return !!row.staleRunning
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -63,7 +73,16 @@ export function GhlSubaccountsSection() {
     queryFn: async () =>
       readJson<{
         alerts?: { channel: string; ok: boolean | null; detail: string | null }
-        jobs?: Array<{ id: string; clientId: string; clientName: string; status: string; detail: string | null }>
+        jobs?: Array<{
+          id: string
+          clientId: string
+          clientName: string
+          status: string
+          detail: string | null
+          heartbeatAt: string | null
+          updatedAt: string
+          stale: boolean
+        }>
       }>(await fetch('/api/admin/ghl-subaccount-worker')),
     enabled: !(config.error instanceof ForbiddenError),
     refetchInterval: (query) => {
@@ -370,7 +389,8 @@ export function GhlSubaccountsSection() {
                   {(enabled || workerOn) && (r.status === 'failed' || r.status === 'creating' || r.status === 'not started' || r.status === 'dry_run') && (
                     <button
                       type="button"
-                      disabled={retry.isPending}
+                      disabled={retry.isPending || (r.status === 'creating' && !creatingIsStale(r, workerLive.data?.jobs))}
+                      title={r.status === 'creating' && !creatingIsStale(r, workerLive.data?.jobs) ? 'The worker heartbeat is still fresh.' : undefined}
                       onClick={() => {
                         if (r.status !== 'not started' || window.confirm(`Create a GHL sub-account for ${r.clientName} and load the onboarding snapshot?`)) retry.mutate(r.clientId)
                       }}

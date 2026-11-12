@@ -38,6 +38,7 @@ import {
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
+import { ABANDONED_JOB_LOG, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, isHeartbeatStale, JOB_WALL_MS } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
 import { openString, sealString } from './session'
@@ -46,7 +47,7 @@ const SINCE_KEY = 'ghlSubaccountWorker.since'
 const SESSION_KEY = 'ghlSubaccountWorker.session'
 const OTP_KEY = 'ghlSubaccountWorker.otp'
 const LEASE_MS = 20 * 60 * 1000
-const JOB_TIMEOUT_MS = 18 * 60 * 1000
+const JOB_TIMEOUT_MS = JOB_WALL_MS
 const ACTOR = 'ghl-subaccount-worker'
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -62,6 +63,7 @@ export type TickResult = {
   claimed: boolean
   outcome?: string
   promoted?: number
+  recovered?: number
 }
 
 class LeaseLost extends Error {
@@ -305,13 +307,36 @@ export async function enqueueClient(
 
   const existing = await prisma.ghlSubaccountJob.findUnique({ where: { clientId } })
   if (existing) {
-    const parked = existing.status === 'queued' || existing.status === 'running'
+    const staleRun = existing.status === 'running' && isHeartbeatStale(existing.heartbeatAt, existing.updatedAt)
+    if (existing.status === 'running' && !(opts.force && staleRun)) {
+      return { ok: true, status: 'already', jobId: existing.id, name: fields.name }
+    }
+    const parked = existing.status === 'queued'
     const terminal = existing.status === 'succeeded' || existing.status === 'dry_run' || existing.status === 'failed' || existing.status === 'needs_human' || existing.status === 'canceled'
     if (parked || (terminal && !opts.force)) {
       return { ok: true, status: 'already', jobId: existing.id, name: fields.name }
     }
-    if (existing.status === 'running') {
-      return { ok: true, status: 'already', jobId: existing.id, name: fields.name }
+    if (staleRun) {
+      const prev = Array.isArray(existing.log) ? existing.log : []
+      const log = [...prev, { at: new Date().toISOString(), msg: 'Requeued from Settings. The previous run had no heartbeat for more than 3 minutes.' }].slice(-60)
+      await prisma.ghlSubaccountJob.update({
+        where: { id: existing.id },
+        data: {
+          status: 'queued',
+          attempts: 0,
+          nextAttemptAt: new Date(),
+          leaseUntil: null,
+          heartbeatAt: null,
+          lastError: null,
+          detail: null,
+          finishedAt: null,
+          trigger: opts.trigger,
+          intakeId: intake?.id ?? existing.intakeId,
+          payload: fields as Prisma.InputJsonValue,
+          log: log as Prisma.InputJsonValue,
+        },
+      })
+      return { ok: true, status: 'queued', jobId: existing.id, name: fields.name }
     }
     await prisma.ghlSubaccountJob.update({
       where: { id: existing.id },
@@ -320,6 +345,7 @@ export async function enqueueClient(
         attempts: 0,
         nextAttemptAt: new Date(),
         leaseUntil: null,
+        heartbeatAt: null,
         lastError: null,
         detail: null,
         finishedAt: null,
@@ -430,6 +456,91 @@ async function markClient(clientId: string, status: string, error: string | null
   }).catch((err) => console.error(`[ghl-subaccount-worker] client status ${clientId}:`, err))
 }
 
+type LiveJob = { id: string; getLease: () => Date; abort: () => void; released: boolean }
+let liveJob: LiveJob | null = null
+let shuttingDown = false
+let lifecycleInstalled = false
+
+export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - HEARTBEAT_STALE_MS)
+  const stale = await prisma.ghlSubaccountJob.findMany({
+    where: {
+      status: 'running',
+      OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, updatedAt: { lt: cutoff } }],
+    },
+    select: { id: true, log: true },
+  })
+  let recovered = 0
+  for (const row of stale) {
+    if (liveJob?.id === row.id && !liveJob.released) continue
+    const prev = Array.isArray(row.log) ? row.log : []
+    const log = [...prev, { at: now.toISOString(), msg: ABANDONED_JOB_LOG }].slice(-60)
+    const res = await prisma.ghlSubaccountJob.updateMany({
+      where: {
+        id: row.id,
+        status: 'running',
+        OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, updatedAt: { lt: cutoff } }],
+      },
+      data: {
+        status: 'queued',
+        leaseUntil: null,
+        heartbeatAt: null,
+        nextAttemptAt: now,
+        log: log as Prisma.InputJsonValue,
+      },
+    })
+    recovered += res.count
+  }
+  return recovered
+}
+
+export async function releaseLiveJob(message: string): Promise<void> {
+  const live = liveJob
+  if (!live || live.released) return
+  live.released = true
+  live.abort()
+  const lease = live.getLease()
+  const row = await prisma.ghlSubaccountJob.findFirst({
+    where: { id: live.id, leaseUntil: lease, status: 'running' },
+    select: { log: true },
+  })
+  if (!row) return
+  const prev = Array.isArray(row.log) ? row.log : []
+  const log = [...prev, { at: new Date().toISOString(), msg: message }].slice(-60)
+  await prisma.ghlSubaccountJob.updateMany({
+    where: { id: live.id, leaseUntil: lease, status: 'running' },
+    data: {
+      status: 'queued',
+      leaseUntil: null,
+      heartbeatAt: null,
+      nextAttemptAt: new Date(),
+      log: log as Prisma.InputJsonValue,
+    },
+  })
+}
+
+/** Stop claiming work when Render shuts this process down, and give the in-flight job back. */
+export function installWorkerLifecycle(): void {
+  if (lifecycleInstalled) return
+  lifecycleInstalled = true
+  const stop = () => {
+    shuttingDown = true
+    void releaseLiveJob('Released back to the queue because this instance is shutting down.').catch((err) => {
+      console.warn('[ghl-subaccount-worker] could not release the in-flight job:', err)
+    })
+  }
+  process.once('SIGTERM', stop)
+  process.once('SIGINT', stop)
+  void recoverAbandonedJobs().catch((err) => console.warn('[ghl-subaccount-worker] startup recovery:', err))
+}
+
+async function touchHeartbeat(id: string, lease: Date): Promise<void> {
+  await prisma.ghlSubaccountJob.updateMany({
+    where: { id, status: 'running', leaseUntil: lease },
+    data: { heartbeatAt: new Date() },
+  })
+}
+
 async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   let lease = claimedLease
   const extendLease = async (ms: number) => {
@@ -506,6 +617,11 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   const mode = workerMode()
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), JOB_TIMEOUT_MS)
+  liveJob = { id, getLease: () => lease, abort: () => ac.abort(), released: false }
+  await touchHeartbeat(id, lease).catch(() => {})
+  const heartbeat = setInterval(() => {
+    void touchHeartbeat(id, lease).catch(() => {})
+  }, HEARTBEAT_INTERVAL_MS)
   let codeSentAt = 0
   let lastImapAt = 0
   try {
@@ -597,8 +713,16 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
 
     throw new Error(result.detail || 'The browser did not create the sub-account.')
   } catch (err) {
+    if (liveJob?.released || shuttingDown) return 'released'
     if (err instanceof LeaseLost) return 'lost'
     const message = describe(err)
+    if (ac.signal.aborted) {
+      const detail = `Stopped after 20 minutes without finishing. ${message}`.slice(0, 2000)
+      await saveJob(id, lease, { status: 'failed', leaseUntil: null, heartbeatAt: null, lastError: detail, detail, finishedAt: new Date() }).catch(() => {})
+      await markClient(job.clientId, 'failed', detail)
+      await hubAlert(`:warning: *GHL sub-account worker timed out* — *${name}* — ${detail} <${board}|Create it by hand>`)
+      return 'failed'
+    }
     const attempts = job.attempts
     console.error(`[ghl-subaccount-worker] ${job.clientId} attempt ${attempts}:`, message)
     if (environmentFailure(message) || attempts >= MAX_ATTEMPTS) {
@@ -630,11 +754,14 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     )
     return 'retry'
   } finally {
+    clearInterval(heartbeat)
     clearTimeout(timer)
+    if (liveJob?.id === id) liveJob = null
   }
 }
 
 async function claimOne(): Promise<{ id: string; lease: Date } | null> {
+  if (shuttingDown) return null
   const now = new Date()
   const due: Prisma.GhlSubaccountJobWhereInput = {
     OR: [
@@ -652,7 +779,7 @@ async function claimOne(): Promise<{ id: string; lease: Date } | null> {
     const lease = newLease(now.getTime())
     const res = await prisma.ghlSubaccountJob.updateMany({
       where: { id: c.id, ...due },
-      data: { status: 'running', leaseUntil: lease, attempts: { increment: 1 } },
+      data: { status: 'running', leaseUntil: lease, heartbeatAt: new Date(), attempts: { increment: 1 } },
     })
     if (res.count === 1) return { id: c.id, lease }
   }
@@ -663,7 +790,12 @@ let inFlight = false
 
 export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
   if (!workerEnabled()) return { enabled: false, ran: false, enqueued: 0, claimed: false }
-  if (inFlight) return { enabled: true, ran: false, enqueued: 0, claimed: false }
+  const recovered = await recoverAbandonedJobs().catch((err) => {
+    console.warn('[ghl-subaccount-worker] recovery:', err)
+    return 0
+  })
+  if (shuttingDown) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
+  if (inFlight) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   inFlight = true
   try {
     const enqueued = await sweepEligibleClients()
@@ -675,11 +807,11 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
       })
       promoted = res.count
     }
-    if (!workerRunsBrowser()) return { enabled: true, ran: false, enqueued, claimed: false, promoted }
+    if (!workerRunsBrowser()) return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
     const claimed = await claimOne()
-    if (!claimed) return { enabled: true, ran: true, enqueued, claimed: false, promoted }
+    if (!claimed) return { enabled: true, ran: true, enqueued, claimed: false, promoted, recovered }
     const outcome = await executeClaimed(claimed.id, claimed.lease)
-    return { enabled: true, ran: true, enqueued, claimed: true, outcome, promoted }
+    return { enabled: true, ran: true, enqueued, claimed: true, outcome, promoted, recovered }
   } finally {
     inFlight = false
   }
@@ -701,6 +833,7 @@ export async function recentWorkerJobs(limit = 15) {
       nextAttemptAt: true,
       finishedAt: true,
       updatedAt: true,
+      heartbeatAt: true,
       client: { select: { name: true } },
     },
   })
@@ -717,6 +850,8 @@ export async function recentWorkerJobs(limit = 15) {
     nextAttemptAt: r.nextAttemptAt.toISOString(),
     finishedAt: r.finishedAt?.toISOString() ?? null,
     updatedAt: r.updatedAt.toISOString(),
+    heartbeatAt: r.heartbeatAt?.toISOString() ?? null,
+    stale: r.status === 'running' && isHeartbeatStale(r.heartbeatAt, r.updatedAt),
   }))
 }
 
