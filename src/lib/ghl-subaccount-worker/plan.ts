@@ -16,7 +16,10 @@ export type PageField = {
   tag: string
   type: string
   value: string
+  /** Visible label or aria-label. */
   text: string
+  /** Placeholder, kept separate so a dry run can record both. */
+  placeholder?: string
 }
 
 export type PageSnap = {
@@ -40,7 +43,7 @@ export type PageSnap = {
 
 export type BrowserAction =
   | { type: 'goto'; url: string; settle?: boolean }
-  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean; settle?: boolean | 'modal' }
+  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean; settle?: boolean | 'modal' | 'form' }
   | { type: 'wait_list' }
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
@@ -60,6 +63,8 @@ export type DriveResult = {
   uncertain: boolean
   /** Left the login and the code page for the agency dashboard. */
   reachedAgency?: boolean
+  /** snapshot query param GHL put on the business-search URL. */
+  observedSnapshotId?: string
 }
 
 export type DriveInput = {
@@ -103,6 +108,8 @@ export type RunState = {
   snapshotChosen: boolean
   /** Snapshot-template tabs already opened, in the order they were tried. */
   snapshotTabsTried: string[]
+  /** Add manually was clicked on the Google business-search step. */
+  manualAdded: boolean
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -139,6 +146,7 @@ export function initialRunState(): RunState {
     triedOverride: false,
     snapshotChosen: false,
     snapshotTabsTried: [],
+    manualAdded: false,
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -269,8 +277,25 @@ function codeMethods(snap: PageSnap): { email: boolean; phone: boolean } {
   }
 }
 
+export function snapshotIdFromUrl(url: string): string | null {
+  try {
+    const id = new URL(url).searchParams.get('snapshot')?.trim() || ''
+    return /^[A-Za-z0-9_-]{8,64}$/.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
 function onForm(snap: PageSnap): boolean {
   return !!fieldByKey(snap, 'name')
+}
+
+function isBusinessSearch(snap: PageSnap): boolean {
+  if (onForm(snap)) return false
+  if (/\/accounts\/search\b/i.test(snap.url || '')) return true
+  const blob = `${snap.body}\n${snap.buttons.join('\n')}\n${snap.links.map((link) => link.text).join('\n')}`
+  const hasSearch = snap.fields.some((field) => field.key === 'search' || field.text === 'search' || field.placeholder === 'search')
+  return /add manually/.test(blob) && hasSearch
 }
 
 function isSnapshotModal(snap: PageSnap): boolean {
@@ -280,8 +305,21 @@ function isSnapshotModal(snap: PageSnap): boolean {
 }
 
 function fieldLabelNote(snap: PageSnap): string {
-  const labels = snap.fields.map((field) => field.text).filter(Boolean)
-  return labels.length ? `Fields on the form: ${labels.join(', ')}.` : 'No field labels were visible on the form.'
+  const parts = snap.fields.map((field) => {
+    const bits = [field.text, field.placeholder].filter(Boolean)
+    return bits.join(' / ') || field.key || field.tag
+  })
+  return parts.length ? `Fields: ${parts.join(', ')}.` : 'No field labels were visible on the form.'
+}
+
+function finalSaveLabel(snap: PageSnap): string {
+  const skip = /create new|create sub-?account|back to|add manually|cancel|search/
+  const hit = snap.buttons.find((button) => {
+    const text = norm(button)
+    if (!text || skip.test(text)) return false
+    return /^(save|create|submit|add|done|continue|next)$/.test(text) || /save|create account|add account/.test(text)
+  })
+  return hit || '(no save button seen)'
 }
 
 /** The list's own button. The header control "create new" is not this. */
@@ -403,6 +441,7 @@ export type Step =
 
 export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState): Step {
   let s = noteSettled(state, snap)
+  if (snapshotIdFromUrl(snap.url)) s = { ...s, snapshotChosen: true, snapshotTried: true }
   for (let guard = 0; guard < 30; guard++) {
     if (s.submitted) {
       const id = locationIdFromUrl(snap.url)
@@ -624,7 +663,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           status: 'dry_run',
           locationId: null,
           uncertain: false,
-          detail: `Reached the details form for "${input.fields.name}" and stopped before Create. ${fieldLabelNote(snap)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
+          detail: `Reached the details form for "${input.fields.name}" and stopped before Create (${finalSaveLabel(snap)}). ${fieldLabelNote(snap)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
         })
       }
       return act(
@@ -633,6 +672,14 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
       )
     }
 
+    if (isBusinessSearch(snap) && !s.manualAdded) {
+      return act(beginStep({ ...s, manualAdded: true, openedCreate: true }, 'click Add manually'), {
+        type: 'click',
+        words: input.labels.addManually ?? ['Add manually'],
+        contains: true,
+        settle: 'form',
+      })
+    }
     if (s.openedCreate && !s.choseSnapshot) {
       const choice = snapshotWizardButton(snap)
       if (choice) {
@@ -775,16 +822,19 @@ export async function driveUntil(
   let otpPolls = 0
   let steps = 0
   let reachedAgency = false
+  let observedSnapshotId: string | null = null
   let lastSnap: PageSnap | null = null
   const finish = (result: DriveResult): DriveResult => {
     const detail = state.trustNote && !result.detail.includes(state.trustNote) ? `${result.detail}\n${state.trustNote}` : result.detail
-    return { ...result, detail, ...(reachedAgency ? { reachedAgency: true } : {}) }
+    return { ...result, detail, ...(reachedAgency ? { reachedAgency: true } : {}), ...(observedSnapshotId ? { observedSnapshotId } : {}) }
   }
 
   while (steps < maxSteps) {
     const snap = await io.snapshot()
     lastSnap = snap
     if (isAgencyHome(snap)) reachedAgency = true
+    const seenSnapshot = snapshotIdFromUrl(snap.url)
+    if (seenSnapshot) observedSnapshotId = seenSnapshot
     const step = nextGhlAction(snap, current, state)
     state = step.state
     if (step.kind === 'done') return finish(step.result)
