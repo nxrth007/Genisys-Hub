@@ -46,6 +46,7 @@ const plan = loadTs(join(dir, 'plan.ts'))
 const pageSource = loadTs(join(dir, 'page-source.ts'))
 const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 const otpMail = loadTs(join(dir, 'otp-mail.ts'))
+const snapshotCard = loadTs(join(dir, 'snapshot-card.ts'))
 
 const {
   workerEnabled,
@@ -670,6 +671,83 @@ test('the snapshot modal opens Imported first and selects the card by its exact 
   assert.match(dry.result.detail, /account name/)
   assert.match(dry.result.detail, /email/)
   assert.equal(dry.result.detail.includes('press Create') || dry.result.detail.includes('MODE=create'), true)
+})
+
+test('the snapshot card is the ancestor of the exact title, not the MT avatar', () => {
+  const { locateSnapshotCard, redactCardHtml } = snapshotCard
+  function textNode(value) {
+    return { nodeType: 3, textContent: value, childNodes: [], parentElement: null, contains() { return false } }
+  }
+  function element(tag, attrs = {}) {
+    const el = {
+      nodeType: 1,
+      tagName: tag.toUpperCase(),
+      attrs,
+      childNodes: [],
+      parentElement: null,
+      getAttribute(name) {
+        return this.attrs[name] ?? null
+      },
+      getBoundingClientRect() {
+        return { x: 10, y: 20, width: 180, height: 64, left: 10, top: 20, right: 190, bottom: 84 }
+      },
+      append(...kids) {
+        for (const kid of kids) {
+          kid.parentElement = this
+          this.childNodes.push(kid)
+        }
+        return this
+      },
+      get textContent() {
+        return this.childNodes.map((node) => node.textContent || '').join('')
+      },
+      contains(other) {
+        let current = other
+        while (current) {
+          if (current === this) return true
+          current = current.parentElement
+        }
+        return false
+      },
+      querySelectorAll() {
+        const found = []
+        const walk = (node) => {
+          for (const child of node.childNodes) {
+            if (child.nodeType !== 1) continue
+            found.push(child)
+            walk(child)
+          }
+        }
+        walk(this)
+        return found
+      },
+    }
+    return el
+  }
+
+  const dialog = element('div', { role: 'dialog' })
+  const card = element('div', { class: 'cursor-pointer rounded-lg', role: 'button' })
+  const avatar = element('div')
+  avatar.append(textNode('MT'))
+  const title = element('span')
+  title.append(textNode('Master Template'))
+  card.append(avatar, title)
+  dialog.append(card)
+
+  assert.equal(locateSnapshotCard('master template', dialog), card)
+  assert.equal(locateSnapshotCard('not a snapshot', dialog), null)
+
+  const plain = element('div')
+  const plainCard = element('div')
+  const initials = element('div')
+  initials.append(textNode('MT'))
+  const label = element('div')
+  label.append(textNode('Master Template'))
+  plainCard.append(initials, label)
+  plain.append(plainCard)
+  assert.equal(locateSnapshotCard('Master Template', plain), plainCard)
+  assert.equal(redactCardHtml('<div>code 654321</div>' + 'x'.repeat(1600)).length, 1500)
+  assert.equal(redactCardHtml('<div>code 654321</div>').includes('654321'), false)
 })
 
 test('the create button tolerates a leading plus, then the snapshot choice is taken', () => {
