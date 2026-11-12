@@ -55,6 +55,8 @@ const {
   workerMode,
   workerPaused,
   backfillIntakeIds,
+  snapshotRecheckLocationIds,
+  snapshotPushAfterCreate,
   retryDelayMs,
   MAX_ATTEMPTS,
   subAccountListUrl,
@@ -62,7 +64,7 @@ const {
   parseAgencyLogin,
 } = config
 const { ghlLabels } = labelsMod
-const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolveSnapshotChoice, snapshotImportState } = fieldsMod
+const { browserFieldsFromLocation, readBrowserFields, ghlSubAccountName, resolveSnapshotChoice, snapshotImportState, describeSnapshotPush, readSnapshotPushStatus, loadSnapshotButton, snapshotSettingsUrls } = fieldsMod
 const { autoEnqueueAllowed, intakeTimeKnown } = eligibility
 const { secretMatches, parseTriggerBody } = trigger
 const { sealString, openString } = session
@@ -119,6 +121,10 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.deepEqual(backfillIntakeIds({}), ['cmwd3jnao001m3hsct1totiqp'])
   assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: '' }), [])
   assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: 'cmwd3jnao001m3hsct1totiqp, other' }), ['cmwd3jnao001m3hsct1totiqp', 'other'])
+  assert.deepEqual(snapshotRecheckLocationIds({}), [])
+  assert.deepEqual(snapshotRecheckLocationIds({ GHL_SNAPSHOT_RECHECK_LOCATION_IDS: '1MQb8TlVXLcwNgO24RAU' }), ['1MQb8TlVXLcwNgO24RAU'])
+  assert.equal(snapshotPushAfterCreate({}), false)
+  assert.equal(snapshotPushAfterCreate({ GHL_SNAPSHOT_PUSH_AFTER_CREATE: '1' }), true)
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')
@@ -232,8 +238,24 @@ test('form fields follow the API payload, with United States spelled out', () =>
   assert.equal(byEnv.source, 'env_id')
   assert.equal(snapshotImportState(null), 'missing')
   assert.equal(snapshotImportState({ status: 'processing', pending: ['funnels'] }), 'loading')
+  assert.equal(snapshotImportState({ status: 'processing', completed: ['funnels', 'workflow'], pending: ['wordpress'] }), 'loading')
   assert.equal(snapshotImportState({ status: 'completed', completed: ['workflows'] }), 'applied')
   assert.equal(snapshotImportState({ status: 'failed' }), 'failed')
+  const raw = readSnapshotPushStatus({
+    id: 'doc1',
+    locationId: '1MQb8TlVXLcwNgO24RAU',
+    status: 'processing',
+    completed: ['funnels', 'workflow'],
+    pending: ['wordpress'],
+    failed: ['email_templates'],
+  })
+  assert.equal(snapshotImportState(raw), 'loading')
+  assert.match(describeSnapshotPush(raw, '1MQb8TlVXLcwNgO24RAU', 'PsOYVeuIfXR7soMIiMcI'), /GET \/snapshots\/snapshot-status\/PsOYVeuIfXR7soMIiMcI\/location\/1MQb8TlVXLcwNgO24RAU/)
+  assert.match(describeSnapshotPush(raw, '1MQb8TlVXLcwNgO24RAU', 'PsOYVeuIfXR7soMIiMcI'), /not a count of records/)
+  assert.match(describeSnapshotPush(raw, 'other-location', 'PsOYVeuIfXR7soMIiMcI'), /which is not other-location/)
+  assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create', 'Load snapshot']), 'Load snapshot')
+  assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create']), null)
+  assert.equal(snapshotSettingsUrls('https://app.gohighlevel.com', '1MQb8TlVXLcwNgO24RAU')[0], 'https://app.gohighlevel.com/v2/location/1MQb8TlVXLcwNgO24RAU/settings/snapshot')
 })
 
 test('agency login parses JSON or two lines and rejects a bare password', () => {

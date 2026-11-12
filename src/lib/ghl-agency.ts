@@ -13,6 +13,7 @@
  */
 import { prisma } from './prisma'
 import { getSecretByName, listEntriesByTag } from './vault-service'
+import { readSnapshotPushStatus, type SnapshotPushStatus } from './ghl-subaccount-worker/fields'
 import { API_VERSION, BASE_URL, GHL_AGENCY_KEY_VAULT_NAME, decodeJwtPayload } from './ghl'
 
 export class GhlAgencyError extends Error {
@@ -314,20 +315,22 @@ export async function listSnapshots(ctx: AgencyContext): Promise<AgencySnapshot[
   })
 }
 
-export type SnapshotPushStatus = { status: string; completed: string[]; pending: string[] }
+export type { SnapshotPushStatus }
 
-/** How far GHL has got loading a snapshot into a sub-account; null when it has no record of it. */
+/**
+ * Last snapshot push for one location.
+ * GET /snapshots/snapshot-status/:snapshotId/location/:locationId
+ * `completed` and `pending` are asset type names on that document.
+ * Null when GHL has no record of a push.
+ */
 export async function getSnapshotPushStatus(
   ctx: AgencyContext,
   snapshotId: string,
   locationId: string,
 ): Promise<SnapshotPushStatus | null> {
-  const res = await agencyFetch<{ data?: Record<string, unknown> }>(
+  const res = await agencyFetch<{ data?: unknown }>(
     ctx.token,
     `/snapshots/snapshot-status/${encodeURIComponent(snapshotId)}/location/${encodeURIComponent(locationId)}?companyId=${encodeURIComponent(ctx.companyId)}`,
   )
-  const data = res.data
-  if (!data || typeof data.status !== 'string') return null
-  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
-  return { status: data.status, completed: list(data.completed), pending: list(data.pending) }
+  return readSnapshotPushStatus(res.data)
 }
