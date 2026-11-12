@@ -23,14 +23,11 @@ import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { runCreateInBrowser } from './browser'
 import {
-  loginFromEnv,
   MAX_ATTEMPTS,
   ONBOARDING_WEBHOOK_SECRET_NAME,
-  parseAgencyLogin,
   retryDelayMs,
   subAccountListUrl,
   listUrlOverride,
-  VAULT_LOGIN_NAME,
   VAULT_WEBHOOK_SECRET_NAME,
   WORKER_SINCE_GRACE_MS,
   workerEnabled,
@@ -59,12 +56,11 @@ import {
 } from './fields'
 import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, mayClaimRequeuedJob, requeueCommitOf, runningCommit, shouldAutoRetest, skipNewerBuildLog } from './heartbeat'
 import { ghlLabels } from './labels'
-import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
-import { openString, sealString } from './session'
+import { sealString } from './session'
+import { loadLogin, loadSession, makeOtpPuller, OTP_KEY, saveSession } from './session-store'
+import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib/ghl-customize/queue'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
-const SESSION_KEY = 'ghlSubaccountWorker.session'
-const OTP_KEY = 'ghlSubaccountWorker.otp'
 const LEASE_MS = 20 * 60 * 1000
 const JOB_TIMEOUT_MS = JOB_WALL_MS
 const ACTOR = 'ghl-subaccount-worker'
@@ -84,6 +80,8 @@ export type TickResult = {
   promoted?: number
   recovered?: number
   paused?: boolean
+  /** Workflow customize jobs the sweep queued this tick. */
+  customizeQueued?: number
 }
 
 class LeaseLost extends Error {
@@ -128,31 +126,6 @@ export async function workerWebhookSecret(): Promise<string | null> {
   return null
 }
 
-async function loadLogin(): Promise<{ email: string; password: string } | null> {
-  const fromEnv = loginFromEnv()
-  if (fromEnv) return fromEnv
-  try {
-    return parseAgencyLogin(await getSecretByName(VAULT_LOGIN_NAME))
-  } catch {
-    return null
-  }
-}
-
-async function loadSession(): Promise<string | null> {
-  const row = await prisma.appSetting.findUnique({ where: { key: SESSION_KEY } })
-  return openString(row?.value)
-}
-
-async function saveSession(json: string): Promise<void> {
-  if (json.length > 500_000) return
-  const value = sealString(json)
-  await prisma.appSetting.upsert({
-    where: { key: SESSION_KEY },
-    create: { key: SESSION_KEY, value },
-    update: { value },
-  })
-}
-
 export async function submitWorkerOtp(code: string, clientId?: string | null): Promise<{ ok: true; requeued: number } | { ok: false; reason: string }> {
   const clean = code.trim()
   if (!/^[A-Za-z0-9]{4,12}$/.test(clean)) {
@@ -172,39 +145,6 @@ export async function submitWorkerOtp(code: string, clientId?: string | null): P
     data: { status: 'queued', nextAttemptAt: new Date(), leaseUntil: null },
   })
   return { ok: true, requeued: res.count }
-}
-
-async function takeWorkerOtp(clientId: string): Promise<string | null> {
-  const row = await prisma.appSetting.findUnique({ where: { key: OTP_KEY } })
-  if (!row) return null
-  const raw = openString(row.value)
-  if (!raw) return null
-  let parsed: { code?: unknown; at?: unknown; clientId?: unknown }
-  try {
-    parsed = JSON.parse(raw) as { code?: unknown; at?: unknown; clientId?: unknown }
-  } catch {
-    return null
-  }
-  if (typeof parsed.code !== 'string') return null
-  if (typeof parsed.clientId === 'string' && parsed.clientId && parsed.clientId !== clientId) return null
-  const at = typeof parsed.at === 'string' ? Date.parse(parsed.at) : NaN
-  if (Number.isNaN(at) || Date.now() - at > 5 * 60_000) {
-    await prisma.appSetting.delete({ where: { key: OTP_KEY } }).catch(() => {})
-    return null
-  }
-  await prisma.appSetting.delete({ where: { key: OTP_KEY } }).catch(() => {})
-  return parsed.code
-}
-
-async function pollOtp(clientId: string, waitMs: number): Promise<string | null> {
-  const deadline = Date.now() + waitMs
-  for (;;) {
-    const code = await takeWorkerOtp(clientId)
-    if (code) return code
-    const left = deadline - Date.now()
-    if (left <= 0) return null
-    await new Promise((resolve) => setTimeout(resolve, Math.min(1000, left)))
-  }
 }
 
 type ClientRow = {
@@ -631,6 +571,9 @@ export function installWorkerLifecycle(): void {
     void releaseLiveJob('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-subaccount-worker] could not release the in-flight job:', err)
     })
+    void releaseLiveCustomize('Released back to the queue because this instance is shutting down.').catch((err) => {
+      console.warn('[ghl-customize] could not release the in-flight job:', err)
+    })
   }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
@@ -899,8 +842,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
   const heartbeat = setInterval(() => {
     void touchHeartbeat(id, lease).catch(() => {})
   }, HEARTBEAT_INTERVAL_MS)
-  let codeSentAt = 0
-  let lastImapAt = 0
+  const otp = makeOtpPuller(job.clientId, (line) => appendLog(id, lease, line))
   try {
     const result = await runCreateInBrowser({
       fields: ready,
@@ -924,28 +866,10 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       },
       pullOtp: async (ms) => {
         await extendLease(14 * 60 * 1000).catch(() => {})
-        const pasted = await pollOtp(job.clientId, 0)
-        if (pasted) return pasted
-        const started = codeSentAt || Date.now()
-        if (imapSettings() && Date.now() - started < 3 * 60 * 1000 && Date.now() - lastImapAt >= 8_000) {
-          lastImapAt = Date.now()
-          const notes: string[] = []
-          try {
-            const mailed = await fetchLatestSecurityCode(new Date(started), process.env, (line) => notes.push(line))
-            if (notes.length) await appendLog(id, lease, notes.join('\n')).catch(() => {})
-            if (mailed) return mailed
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            notes.push(`IMAP read failed: ${message.slice(0, 300)}`)
-            await appendLog(id, lease, notes.join('\n')).catch(() => {})
-            console.warn('[ghl-subaccount-worker] inbox read failed; waiting for a pasted code:', message)
-          }
-        }
-        if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms))
-        return null
+        return otp.pull(ms)
       },
       onOtpPrompt: async (detail) => {
-        if (!codeSentAt) codeSentAt = Date.now()
+        otp.noteCodeSent()
         await extendLease(14 * 60 * 1000).catch(() => {})
         await saveJob(id, lease, { detail }).catch((err) => {
           if (!(err instanceof LeaseLost)) console.warn('[ghl-subaccount-worker] could not record the code wait:', err)
@@ -1199,6 +1123,7 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
     return 0
   })
   await watchForStalls().catch((err) => console.warn('[ghl-subaccount-worker] stall check:', err))
+  await watchCustomizeStalls().catch((err) => console.warn('[ghl-customize] stall check:', err))
   if (shuttingDown) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   if (inFlight) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   inFlight = true
@@ -1212,9 +1137,28 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
       })
       promoted = res.count
     }
-    if (!workerRunsBrowser()) return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
+    if (!workerRunsBrowser()) {
+      await customizeTick({ runBrowser: false }).catch((err) => console.warn('[ghl-customize] tick:', err))
+      return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
+    }
     const claimed = await claimOne()
-    if (!claimed) return { enabled: true, ran: true, enqueued, claimed: false, promoted, recovered }
+    if (!claimed) {
+      // No sub-account to create: the browser is free for a workflow customize job.
+      const custom = await customizeTick({ runBrowser: !shuttingDown }).catch((err) => {
+        console.warn('[ghl-customize] tick:', err)
+        return null
+      })
+      return {
+        enabled: true,
+        ran: true,
+        enqueued,
+        claimed: !!custom?.claimed,
+        ...(custom?.outcome ? { outcome: `customize:${custom.outcome}` } : {}),
+        ...(custom?.queued ? { customizeQueued: custom.queued } : {}),
+        promoted,
+        recovered,
+      }
+    }
     inFlightSince = Date.now()
     try {
       // A job handed back at shutdown loses its lease mid-step; that is expected, not an error.

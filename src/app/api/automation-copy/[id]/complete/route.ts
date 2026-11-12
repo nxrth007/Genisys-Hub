@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { AUTOMATION_IDS } from '@/lib/automation-copy'
-import { AUTOMATION_COPY_PREFIX, cleanSavedCopy, parseSavedCopy } from '@/lib/automation-copy-saved'
-import { markTrackerStep, trackerRowFor } from '@/lib/onboarding-tracker'
+import { markAutomationCopyDone } from '@/lib/automation-copy-server'
+import { trackerRowFor } from '@/lib/onboarding-tracker'
 
 /**
  * POST /api/automation-copy/:id/complete — "Mark Completed": every automation
@@ -43,27 +42,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const denied = await requireStaff()
   if (denied) return denied
   const { id } = await params
-  const client = await prisma.client.findUnique({
-    where: { id },
-    select: {
-      name: true,
-      contactName: true,
-      contactEmail: true,
-      intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { leadEmail: true, fullName: true, businessName: true } },
-    },
-  })
-  if (!client) return NextResponse.json({ error: 'client not found' }, { status: 404 })
-
-  const key = `${AUTOMATION_COPY_PREFIX}${id}`
-  const row = await prisma.appSetting.findUnique({ where: { key } })
-  const saved = cleanSavedCopy({ ...parseSavedCopy(row?.value), done: AUTOMATION_IDS, updatedAt: new Date().toISOString() })
-  await prisma.appSetting.upsert({ where: { key }, create: { key, value: JSON.stringify(saved) }, update: { value: JSON.stringify(saved) } })
-
-  const intake = client.intakes[0]
-  const tracker = await markTrackerStep('automations', {
-    emails: [intake?.leadEmail, client.contactEmail],
-    business: intake?.businessName || client.name,
-    name: intake?.fullName || client.contactName,
-  })
-  return NextResponse.json({ saved, tracker })
+  const done = await markAutomationCopyDone(id)
+  if (!done) return NextResponse.json({ error: 'client not found' }, { status: 404 })
+  return NextResponse.json(done)
 }

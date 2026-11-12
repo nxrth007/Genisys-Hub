@@ -24,6 +24,28 @@ import {
 /** One Chromium at a time. A second launch would sit on top of the Hub's memory. */
 let browserOpen = false
 
+/** Take the one browser slot (the create job and the customize job share it). */
+export function claimBrowser(): void {
+  if (browserOpen) throw new Error('A browser is already open. The worker runs one Chromium at a time and closes it when the job finishes.')
+  browserOpen = true
+}
+
+export function releaseBrowser(): void {
+  browserOpen = false
+}
+
+/** The browser context every GHL job uses, so the saved session's cookies fit it. */
+export async function newWorkerContext(browser: Browser, storageState: string | null): Promise<BrowserContext> {
+  return browser.newContext({
+    storageState: parseStorage(storageState) as Awaited<ReturnType<BrowserContext['storageState']>> | undefined,
+    viewport: { width: 1440, height: 900 },
+    locale: 'en-US',
+    timezoneId: 'America/New_York',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  })
+}
+
 export type BrowserRunOptions = {
   fields: BrowserFields
   mode: 'dry_run' | 'create'
@@ -460,7 +482,7 @@ async function scrollDetailsForm(page: Page): Promise<string[]> {
   return found
 }
 
-async function capturePage(page: Page): Promise<Buffer> {
+export async function capturePage(page: Page): Promise<Buffer> {
   const previous = page.viewportSize()
   if (!previous || previous.width > 1280) await page.setViewportSize({ width: 1280, height: previous?.height || 900 }).catch(() => {})
   try {
@@ -627,10 +649,86 @@ function parseStorage(raw: string | null): unknown {
   }
 }
 
+/** Blank create fields for a sign-in-only run; the planner only reads the login and code steps then. */
+function signInFields(label: string): BrowserFields {
+  return { name: label, email: '', phone: '', address: '', city: '', state: '', postalCode: '', country: '', timezone: '', website: '', firstName: '', lastName: '', snapshotId: '', snapshotName: '' }
+}
+
+/**
+ * Sign in on an open page with the same planner the create job uses (email,
+ * password, the security code step), and stop as soon as GHL shows an app
+ * page. `homeUrl` is where the planner may go if it lands on a page it
+ * doesn't know; it never reaches the create steps because `isSignedIn`
+ * ends the run first.
+ */
+export async function signInOnPage(
+  page: Page,
+  opts: {
+    label: string
+    homeUrl: string
+    labels: GhlLabels
+    login: { email: string; password: string } | null
+    pullOtp: (waitMs: number) => Promise<string | null>
+    onOtpPrompt: (detail: string) => Promise<void>
+    onNote?: (line: string) => Promise<void>
+    capture?: (step: string, image: Buffer) => Promise<void>
+    isSignedIn: (snap: PageSnap) => boolean
+    signal?: AbortSignal
+  },
+): Promise<DriveResult> {
+  const secrets = { password: opts.login?.password ?? '', otp: '' }
+  let active = page
+  const shoot = async (step: string) => {
+    if (!opts.capture) return
+    try {
+      await opts.capture(step, await capturePage(active))
+    } catch {
+      // A missing picture never stops the sign-in.
+    }
+  }
+  return driveUntil(
+    {
+      snapshot: () => snapshotPage(active, opts.labels),
+      perform: async (action) => {
+        const done = await performAction(
+          active,
+          action,
+          opts.labels,
+          secrets,
+          opts.signal,
+          (next) => {
+            active = next
+          },
+          async (line) => {
+            await opts.onNote?.(line)
+          },
+          shoot,
+        )
+        if (done.note) await opts.onNote?.(done.note)
+      },
+      pullOtp: async (waitMs) => {
+        const code = await opts.pullOtp(waitMs)
+        if (code) secrets.otp = code
+        return code
+      },
+      onOtpPrompt: opts.onOtpPrompt,
+    },
+    {
+      fields: signInFields(opts.label),
+      mode: 'dry_run',
+      labels: opts.labels,
+      hasCredentials: !!opts.login,
+      loginEmail: opts.login?.email ?? '',
+      hasOtp: false,
+      listUrl: opts.homeUrl,
+    },
+    { stopWhen: opts.isSignedIn, maxSteps: 24 },
+  )
+}
+
 export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<BrowserRunResult> {
   if (opts.signal?.aborted) throw new Error('The job ran out of time.')
-  if (browserOpen) throw new Error('A browser is already open. The worker runs one Chromium at a time and closes it when the job finishes.')
-  browserOpen = true
+  claimBrowser()
   prepareChromiumEnv()
   const pw = (await import('playwright')) as typeof import('playwright')
   let browser: Browser | null = null
@@ -646,14 +744,7 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
       void browser?.close().catch(() => {})
     }
     opts.signal?.addEventListener('abort', onAbort, { once: true })
-    context = await browser.newContext({
-      storageState: parseStorage(opts.storageState) as Awaited<ReturnType<BrowserContext['storageState']>> | undefined,
-      viewport: { width: 1440, height: 900 },
-      locale: 'en-US',
-      timezoneId: 'America/New_York',
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    })
+    context = await newWorkerContext(browser, opts.storageState)
     const page = await context.newPage()
     page.setDefaultTimeout(20_000)
     let navHref = ''
@@ -791,6 +882,6 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
   } finally {
     await context?.close().catch(() => {})
     await browser?.close().catch(() => {})
-    browserOpen = false
+    releaseBrowser()
   }
 }

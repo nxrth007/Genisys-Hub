@@ -44,3 +44,24 @@ export function workerAlertText(kind: WorkerAlertKind, client: string, reason: s
       return `Genisys Hub: the GHL sub-account for ${client} needs a person.${why} Open: ${link}`
   }
 }
+
+/** The workflow customize job (src/lib/ghl-customize): putting a client's copy into their lead workflows. */
+export type CustomizeAlertKind = 'needs_human' | 'failed' | 'code' | 'held' | 'stuck' | 'waiting'
+
+export function customizeAlertText(kind: CustomizeAlertKind, client: string, reason: string, link: string): string {
+  const why = reason.trim() ? ` ${shortReason(reason)}` : ''
+  switch (kind) {
+    case 'held':
+      return `Genisys Hub: ${client}'s site link is in, but their GHL lead workflow copy is missing the ${reason.trim() || 'details it needs'}. Fill it in and the Hub does the rest: ${link}`
+    case 'code':
+      return `Genisys Hub: GHL wants a sign-in code to update ${client}'s lead workflows. Paste the code from the email here: ${link}`
+    case 'failed':
+      return `Genisys Hub: putting ${client}'s copy into their GHL lead workflows failed.${why} Open: ${link}`
+    case 'stuck':
+      return `Genisys Hub: the worker has been on ${client}'s GHL lead workflows for over an hour and looks stuck.${why} Open: ${link}`
+    case 'waiting':
+      return `Genisys Hub: ${client}'s GHL lead workflows have waited${why} for the worker. It may be stuck or paused. Open: ${link}`
+    default:
+      return `Genisys Hub: ${client}'s GHL lead workflows need a person.${why} Open: ${link}`
+  }
+}

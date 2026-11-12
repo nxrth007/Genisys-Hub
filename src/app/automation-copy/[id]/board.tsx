@@ -17,6 +17,7 @@ import {
   type CopyPiece,
 } from '@/lib/automation-copy'
 import { GhlPanel } from './ghl-panel'
+import { CustomizePanel } from './customize-panel'
 
 type Saved = { values: Partial<AutomationInputs>; done: string[]; updatedAt: string | null }
 type BoardData = {
@@ -264,13 +265,16 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
             </span>
           </p>
         )}
+        <CustomizePanel clientId={clientId} />
+
         {folders.some((f) => f.prompts.length > 0) && (
           <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
             <div>
               <h2 className="text-[14px] font-semibold">GHL Workflow AI prompts</h2>
               <p className="text-[12px] text-muted-foreground">
-                One prompt per automation with this client’s corrected copy, and their email and number for the owner notifications. Open the
-                workflow in the client’s sub-account, open Workflow AI, and paste the matching prompt. Check what it changed before you save.
+                One prompt per automation with this client’s corrected copy, and their email and number for the owner notifications. The Hub
+                runs these itself (above). To do it by hand: open the workflow in the client’s sub-account, open Workflow AI, and paste the
+                matching prompt. Check what it changed before you save.
               </p>
             </div>
             <div className="flex flex-col gap-3">

@@ -10,6 +10,7 @@ import { backfillClientAlerts } from '@/lib/client-alert'
 import { installLeadAlertWorkflow } from '@/lib/lead-alert-install'
 import { getSecretByName } from '@/lib/vault-service'
 import { syncClientSite } from '@/lib/hl/client-site'
+import { queueCustomizeForSite } from '@/lib/ghl-customize/queue'
 
 /**
  * Email allowed to perform destructive operations on the Client
@@ -177,6 +178,8 @@ export async function PATCH(
       void syncSeoSiteLiveUrl(id, parsed.data.siteUrl).catch((err) => console.warn('[clients] seo site url sync failed:', err))
       // Their Hell-level sub-account takes the site as its website, with its policy pages and logo.
       void syncClientSite(id, parsed.data.siteUrl, priorSiteUrl).catch((err) => console.warn('[clients] hell-level site sync failed:', err))
+      // Their GHL lead workflows get the copy with this link (when automatic customizing is on).
+      void queueCustomizeForSite(id)
     }
 
     // Sync linked User roles when lifecycle changes. Without this, a

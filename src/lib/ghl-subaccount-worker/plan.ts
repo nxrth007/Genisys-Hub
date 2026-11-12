@@ -72,7 +72,8 @@ export type BrowserAction =
   | { type: 'pause' }
 
 export type DriveResult = {
-  status: 'created' | 'already' | 'dry_run' | 'needs_human' | 'failed'
+  /** signed_in: a sign-in-only run (driveUntil's stopWhen) reached an app page. */
+  status: 'created' | 'already' | 'dry_run' | 'needs_human' | 'failed' | 'signed_in'
   locationId: string | null
   detail: string
   /** Create was clicked and GHL didn't confirm. Don't automatically try again. */
@@ -1002,7 +1003,13 @@ const OTP_POLL_CAP = 450
 export async function driveUntil(
   io: PageIo,
   input: DriveInput,
-  opts: { maxSteps?: number; otpBudgetMs?: number; now?: () => number } = {},
+  opts: {
+    maxSteps?: number
+    otpBudgetMs?: number
+    now?: () => number
+    /** Sign-in only: finish as signed_in as soon as this page is past the login and code steps. */
+    stopWhen?: (snap: PageSnap) => boolean
+  } = {},
 ): Promise<DriveResult> {
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
   const otpBudget = opts.otpBudgetMs ?? DEFAULT_OTP_BUDGET_MS
@@ -1027,6 +1034,9 @@ export async function driveUntil(
     if (isAgencyHome(snap)) reachedAgency = true
     const seenSnapshot = snapshotIdFromUrl(snap.url)
     if (seenSnapshot) observedSnapshotId = seenSnapshot
+    if (opts.stopWhen && !isLogin(snap) && !isOtp(snap) && !isSecurityCodeGate(snap) && opts.stopWhen(snap)) {
+      return finish({ status: 'signed_in', locationId: locationIdFromUrl(snap.url), detail: `Signed in to GHL (${pathOf(snap.url)}).`, uncertain: false })
+    }
     const step = nextGhlAction(snap, current, state)
     state = step.state
     if (step.kind === 'done') return finish(step.result)

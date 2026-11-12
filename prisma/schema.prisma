@@ -757,6 +757,9 @@ model Client {
   subaccountMatchSuggestions SubaccountMatchSuggestion[]
   /// Browser-worker job that creates this client's GHL sub-account (one row).
   ghlSubaccountJob GhlSubaccountJob?
+  /// Browser-worker job that puts this client's copy into the GHL Incoming
+  /// Lead workflows with Workflow AI (one row).
+  ghlCustomizeJob  GhlCustomizeJob?
 }
 
 /// One queued attempt to create a client's GHL sub-account through the
@@ -803,6 +806,57 @@ model GhlSubaccountJobShot {
   mime      String
   data      Bytes
   createdAt DateTime         @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+/// Puts a client's Automation Copy into the three GHL "Incoming Lead
+/// Workflows" of their sub-account: for each workflow the browser worker
+/// pastes the Hub's prompt into GHL's Workflow AI, checks every step it
+/// changed against the Hub's copy, and saves only an exact match
+/// (src/lib/ghl-customize). Queued when the site we built is linked to the
+/// client; queued again when that link changes.
+model GhlCustomizeJob {
+  id            String    @id @default(cuid())
+  clientId      String    @unique
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  locationId    String
+  /// queued | running | held | needs_human | succeeded | failed
+  /// held = a detail the copy needs is missing; the sweep re-checks it.
+  status        String    @default("queued")
+  attempts      Int       @default(0)
+  /// Fencing token. Only the holder of this exact lease may finish the job.
+  leaseUntil    DateTime?
+  heartbeatAt   DateTime?
+  nextAttemptAt DateTime  @default(now())
+  /// The site link the copy was made for. A different link queues it again.
+  siteUrl       String?
+  /// The Automation Copy details the prompts were built from.
+  inputs        Json?
+  /// Per workflow: { [automationId]: { status, note, workflowId, at } }.
+  progress      Json?
+  lastError     String?   @db.Text
+  detail        String?   @db.Text
+  log           Json?
+  /// site | sweep | manual
+  trigger       String    @default("site")
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  shots         GhlCustomizeJobShot[]
+
+  @@index([status, nextAttemptAt])
+}
+
+/// A page image from a customize run. Only the latest few are kept.
+model GhlCustomizeJobShot {
+  id        String          @id @default(cuid())
+  jobId     String
+  job       GhlCustomizeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  step      String
+  mime      String
+  data      Bytes
+  createdAt DateTime        @default(now())
 
   @@index([jobId, createdAt])
 }

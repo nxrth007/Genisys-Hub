@@ -48,6 +48,100 @@ const SOURCE_LABELS: Record<string, string> = {
   'sub-account-token': 'the sub-account tokens in the Vault',
 }
 
+type CustomizeState = {
+  auto: boolean
+  jobs: { id: string; clientId: string; clientName: string; status: string; detail: string | null; updatedAt: string }[]
+}
+
+const CUSTOMIZE_LABELS: Record<string, string> = {
+  queued: 'queued',
+  running: 'running',
+  held: 'waiting on a detail',
+  needs_human: 'needs a person',
+  failed: 'failed',
+  succeeded: 'done',
+  dry_run: 'dry run',
+}
+
+/**
+ * The switch for the lead-workflow customize job: once a client's site link
+ * is added, the Hub puts their Automation Copy into the three Incoming Lead
+ * workflows with Workflow AI (src/lib/ghl-customize).
+ */
+function CustomizeAutoRow() {
+  const qc = useQueryClient()
+  const q = useQuery<CustomizeState>({
+    queryKey: ['ghl-customize'],
+    queryFn: async () => readJson<CustomizeState>(await fetch('/api/admin/ghl-customize')),
+    retry: (count, err) => !(err instanceof ForbiddenError) && count < 2,
+  })
+  const set = useMutation({
+    mutationFn: async (auto: boolean) =>
+      readJson<CustomizeState>(
+        await fetch('/api/admin/ghl-customize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto }) }),
+      ),
+    onSuccess: (data) => qc.setQueryData(['ghl-customize'], data),
+  })
+  if (q.error instanceof ForbiddenError) return null
+  const on = !!q.data?.auto
+  function toggle() {
+    if (!on) {
+      const ok = window.confirm(
+        'Customize lead workflows automatically?\n\nWhen a client whose GHL sub-account the Hub created gets their site link added on the Clients page, the worker opens their three Incoming Lead workflows, pastes the Automation Copy prompts into Workflow AI, checks every changed step against the copy, and saves only an exact match. It runs again if the site link changes.\n\nHand-made sub-accounts and clients marked done on the Automation Copy board are left alone.',
+      )
+      if (!ok) return
+    }
+    set.mutate(!on)
+  }
+  const recent = (q.data?.jobs ?? []).slice(0, 5)
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-background px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Customize lead workflows when the site link is added</p>
+          <p className="text-xs text-muted-foreground">
+            Puts the client&apos;s Automation Copy into their three Incoming Lead workflows with Workflow AI, saving only an exact match.
+            &ldquo;Customize in GHL now&rdquo; on a client&apos;s Automation Copy board works either way.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={q.isLoading || set.isPending}
+          onClick={toggle}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            on ? 'bg-success/15 text-success' : 'bg-muted text-foreground/85',
+          )}
+        >
+          {set.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : on ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
+      </div>
+      {recent.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs">
+          {recent.map((j) => (
+            <li key={j.id} className="flex flex-wrap items-baseline gap-x-2">
+              <a href={`/automation-copy/${j.clientId}`} className="font-medium hover:underline">
+                {j.clientName}
+              </a>
+              <span className="text-muted-foreground">{CUSTOMIZE_LABELS[j.status] ?? j.status}</span>
+              <span className="text-muted-foreground/70">{new Date(j.updatedAt).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * Settings → GHL sub-accounts: the automation that creates a client's
  * sub-account (with the onboarding snapshot) after a new onboarding
@@ -291,6 +385,8 @@ export function GhlSubaccountsSection() {
           )}
         </button>
       </div>
+
+      <CustomizeAutoRow />
 
       <div className="mt-3 rounded-lg border border-border bg-background px-4 py-3">
         <label htmlFor="ghl-snapshot-id" className="text-sm font-medium">

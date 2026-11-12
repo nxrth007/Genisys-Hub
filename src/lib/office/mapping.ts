@@ -24,7 +24,7 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'alfred', name: 'Alfred', role: 'Chief of Staff', color: '#f5c542', source: 'All journey events + every other bot' },
   { id: 'wren', name: 'Wren', role: 'Whop signup intake', color: '#38bdf8', source: 'Journey stage "signup", WhopSignupClaim' },
   { id: 'ivy', name: 'Ivy', role: 'Onboarding form', color: '#a78bfa', source: 'ClientIntake, journey stage "intake"' },
-  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob' },
+  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob' },
   { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website"' },
   { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
@@ -107,7 +107,11 @@ export type SeoRunIn = {
 }
 export type A2pIn = { id: string; accountName: string; stage: string; note: string | null; updatedAt: Date }
 export type RenderMonitorIn = { enabled: boolean; heartbeatFailures: number; openProblems: number; lastDigestAt: Date | null } | null
-/** One GhlSubaccountJob: the browser worker that creates a client's GHL sub-account. */
+/**
+ * One browser-worker job: a GhlSubaccountJob (creates a client's GHL
+ * sub-account) or, with kind 'customize', a GhlCustomizeJob (puts their copy
+ * into the GHL lead workflows with Workflow AI).
+ */
 export type SubaccountJobIn = {
   id: string
   clientName: string
@@ -117,6 +121,7 @@ export type SubaccountJobIn = {
   heartbeatAt: Date | null
   nextAttemptAt: Date
   finishedAt: Date | null
+  kind?: 'create' | 'customize'
 }
 
 export type OfficeInput = {
@@ -311,11 +316,34 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
 
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.
   const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000))
-  const needsPerson: { name: string; at: Date; why: string }[] = []
-  const broken: { text: string; at: Date }[] = []
+  /** `what` is set for lead-workflow jobs ("Lead workflows for X"); unset means a sub-account. */
+  const needsPerson: { name: string; at: Date; why: string; what?: string }[] = []
+  const broken: { text: string; at: Date; customize?: boolean }[] = []
   for (const j of input.subaccountJobs) {
     const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
     const ended = j.finishedAt ?? j.updatedAt
+    if (j.kind === 'customize') {
+      const what = `Lead workflows for ${j.clientName}`
+      if (j.status === 'running') {
+        const beat = j.heartbeatAt ?? j.updatedAt
+        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
+        else add('atlas', { status: 'browsing', task: `Customizing lead workflows for ${j.clientName} with Workflow AI`, icon: 'globe', at: j.updatedAt })
+      } else if (j.status === 'queued') {
+        const waited = t - j.nextAttemptAt.getTime()
+        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what })
+        else add('atlas', { status: 'thinking', task: `${what} queued`, icon: 'dots', at: j.updatedAt })
+      } else if ((j.status === 'needs_human' || j.status === 'held') && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        needsPerson.push({ name: j.clientName, at: ended, why, what })
+        feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} ${j.status === 'held' ? 'wait on a missing detail' : 'need a person'}${why}`), 'needs_you')
+      } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
+        feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
+      } else if (j.status === 'succeeded') {
+        feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Put the Hub's copy into ${j.clientName}'s lead workflows`, 'done')
+        if (age(ended) <= DONE_MS) add('atlas', { status: 'browsing', task: `Customized ${j.clientName}'s lead workflows`, icon: 'check', at: ended })
+      }
+      continue
+    }
     if (j.status === 'running') {
       const beat = j.heartbeatAt ?? j.updatedAt
       if (age(beat) > SUBACCOUNT_STALL_MS) {
@@ -346,13 +374,16 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   }
   if (broken.length) {
     const newest = broken.reduce((a, b) => (b.at > a.at ? b : a))
-    add('atlas', { status: 'error', task: broken.length === 1 ? newest.text : `${broken.length} sub-account jobs failed or stalled`, icon: 'error', at: newest.at })
+    const noun = broken.some((b) => b.customize) ? 'GHL jobs' : 'sub-account jobs'
+    add('atlas', { status: 'error', task: broken.length === 1 ? newest.text : `${broken.length} ${noun} failed or stalled`, icon: 'error', at: newest.at })
   }
   if (needsPerson.length) {
     const newest = needsPerson.reduce((a, b) => (b.at > a.at ? b : a))
+    const one = newest.what ? `${newest.what} need you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
+    const noun = needsPerson.some((p) => p.what) ? 'GHL jobs' : 'sub-accounts'
     add('atlas', {
       status: 'needs_you',
-      task: needsPerson.length === 1 ? clip(`Sub-account for ${newest.name} needs you${newest.why}`) : `${needsPerson.length} sub-accounts need you`,
+      task: needsPerson.length === 1 ? clip(one) : `${needsPerson.length} ${noun} need you`,
       icon: 'alert',
       at: newest.at,
     })

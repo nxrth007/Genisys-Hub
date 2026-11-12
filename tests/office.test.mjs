@@ -224,3 +224,28 @@ test('Atlas shows the sub-account worker: creating, queued, needs you, failed, s
   assert.equal(bot(done, 'atlas').icon, 'check')
   assert.ok(done.activity.some((a) => a.botId === 'atlas' && /Created the GHL sub-account for Client a/.test(a.text) && a.tone === 'done'))
 })
+
+test('Atlas also shows the lead-workflow customize jobs: running, held, needs you, done', () => {
+  const job = (id, status, extra = {}) => ({ id, clientName: `Client ${id}`, status, detail: null, updatedAt: ago(1), heartbeatAt: ago(0.2), nextAttemptAt: ago(2), finishedAt: null, kind: 'customize', ...extra })
+  const run = (jobs) => bot(deriveOffice({ ...emptyInput(), subaccountJobs: jobs }, NOW), 'atlas')
+
+  const busy = run([job('a', 'running')])
+  assert.equal(busy.status, 'browsing')
+  assert.match(busy.task, /Customizing lead workflows for Client a with Workflow AI/)
+  assert.match(run([job('a', 'queued')]).task, /Lead workflows for Client a queued/)
+
+  const held = run([job('a', 'held', { detail: 'Waiting on the website link', finishedAt: ago(3) })])
+  assert.equal(held.status, 'needs_you')
+  assert.match(held.task, /Lead workflows for Client a need you: Waiting on the website link/)
+
+  assert.equal(run([job('a', 'running', { heartbeatAt: ago(5) })]).status, 'error')
+  assert.equal(run([job('a', 'failed', { finishedAt: ago(2) })]).status, 'error')
+
+  // A sub-account and a lead-workflow job that both need a person.
+  const mixed = run([job('a', 'needs_human', { finishedAt: ago(3) }), { ...job('b', 'needs_human', { finishedAt: ago(4) }), kind: undefined }])
+  assert.equal(mixed.task, '2 GHL jobs need you')
+
+  const done = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'succeeded', { finishedAt: ago(2) })] }, NOW)
+  assert.equal(bot(done, 'atlas').icon, 'check')
+  assert.ok(done.activity.some((a) => a.botId === 'atlas' && /Put the Hub's copy into Client a's lead workflows/.test(a.text) && a.tone === 'done'))
+})

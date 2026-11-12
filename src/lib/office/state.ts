@@ -23,7 +23,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   }
 
   const openSince = new Date(now.getTime() - SUBACCOUNT_OPEN_MS)
-  const [events, stages, intakes, claims, matches, runs, a2p, render, subaccountJobs] = await Promise.all([
+  const [events, stages, intakes, claims, matches, runs, a2p, render, subaccountJobs, customizeJobs] = await Promise.all([
     safe('journey events', () =>
       prisma.clientJourneyEvent.findMany({
         where: { createdAt: { gte: since } },
@@ -82,6 +82,20 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         take: 40,
         select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
       }), []),
+    safe('customize jobs', () =>
+      prisma.ghlCustomizeJob.findMany({
+        where: {
+          client: { is: { archivedAt: null } },
+          OR: [
+            { status: { in: ['queued', 'running'] } },
+            { status: { in: ['needs_human', 'failed', 'held'] }, updatedAt: { gte: openSince } },
+            { updatedAt: { gte: since } },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 40,
+        select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+      }), []),
   ])
 
   input.journeyEvents = events.map((e) => ({ ...e, clientName: e.client?.name ?? 'a client' }))
@@ -92,7 +106,10 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   input.seoRuns = runs.map((r) => ({ ...r, siteName: r.site?.name ?? 'a site' }))
   input.a2p = a2p.map((a) => ({ id: a.id, stage: a.stage, note: a.note, updatedAt: a.updatedAt, accountName: a.account?.name ?? 'a sub-account' }))
   input.render = parseRenderState(render?.value ?? null, now)
-  input.subaccountJobs = subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' }))
+  input.subaccountJobs = [
+    ...subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' })),
+    ...customizeJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'customize' as const })),
+  ]
 
   return deriveOffice(input, now)
 }
