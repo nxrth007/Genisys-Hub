@@ -810,9 +810,7 @@ test('the business search step opens Add manually and a dry run records the form
   assert.equal(snapshotIdFromUrl(search.url), 'PsOYVeuIfXR7soMIiMcI')
   const opened = { ...initialRunState(), openedCreate: true, snapshotChosen: true }
   const step = nextGhlAction(search, input('dry_run'), opened)
-  assert.equal(step.action.type, 'click')
-  assert.deepEqual(step.action.words, ['Add manually'])
-  assert.equal(step.action.settle, 'form')
+  assert.equal(step.action.type, 'add_manually')
   const form = snap({
     url: 'https://app.gohighlevel.com/accounts/create',
     buttons: ['Save', 'create new'],
@@ -829,7 +827,7 @@ test('the business search step opens Add manually and a dry run records the form
       snapshot: async () => (manual ? form : search),
       perform: async (action) => {
         actions.push(action)
-        if (action.type === 'click' && action.words && action.words.includes('Add manually')) manual = true
+        if (action.type === 'add_manually') manual = true
       },
       pullOtp: async () => null,
       onOtpPrompt: async () => {},
@@ -845,6 +843,65 @@ test('the business search step opens Add manually and a dry run records the form
   assert.match(result.detail, /acme painting/)
   assert.match(result.detail, /Save/)
   assert.equal(result.observedSnapshotId, 'PsOYVeuIfXR7soMIiMcI')
+})
+
+test('a failed Add manually on the search page logs every try and writes a shot', async () => {
+  const { ADD_MANUALLY_ATTEMPTS, runSearchAddManually } = snapshotCard
+  const logs = []
+  const shots = []
+  const clicks = []
+  await assert.rejects(
+    () =>
+      runSearchAddManually({
+        attempts: ADD_MANUALLY_ATTEMPTS.map((name) => ({
+          name,
+          run: async () => {
+            clicks.push(name)
+          },
+        })),
+        opened: async () => false,
+        log: (line) => {
+          logs.push(line)
+        },
+        capture: (step) => {
+          shots.push(step)
+        },
+      }),
+    /Tried innermost click, clickable ancestor, mouse centre/,
+  )
+  assert.deepEqual(clicks, ['innermost click', 'clickable ancestor', 'mouse centre'])
+  assert.ok(logs.includes('Add manually try: innermost click'))
+  assert.ok(logs.includes('Add manually try failed: innermost click'))
+  assert.ok(logs.includes('Add manually try: clickable ancestor'))
+  assert.ok(logs.includes('Add manually try failed: clickable ancestor'))
+  assert.ok(logs.includes('Add manually try: mouse centre'))
+  assert.ok(logs.includes('Add manually try failed: mouse centre'))
+  assert.deepEqual(shots, ['failure:add-manually'])
+})
+
+test('a failed search-page Add manually keeps the extended diagnostics', async () => {
+  const search = snap({
+    url: 'https://app.gohighlevel.com/accounts/search?snapshot=PsOYVeuIfXR7soMIiMcI&s_type=imported',
+    fields: [{ key: 'search', tag: 'input', type: 'text', value: '', text: 'search', placeholder: 'find a business' }],
+    buttons: ['back to sub-accounts'],
+    overlays: ['drawer: add manually'],
+    body: 'add manually',
+  })
+  const result = await driveUntil(
+    {
+      snapshot: async () => search,
+      perform: async (action) => {
+        if (action.type === 'add_manually') throw new Error('Add manually did not open a details form, dialog, or new page.')
+      },
+      pullOtp: async () => null,
+      onOtpPrompt: async () => {},
+    },
+    input('dry_run'),
+    { maxSteps: 6 },
+  )
+  assert.equal(result.status, 'needs_human')
+  assert.match(result.detail, /overlays: drawer: add manually/)
+  assert.match(result.detail, /placeholder=find a business/)
 })
 
 test('the create button tolerates a leading plus, then the snapshot choice is taken', () => {

@@ -87,6 +87,43 @@ export function redactCardHtml(html: string): string {
 /** Order of clicks on the business-search "Add manually" control. */
 export const ADD_MANUALLY_ATTEMPTS = ['innermost click', 'clickable ancestor', 'mouse centre'] as const
 
+export type AddManuallyAttempt = {
+  name: (typeof ADD_MANUALLY_ATTEMPTS)[number]
+  run: () => Promise<void>
+}
+
+/**
+ * Try each Add manually click, logging every attempt. `opened` is how the
+ * caller decides the details form, a dialog, or a new URL appeared.
+ * On give-up, `capture` runs before the error is rethrown.
+ */
+export async function runSearchAddManually(opts: {
+  attempts: AddManuallyAttempt[]
+  opened: () => Promise<boolean>
+  log: (line: string) => Promise<void> | void
+  capture: (step: string) => Promise<void> | void
+}): Promise<string> {
+  const tried: string[] = []
+  for (const attempt of opts.attempts) {
+    await opts.log(`Add manually try: ${attempt.name}`)
+    try {
+      await attempt.run()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await opts.log(`Add manually try error: ${attempt.name}: ${message}`)
+    }
+    tried.push(attempt.name)
+    if (await opts.opened()) {
+      await opts.log(`Add manually opened via ${attempt.name}`)
+      return attempt.name
+    }
+    await opts.log(`Add manually try failed: ${attempt.name}`)
+  }
+  const failure = `Add manually did not open a details form, dialog, or new page. Tried ${tried.join(', ')}.`
+  await opts.capture('failure:add-manually')
+  throw new Error(failure)
+}
+
 /** Innermost element whose own text says "add manually". */
 export function locateAddManually(scope?: unknown): Element | null {
   const given = scope && typeof (scope as ParentNode).querySelectorAll === 'function' ? (scope as ParentNode) : null

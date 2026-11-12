@@ -54,6 +54,7 @@ export type BrowserAction =
   | { type: 'press_enter' }
   | { type: 'click_verify'; words: string[] }
   | { type: 'select_card'; name: string }
+  | { type: 'add_manually' }
   | { type: 'remember' }
   | { type: 'pause' }
 
@@ -679,12 +680,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     }
 
     if (isBusinessSearch(snap) && !s.manualAdded) {
-      return act(beginStep({ ...s, manualAdded: true, openedCreate: true }, 'click Add manually'), {
-        type: 'click',
-        words: input.labels.addManually ?? ['Add manually'],
-        contains: true,
-        settle: 'form',
-      })
+      return act(beginStep({ ...s, manualAdded: true, openedCreate: true }, 'click Add manually'), { type: 'add_manually' })
     }
     if (s.openedCreate && !s.choseSnapshot) {
       const choice = snapshotWizardButton(snap)
@@ -891,6 +887,14 @@ export async function driveUntil(
           locationId: null,
           uncertain: false,
           detail: `Could not type the security code. ${message}${lastSnap ? `\n${pageDiagnostics(lastSnap)}` : ''}`,
+        })
+      }
+      if (step.action.type === 'add_manually') {
+        return finish({
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `${message}\n${lastSnap ? pageDiagnostics(lastSnap) : ''}`,
         })
       }
       if (step.action.type === 'select_card') {

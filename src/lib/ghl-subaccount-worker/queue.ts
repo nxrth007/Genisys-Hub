@@ -568,18 +568,24 @@ export async function retestNeedsHumanTestJobs(): Promise<number> {
 }
 
 async function saveJobShot(id: string, lease: Date, step: string, image: Buffer): Promise<void> {
-  const shot = await prisma.ghlSubaccountJobShot.create({
-    data: { jobId: id, step: step.slice(0, 180), mime: 'image/jpeg', data: Uint8Array.from(image) },
-    select: { id: true },
-  })
-  const older = await prisma.ghlSubaccountJobShot.findMany({
-    where: { jobId: id },
-    orderBy: { createdAt: 'desc' },
-    skip: 8,
-    select: { id: true },
-  })
-  if (older.length) await prisma.ghlSubaccountJobShot.deleteMany({ where: { id: { in: older.map((row) => row.id) } } })
-  await appendLog(id, lease, `Screenshot ${shot.id} at step ${step.slice(0, 180)}`).catch(() => {})
+  const label = step.slice(0, 180)
+  try {
+    const shot = await prisma.ghlSubaccountJobShot.create({
+      data: { jobId: id, step: label, mime: 'image/jpeg', data: Uint8Array.from(image) },
+      select: { id: true },
+    })
+    const older = await prisma.ghlSubaccountJobShot.findMany({
+      where: { jobId: id },
+      orderBy: { createdAt: 'desc' },
+      skip: 8,
+      select: { id: true },
+    })
+    if (older.length) await prisma.ghlSubaccountJobShot.deleteMany({ where: { id: { in: older.map((row) => row.id) } } })
+    await appendLog(id, lease, `Screenshot ${shot.id} at step ${label}`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await appendLog(id, lease, `Screenshot save failed at step ${label}: ${message.slice(0, 500)}`).catch(() => {})
+  }
 }
 
 async function touchHeartbeat(id: string, lease: Date): Promise<void> {
