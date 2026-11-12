@@ -3,12 +3,13 @@
  * file only launches Chromium, keeps the session, and performs the
  * action the planner asked for. Tests never import it.
  */
-import type { Browser, BrowserContext, Frame, Page } from 'playwright'
+import type { Browser, BrowserContext, ElementHandle, Frame, Page } from 'playwright'
 import { chromiumLaunchArgs, prepareChromiumEnv } from './chromium-host'
 import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
 import { driveUntil, LIST_READY_PATTERN, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
+import { locateSnapshotCard, redactCardHtml } from './snapshot-card'
 
 /** One Chromium at a time. A second launch would sit on top of the Hub's memory. */
 let browserOpen = false
@@ -144,28 +145,107 @@ async function waitForDetailsForm(page: Page, signal?: AbortSignal): Promise<voi
   }
 }
 
-async function selectSnapshotCard(page: Page, name: string, signal?: AbortSignal): Promise<boolean> {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const exact = new RegExp(`^\\s*${escaped}\\s*$`, 'i')
-  const continueName = /select\s*(&|and)\s*continue/i
-  for (const frame of page.frames()) {
-    if (signal?.aborted) throw new Error('The job ran out of time.')
-    const labels = frame.getByText(exact)
-    const count = await labels.count().catch(() => 0)
-    for (let i = 0; i < Math.min(count, 8); i++) {
-      const label = labels.nth(i)
-      if (!(await label.isVisible().catch(() => false))) continue
-      await label.hover({ timeout: 4000 }).catch(() => {})
-      const card = label.locator('xpath=ancestor-or-self::*[.//button or .//*[@role="button"]][1]')
-      const onCard = card.getByRole('button', { name: continueName })
-      const anywhere = frame.getByRole('button', { name: continueName })
-      const target = (await onCard.count().catch(() => 0)) > 0 ? onCard.first() : anywhere.first()
-      if ((await target.count().catch(() => 0)) === 0) continue
-      await target.click({ timeout: 5000 })
-      return true
-    }
+const CONTINUE_RE = /select\s*&?\s*continue/i
+const MODAL_ACTION_RE = /^\s*(continue|next|select)\s*$/i
+
+async function clickVisible(frame: Frame, pattern: RegExp): Promise<boolean> {
+  const loc = frame.locator('a, button, [role="button"]').filter({ hasText: pattern })
+  const count = await loc.count().catch(() => 0)
+  for (let i = 0; i < count; i++) {
+    const item = loc.nth(i)
+    if (!(await item.isVisible().catch(() => false))) continue
+    await item.click({ timeout: 3000 })
+    return true
   }
   return false
+}
+
+async function waitForContinue(frame: Frame, signal: AbortSignal | undefined, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error('The job ran out of time.')
+    if (await clickVisible(frame, CONTINUE_RE)) return true
+    await sleep(200, signal)
+  }
+  return false
+}
+
+async function nudgeCard(page: Page, card: ElementHandle<Element>): Promise<void> {
+  const box = await card.boundingBox().catch(() => null)
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2).catch(() => {})
+  }
+  await card
+    .evaluate((node) => {
+      const rect = node.getBoundingClientRect()
+      const init = {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        view: window,
+      }
+      for (const type of ['pointerover', 'mouseover', 'mouseenter', 'pointerenter', 'mousemove']) {
+        node.dispatchEvent(new MouseEvent(type, init))
+      }
+    })
+    .catch(() => {})
+}
+
+async function cardFailure(card: ElementHandle<Element>): Promise<string> {
+  const info = await card
+    .evaluate((node) => {
+      const rect = node.getBoundingClientRect()
+      const dialog = node.closest('[role="dialog"], [aria-modal="true"]') || node.ownerDocument.body
+      const buttons = Array.from(dialog.querySelectorAll('a, button, [role="button"]'))
+        .map((el) => (el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .slice(0, 30)
+      return {
+        html: node.outerHTML || '',
+        box: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+        buttons,
+      }
+    })
+    .catch(() => ({ html: '', box: { x: 0, y: 0, w: 0, h: 0 }, buttons: [] as string[] }))
+  const buttons = info.buttons.join(', ') || '(none)'
+  return `card box: x=${info.box.x} y=${info.box.y} w=${info.box.w} h=${info.box.h}\nbuttons after hover: ${buttons}\ncard html: ${redactCardHtml(info.html)}`
+}
+
+async function selectSnapshotCard(page: Page, name: string, signal?: AbortSignal): Promise<void> {
+  let failure = `No card whose title is exactly "${name}" was found.`
+  for (const frame of page.frames()) {
+    if (signal?.aborted) throw new Error('The job ran out of time.')
+    const handle = await frame.evaluateHandle(locateSnapshotCard, name).catch(() => null)
+    const card = handle && 'asElement' in handle ? handle.asElement() : null
+    if (!card) {
+      await handle?.dispose().catch(() => {})
+      continue
+    }
+    try {
+      await card.scrollIntoViewIfNeeded().catch(() => {})
+      let hovered = false
+      try {
+        await card.hover({ timeout: 3000 })
+        hovered = true
+      } catch {
+        await nudgeCard(page, card)
+      }
+      if (await waitForContinue(frame, signal, 5000)) return
+      if (hovered) {
+        await nudgeCard(page, card)
+        if (await waitForContinue(frame, signal, 5000)) return
+      }
+      await card.click({ timeout: 3000 }).catch(() => {})
+      if (await waitForContinue(frame, signal, 1500)) return
+      if (await clickVisible(frame, MODAL_ACTION_RE)) return
+      if (await anyFrameMatches(page, 'business name|account name|first name')) return
+      failure = await cardFailure(card)
+    } finally {
+      await card.dispose().catch(() => {})
+    }
+  }
+  throw new Error(`Couldn't hover the "${name}" card and click Select & Continue.\n${failure}`)
 }
 
 async function runAcrossFrames(page: Page, cmd: Record<string, unknown>): Promise<{ ok?: boolean; error?: string } | null> {
@@ -201,8 +281,7 @@ async function performAction(
     return {}
   }
   if (action.type === 'select_card') {
-    const picked = await selectSnapshotCard(page, action.name, signal)
-    if (!picked) throw new Error(`Couldn't hover the "${action.name}" card and click Select & Continue.`)
+    await selectSnapshotCard(page, action.name, signal)
     await waitForDetailsForm(page, signal)
     return {}
   }
