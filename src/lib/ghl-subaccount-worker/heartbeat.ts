@@ -25,7 +25,7 @@ export function isHeartbeatStale(
   return now - at > HEARTBEAT_STALE_MS
 }
 
-/** Dry-run boots requeue a needs_human job whose form name starts with Test:. */
+/** Dry-run boots requeue a needs_human or dry_run job whose form name starts with Test:. */
 export function shouldAutoRetest(mode: string, status: string, name: string): boolean {
-  return mode !== 'create' && status === 'needs_human' && name.startsWith('Test:')
+  return mode !== 'create' && (status === 'needs_human' || status === 'dry_run') && name.startsWith('Test:')
 }

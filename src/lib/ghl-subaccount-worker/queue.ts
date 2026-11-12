@@ -540,19 +540,19 @@ const retestedThisBoot = new Set<string>()
 export async function retestNeedsHumanTestJobs(): Promise<number> {
   if (workerMode() === 'create') return 0
   const rows = await prisma.ghlSubaccountJob.findMany({
-    where: { status: 'needs_human' },
-    select: { id: true, payload: true, log: true },
+    where: { status: { in: ['needs_human', 'dry_run'] } },
+    select: { id: true, status: true, payload: true, log: true },
   })
   let requeued = 0
   for (const row of rows) {
     if (retestedThisBoot.has(row.id)) continue
     const name = readBrowserFields(row.payload)?.name || ''
-    if (!shouldAutoRetest(workerMode(), 'needs_human', name)) continue
+    if (!shouldAutoRetest(workerMode(), row.status, name)) continue
     retestedThisBoot.add(row.id)
     const prev = Array.isArray(row.log) ? row.log : []
     const log = [...prev, { at: new Date().toISOString(), msg: 'Auto-retest after deploy' }].slice(-60)
     const res = await prisma.ghlSubaccountJob.updateMany({
-      where: { id: row.id, status: 'needs_human' },
+      where: { id: row.id, status: row.status },
       data: {
         status: 'queued',
         leaseUntil: null,
