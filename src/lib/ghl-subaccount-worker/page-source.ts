@@ -266,10 +266,45 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     return /select|dropdown/i.test(String(el.className || ''))
   }
   function dropdownValue(el) {
-    var node = el.querySelector && el.querySelector('[aria-selected=true], [class*=single-value], [class*=singleValue]')
+    var node = el.querySelector && el.querySelector('[aria-selected=true], [class*=single-value], [class*=singleValue], [class*=selection-label], [class*=selected-value]')
     var t = node ? cleanLabel(node.textContent || '') : ''
     if (!t && el.getAttribute) t = cleanLabel(el.getAttribute('aria-valuetext') || '')
     return t
+  }
+  function displayText(s) {
+    return String(s || '').replace(/\\s+/g, ' ').trim()
+  }
+  function readControlValue(el) {
+    if (!el) return ''
+    if (el.tagName === 'SELECT') {
+      var opt = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null
+      return opt ? displayText(opt.textContent || opt.value || '') : ''
+    }
+    var root = el
+    if (el.closest) root = el.closest('[role=combobox], [class*=select], [class*=Select], [class*=dropdown], [class*=Dropdown]') || el.parentElement || el
+    function shown(node) {
+      if (!node || !node.querySelector) return ''
+      var picked = node.querySelector('[aria-selected=true], [class*=single-value], [class*=singleValue], [class*=selection-label], [class*=selected-value]')
+      if (picked) return displayText(picked.textContent || '')
+      if (node.getAttribute) return displayText(node.getAttribute('aria-valuetext') || '')
+      return ''
+    }
+    return shown(root) || (root !== el && root.parentElement ? shown(root.parentElement) : '')
+  }
+  function findOption(value) {
+    var want = norm(value)
+    if (!want) return null
+    var nodes = document.querySelectorAll('[role=option], [role=menuitem], li, [class*=option], [class*=Option]')
+    var best = null
+    for (var i = 0; i < nodes.length; i++) {
+      if (!visible(nodes[i])) continue
+      var t = textOf(nodes[i])
+      if (!t || t.length > 80) continue
+      if (t === want || t.indexOf(want) !== -1) {
+        if (!best || nodes[i].childElementCount < best.childElementCount) best = nodes[i]
+      }
+    }
+    return best
   }
   function labeledControl(el) {
     if (!el || el.nodeType !== 1) return false
@@ -511,14 +546,23 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
       }
       if (!chosen) return { ok: false, retry: true, error: 'No option "' + cmd.value + '"' }
       setValue(el, chosen.value)
-      return { ok: true }
+      var selectedOption = displayText(chosen.textContent || chosen.value || '')
+      return { ok: true, selected: selectedOption }
     }
     clickable(el).click()
     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') setValue(el, cmd.value == null ? '' : String(cmd.value))
-    var opt = findByText([String(cmd.value || '')], false)
+    var opt = (cmd.key === 'country' || cmd.key === 'timezone' || cmd.key === 'state') ? findOption(cmd.value) : findByText([String(cmd.value || '')], false)
     if (!opt) return { ok: false, retry: true, error: 'No option "' + cmd.value + '"' }
     clickable(opt).click()
-    return { ok: true }
+    var selected = readControlValue(el) || displayText(rawText(opt) || '')
+    if (cmd.key === 'country' || cmd.key === 'timezone' || cmd.key === 'state') {
+      var want = norm(cmd.value)
+      var got = norm(selected)
+      if (!got || (got !== want && got.indexOf(want) === -1 && want.indexOf(got) === -1)) {
+        return { ok: false, retry: true, selected: selected, error: 'Option "' + cmd.value + '" was not selected. Control reads "' + (selected || '') + '".' }
+      }
+    }
+    return { ok: true, selected: selected }
   }
   if (cmd.op === 'click') {
     var target = findByText(cmd.words || [], !!cmd.exact, !!cmd.contains)

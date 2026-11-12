@@ -36,7 +36,7 @@ export type BrowserRunOptions = {
 
 export type BrowserRunResult = DriveResult & { storageState: string | null }
 
-type CommandResult = { ok?: boolean; retry?: boolean; error?: string; href?: string; url?: string; fields?: unknown; buttons?: string[] }
+type CommandResult = { ok?: boolean; retry?: boolean; error?: string; href?: string; url?: string; fields?: unknown; buttons?: string[]; selected?: string }
 
 const EMPTY_SNAP: PageSnap = { url: '', fields: [], buttons: [], texts: [], links: [], body: '' }
 
@@ -444,6 +444,7 @@ async function performAction(
     await sleep(900, signal)
     return {}
   }
+  if (action.type === 'note') return { note: action.text }
   if (action.type === 'wait_list') {
     await waitForListRender(page, signal)
     return {}
@@ -552,6 +553,12 @@ async function performAction(
           } else {
             await sleep(action.type === 'click' ? 900 : 250, signal)
           }
+          const selected = typeof res.selected === 'string' ? res.selected.trim() : ''
+          if (action.type === 'pick' && (action.key === 'country' || action.key === 'timezone' || action.key === 'state')) {
+            const wanted = action.value
+            const reads = selected || '(empty)'
+            return { href: res.href, note: `Set ${action.key} = ${wanted}; control reads "${reads}".` }
+          }
           return { href: res.href }
         }
         if (res?.error) last = res.error
@@ -649,7 +656,7 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           )
           if (done.href) navHref = done.href
           if (done.note) await opts.onNote?.(done.note)
-          if (opts.mode !== 'create' && (action.type === 'fill' || action.type === 'pick') && action.key !== 'password') {
+          else if (opts.mode !== 'create' && (action.type === 'fill' || action.type === 'pick') && action.key !== 'password') {
             await opts.onNote?.(`Set ${action.key} = ${action.value ?? ''}`)
           }
           if (opts.mode !== 'create') {

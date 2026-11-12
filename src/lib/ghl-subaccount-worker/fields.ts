@@ -40,15 +40,46 @@ export type LocationLike = {
 
 const TEXT_KEYS = ['name', 'email', 'phone', 'address', 'city', 'state', 'postalCode', 'country', 'timezone', 'website', 'firstName', 'lastName', 'snapshotId', 'snapshotName'] as const
 
+function tidy(value: string | null | undefined): string {
+  return (value || '').trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * The GHL business-name field: "Brett: Wilson Construction".
+ * A business name that already starts with "<first>:" is left as that name.
+ * With no first name, the business name is used and `warning` says so.
+ */
+export function ghlSubAccountName(
+  firstName: string | null | undefined,
+  businessName: string | null | undefined,
+): { name: string; warning: string | null } {
+  const business = tidy(businessName)
+  const first = tidy(firstName).replace(/[.,;:]+$/g, '')
+  if (!first) {
+    return {
+      name: business,
+      warning: business ? 'Contractor first name is missing, so the sub-account name is the business name only.' : null,
+    }
+  }
+  const prefix = `${first}:`
+  if (business.toLowerCase().startsWith(prefix.toLowerCase())) {
+    const rest = business.slice(prefix.length).trim()
+    return { name: rest ? `${first}: ${rest}` : business, warning: null }
+  }
+  return { name: `${first}: ${business}`, warning: null }
+}
+
 export function browserFieldsFromLocation(
   input: LocationLike,
   extra: { email?: string | null; firstName?: string | null; lastName?: string | null; snapshotName?: string | null } = {},
 ): BrowserFields {
   const countryRaw = input.country?.trim() || 'US'
   const country = countryRaw === 'US' || countryRaw === 'USA' ? 'United States' : countryRaw
+  const firstName = tidy(input.prospectInfo?.firstName || extra.firstName)
+  const lastName = tidy(input.prospectInfo?.lastName || extra.lastName)
   return {
-    name: input.name.trim(),
-    email: (input.prospectInfo?.email || extra.email || '').trim(),
+    name: ghlSubAccountName(firstName, input.name).name,
+    email: tidy(input.prospectInfo?.email || extra.email),
     phone: input.phone?.trim() || '',
     address: input.address?.trim() || '',
     city: input.city?.trim() || '',
@@ -57,8 +88,8 @@ export function browserFieldsFromLocation(
     country,
     timezone: input.timezone?.trim() || '',
     website: input.website?.trim() || '',
-    firstName: (input.prospectInfo?.firstName || extra.firstName || '').trim(),
-    lastName: (input.prospectInfo?.lastName || extra.lastName || '').trim(),
+    firstName,
+    lastName,
     snapshotId: input.snapshotId.trim(),
     snapshotName: (extra.snapshotName || '').trim(),
   }
