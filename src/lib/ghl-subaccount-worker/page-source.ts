@@ -44,7 +44,7 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
   function findByText(words, exact, contains) {
     var wants = []
     for (var i = 0; i < (words || []).length; i++) wants.push(norm(words[i]))
-    var nodes = collect('button, a, [role="button"], [role="menuitem"], [role="option"], li, div, span')
+    var nodes = collect('button, a, [role="button"], [role="tab"], [role="menuitem"], [role="option"], li, div, span')
     var best = null
     for (var n = 0; n < nodes.length; n++) {
       var t = textOf(nodes[n])
@@ -144,6 +144,18 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     }
     return null
   }
+  function labelFor(el) {
+    var labelText = ''
+    if (el.id) {
+      var lab = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id) + '"]')
+      if (lab) labelText = textOf(lab)
+    }
+    if (!labelText && el.closest) {
+      var wrap = el.closest('label')
+      if (wrap) labelText = textOf(wrap)
+    }
+    return labelText
+  }
   function snapshot() {
     var fields = []
     var inputs = inputsOf()
@@ -157,12 +169,12 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
         tag: el.tagName.toLowerCase(),
         type: type || (el.tagName === 'SELECT' ? 'select' : 'text'),
         value: el.value || '',
-        text: norm(el.getAttribute('aria-label') || el.placeholder || el.name || '')
+        text: norm(labelFor(el) || el.getAttribute('aria-label') || el.placeholder || el.name || '')
       })
     }
     var buttons = []
     var seen = {}
-    var bnodes = collect('button, a, [role="button"]')
+    var bnodes = collect('button, a, [role="button"], [role="tab"]')
     for (var b = 0; b < bnodes.length; b++) {
       var bt = textOf(bnodes[b]) || norm(bnodes[b].getAttribute('aria-label') || bnodes[b].getAttribute('title') || '')
       if (!bt || seen[bt]) continue
@@ -204,7 +216,36 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     }
     var body = ''
     try { body = String((document.body && document.body.innerText) || '').slice(0, 2500).toLowerCase() } catch (e) { body = '' }
-    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, checks: checks, body: body }
+    var tabs = []
+    var tabSeen = {}
+    var tabNodes = document.querySelectorAll('[role=tab], button, a, [role=button]')
+    for (var tb = 0; tb < tabNodes.length && tabs.length < 12; tb++) {
+      if (!visible(tabNodes[tb])) continue
+      var tabText = textOf(tabNodes[tb])
+      if (!/snapshot templates|my snapshots|imported snapshots/.test(tabText) || tabSeen[tabText]) continue
+      tabSeen[tabText] = 1
+      tabs.push(tabText)
+    }
+    var cards = []
+    var cardSeen = {}
+    var dialog = document.querySelector('[role=dialog], [aria-modal=true]') || null
+    if (dialog) {
+      var cardNodes = dialog.querySelectorAll('h1, h2, h3, h4, p, span, div')
+      for (var cd = 0; cd < cardNodes.length && cards.length < 80; cd++) {
+        var cardEl = cardNodes[cd]
+        if (!visible(cardEl)) continue
+        var own = ''
+        for (var cn = 0; cn < cardEl.childNodes.length; cn++) {
+          if (cardEl.childNodes[cn].nodeType === 3) own += cardEl.childNodes[cn].textContent || ''
+        }
+        own = norm(own)
+        if (own.length < 3 || own.length > 80 || cardSeen[own]) continue
+        if (/select & continue|select and continue|^cancel$|snapshot templates|my snapshots|imported snapshots|select snapshot/.test(own)) continue
+        cardSeen[own] = 1
+        cards.push(own)
+      }
+    }
+    return { url: String(location.href || ''), fields: fields, buttons: buttons, texts: texts, links: links, checks: checks, tabs: tabs, cards: cards, body: body }
   }
   if (cmd.op === 'snapshot') return snapshot()
   if (cmd.op === 'fill' || cmd.op === 'pick') {
@@ -239,7 +280,14 @@ export const GHL_PAGE_SOURCE = `function(cmd) {
     var btn = clickable(target)
     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The control is disabled' }
     btn.click()
-    return { ok: true }
+    var href = ''
+    try {
+      var link = target.closest ? target.closest('a') : null
+      if (link && link.href) href = String(link.href)
+      else if (target.href) href = String(target.href)
+      else if (target.getAttribute) href = target.getAttribute('href') || ''
+    } catch (e) {}
+    return { ok: true, href: href }
   }
   function typeInto(el, value) {
     el.focus()

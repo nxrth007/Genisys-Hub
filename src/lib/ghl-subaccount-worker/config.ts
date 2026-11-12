@@ -66,6 +66,11 @@ export function subAccountListUrl(raw: string | undefined): string {
   return `${dashboardOrigin(raw)}/sub-accounts`
 }
 
+/** Optional explicit list page. Empty when GHL_SUBACCOUNT_LIST_URL is unset. */
+export function listUrlOverride(env: NodeJS.ProcessEnv = process.env): string {
+  return env.GHL_SUBACCOUNT_LIST_URL?.trim() || ''
+}
+
 /**
  * How long before "now" the cutoff sits the first time the worker is
  * switched on, so the submission that is landing in that moment is

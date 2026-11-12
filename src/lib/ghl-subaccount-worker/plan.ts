@@ -27,18 +27,27 @@ export type PageSnap = {
   links: { text: string; href: string }[]
   /** Remember-device checkboxes, when the page has them. */
   checks?: { text: string; checked: boolean }[]
+  /** Every frame that was read, including ones whose UI is blank. */
+  frames?: { url: string; buttons: string[]; fieldCount: number }[]
+  /** href of the Sub-Accounts control that was just clicked. */
+  navHref?: string
+  /** Snapshot-template tabs, including their counts. */
+  tabs?: string[]
+  /** Snapshot card titles inside the template modal. */
+  cards?: string[]
   body: string
 }
 
 export type BrowserAction =
-  | { type: 'goto'; url: string }
-  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean }
+  | { type: 'goto'; url: string; settle?: boolean }
+  | { type: 'click'; words: string[]; exact?: boolean; contains?: boolean; settle?: boolean }
   | { type: 'fill'; key: string; words: string[]; value?: string }
   | { type: 'pick'; key: string; words: string[]; value: string }
   | { type: 'wait_otp'; channel: string }
   | { type: 'fill_otp' }
   | { type: 'press_enter' }
   | { type: 'click_verify'; words: string[] }
+  | { type: 'select_card'; name: string }
   | { type: 'remember' }
   | { type: 'pause' }
 
@@ -60,6 +69,10 @@ export type DriveInput = {
   loginEmail: string
   hasOtp: boolean
   listUrl: string
+  /** GHL_SUBACCOUNT_LIST_URL, when set. Tried after the nav click, before any guessed path. */
+  listUrlOverride?: string
+  /** GHL_SUBACCOUNT_SNAPSHOT_TAB, when set. Opened before the default tab order. */
+  snapshotTab?: string
 }
 
 export type RunState = {
@@ -77,8 +90,16 @@ export type RunState = {
   listGotos: number
   /** Snapshot was chosen in the blank-vs-snapshot modal. */
   choseSnapshot: boolean
-  /** URL and buttons at each navigation step, for the job detail. */
+  /** URL and buttons after each navigation has settled. */
   navTrail: string[]
+  /** Label of the navigation that just ran. Recorded against the next snapshot. */
+  pendingStep: string
+  /** GHL_SUBACCOUNT_LIST_URL was already opened. */
+  triedOverride: boolean
+  /** Snapshot card was confirmed with Select & Continue. */
+  snapshotChosen: boolean
+  /** Snapshot-template tabs already opened, in the order they were tried. */
+  snapshotTabsTried: string[]
   /** Email was chosen when GHL offered email and phone. */
   codeMethodChosen: boolean
   /** "Send security code" was clicked; waiting for the box. */
@@ -110,6 +131,10 @@ export function initialRunState(): RunState {
     listGotos: 0,
     choseSnapshot: false,
     navTrail: [],
+    pendingStep: '',
+    triedOverride: false,
+    snapshotChosen: false,
+    snapshotTabsTried: [],
     codeMethodChosen: false,
     codeSent: false,
     codeChannel: '',
@@ -162,7 +187,11 @@ export function pageDiagnostics(snap: PageSnap): string {
   const inputs = snap.fields.slice(0, 15).map((f) => [f.tag, f.type, f.key || '', redact(f.text || '')].filter(Boolean).join(' ')).join('; ') || '(none)'
   const checks = (snap.checks || []).map((c) => `${c.text}${c.checked ? ' (checked)' : ''}`).join(' | ')
   const body = redact(snap.body || '').slice(0, 400)
-  return [`url: ${snap.url}`, `buttons: ${buttons}`, `inputs: ${inputs}`, checks ? `checks: ${checks}` : '', `text: ${body}`].filter(Boolean).join('\n')
+  const frames = (snap.frames || []).map((frame) => {
+    const seen = frame.buttons.slice(0, 8).join(', ') || '(none)'
+    return `${frame.url || '(no url)'} | inputs=${frame.fieldCount} | ${seen}`
+  })
+  return [`url: ${snap.url}`, `buttons: ${buttons}`, `inputs: ${inputs}`, checks ? `checks: ${checks}` : '', frames.length ? `frames:\n${frames.join('\n')}` : '', `text: ${body}`].filter(Boolean).join('\n')
 }
 
 export function locationIdFromUrl(url: string): string | null {
@@ -240,10 +269,58 @@ function onForm(snap: PageSnap): boolean {
   return !!fieldByKey(snap, 'name')
 }
 
-/** "+ Create Sub-Account" and the older wording, ignoring a leading plus. */
+function isSnapshotModal(snap: PageSnap): boolean {
+  if ((snap.tabs || []).length > 0) return true
+  if ((snap.cards || []).length > 0 && /snapshot/.test(snap.body)) return true
+  return /select snapshot template/.test(snap.body)
+}
+
+function fieldLabelNote(snap: PageSnap): string {
+  const labels = snap.fields.map((field) => field.text).filter(Boolean)
+  return labels.length ? `Fields on the form: ${labels.join(', ')}.` : 'No field labels were visible on the form.'
+}
+
+/** "+ Create Sub-Account", "Add Sub-Account", and a "+ Add" control. */
 export function isCreateSubAccountButton(text: string): boolean {
-  const t = norm(text).replace(/^[+\uFF0B]\s*/, '')
+  const raw = norm(text)
+  const t = raw.replace(/^[+\uFF0B]\s*/, '')
+  if (/^[+\uFF0B]\s*add$/.test(raw)) return true
   return /create sub-?account|add sub-?account|new sub-?account/.test(t)
+}
+
+/** How long to wait for the sub-account list to render after a navigation. */
+export const LIST_RENDER_WAIT_MS = 30_000
+
+/**
+ * Text that means the sub-account list has rendered. Passed to a RegExp
+ * inside the page and inside every frame.
+ */
+export const LIST_READY_PATTERN = 'create\\s+sub-?account|add\\s+sub-?account|(?:^|\\n)\\s*\\+\\s*add\\s*(?:\\n|$)|\\d+\\s+sub-?accounts'
+
+const DEFAULT_SNAPSHOT_TABS = ['Imported Snapshots', 'My Snapshots', 'Snapshot Templates']
+
+export function tabLabel(text: string): string {
+  return norm(text).replace(/\s*\(\d+\)\s*$/, '').trim()
+}
+
+export function tabMatches(label: string, wanted: string): boolean {
+  return tabLabel(label) === tabLabel(wanted)
+}
+
+/** Configured tab first, then Imported, My Snapshots, and Snapshot Templates. */
+export function snapshotTabPlan(preferred?: string | null): string[] {
+  const pref = (preferred || '').trim()
+  if (!pref) return [...DEFAULT_SNAPSHOT_TABS]
+  const known = DEFAULT_SNAPSHOT_TABS.find((tab) => tabMatches(tab, pref))
+  if (!known) return [pref, ...DEFAULT_SNAPSHOT_TABS]
+  return [known, ...DEFAULT_SNAPSHOT_TABS.filter((tab) => tab !== known)]
+}
+
+/** Exact card title. "Master Template Extra" is not "Master Template". */
+export function exactSnapshotCard(cards: string[], name: string): string | null {
+  const want = norm(name)
+  if (!want) return null
+  return cards.find((card) => norm(card) === want) ?? null
 }
 
 function hasCreateButton(snap: PageSnap): boolean {
@@ -272,10 +349,23 @@ export function listCandidates(listUrl: string): string[] {
   return [`${origin}/accounts/sub-accounts`, `${origin}/sub-accounts`, `${origin}/agency/sub-accounts`, `${origin}/agency/accounts`]
 }
 
-function withNote(state: RunState, snap: PageSnap, what: string): RunState {
+function describeSnap(snap: PageSnap): string {
   const buttons = snap.buttons.slice(0, 10).join(', ') || '(none)'
-  const line = `${what}: ${snap.url || '(no url)'} | ${buttons}`
-  return { ...state, navTrail: [...state.navTrail, line].slice(-12) }
+  const href = snap.navHref ? ` href=${snap.navHref}` : ''
+  const frames = (snap.frames || []).map((frame) => frame.url).filter(Boolean)
+  const frameBit = frames.length ? ` frames=[${frames.join(' | ')}]` : ''
+  return `${snap.url || '(no url)'}${href}${frameBit} | ${buttons}`
+}
+
+/** The snapshot is the page after `pendingStep` ran. Record that, not the page from before it. */
+function noteSettled(state: RunState, snap: PageSnap): RunState {
+  if (!state.pendingStep) return state
+  const line = `${state.pendingStep}: ${describeSnap(snap)}`
+  return { ...state, pendingStep: '', navTrail: [...state.navTrail, line].slice(-12) }
+}
+
+function beginStep(state: RunState, label: string): RunState {
+  return { ...state, pendingStep: label }
 }
 
 function existingLocation(snap: PageSnap, name: string): string | null | undefined {
@@ -306,7 +396,7 @@ export type Step =
   | { kind: 'done'; result: DriveResult; state: RunState }
 
 export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState): Step {
-  let s = state
+  let s = noteSettled(state, snap)
   for (let guard = 0; guard < 30; guard++) {
     if (s.submitted) {
       const id = locationIdFromUrl(snap.url)
@@ -422,6 +512,42 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     }
 
     const formOpen = onForm(snap)
+    if (isSnapshotModal(snap) && !s.snapshotChosen && !formOpen) {
+      const choice = snapshotChoice(input.fields)
+      if (!choice) {
+        return done(s, {
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: 'The snapshot modal is open but the snapshot name is not known. Set GHL_SUBACCOUNT_SNAPSHOT_NAME to the card title, for example Master Template.',
+        })
+      }
+      const card = exactSnapshotCard(snap.cards || [], choice)
+      if (card) {
+        return act(beginStep({ ...s, snapshotChosen: true, snapshotTried: true, openedCreate: true }, `select snapshot ${choice}`), {
+          type: 'select_card',
+          name: choice,
+        })
+      }
+      const order = snapshotTabPlan(input.snapshotTab)
+      const nextTab = order.find((tab) => !s.snapshotTabsTried.some((tried) => tabMatches(tried, tab)))
+      if (nextTab) {
+        const visible = [...(snap.tabs || []), ...snap.buttons].find((label) => tabMatches(label, nextTab))
+        return act(beginStep({ ...s, snapshotTabsTried: [...s.snapshotTabsTried, nextTab], openedCreate: true }, `open tab ${nextTab}`), {
+          type: 'click',
+          words: [visible || nextTab],
+          contains: true,
+        })
+      }
+      const seen = (snap.cards || []).slice(0, 20).join(', ') || '(none)'
+      return done(s, {
+        status: 'needs_human',
+        locationId: null,
+        uncertain: false,
+        detail: `Couldn't find a snapshot card named exactly "${choice}". Cards seen: ${seen}.\n${pageDiagnostics(snap)}`,
+      })
+    }
+
     // Some GHL wizards ask for the snapshot before the business fields exist.
     // Don't record those fields as missing until the page that has them.
     const snapshotStep = !formOpen && !!fieldByKey(snap, 'snapshot') && (s.openedCreate || hasCreateButton(snap))
@@ -456,7 +582,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           return act({ ...s, filled: [...s.filled, key] }, { type: 'pick', key, words: input.labels[key] ?? [key], value })
         }
       }
-      if (!s.snapshotTried) {
+      if (!s.snapshotTried && !s.snapshotChosen) {
         const choice = snapshotChoice(input.fields)
         if (!choice) {
           return done(s, {
@@ -492,7 +618,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           status: 'dry_run',
           locationId: null,
           uncertain: false,
-          detail: `Filled "${input.fields.name}" and stopped before Create. ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
+          detail: `Reached the details form for "${input.fields.name}" and stopped before Create. ${fieldLabelNote(snap)} ${missingNote(s)} Set GHL_SUBACCOUNT_WORKER_MODE=create to press Create.`.replace(/\s+/g, ' ').trim(),
         })
       }
       return act(
@@ -504,7 +630,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
     if (s.openedCreate && !s.choseSnapshot) {
       const choice = snapshotWizardButton(snap)
       if (choice) {
-        return act(withNote({ ...s, choseSnapshot: true }, snap, 'choose snapshot'), {
+        return act(beginStep({ ...s, choseSnapshot: true }, 'choose snapshot'), {
           type: 'click',
           words: [choice, 'From snapshot', 'Use snapshot', 'Snapshot'],
           contains: true,
@@ -526,7 +652,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
           detail: `Couldn't find the create-sub-account form.\n${pageDiagnostics(snap)}${trail}`,
         })
       }
-      return act(withNote({ ...s, stalls: s.stalls + 1 }, snap, 'waiting for the create form'), { type: 'pause' })
+      return act(beginStep({ ...s, stalls: s.stalls + 1 }, 'waiting for the create form'), { type: 'pause' })
     }
 
     if (hasCreateButton(snap) && !s.openedCreate) {
@@ -543,35 +669,46 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
         return act({ ...s, searched: true, wentToList: true }, { type: 'fill', key: 'search', words: input.labels.search, value: input.fields.name })
       }
       const label = snap.buttons.find(isCreateSubAccountButton) || 'Create Sub-Account'
-      return act(withNote({ ...s, openedCreate: true, wentToList: true }, snap, 'click create'), {
+      return act(beginStep({ ...s, openedCreate: true, wentToList: true }, 'click create'), {
         type: 'click',
         words: [label, ...(input.labels.createButton ?? [])],
         contains: true,
       })
     }
 
-    // /accounts is the agency shell (left nav). The sub-account list is the
-    // view behind "Sub-Accounts", which is what carries the create button.
+    // The agency shell's left nav is the real way in. Guessed paths are a
+    // last resort, and only after this click has had a chance to render.
     if (!s.clickedNav && hasSubAccountsNav(snap)) {
-      return act(withNote({ ...s, clickedNav: true }, snap, 'click Sub-Accounts'), {
+      return act(beginStep({ ...s, clickedNav: true }, 'click Sub-Accounts'), {
         type: 'click',
         words: input.labels.subAccountsNav ?? ['Sub-Accounts', 'Sub Accounts'],
         contains: true,
+        settle: true,
       })
     }
-    const candidates = listCandidates(input.listUrl)
-    const navSettled = !hasSubAccountsNav(snap) || s.clickedNav
-    if (navSettled && s.clickedNav && s.navWaits < 2 && s.listGotos === 0) {
-      return act(withNote({ ...s, navWaits: s.navWaits + 1 }, snap, 'waiting for the sub-account list'), { type: 'pause' })
-    }
-    if (navSettled && s.listGotos < candidates.length) {
-      let i = s.listGotos
-      while (i < candidates.length && pathOf(snap.url) === pathOf(candidates[i]!)) i += 1
-      if (i < candidates.length) {
-        const url = candidates[i]!
-        return act(withNote({ ...s, listGotos: i + 1, wentToList: true }, snap, `open ${url}`), { type: 'goto', url })
+    if (!hasCreateButton(snap) && (s.clickedNav || !hasSubAccountsNav(snap))) {
+      const override = input.listUrlOverride?.trim() || ''
+      if (override && !s.triedOverride && pathOf(snap.url) !== pathOf(override)) {
+        return act(beginStep({ ...s, triedOverride: true, wentToList: true }, `open configured list ${override}`), {
+          type: 'goto',
+          url: override,
+          settle: true,
+        })
       }
-      s = { ...s, listGotos: i, wentToList: true }
+      const candidates = listCandidates(input.listUrl)
+      if (s.listGotos < candidates.length) {
+        let i = s.listGotos
+        while (i < candidates.length && pathOf(snap.url) === pathOf(candidates[i] || '')) i += 1
+        const url = candidates[i]
+        if (url) {
+          return act(beginStep({ ...s, listGotos: i + 1, wentToList: true }, `open ${url}`), {
+            type: 'goto',
+            url,
+            settle: true,
+          })
+        }
+        s = { ...s, listGotos: i, wentToList: true }
+      }
     }
 
     if (s.stalls + 1 >= STALL_LIMIT) {
@@ -583,7 +720,7 @@ export function nextGhlAction(snap: PageSnap, input: DriveInput, state: RunState
         detail: `Couldn't find the create-sub-account form.\n${pageDiagnostics(snap)}${trail}`,
       })
     }
-    return act(withNote({ ...s, stalls: s.stalls + 1 }, snap, 'still no create form'), { type: 'pause' })
+    return act(beginStep({ ...s, stalls: s.stalls + 1 }, 'still no create form'), { type: 'pause' })
   }
   return done(s, {
     status: 'needs_human',
@@ -686,6 +823,14 @@ export async function driveUntil(
           locationId: null,
           uncertain: false,
           detail: `Could not type the security code. ${message}${lastSnap ? `\n${pageDiagnostics(lastSnap)}` : ''}`,
+        })
+      }
+      if (step.action.type === 'select_card') {
+        return finish({
+          status: 'needs_human',
+          locationId: null,
+          uncertain: false,
+          detail: `${message}${lastSnap ? `\n${pageDiagnostics(lastSnap)}` : ''}`,
         })
       }
       if (step.action.type === 'click_verify' || step.action.type === 'press_enter' || step.action.type === 'remember') {
