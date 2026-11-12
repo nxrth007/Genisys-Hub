@@ -38,7 +38,7 @@ import {
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
 import { browserFieldsFromLocation, readBrowserFields, type BrowserFields } from './fields'
-import { ABANDONED_JOB_LOG, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, isHeartbeatStale, JOB_WALL_MS, shouldAutoRetest } from './heartbeat'
+import { ABANDONED_JOB_LOG, AUTO_RETEST_DELAY_MS, HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, autoRetestDue, isHeartbeatStale, JOB_WALL_MS, jobLogEntry, shouldAutoRetest } from './heartbeat'
 import { ghlLabels } from './labels'
 import { fetchLatestSecurityCode, imapSettings } from './otp-mail'
 import { openString, sealString } from './session'
@@ -318,7 +318,7 @@ export async function enqueueClient(
     }
     if (staleRun) {
       const prev = Array.isArray(existing.log) ? existing.log : []
-      const log = [...prev, { at: new Date().toISOString(), msg: 'Requeued from Settings. The previous run had no heartbeat for more than 3 minutes.' }].slice(-60)
+      const log = [...prev, jobLogEntry('Requeued from Settings. The previous run had no heartbeat for more than 3 minutes.')].slice(-60)
       await prisma.ghlSubaccountJob.update({
         where: { id: existing.id },
         data: {
@@ -441,7 +441,7 @@ async function appendLog(id: string, lease: Date, msg: string): Promise<void> {
   })
   if (!row) throw new LeaseLost()
   const prev = Array.isArray(row.log) ? row.log : []
-  const next = [...prev, { at: new Date().toISOString(), msg: msg.slice(0, 4000) }].slice(-60)
+  const next = [...prev, jobLogEntry(msg)].slice(-60)
   await saveJob(id, lease, { log: next as Prisma.InputJsonValue })
 }
 
@@ -474,7 +474,7 @@ export async function recoverAbandonedJobs(now = new Date()): Promise<number> {
   for (const row of stale) {
     if (liveJob?.id === row.id && !liveJob.released) continue
     const prev = Array.isArray(row.log) ? row.log : []
-    const log = [...prev, { at: now.toISOString(), msg: ABANDONED_JOB_LOG }].slice(-60)
+    const log = [...prev, jobLogEntry(ABANDONED_JOB_LOG, now)].slice(-60)
     const res = await prisma.ghlSubaccountJob.updateMany({
       where: {
         id: row.id,
@@ -506,7 +506,7 @@ export async function releaseLiveJob(message: string): Promise<void> {
   })
   if (!row) return
   const prev = Array.isArray(row.log) ? row.log : []
-  const log = [...prev, { at: new Date().toISOString(), msg: message }].slice(-60)
+  const log = [...prev, jobLogEntry(message)].slice(-60)
   await prisma.ghlSubaccountJob.updateMany({
     where: { id: live.id, leaseUntil: lease, status: 'running' },
     data: {
@@ -518,6 +518,12 @@ export async function releaseLiveJob(message: string): Promise<void> {
     },
   })
 }
+
+const retestedThisBoot = new Set<string>()
+let retestRunning = false
+let retestDone = false
+/** When this process loaded the worker. The retiring instance can still claim for a short overlap. */
+const workerBootedAt = Date.now()
 
 /** Stop claiming work when Render shuts this process down, and give the in-flight job back. */
 export function installWorkerLifecycle(): void {
@@ -532,39 +538,48 @@ export function installWorkerLifecycle(): void {
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
   void recoverAbandonedJobs().catch((err) => console.warn('[ghl-subaccount-worker] startup recovery:', err))
-  void retestNeedsHumanTestJobs().catch((err) => console.warn('[ghl-subaccount-worker] auto-retest:', err))
+  const wait = Math.max(0, AUTO_RETEST_DELAY_MS - (Date.now() - workerBootedAt))
+  setTimeout(() => {
+    void retestNeedsHumanTestJobs().catch((err) => console.warn('[ghl-subaccount-worker] auto-retest:', err))
+  }, wait)
 }
 
-const retestedThisBoot = new Set<string>()
-
-export async function retestNeedsHumanTestJobs(): Promise<number> {
+export async function retestNeedsHumanTestJobs(now = Date.now()): Promise<number> {
   if (workerMode() === 'create') return 0
-  const rows = await prisma.ghlSubaccountJob.findMany({
-    where: { status: { in: ['needs_human', 'dry_run'] } },
-    select: { id: true, status: true, payload: true, log: true },
-  })
-  let requeued = 0
-  for (const row of rows) {
-    if (retestedThisBoot.has(row.id)) continue
-    const name = readBrowserFields(row.payload)?.name || ''
-    if (!shouldAutoRetest(workerMode(), row.status, name)) continue
-    retestedThisBoot.add(row.id)
-    const prev = Array.isArray(row.log) ? row.log : []
-    const log = [...prev, { at: new Date().toISOString(), msg: 'Auto-retest after deploy' }].slice(-60)
-    const res = await prisma.ghlSubaccountJob.updateMany({
-      where: { id: row.id, status: row.status },
-      data: {
-        status: 'queued',
-        leaseUntil: null,
-        heartbeatAt: null,
-        nextAttemptAt: new Date(),
-        finishedAt: null,
-        log: log as Prisma.InputJsonValue,
-      },
+  if (!autoRetestDue(workerBootedAt, now)) return 0
+  if (retestDone || retestRunning) return 0
+  retestRunning = true
+  try {
+    const rows = await prisma.ghlSubaccountJob.findMany({
+      where: { status: { in: ['needs_human', 'dry_run'] } },
+      select: { id: true, status: true, payload: true, log: true },
     })
-    requeued += res.count
+    let requeued = 0
+    for (const row of rows) {
+      if (retestedThisBoot.has(row.id)) continue
+      const name = readBrowserFields(row.payload)?.name || ''
+      if (!shouldAutoRetest(workerMode(), row.status, name)) continue
+      retestedThisBoot.add(row.id)
+      const prev = Array.isArray(row.log) ? row.log : []
+      const log = [...prev, jobLogEntry('Auto-retest after deploy')].slice(-60)
+      const res = await prisma.ghlSubaccountJob.updateMany({
+        where: { id: row.id, status: row.status },
+        data: {
+          status: 'queued',
+          leaseUntil: null,
+          heartbeatAt: null,
+          nextAttemptAt: new Date(),
+          finishedAt: null,
+          log: log as Prisma.InputJsonValue,
+        },
+      })
+      requeued += res.count
+    }
+    retestDone = true
+    return requeued
+  } finally {
+    retestRunning = false
   }
-  return requeued
 }
 
 async function saveJobShot(id: string, lease: Date, step: string, image: Buffer): Promise<void> {
@@ -865,6 +880,10 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
   if (!workerEnabled()) return { enabled: false, ran: false, enqueued: 0, claimed: false }
   const recovered = await recoverAbandonedJobs().catch((err) => {
     console.warn('[ghl-subaccount-worker] recovery:', err)
+    return 0
+  })
+  await retestNeedsHumanTestJobs().catch((err) => {
+    console.warn('[ghl-subaccount-worker] auto-retest:', err)
     return 0
   })
   if (shuttingDown) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }

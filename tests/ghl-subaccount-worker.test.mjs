@@ -84,6 +84,14 @@ test('a running job with no heartbeat for 3 minutes is stale', () => {
   assert.equal(heartbeat.shouldAutoRetest('create', 'needs_human', 'Test: Master'), false)
   assert.equal(heartbeat.shouldAutoRetest('dry_run', 'needs_human', 'Randy: Painting'), false)
   assert.equal(heartbeat.shouldAutoRetest('dry_run', 'failed', 'Test: Master'), false)
+  assert.equal(heartbeat.AUTO_RETEST_DELAY_MS, 90_000)
+  assert.equal(heartbeat.autoRetestDue(1_000, 1_000 + 89_000), false)
+  assert.equal(heartbeat.autoRetestDue(1_000, 1_000 + 90_000), true)
+  assert.equal(heartbeat.runningCommit({ RENDER_GIT_COMMIT: '3ba4fbaabcdef' }), '3ba4fba')
+  assert.equal(heartbeat.runningCommit({}), 'local')
+  assert.equal(heartbeat.stampJobLog('Auto-retest after deploy', '3ba4fba'), '[3ba4fba] Auto-retest after deploy')
+  assert.equal(heartbeat.stampJobLog('[3ba4fba] Auto-retest after deploy', '3ba4fba'), '[3ba4fba] Auto-retest after deploy')
+  assert.equal(heartbeat.jobLogEntry('Screenshot abc at step details form bottom', new Date('2026-11-12T02:59:19.000Z'), '3ba4fba').msg, '[3ba4fba] Screenshot abc at step details form bottom')
 })
 
 test('worker stays off, and dry-run, until the env says otherwise', () => {
