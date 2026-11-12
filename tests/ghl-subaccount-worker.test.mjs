@@ -54,6 +54,7 @@ const {
   workerRunsBrowser,
   workerMode,
   workerPaused,
+  backfillIntakeIds,
   retryDelayMs,
   MAX_ATTEMPTS,
   subAccountListUrl,
@@ -115,6 +116,9 @@ test('worker stays off, and dry-run, until the env says otherwise', () => {
   assert.equal(workerPaused(env({})), false)
   assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: '1' })), true)
   assert.equal(workerPaused(env({ GHL_SUBACCOUNT_WORKER_PAUSED: 'on' })), true)
+  assert.deepEqual(backfillIntakeIds({}), ['cmwd3jnao001m3hsct1totiqp'])
+  assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: '' }), [])
+  assert.deepEqual(backfillIntakeIds({ GHL_BACKFILL_INTAKE_IDS: 'cmwd3jnao001m3hsct1totiqp, other' }), ['cmwd3jnao001m3hsct1totiqp', 'other'])
   assert.equal(subAccountListUrl('https://app.gohighlevel.com/agency'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(subAccountListUrl('not a url'), 'https://app.gohighlevel.com/sub-accounts')
   assert.equal(listUrlOverride({}), '')

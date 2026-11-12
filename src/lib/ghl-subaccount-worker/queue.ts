@@ -36,6 +36,7 @@ import {
   workerHeadless,
   workerMode,
   workerPaused,
+  backfillIntakeIds,
   workerRunsBrowser,
 } from './config'
 import { autoEnqueueAllowed, intakeTimeKnown } from './eligibility'
@@ -390,12 +391,13 @@ export async function enqueueGhlSubaccountForNewClient(
   return enqueueClient(clientId, { trigger: 'intake', receivedAt, timeKnown: opts.timeKnown, createdNewClient: true })
 }
 
-/** Intakes that were attached to a different business get their own client and job. Idempotent. */
+/** Split only the intakes named by GHL_BACKFILL_INTAKE_IDS (default: Snapshot Check LLC). Idempotent. */
 export async function enqueueMissedIntakes(): Promise<number> {
   if (!workerEnabled()) return 0
-  const since = await workerCutoff()
+  const ids = backfillIntakeIds()
+  if (!ids.length) return 0
   const rows = await prisma.clientIntake.findMany({
-    where: { receivedAt: { gte: since }, clientId: { not: null } },
+    where: { id: { in: ids } },
     select: {
       id: true,
       businessName: true,
@@ -403,9 +405,16 @@ export async function enqueueMissedIntakes(): Promise<number> {
       client: { select: { name: true } },
     },
   })
+  const found = new Set(rows.map((row) => row.id))
+  for (const id of ids) {
+    if (!found.has(id)) console.log(`[client-onboarding] GHL browser job skipped for intake ${id}: not found`)
+  }
   let queued = 0
   for (const row of rows) {
-    if (!row.businessName || !row.client || !distinctBusinessNames(row.businessName, row.client.name)) continue
+    if (!row.businessName || !row.client || !distinctBusinessNames(row.businessName, row.client.name)) {
+      console.log(`[client-onboarding] GHL browser job skipped for intake ${row.id}: business name already matches ${row.client?.name ?? 'no client'}`)
+      continue
+    }
     await prisma.clientIntake.update({ where: { id: row.id }, data: { clientId: null } })
     const promoted = await promoteIntakeToClient(row.id)
     if (!promoted) {
