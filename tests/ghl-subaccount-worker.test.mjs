@@ -47,6 +47,7 @@ const pageSource = loadTs(join(dir, 'page-source.ts'))
 const chromiumHost = loadTs(join(dir, 'chromium-host.ts'))
 const otpMail = loadTs(join(dir, 'otp-mail.ts'))
 const snapshotCard = loadTs(join(dir, 'snapshot-card.ts'))
+const snapshotLoad = loadTs(join(dir, 'snapshot-load.ts'))
 const heartbeat = loadTs(join(dir, 'heartbeat.ts'))
 
 const {
@@ -256,6 +257,92 @@ test('form fields follow the API payload, with United States spelled out', () =>
   assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create', 'Load snapshot']), 'Load snapshot')
   assert.equal(loadSnapshotButton(['Add Sub-Account', 'Create']), null)
   assert.equal(snapshotSettingsUrls('https://app.gohighlevel.com', '1MQb8TlVXLcwNgO24RAU')[0], 'https://app.gohighlevel.com/v2/location/1MQb8TlVXLcwNgO24RAU/settings/snapshot')
+})
+
+test('a snapshot load stays on one location and counts real records', () => {
+  const locationId = '1MQb8TlVXLcwNgO24RAU'
+  const page = `https://app.gohighlevel.com/v2/location/${locationId}/settings/snapshot`
+  assert.deepEqual(snapshotLoad.snapshotLoadLocationIds({}), [])
+  assert.deepEqual(snapshotLoad.snapshotLoadLocationIds({ GHL_SNAPSHOT_LOAD_LOCATION_IDS: locationId }), [locationId])
+  assert.deepEqual(snapshotLoad.pendingSnapshotLoads([locationId, 'other'], [locationId]), ['other'])
+  assert.equal(snapshotLoad.snapshotRecordsLanded({ pipelines: 0, workflows: 4, funnels: 2 }), false)
+  assert.equal(snapshotLoad.snapshotRecordsLanded({ pipelines: 2, workflows: 4, funnels: 3 }), true)
+  assert.equal(snapshotLoad.snapshotLoadUrlAllowed(`https://app.gohighlevel.com/accounts/search?location=${locationId}`, locationId), false)
+  assert.equal(snapshotLoad.snapshotLoadUrlAllowed(page, locationId), true)
+  const progress = snapshotLoad.freshSnapshotLoad()
+  const open = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Add Sub-Account', 'Create', 'Load snapshot'],
+    body: 'Snapshot settings',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress,
+  })
+  assert.equal(open.type, 'click')
+  assert.equal(open.click.label, 'Load snapshot')
+  const pick = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Add Sub-Account', 'Master Template', 'Other snapshot'],
+    body: 'Choose a snapshot',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress: open.click.progress,
+  })
+  assert.equal(pick.click.label, 'Master Template')
+  const overwrite = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Overwrite existing data', 'Skip conflicts', 'Proceed'],
+    body: 'Import options',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress: pick.click.progress,
+  })
+  assert.equal(overwrite.click.label, 'Overwrite existing data')
+  const confirm = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Add Sub-Account', 'Proceed'],
+    body: 'Import options',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress: overwrite.click.progress,
+  })
+  assert.equal(confirm.click.label, 'Proceed')
+  const done = snapshotLoad.nextSnapshotLoadAction({
+    url: page,
+    locationId,
+    labels: ['Add Sub-Account'],
+    body: 'Import started',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress: confirm.click.progress,
+  })
+  assert.equal(done.type, 'stop')
+  assert.equal(done.ok, true)
+  const wrong = snapshotLoad.nextSnapshotLoadAction({
+    url: 'https://app.gohighlevel.com/v2/location/someone-else/settings/snapshot',
+    locationId,
+    labels: ['Load snapshot'],
+    body: 'Snapshot',
+    snapshotName: 'Master Template',
+    snapshotId: 'PsOYVeuIfXR7soMIiMcI',
+    progress,
+  })
+  assert.equal(wrong.ok, false)
+  const pipelines = snapshotLoad.countsFromAssetPayload(
+    `https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${locationId}`,
+    { pipelines: [{ id: 'p1' }, { id: 'p2' }] },
+    locationId,
+  )
+  assert.equal(pipelines.pipelines, 2)
+  assert.equal(snapshotLoad.countsFromAssetPayload(
+    'https://services.leadconnectorhq.com/opportunities/pipelines?locationId=someone-else',
+    { pipelines: [{ id: 'p1' }] },
+    locationId,
+  ), null)
 })
 
 test('agency login parses JSON or two lines and rejects a bare password', () => {
