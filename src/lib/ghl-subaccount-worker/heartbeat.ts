@@ -33,6 +33,22 @@ export function autoRetestDue(bootedAtMs: number, now = Date.now(), delayMs = AU
   return now - bootedAtMs >= delayMs
 }
 
+/** Commit that last auto-requeued this payload, if one was recorded. */
+export function requeueCommitOf(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const value = (payload as Record<string, unknown>).requeuedByCommit
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+/** A job requeued by another build stays on the queue for that build. */
+export function mayClaimRequeuedJob(requeuedBy: string | null, mine: string): boolean {
+  return !requeuedBy || requeuedBy === mine
+}
+
+export function skipNewerBuildLog(sha: string): string {
+  return `skipping job requeued by newer build ${sha}`
+}
+
 /**
  * Fresh heartbeats win. A row claimed before heartbeats existed falls
  * back to updatedAt, so an orphan with neither stamp is stale.
