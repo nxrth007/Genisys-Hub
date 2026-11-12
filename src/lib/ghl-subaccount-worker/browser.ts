@@ -9,7 +9,7 @@ import type { BrowserFields } from './fields'
 import type { GhlLabels } from './labels'
 import { driveUntil, LIST_RENDER_WAIT_MS, type BrowserAction, type DriveResult, type PageSnap } from './plan'
 import { GHL_PAGE_SOURCE } from './page-source'
-import { ADD_MANUALLY_ATTEMPTS, locateAddManually, locateSnapshotCard, redactCardHtml } from './snapshot-card'
+import { ADD_MANUALLY_ATTEMPTS, locateAddManually, locateSnapshotCard, redactCardHtml, runSearchAddManually } from './snapshot-card'
 
 /** One Chromium at a time. A second launch would sit on top of the Hub's memory. */
 let browserOpen = false
@@ -350,38 +350,55 @@ async function manualStepOpened(page: Page, beforeUrl: string, signal?: AbortSig
   return false
 }
 
-async function openAddManually(page: Page, signal: AbortSignal | undefined, adopt: (page: Page) => void): Promise<string> {
+async function openAddManually(
+  page: Page,
+  signal: AbortSignal | undefined,
+  adopt: (page: Page) => void,
+  log: (line: string) => Promise<void>,
+  capture: (step: string) => Promise<void>,
+): Promise<string> {
   const beforeUrl = page.url()
   const el = await findAddManually(page)
-  if (!el) throw new Error('Could not find “Add manually” on the business search page.')
+  if (!el) {
+    await log('Add manually try failed: no element whose own text is “add manually”')
+    await capture('failure:add-manually')
+    throw new Error('Could not find “Add manually” on the business search page.')
+  }
   let popup: Page | null = null
   const onPage = (next: Page) => {
     popup = next
   }
   page.context().on('page', onPage)
-  const opened = async (method: string) => {
+  const opened = async () => {
+    if (signal?.aborted) throw new Error('The job ran out of time.')
     if (popup) {
       adopt(popup)
       await popup.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
-      return `${method} + new page`
+      return true
     }
-    return method
+    return manualStepOpened(page, beforeUrl, signal)
   }
   try {
     await el.scrollIntoViewIfNeeded().catch(() => {})
-    await el.click({ timeout: 3000 }).catch(() => {})
-    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[0])
-
     const ancestor = await el.evaluateHandle((node) => node.closest('a, button, [role="button"], [class*="cursor-pointer"]'))
     const anc = ancestor.asElement()
-    if (anc) await anc.click({ timeout: 3000 }).catch(() => {})
-    await ancestor.dispose().catch(() => {})
-    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[1])
-
-    const box = await el.boundingBox()
-    if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2).catch(() => {})
-    if (popup || (await manualStepOpened(page, beforeUrl, signal))) return opened(ADD_MANUALLY_ATTEMPTS[2])
-    throw new Error('Add manually did not open a details form, dialog, or new page. Tried innermost click, clickable ancestor, and a mouse click at the centre.')
+    return await runSearchAddManually({
+      log,
+      capture,
+      opened,
+      attempts: [
+        { name: ADD_MANUALLY_ATTEMPTS[0], run: () => el.click({ timeout: 3000 }) },
+        { name: ADD_MANUALLY_ATTEMPTS[1], run: async () => { if (anc) await anc.click({ timeout: 3000 }) } },
+        {
+          name: ADD_MANUALLY_ATTEMPTS[2],
+          run: async () => {
+            const box = await el.boundingBox()
+            if (!box) throw new Error('Add manually has no bounding box')
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          },
+        },
+      ],
+    })
   } finally {
     page.context().off('page', onPage)
     await el.dispose().catch(() => {})
@@ -405,6 +422,8 @@ async function performAction(
   secrets: { password: string; otp: string },
   signal: AbortSignal | undefined,
   adopt: (page: Page) => void,
+  log: (line: string) => Promise<void>,
+  capture: (step: string) => Promise<void>,
 ): Promise<{ href?: string; note?: string }> {
   if (action.type === 'pause') {
     await sleep(900, signal)
@@ -449,10 +468,16 @@ async function performAction(
     return {}
   }
 
+  if (action.type === 'add_manually') {
+    await openAddManually(page, signal, adopt, log, capture)
+    await waitForDetailsForm(page, signal)
+    return {}
+  }
+
   if (action.type === 'click' && action.words.some((word) => /add manually/i.test(word))) {
-    const method = await openAddManually(page, signal, adopt)
+    await openAddManually(page, signal, adopt, log, capture)
     if (action.settle === 'form') await waitForDetailsForm(page, signal)
-    return { note: `Add manually opened via ${method}.` }
+    return {}
   }
 
   const value =
@@ -557,15 +582,21 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
     let navHref = ''
     let active = page
     const shoot = async (step: string) => {
-      if (!opts.capture) return
       try {
         const image = await capturePage(active)
+        if (!opts.capture) {
+          await opts.onNote?.(`Screenshot save failed at step ${step}: no screenshot store is configured`)
+          return
+        }
         await opts.capture(step, image)
       } catch (err) {
-        console.warn('[ghl-subaccount-worker] screenshot:', err instanceof Error ? err.message : err)
+        const message = err instanceof Error ? err.message : String(err)
+        await opts.onNote?.(`Screenshot save failed at step ${step}: ${message}`)
       }
     }
-    const result = await driveUntil(
+    let result: Awaited<ReturnType<typeof driveUntil>>
+    try {
+      result = await driveUntil(
       {
         snapshot: async () => {
           const snap = await snapshotPage(active, opts.labels)
@@ -576,9 +607,20 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
           return snap
         },
         perform: async (action) => {
-          const done = await performAction(active, action, opts.labels, secrets, opts.signal, (next) => {
-            active = next
-          })
+          const done = await performAction(
+            active,
+            action,
+            opts.labels,
+            secrets,
+            opts.signal,
+            (next) => {
+              active = next
+            },
+            async (line) => {
+              await opts.onNote?.(line)
+            },
+            shoot,
+          )
           if (done.href) navHref = done.href
           if (done.note) await opts.onNote?.(done.note)
           if (opts.mode !== 'create') {
@@ -589,7 +631,9 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
                   ? `goto ${action.url}`
                   : action.type === 'select_card'
                     ? `select ${action.name}`
-                    : action.type === 'wait_list'
+                    : action.type === 'add_manually'
+                  ? 'add manually'
+                  : action.type === 'wait_list'
                       ? 'wait for list'
                       : ''
             if (step) await shoot(step.slice(0, 160))
@@ -614,7 +658,11 @@ export async function runCreateInBrowser(opts: BrowserRunOptions): Promise<Brows
         snapshotTab: opts.snapshotTab,
       },
     )
-    if (opts.capture && (result.status === 'needs_human' || result.status === 'failed')) {
+    } catch (err) {
+      await shoot('failure:exception')
+      throw err
+    }
+    if (result.status === 'needs_human' || result.status === 'failed') {
       await shoot(`failure:${result.status}`)
     }
     let storageState: string | null = null

@@ -24,6 +24,8 @@ services:
     # Do not add a Chromium step here. `npm run build` runs
     # scripts/install-render-chromium.mjs first, and only on Render when
     # the worker flag is on. This is the command the live service already uses.
+    # `npm run start` runs `prisma migrate deploy` again before Next, so a
+    # reused build still applies 20261112040000_ghl_job_shot and later migrations.
     buildCommand: npm install --include=dev && npm run build && npx prisma migrate deploy
     startCommand: npm run start
     healthCheckPath: /api/health
