@@ -168,6 +168,16 @@ test('spacing, HTML paragraphs, entities, curly quotes and merge-field spacing d
   assert.equal(verify.verifyWorkflowJson(payload(missed, { html }), missed.actions).ok, true)
 })
 
+test('a failed check logs how GHL stores the step, so its format can be learned', () => {
+  const missed = task('missed-call')
+  const json = payload(missed, { sms: 'Hey, this is Todd from A Plus Fence and Construction!' })
+  const check = verify.verifyWorkflowJson(json, missed.actions)
+  const sample = verify.failureSamples(json, check)
+  assert.match(sample, /^"Text Back the Caller" in GHL's data: \{"id":"t2","name":"Text Back the Caller","type":"sms","attributes":\{"body":"Hey, this is Todd/)
+  assert.equal(verify.stepSample(json, 'Nope'), 'no object named "Nope"')
+  assert.ok(verify.stepSample(json, 'Push Notification to Assigned User', 50).endsWith('…'))
+})
+
 test('a step that shows up twice must carry the copy both times', () => {
   const missed = task('missed-call')
   const json = payload(missed)

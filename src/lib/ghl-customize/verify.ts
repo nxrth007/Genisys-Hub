@@ -194,6 +194,27 @@ export function verifyWorkflowJson(json: unknown, actions: ExpectedAction[]): Wo
   return { found, ok, checks, summary }
 }
 
+/**
+ * A short JSON sample of how a payload stores one step, for the job log when
+ * a check fails (the format is GHL's own; this is how it gets learned).
+ */
+export function stepSample(json: unknown, name: string, max = 1200): string {
+  const nodes = findNamedNodes(json, [name]).get(normName(name)) ?? []
+  const node = nodes.find((n) => hasMessage(n, name)) ?? nodes[0]
+  if (!node) return `no object named "${name}"`
+  const text = JSON.stringify(node)
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+/** The steps a check found wrong, each with a sample of how the payload stores it. */
+export function failureSamples(json: unknown, check: WorkflowCheck, max = 900): string {
+  return check.checks
+    .filter((c) => !c.ok)
+    .slice(0, 2)
+    .map((c) => `"${c.name}" in GHL's data: ${stepSample(json, c.name, max)}`)
+    .join(' | ')
+}
+
 /** Names of every named object in a payload, counted, so a save can be compared with the workflow as it loaded. */
 export function namedNodeCounts(json: unknown): Map<string, number> {
   const counts = new Map<string, number>()

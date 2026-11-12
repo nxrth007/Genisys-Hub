@@ -23,7 +23,7 @@ import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
 import { WORKFLOW_FOLDERS, type WorkflowTask } from './copy'
 import { aiDeclined } from './eligibility'
-import { findNamedNodes, stepNameChanges, verifyWorkflowJson, type WorkflowCheck } from './verify'
+import { failureSamples, findNamedNodes, stepNameChanges, verifyWorkflowJson, type WorkflowCheck } from './verify'
 
 export type WorkflowOutcome = {
   id: string
@@ -258,8 +258,9 @@ async function dismissPopups(frame: Frame, note: (line: string) => Promise<void>
   }
 }
 
-/** The top-right Save button: 'save' when there is something to save. */
-async function saveState(frame: Frame): Promise<'save' | 'saved' | 'saving' | null> {
+type SaveState = 'save' | 'saved' | 'saving' | null
+
+async function saveStateOf(frame: Frame): Promise<SaveState> {
   return frame
     .evaluate(() => {
       for (const b of Array.from(document.querySelectorAll('button'))) {
@@ -275,11 +276,23 @@ async function saveState(frame: Frame): Promise<'save' | 'saved' | 'saving' | nu
     .catch(() => null)
 }
 
-async function clickSave(frame: Frame): Promise<boolean> {
-  const hit = await visibleIn(frame.locator('button').filter({ hasText: /^\s*Save\s*$/ }))
-  if (!hit) return false
-  await hit.click({ timeout: 8000 })
-  return true
+/** The builder's top-right Save button, wherever GHL renders it: 'save' when there is something to save. */
+async function saveState(page: Page): Promise<SaveState> {
+  for (const frame of page.frames()) {
+    const state = await saveStateOf(frame)
+    if (state) return state
+  }
+  return null
+}
+
+async function clickSave(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    const hit = await visibleIn(frame.locator('button').filter({ hasText: /^\s*Save\s*$/ }))
+    if (!hit) continue
+    await hit.click({ timeout: 8000 })
+    return true
+  }
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +383,7 @@ async function sendButton(box: Locator): Promise<Locator | null> {
 }
 
 /** Paste the prompt, send it, and wait for Workflow AI's answer. */
-async function askAi(frame: Frame, prompt: string, signal?: AbortSignal): Promise<{ changed: boolean; reply: string }> {
+async function askAi(page: Page, frame: Frame, prompt: string, signal?: AbortSignal): Promise<{ changed: boolean; reply: string }> {
   await openAi(frame, signal)
   await freshConversation(frame, signal)
   const box = (await waitVisible(frame.locator(AI_INPUT), 8000, signal)) ?? null
@@ -407,7 +420,7 @@ async function askAi(frame: Frame, prompt: string, signal?: AbortSignal): Promis
   const text = await frameText(frame)
   const at = text.lastIndexOf('Thought for')
   const reply = at >= 0 ? text.slice(at, at + 2500) : text.slice(-1500)
-  return { changed: (await saveState(frame)) === 'save', reply }
+  return { changed: (await saveState(page)) === 'save', reply }
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +528,7 @@ async function waitForBuilder(run: Run, task: WorkflowTask): Promise<Frame> {
     const frame = await builderFrame(run.page, signal, 5000)
     if (frame) {
       await dismissPopups(frame, run.note)
-      if (await saveState(frame)) {
+      if (await saveState(run.page)) {
         await sleep(2000, signal)
         await dismissPopups(frame, run.note)
         return frame
@@ -539,7 +552,7 @@ type SaveResult = { status: 'saved' | 'blocked' | 'rehearsed'; detail: string; c
  * own address that doesn't carry them waits for that check; if it comes
  * first, it is stopped and nothing is saved.
  */
-async function saveChecked(run: Run, frame: Frame, task: WorkflowTask, workflowId: string): Promise<SaveResult> {
+async function saveChecked(run: Run, task: WorkflowTask, workflowId: string): Promise<SaveResult> {
   const st: { seen: string[]; passed: WorkflowCheck | null; blocked: string } = { seen: [], passed: null, blocked: '' }
   const handler = async (route: Route, request: Request) => {
     try {
@@ -562,7 +575,8 @@ async function saveChecked(run: Run, frame: Frame, task: WorkflowTask, workflowI
         json = null
       }
       const check = json === null ? null : verifyWorkflowJson(json, task.actions)
-      st.seen.push(`${method} ${shortUrl(url)} (${body.length} bytes): ${check ? check.summary : 'not JSON the Hub can read'}`)
+      st.seen.push(`${method} ${shortUrl(url)} (${body.length} bytes): ${check ? check.summary : `not JSON the Hub can read: ${clip(body, 400)}`}`)
+      if (check && !check.ok) st.seen.push(`What GHL was about to save: ${failureSamples(json, check)}`)
       if (!check || !check.ok) {
         st.blocked ||= check ? check.summary : `the save (${shortUrl(url)}) wasn't JSON the Hub can read`
         return await route.abort('failed')
@@ -578,11 +592,11 @@ async function saveChecked(run: Run, frame: Frame, task: WorkflowTask, workflowI
   await run.context.route(matcher, handler)
   let finalState: Awaited<ReturnType<typeof saveState>> = null
   try {
-    if (!(await clickSave(frame))) return { status: 'blocked', detail: "Couldn't find the Save button.", checked: null }
+    if (!(await clickSave(run.page))) return { status: 'blocked', detail: "Couldn't find the Save button.", checked: null }
     const deadline = Date.now() + 45_000
     for (;;) {
       await sleep(600, run.opts.signal)
-      finalState = await saveState(frame)
+      finalState = await saveState(run.page)
       if (st.blocked) break
       if (!run.opts.save && st.passed) break
       if (finalState === 'saved') break
@@ -590,7 +604,7 @@ async function saveChecked(run: Run, frame: Frame, task: WorkflowTask, workflowI
     }
     // A last request can still be on its way when the button flips.
     await sleep(1500, run.opts.signal)
-    finalState = await saveState(frame)
+    finalState = await saveState(run.page)
   } finally {
     await run.context.unroute(matcher, handler).catch(() => {})
   }
@@ -627,7 +641,8 @@ async function customizeOne(run: Run, task: WorkflowTask): Promise<WorkflowOutco
     if (attempt === 1) before = loaded
     if (loaded) {
       const check = verifyWorkflowJson(loaded.json, task.actions)
-      await run.note(`"${task.name}" (${workflowId}) as it opened: ${check.summary}.`)
+      await run.note(`"${task.name}" (${workflowId}) as it opened (${shortUrl(loaded.url)}): ${check.summary}.`)
+      if (!check.ok && attempt === 1) await run.note(`How GHL stores it: ${failureSamples(loaded.json, check)}`)
       if (check.ok) {
         return attempt === 1
           ? { ...base, status: 'already', workflowId, detail: "It already had the Hub's copy, so Workflow AI wasn't needed." }
@@ -640,7 +655,7 @@ async function customizeOne(run: Run, task: WorkflowTask): Promise<WorkflowOutco
     } else {
       await run.note(`Couldn't read "${task.name}" as it opened; the steps are checked when Save is pressed.`)
     }
-    const ai = await askAi(frame, task.prompt, signal)
+    const ai = await askAi(run.page, frame, task.prompt, signal)
     await run.note(`Workflow AI on "${task.name}" (try ${attempt}): ${ai.changed ? 'it changed the workflow' : 'it changed nothing'}. It said: ${clip(ai.reply, 1200)}`)
     await run.shoot(`workflow ai ${task.id} try ${attempt}`)
     if (!ai.changed) {
@@ -648,7 +663,7 @@ async function customizeOne(run: Run, task: WorkflowTask): Promise<WorkflowOutco
       if (aiDeclined(ai.reply)) return { ...base, status: 'needs_human', workflowId, detail: lastProblem }
       continue
     }
-    const saved = await saveChecked(run, frame, task, workflowId)
+    const saved = await saveChecked(run, task, workflowId)
     if (saved.status === 'rehearsed') return { ...base, status: 'rehearsed', workflowId, detail: `Dry run: ${saved.detail}. Nothing was saved.` }
     if (saved.status === 'blocked') {
       lastProblem = `Nothing was saved: ${saved.detail}`
