@@ -4,12 +4,13 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowLeft, ArrowUp, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MARKETING_CONSENT_TEXT, SMS_CONSENT_TEXT } from '@/lib/hl/templates'
 import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
 import { Button, Card, ErrorNote, Field, Input, Select, Spinner, Tabs, Textarea, Toggle, fmtDateTime, hlFetch } from '@/components/hell-level/ui'
 import { confirmAction } from '@/components/hell-level/confirm'
+import { BackLink } from '@/components/hell-level/back-link'
 
 type FormDetail = {
   form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings & { consents: HlConsentBox[] } }
@@ -78,15 +79,18 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
   const consents = settings.consents ?? []
   const setConsent = (kind: HlConsentBox['kind'], patch: Partial<HlConsentBox>) =>
     setSettings((s) => ({ ...s, consents: (s.consents ?? []).map((c) => (c.kind === kind ? { ...c, ...patch } : c)) }))
+  const chat = data.form.kind === 'chat'
+  // Back (and after Delete) goes to the tab this form is listed on, not the Sites section's first tab (Funnels).
+  const list = chat ? { tab: 'chat-widget', label: 'Chat Widget' } : { tab: 'forms', label: 'Forms' }
+  const listHref = `/hell-level/${accountId}/sites?tab=${list.tab}`
   const archive = useMutation({
     mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms/${formId}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hl', 'forms', accountId] })
-      router.push(`/hell-level/${accountId}/sites`)
+      router.push(listHref)
     },
   })
 
-  const chat = data.form.kind === 'chat'
   const setField = (i: number, patch: Partial<HlField>) => setFields((fs) => fs.map((f, j) => (j === i ? { ...f, ...patch } : f)))
   const moveField = (i: number, d: -1 | 1) =>
     setFields((fs) => {
@@ -100,9 +104,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-7">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/hell-level/${accountId}/sites`} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <BackLink href={listHref} to={list.label} />
         <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-sm text-[16px] font-semibold" />
         <div className="ml-auto flex gap-2">
           <Button variant="ghost" className="text-destructive" loading={archive.isPending} onClick={() => void confirmAction('Delete this form? Where it’s embedded it stops working. Submissions and contacts stay.', 'Delete form').then((ok) => ok && archive.mutate())}>

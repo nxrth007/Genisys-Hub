@@ -69,6 +69,15 @@ function useCalendars(accountId: string) {
   return useQuery<Data>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
 }
 
+/**
+ * The calendar editor's address. This panel shows under Settings → Calendars and
+ * Calendars → Calendar Settings; opened from Settings, the editor's back arrow returns there.
+ */
+function useEditorHref(accountId: string): (calendarId: string) => string {
+  const fromSettings = usePathname().endsWith('/settings')
+  return (calendarId) => `/hell-level/${accountId}/calendars/${calendarId}${fromSettings ? '?from=settings' : ''}`
+}
+
 export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
   const sp = useSearchParams()
   const router = useRouter()
@@ -143,6 +152,7 @@ type GroupPick = 'all' | 'none' | string
 function CalendarList({ accountId, creating, onCreating }: { accountId: string; creating: boolean; onCreating: (v: boolean) => void }) {
   const qc = useQueryClient()
   const router = useRouter()
+  const editorHref = useEditorHref(accountId)
   const q = useCalendars(accountId)
   const [group, setGroup] = useState<GroupPick>('all')
   const [type, setType] = useState('all')
@@ -299,7 +309,7 @@ function CalendarList({ accountId, creating, onCreating }: { accountId: string; 
           onClose={() => onCreating(false)}
           onCreated={(id) => {
             refresh()
-            router.push(`/hell-level/${accountId}/calendars/${id}`)
+            router.push(editorHref(id))
           }}
         />
       )}
@@ -392,7 +402,8 @@ function CalendarCard({
     setCopied(what)
     window.setTimeout(() => setCopied(null), 1500)
   }
-  const edit = `/hell-level/${accountId}/calendars/${c.id}`
+  const editorHref = useEditorHref(accountId)
+  const edit = editorHref(c.id)
   const members = (c.settings.teamMembers ?? []).filter((m) => m.selected !== false)
   const hosts = members.map((m) => staff.find((s) => staffKey(s) === m.userId)).filter((s): s is StaffRow => !!s)
   const unknown = members.length - hosts.length
@@ -1106,6 +1117,7 @@ const LATER: { group: string; items: { name: string; what: string }[] }[] = [
 /** GHL's Connections: each team member's own Google Calendar (busy times in, bookings out), and Google Meet. */
 function ConnectionsTab({ accountId }: { accountId: string }) {
   const sp = useSearchParams()
+  const editorHref = useEditorHref(accountId)
   const cals = useCalendars(accountId)
   const conns = useQuery<{ connections: Connection[]; googleApp: 'hl' | 'hub' | null; googleAppNote: string | null }>({ queryKey: ['hl', 'calendar-connections', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-connections`) })
   const staff = cals.data?.staff ?? []
@@ -1167,7 +1179,7 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
           <div className="mt-2 flex flex-col divide-y divide-border-soft">
             {meet.map((c) => (
               <div key={c.id} className="flex flex-wrap items-center gap-3 py-2">
-                <Link href={`/hell-level/${accountId}/calendars/${c.id}`} className="text-[13.5px] font-medium text-foreground hover:underline">
+                <Link href={editorHref(c.id)} className="text-[13.5px] font-medium text-foreground hover:underline">
                   {c.name}
                 </Link>
                 {c.missing.length ? <span className="text-[12.5px] text-warning">No Meet link for {c.missing.join(', ')} until their Google Calendar is connected.</span> : <Badge color="green">Ready</Badge>}

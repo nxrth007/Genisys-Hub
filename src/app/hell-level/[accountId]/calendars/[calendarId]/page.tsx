@@ -1,10 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { Copy, ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { BackLink } from '@/components/hell-level/back-link'
 import { cn } from '@/lib/utils'
 import {
   CALENDAR_TYPES,
@@ -49,6 +50,13 @@ export default function CalendarEditorPage() {
   const q = useQuery<Detail>({ queryKey: ['hl', 'calendar', calendarId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars/${calendarId}`) })
   if (!q.data) return <div className="flex justify-center py-24">{q.error ? <ErrorNote error={q.error} /> : <Spinner />}</div>
   return <CalendarEditor key={q.data.calendar.updatedAt} accountId={accountId} data={q.data} />
+}
+
+/** Back to the calendar list it was opened from: Settings → Calendars (?from=settings) or Calendars → Calendar Settings. */
+function CalendarBack({ accountId }: { accountId: string }) {
+  const fromSettings = useSearchParams().get('from') === 'settings'
+  if (fromSettings) return <BackLink href={`/hell-level/${accountId}/settings?tab=calendars`} to="Settings → Calendars" />
+  return <BackLink href={`/hell-level/${accountId}/calendars?tab=settings`} to="Calendar Settings" />
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -160,9 +168,9 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-7">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/hell-level/${accountId}/calendars?tab=settings`} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <Suspense fallback={<BackLink href={`/hell-level/${accountId}/calendars?tab=settings`} to="Calendar Settings" />}>
+          <CalendarBack accountId={accountId} />
+        </Suspense>
         <Input value={name} onChange={(e) => setName(e.target.value)} className="max-w-sm text-[16px] font-semibold" />
         {data.calendar.ghlId && <Badge color="gray">From GoHighLevel</Badge>}
         <label className="ml-auto flex items-center gap-2 text-[13px] text-foreground/85">

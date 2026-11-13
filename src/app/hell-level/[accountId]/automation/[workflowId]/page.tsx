@@ -1,10 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CornerUpLeft, Play, Plus, Search, Trash2, X } from 'lucide-react'
+import { CornerUpLeft, Play, Plus, Search, Trash2, X } from 'lucide-react'
+import { BackLink } from '@/components/hell-level/back-link'
 import { cn } from '@/lib/utils'
 import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
 import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
@@ -102,6 +102,9 @@ export default function WorkflowBuilderPage() {
   const pipelines = useQuery<{ pipelines: Pipeline[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
   const calendars = useQuery<{ calendars: { id: string; name: string }[] }>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
   const workflows = useQuery<{ workflows: { id: string; name: string; deletedAt: string | null }[] }>({ queryKey: ['hl', 'workflows', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows`) })
+  // Back (and after Delete) goes to the folder the workflow is saved in.
+  const folder = q.data?.workflow.folder
+  const listHref = `/hell-level/${accountId}/automation${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`
 
   // Unsaved changes sit on top of the saved workflow; Save sends them and clears them.
   const [edits, setEdits] = useState<Workflow | null>(null)
@@ -149,7 +152,7 @@ export default function WorkflowBuilderPage() {
     mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows/${workflowId}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hl', 'workflows', accountId] })
-      router.push(`/hell-level/${accountId}/automation`)
+      router.push(listHref)
     },
   })
 
@@ -213,13 +216,7 @@ export default function WorkflowBuilderPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-2.5">
-        <Link
-          href={`/hell-level/${accountId}/automation${q.data?.workflow.folder ? `?folder=${encodeURIComponent(q.data.workflow.folder)}` : ''}`}
-          className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
-          title="Back to workflows"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <BackLink href={listHref} to={folder ? `the ${folder.split('/').pop()} folder` : 'Workflows'} />
         <input
           value={draft.name}
           onChange={(e) => update({ name: e.target.value })}
