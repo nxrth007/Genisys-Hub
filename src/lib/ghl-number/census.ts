@@ -20,6 +20,14 @@ const WALL_MS = 15 * 60_000
 /** After a run that couldn't start or sign in, wait this long instead of trying every tick. */
 const PAUSE_AFTER_FAILURE_MS = 60 * 60_000
 
+/**
+ * Paused (2026-11-13): reading eight GHL Phone System pages in a row ran the
+ * Render instance out of memory (over 2 GB) every run, at 2:35, 2:56, 3:17 and
+ * 3:41 AM ET, and each crash took the Hub down. Reads already saved stay; no
+ * new ones until the read is rebuilt to use far less memory.
+ */
+export const CENSUS_ON = false
+
 let pausedUntil = 0
 let running = false
 let stopping = false
@@ -67,7 +75,7 @@ async function save(loc: CensusLocation, read: CensusRead): Promise<void> {
 
 /** One tick from the sub-account worker, when the browser is free and nothing else is waiting: read the next few sub-accounts. */
 export async function ghlCensusTick(opts: { runBrowser: boolean }): Promise<{ claimed: boolean; outcome?: string }> {
-  if (!workerEnabled() || !opts.runBrowser || workerPaused() || stopping || running) return { claimed: false }
+  if (!CENSUS_ON || !workerEnabled() || !opts.runBrowser || workerPaused() || stopping || running) return { claimed: false }
   const now = Date.now()
   if (now < pausedUntil) return { claimed: false }
   const clients = await prisma.client.findMany({

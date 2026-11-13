@@ -73,6 +73,11 @@ type Live = { id: string; getLease: () => Date; abort: () => void; released: boo
 let live: Live | null = null
 let stopping = false
 
+/**
+ * A run whose instance died mid-way (the 2 GB instance ran out of memory, or a
+ * crash) is not tried again by itself: it ends as failed, and "Fix the form in
+ * GHL" starts it again. Re-queuing it could crash the Hub over and over.
+ */
 export async function recoverAbandonedFormFixes(now = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - HEARTBEAT_STALE_MS)
   const stale = await prisma.ghlFormJob.findMany({
@@ -84,7 +89,14 @@ export async function recoverAbandonedFormFixes(now = new Date()): Promise<numbe
     if (live?.id === row.id && !live.released) continue
     const res = await prisma.ghlFormJob.updateMany({
       where: { id: row.id, status: 'running', OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, updatedAt: { lt: cutoff } }] },
-      data: { status: 'queued', leaseUntil: null, heartbeatAt: null, nextAttemptAt: now, log: logged(row.log, 'Recovered a run abandoned by a restarted instance.') },
+      data: {
+        status: 'failed',
+        leaseUntil: null,
+        heartbeatAt: null,
+        finishedAt: now,
+        detail: 'The Hub restarted in the middle of this run (it may have run out of memory), so it was stopped rather than tried again. Press Fix the form in GHL to run it again.',
+        log: logged(row.log, 'The instance died mid-run (out of memory or a crash): stopped, not retried.'),
+      },
     })
     recovered += res.count
   }
