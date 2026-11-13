@@ -311,6 +311,15 @@ test('Echo shows the toll-free numbers after the answer: buying, bought, blocked
   // A failure from weeks ago no longer counts.
   assert.equal(bot(run([req('a', 'failed', { updatedAt: ago(30 * 24 * 60) })]), 'echo').status, 'idle')
 
+  // The registration as Twilio answers it: filed, then approved.
+  const filed = run([req('a', 'bought', { number: '+18556762067', verification: 'in_review', verificationAt: ago(30), verificationChangedAt: ago(30) })])
+  assert.ok(filed.activity.some((x) => x.text === "Filed texting verification for Client a's (855) 676-2067" && x.tone === 'terminal'))
+  assert.ok(!filed.activity.some((x) => /approved to text/.test(x.text)))
+  const approved = run([req('a', 'bought', { number: '+18556762067', verification: 'approved', verificationAt: ago(3000), verificationChangedAt: ago(5) })])
+  assert.ok(approved.activity.some((x) => x.text === "Client a's (855) 676-2067 is approved to text" && x.tone === 'done'))
+  // Not filed yet (waiting for the site link): no filed line.
+  assert.ok(!bought.activity.some((x) => /Filed texting verification/.test(x.text)))
+
   const no = run([req('a', 'declined')])
   assert.equal(bot(no, 'echo').status, 'idle')
   assert.ok(no.activity.some((x) => x.text === 'Toll-free number for Client a declined'))

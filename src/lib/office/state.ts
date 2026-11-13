@@ -109,7 +109,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, number: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true } } },
+        select: { id: true, status: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true } } },
       }), []),
   ])
 
@@ -128,9 +128,30 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   input.approvals = numberRequests
     .filter((r) => r.status === 'awaiting_approval')
     .map((r) => ({ id: r.id, kind: 'number' as const, clientName: r.client?.name ?? 'a client', ringTo: r.forwardTo, at: r.updatedAt }))
+  // Where each bought number's texting verification stands (filed, approved, rejected).
+  const numberIds = numberRequests.map((r) => r.numberId).filter((x): x is string => !!x)
+  const verifications = numberIds.length
+    ? await safe('number verifications', () =>
+        prisma.hlPhoneNumber.findMany({ where: { id: { in: numberIds } }, select: { id: true, verificationStatus: true, verificationAt: true, updatedAt: true } }), [])
+    : []
   input.numberRequests = numberRequests
     .filter((r) => r.status !== 'awaiting_approval')
-    .map((r) => ({ id: r.id, clientName: r.client?.name ?? 'a client', status: r.status, number: r.number, detail: r.detail, verifyNote: r.verifyNote, decidedAt: r.decidedAt, updatedAt: r.updatedAt }))
+    .map((r) => {
+      const v = verifications.find((x) => x.id === r.numberId)
+      return {
+        id: r.id,
+        clientName: r.client?.name ?? 'a client',
+        status: r.status,
+        number: r.number,
+        detail: r.detail,
+        verifyNote: r.verifyNote,
+        decidedAt: r.decidedAt,
+        updatedAt: r.updatedAt,
+        verification: v?.verificationStatus ?? null,
+        verificationAt: v?.verificationAt ?? null,
+        verificationChangedAt: v?.updatedAt ?? null,
+      }
+    })
 
   return deriveOffice(input, now)
 }

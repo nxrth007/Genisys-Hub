@@ -20,7 +20,7 @@ import { textNumberEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { jobLogEntry } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
-import { askDecision, FILE_RETRY_MS, prettyPhone, readyToFile, ringTo } from './number-plan'
+import { askDecision, FILE_RETRY_MS, prettyPhone, readyToFile, reconcileVerify, ringTo } from './number-plan'
 import { buyNumber, searchNumbers } from './twilio'
 import { submitVerification } from './verification'
 
@@ -260,6 +260,25 @@ export async function maybeSweepNumberRequests(now = Date.now()): Promise<number
   for (const b of blocked) {
     const said = await fileNumberVerification(b.clientId).catch(() => null)
     if (said) changed += 1
+  }
+  // Twilio's answer (read every 30 minutes by maybeRefreshVerifications): a rejection needs a person; a re-filing clears it.
+  const bought = await prisma.hlNumberRequest.findMany({
+    where: { status: 'bought', numberId: { not: null } },
+    select: { id: true, numberId: true, verifyNote: true, client: { select: { name: true } } },
+    take: 200,
+  })
+  const numbers = await prisma.hlPhoneNumber.findMany({
+    where: { id: { in: bought.map((b) => b.numberId!) } },
+    select: { id: true, accountId: true, verificationStatus: true, verificationNote: true },
+  })
+  for (const b of bought) {
+    const n = numbers.find((x) => x.id === b.numberId)
+    if (!n) continue
+    const step = reconcileVerify({ verificationStatus: n.verificationStatus, verificationNote: n.verificationNote, currentNote: b.verifyNote })
+    if (!step) continue
+    await note(b.id, step.note ?? `Texting verification is ${n.verificationStatus.replace('_', ' ')} now.`, { verifyNote: step.note }).catch(() => {})
+    if (step.text) await textNumberEvent({ key: b.id, kind: 'rejected', client: b.client.name, reason: n.verificationNote ?? '', link: numbersPage(n.accountId) })
+    changed += 1
   }
   return changed
 }

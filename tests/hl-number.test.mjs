@@ -96,9 +96,24 @@ test('readyToFile: texting verification waits for the site link and files once',
   assert.equal(plan.FILE_RETRY_MS, 6 * 60 * 60_000)
 })
 
+test('reconcileVerify: a rejection becomes the note once; a re-filing clears it; a blocked filing stays', () => {
+  const rejected = plan.reconcileVerify({ verificationStatus: 'rejected', verificationNote: '30509: opt-in link not public', currentNote: null })
+  assert.deepEqual(rejected, { note: plan.rejectionNote('30509: opt-in link not public'), text: true })
+  assert.match(rejected.note, /^Twilio rejected the texting verification: 30509: opt-in link not public\. Fix it and file it again in Hell-level/)
+  // Already noted: nothing to do (no second text).
+  assert.equal(plan.reconcileVerify({ verificationStatus: 'rejected', verificationNote: '30509: opt-in link not public', currentNote: rejected.note }), null)
+  for (const s of ['pending', 'in_review', 'approved']) {
+    assert.deepEqual(plan.reconcileVerify({ verificationStatus: s, verificationNote: null, currentNote: rejected.note }), { note: null, text: false }, s)
+    assert.equal(plan.reconcileVerify({ verificationStatus: s, verificationNote: null, currentNote: null }), null, `${s} without a note`)
+  }
+  // A filing that couldn't go in yet keeps its note until it works.
+  assert.equal(plan.reconcileVerify({ verificationStatus: 'none', verificationNote: null, currentNote: 'Add the full business address.' }), null)
+  assert.match(plan.rejectionNote(null), /^Twilio rejected the texting verification\. Fix it/)
+})
+
 test('number texts: plain, short, and each links to where to act', () => {
   const link = 'https://hub.example/office'
-  for (const k of ['approve', 'failed', 'verify']) {
+  for (const k of ['approve', 'failed', 'verify', 'rejected']) {
     const t = alertText.numberAlertText(k, 'Acme Roofing', 'Add the full business address in Settings → Business Profile.', link)
     assert.ok(t.startsWith('Genisys Hub: '), k)
     assert.ok(t.includes('Acme Roofing'), k)
@@ -108,4 +123,5 @@ test('number texts: plain, short, and each links to where to act', () => {
   assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /just onboarded\. Approve their Hell-level toll-free number \(about \$2\.15\/mo, no ID check\) in the Office/)
   assert.match(alertText.numberAlertText('failed', 'Acme Roofing', 'Twilio said no.', link), /buying Acme Roofing's toll-free number failed\. Twilio said no\./)
   assert.match(alertText.numberAlertText('verify', 'Acme Roofing', 'Add the address.', link), /texting verification can't be filed yet\. Add the address\./)
+  assert.match(alertText.numberAlertText('rejected', 'Acme Roofing', '30509: opt-in link not public', link), /Twilio rejected Acme Roofing's toll-free texting verification\. 30509/)
 })

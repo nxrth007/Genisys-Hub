@@ -138,10 +138,15 @@ export type NumberRequestIn = {
   status: string
   number: string | null
   detail: string | null
-  /** Why texting verification couldn't be filed yet; null once filed (or not yet due). */
+  /** Why texting verification couldn't be filed yet, or Twilio's rejection; null otherwise. */
   verifyNote: string | null
   decidedAt: Date | null
   updatedAt: Date
+  /** The bought number's texting verification: none | pending | in_review | approved | rejected. */
+  verification?: string | null
+  /** When it was filed, and when the number last changed (an approval lands then). */
+  verificationAt?: Date | null
+  verificationChangedAt?: Date | null
 }
 
 export type OfficeInput = {
@@ -494,6 +499,13 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'bought') {
       const num = r.number ? phone(r.number) : 'a toll-free number'
       feed(`nr:${r.id}:bought`, at, 'echo', `Bought ${num} for ${r.clientName}`, 'done')
+      // The toll-free registration (filed with the client's own details, like Forte's), as Twilio answers it.
+      if (r.verificationAt && r.verification && r.verification !== 'none') {
+        feed(`nr:${r.id}:filed`, r.verificationAt, 'echo', `Filed texting verification for ${r.clientName}'s ${num}`, 'terminal')
+      }
+      if (r.verification === 'approved') {
+        feed(`nr:${r.id}:approved`, r.verificationChangedAt ?? r.updatedAt, 'echo', `${r.clientName}'s ${num} is approved to text`, 'done')
+      }
       if (r.verifyNote) {
         add('echo', { status: 'needs_you', task: clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`), icon: 'alert', at: r.updatedAt })
         feed(`nr:${r.id}:verify:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`, 140), 'needs_you')

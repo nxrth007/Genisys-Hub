@@ -83,3 +83,25 @@ export function readyToFile(c: FileCandidate): { file: boolean; reason: string }
 
 /** A blocked filing is tried again at most this often (the site or profile may have been fixed meanwhile). */
 export const FILE_RETRY_MS = 6 * 60 * 60_000
+
+/** What a bought number's request should say once Twilio has answered its texting verification. */
+export function rejectionNote(verificationNote: string | null | undefined): string {
+  const why = (verificationNote ?? '').trim()
+  return `Twilio rejected the texting verification${why ? `: ${why}` : ''}. Fix it and file it again in Hell-level → Settings → Phone Numbers.`
+}
+
+/**
+ * Keep a bought request's note in step with its number's verification:
+ * a rejection becomes the note (and a text); a re-filed or approved number
+ * clears an old note. A note from a filing that couldn't go in yet (status
+ * still none) stays until the filing works.
+ */
+export function reconcileVerify(c: { verificationStatus: string | null; verificationNote: string | null; currentNote: string | null }): { note: string | null; text: boolean } | null {
+  const status = c.verificationStatus ?? 'none'
+  if (status === 'rejected') {
+    const note = rejectionNote(c.verificationNote)
+    return c.currentNote === note ? null : { note, text: true }
+  }
+  if (c.currentNote && (status === 'pending' || status === 'in_review' || status === 'approved')) return { note: null, text: false }
+  return null
+}

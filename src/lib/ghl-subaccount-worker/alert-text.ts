@@ -46,7 +46,7 @@ export function workerAlertText(kind: WorkerAlertKind, client: string, reason: s
 }
 
 /** A client's Hell-level toll-free number (src/lib/hl/number-request.ts). */
-export type NumberAlertKind = 'approve' | 'failed' | 'verify'
+export type NumberAlertKind = 'approve' | 'failed' | 'verify' | 'rejected'
 
 export function numberAlertText(kind: NumberAlertKind, client: string, reason: string, link: string): string {
   const why = reason.trim() ? ` ${shortReason(reason)}` : ''
@@ -55,6 +55,8 @@ export function numberAlertText(kind: NumberAlertKind, client: string, reason: s
       return `Genisys Hub: ${client} just onboarded. Approve their Hell-level toll-free number (about $2.15/mo, no ID check) in the Office: ${link}`
     case 'failed':
       return `Genisys Hub: buying ${client}'s toll-free number failed.${why} Open: ${link}`
+    case 'rejected':
+      return `Genisys Hub: Twilio rejected ${client}'s toll-free texting verification.${why} Open: ${link}`
     default:
       return `Genisys Hub: ${client}'s toll-free texting verification can't be filed yet.${why} Open: ${link}`
   }

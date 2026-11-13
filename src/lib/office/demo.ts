@@ -42,7 +42,7 @@ export function demoInput(now: Date): OfficeInput {
     ],
     approvals: [{ id: 'sample-approval', kind: 'number', clientName: 'Sample Roofing', ringTo: '+16035550142', at: m(3) }],
     numberRequests: [
-      { id: 'nr1', clientName: 'Sample Plumbing', status: 'bought', number: '+18555550123', detail: null, verifyNote: null, decidedAt: m(40), updatedAt: m(40) },
+      { id: 'nr1', clientName: 'Sample Plumbing', status: 'bought', number: '+18555550123', detail: null, verifyNote: null, decidedAt: m(40), updatedAt: m(40), verification: 'in_review', verificationAt: m(35), verificationChangedAt: m(35) },
     ],
   }
 }
