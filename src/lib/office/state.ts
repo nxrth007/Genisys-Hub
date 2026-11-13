@@ -139,6 +139,39 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       ghlLink: r.client?.ghlLocationId ? ghlPhoneSystemLink(r.client.ghlLocationId) : null,
       detail: r.status === 'awaiting_identity' ? r.detail : null,
     }))
+  // GHL toll-free registrations (src/lib/ghl-number/queue.ts): filled and waiting for an OK, stopped, moving, sent.
+  const regs = await safe('ghl registrations', () =>
+    prisma.ghlNumberJob.findMany({
+      where: {
+        client: { is: { archivedAt: null } },
+        OR: [{ registration: { in: ['review', 'needs_human', 'queued', 'approved'] } }, { registration: 'submitted', regAt: { gte: since } }],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 40,
+      select: { id: true, clientId: true, status: true, phase: true, registration: true, regDetail: true, regAt: true, phoneNumber: true, locationId: true, updatedAt: true, client: { select: { name: true } } },
+    }), [])
+  for (const g of regs) {
+    if (g.registration !== 'review' && g.registration !== 'needs_human') continue
+    input.approvals.push({
+      id: g.id,
+      kind: 'registration',
+      clientName: g.client?.name ?? 'a client',
+      at: g.regAt ?? g.updatedAt,
+      stage: g.registration === 'review' ? 'review' : 'blocked',
+      ghlLink: ghlPhoneSystemLink(g.locationId),
+      // A plain "filled it" says nothing the question doesn't; a changed-details or dry-run note does.
+      detail: g.registration === 'needs_human' || (g.regDetail && !/^Filled GHL/.test(g.regDetail)) ? g.regDetail : null,
+      number: g.phoneNumber,
+      reviewLink: `/sites/${g.clientId}#ghl-registration`,
+    })
+  }
+  input.ghlRegistrations = regs.map((g) => ({
+    id: g.id,
+    clientName: g.client?.name ?? 'a client',
+    registration: g.registration,
+    running: g.status === 'running' && g.phase === 'register',
+    at: g.regAt ?? g.updatedAt,
+  }))
   // Where each bought number's texting verification stands (filed, approved, rejected).
   const numberIds = numberRequests.map((r) => r.numberId).filter((x): x is string => !!x)
   const verifications = numberIds.length

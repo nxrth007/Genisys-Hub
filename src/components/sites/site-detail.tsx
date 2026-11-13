@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare } from 'lucide-react'
+import { ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { SiteDetail } from '@/lib/sites'
+import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
 
@@ -47,12 +47,148 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   )
 }
 
-function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+function Card({ title, children, className, id }: { title: string; children: React.ReactNode; className?: string; id?: string }) {
   return (
-    <section className={cn('flex flex-col gap-3 rounded-xl border border-border bg-card p-4', className)}>
+    <section id={id} className={cn('flex flex-col gap-3 rounded-xl border border-border bg-card p-4', className)}>
       <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
       {children}
     </section>
+  )
+}
+
+const REG_WORD: Record<string, string> = {
+  none: 'Not started',
+  waiting_site: 'Waits for the site',
+  queued: 'Queued',
+  review: 'Waiting for an OK',
+  approved: 'Sending',
+  submitted: 'Sent',
+  held: 'On hold',
+  needs_human: 'Stopped',
+}
+const REG_STYLE: Record<string, string> = {
+  submitted: STAGE_STYLE.done,
+  review: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  approved: STAGE_STYLE.in_progress,
+  queued: STAGE_STYLE.in_progress,
+  needs_human: STAGE_STYLE.blocked,
+}
+const STEP_TITLE: Record<number, string> = { 1: 'Business and contact', 2: 'Business location', 3: 'Messaging use case' }
+
+function registrationLine(r: GhlRegistrationView): string {
+  if (r.running) return 'The worker is filling GHL’s toll-free form now.'
+  switch (r.state) {
+    case 'waiting_site':
+      return 'Waits for the site link: GHL’s reviewers check the live site.'
+    case 'queued':
+      return 'Queued: the worker fills GHL’s form next, then asks in the Office before sending.'
+    case 'review':
+      return 'Filled and stopped before sending. Echo is asking in the Office: Send it, or Not now.'
+    case 'approved':
+      return 'Approved: the worker fills the form again and sends it.'
+    case 'submitted':
+      return 'Sent to GHL. GHL says reviews can take up to 4–6 weeks.'
+    case 'held':
+      return 'On hold. Fill it again once the details are right.'
+    case 'needs_human':
+      return 'Stopped. Fix what it says, then fill it again.'
+    default:
+      return 'Starts by itself once the number is in GHL and the site link is in.'
+  }
+}
+
+/** GHL's toll-free registration for a number in GHL: where it stands, what was filled, and pictures of the form. */
+function GhlRegistrationCard({ clientId, r, canAct }: { clientId: string; r: GhlRegistrationView; canAct: boolean }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function fillAgain() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch('/api/office/approvals', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: r.jobId, kind: 'registration', decision: 'retry' }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { detail?: string; error?: string }
+      setMsg(res.ok ? out.detail || 'Queued.' : out.error || `HTTP ${res.status}`)
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const steps = [1, 2, 3].map((step) => ({ step, rows: r.rows.filter((x) => x.step === step) })).filter((x) => x.rows.length)
+  const showDetail = !!r.detail && (r.state === 'needs_human' || r.state === 'held' || /changed|Dry-run/.test(r.detail))
+  return (
+    <Card title="Toll-free registration in GHL" id="ghl-registration" className="scroll-mt-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', r.running ? STAGE_STYLE.in_progress : (REG_STYLE[r.state] ?? STAGE_STYLE.pending))}>
+          {r.running ? 'Filling now' : (REG_WORD[r.state] ?? r.state)}
+        </span>
+        {r.at && <span className="text-[11.5px] text-muted-foreground">Last run {new Date(r.at).toLocaleString()}</span>}
+      </div>
+      <p className="text-[12.5px] text-foreground/90">{registrationLine(r)}</p>
+      {showDetail && <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">{r.detail}</p>}
+      {steps.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <p className="text-[11.5px] text-muted-foreground">
+            What the Hub put in GHL’s form{r.state === 'submitted' ? '' : '. Send it sends exactly this; if the client’s details change first, Echo asks again'}:
+          </p>
+          {steps.map(({ step, rows }) => (
+            <div key={step}>
+              <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Step {step} · {STEP_TITLE[step] ?? ''}
+              </h3>
+              <dl className="grid gap-x-4 gap-y-1.5 sm:grid-cols-[minmax(150px,210px)_1fr]">
+                {rows.map((x) => (
+                  <div key={x.label} className="contents">
+                    <dt className="text-[12px] text-muted-foreground">{x.label}</dt>
+                    <dd className="whitespace-pre-wrap break-words text-[12.5px] text-foreground">{x.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+        </div>
+      )}
+      {r.shots.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {r.shots.map((s) => (
+            <a key={s.id} href={`/api/clients/${clientId}/ghl-number/shots/${s.id}`} target="_blank" rel="noopener noreferrer" className="group flex w-[176px] flex-col gap-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/clients/${clientId}/ghl-number/shots/${s.id}`}
+                alt={s.step}
+                loading="lazy"
+                className="h-[104px] w-full rounded-md border border-border object-cover object-top transition group-hover:opacity-90"
+              />
+              <span className="truncate text-[11px] text-muted-foreground" title={s.step}>
+                {s.step}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {r.state === 'review' && (
+          <Link href="/office" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium hover:bg-muted">
+            Answer it in the Office
+          </Link>
+        )}
+        {canAct && !r.running && (r.state === 'held' || r.state === 'needs_human') && (
+          <button
+            type="button"
+            onClick={fillAgain}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Fill it again
+          </button>
+        )}
+      </div>
+      {msg && <p className="text-[12px] text-muted-foreground">{msg}</p>}
+    </Card>
   )
 }
 
@@ -207,6 +343,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
           </ul>
         </Card>
       </div>
+
+      {d.ghlRegistration && <GhlRegistrationCard clientId={d.client.id} r={d.ghlRegistration} canAct={canAsk} />}
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
         <Card title="Details for the site">

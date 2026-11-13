@@ -362,3 +362,65 @@ test('demo state carries a sample question', () => {
   assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing: in Hell-level, or in GHL after an ID check?')
   assert.equal(s.approvals[0].botId, 'echo')
 })
+
+test("GHL's toll-free registration: filled and held for an OK, with where to see what was filled", () => {
+  const s = deriveOffice(
+    {
+      ...emptyInput(),
+      approvals: [{ id: 'job1', kind: 'registration', clientName: 'All Pro Painting', stage: 'review', number: '+18553895833', reviewLink: '/sites/c1#ghl-registration', at: ago(2) }],
+    },
+    NOW,
+  )
+  const a = s.approvals[0]
+  assert.equal(a.kind, 'registration')
+  assert.equal(a.stage, 'review')
+  assert.equal(a.question, 'Send All Pro Painting’s toll-free registration in GHL?')
+  assert.match(a.note, /\(855\) 389-5833/)
+  assert.match(a.note, /stopped before sending/)
+  assert.equal(a.reviewLink, '/sites/c1#ghl-registration')
+  assert.equal(bot(s, 'echo').status, 'needs_you')
+  assert.equal(bot(s, 'echo').task, 'Asking: send All Pro Painting’s toll-free registration in GHL?')
+  assert.ok(s.activity.some((x) => x.text === 'Filled All Pro Painting’s toll-free registration in GHL; waiting for your OK'))
+})
+
+test('a stopped GHL registration asks a person, with what stopped it', () => {
+  const s = deriveOffice(
+    { ...emptyInput(), approvals: [{ id: 'job1', kind: 'registration', clientName: 'All Pro Painting', stage: 'blocked', detail: "GHL's toll-free form needs First Name.", at: ago(1) }] },
+    NOW,
+  )
+  const a = s.approvals[0]
+  assert.equal(a.question, 'All Pro Painting’s toll-free registration in GHL stopped.')
+  assert.match(a.note, /Try again/)
+  assert.equal(a.detail, "GHL's toll-free form needs First Name.")
+  assert.equal(a.reviewLink, null)
+  assert.equal(bot(s, 'echo').task, 'All Pro Painting’s toll-free registration in GHL needs you')
+})
+
+test('a number question and a registration together are "questions"; numbers alone stay "numbers"', () => {
+  const s = deriveOffice(
+    {
+      ...emptyInput(),
+      approvals: [
+        { id: 'n1', kind: 'number', clientName: 'A Co', at: ago(5) },
+        { id: 'job1', kind: 'registration', clientName: 'B Co', stage: 'review', at: ago(1) },
+      ],
+    },
+    NOW,
+  )
+  assert.equal(bot(s, 'echo').task, '2 toll-free questions waiting for you')
+})
+
+test('GHL registrations on the move: being filled, being sent, sent', () => {
+  const filling = deriveOffice({ ...emptyInput(), ghlRegistrations: [{ id: 'j1', clientName: 'A Co', registration: 'queued', running: true, at: ago(1) }] }, NOW)
+  assert.equal(bot(filling, 'echo').status, 'browsing')
+  assert.equal(bot(filling, 'echo').task, 'Filling A Co’s toll-free registration in GHL')
+  const sending = deriveOffice({ ...emptyInput(), ghlRegistrations: [{ id: 'j1', clientName: 'A Co', registration: 'approved', running: true, at: ago(1) }] }, NOW)
+  assert.equal(bot(sending, 'echo').task, 'Sending A Co’s toll-free registration in GHL')
+  const next = deriveOffice({ ...emptyInput(), ghlRegistrations: [{ id: 'j1', clientName: 'A Co', registration: 'approved', running: false, at: ago(1) }] }, NOW)
+  assert.equal(bot(next, 'echo').task, 'A Co’s toll-free registration in GHL is next')
+  const sent = deriveOffice({ ...emptyInput(), ghlRegistrations: [{ id: 'j1', clientName: 'A Co', registration: 'submitted', running: false, at: ago(3) }] }, NOW)
+  assert.ok(sent.activity.some((x) => x.text === 'Sent A Co’s toll-free registration in GHL' && x.tone === 'done'))
+  // Held and stopped ones are the approvals' business, not this list's.
+  const held = deriveOffice({ ...emptyInput(), ghlRegistrations: [{ id: 'j1', clientName: 'A Co', registration: 'held', running: false, at: ago(3) }] }, NOW)
+  assert.equal(bot(held, 'echo').status, 'idle')
+})

@@ -5,6 +5,7 @@
  * status, links and toll-free number the site build needs.
  */
 import { prisma } from '@/lib/prisma'
+import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
@@ -80,8 +81,12 @@ export type SiteDetail = {
     verificationNote: string | null
   } | null
   request: { status: string; route: string; detail: string | null; verifyNote: string | null } | null
+  /** GHL's toll-free registration, for a number in GHL. */
+  ghlRegistration: GhlRegistrationView | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
 }
+
+export type { GhlRegistrationView }
 
 export async function getSiteDetail(clientId: string): Promise<SiteDetail | null> {
   const c = await prisma.client.findUnique({
@@ -102,6 +107,18 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
+      ghlNumberJob: {
+        select: {
+          id: true,
+          status: true,
+          phase: true,
+          registration: true,
+          regDetail: true,
+          regAt: true,
+          regFields: true,
+          shots: { orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, step: true, createdAt: true } },
+        },
+      },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
     },
   })
@@ -141,6 +158,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         ? { number: ghlNumber.number!, where: 'ghl', forwardTo: ghlNumber.forwardTo, forwardTextsTo: null, verificationStatus: 'ghl', verificationNote: null }
         : null,
     request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route, detail: c.hlNumberRequest.detail, verifyNote: c.hlNumberRequest.verifyNote } : null,
+    ghlRegistration: ghlNumber && c.ghlNumberJob ? registrationView(c.ghlNumberJob) : null,
     seo: c.seoSite ? { repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId } : null,
   }
 }

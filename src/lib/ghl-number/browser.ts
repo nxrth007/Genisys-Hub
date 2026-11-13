@@ -19,6 +19,7 @@ import { chromiumLaunchArgs, prepareChromiumEnv } from '@/lib/ghl-subaccount-wor
 import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
 import { adoptable, CONFIRM_BUY, displayNumber, e164, forwardingFrom, isIdentityCheck, MAX_TOLL_FREE_PRICE, parseBuyRow, pickTollFree, type ListedNumber } from './plan'
+import { pickOption, type FormField, type GhlForm } from './register-plan'
 
 export type GhlNumberState = { pickedNumber: string | null; buyStartedAt: Date | null; phoneNumber: string | null }
 
@@ -121,6 +122,13 @@ async function identityCheckShowing(page: Page): Promise<boolean> {
 
 type Run = { opts: GhlNumberOptions; context: BrowserContext; page: Page; note: (l: string) => Promise<void>; shoot: (s: string) => Promise<void> }
 
+/** What every run needs, a purchase or a registration. */
+export type GhlBaseOptions = Pick<
+  GhlNumberOptions,
+  'clientName' | 'locationId' | 'labels' | 'login' | 'storageState' | 'headless' | 'executablePath' | 'signal' | 'pullOtp' | 'onOtpPrompt' | 'onNote' | 'capture'
+>
+type PageRun = { page: Page; opts: GhlBaseOptions; note: (l: string) => Promise<void>; shoot: (s: string) => Promise<void> }
+
 function signedInPage(snap: PageSnap): boolean {
   try {
     const u = new URL(snap.url)
@@ -131,7 +139,7 @@ function signedInPage(snap: PageSnap): boolean {
 }
 
 /** Open the sub-account's Phone System → Manage Numbers, signing in first if GHL asks. */
-async function openPhoneSystem(run: Run): Promise<void> {
+async function openPhoneSystem(run: PageRun): Promise<void> {
   const { page, opts } = run
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.goto(phoneSystemUrl(opts.locationId), { waitUntil: 'domcontentloaded', timeout: 60_000 })
@@ -423,6 +431,297 @@ export async function runGhlNumber(opts: GhlNumberOptions): Promise<GhlNumberRes
       await run.shoot('failure')
       if (err instanceof Rehearsed) return { status: 'rehearsed', detail: err.message, storageState: await sessionOf(context) }
       if (err instanceof Halt) return { status: err.status, detail: err.message, storageState: await sessionOf(context) }
+      throw err
+    }
+  } finally {
+    await context?.close().catch(() => {})
+    await close?.().catch(() => {})
+    releaseBrowser()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GHL's toll-free registration form ("Messaging Toll-Free Verification")
+// ---------------------------------------------------------------------------
+
+export type GhlRegisterOptions = GhlBaseOptions & {
+  /** The client's toll-free number in GHL (E.164). */
+  number: string
+  form: GhlForm
+  /** false: fill every step, stop before "Send Information for Verification" (for a person's OK). */
+  submit: boolean
+}
+
+export type GhlRegisterResult = {
+  /** review: filled and stopped before sending. already: GHL no longer shows "Verification Required". */
+  status: 'review' | 'submitted' | 'already' | 'needs_human' | 'error'
+  detail: string
+  storageState: string | null
+}
+
+const SEND_BUTTON = /^\s*Send Information for Verification\s*$/i
+const NEXT_BUTTON = /^\s*(Continue|Next|Review)\b/i
+
+/** Tag the control that follows a label (by the label's own text) in the open form; Playwright then drives it. */
+async function markControl(page: Page, label: string, key: string): Promise<'text' | 'select' | null> {
+  return page.evaluate(
+    ({ label, key }) => {
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+      const want = norm(label)
+      const vis = (e: Element) => {
+        const r = (e as HTMLElement).getBoundingClientRect()
+        return r.width > 0 && r.height > 0
+      }
+      const own = (e: Element) =>
+        Array.from(e.childNodes)
+          .filter((n) => n.nodeType === 3)
+          .map((n) => n.textContent || '')
+          .join(' ')
+      const modal = Array.from(document.querySelectorAll('.hr-modal')).filter(vis).find((m) => /Toll-Free/i.test((m as HTMLElement).innerText))
+      if (!modal) return null
+      // An exact label first ("Country"), then one that starts with it ("State, province, or region"),
+      // so a shorter wanted label never lands on a longer one ("Country Code").
+      const labels = Array.from(modal.querySelectorAll('*')).filter(vis).map((e) => ({ e, t: norm(own(e)) }))
+      const hit = (labels.find((x) => x.t === want) ?? labels.find((x) => x.t.startsWith(`${want} `)))?.e
+      if (!hit) return null
+      const controls = Array.from(modal.querySelectorAll('input.hr-input__input-el, textarea, .hr-select')).filter(vis)
+      const next = controls.find((c) => !!(hit.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING))
+      if (!next) return null
+      document.querySelectorAll('[data-ghfill]').forEach((e) => e.getAttribute('data-ghfill') === key && e.removeAttribute('data-ghfill'))
+      next.setAttribute('data-ghfill', key)
+      return next.classList.contains('hr-select') ? 'select' : 'text'
+    },
+    { label, key },
+  )
+}
+
+async function visibleOptions(page: Page): Promise<string[]> {
+  return page
+    .locator('.hr-base-select-option')
+    .evaluateAll((els) => els.filter((e) => (e as HTMLElement).getBoundingClientRect().height > 0).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim()))
+    .catch(() => [] as string[])
+}
+
+/** Pick in one of the form's lists (every wanted value for a multi list). Returns what was picked, or throws naming what wasn't there. */
+async function chooseIn(run: PageRun, key: string, field: FormField): Promise<string[]> {
+  const { page, opts } = run
+  const sel = page.locator(`[data-ghfill="${key}"]`)
+  const picked: string[] = []
+  const wants = field.kind === 'multi' ? field.value.map((v) => [v]) : [field.value]
+  for (const want of wants) {
+    let options = await visibleOptions(page)
+    if (!options.length) {
+      await sel.click({ timeout: 8000 })
+      await sleep(600, opts.signal)
+      options = await visibleOptions(page)
+    }
+    let pick = pickOption(options, want)
+    if (!pick) {
+      // A long list (states, countries) may only render what matches what's typed.
+      await page.keyboard.type(want[0], { delay: 15 })
+      await sleep(800, opts.signal)
+      options = await visibleOptions(page)
+      pick = pickOption(options, want)
+    }
+    if (!pick) throw new Halt('needs_human', `GHL's "${field.label}" list has no "${want.join('" or "')}" (it offers ${options.slice(0, 12).join(', ') || 'nothing'}). Nothing was sent.`)
+    const option = page.locator('.hr-base-select-option').filter({ hasText: new RegExp(`^\\s*${pick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`) }).first()
+    await option.click({ timeout: 8000 })
+    picked.push(pick)
+    await sleep(400, opts.signal)
+  }
+  // A multi list stays open: close it on the form's title.
+  if (field.kind === 'multi') await page.locator('.hr-modal').getByText(/Toll-Free Verification/).first().click({ timeout: 4000 }).catch(() => {})
+  const shown = ((await sel.innerText().catch(() => '')) || '').replace(/\s+/g, ' ')
+  for (const p of picked) if (!shown.includes(p)) throw new Halt('needs_human', `Picked "${p}" for "${field.label}" but GHL shows "${shown}". Nothing was sent.`)
+  return picked
+}
+
+/** Fill one step's fields by their labels. */
+async function fillStep(run: PageRun, fields: FormField[], step: number): Promise<void> {
+  const { page } = run
+  for (const [i, field] of fields.entries()) {
+    const value = field.value.find((v) => v.trim()) ?? ''
+    if (!value && field.optional) continue
+    const key = `s${step}f${i}`
+    const kind = await markControl(page, field.label, key)
+    if (!kind) {
+      if (field.optional) continue
+      throw new Halt('needs_human', `Step ${step} of GHL's toll-free form has no "${field.label}" field the Hub knows. Nothing was sent.`)
+    }
+    if (kind === 'select' || field.kind !== 'text') {
+      if (kind !== 'select') throw new Halt('needs_human', `GHL's "${field.label}" is a text box, not a list. Nothing was sent.`)
+      await chooseIn(run, key, field)
+    } else {
+      const box = page.locator(`[data-ghfill="${key}"]`)
+      await box.click({ timeout: 8000 })
+      await box.fill(value)
+    }
+  }
+}
+
+/** The form's step marker and any error GHL shows. */
+async function formState(page: Page): Promise<{ text: string; errors: string[] }> {
+  return page.evaluate(() => {
+    const vis = (e: Element) => (e as HTMLElement).getBoundingClientRect().height > 0
+    const modal = Array.from(document.querySelectorAll('.hr-modal')).filter(vis).find((m) => /Toll-Free/i.test((m as HTMLElement).innerText))
+    const text = modal ? (modal as HTMLElement).innerText.replace(/\s+/g, ' ') : ''
+    const errors = modal
+      ? Array.from(modal.querySelectorAll('[class*="feedback"], [class*="error"]'))
+          .filter(vis)
+          .map((e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+      : []
+    return { text, errors: Array.from(new Set(errors)).slice(0, 6) }
+  })
+}
+
+/** Is a field with this label showing in the open form? */
+async function hasLabel(page: Page, label: string): Promise<boolean> {
+  return page.evaluate((label) => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    const want = norm(label)
+    const modal = Array.from(document.querySelectorAll('.hr-modal')).find((m) => (m as HTMLElement).getBoundingClientRect().height > 0 && /Toll-Free/i.test((m as HTMLElement).innerText))
+    if (!modal) return false
+    return Array.from(modal.querySelectorAll('*')).some((e) => {
+      if ((e as HTMLElement).getBoundingClientRect().height === 0) return false
+      const own = norm(Array.from(e.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent || '').join(' '))
+      return own === want || own.startsWith(`${want} `)
+    })
+  }, label)
+}
+
+/**
+ * Press the step's Continue and wait until the next step is drawn: the form's
+ * text changed and held still for a poll, no errors, and (when known) the next
+ * step's first field showing. Otherwise say what GHL objected to.
+ */
+async function nextStep(run: PageRun, step: number, nextLabel?: string): Promise<void> {
+  const { page, opts } = run
+  const before = (await formState(page)).text
+  const button = await visibleIn(page.locator('.hr-modal button').filter({ hasText: NEXT_BUTTON }))
+  if (!button) throw new Halt('needs_human', `Step ${step} of GHL's toll-free form has no Continue button the Hub knows. Nothing was sent.`)
+  await button.click({ timeout: 8000 })
+  const deadline = Date.now() + 25_000
+  let last = before
+  for (;;) {
+    await sleep(1000, opts.signal)
+    const now = await formState(page)
+    const settled = !!now.text && now.text !== before && now.text === last
+    last = now.text
+    if (settled && !now.errors.length && (!nextLabel || (await hasLabel(page, nextLabel)))) return
+    if (Date.now() >= deadline) {
+      await run.shoot(`toll-free form step ${step} stuck`)
+      throw new Halt('needs_human', `GHL didn't move past step ${step} of the toll-free form${now.errors.length ? `: ${now.errors.join('; ')}` : ''}. Nothing was sent.`)
+    }
+  }
+}
+
+/** Close the form without sending. */
+async function closeForm(page: Page): Promise<void> {
+  const close = await visibleIn(page.locator('.hr-modal').filter({ hasText: /Toll-Free/ }).locator('.hr-base-close, [aria-label="close"], [aria-label="Close"], button:has(svg)').first())
+  if (close) await close.click({ timeout: 4000 }).catch(() => {})
+}
+
+/** The number's row on Manage Numbers, as text. */
+async function numberRow(page: Page, number: string): Promise<string> {
+  const dashed = displayNumber(number).replace(/[()]/g, '').replace(' ', '-')
+  const rows = await page.evaluate(() => Array.from(document.querySelectorAll('tr')).map((r) => (r as HTMLElement).innerText.replace(/\s+/g, ' ').trim())).catch(() => [] as string[])
+  return rows.find((r) => r.includes(dashed)) ?? ''
+}
+
+export async function runGhlRegistration(opts: GhlRegisterOptions): Promise<GhlRegisterResult> {
+  if (opts.signal?.aborted) throw new Error('The job ran out of time.')
+  claimBrowser()
+  let context: BrowserContext | null = null
+  let close: (() => Promise<void>) | null = null
+  try {
+    prepareChromiumEnv()
+    const pw = (await import('playwright')) as typeof import('playwright')
+    const browser = await pw.chromium.launch({ headless: opts.headless, executablePath: opts.executablePath || undefined, args: chromiumLaunchArgs() })
+    close = () => browser.close()
+    opts.signal?.addEventListener('abort', () => void browser.close().catch(() => {}), { once: true })
+    context = await newWorkerContext(browser, opts.storageState)
+    const page = await context.newPage()
+    page.setDefaultTimeout(20_000)
+    page.on('dialog', (d) => {
+      void d.dismiss().catch(() => {})
+    })
+    const run: PageRun = {
+      opts,
+      page,
+      note: async (line) => {
+        await opts.onNote(line).catch(() => {})
+      },
+      shoot: async (step) => {
+        try {
+          await opts.capture(step, await capturePage(page))
+        } catch {
+          // A missing picture never stops the run.
+        }
+      },
+    }
+    const shown = displayNumber(opts.number)
+    try {
+      await openPhoneSystem(run)
+      const row = await numberRow(page, opts.number)
+      if (!row) throw new Halt('needs_human', `${shown} isn't in ${opts.clientName}'s GHL numbers any more.`)
+      if (!/Verification Required/i.test(row)) {
+        return { status: 'already', detail: `GHL no longer shows "Verification Required" for ${shown} (${row.replace(/^\+?[\d\s()-]+/, '').trim()}).`, storageState: await sessionOf(context) }
+      }
+      const dashed = shown.replace(/[()]/g, '').replace(' ', '-')
+      const badge = page.locator('tr').filter({ hasText: dashed }).getByText('Verification Required').first()
+      await badge.click({ timeout: 8000 })
+      if (!(await waitVisible(page.locator('.hr-modal').filter({ hasText: /Toll-Free Verification/ }), 15_000, opts.signal))) {
+        throw new Halt('needs_human', `GHL's toll-free form for ${shown} didn't open.`)
+      }
+      await sleep(1500, opts.signal)
+      await fillStep(run, opts.form.step1, 1)
+      await run.shoot('toll-free form step 1 filled')
+      await nextStep(run, 1, opts.form.step2[0]?.label)
+      await fillStep(run, opts.form.step2, 2)
+      await run.shoot('toll-free form step 2 filled')
+      await nextStep(run, 2, opts.form.step3[0]?.label)
+      await fillStep(run, opts.form.step3, 3)
+      await run.shoot('toll-free form step 3 filled')
+      // Step 3 may end on the send button itself, or go on to a review page first.
+      for (let i = 0; i < 2 && !(await visibleIn(page.locator('.hr-modal button').filter({ hasText: SEND_BUTTON }))); i++) await nextStep(run, 3 + i)
+      const send = await visibleIn(page.locator('.hr-modal button').filter({ hasText: SEND_BUTTON }))
+      if (!send) throw new Halt('needs_human', `GHL's toll-free form never showed "Send Information for Verification". Nothing was sent.`)
+      const agree = page.locator('.hr-modal').locator('.hr-checkbox').filter({ hasText: /Terms of Service/i }).first()
+      if ((await agree.count()) && !/checked/.test((await agree.getAttribute('class')) ?? '')) await agree.click({ timeout: 5000 })
+      await run.shoot('toll-free form ready to send')
+      if (!opts.submit) {
+        await closeForm(page)
+        return { status: 'review', detail: `Filled GHL's toll-free form for ${shown} and stopped before "Send Information for Verification".`, storageState: await sessionOf(context) }
+      }
+      if (!(await send.isEnabled().catch(() => false))) throw new Halt('needs_human', `"Send Information for Verification" stayed disabled after filling the form. Nothing was sent.`)
+      await send.click({ timeout: 8000 })
+      const deadline = Date.now() + 60_000
+      for (;;) {
+        await sleep(1500, opts.signal)
+        if (await identityCheckShowing(page)) {
+          await run.shoot('identity check at send')
+          throw new Halt('needs_human', `GHL asked for its identity check when sending ${shown}'s registration. Finish it in GHL, then send it again from the Office.`)
+        }
+        if (!(await visibleIn(page.locator('.hr-modal').filter({ hasText: /Toll-Free Verification/ })))) break
+        if (Date.now() >= deadline) {
+          const st = await formState(page)
+          await run.shoot('toll-free send stuck')
+          throw new Halt('needs_human', `GHL kept the toll-free form open after "Send"${st.errors.length ? `: ${st.errors.join('; ')}` : ''}. Check ${shown} in GHL.`)
+        }
+      }
+      await openPhoneSystem(run)
+      const after = await numberRow(page, opts.number)
+      if (/Verification Required/i.test(after)) {
+        await run.shoot('still verification required')
+        throw new Halt('needs_human', `Sent ${shown}'s registration, but GHL still shows "Verification Required". Check it in GHL.`)
+      }
+      return { status: 'submitted', detail: `Sent ${shown}'s toll-free registration in GHL (${after.replace(/^\+?[\d\s()-]+/, '').trim() || 'submitted'}). GHL says reviews can take up to 4–6 weeks.`, storageState: await sessionOf(context) }
+    } catch (err) {
+      if (opts.signal?.aborted) throw err
+      await run.shoot('registration failure')
+      await closeForm(page).catch(() => {})
+      if (err instanceof Halt) return { status: err.status === 'needs_identity' ? 'needs_human' : err.status, detail: err.message, storageState: await sessionOf(context) }
       throw err
     }
   } finally {

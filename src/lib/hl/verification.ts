@@ -124,16 +124,20 @@ function summaryOf(name: string, promos: boolean): string {
   return versions.find((v) => v.length <= TFV_LIMITS.useCaseSummary) ?? versions[versions.length - 1].slice(0, TFV_LIMITS.useCaseSummary)
 }
 
-/** What would be filed, for the review screen and the request itself. Throws with what's missing. */
-export async function verificationDraft(numberId: string) {
-  const number = await prisma.hlPhoneNumber.findUnique({ where: { id: numberId }, include: { account: { include: { forms: { where: { archivedAt: null } }, workflows: true } } } })
-  if (!number || number.status !== 'active') throw new HlInputError('That number isn’t active.')
-  if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers are registered for A2P instead (the Texting panel on the number).')
-  if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Hell-level.')
+/**
+ * What a client's toll-free verification says, from their sub-account's
+ * business profile and their own site: the same filing whether it goes to
+ * Twilio (a Hell-level number, verificationDraft) or into GHL's own form (a
+ * number in their GHL sub-account, src/lib/ghl-number/register.ts). Throws
+ * with what's missing.
+ */
+export async function tollFreeFiling(accountId: string) {
+  const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, include: { forms: { where: { archivedAt: null } } } })
+  if (!account) throw new HlInputError('The client’s Hell-level sub-account is gone.')
   // A client's own privacy and terms pages (found in the site's repo, hooked up under Clients) fill blank links.
-  const clientId = number.account.clientId
-  if (clientId) await fillLegalLinksFromSite(number.accountId)
-  const p = readProfile((await prisma.hlAccount.findUniqueOrThrow({ where: { id: number.accountId }, select: { profile: true } })).profile)
+  const clientId = account.clientId
+  if (clientId) await fillLegalLinksFromSite(accountId)
+  const p = readProfile((await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { profile: true } })).profile)
   const missing = [
     !p.businessName && 'business name',
     !p.website && 'website',
@@ -142,10 +146,10 @@ export async function verificationDraft(numberId: string) {
   if (missing.length) throw new HlInputError(`Fill in the business profile first: ${missing.join(', ')} (Settings → Business Profile).`)
   const website = /^https?:\/\//i.test(p.website!) ? p.website! : `https://${p.website}`
   // Hell-level's own forms (an imported GHL form isn't served from here).
-  const own = number.account.forms.filter((f) => !f.ghlId)
+  const own = account.forms.filter((f) => !f.ghlId)
   // A form with the separate promotional box means some texts are marketing, and the filing has to say so.
   const promos = own.some((f) => consentsOf(asSettings(f.settings)).some((c) => c.kind === 'marketing'))
-  const legal = resolveLegalLinks(number.accountId, p)
+  const legal = resolveLegalLinks(accountId, p)
   // Reviewers check the business's own site: the Hub's pages (its domain or Render's) get a registration rejected.
   if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
     throw new HlInputError(
@@ -168,9 +172,6 @@ export async function verificationDraft(numberId: string) {
   const owner = splitName(p.ownerName || p.ownerFirstName)
   const business = p.legalName || p.businessName!
   return {
-    number,
-    request: {
-      tollfreePhoneNumberSid: number.providerSid,
       businessName: business,
       ...(p.businessName && p.businessName !== business ? { doingBusinessAs: p.businessName } : {}),
       businessWebsite: website,
@@ -195,10 +196,20 @@ export async function verificationDraft(numberId: string) {
       privacyPolicyUrl: legal.privacy,
       termsAndConditionsUrl: legal.terms,
       additionalInformation: `Filed by Genisys (marketing agency) on behalf of its client, which owns this number’s traffic. Consent is collected on the quote form on the client’s own website (${optInPages.join(' and ')}): optional, unchecked checkboxes, with links to its privacy policy and terms.`,
-      externalReferenceId: number.accountId,
+      externalReferenceId: accountId,
       ageGatedContent: false,
-    },
   }
+}
+
+export type TollFreeFiling = Awaited<ReturnType<typeof tollFreeFiling>>
+
+/** What would be filed for a Hell-level number, for the review screen and the request itself. Throws with what's missing. */
+export async function verificationDraft(numberId: string) {
+  const number = await prisma.hlPhoneNumber.findUnique({ where: { id: numberId } })
+  if (!number || number.status !== 'active') throw new HlInputError('That number isn’t active.')
+  if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers are registered for A2P instead (the Texting panel on the number).')
+  if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Hell-level.')
+  return { number, request: { tollfreePhoneNumberSid: number.providerSid, ...(await tollFreeFiling(number.accountId)) } }
 }
 
 /** Twilio refuses a field past the registry's limit; say which, before anything is sent. */

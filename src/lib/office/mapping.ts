@@ -125,22 +125,30 @@ export type SubaccountJobIn = {
   kind?: 'create' | 'customize'
 }
 /**
- * A bot's question waiting for a Yes or No in the Office (today: Echo asking
- * to buy a new client's Hell-level toll-free number). ringTo is where its
- * calls would ring (E.164), when a phone is on file.
+ * A bot's question waiting for an answer in the Office: Echo asking where to
+ * get a new client's toll-free number (kind number), or whether to send GHL's
+ * toll-free registration it filled for a number in GHL (kind registration;
+ * the id is then the GhlNumberJob's). ringTo is where its calls would ring
+ * (E.164), when a phone is on file.
  */
 export type ApprovalIn = {
   id: string
-  kind: 'number'
+  kind: 'number' | 'registration'
   clientName: string
   ringTo?: string | null
   at: Date
-  /** ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check. */
-  stage?: 'ask' | 'identity'
+  /**
+   * number: ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check.
+   * registration: review = filled and stopped before Send; blocked = it stopped and needs a person.
+   */
+  stage?: 'ask' | 'identity' | 'review' | 'blocked'
   /** The client's GHL Phone System, where the ID check starts; null without a linked sub-account. */
   ghlLink?: string | null
-  /** What the last try said (e.g. GHL still asked for the ID check). */
+  /** What the last try said (e.g. GHL still asked for the ID check, or what stopped the registration). */
   detail?: string | null
+  /** registration: the number (E.164), and where a person sees what was filled (the client's folder in Sites). */
+  number?: string | null
+  reviewLink?: string | null
 }
 /** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
@@ -163,6 +171,9 @@ export type NumberRequestIn = {
   verificationChangedAt?: Date | null
 }
 
+/** A GHL toll-free registration on the move (src/lib/ghl-number/queue.ts): queued, being filled or sent, sent. */
+export type GhlRegistrationIn = { id: string; clientName: string; registration: string; running: boolean; at: Date }
+
 export type OfficeInput = {
   journeyEvents: JourneyEventIn[]
   openStages: StageRowIn[]
@@ -175,6 +186,7 @@ export type OfficeInput = {
   subaccountJobs: SubaccountJobIn[]
   approvals: ApprovalIn[]
   numberRequests: NumberRequestIn[]
+  ghlRegistrations?: GhlRegistrationIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -204,7 +216,7 @@ export type OfficeActivity = { id: string; at: string; botId: BotId; text: strin
 export type OfficeHandoff = { id: string; from: BotId; to: BotId; at: string; clientName: string }
 export type OfficeApproval = {
   id: string
-  kind: 'number'
+  kind: 'number' | 'registration'
   botId: BotId
   /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Hell-level?" */
   question: string
@@ -213,9 +225,11 @@ export type OfficeApproval = {
   /** Where its calls would ring (E.164), when a phone is on file. */
   ringTo: string | null
   at: string
-  stage: 'ask' | 'identity'
+  stage: 'ask' | 'identity' | 'review' | 'blocked'
   ghlLink: string | null
   detail: string | null
+  /** registration: the client's folder in Sites, showing what was filled. */
+  reviewLink: string | null
 }
 export type OfficeState = {
   generatedAt: string
@@ -379,46 +393,66 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     })
   }
 
-  // Questions waiting for an answer: Echo asks where to get a new client's toll-free number.
+  // Questions waiting for an answer: Echo asks where to get a new client's toll-free number,
+  // and whether to send GHL's toll-free registration it filled (or says what stopped it).
   const approvals: OfficeApproval[] = [...input.approvals]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((a) => {
       const stage = a.stage ?? 'ask'
       const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
+      const num = a.number ? phone(a.number) : 'their number'
+      const words: Record<OfficeApproval['stage'], { question: string; note: string }> = {
+        ask: {
+          question: `Buy a toll-free number for ${a.clientName}: in Hell-level, or in GHL after an ID check?`,
+          note: `Hell-level: about $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in. GHL: pass GHL’s ID check for their sub-account first.`,
+        },
+        identity: {
+          question: `Verify ${a.clientName}’s identity in GHL, then press Identification complete.`,
+          note: 'In GHL: Phone System → Add Number → pick a toll-free number → Proceed to Buy, then finish the ID check (ID and selfie). The Hub uses the number you buy there, points its calls and handles the rest.',
+        },
+        review: {
+          question: `Send ${a.clientName}’s toll-free registration in GHL?`,
+          note: `The Hub filled GHL’s toll-free form for ${num} from their details and live site, and stopped before sending. Send it fills the form again and sends it. GHL says reviews can take up to 4–6 weeks.`,
+        },
+        blocked: {
+          question: `${a.clientName}’s toll-free registration in GHL stopped.`,
+          note: `Fix what it says below, then Try again: the Hub fills GHL’s form for ${num} again and asks you before sending.`,
+        },
+      }
       return {
         id: a.id,
         kind: a.kind,
         botId: 'echo' as const,
         stage,
-        question:
-          stage === 'identity'
-            ? `Verify ${a.clientName}’s identity in GHL, then press Identification complete.`
-            : `Buy a toll-free number for ${a.clientName}: in Hell-level, or in GHL after an ID check?`,
-        note:
-          stage === 'identity'
-            ? 'In GHL: Phone System → Add Number → pick a toll-free number → Proceed to Buy, then finish the ID check (ID and selfie). The Hub uses the number you buy there, points its calls and handles the rest.'
-            : `Hell-level: about $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in. GHL: pass GHL’s ID check for their sub-account first.`,
+        question: words[stage].question,
+        note: words[stage].note,
         clientName: a.clientName,
         ringTo: a.ringTo ?? null,
         ghlLink: a.ghlLink ?? null,
         detail: a.detail ?? null,
+        reviewLink: a.reviewLink ?? null,
         at: a.at.toISOString(),
       }
     })
-  for (const a of approvals) {
-    feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', a.stage === 'identity' ? `Waiting on GHL’s ID check for ${a.clientName}` : `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
+  const asked: Record<OfficeApproval['stage'], (name: string) => string> = {
+    ask: (n) => `Asked to buy a toll-free number for ${n}`,
+    identity: (n) => `Waiting on GHL’s ID check for ${n}`,
+    review: (n) => `Filled ${n}’s toll-free registration in GHL; waiting for your OK`,
+    blocked: (n) => `${n}’s toll-free registration in GHL needs you`,
   }
+  for (const a of approvals) feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', asked[a.stage](a.clientName), 'needs_you')
   if (approvals.length) {
     const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
     const one = approvals[0]
+    const task: Record<OfficeApproval['stage'], string> = {
+      ask: `Asking: buy a toll-free number for ${one.clientName}?`,
+      identity: `Waiting on the GHL ID check for ${one.clientName}`,
+      review: `Asking: send ${one.clientName}’s toll-free registration in GHL?`,
+      blocked: `${one.clientName}’s toll-free registration in GHL needs you`,
+    }
     add('echo', {
       status: 'needs_you',
-      task:
-        approvals.length === 1
-          ? one.stage === 'identity'
-            ? `Waiting on the GHL ID check for ${one.clientName}`
-            : `Asking: buy a toll-free number for ${one.clientName}?`
-          : `${approvals.length} toll-free numbers waiting for you`,
+      task: approvals.length === 1 ? task[one.stage] : `${approvals.length} toll-free ${approvals.every((x) => x.kind === 'number') ? 'numbers' : 'questions'} waiting for you`,
       icon: 'alert',
       at: newest.at,
     })
@@ -559,6 +593,18 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       feed(`nr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Buying ${r.clientName}'s toll-free number failed${why}`, 140), 'error')
     } else if (r.status === 'declined') {
       feed(`nr:${r.id}:declined`, at, 'echo', `Toll-free number for ${r.clientName} declined`, 'thinking')
+    }
+  }
+
+  // GHL toll-free registrations on the move: queued, being filled or sent, sent.
+  for (const g of input.ghlRegistrations ?? []) {
+    if (g.running) {
+      add('echo', { status: 'browsing', task: `${g.registration === 'approved' ? 'Sending' : 'Filling'} ${g.clientName}’s toll-free registration in GHL`, icon: 'globe', at: g.at })
+    } else if (g.registration === 'queued' || g.registration === 'approved') {
+      add('echo', { status: 'thinking', task: `${g.clientName}’s toll-free registration in GHL is next`, icon: 'dots', at: g.at })
+    } else if (g.registration === 'submitted') {
+      feed(`gr:${g.id}:sent`, g.at, 'echo', `Sent ${g.clientName}’s toll-free registration in GHL`, 'done')
+      if (age(g.at) <= DONE_MS) add('echo', { status: 'terminal', task: `Sent ${g.clientName}’s toll-free registration in GHL`, icon: 'check', at: g.at })
     }
   }
 

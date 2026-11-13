@@ -4,6 +4,7 @@ import { readProfile } from './accounts'
 import { fillLegalLinksFromSite } from './legal-links'
 import { fillBrandFromSite } from './logo'
 import { fileNumberVerification } from './number-request'
+import { queueGhlRegistration } from '@/lib/ghl-number/queue'
 
 /**
  * The site we built for a client went live (or moved to a new address): its
@@ -37,4 +38,6 @@ export async function syncClientSite(clientId: string, siteUrl: string, priorSit
   await fillBrandFromSite(account.id, logoFromOldSite)
   // A toll-free number bought after an Office Yes gets its texting verification filed now that the site is in.
   await fileNumberVerification(clientId).catch((err) => console.warn('[hell-level] toll-free verification after the site link:', err))
+  // A number in their GHL sub-account gets GHL's toll-free form filled (and held for an OK in the Office).
+  await queueGhlRegistration(clientId).catch((err) => console.warn('[ghl-number] registration after the site link:', err))
 }

@@ -877,6 +877,16 @@ model GhlNumberJob {
   /// The client's toll-free number in GHL (E.164) and where its calls ring.
   phoneNumber   String?
   forwardsTo    String?
+  /// number = get the number and point its calls; register = fill GHL's toll-free form.
+  phase         String    @default("number")
+  /// GHL toll-free registration: none | waiting_site | queued | review (filled, waiting for a
+  /// person's OK in the Office) | approved (send it) | submitted | held | needs_human
+  registration  String    @default("none")
+  regDetail     String?   @db.Text
+  regAt         DateTime?
+  /// What the Hub put in GHL's form the last time it filled it ({ step, label, value }[]):
+  /// a person checks it before Send, and Send stops if the client's details changed since.
+  regFields     Json?
   lastError     String?   @db.Text
   detail        String?   @db.Text
   log           Json?

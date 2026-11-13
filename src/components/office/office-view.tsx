@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useSyncExternalStore, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Check, ExternalLink, Loader2, Pause, Play, Radio, ShieldCheck, X } from 'lucide-react'
+import { Check, ExternalLink, Loader2, Pause, Play, Radio, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
@@ -59,7 +59,9 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Decision = 'hl' | 'ghl' | 'identified' | 'no'
+type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry'
+/** Answers that leave things as they are (shown quietly). */
+const quiet = (d: Decision) => d === 'no' || d === 'hold'
 type Answer = { decision: Decision; text: string }
 
 const BTN_PRIMARY = 'inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-40'
@@ -67,11 +69,14 @@ const BTN_SECONDARY = 'inline-flex items-center gap-1.5 rounded-lg border border
 const BTN_GHOST = 'inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200 disabled:opacity-40'
 
 /**
- * A bot's question waiting for an answer (today: Echo asking where to get a new
- * client's toll-free number). Asked: Buy in Hell-level (right away, no ID
- * check) or Verify identity in GHL (opens the client's GHL Phone System and
- * waits). Then Identification complete hands the GHL route to the browser
- * worker. An answer that settles it stays a few seconds to say what happened.
+ * A bot's question waiting for an answer. Echo asking where to get a new
+ * client's toll-free number: Buy in Hell-level (right away, no ID check) or
+ * Verify identity in GHL (opens the client's GHL Phone System and waits);
+ * then Identification complete hands the GHL route to the browser worker.
+ * Echo asking about GHL's toll-free registration it filled: Send it, See
+ * what was filled (the client's folder in Sites), Not now; or, when it
+ * stopped, Try again. An answer that settles it stays a few seconds to say
+ * what happened.
  */
 function ApprovalCard({
   a,
@@ -101,11 +106,11 @@ function ApprovalCard({
       const res = await fetch('/api/office/approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: a.id, decision }),
+        body: JSON.stringify({ id: a.id, kind: a.kind, decision }),
       })
       const out = (await res.json().catch(() => ({}))) as { error?: string; detail?: string | null }
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`)
-      onAnswered({ decision, text: decision === 'no' ? 'Declined.' : out.detail || 'Done.' })
+      onAnswered({ decision, text: decision === 'no' ? 'Declined.' : out.detail || (decision === 'hold' ? 'On hold.' : 'Done.') })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -149,10 +154,34 @@ function ApprovalCard({
           {err && <p className="mt-1.5 text-[11px] text-red-300">{err}</p>}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {done ? (
-              <span className={cn('inline-flex items-start gap-1 text-[12px] font-medium leading-snug', done.decision === 'no' ? 'text-zinc-400' : 'text-emerald-400')}>
-                {done.decision === 'no' ? <X className="mt-px h-3.5 w-3.5 shrink-0" /> : <Check className="mt-px h-3.5 w-3.5 shrink-0" />}
+              <span className={cn('inline-flex items-start gap-1 text-[12px] font-medium leading-snug', quiet(done.decision) ? 'text-zinc-400' : 'text-emerald-400')}>
+                {quiet(done.decision) ? <X className="mt-px h-3.5 w-3.5 shrink-0" /> : <Check className="mt-px h-3.5 w-3.5 shrink-0" />}
                 {done.text}
               </span>
+            ) : a.kind === 'registration' && a.stage === 'review' ? (
+              <>
+                <button type="button" onClick={() => answer('submit')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('submit') || <Send className="h-3.5 w-3.5" />} Send it
+                </button>
+                {a.reviewLink && (
+                  <a href={a.reviewLink} target="_blank" rel="noopener noreferrer" className={BTN_SECONDARY}>
+                    See what was filled <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+                <button type="button" onClick={() => answer('hold')} disabled={locked} className={BTN_GHOST}>
+                  {spin('hold') || <X className="h-3.5 w-3.5" />} Not now
+                </button>
+              </>
+            ) : a.kind === 'registration' ? (
+              <>
+                <button type="button" onClick={() => answer('retry')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('retry') || <RotateCcw className="h-3.5 w-3.5" />} Try again
+                </button>
+                {ghlButton('Open GHL', null)}
+                <button type="button" onClick={() => answer('hold')} disabled={locked} className={BTN_GHOST}>
+                  {spin('hold') || <X className="h-3.5 w-3.5" />} Not now
+                </button>
+              </>
             ) : a.stage === 'identity' ? (
               <>
                 {ghlButton('Open GHL', null)}

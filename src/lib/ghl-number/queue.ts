@@ -9,6 +9,11 @@
  * one), points its calls at the client's phone, and settles the Office
  * request: bought, back to the ID check (GHL still asks for it), or failed.
  *
+ * Then, once the client's site link is in, the same job fills GHL's toll-free
+ * registration form from the client's filing (the one Hell-level files with
+ * Twilio) and stops before sending: Echo asks in the Office, and "Send it"
+ * runs it again and presses Send Information for Verification.
+ *
  * Runs in the sub-account worker's tick on the one browser, after sub-account
  * creates and before workflow customizing. At most DAILY_BUY_CAP purchases a day.
  */
@@ -20,8 +25,11 @@ import { retryDelayMs, workerEnabled, workerHeadless, workerMode, workerPaused }
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, jobLogEntry } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { ghlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import { loadLogin, loadSession, makeOtpPuller, saveSession } from '@/lib/ghl-subaccount-worker/session-store'
-import { runGhlNumber } from './browser'
+import { HlInputError } from '@/lib/hl/http'
+import { tollFreeFiling } from '@/lib/hl/verification'
+import { runGhlNumber, runGhlRegistration } from './browser'
 import { DAILY_BUY_CAP, displayNumber, underDailyCap } from './plan'
+import { blankFields, formRows, ghlFormFields, rowsChanged, type GhlForm } from './register-plan'
 
 const LEASE_MS = 45 * 60_000
 const WALL_MS = 30 * 60_000
@@ -51,6 +59,7 @@ export async function queueGhlNumber(o: { clientId: string; requestId: string; l
   const data = {
     requestId: o.requestId,
     locationId: o.locationId,
+    phase: 'number',
     status: 'queued',
     attempts: 0,
     leaseUntil: null,
@@ -149,6 +158,7 @@ async function saveShot(id: string, lease: Date, step: string, image: Buffer): P
 async function execute(id: string, lease: Date): Promise<string> {
   const job = await prisma.ghlNumberJob.findFirst({ where: { id, leaseUntil: lease }, include: { client: { select: { id: true, name: true, archivedAt: true } } } })
   if (!job) return 'lost'
+  if (job.phase === 'register') return executeRegistration(id, lease)
   const request = await prisma.hlNumberRequest.findUnique({ where: { id: job.requestId }, select: { id: true, forwardTo: true } })
   const ac = new AbortController()
   live = { id, getLease: () => lease, abort: () => ac.abort(), released: false }
@@ -226,6 +236,8 @@ async function execute(id: string, lease: Date): Promise<string> {
         { status: 'bought', route: 'ghl', number: result.phoneNumber, forwardTo: result.forwardsTo ?? request.forwardTo, detail: result.detail },
         `${result.adopted ? 'Took' : 'Bought'} ${displayNumber(result.phoneNumber!)} in GHL. ${result.detail}`,
       )
+      // Next: GHL's toll-free registration, once the site is live (it's filled, then waits for an OK).
+      await queueGhlRegistration(client.id).catch((err) => console.warn('[ghl-number] registration after purchase:', describe(err)))
       return result.status === 'done' ? 'succeeded' : 'needs_human'
     }
     if (result.status === 'needs_identity') {
@@ -266,10 +278,203 @@ async function execute(id: string, lease: Date): Promise<string> {
   }
 }
 
+/**
+ * Queue GHL's toll-free registration for a client whose number is in GHL. By
+ * itself (after the purchase, when the site link comes in, the sweep) it only
+ * starts a registration that never ran; `again` fills it again after a hold or
+ * a stop; `approve` fills it again and sends it. It waits for the site link,
+ * since GHL's reviewers check the site's opt-in form and policy pages.
+ */
+export async function queueGhlRegistration(clientId: string, o: { approve?: boolean; again?: boolean; by?: string } = {}): Promise<{ ok: boolean; reason: string }> {
+  const job = await prisma.ghlNumberJob.findUnique({
+    where: { clientId },
+    select: { id: true, status: true, phase: true, phoneNumber: true, registration: true, requestId: true, log: true, client: { select: { siteUrl: true, archivedAt: true } } },
+  })
+  if (!job?.phoneNumber) return { ok: false, reason: 'The client has no number in GHL yet.' }
+  if (job.client.archivedAt) return { ok: false, reason: 'The client is archived.' }
+  if (job.status === 'running') return { ok: false, reason: job.phase === 'register' ? 'The worker is filling GHL’s form right now.' : 'The worker is still getting the number.' }
+  if (job.phase === 'number' && job.status !== 'succeeded' && job.status !== 'needs_human') return { ok: false, reason: 'The number isn’t settled in GHL yet.' }
+  const request = await prisma.hlNumberRequest.findUnique({ where: { id: job.requestId }, select: { status: true, route: true } })
+  if (request?.status !== 'bought' || request.route !== 'ghl') return { ok: false, reason: 'The Office request doesn’t show this number as bought in GHL.' }
+  if (job.registration === 'submitted') return { ok: false, reason: 'The registration was already sent.' }
+  if (!o.approve && !o.again && job.registration !== 'none' && job.registration !== 'waiting_site') return { ok: true, reason: job.registration }
+  if (!job.client.siteUrl?.trim()) {
+    if (job.registration !== 'waiting_site') await prisma.ghlNumberJob.update({ where: { id: job.id }, data: { registration: 'waiting_site', log: logged(job.log, 'Toll-free registration waits for the site link.') } })
+    return { ok: false, reason: 'It waits for the site link (GHL’s reviewers check the live site).' }
+  }
+  await prisma.ghlNumberJob.update({
+    where: { id: job.id },
+    data: {
+      phase: 'register',
+      status: 'queued',
+      registration: o.approve ? 'approved' : 'queued',
+      attempts: 0,
+      leaseUntil: null,
+      heartbeatAt: null,
+      nextAttemptAt: new Date(),
+      log: logged(
+        job.log,
+        o.approve
+          ? `Registration approved by ${o.by ?? 'someone'}: the worker fills GHL’s form again and sends it.`
+          : o.again
+            ? `Registration to be filled again (${o.by ?? 'someone'}), then held for an OK.`
+            : 'Toll-free registration queued: filled, then held for an OK in the Office.',
+      ),
+    },
+  })
+  return { ok: true, reason: o.approve ? 'approved' : 'queued' }
+}
+
+/** The Office answer on GHL's toll-free registration: send what was filled, hold it, or fill it again. */
+export async function decideGhlRegistration(
+  jobId: string,
+  decision: 'submit' | 'hold' | 'retry',
+  by: string,
+): Promise<{ ok: true; status: string; detail: string } | { ok: false; reason: string }> {
+  const job = await prisma.ghlNumberJob.findUnique({ where: { id: jobId }, select: { id: true, clientId: true, registration: true, log: true } })
+  if (!job) return { ok: false, reason: 'That registration is gone.' }
+  const now = job.registration.replace(/_/g, ' ')
+  if (decision === 'hold') {
+    if (job.registration !== 'review' && job.registration !== 'needs_human') return { ok: false, reason: `There’s nothing to hold (it’s ${now}).` }
+    await prisma.ghlNumberJob.update({ where: { id: jobId }, data: { registration: 'held', log: logged(job.log, `Registration held by ${by}.`) } })
+    return { ok: true, status: 'held', detail: 'On hold. Fill it again from the client’s folder in Sites.' }
+  }
+  if (decision === 'submit' && job.registration !== 'review') return { ok: false, reason: `It isn’t waiting for an OK (it’s ${now}).` }
+  if (decision === 'retry' && !['review', 'held', 'needs_human'].includes(job.registration)) return { ok: false, reason: `It can’t be filled again while it’s ${now}.` }
+  const res = await queueGhlRegistration(job.clientId, decision === 'submit' ? { approve: true, by } : { again: true, by })
+  if (!res.ok) return { ok: false, reason: res.reason }
+  return decision === 'submit'
+    ? { ok: true, status: 'approved', detail: 'The worker fills GHL’s form again and sends it, in a few minutes.' }
+    : { ok: true, status: 'queued', detail: 'The worker fills GHL’s form again and asks you before sending.' }
+}
+
+const asJson = (v: unknown) => v as Prisma.InputJsonValue
+
+/** Fill (and, when approved, send) GHL's toll-free registration form for the client's GHL number. */
+async function executeRegistration(id: string, lease: Date): Promise<string> {
+  const job = await prisma.ghlNumberJob.findFirst({ where: { id, leaseUntil: lease }, include: { client: { select: { id: true, name: true, archivedAt: true } } } })
+  if (!job) return 'lost'
+  const request = await prisma.hlNumberRequest.findUnique({ where: { id: job.requestId }, select: { id: true, accountId: true } })
+  const ac = new AbortController()
+  live = { id, getLease: () => lease, abort: () => ac.abort(), released: false }
+  const note = (msg: string) => appendLog(id, lease, msg).catch(() => {})
+  /** The run's answer: review (filled, waiting for an OK), submitted, or a stop a person fixes (Echo asks in the Office). */
+  const settle = async (registration: 'review' | 'submitted' | 'needs_human', detail: string, extra: Prisma.GhlNumberJobUpdateManyMutationInput = {}): Promise<string> => {
+    await note(detail)
+    await saveJob(id, lease, {
+      phase: 'number',
+      status: registration === 'needs_human' ? 'needs_human' : 'succeeded',
+      registration,
+      regDetail: detail.slice(0, 4000),
+      regAt: new Date(),
+      leaseUntil: null,
+      heartbeatAt: null,
+      finishedAt: new Date(),
+      ...extra,
+    })
+    if (registration === 'needs_human') await textNumberEvent({ key: `${id}.reg`, kind: 'verify', client: job.client.name, reason: detail, link: hubLink('/office') })
+    return registration
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let heartbeat: ReturnType<typeof setInterval> | null = null
+  try {
+    if (job.client.archivedAt) return await settle('needs_human', 'The client is archived, so nothing was filled.')
+    if (!request || !job.phoneNumber) return await settle('needs_human', 'The client has no number in GHL on file, so nothing was filled.')
+    let form: GhlForm
+    try {
+      form = ghlFormFields(await tollFreeFiling(request.accountId))
+    } catch (err) {
+      // What any toll-free filing needs first (the full address, the site's own policy pages, …); anything else is retried.
+      if (!(err instanceof HlInputError)) throw err
+      return await settle('needs_human', `${describe(err)} Nothing was sent.`)
+    }
+    const blanks = blankFields(form)
+    if (blanks.length) return await settle('needs_human', `GHL's toll-free form needs ${blanks.join(', ')}, which the client's details don't have. Nothing was sent.`)
+    const rows = formRows(form)
+    // Send only what a person saw: details that changed since are filled again and asked about again.
+    const approved = job.registration === 'approved'
+    const changed = approved && rowsChanged(job.regFields, form)
+    const send = approved && !changed && workerMode() === 'create'
+    await note(
+      `${send ? 'Sending' : 'Filling'} GHL's toll-free registration for ${displayNumber(job.phoneNumber)}${send ? '' : ' (stopping before Send, for an OK in the Office)'}.${changed ? ' The client’s details changed after the OK.' : ''}`,
+    )
+    timer = setTimeout(() => ac.abort(), WALL_MS)
+    heartbeat = setInterval(() => {
+      void prisma.ghlNumberJob.updateMany({ where: { id, status: 'running', leaseUntil: lease }, data: { heartbeatAt: new Date() } }).catch(() => {})
+    }, HEARTBEAT_INTERVAL_MS)
+    const otp = makeOtpPuller(job.client.id, note)
+    const result = await runGhlRegistration({
+      clientName: job.client.name,
+      locationId: job.locationId,
+      number: job.phoneNumber,
+      form,
+      submit: send,
+      labels: ghlLabels(process.env.GHL_SUBACCOUNT_WORKER_LABELS),
+      login: await loadLogin(),
+      storageState: await loadSession(),
+      headless: workerHeadless(),
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined,
+      signal: ac.signal,
+      pullOtp: (ms) => otp.pull(ms),
+      onOtpPrompt: async (detail) => {
+        otp.noteCodeSent()
+        await note(detail)
+      },
+      onNote: note,
+      capture: (step, image) => saveShot(id, lease, step, image),
+    })
+    if (result.storageState) await saveSession(result.storageState).catch(() => {})
+    if (result.status === 'review') {
+      const why = changed
+        ? 'The client’s details changed after the OK, so the Hub filled the form again with the new ones and didn’t send it. '
+        : approved && !send
+          ? 'Dry-run mode: nothing is sent. '
+          : ''
+      return await settle('review', `${why}${result.detail}`, { regFields: asJson(rows) })
+    }
+    if (result.status === 'submitted') return await settle('submitted', result.detail, { regFields: asJson(rows) })
+    if (result.status === 'already') return await settle('submitted', result.detail)
+    if (result.status === 'needs_human') return await settle('needs_human', result.detail)
+    throw new Error(result.detail)
+  } catch (err) {
+    if (live?.released || stopping) return 'released'
+    if (err instanceof LeaseLost) return 'lost'
+    const message = describe(err)
+    if (ac.signal.aborted) return await settle('needs_human', `Stopped after ${Math.round(WALL_MS / 60_000)} minutes without finishing GHL's toll-free form.`).catch(() => 'lost')
+    // Filling is safe to repeat: a run first checks GHL still shows "Verification Required" (browser.ts).
+    if (environmentFailure(message) || job.attempts >= MAX_TRIES) {
+      return await settle('needs_human', (environmentFailure(message) ? `The browser didn't start: ${message}` : `Gave up on GHL's toll-free form after ${job.attempts} tries: ${message}`).slice(0, 2000)).catch(() => 'lost')
+    }
+    const wait = retryDelayMs(job.attempts)
+    await note(`Will try GHL's toll-free form again in ${Math.round(wait / 60_000)} min (try ${job.attempts} of ${MAX_TRIES}): ${message}`.slice(0, 2000))
+    await saveJob(id, lease, { status: 'queued', leaseUntil: null, heartbeatAt: null, nextAttemptAt: new Date(Date.now() + wait), lastError: message.slice(0, 2000) }).catch(() => {})
+    return 'retry'
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (heartbeat) clearInterval(heartbeat)
+    if (live?.id === id) live = null
+  }
+}
+
+let lastRegSweep = 0
+
+/** Every 10 minutes: registrations whose site link came in while nothing was listening. */
+async function sweepRegistrations(now = Date.now()): Promise<void> {
+  if (now - lastRegSweep < 10 * 60_000) return
+  lastRegSweep = now
+  const due = await prisma.ghlNumberJob.findMany({
+    where: { phoneNumber: { not: null }, registration: { in: ['none', 'waiting_site'] }, status: { in: ['succeeded', 'needs_human'] }, client: { siteUrl: { not: null }, archivedAt: null } },
+    select: { clientId: true },
+    take: 10,
+  })
+  for (const d of due) await queueGhlRegistration(d.clientId).catch(() => {})
+}
+
 /** One tick from the sub-account worker: recover, and (when the browser is free) run one queued job. */
 export async function ghlNumberTick(opts: { runBrowser: boolean }): Promise<{ claimed: boolean; outcome?: string }> {
   if (!workerEnabled()) return { claimed: false }
   await recoverAbandonedGhlNumbers().catch((err) => console.warn('[ghl-number] recovery:', describe(err)))
+  await sweepRegistrations().catch((err) => console.warn('[ghl-number] registration sweep:', describe(err)))
   if (!opts.runBrowser || workerPaused() || stopping) return { claimed: false }
   const claimed = await claim()
   if (!claimed) return { claimed: false }
