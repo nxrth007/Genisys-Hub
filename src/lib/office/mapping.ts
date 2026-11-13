@@ -627,7 +627,9 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Rehearsed the sub-account for ${j.clientName} (dry run)`, 'thinking')
     }
   }
-  for (const p of needsPerson) request(`np:${p.what ?? 'sub'}:${p.name}:${p.at.getTime()}`, 'atlas', 'stuck', p.what ? `${p.what} need you${p.why}` : `Sub-account for ${p.name} needs you${p.why}`, p.at, p.link)
+  // "Lead workflows for X need you", "Site form for X needs you".
+  const needVerb = (what: string) => (/^Lead workflows/.test(what) ? 'need' : 'needs')
+  for (const p of needsPerson) request(`np:${p.what ?? 'sub'}:${p.name}:${p.at.getTime()}`, 'atlas', 'stuck', p.what ? `${p.what} ${needVerb(p.what)} you${p.why}` : `Sub-account for ${p.name} needs you${p.why}`, p.at, p.link)
   for (const b of broken) request(`br:${b.text}:${b.at.getTime()}`, 'atlas', 'error', b.text, b.at, b.link)
   if (broken.length) {
     const newest = broken.reduce((a, b) => (b.at > a.at ? b : a))
@@ -636,7 +638,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   }
   if (needsPerson.length) {
     const newest = needsPerson.reduce((a, b) => (b.at > a.at ? b : a))
-    const one = newest.what ? `${newest.what} need you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
+    const one = newest.what ? `${newest.what} ${needVerb(newest.what)} you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
     const noun = needsPerson.some((p) => p.what) ? 'GHL jobs' : 'sub-accounts'
     add('atlas', {
       status: 'needs_you',
