@@ -149,7 +149,8 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
   const qc = useQueryClient()
   const [edits, setEditsState] = useState<Partial<AutomationInputs>>(data.saved.values)
   const [done, setDoneState] = useState<string[]>(data.saved.done)
-  const [save, setSave] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // 'synced': the save also updated their Hell-level Business Profile (the details the texts use).
+  const [save, setSave] = useState<'idle' | 'saving' | 'saved' | 'synced' | 'error'>('idle')
   const latest = useRef({ edits, done })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -168,7 +169,8 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ values: latest.current.edits, done: latest.current.done }),
         })
-        setSave(res.ok ? 'saved' : 'error')
+        const out = res.ok ? ((await res.json().catch(() => null)) as { hellLevel?: string[] } | null) : null
+        setSave(!res.ok ? 'error' : out?.hellLevel?.length ? 'synced' : 'saved')
         // The client list shows the "set up" count.
         if (res.ok) qc.invalidateQueries({ queryKey: ['automation-copy'], exact: true })
       } catch {
@@ -207,7 +209,7 @@ function Board({ clientId, data }: { clientId: string; data: BoardData }) {
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <p className="eyebrow text-muted-foreground">Details</p>
             <p className="font-mono text-[11px] text-muted-foreground/70">
-              {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : save === 'error' ? 'Couldn’t save' : 'Saved per client'}
+              {save === 'saving' ? 'Saving…' : save === 'saved' ? 'Saved' : save === 'synced' ? 'Saved · Hell-level updated' : save === 'error' ? 'Couldn’t save' : 'Saved per client'}
             </p>
           </div>
           {!data.client.hasIntake && (

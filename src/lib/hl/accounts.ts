@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/prisma'
-import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
+import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName, type AutomationInputs } from '@/lib/automation-copy'
 import { boardInputs } from '@/lib/automation-copy-server'
 import type { Prisma } from '@/generated/prisma/client'
 import { applyClientKit, KIT_VERSION } from './client-kit'
+import { boardProfileChanges, type ProfileKey } from './board-sync'
 import { HlInputError } from './http'
 import { toE164 } from './phone'
 import type { HlProfile } from './types'
@@ -258,6 +259,29 @@ export async function setHlReviewLink(clientId: string, url: string, o: { onlyIf
   if ((o.onlyIfBlank && p.reviewLink?.trim()) || p.reviewLink === link) return false
   await prisma.hlAccount.update({ where: { id: account.id }, data: { profile: { ...p, reviewLink: link } as Prisma.InputJsonValue } })
   return true
+}
+
+/**
+ * A save on the client's Automation Copy board carries what it changed into
+ * their Hell-level Business Profile (./board-sync.ts). Returns the profile
+ * fields that changed; none without a sub-account.
+ */
+export async function syncProfileFromBoard(clientId: string, before: AutomationInputs | null, after: AutomationInputs | null): Promise<string[]> {
+  if (!before || !after) return []
+  const changes = boardProfileChanges(before, after, (key, value) => (key === 'businessName' ? !notABusinessName(value) : key === 'notifyEmail' ? !!emailOrBlank(value) : true))
+  if (!Object.keys(changes).length) return []
+  const account = await prisma.hlAccount.findUnique({ where: { clientId }, select: { id: true, profile: true } })
+  if (!account) return []
+  const p = readProfile(account.profile)
+  const next: HlProfile = { ...p }
+  const changed: string[] = []
+  for (const [k, v] of Object.entries(changes) as [ProfileKey, string][]) {
+    if (p[k] === v) continue
+    next[k] = v
+    changed.push(k)
+  }
+  if (changed.length) await prisma.hlAccount.update({ where: { id: account.id }, data: { profile: next as Prisma.InputJsonValue } })
+  return changed
 }
 
 /** A sub-account with no client behind it (the agency's own, a test account…). */

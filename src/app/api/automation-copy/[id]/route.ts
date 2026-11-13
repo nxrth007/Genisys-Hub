@@ -3,11 +3,15 @@ import { requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { automationPrefill } from '@/lib/automation-copy'
 import { AUTOMATION_COPY_PREFIX, cleanSavedCopy, parseSavedCopy } from '@/lib/automation-copy-saved'
+import { boardInputs } from '@/lib/automation-copy-server'
+import { syncProfileFromBoard } from '@/lib/hl/accounts'
 
 /**
  * GET /api/automation-copy/:id — a client's Automation Copy board: what the
  * onboarding answers fill in, plus what staff typed or ticked.
- * PUT saves the board ({ values, done }).
+ * PUT saves the board ({ values, done }), and carries the details it changed
+ * into the client's Hell-level Business Profile (answers hellLevel: the
+ * profile fields updated).
  */
 
 const keyFor = (id: string) => `${AUTOMATION_COPY_PREFIX}${id}`
@@ -56,8 +60,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
   const exists = await prisma.client.findUnique({ where: { id }, select: { id: true } })
   if (!exists) return NextResponse.json({ error: 'client not found' }, { status: 404 })
+  const before = await boardInputs(id)
   const saved = cleanSavedCopy({ ...body, updatedAt: new Date().toISOString() })
   const value = JSON.stringify(saved)
   await prisma.appSetting.upsert({ where: { key: keyFor(id) }, create: { key: keyFor(id), value }, update: { value } })
-  return NextResponse.json({ saved })
+  // What this save changed also goes into their Hell-level Business Profile, which the texts read.
+  const hellLevel = await syncProfileFromBoard(id, before, await boardInputs(id)).catch((err) => {
+    console.warn(`[automation-copy] hell-level profile for ${id}:`, err instanceof Error ? err.message : err)
+    return [] as string[]
+  })
+  return NextResponse.json({ saved, hellLevel })
 }
