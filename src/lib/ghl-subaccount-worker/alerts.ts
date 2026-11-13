@@ -2,11 +2,13 @@ import { prisma } from '@/lib/prisma'
 import { textTeam } from '@/lib/team-sms'
 import {
   customizeAlertText,
+  domainAlertText,
   numberAlertText,
   TEXT_AGAIN_AFTER_MS,
   textsTeamFor,
   workerAlertText,
   type CustomizeAlertKind,
+  type DomainAlertKind,
   type NumberAlertKind,
   type WorkerAlertKind,
 } from './alert-text'
@@ -40,6 +42,11 @@ export async function textWorkerProblem(opts: Problem & { kind: WorkerAlertKind 
 /** One Hell-level toll-free number event (a question to answer, a failed purchase, a blocked filing), keyed by a request id. */
 export async function textNumberEvent(opts: Problem & { kind: NumberAlertKind }): Promise<void> {
   await textOnce(`hlNumber.texted.${opts.kind}.${opts.key}`, opts, numberAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'Toll-free number')
+}
+
+/** One domain question or failed purchase (src/lib/hl/domain-request.ts), keyed by a request id. */
+export async function textDomainEvent(opts: Problem & { kind: DomainAlertKind }): Promise<void> {
+  await textOnce(`hlDomain.texted.${opts.kind}.${opts.key}`, opts, domainAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'Website domain')
 }
 
 /** One lead-workflow customize problem, keyed by a job or client id. */

@@ -59,7 +59,7 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry'
+type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy'
 /** Answers that leave things as they are (shown quietly). */
 const quiet = (d: Decision) => d === 'no' || d === 'hold'
 type Answer = { decision: Decision; text: string }
@@ -93,20 +93,21 @@ function ApprovalCard({
   done: Answer | null
   onAnswered: (answer: Answer) => void
 }) {
-  const [busy, setBusy] = useState<Decision | null>(null)
+  // What's spinning: a decision, or "buy:<domain>" for one of Forge's suggestions.
+  const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const color = bot?.color ?? '#f472b6'
   const locked = demo || !canAnswer || !!busy || !!done
-  const spin = (d: Decision) => busy === d && <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  const spin = (d: string) => busy === d && <Loader2 className="h-3.5 w-3.5 animate-spin" />
 
-  async function answer(decision: Decision) {
-    setBusy(decision)
+  async function answer(decision: Decision, name?: string) {
+    setBusy(name ? `buy:${name}` : decision)
     setErr(null)
     try {
       const res = await fetch('/api/office/approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: a.id, kind: a.kind, decision }),
+        body: JSON.stringify({ id: a.id, kind: a.kind, decision, ...(name ? { name } : {}) }),
       })
       const out = (await res.json().catch(() => ({}))) as { error?: string; detail?: string | null }
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`)
@@ -158,6 +159,22 @@ function ApprovalCard({
                 {quiet(done.decision) ? <X className="mt-px h-3.5 w-3.5 shrink-0" /> : <Check className="mt-px h-3.5 w-3.5 shrink-0" />}
                 {done.text}
               </span>
+            ) : a.kind === 'domain' ? (
+              <>
+                {(a.choices ?? []).map((c, i) => (
+                  <button key={c.name} type="button" onClick={() => answer('buy', c.name)} disabled={locked} className={i === 0 ? BTN_PRIMARY : BTN_SECONDARY} title={c.renewalCents ? `Renews at $${(c.renewalCents / 100).toFixed(2)}/yr` : undefined}>
+                    {spin(`buy:${c.name}`) || <Check className="h-3.5 w-3.5" />} {c.name} · ${(c.costCents / 100).toFixed(2)}
+                  </button>
+                ))}
+                {a.domainsLink && (
+                  <a href={a.domainsLink} target="_blank" rel="noopener noreferrer" className={BTN_GHOST}>
+                    Search other names <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+                <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
+                  {spin('no') || <X className="h-3.5 w-3.5" />} {(a.choices ?? []).length ? 'None of these' : 'No'}
+                </button>
+              </>
             ) : a.kind === 'registration' && a.stage === 'review' ? (
               <>
                 <button type="button" onClick={() => answer('submit')} disabled={locked} className={BTN_PRIMARY}>

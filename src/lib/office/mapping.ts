@@ -133,7 +133,7 @@ export type SubaccountJobIn = {
  */
 export type ApprovalIn = {
   id: string
-  kind: 'number' | 'registration'
+  kind: 'number' | 'registration' | 'domain'
   clientName: string
   ringTo?: string | null
   at: Date
@@ -149,7 +149,14 @@ export type ApprovalIn = {
   /** registration: the number (E.164), and where a person sees what was filled (the client's folder in Sites). */
   number?: string | null
   reviewLink?: string | null
+  /** domain: the three Forge suggests, and the client's Hell-level Domains page (search any name there). */
+  choices?: DomainChoiceView[]
+  domainsLink?: string | null
 }
+/** A domain Forge suggests: Porkbun's all-in first-year price and the renewal, in cents. */
+export type DomainChoiceView = { name: string; costCents: number; renewalCents: number | null }
+/** A client's domain question once answered (src/lib/hl/domain-request.ts). */
+export type DomainRequestIn = { id: string; clientName: string; status: string; name: string | null; detail: string | null; decidedAt: Date | null; updatedAt: Date }
 /** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
   id: string
@@ -187,6 +194,7 @@ export type OfficeInput = {
   approvals: ApprovalIn[]
   numberRequests: NumberRequestIn[]
   ghlRegistrations?: GhlRegistrationIn[]
+  domainRequests?: DomainRequestIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -216,7 +224,7 @@ export type OfficeActivity = { id: string; at: string; botId: BotId; text: strin
 export type OfficeHandoff = { id: string; from: BotId; to: BotId; at: string; clientName: string }
 export type OfficeApproval = {
   id: string
-  kind: 'number' | 'registration'
+  kind: 'number' | 'registration' | 'domain'
   botId: BotId
   /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Hell-level?" */
   question: string
@@ -230,6 +238,9 @@ export type OfficeApproval = {
   detail: string | null
   /** registration: the client's folder in Sites, showing what was filled. */
   reviewLink: string | null
+  /** domain: the suggestions to buy one of, and the client's Hell-level Domains page. */
+  choices?: DomainChoiceView[]
+  domainsLink?: string | null
 }
 export type OfficeState = {
   generatedAt: string
@@ -395,7 +406,9 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
 
   // Questions waiting for an answer: Echo asks where to get a new client's toll-free number,
   // and whether to send GHL's toll-free registration it filled (or says what stopped it).
-  const approvals: OfficeApproval[] = [...input.approvals]
+  // Forge's domain questions are mapped below.
+  const echoAsks = input.approvals.filter((a) => a.kind !== 'domain')
+  const approvals: OfficeApproval[] = [...echoAsks]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((a) => {
       const stage = a.stage ?? 'ask'
@@ -442,7 +455,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   }
   for (const a of approvals) feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', asked[a.stage](a.clientName), 'needs_you')
   if (approvals.length) {
-    const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
+    const newest = echoAsks.reduce((x, y) => (y.at > x.at ? y : x))
     const one = approvals[0]
     const task: Record<OfficeApproval['stage'], string> = {
       ask: `Asking: buy a toll-free number for ${one.clientName}?`,
@@ -456,6 +469,56 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       icon: 'alert',
       at: newest.at,
     })
+  }
+
+  // Forge asks which of three domains to buy for a new client (src/lib/hl/domain-request.ts).
+  const domainAsks = input.approvals.filter((a) => a.kind === 'domain').sort((a, b) => a.at.getTime() - b.at.getTime())
+  for (const a of domainAsks) {
+    const choices = a.choices ?? []
+    approvals.push({
+      id: a.id,
+      kind: 'domain',
+      botId: 'forge',
+      stage: 'ask',
+      question: choices.length ? `Buy a website domain for ${a.clientName}?` : `No domain to suggest for ${a.clientName}.`,
+      note: choices.length
+        ? 'Available on Porkbun right now. Each price is the first year, all in. The one you press is bought at once into their Hell-level sub-account, which keeps it renewing.'
+        : 'Search any name in their Hell-level → Settings → Domains, or answer No.',
+      clientName: a.clientName,
+      ringTo: null,
+      ghlLink: null,
+      detail: a.detail ?? null,
+      reviewLink: null,
+      choices,
+      domainsLink: a.domainsLink ?? null,
+      at: a.at.toISOString(),
+    })
+    feed(`dq:${a.id}:${a.at.getTime()}`, a.at, 'forge', `Asked which domain to buy for ${a.clientName}`, 'needs_you')
+  }
+  if (domainAsks.length) {
+    const newest = domainAsks[domainAsks.length - 1]
+    add('forge', {
+      status: 'needs_you',
+      task: domainAsks.length === 1 ? `Asking: which domain for ${newest.clientName}?` : `${domainAsks.length} domains to pick`,
+      icon: 'alert',
+      at: newest.at,
+    })
+  }
+  // After the answer: buying, bought, failed, None of these.
+  for (const r of input.domainRequests ?? []) {
+    const at = r.decidedAt ?? r.updatedAt
+    if (r.status === 'buying') {
+      add('forge', { status: 'terminal', task: `Buying ${r.name ?? 'a domain'} for ${r.clientName}`, icon: 'terminal', at: r.updatedAt })
+    } else if (r.status === 'bought') {
+      feed(`dr:${r.id}:bought`, at, 'forge', `Bought ${r.name ?? 'a domain'} for ${r.clientName}`, 'done')
+      if (age(at) <= DONE_MS) add('forge', { status: 'terminal', task: `Bought ${r.name ?? 'a domain'} for ${r.clientName}`, icon: 'check', at })
+    } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
+      const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
+      add('forge', { status: 'error', task: clip(`Buying ${r.clientName}'s domain didn't finish${why}`), icon: 'error', at: r.updatedAt })
+      feed(`dr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'forge', clip(`Buying ${r.clientName}'s domain didn't finish${why}`, 140), 'error')
+    } else if (r.status === 'declined') {
+      feed(`dr:${r.id}:declined`, at, 'forge', `No suggested domain for ${r.clientName} (None of these)`, 'thinking')
+    }
   }
 
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.

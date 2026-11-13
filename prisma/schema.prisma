@@ -766,6 +766,37 @@ model Client {
   ghlNumberJob     GhlNumberJob?
   ghlNumberCensus  GhlNumberCensus?
   ghlFormJob       GhlFormJob?
+  /// Forge's question in the Office: which of 3 domains to buy on Porkbun.
+  hlDomainRequest  HlDomainRequest?
+}
+
+/// A new client's website domain, asked for in the Office (src/lib/hl/domain-request.ts):
+/// Forge suggests 3 available on Porkbun, with their exact prices, and buys the one a
+/// person picks into the client's Hell-level sub-account. Nothing is bought without that pick.
+model HlDomainRequest {
+  id          String    @id @default(cuid())
+  clientId    String    @unique
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// The client's Hell-level sub-account the domain goes on.
+  accountId   String
+  /// awaiting_approval (Forge asked) | buying | bought | declined (None of these) | failed
+  status      String    @default("awaiting_approval")
+  /// [{ name, costCents, renewalCents }]: what Porkbun quoted when Forge asked.
+  suggestions Json      @default("[]")
+  /// The domain picked, and the HlDomain it became.
+  name        String?
+  domainId    String?
+  costCents   Int?
+  detail      String?   @db.Text
+  log         Json?
+  /// onboarding | sweep | manual
+  trigger     String    @default("onboarding")
+  decidedBy   String?
+  decidedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
 }
 
 /// One queued attempt to create a client's GHL sub-account through the

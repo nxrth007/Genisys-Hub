@@ -4,6 +4,7 @@
  */
 import { prisma } from '@/lib/prisma'
 import { ghlPhoneSystemLink } from '@/lib/ghl-number/queue'
+import { readChoices } from '@/lib/hl/domain-plan'
 import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
 const DAY = 24 * 60 * 60_000
@@ -139,6 +140,33 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       ghlLink: r.client?.ghlLocationId ? ghlPhoneSystemLink(r.client.ghlLocationId) : null,
       detail: r.status === 'awaiting_identity' ? r.detail : null,
     }))
+  // Forge's domain questions (src/lib/hl/domain-request.ts): three to pick from, then buying, bought, failed, declined.
+  const domainRequests = await safe('domain requests', () =>
+    prisma.hlDomainRequest.findMany({
+      where: {
+        client: { is: { archivedAt: null } },
+        OR: [{ status: { in: ['awaiting_approval', 'buying'] } }, { status: 'failed', updatedAt: { gte: openSince } }, { updatedAt: { gte: since } }],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 40,
+      select: { id: true, status: true, accountId: true, suggestions: true, name: true, detail: true, decidedAt: true, updatedAt: true, client: { select: { name: true } } },
+    }), [])
+  for (const d of domainRequests) {
+    if (d.status !== 'awaiting_approval') continue
+    input.approvals.push({
+      id: d.id,
+      kind: 'domain',
+      clientName: d.client?.name ?? 'a client',
+      at: d.updatedAt,
+      stage: 'ask',
+      detail: d.detail,
+      choices: readChoices(d.suggestions),
+      domainsLink: `/hell-level/${d.accountId}/settings?tab=domains`,
+    })
+  }
+  input.domainRequests = domainRequests
+    .filter((d) => d.status !== 'awaiting_approval')
+    .map((d) => ({ id: d.id, clientName: d.client?.name ?? 'a client', status: d.status, name: d.name, detail: d.detail, decidedAt: d.decidedAt, updatedAt: d.updatedAt }))
   // Site forms made the client's own (src/lib/ghl-form): Atlas shows them like the workflow copy job.
   const formJobs = await safe('form jobs', () =>
     prisma.ghlFormJob.findMany({

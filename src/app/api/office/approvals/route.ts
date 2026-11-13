@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { requireAdmin } from '@/lib/auth-helpers'
 import { decideGhlRegistration } from '@/lib/ghl-number/queue'
 import { decideClientNumber } from '@/lib/hl/number-request'
+import { decideClientDomain } from '@/lib/hl/domain-request'
 
 /**
  * POST /api/office/approvals { id, decision, kind? } — answer a bot's question
@@ -16,16 +17,28 @@ import { decideClientNumber } from '@/lib/hl/number-request'
  * Echo asking about GHL's toll-free registration it filled (kind
  * "registration", id = the GHL number job): 'submit' fills it again and sends
  * it; 'hold' leaves it; 'retry' fills it again and asks again.
+ *
+ * Forge asking which domain to buy for a new client (kind "domain"): 'buy'
+ * with `name` (one of its three) buys it on Porkbun at the price shown;
+ * 'no' (None of these) drops the question.
  */
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   const denied = await requireAdmin()
   if (denied) return denied
-  const body = (await req.json().catch(() => null)) as { id?: unknown; kind?: unknown; decision?: unknown } | null
+  const body = (await req.json().catch(() => null)) as { id?: unknown; kind?: unknown; decision?: unknown; name?: unknown } | null
   const id = typeof body?.id === 'string' ? body.id.trim() : ''
   const session = await auth()
   const by = session?.user?.name || session?.user?.email || 'an admin'
+  if (body?.kind === 'domain') {
+    const decision = body?.decision === 'buy' || body?.decision === 'no' ? body.decision : null
+    const name = typeof body?.name === 'string' ? body.name.trim().toLowerCase() : null
+    if (!id || !decision || (decision === 'buy' && !name)) return NextResponse.json({ error: 'send { "id": "...", "kind": "domain", "decision": "buy", "name": "acme.com" } or decision "no"' }, { status: 400 })
+    const res = await decideClientDomain(id, decision, name, by)
+    if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
+    return NextResponse.json(res)
+  }
   if (body?.kind === 'registration') {
     const REGISTRATION = ['submit', 'hold', 'retry'] as const
     const decision = REGISTRATION.find((d) => d === body?.decision) ?? null

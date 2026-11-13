@@ -62,6 +62,14 @@ export function numberAlertText(kind: NumberAlertKind, client: string, reason: s
   }
 }
 
+/** Forge's domain question (src/lib/hl/domain-request.ts): pick one of three, or a purchase that got no answer. */
+export type DomainAlertKind = 'pick' | 'failed'
+
+export function domainAlertText(kind: DomainAlertKind, client: string, reason: string, link: string): string {
+  if (kind === 'pick') return `Genisys Hub: ${client} just onboarded. Pick their website domain in the Office (3 available on Porkbun${reason.trim() ? `, ${reason.trim()}` : ''}): ${link}`
+  return `Genisys Hub: buying ${client}'s domain didn't finish.${reason.trim() ? ` ${shortReason(reason)}` : ''} Open: ${link}`
+}
+
 /** The workflow customize job (src/lib/ghl-customize): putting a client's copy into their lead workflows. */
 export type CustomizeAlertKind = 'needs_human' | 'failed' | 'code' | 'held' | 'stuck' | 'waiting'
 

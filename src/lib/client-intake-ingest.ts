@@ -14,6 +14,7 @@ import { advanceJourneyStage, getJourney, recordJourney, setJourneyStage } from 
 import { createAccountForClient } from '@/lib/hl/accounts'
 import { fillBrandFromSite } from '@/lib/hl/logo'
 import { askForClientNumber } from '@/lib/hl/number-request'
+import { askForClientDomain } from '@/lib/hl/domain-request'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -214,6 +215,8 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       .then(async (a) => {
         // Echo asks in the Office whether to buy them a Hell-level toll-free number (src/lib/hl/number-request.ts).
         if (a.created) void askForClientNumber(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] toll-free number question for ${id}:`, err))
+        // Forge suggests three domains to buy on Porkbun, unless they're bringing their own (src/lib/hl/domain-request.ts).
+        if (a.created) void askForClientDomain(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] domain question for ${id}:`, err))
         // A client who already has a website gets its logo and colour straight away; others when their site goes live.
         await fillBrandFromSite(a.id)
       })
