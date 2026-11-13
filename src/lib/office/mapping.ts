@@ -114,6 +114,7 @@ export type RenderMonitorIn = { enabled: boolean; heartbeatFailures: number; ope
  */
 export type SubaccountJobIn = {
   id: string
+  clientId?: string
   clientName: string
   status: string
   detail: string | null
@@ -156,10 +157,11 @@ export type ApprovalIn = {
 /** A domain Forge suggests: Porkbun's all-in first-year price and the renewal, in cents. */
 export type DomainChoiceView = { name: string; costCents: number; renewalCents: number | null }
 /** A client's domain question once answered (src/lib/hl/domain-request.ts). */
-export type DomainRequestIn = { id: string; clientName: string; status: string; name: string | null; detail: string | null; decidedAt: Date | null; updatedAt: Date }
+export type DomainRequestIn = { id: string; accountId?: string; clientName: string; status: string; name: string | null; detail: string | null; decidedAt: Date | null; updatedAt: Date }
 /** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
   id: string
+  clientId?: string
   clientName: string
   /** buying | ghl_working | bought | declined | failed */
   status: string
@@ -242,6 +244,20 @@ export type OfficeApproval = {
   choices?: DomainChoiceView[]
   domainsLink?: string | null
 }
+/**
+ * Something a bot needs from a person, or that broke, one per item (a bot's
+ * bubble shows only its most pressing one): the Office's Requests tab.
+ */
+export type OfficeRequest = {
+  id: string
+  botId: BotId
+  /** stuck = waiting on a person to do or fix something; error = something failed. */
+  kind: 'stuck' | 'error'
+  text: string
+  at: string
+  /** Where in the Hub to deal with it. */
+  link: string | null
+}
 export type OfficeState = {
   generatedAt: string
   demo: boolean
@@ -250,6 +266,8 @@ export type OfficeState = {
   handoffs: OfficeHandoff[]
   /** Questions waiting for a person's Yes or No. */
   approvals: OfficeApproval[]
+  /** Everything stuck or failed, newest first (questions are in approvals). */
+  requests: OfficeRequest[]
   counts: { working: number; idle: number; needsYou: number; error: number }
 }
 
@@ -343,6 +361,9 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   const age = (d: Date) => t - d.getTime()
   const cands = new Map<BotId, Candidate[]>(ROSTER.map((r) => [r.id, []]))
   const add = (id: BotId, c: Candidate) => cands.get(id)!.push(c)
+  const requests: OfficeRequest[] = []
+  const request = (id: string, botId: BotId, kind: OfficeRequest['kind'], text: string, at: Date, link: string | null = null) =>
+    requests.push({ id, botId, kind, text: clip(text, 220), at: at.toISOString(), link })
   const activity: OfficeActivity[] = []
   const feed = (id: string, at: Date, botId: BotId, text: string, tone: OfficeActivity['tone']) =>
     activity.push({ id, at: at.toISOString(), botId, text: clip(text, 140), tone })
@@ -370,6 +391,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     const label = STAGE_LABEL[s.stage] ?? s.stage
     if (s.status === 'blocked') {
       add(bot, { status: 'needs_you', task: clip(`${label} blocked for ${s.clientName}${s.note ? `: ${s.note}` : ''}`), icon: 'alert', at: s.updatedAt })
+      request(`st:${s.clientId}:${s.stage}`, bot, 'stuck', `${label} is blocked for ${s.clientName}${s.note ? `: ${s.note}` : ''}`, s.updatedAt, `/sites/${s.clientId}`)
     } else if (s.status === 'in_progress' && age(s.updatedAt) <= STALE_MS) {
       const st = STAGE_WORK[s.stage] ?? 'coding'
       add(bot, { status: st, task: `${label}: ${s.clientName}`, icon: ICON_FOR[st], at: s.updatedAt })
@@ -394,6 +416,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   for (const m of input.matchSuggestions) {
     feed(`ms:${m.id}`, m.createdAt, 'atlas', `Suggested GHL match "${m.locationName}" for ${m.clientName} (score ${m.score})`, m.status === 'needs_review' ? 'needs_you' : 'browsing')
   }
+  for (const m of review) request(`ms:${m.id}`, 'atlas', 'stuck', `Review the suggested GHL sub-account “${m.locationName}” for ${m.clientName} (score ${m.score})`, m.updatedAt, '/clients')
   if (review.length) {
     const newest = review.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a))
     add('atlas', {
@@ -515,6 +538,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
       add('forge', { status: 'error', task: clip(`Buying ${r.clientName}'s domain didn't finish${why}`), icon: 'error', at: r.updatedAt })
+      request(`dr:${r.id}:failed`, 'forge', 'error', `Buying ${r.clientName}'s domain didn't finish${r.detail ? `: ${r.detail}` : ''}`, r.updatedAt, r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : null)
       feed(`dr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'forge', clip(`Buying ${r.clientName}'s domain didn't finish${why}`, 140), 'error')
     } else if (r.status === 'declined') {
       feed(`dr:${r.id}:declined`, at, 'forge', `No suggested domain for ${r.clientName} (None of these)`, 'thinking')
@@ -524,26 +548,28 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.
   const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000))
   /** `what` is set for lead-workflow jobs ("Lead workflows for X"); unset means a sub-account. */
-  const needsPerson: { name: string; at: Date; why: string; what?: string }[] = []
-  const broken: { text: string; at: Date; customize?: boolean }[] = []
+  const needsPerson: { name: string; at: Date; why: string; what?: string; link: string | null }[] = []
+  const broken: { text: string; at: Date; customize?: boolean; link: string | null }[] = []
   for (const j of input.subaccountJobs) {
+    // Where a person deals with it: the site form in Sites, the copy on the Automation Copy board, the sub-account on the client's GHL board.
+    const link = j.clientId ? (j.kind === 'form' ? `/sites/${j.clientId}` : j.kind === 'customize' ? `/automation-copy/${j.clientId}` : `/clients/${j.clientId}/ghl`) : null
     const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
     const ended = j.finishedAt ?? j.updatedAt
     if (j.kind === 'form') {
       const what = `Site form for ${j.clientName}`
       if (j.status === 'running') {
         const beat = j.heartbeatAt ?? j.updatedAt
-        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
+        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true, link })
         else add('atlas', { status: 'browsing', task: `Making ${j.clientName}'s site form theirs in GHL`, icon: 'globe', at: j.updatedAt })
       } else if (j.status === 'queued') {
         const waited = t - j.nextAttemptAt.getTime()
-        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what })
+        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what, link })
         else add('atlas', { status: 'thinking', task: `${what} queued`, icon: 'dots', at: j.updatedAt })
       } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        needsPerson.push({ name: j.clientName, at: ended, why, what })
+        needsPerson.push({ name: j.clientName, at: ended, why, what, link })
         feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} needs a person${why}`), 'needs_you')
       } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
+        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true, link })
         feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
       } else if (j.status === 'succeeded') {
         feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Made ${j.clientName}'s site form theirs in GHL`, 'done')
@@ -555,17 +581,17 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       const what = `Lead workflows for ${j.clientName}`
       if (j.status === 'running') {
         const beat = j.heartbeatAt ?? j.updatedAt
-        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
+        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true, link })
         else add('atlas', { status: 'browsing', task: `Customizing lead workflows for ${j.clientName} with Workflow AI`, icon: 'globe', at: j.updatedAt })
       } else if (j.status === 'queued') {
         const waited = t - j.nextAttemptAt.getTime()
-        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what })
+        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what, link })
         else add('atlas', { status: 'thinking', task: `${what} queued`, icon: 'dots', at: j.updatedAt })
       } else if ((j.status === 'needs_human' || j.status === 'held') && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        needsPerson.push({ name: j.clientName, at: ended, why, what })
+        needsPerson.push({ name: j.clientName, at: ended, why, what, link })
         feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} ${j.status === 'held' ? 'wait on a missing detail' : 'need a person'}${why}`), 'needs_you')
       } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
+        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true, link })
         feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
       } else if (j.status === 'succeeded') {
         feed(`cj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Put the Hub's copy into ${j.clientName}'s lead workflows`, 'done')
@@ -576,22 +602,22 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     if (j.status === 'running') {
       const beat = j.heartbeatAt ?? j.updatedAt
       if (age(beat) > SUBACCOUNT_STALL_MS) {
-        broken.push({ text: `Sub-account job for ${j.clientName} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat })
+        broken.push({ text: `Sub-account job for ${j.clientName} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, link })
       } else {
         add('atlas', { status: 'browsing', task: `Creating GHL sub-account for ${j.clientName}`, icon: 'globe', at: j.updatedAt })
       }
     } else if (j.status === 'queued') {
       const waited = t - j.nextAttemptAt.getTime()
       if (waited > SUBACCOUNT_WAIT_MS) {
-        needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker` })
+        needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, link })
       } else {
         add('atlas', { status: 'thinking', task: `Sub-account queued for ${j.clientName}`, icon: 'dots', at: j.updatedAt })
       }
     } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-      needsPerson.push({ name: j.clientName, at: ended, why })
+      needsPerson.push({ name: j.clientName, at: ended, why, link })
       feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Sub-account for ${j.clientName} needs a person${why}`, 'needs_you')
     } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-      broken.push({ text: clip(`Sub-account for ${j.clientName} failed${why}`), at: ended })
+      broken.push({ text: clip(`Sub-account for ${j.clientName} failed${why}`), at: ended, link })
       feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Sub-account for ${j.clientName} failed${why}`, 'error')
     } else if (j.status === 'succeeded') {
       const verb = /^created\b/i.test(j.detail ?? '') ? 'Created' : 'Linked'
@@ -601,6 +627,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       feed(`sj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Rehearsed the sub-account for ${j.clientName} (dry run)`, 'thinking')
     }
   }
+  for (const p of needsPerson) request(`np:${p.what ?? 'sub'}:${p.name}:${p.at.getTime()}`, 'atlas', 'stuck', p.what ? `${p.what} need you${p.why}` : `Sub-account for ${p.name} needs you${p.why}`, p.at, p.link)
+  for (const b of broken) request(`br:${b.text}:${b.at.getTime()}`, 'atlas', 'error', b.text, b.at, b.link)
   if (broken.length) {
     const newest = broken.reduce((a, b) => (b.at > a.at ? b : a))
     const noun = broken.some((b) => b.customize) ? 'GHL jobs' : 'sub-account jobs'
@@ -630,12 +658,18 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (seoRunIsError(r)) {
       const at = r.finishedAt ?? r.updatedAt
       const why = r.error ? `: ${clip(r.error, 60)}` : ''
-      if (age(at) <= ERROR_MS) add('scout', { status: 'error', task: clip(`SEO run failed for ${r.siteName}${why}`), icon: 'error', at })
+      if (age(at) <= ERROR_MS) {
+        add('scout', { status: 'error', task: clip(`SEO run failed for ${r.siteName}${why}`), icon: 'error', at })
+        request(`seo:${r.id}:fail`, 'scout', 'error', `SEO run failed for ${r.siteName}${r.error ? `: ${r.error}` : ''}`, at, '/seo')
+      }
       feed(`seo:${r.id}:fail`, at, 'scout', `SEO run failed for ${r.siteName}${why}`, 'error')
     } else if (r.status.startsWith('awaiting_')) {
       const at = r.finishedAt ?? r.updatedAt
       feed(`seo:${r.id}:${r.status}`, at, 'scout', `SEO run for ${r.siteName} is ${r.status.replace('_', ' ')}`, 'needs_you')
-      if (r.status === 'awaiting_review') add('scout', { status: 'needs_you', task: `SEO drafts for ${r.siteName} await review`, icon: 'alert', at })
+      if (r.status === 'awaiting_review') {
+        add('scout', { status: 'needs_you', task: `SEO drafts for ${r.siteName} await review`, icon: 'alert', at })
+        request(`seo:${r.id}:review`, 'scout', 'stuck', `SEO drafts for ${r.siteName} are waiting for your review`, at, '/seo')
+      }
     } else if (r.finishedAt) {
       feed(`seo:${r.id}:end`, r.finishedAt, 'scout', `SEO run ${r.status} for ${r.siteName}`, 'done')
       if (age(r.finishedAt) <= DONE_MS) add('scout', { status: 'coding', task: `Finished SEO run for ${r.siteName}`, icon: 'check', at: r.finishedAt })
@@ -668,6 +702,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       }
       if (r.verifyNote) {
         add('echo', { status: 'needs_you', task: clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`), icon: 'alert', at: r.updatedAt })
+        request(`nr:${r.id}:verify`, 'echo', 'stuck', `${r.clientName}'s texting verification can't be filed yet: ${r.verifyNote}`, r.updatedAt, r.clientId ? `/sites/${r.clientId}` : null)
         feed(`nr:${r.id}:verify:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`, 140), 'needs_you')
       } else if (age(r.route === 'ghl' ? r.updatedAt : at) <= DONE_MS) {
         add('echo', { status: 'terminal', task: `Got ${num}${where} for ${r.clientName}`, icon: 'check', at: r.route === 'ghl' ? r.updatedAt : at })
@@ -675,6 +710,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
       add('echo', { status: 'error', task: clip(`Buying ${r.clientName}'s toll-free number failed${why}`), icon: 'error', at: r.updatedAt })
+      request(`nr:${r.id}:failed`, 'echo', 'error', `Buying ${r.clientName}'s toll-free number failed${r.detail ? `: ${r.detail}` : ''}`, r.updatedAt, r.clientId ? `/sites/${r.clientId}` : null)
       feed(`nr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Buying ${r.clientName}'s toll-free number failed${why}`, 140), 'error')
     } else if (r.status === 'declined') {
       feed(`nr:${r.id}:declined`, at, 'echo', `Toll-free number for ${r.clientName} declined`, 'thinking')
@@ -696,8 +732,13 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   // Render monitor.
   const rm = input.render
   if (rm?.enabled) {
-    if (rm.heartbeatFailures > 0) add('sentinel', { status: 'error', task: `Hub health check failing (${rm.heartbeatFailures}x)`, icon: 'error', at: now })
-    else if (rm.openProblems > 0) add('sentinel', { status: 'needs_you', task: `${rm.openProblems} log error pattern(s) being watched`, icon: 'alert', at: now })
+    if (rm.heartbeatFailures > 0) {
+      add('sentinel', { status: 'error', task: `Hub health check failing (${rm.heartbeatFailures}x)`, icon: 'error', at: now })
+      request('rm:health', 'sentinel', 'error', `The Hub's health check is failing (${rm.heartbeatFailures} times in a row)`, now)
+    } else if (rm.openProblems > 0) {
+      add('sentinel', { status: 'needs_you', task: `${rm.openProblems} log error pattern(s) being watched`, icon: 'alert', at: now })
+      request('rm:logs', 'sentinel', 'stuck', `${rm.openProblems} error pattern${rm.openProblems === 1 ? '' : 's'} in the Hub's Render logs being watched`, now)
+    }
     else add('sentinel', { status: 'thinking', task: 'Watching Render logs and health', icon: 'gear', at: rm.lastDigestAt ?? now })
     if (rm.lastDigestAt) feed(`rm:${rm.lastDigestAt.getTime()}`, rm.lastDigestAt, 'sentinel', 'Sent the Render log digest', 'thinking')
   }
@@ -758,6 +799,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     activity: dedup.slice(0, opts.feedLimit ?? 50),
     handoffs,
     approvals,
+    // Errors first, then newest; one row per item.
+    requests: [...new Map(requests.map((r) => [r.id, r])).values()].sort((a, b) => (a.kind === b.kind ? b.at.localeCompare(a.at) : a.kind === 'error' ? -1 : 1)),
     counts: {
       working: all.filter((b) => isWorking(b.status)).length,
       idle: all.filter((b) => b.status === 'idle').length,

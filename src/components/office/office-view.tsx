@@ -1,14 +1,14 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useSyncExternalStore, useState } from 'react'
+import { useSyncExternalStore, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Check, ExternalLink, Loader2, Pause, Play, Radio, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
-import type { OfficeApproval, OfficeBot, OfficeState, OfficeStatus } from '@/lib/office/mapping'
+import type { OfficeApproval, OfficeBot, OfficeRequest, OfficeState, OfficeStatus } from '@/lib/office/mapping'
 import { OFFICE_THEMES, STATUS_META, type OfficeTheme } from './theme'
 
 // The SVG scene + animation loop only runs in the browser and stays out of
@@ -238,9 +238,121 @@ function ApprovalCard({
 
 const APPROVALS_SHOWN = 3
 
-export function OfficeView({ demo, user }: { demo: boolean; user: { name: string | null; email: string | null; image: string | null; role: string | null } }) {
+const WORKING: ReadonlySet<OfficeStatus> = new Set(['coding', 'browsing', 'terminal', 'thinking'])
+
+/**
+ * The Requests tab: everything the bots need from a person, as a list. The
+ * questions they won't act on without an answer (purchases, filings), what's
+ * stuck or failed with where to fix it, and what each bot is doing now.
+ */
+function RequestsPanel({
+  approvals,
+  requests,
+  bots,
+  loading,
+  error,
+  renderApproval,
+}: {
+  approvals: OfficeApproval[]
+  requests: OfficeRequest[]
+  bots: OfficeBot[]
+  loading: boolean
+  error: string | null
+  renderApproval: (a: OfficeApproval) => ReactNode
+}) {
+  const busy = bots.filter((b) => b.id !== 'alfred' && WORKING.has(b.status))
+  const errors = requests.filter((r) => r.kind === 'error')
+  const stuck = requests.filter((r) => r.kind === 'stuck')
+  const row = (r: OfficeRequest) => {
+    const bot = bots.find((b) => b.id === r.botId)
+    return (
+      <li key={r.id} className="flex items-start gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5">
+        <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', r.kind === 'error' ? 'bg-red-400' : 'bg-yellow-400')} />
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-zinc-500">
+            <span className="font-medium" style={{ color: bot?.color }}>
+              {bot?.name ?? r.botId}
+            </span>{' '}
+            · {bot?.role ?? ''} · <span className="font-mono">{format(new Date(r.at), 'MMM d, h:mm a')}</span>
+          </div>
+          <p className="mt-0.5 text-[13px] leading-snug text-zinc-200">{r.text}</p>
+        </div>
+        {r.link && (
+          <a href={r.link} className={cn(BTN_SECONDARY, 'shrink-0')}>
+            Open <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
+      </li>
+    )
+  }
+  const heading = (title: string, count: number, hint: string) => (
+    <div className="mb-2 flex items-baseline justify-between gap-3">
+      <h2 className="font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+        {title} <span className="text-zinc-600">· {count}</span>
+      </h2>
+      <p className="text-[11px] text-zinc-500">{hint}</p>
+    </div>
+  )
+  if (loading) return <div className="grid flex-1 place-items-center text-xs text-zinc-500">Loading requests…</div>
+  return (
+    <div className="flex-1 overflow-y-auto px-5 py-4">
+      {error && <p className="mb-3 rounded bg-red-500/15 px-3 py-1.5 text-xs text-red-300">Couldn&apos;t load the office ({error}). Retrying…</p>}
+      <section className="mb-6">
+        {heading('Waiting on your answer', approvals.length, 'Purchases and filings the bots won’t do without you')}
+        {approvals.length ? <div className="flex flex-col gap-2">{approvals.map(renderApproval)}</div> : <p className="text-[12.5px] text-zinc-500">Nothing to answer right now.</p>}
+      </section>
+      <section className="mb-6">
+        {heading('Failed', errors.length, 'Something broke; open it to see what')}
+        {errors.length ? <ul className="flex flex-col gap-2">{errors.map(row)}</ul> : <p className="text-[12.5px] text-zinc-500">Nothing failed.</p>}
+      </section>
+      <section className="mb-6">
+        {heading('Stuck on something', stuck.length, 'Waiting on a person to fix or check')}
+        {stuck.length ? <ul className="flex flex-col gap-2">{stuck.map(row)}</ul> : <p className="text-[12.5px] text-zinc-500">Nothing stuck.</p>}
+      </section>
+      <section>
+        {heading('Working on now', busy.length, 'What each bot is doing')}
+        {busy.length ? (
+          <ul className="flex flex-col gap-1.5">
+            {busy.map((b) => (
+              <li key={b.id} className="flex items-center gap-2 text-[12.5px]">
+                <StatusPill status={b.status} />
+                <span className="font-medium" style={{ color: b.color }}>
+                  {b.name}
+                </span>
+                <span className="truncate text-zinc-300" title={b.task}>
+                  {b.task}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[12.5px] text-zinc-500">All quiet.</p>
+        )}
+      </section>
+    </div>
+  )
+}
+
+export function OfficeView({
+  demo,
+  user,
+  initialTab = 'office',
+}: {
+  demo: boolean
+  user: { name: string | null; email: string | null; image: string | null; role: string | null }
+  initialTab?: 'office' | 'requests'
+}) {
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => 'night' as OfficeTheme)
   const [paused, setPaused] = useState(false)
+  // The office floor, or every request from the bots as a list (?tab=requests).
+  const [tab, setTabState] = useState<'office' | 'requests'>(initialTab)
+  function setTab(t: 'office' | 'requests') {
+    setTabState(t)
+    const u = new URL(window.location.href)
+    if (t === 'requests') u.searchParams.set('tab', 'requests')
+    else u.searchParams.delete('tab')
+    window.history.replaceState(null, '', u)
+  }
 
   const { data, error, isLoading } = useQuery<OfficeState>({
     queryKey: ['office-state', demo],
@@ -272,17 +384,38 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
   const working = data?.counts.working ?? 0
   const idle = data?.counts.idle ?? 0
   const needs = (data?.counts.needsYou ?? 0) + (data?.counts.error ?? 0)
+  const requests = data?.requests ?? []
+  const requestCount = approvals.length + requests.length
 
   return (
     <div className="flex h-full min-h-[640px] flex-col bg-[#07090d] text-zinc-100 lg:flex-row">
       <section className="relative flex min-h-[520px] flex-1 flex-col overflow-hidden">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 px-5 py-3">
-          <div>
-            <h1 className="text-[15px] font-semibold tracking-tight">Genisys Staff Virtual Office</h1>
-            <p className="mt-0.5 font-mono text-[11px] text-zinc-400">
-              {working} working • {idle} idle • {free} free desk{free === 1 ? '' : 's'}
-              {needs > 0 && <span className="text-yellow-400"> • {needs} need{needs === 1 ? 's' : ''} you</span>}
-            </p>
+          <div className="flex flex-wrap items-center gap-4">
+            <div>
+              <h1 className="text-[15px] font-semibold tracking-tight">Genisys Staff Virtual Office</h1>
+              <p className="mt-0.5 font-mono text-[11px] text-zinc-400">
+                {working} working • {idle} idle • {free} free desk{free === 1 ? '' : 's'}
+                {needs > 0 && <span className="text-yellow-400"> • {needs} need{needs === 1 ? 's' : ''} you</span>}
+              </p>
+            </div>
+            <div className="flex rounded-lg border border-white/10 bg-white/5 p-0.5" role="tablist" aria-label="Office view">
+              {(['office', 'requests'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t}
+                  onClick={() => setTab(t)}
+                  className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[12px] font-medium transition-colors', tab === t ? 'bg-white/15 text-white' : 'text-zinc-400 hover:text-zinc-200')}
+                >
+                  {t === 'office' ? 'Office' : 'Requests'}
+                  {t === 'requests' && requestCount > 0 && (
+                    <span className="rounded-full bg-yellow-400/20 px-1.5 text-[10px] font-semibold tabular-nums text-yellow-300">{requestCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest">
             {demo ? (
@@ -295,6 +428,26 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
           </div>
         </header>
 
+        {tab === 'requests' ? (
+          <RequestsPanel
+            approvals={approvals}
+            requests={requests}
+            bots={bots}
+            loading={isLoading}
+            error={error ? (error as Error).message : null}
+            renderApproval={(a) => (
+              <ApprovalCard
+                key={a.id}
+                a={a}
+                bot={bots.find((b) => b.id === a.botId)}
+                canAnswer={user.role === 'admin'}
+                demo={demo}
+                done={answered.find((x) => x.a.id === a.id)?.answer ?? null}
+                onAnswered={(answer) => onAnswered(a, answer)}
+              />
+            )}
+          />
+        ) : (
         <div className="relative flex-1">
           <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-3">
             {error ? (
@@ -362,6 +515,7 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
             {paused ? 'Resume live view' : 'Pause live view'}
           </button>
         </div>
+        )}
       </section>
 
       <aside className="flex w-full shrink-0 flex-col border-l border-white/5 bg-[#0b0e13] lg:w-[340px]">

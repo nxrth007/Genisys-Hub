@@ -15,5 +15,11 @@ export default async function OfficePage({ searchParams }: { searchParams: Promi
   if (role !== 'admin' && role !== 'member') redirect('/today')
   const sp = await searchParams
   const demo = sp.demo === '1' && officeDemoAllowed()
-  return <OfficeView demo={demo} user={{ name: session?.user?.name ?? null, email: session?.user?.email ?? null, image: session?.user?.image ?? null, role: role ?? null }} />
+  return (
+    <OfficeView
+      demo={demo}
+      initialTab={sp.tab === 'requests' ? 'requests' : 'office'}
+      user={{ name: session?.user?.name ?? null, email: session?.user?.email ?? null, image: session?.user?.image ?? null, role: role ?? null }}
+    />
+  )
 }

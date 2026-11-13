@@ -82,7 +82,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+        select: { id: true, clientId: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
       }), []),
     safe('customize jobs', () =>
       prisma.ghlCustomizeJob.findMany({
@@ -96,7 +96,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+        select: { id: true, clientId: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
       }), []),
     safe('number requests', () =>
       prisma.hlNumberRequest.findMany({
@@ -111,7 +111,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, route: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true, ghlLocationId: true } } },
+        select: { id: true, clientId: true, status: true, route: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true, ghlLocationId: true } } },
       }), []),
   ])
 
@@ -166,7 +166,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   }
   input.domainRequests = domainRequests
     .filter((d) => d.status !== 'awaiting_approval')
-    .map((d) => ({ id: d.id, clientName: d.client?.name ?? 'a client', status: d.status, name: d.name, detail: d.detail, decidedAt: d.decidedAt, updatedAt: d.updatedAt }))
+    .map((d) => ({ id: d.id, accountId: d.accountId, clientName: d.client?.name ?? 'a client', status: d.status, name: d.name, detail: d.detail, decidedAt: d.decidedAt, updatedAt: d.updatedAt }))
   // Site forms made the client's own (src/lib/ghl-form): Atlas shows them like the workflow copy job.
   const formJobs = await safe('form jobs', () =>
     prisma.ghlFormJob.findMany({
@@ -176,7 +176,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       },
       orderBy: { updatedAt: 'desc' },
       take: 40,
-      select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+      select: { id: true, clientId: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
     }), [])
   input.subaccountJobs.push(...formJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'form' as const })))
   // GHL toll-free registrations (src/lib/ghl-number/queue.ts): filled and waiting for an OK, stopped, moving, sent.
@@ -224,6 +224,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       const v = verifications.find((x) => x.id === r.numberId)
       return {
         id: r.id,
+        clientId: r.clientId,
         clientName: r.client?.name ?? 'a client',
         status: r.status,
         route: r.route,
