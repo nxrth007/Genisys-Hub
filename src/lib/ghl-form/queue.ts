@@ -4,7 +4,10 @@
  * from the snapshot ("A Plus Fence & Construction Forms") is made theirs
  * (./browser.ts): the consent checkboxes name their business, and an older
  * sub-account's A Plus logo and policy links go. "Fix the form in GHL" in the
- * client's Sites folder runs it for any linked sub-account.
+ * client's Sites folder runs it for any linked sub-account, and a slow
+ * catch-up goes through every linked client never checked (one at a time,
+ * newest first): it only changes what still names A Plus, so forms already
+ * fixed by hand are left as they are.
  *
  * Runs in the sub-account worker's tick on the one browser, after sub-account
  * creates and toll-free numbers, before workflow customizing.
@@ -37,7 +40,7 @@ function environmentFailure(message: string): boolean {
 }
 
 /** Queue the client's form. A run already queued or under way is left alone. */
-export async function queueFormFix(clientId: string, o: { trigger: 'snapshot' | 'manual'; by?: string }): Promise<{ ok: boolean; reason: string; id?: string }> {
+export async function queueFormFix(clientId: string, o: { trigger: 'snapshot' | 'manual' | 'catchup'; by?: string }): Promise<{ ok: boolean; reason: string; id?: string }> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },
     select: { id: true, archivedAt: true, ghlLocationId: true, ghlFormJob: { select: { id: true, status: true, log: true } } },
@@ -47,7 +50,12 @@ export async function queueFormFix(clientId: string, o: { trigger: 'snapshot' | 
   if (!c.ghlLocationId) return { ok: false, reason: 'This client has no linked GHL sub-account yet.' }
   const job = c.ghlFormJob
   if (job && (job.status === 'queued' || job.status === 'running')) return { ok: true, reason: 'Already queued.', id: job.id }
-  const msg = o.trigger === 'manual' ? `Queued by ${o.by ?? 'someone'} (Fix the form in GHL).` : 'Queued: the snapshot loaded into their new sub-account.'
+  const msg =
+    o.trigger === 'manual'
+      ? `Queued by ${o.by ?? 'someone'} (Fix the form in GHL).`
+      : o.trigger === 'catchup'
+        ? 'Queued by the catch-up: a sub-account from before this job, never checked.'
+        : 'Queued: the snapshot loaded into their new sub-account.'
   const data = {
     locationId: c.ghlLocationId,
     status: 'queued',
@@ -236,9 +244,31 @@ async function execute(id: string, lease: Date): Promise<string> {
 }
 
 /** One tick from the sub-account worker: recover, and (when the browser is free) run one queued form. */
+const CATCHUP_GAP_MS = 3 * 60_000
+let lastCatchup = 0
+
+/**
+ * The catch-up for sub-accounts made before this job (Alex, 2026-11-13: many
+ * were fixed by hand, a few may still need it): when no form is queued or
+ * running, queue the next linked client never checked, newest first, at most
+ * one every few minutes, so the worker (and the 2 GB instance) is never swamped.
+ */
+async function catchUp(now = Date.now()): Promise<void> {
+  if (now - lastCatchup < CATCHUP_GAP_MS) return
+  lastCatchup = now
+  if (await prisma.ghlFormJob.count({ where: { status: { in: ['queued', 'running'] } } })) return
+  const next = await prisma.client.findFirst({
+    where: { archivedAt: null, ghlLocationId: { not: null }, ghlFormJob: { is: null } },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  })
+  if (next) await queueFormFix(next.id, { trigger: 'catchup' })
+}
+
 export async function formFixTick(opts: { runBrowser: boolean }): Promise<{ claimed: boolean; outcome?: string }> {
   if (!workerEnabled()) return { claimed: false }
   await recoverAbandonedFormFixes().catch((err) => console.warn('[ghl-form] recovery:', describe(err)))
+  if (opts.runBrowser && workerMode() === 'create' && !workerPaused()) await catchUp().catch((err) => console.warn('[ghl-form] catch-up:', describe(err)))
   if (!opts.runBrowser || workerPaused() || stopping) return { claimed: false }
   const claimed = await claim()
   if (!claimed) return { claimed: false }

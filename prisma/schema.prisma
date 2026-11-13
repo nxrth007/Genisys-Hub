@@ -934,7 +934,8 @@ model GhlFormJob {
   locationId    String
   /// queued | running | succeeded | needs_human | failed
   status        String    @default("queued")
-  /// snapshot (right after the worker loaded it) | manual (Sites → Fix the form in GHL)
+  /// snapshot (right after the worker loaded it) | manual (Sites → Fix the form in GHL) |
+  /// catchup (a sub-account from before the job, checked once, newest first)
   trigger       String    @default("snapshot")
   attempts      Int       @default(0)
   leaseUntil    DateTime?
