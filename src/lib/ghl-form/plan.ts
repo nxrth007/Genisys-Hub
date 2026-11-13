@@ -35,6 +35,29 @@ export const TEMPLATE_SITE = 'aplusconstruction.org'
 export const isTemplateLogo = (src: string) => src.includes(TEMPLATE_LOGO)
 export const isTemplateLink = (href: string) => href.toLowerCase().includes(TEMPLATE_SITE)
 
+/**
+ * A Privacy Policy or Terms link inside the form. Ethan's site template shows
+ * those links under the form, so the form carries none of its own, wherever
+ * they point (Alex, 2026-11-13: Done Rite's form still had them, pointing at
+ * its own pages, after being fixed by hand).
+ */
+export const POLICY_TEXT = /^\s*(Privacy(\s+Policy)?|Terms(\s+(of\s+(Service|Use)|(and|&)\s+Conditions))?)\s*$/i
+export const isPolicyLink = (l: { text: string; href: string }) => POLICY_TEXT.test(l.text) || isTemplateLink(l.href)
+
+/** The review-request form from the snapshot, which is never touched. */
+export const isReviewForm = (name: string) => /review/i.test(name)
+
+/**
+ * Which of the sub-account's forms is the site form: the template by its name,
+ * else the only one that isn't the review-request form (renamed when it was
+ * made theirs by hand). Null when there's none or it's unclear.
+ */
+export function pickSiteForm(names: string[]): string | null {
+  if (names.includes(TEMPLATE_FORM)) return TEMPLATE_FORM
+  const rest = [...new Set(names)].filter((n) => n && !isReviewForm(n))
+  return rest.length === 1 ? rest[0] : null
+}
+
 const templateName = () => /A\s*Plus\s+Fence\s*(?:&|and)\s*Construction/gi
 
 /** Does this text name the template business (A Plus Fence & Construction)? */
@@ -81,11 +104,11 @@ export function isConsentOption(text: string): boolean {
 }
 
 /** What a lead sees on the public form: its text, its pictures' addresses and its links. */
-export type PublicForm = { text: string; images: string[]; links: string[] }
+export type PublicForm = { text: string; images: string[]; links: { text: string; href: string }[] }
 
-/** The template's leftovers the form builder has to remove (sub-accounts made before snapshot v2). */
+/** What the form builder has to remove: A Plus's logo, and any Privacy Policy / Terms links in the form. */
 export function builderWork(f: PublicForm): { logo: boolean; links: boolean } {
-  return { logo: f.images.some(isTemplateLogo), links: f.links.some(isTemplateLink) }
+  return { logo: f.images.some(isTemplateLogo), links: f.links.some(isPolicyLink) }
 }
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -102,7 +125,7 @@ export function formProblems(f: PublicForm, business: string): string[] {
   else if (business.trim() && !squash(f.text).includes(squash(business))) out.push(`its consent doesn't name ${business.trim()}`)
   const left = builderWork(f)
   if (left.logo) out.push('it still shows the A Plus logo')
-  if (left.links) out.push('it still links to A Plus’s privacy policy and terms')
+  if (left.links) out.push('it still has its own Privacy Policy / Terms links (the site shows them under the form)')
   return out
 }
 

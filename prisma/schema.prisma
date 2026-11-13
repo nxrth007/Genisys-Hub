@@ -949,6 +949,8 @@ model GhlFormJob {
   /// The latest page image (where it stopped, or the end), and its step.
   shot          Bytes?
   shotStep      String?
+  /// Which rules checked it (FORM_VERSION in src/lib/ghl-form/queue.ts): an older check is done again by the catch-up.
+  version       Int       @default(1)
   finishedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

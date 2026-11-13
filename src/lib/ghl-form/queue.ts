@@ -22,6 +22,13 @@ import { loadLogin, loadSession, makeOtpPuller, saveSession } from '@/lib/ghl-su
 import { runFormFix } from './browser'
 import { consentName } from './plan'
 
+/**
+ * The rules a check ran by. 2 (2026-11-13): the form's own Privacy Policy / Terms
+ * blocks go wherever they point, and a site form renamed by hand is found and
+ * cleaned too (version 1 left Done Rite's). Older checks are done again.
+ */
+export const FORM_VERSION = 2
+
 const LEASE_MS = 30 * 60_000
 const WALL_MS = 20 * 60_000
 const MAX_TRIES = 3
@@ -167,7 +174,7 @@ async function execute(id: string, lease: Date): Promise<string> {
   const client = job.client
   const note = (msg: string) => appendLog(id, lease, msg).catch(() => {})
   const finish = (status: string, detail: string, extra: Prisma.GhlFormJobUpdateManyMutationInput = {}) =>
-    saveJob(id, lease, { status, detail: detail.slice(0, 4000), lastError: status === 'succeeded' ? null : detail.slice(0, 4000), leaseUntil: null, heartbeatAt: null, finishedAt: new Date(), ...extra })
+    saveJob(id, lease, { status, detail: detail.slice(0, 4000), lastError: status === 'succeeded' ? null : detail.slice(0, 4000), leaseUntil: null, heartbeatAt: null, finishedAt: new Date(), version: FORM_VERSION, ...extra })
   let timer: ReturnType<typeof setTimeout> | null = null
   let heartbeat: ReturnType<typeof setInterval> | null = null
   try {
@@ -258,7 +265,12 @@ async function catchUp(now = Date.now()): Promise<void> {
   lastCatchup = now
   if (await prisma.ghlFormJob.count({ where: { status: { in: ['queued', 'running'] } } })) return
   const next = await prisma.client.findFirst({
-    where: { archivedAt: null, ghlLocationId: { not: null }, ghlFormJob: { is: null } },
+    // Never checked, or checked by older rules (and not waiting on a person under these).
+    where: {
+      archivedAt: null,
+      ghlLocationId: { not: null },
+      OR: [{ ghlFormJob: { is: null } }, { ghlFormJob: { is: { version: { lt: FORM_VERSION }, status: { notIn: ['queued', 'running'] } } } }],
+    },
     orderBy: { createdAt: 'desc' },
     select: { id: true },
   })

@@ -47,12 +47,12 @@ test('the consent name: the business name from onboarding, else the client; capi
 test("the public form is the client's only with their name and none of A Plus's logo, name or links", () => {
   const text = (o) => `Get Your Free Estimate Full Name * Phone * ${o.join(' ')} SEND`
   const LOGO = 'https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/di0HxKo4yz2WXnVfo5lq/media/6aac79b1867721cb571103e0.png'
-  const old = { text: text([OPT1, OPT2]), images: [LOGO], links: ['https://aplusconstruction.org/privacy-policy', 'https://aplusconstruction.org/terms-of-service-534985'] }
+  const old = { text: text([OPT1, OPT2]), images: [LOGO], links: [{ text: 'Privacy Policy', href: 'https://aplusconstruction.org/privacy-policy' }, { text: 'Terms', href: 'https://aplusconstruction.org/terms-of-service-534985' }] }
   assert.deepEqual(plan.builderWork(old), { logo: true, links: true })
   assert.deepEqual(plan.formProblems(old, 'Royal Driveway Cleaning LLC'), [
     'it still says A Plus Fence & Construction',
     'it still shows the A Plus logo',
-    'it still links to A Plus’s privacy policy and terms',
+    'it still has its own Privacy Policy / Terms links (the site shows them under the form)',
   ])
   // Snapshot v2: no logo or links, only the name left to change.
   const v2 = { text: text([OPT1, OPT2]), images: [], links: [] }
@@ -62,9 +62,25 @@ test("the public form is the client's only with their name and none of A Plus's 
   assert.deepEqual(plan.formProblems(done, 'Royal Driveway Cleaning LLC'), [])
   assert.deepEqual(plan.formProblems(done, 'Someone Else LLC'), ["its consent doesn't name Someone Else LLC"])
   assert.deepEqual(plan.formProblems({ text: 'Get Your Free Estimate SEND', images: [], links: [] }, 'X'), ['its consent checkboxes are missing', "its consent doesn't name X"])
-  // Fixed by hand: the client's own logo and policy links stay, and their wording isn't second-guessed.
-  const byHand = { text: text(plan.renamedOptions([OPT1, OPT2], 'Royal Driveway')), images: ['https://assets.cdn.filesafe.space/OTHERLOC/media/theirlogo.png'], links: ['https://royaldriveway.com/privacy'] }
-  assert.deepEqual(plan.builderWork(byHand), { logo: false, links: false })
-  assert.deepEqual(plan.formProblems(byHand, ''), [])
+  // Fixed by hand: the client's own logo stays and their wording isn't second-guessed, but the form's own
+  // Privacy Policy / Terms links go wherever they point (the site shows them under the form; Done Rite's).
+  const doneRite = { text: text(plan.renamedOptions([OPT1, OPT2], 'Done Rite Appliance Repair CO')), images: ['https://assets.cdn.filesafe.space/OTHERLOC/media/theirlogo.png'], links: [{ text: 'Privacy Policy', href: 'https://doneriteappliancerepair.org/privacy' }, { text: 'Terms', href: 'https://doneriteappliancerepair.org/terms' }] }
+  assert.deepEqual(plan.builderWork(doneRite), { logo: false, links: true })
+  assert.deepEqual(plan.formProblems(doneRite, ''), ['it still has its own Privacy Policy / Terms links (the site shows them under the form)'])
+  assert.deepEqual(plan.formProblems({ ...doneRite, links: [{ text: 'Call us', href: 'tel:+19012451393' }] }, ''), [])
   assert.equal(plan.publicFormUrl('MjFjsUTjl07QuTFvli6f'), 'https://api.leadconnectorhq.com/widget/form/MjFjsUTjl07QuTFvli6f')
+})
+
+test('which form is the site form: the template by name, else the only one that is not the review-request form', () => {
+  assert.equal(plan.pickSiteForm(['5 Star Review Request Form Final', 'A Plus Fence & Construction Forms']), 'A Plus Fence & Construction Forms')
+  assert.equal(plan.pickSiteForm(['5 Star Review Request Form Final', 'Done Rite Appliance Repair CO']), 'Done Rite Appliance Repair CO')
+  assert.equal(plan.pickSiteForm(['5 Star Review Request Form Final']), null)
+  assert.equal(plan.pickSiteForm(['5 Star Review Request Form Final', 'Quote form', 'Contact form']), null)
+  assert.equal(plan.pickSiteForm([]), null)
+})
+
+test('policy links by their words, wherever they point', () => {
+  for (const t of ['Privacy Policy', 'privacy', 'Terms', 'Terms of Service', 'Terms & Conditions', ' Terms and Conditions ']) assert.equal(plan.POLICY_TEXT.test(t), true, t)
+  for (const t of ['See our Privacy Policy and Terms.', 'Call us', 'Terms apply to all quotes']) assert.equal(plan.POLICY_TEXT.test(t), false, t)
+  assert.equal(plan.isPolicyLink({ text: 'Read more', href: 'https://aplusconstruction.org/x' }), true)
 })

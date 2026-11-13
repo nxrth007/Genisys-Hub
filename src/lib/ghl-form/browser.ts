@@ -19,7 +19,7 @@ import { capturePage, claimBrowser, newWorkerContext, releaseBrowser, signInOnPa
 import { chromiumLaunchArgs, prepareChromiumEnv } from '@/lib/ghl-subaccount-worker/chromium-host'
 import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
-import { builderWork, formProblems, isConsentOption, isTemplateLink, publicFormUrl, renamedOptions, TEMPLATE_FORM, TEMPLATE_LOGO, TEMPLATE_SITE, type PublicForm } from './plan'
+import { builderWork, formProblems, isConsentOption, isPolicyLink, pickSiteForm, POLICY_TEXT, publicFormUrl, renamedOptions, TEMPLATE_FORM, TEMPLATE_LOGO, TEMPLATE_SITE, type PublicForm } from './plan'
 
 export type FormFixOptions = {
   clientName: string
@@ -257,36 +257,65 @@ async function fixConsent(run: Run): Promise<'renamed' | 'already' | 'missing'> 
   return changed ? 'renamed' : 'already'
 }
 
-class NoTemplateForm extends Error {}
-
-/** Step 2: open the template form from the Forms list (it may sit in an embedded app). Returns its id. */
-async function openTemplateForm(run: Run): Promise<string> {
-  const { page, opts } = run
-  const find = async (): Promise<Locator | null> => {
-    for (const frame of page.frames()) {
-      const hit = await visibleIn(frame.getByText(TEMPLATE_FORM, { exact: true }))
-      if (hit) return hit
-    }
-    return null
+class NoTemplateForm extends Error {
+  constructor(
+    message: string,
+    /** The forms the list showed (to say why none was picked). */
+    readonly names: string[],
+  ) {
+    super(message)
   }
-  const found: { link: Locator | null } = { link: null }
+}
+
+/** The forms' names on the open Forms list (it may sit in an embedded app), with the frame showing each. */
+async function formNames(page: Page): Promise<{ name: string; frame: Frame }[]> {
+  const out: { name: string; frame: Frame }[] = []
+  for (const frame of page.frames()) {
+    const names = await frame
+      .evaluate(() =>
+        Array.from(document.querySelectorAll('tr'))
+          .map((r) => ((r.querySelector('td') as HTMLElement | null)?.innerText || '').replace(/\s+/g, ' ').trim())
+          .filter(Boolean),
+      )
+      .catch(() => [] as string[])
+    for (const name of names) out.push({ name, frame })
+  }
+  return out
+}
+
+/**
+ * Step 2: open the client's site form from the Forms list: the template by its
+ * name, else the only form that isn't the review-request form (renamed when it
+ * was made theirs by hand). Returns its id and name.
+ */
+async function openSiteForm(run: Run): Promise<{ id: string; name: string }> {
+  const { page, opts } = run
+  let listed: { name: string; frame: Frame }[] = []
   await openLocationPage(run, formsUrl(opts.locationId), 'Forms list', async () => {
-    found.link = await find()
-    return !!found.link
+    listed = await formNames(page)
+    return listed.length > 0
   }).catch(async (err) => {
     if (err instanceof Halt && !err.signIn) {
-      await run.shoot('no template form')
-      throw new NoTemplateForm(`${opts.clientName}'s Forms have no "${TEMPLATE_FORM}" (renamed or deleted?).`)
+      await run.shoot('no forms')
+      throw new NoTemplateForm(`${opts.clientName}'s Forms list showed no forms.`, [])
     }
     throw err
   })
-  if (!found.link) throw new Halt('error', `"${TEMPLATE_FORM}" went missing from the Forms list.`)
-  await found.link.click({ timeout: 8000 })
+  // Let the whole list draw before choosing.
+  await sleep(1500, opts.signal)
+  listed = await formNames(page)
+  const names = listed.map((x) => x.name)
+  const pick = pickSiteForm(names)
+  if (!pick) throw new NoTemplateForm(`${opts.clientName}'s Forms don't make the site form clear (${names.join(', ') || 'none'}).`, names)
+  const frame = listed.find((x) => x.name === pick)!.frame
+  const link = await visibleIn(frame.getByText(pick, { exact: true }))
+  if (!link) throw new Halt('error', `"${pick}" went missing from the Forms list.`)
+  await link.click({ timeout: 8000 })
   const deadline = Date.now() + 30_000
   for (;;) {
     const id = /\/form-builder-v2\/([A-Za-z0-9]+)/.exec(page.url())?.[1]
-    if (id) return id
-    if (Date.now() >= deadline) throw new Halt('error', `Opening "${TEMPLATE_FORM}" didn't open GHL's form builder.`)
+    if (id) return { id, name: pick }
+    if (Date.now() >= deadline) throw new Halt('error', `Opening "${pick}" didn't open GHL's form builder.`)
     await sleep(500, opts.signal)
   }
 }
@@ -308,7 +337,7 @@ async function readPublicForm(context: BrowserContext, formId: string, signal?: 
     return await p.evaluate(() => ({
       text: (document.body?.innerText || '').replace(/\s+/g, ' '),
       images: Array.from(document.images).map((i) => i.currentSrc || i.src),
-      links: Array.from(document.querySelectorAll('a')).map((a) => (a as HTMLAnchorElement).href),
+      links: Array.from(document.querySelectorAll('a')).map((a) => ({ text: (a as HTMLElement).innerText.replace(/\s+/g, ' ').trim(), href: (a as HTMLAnchorElement).href })),
     }))
   } finally {
     await p.close().catch(() => {})
@@ -393,7 +422,7 @@ async function deleteBlock(run: Run, frame: Frame, select: () => Promise<void>, 
 async function cleanBuilder(run: Run, seen: PublicForm): Promise<boolean> {
   const work = builderWork(seen)
   if (!work.logo && !work.links) return false
-  const aplusLinks = seen.links.filter(isTemplateLink).length
+  const aplusLinks = seen.links.filter(isPolicyLink).length
   const { page, opts } = run
   const frame = await builderFrame(run)
   await sleep(1500, opts.signal)
@@ -415,7 +444,8 @@ async function cleanBuilder(run: Run, seen: PublicForm): Promise<boolean> {
   }
   // Only A Plus's own logo (by its file) and policy blocks.
   const logoImgs = frame.locator(`img[src*="${TEMPLATE_LOGO}"]`)
-  const policyLinks = frame.locator(`a[href*="${TEMPLATE_SITE}"]`)
+  // A Privacy Policy / Terms link, wherever it points (and anything linking to A Plus's site).
+  const policyLinks = frame.locator('a').filter({ hasText: POLICY_TEXT }).or(frame.locator(`a[href*="${TEMPLATE_SITE}"]`))
   const labels = frame.getByText('Script Added!', { exact: true })
   const logos = () => logoImgs.count().catch(() => 0)
   // The logo's picture and the blocks' links can arrive a few seconds after the form.
@@ -430,7 +460,7 @@ async function cleanBuilder(run: Run, seen: PublicForm): Promise<boolean> {
   const scriptLabels = await labels.count().catch(() => 0)
   if (work.links && !byLink && scriptLabels !== aplusLinks) {
     await run.shoot('policy blocks unclear')
-    throw new Halt('needs_human', `The form has ${scriptLabels} code block(s) but ${aplusLinks} A Plus policy link(s), so the worker can't tell which blocks are A Plus's. Remove A Plus's Privacy Policy and Terms blocks by hand. Nothing was saved.`)
+    throw new Halt('needs_human', `The form has ${scriptLabels} code block(s) but ${aplusLinks} Privacy Policy / Terms link(s), so the worker can't tell which blocks hold them. Remove the form's Privacy Policy and Terms blocks by hand. Nothing was saved.`)
   }
   const policy = byLink ? policyLinks : labels
   const scripts = () => policy.count().catch(() => 0)
@@ -462,8 +492,8 @@ async function cleanBuilder(run: Run, seen: PublicForm): Promise<boolean> {
         await clickRow(block)
       }, scripts, 'A Plus policy-link block')
     }
-    if (byLink && (await scripts())) throw new Halt('needs_human', 'An A Plus policy link is still in the form after deleting its blocks. Nothing was saved.')
-    await run.note("Deleted the two A Plus policy-link blocks (Privacy Policy, Terms) from the form.")
+    if (byLink && (await scripts())) throw new Halt('needs_human', 'A Privacy Policy / Terms link is still in the form after deleting its blocks. Nothing was saved.')
+    await run.note('Deleted the form\'s Privacy Policy and Terms blocks (the site shows those links under the form).')
   }
   await run.shoot('form builder cleaned')
   const save = await visibleIn(frame.locator('button').filter({ hasText: /^\s*Save\s*$/ }))
@@ -514,18 +544,20 @@ export async function runFormFix(opts: FormFixOptions): Promise<FormFixResult> {
     try {
       const consent = await fixConsent(run)
       const renamed = consent === 'renamed'
+      let site: { id: string; name: string }
       try {
-        formId = await openTemplateForm(run)
+        site = await openSiteForm(run)
       } catch (err) {
         if (!(err instanceof NoTemplateForm)) throw err
-        const quiet = (detail: string) => ({ status: 'done' as const, detail, formId: null, storageState: null as string | null })
-        // Never had the snapshot's form (an older sub-account): nothing to change.
-        if (consent === 'missing') return { ...quiet(`${opts.clientName}'s sub-account doesn't have the snapshot's site form or its consent checkboxes, so there was nothing to change.`), storageState: await sessionOf(context) }
-        // Renamed when someone made it theirs by hand, with the consent already naming the client: leave it.
-        if (consent === 'already') return { ...quiet(`${opts.clientName}'s form was already made theirs by hand: the consent checkboxes don't name A Plus, and the form isn't called "${TEMPLATE_FORM}" any more.`), storageState: await sessionOf(context) }
-        throw new Halt('needs_human', `${err.message} The consent checkboxes now name ${opts.businessName}; check the form itself in GHL.`)
+        const others = err.names.filter((n) => !/review/i.test(n))
+        // Only the review-request form (or none): an older sub-account without the site form, nothing to change.
+        if (consent !== 'renamed' && !others.length) {
+          return { status: 'done', detail: `${opts.clientName}'s sub-account has no site form besides the review-request form, so there was nothing to change.`, formId: null, storageState: await sessionOf(context) }
+        }
+        throw new Halt('needs_human', `${err.message} ${renamed ? `The consent checkboxes now name ${opts.businessName}; ` : ''}check the site form in GHL by hand.`)
       }
-      if (consent === 'missing') {
+      formId = site.id
+      if (consent === 'missing' && site.name === TEMPLATE_FORM) {
         throw new Halt('needs_human', `${opts.clientName} has "${TEMPLATE_FORM}" but no consent checkbox field with its text in Custom Fields. Check the form's consent checkboxes in GHL.`)
       }
       await opts.onFormId?.(formId)
@@ -547,10 +579,13 @@ export async function runFormFix(opts: FormFixOptions): Promise<FormFixResult> {
       if (problems.length) {
         throw new Halt('needs_human', `The public form still isn't ${opts.clientName}'s: ${problems.join('; ')}. ${publicFormUrl(formId)}`)
       }
-      const did = [renamed ? `consent names ${opts.businessName}` : 'consent already named them', cleaned ? "removed A Plus's logo and policy links" : '']
+      const did = [
+        renamed ? `consent names ${opts.businessName}` : consent === 'already' ? 'consent already named them' : '',
+        cleaned ? 'removed the Privacy Policy / Terms blocks and any A Plus logo' : '',
+      ]
       return {
         status: 'done',
-        detail: `${opts.clientName}'s site form is theirs: ${did.filter(Boolean).join(', ')}. Checked on the public form: ${publicFormUrl(formId)}`,
+        detail: `${opts.clientName}'s site form ("${site.name}") is theirs: ${did.filter(Boolean).join(', ') || 'nothing needed changing'}. Checked on the public form: ${publicFormUrl(formId)}`,
         formId,
         storageState: await sessionOf(context),
       }
