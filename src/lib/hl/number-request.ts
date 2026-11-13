@@ -20,7 +20,7 @@ import { textNumberEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { jobLogEntry } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
-import { askDecision, FILE_RETRY_MS, prettyPhone, readyToFile, reconcileVerify, ringTo } from './number-plan'
+import { askDecision, FILE_RETRY_MS, prettyPhone, readyToFile, reconcileVerify, ringTo, textsTo } from './number-plan'
 import { buyNumber, searchNumbers } from './twilio'
 import { submitVerification } from './verification'
 
@@ -161,7 +161,15 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
     return fail(purchasing ? `Buying the number failed: ${msg} Check Twilio for a toll-free number that isn't in Hell-level before asking again.` : `Buying the number failed: ${msg}`)
   }
   // From here the number is the client's: a later hiccup never marks the request failed (a retry would just find the number).
-  const ring = ringTo(readProfile(account.profile))
+  const profile = readProfile(account.profile)
+  const ring = ringTo(profile)
+  // Texts it receives are forwarded to the phone the owner gave on onboarding.
+  const texts = textsTo(profile)
+  if (texts && !num.forwardTextsTo) {
+    await prisma.hlPhoneNumber.update({ where: { id: num.id }, data: { forwardTextsTo: texts } }).catch((err) => {
+      console.warn('[hell-level] setting where a new number forwards its texts:', describe(err))
+    })
+  }
   let unpointed = false
   if (ring && !num.forwardTo) {
     // Calls ring the business phone (press any key to connect); with none on file every call is a missed call.
@@ -178,7 +186,10 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
       : rings
         ? `Calls ring ${prettyPhone(rings)}.`
         : 'No business phone is on file, so every call to it counts as missed and gets the text-back.',
-  ].join(' ')
+    texts ? `Texts to it are forwarded to ${prettyPhone(num.forwardTextsTo ?? texts)}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
   await note(id, purchasing ? `Bought ${prettyPhone(num.number)} on Genisys's Twilio. ${detail}` : detail, { status: 'bought', numberId: num.id, number: num.number, forwardTo: rings, detail }).catch(
     (err) => console.warn('[hell-level] saving a bought number on its request:', describe(err)),
   )

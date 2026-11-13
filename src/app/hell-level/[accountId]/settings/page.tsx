@@ -392,6 +392,7 @@ function NumbersTab({ accountId, numbers }: { accountId: string; numbers: PhoneN
 function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNumberRow; multiple: boolean }) {
   const qc = useQueryClient()
   const [forward, setForward] = useState(n.forwardTo ?? '')
+  const [textsTo, setTextsTo] = useState(n.forwardTextsTo ?? '')
   const [reviewing, setReviewing] = useState(false)
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['hl', 'account', accountId] })
@@ -440,6 +441,14 @@ function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNum
         </div>
         <div className="flex flex-col gap-3">
           <p className="text-[14px] font-semibold text-foreground">Texting</p>
+          <Field label="Forward texts to" hint="Every text someone sends this number is also sent to this phone (from the Hub’s own number), saying who wrote. Leave blank to keep texts in Conversations only.">
+            <div className="flex gap-2">
+              <Input value={textsTo} onChange={(e) => setTextsTo(e.target.value)} placeholder="(555) 123-4567" />
+              <Button loading={patch.isPending && 'forwardTextsTo' in (patch.variables ?? {})} onClick={() => patch.mutate({ forwardTextsTo: textsTo })}>
+                Save
+              </Button>
+            </div>
+          </Field>
           {!tollFree ? (
             <A2pTexting accountId={accountId} number={n.number} />
           ) : n.verificationStatus === 'approved' ? (

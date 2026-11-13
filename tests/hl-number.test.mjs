@@ -84,6 +84,33 @@ test('ringTo: the business phone, else the owner’s, else a missed-call catcher
   assert.equal(plan.ringTo({}), null)
 })
 
+test('textsTo: forwarded texts go to the phone from the onboarding form (a cell), else the business phone', () => {
+  assert.equal(plan.textsTo({ businessPhone: '(603) 555-0142', notifyPhone: '603-555-0199, 603-555-0100' }), '+16035550199')
+  assert.equal(plan.textsTo({ businessPhone: '(603) 555-0142', notifyPhone: '' }), '+16035550142')
+  assert.equal(plan.textsTo({}), null)
+})
+
+test('ownerPhones: the owner’s own phones are never treated as a lead', () => {
+  const owners = plan.ownerPhones({ forwardTo: '+16035550142', forwardTextsTo: '+16035550199' }, { businessPhone: '(603) 555-0142', notifyPhone: '603-555-0199, (603) 555-0100' })
+  assert.deepEqual([...owners].sort(), ['+16035550100', '+16035550142', '+16035550199'])
+  assert.equal(plan.ownerPhones({}, {}).size, 0)
+  assert.ok(!owners.has('+16175550000'))
+})
+
+test('forwardTextBody: who wrote, what they said, and how to answer', () => {
+  assert.equal(
+    plan.forwardTextBody({ business: 'Acme Roofing', from: '+16175550000', name: 'Jennifer Lee', body: 'Hi, can I get a quote\nfor my roof?', media: 0 }),
+    'Acme Roofing: new text from Jennifer Lee (617) 555-0000: "Hi, can I get a quote for my roof?" Reply to them at (617) 555-0000.',
+  )
+  assert.equal(
+    plan.forwardTextBody({ business: 'Acme Roofing', from: '+16175550000', body: '', media: 2 }),
+    'Acme Roofing: new text from (617) 555-0000: (+2 photos) Reply to them at (617) 555-0000.',
+  )
+  const long = plan.forwardTextBody({ business: 'Acme Roofing', from: '+16175550000', body: 'x'.repeat(500), media: 1 })
+  assert.ok(long.length < 320, `${long.length} chars`)
+  assert.match(long, /x…" \(\+1 photo\) Reply to them/)
+})
+
 test('readyToFile: texting verification waits for the site link and files once', () => {
   const n = { siteUrl: 'https://acmeroofing.com', numberActive: true, kind: 'toll_free', verificationStatus: 'none' }
   assert.deepEqual(plan.readyToFile(n), { file: true, reason: 'the site is in' })

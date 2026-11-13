@@ -34,6 +34,7 @@ import {
   Flame,
   Bot,
   ListChecks,
+  AppWindow,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canAccessPayments } from '@/lib/payments-access'
@@ -181,6 +182,8 @@ export function Sidebar() {
     ...baseNav,
     // Hell-level: the agency's own GoHighLevel (same allowlist as Payments).
     // Opens on its entrance screen (src/components/hell-level/enter-splash.tsx).
+    // Sites: every client's website as a folder (staff only).
+    ...(role === 'admin' || role === 'member' ? [{ href: '/sites', label: 'Sites', icon: AppWindow }] : []),
     // Office: live isometric view of the pipeline bots (staff only).
     ...(role === 'admin' || role === 'member' ? [{ href: '/office', label: 'Office', icon: Bot }] : []),
     ...(canAccessHellLevel(email) ? [{ href: '/hell-level?enter=1', match: '/hell-level', label: 'Hell-level', icon: Flame }] : []),

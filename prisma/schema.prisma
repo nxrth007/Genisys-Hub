@@ -2565,6 +2565,9 @@ model HlPhoneNumber {
   /// Ask whoever picks up at forwardTo to press a key before connecting, so a
   /// call their voicemail answers still counts as missed (and gets the text-back).
   whisper            Boolean   @default(true)
+  /// Texts people send this number are also sent here (E.164), from the Hub's
+  /// own number, so the owner sees them at once. Null = Conversations only.
+  forwardTextsTo     String?
   /// The number texts go out from, when an account has several.
   isDefault          Boolean   @default(true)
   /// active | released

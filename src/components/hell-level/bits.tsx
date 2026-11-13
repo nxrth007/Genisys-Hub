@@ -12,6 +12,7 @@ export type PhoneNumberRow = {
   number: string
   kind: string
   forwardTo: string | null
+  forwardTextsTo: string | null
   whisper: boolean
   isDefault: boolean
   status: string

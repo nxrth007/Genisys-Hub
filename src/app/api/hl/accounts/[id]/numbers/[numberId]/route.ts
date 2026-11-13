@@ -12,7 +12,7 @@ async function load(id: string, numberId: string) {
   return n && n.accountId === id && n.status === 'active' ? n : null
 }
 
-/** PATCH { forwardTo?: string|null, whisper?: boolean, isDefault?: true, repoint?: true } */
+/** PATCH { forwardTo?: string|null, forwardTextsTo?: string|null, whisper?: boolean, isDefault?: true, repoint?: true } */
 export async function PATCH(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
@@ -33,6 +33,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
       if (raw && !p) throw new HlInputError('That forwarding number doesn’t look right.')
       if (p && p === number.number) throw new HlInputError('A number can’t forward to itself.')
       data.forwardTo = p
+    }
+    if ('forwardTextsTo' in body) {
+      const raw = typeof body.forwardTextsTo === 'string' ? body.forwardTextsTo.trim() : ''
+      const p = raw ? toE164(raw) : null
+      if (raw && !p) throw new HlInputError('That phone for forwarded texts doesn’t look right.')
+      if (p && p === number.number) throw new HlInputError('A number can’t forward texts to itself.')
+      data.forwardTextsTo = p
     }
     if (typeof body.whisper === 'boolean') data.whisper = body.whisper
     if (body.isDefault === true) {

@@ -60,6 +60,38 @@ export function ringTo(p: { businessPhone?: string | null; notifyPhone?: string 
   return toE164(p.businessPhone) ?? toE164((p.notifyPhone ?? '').split(',')[0]) ?? null
 }
 
+/**
+ * Where the number's texts are forwarded: the phone the owner gave on the
+ * onboarding form (the notification phone, a cell), else the business phone.
+ */
+export function textsTo(p: { businessPhone?: string | null; notifyPhone?: string | null }): string | null {
+  return toE164((p.notifyPhone ?? '').split(',')[0]) ?? toE164(p.businessPhone) ?? null
+}
+
+/** The owner's own phones for a number: texts from these are the owner, never a lead. */
+export function ownerPhones(n: { forwardTo?: string | null; forwardTextsTo?: string | null }, p: { notifyPhone?: string | null; businessPhone?: string | null }): Set<string> {
+  const out = new Set<string>()
+  for (const raw of [n.forwardTo, n.forwardTextsTo, p.businessPhone, ...(p.notifyPhone ?? '').split(',')]) {
+    const e = toE164(raw)
+    if (e) out.add(e)
+  }
+  return out
+}
+
+/**
+ * The forwarded copy of a lead's text, sent to the owner from the Hub's own
+ * number. It says who wrote and how to answer: a reply to the Hub's number
+ * doesn't reach the lead.
+ */
+export function forwardTextBody(o: { business: string; from: string; name?: string | null; body: string; media: number }): string {
+  const who = `${o.name?.trim() ? `${o.name.trim()} ` : ''}${prettyPhone(o.from)}`
+  const flat = o.body.replace(/\s+/g, ' ').trim()
+  const text = flat.length > 220 ? `${flat.slice(0, 219)}…` : flat
+  const extra = o.media ? ` (+${o.media} photo${o.media === 1 ? '' : 's'})` : ''
+  const said = text ? `"${text}"${extra}` : extra.trim() || '(empty text)'
+  return `${o.business}: new text from ${who}: ${said} Reply to them at ${prettyPhone(o.from)}.`
+}
+
 export type FileCandidate = {
   siteUrl: string | null
   numberActive: boolean
