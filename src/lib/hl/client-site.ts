@@ -3,6 +3,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fillLegalLinksFromSite } from './legal-links'
 import { fillBrandFromSite } from './logo'
+import { fileNumberVerification } from './number-request'
 
 /**
  * The site we built for a client went live (or moved to a new address): its
@@ -34,4 +35,6 @@ export async function syncClientSite(clientId: string, siteUrl: string, priorSit
   // A logo the old site gave way to the new site's; one set by hand (from elsewhere) stays.
   const logoFromOldSite = !!p.logoUrl && !!priorSiteUrl && host(p.logoUrl) === host(priorSiteUrl)
   await fillBrandFromSite(account.id, logoFromOldSite)
+  // A toll-free number bought after an Office Yes gets its texting verification filed now that the site is in.
+  await fileNumberVerification(clientId).catch((err) => console.warn('[hell-level] toll-free verification after the site link:', err))
 }

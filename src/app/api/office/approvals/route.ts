@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAdmin } from '@/lib/auth-helpers'
-import { decideNumber } from '@/lib/ghl-number/queue'
+import { decideClientNumber } from '@/lib/hl/number-request'
 
 /**
  * POST /api/office/approvals { id, decision: 'yes' | 'no' } — answer a bot's
- * question in the Office. Today the only kind is Atlas asking to buy a
- * client's toll-free number: Yes queues the purchase and move, No drops it.
- * Admin only, since Yes spends money.
+ * question in the Office. Today the only kind is Echo asking to buy a new
+ * client's Hell-level toll-free number: Yes buys it on Genisys's Twilio right
+ * away (and answers with the number), No drops it. Admin only, since Yes
+ * spends money.
  */
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "decision": "yes" | "no" }' }, { status: 400 })
   const session = await auth()
   const by = session?.user?.name || session?.user?.email || 'an admin'
-  const res = await decideNumber(id, decision, by)
+  const res = await decideClientNumber(id, decision, by)
   if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
   return NextResponse.json(res)
 }

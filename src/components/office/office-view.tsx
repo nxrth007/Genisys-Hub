@@ -59,15 +59,31 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
+type Answer = { decision: 'yes' | 'no'; text: string }
+
 /**
- * A bot's question waiting for a Yes or No (today: Atlas asking to buy a
- * client's toll-free number). Yes sends the worker off to do it.
+ * A bot's question waiting for a Yes or No (today: Echo asking to buy a new
+ * client's Hell-level toll-free number). Yes buys it right away, and the card
+ * stays a few seconds to say what was bought.
  */
-function ApprovalCard({ a, bot, canAnswer, demo, onAnswered }: { a: OfficeApproval; bot: OfficeBot | undefined; canAnswer: boolean; demo: boolean; onAnswered: () => void }) {
+function ApprovalCard({
+  a,
+  bot,
+  canAnswer,
+  demo,
+  done,
+  onAnswered,
+}: {
+  a: OfficeApproval
+  bot: OfficeBot | undefined
+  canAnswer: boolean
+  demo: boolean
+  done: Answer | null
+  onAnswered: (answer: Answer) => void
+}) {
   const [busy, setBusy] = useState<'yes' | 'no' | null>(null)
-  const [done, setDone] = useState<'yes' | 'no' | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const color = bot?.color ?? '#34d399'
+  const color = bot?.color ?? '#f472b6'
   const locked = demo || !canAnswer || !!busy || !!done
 
   async function answer(decision: 'yes' | 'no') {
@@ -79,10 +95,9 @@ function ApprovalCard({ a, bot, canAnswer, demo, onAnswered }: { a: OfficeApprov
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: a.id, decision }),
       })
-      const out = (await res.json().catch(() => ({}))) as { error?: string }
+      const out = (await res.json().catch(() => ({}))) as { error?: string; detail?: string | null }
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`)
-      setDone(decision)
-      onAnswered()
+      onAnswered({ decision, text: decision === 'yes' ? out.detail || 'Approved.' : 'Declined.' })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -99,23 +114,23 @@ function ApprovalCard({ a, bot, canAnswer, demo, onAnswered }: { a: OfficeApprov
     >
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold text-black" style={{ background: color, boxShadow: `0 0 8px ${color}66` }}>
-          {(bot?.name ?? 'Atlas')[0]}
+          {(bot?.name ?? 'Echo')[0]}
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] text-zinc-400">
             <span className="font-medium" style={{ color }}>
-              {bot?.name ?? 'Atlas'}
+              {bot?.name ?? 'Echo'}
             </span>{' '}
-            · {bot?.role ?? 'CRM sub-accounts'} · <span className="font-mono">{format(new Date(a.at), 'h:mm a')}</span>
+            · {bot?.role ?? 'A2P registration'} · <span className="font-mono">{format(new Date(a.at), 'h:mm a')}</span>
           </div>
           <p className="mt-0.5 text-[13px] font-medium leading-snug text-zinc-100">{a.question}</p>
           <p className="mt-1 text-[11px] leading-snug text-zinc-500">{a.note}</p>
           {err && <p className="mt-1.5 text-[11px] text-red-300">{err}</p>}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {done ? (
-              <span className={cn('inline-flex items-center gap-1 text-[12px] font-medium', done === 'yes' ? 'text-emerald-400' : 'text-zinc-400')}>
-                {done === 'yes' ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
-                {done === 'yes' ? 'Approved. Atlas is on it.' : 'Declined.'}
+              <span className={cn('inline-flex items-start gap-1 text-[12px] font-medium leading-snug', done.decision === 'yes' ? 'text-emerald-400' : 'text-zinc-400')}>
+                {done.decision === 'yes' ? <Check className="mt-px h-3.5 w-3.5 shrink-0" /> : <X className="mt-px h-3.5 w-3.5 shrink-0" />}
+                {done.text}
               </span>
             ) : (
               <>
@@ -168,7 +183,17 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
 
   const qc = useQueryClient()
   const bots = data?.bots ?? []
-  const approvals = data?.approvals ?? []
+  // Answered questions stay a few seconds (the next poll drops them) so the card can say what happened.
+  const [answered, setAnswered] = useState<{ a: OfficeApproval; answer: Answer }[]>([])
+  const approvals = [
+    ...answered.map((x) => x.a),
+    ...(data?.approvals ?? []).filter((a) => !answered.some((x) => x.a.id === a.id)),
+  ]
+  function onAnswered(a: OfficeApproval, answer: Answer) {
+    setAnswered((prev) => [...prev.filter((x) => x.a.id !== a.id), { a, answer }])
+    void qc.invalidateQueries({ queryKey: ['office-state', demo] })
+    setTimeout(() => setAnswered((prev) => prev.filter((x) => x.a.id !== a.id)), 12_000)
+  }
   const occupied = bots.filter((b) => b.id === 'alfred' || b.status !== 'idle').length
   const free = Math.max(0, DESKS.length - occupied)
   const working = data?.counts.working ?? 0
@@ -209,7 +234,8 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
                 bot={bots.find((b) => b.id === a.botId)}
                 canAnswer={user.role === 'admin'}
                 demo={demo}
-                onAnswered={() => qc.invalidateQueries({ queryKey: ['office-state', demo] })}
+                done={answered.find((x) => x.a.id === a.id)?.answer ?? null}
+                onAnswered={(answer) => onAnswered(a, answer)}
               />
             ))}
             {approvals.length > APPROVALS_SHOWN && (

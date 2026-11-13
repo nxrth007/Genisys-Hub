@@ -51,6 +51,7 @@ import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
+import { maybeSweepNumberRequests } from './hl/number-request'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
@@ -562,6 +563,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)
       })
       .catch((err) => console.error('[scheduler] hell-level verification check failed:', err))
+    // Toll-free number questions for new clients, interrupted purchases, and texting verification once a site is in.
+    void maybeSweepNumberRequests()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} toll-free number request(s) moved on`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level number requests failed:', err))
     // Calendar notifications: reminders before appointments and follow-ups after.
     void maybeSendCalendarReminders()
       .then((n) => {

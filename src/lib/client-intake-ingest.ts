@@ -13,6 +13,7 @@ import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { advanceJourneyStage, getJourney, recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { createAccountForClient } from '@/lib/hl/accounts'
 import { fillBrandFromSite } from '@/lib/hl/logo'
+import { askForClientNumber } from '@/lib/hl/number-request'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -210,8 +211,12 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // so every new client gets one with the starter pipeline, forms and automations.
     // Nothing texts until someone buys the client a number.
     void createAccountForClient(id)
-      // A client who already has a website gets its logo and colour straight away; others when their site goes live.
-      .then((a) => fillBrandFromSite(a.id))
+      .then(async (a) => {
+        // Echo asks in the Office whether to buy them a toll-free number (src/lib/hl/number-request.ts).
+        if (a.created) void askForClientNumber(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] toll-free number question for ${id}:`, err))
+        // A client who already has a website gets its logo and colour straight away; others when their site goes live.
+        await fillBrandFromSite(a.id)
+      })
       .catch((err) => console.warn(`[client-onboarding] hell-level sub-account for ${id}:`, err))
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.

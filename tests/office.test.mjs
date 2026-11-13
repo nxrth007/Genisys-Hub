@@ -250,20 +250,28 @@ test('Atlas also shows the lead-workflow customize jobs: running, held, needs yo
   assert.ok(done.activity.some((a) => a.botId === 'atlas' && /Put the Hub's copy into Client a's lead workflows/.test(a.text) && a.tone === 'done'))
 })
 
-test('Atlas asks before buying a toll-free number: the question, its status and feed line', () => {
-  const s = deriveOffice({ ...emptyInput(), approvals: [{ id: 'n1', kind: 'number', clientName: 'Acme Roofing', at: ago(2) }] }, NOW)
+test('Echo asks before buying a new client a toll-free number: the question, its status and feed line', () => {
+  const s = deriveOffice({ ...emptyInput(), approvals: [{ id: 'n1', kind: 'number', clientName: 'Acme Roofing', ringTo: '+16035550142', at: ago(2) }] }, NOW)
   assert.equal(s.approvals.length, 1)
   const a = s.approvals[0]
   assert.equal(a.id, 'n1')
-  assert.equal(a.botId, 'atlas')
-  assert.equal(a.question, 'Purchase a toll-free number for Acme Roofing and transfer it to their sub-account?')
-  assert.match(a.note, /\$2\.15\/month/)
+  assert.equal(a.botId, 'echo')
+  assert.equal(a.question, 'Buy a toll-free number for Acme Roofing in Hell-level?')
+  assert.match(a.note, /\$2\.15\/month on Genisys’s Twilio, no ID check\. Calls ring \(603\) 555-0142\./)
+  assert.match(a.note, /Texting verification is filed once their site link is in\./)
+  assert.equal(a.ringTo, '+16035550142')
   assert.equal(a.at, ago(2).toISOString())
-  const atlas = bot(s, 'atlas')
-  assert.equal(atlas.status, 'needs_you')
-  assert.equal(atlas.task, 'Asking: buy a toll-free number for Acme Roofing?')
-  assert.ok(s.activity.some((x) => x.botId === 'atlas' && x.text === 'Asked to buy a toll-free number for Acme Roofing' && x.tone === 'needs_you'))
+  const echo = bot(s, 'echo')
+  assert.equal(echo.status, 'needs_you')
+  assert.equal(echo.task, 'Asking: buy a toll-free number for Acme Roofing?')
+  assert.equal(bot(s, 'atlas').status, 'idle')
+  assert.ok(s.activity.some((x) => x.botId === 'echo' && x.text === 'Asked to buy a toll-free number for Acme Roofing' && x.tone === 'needs_you'))
   assert.ok(s.counts.needsYou >= 1)
+
+  // No phone on file: the note says every call counts as missed.
+  const bare = deriveOffice({ ...emptyInput(), approvals: [{ id: 'n4', kind: 'number', clientName: 'B Co', at: ago(1) }] }, NOW)
+  assert.match(bare.approvals[0].note, /No business phone is on file/)
+  assert.equal(bare.approvals[0].ringTo, null)
 
   // Oldest question first; the bot sums them up.
   const two = deriveOffice(
@@ -271,43 +279,40 @@ test('Atlas asks before buying a toll-free number: the question, its status and 
     NOW,
   )
   assert.deepEqual(two.approvals.map((x) => x.id), ['n1', 'n2'])
-  assert.equal(bot(two, 'atlas').task, '2 toll-free numbers waiting for your Yes')
+  assert.equal(bot(two, 'echo').task, '2 toll-free numbers waiting for your Yes')
 
   assert.deepEqual(deriveOffice(emptyInput(), NOW).approvals, [])
-  assert.equal(s.approvals[0].subAccountName, null)
-
-  // With the sub-account's GHL name, the question says where the number goes.
-  const named = deriveOffice(
-    { ...emptyInput(), approvals: [{ id: 'n3', kind: 'number', clientName: 'Snapshot Check 2 LLC', subAccountName: 'Test: Snapshot Check 2 LLC', at: ago(1) }] },
-    NOW,
-  )
-  assert.equal(named.approvals[0].question, 'Purchase a toll-free number for Snapshot Check 2 LLC and transfer it to the sub-account “Test: Snapshot Check 2 LLC”?')
-  assert.equal(named.approvals[0].subAccountName, 'Test: Snapshot Check 2 LLC')
-  assert.ok(named.activity.some((x) => x.text === 'Asked to buy a toll-free number for Snapshot Check 2 LLC (sub-account “Test: Snapshot Check 2 LLC”)'))
 })
 
-test('Atlas shows the toll-free number jobs: approved, buying, needs you, failed, done, declined', () => {
-  const job = (id, status, extra = {}) => ({ id, clientName: `Client ${id}`, status, detail: null, updatedAt: ago(1), heartbeatAt: ago(0.2), nextAttemptAt: ago(2), finishedAt: null, kind: 'number', ...extra })
-  const run = (jobs) => bot(deriveOffice({ ...emptyInput(), subaccountJobs: jobs }, NOW), 'atlas')
+test('Echo shows the toll-free numbers after the answer: buying, bought, blocked verification, failed, declined', () => {
+  const req = (id, status, extra = {}) => ({ id, clientName: `Client ${id}`, status, number: null, detail: null, verifyNote: null, decidedAt: ago(2), updatedAt: ago(1), ...extra })
+  const run = (rows) => deriveOffice({ ...emptyInput(), numberRequests: rows }, NOW)
 
-  const busy = run([job('a', 'running')])
-  assert.equal(busy.status, 'browsing')
-  assert.equal(busy.task, 'Buying and moving a toll-free number for Client a')
-  assert.equal(run([job('a', 'queued')]).task, 'Toll-free number for Client a approved, queued')
-  assert.equal(run([job('a', 'running', { heartbeatAt: ago(5) })]).status, 'error')
+  const buying = bot(run([req('a', 'buying')]), 'echo')
+  assert.equal(buying.status, 'terminal')
+  assert.equal(buying.task, 'Buying a toll-free number for Client a')
 
-  const id = run([job('a', 'needs_human', { detail: 'GHL wants its one-time ID check', finishedAt: ago(3) })])
-  assert.equal(id.status, 'needs_you')
-  assert.equal(id.task, 'Toll-free number for Client a needs you: GHL wants its one-time ID check')
+  const bought = run([req('a', 'bought', { number: '+18556762067' })])
+  assert.equal(bot(bought, 'echo').icon, 'check')
+  assert.equal(bot(bought, 'echo').task, 'Bought (855) 676-2067 for Client a')
+  assert.ok(bought.activity.some((x) => x.text === 'Bought (855) 676-2067 for Client a' && x.tone === 'done'))
 
-  assert.equal(run([job('a', 'failed', { detail: 'boom', finishedAt: ago(2) })]).status, 'error')
+  // Long after the purchase Echo is idle again, but the feed keeps the line.
+  const old = run([req('a', 'bought', { number: '+18556762067', decidedAt: ago(60), updatedAt: ago(60) })])
+  assert.equal(bot(old, 'echo').status, 'idle')
 
-  const done = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'succeeded', { finishedAt: ago(2) })] }, NOW)
-  assert.equal(bot(done, 'atlas').icon, 'check')
-  assert.ok(done.activity.some((x) => x.text === 'Gave Client a their toll-free number' && x.tone === 'done'))
+  const blocked = run([req('a', 'bought', { number: '+18556762067', verifyNote: 'Add the full business address in Settings → Business Profile.' })])
+  assert.equal(bot(blocked, 'echo').status, 'needs_you')
+  assert.match(bot(blocked, 'echo').task, /^Texting verification for Client a is blocked: Add the full business address/)
 
-  const no = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'declined', { finishedAt: ago(2) })] }, NOW)
-  assert.equal(bot(no, 'atlas').status, 'idle')
+  const failed = run([req('a', 'failed', { detail: 'Twilio offered no toll-free numbers just now.' })])
+  assert.equal(bot(failed, 'echo').status, 'error')
+  assert.match(bot(failed, 'echo').task, /^Buying Client a's toll-free number failed: Twilio offered/)
+  // A failure from weeks ago no longer counts.
+  assert.equal(bot(run([req('a', 'failed', { updatedAt: ago(30 * 24 * 60) })]), 'echo').status, 'idle')
+
+  const no = run([req('a', 'declined')])
+  assert.equal(bot(no, 'echo').status, 'idle')
   assert.ok(no.activity.some((x) => x.text === 'Toll-free number for Client a declined'))
 })
 
@@ -318,5 +323,6 @@ test('demo state carries a sample question', () => {
   runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
   const s = m.exports.demoState(NOW)
   assert.equal(s.approvals.length, 1)
-  assert.equal(s.approvals[0].question, 'Purchase a toll-free number for Sample Roofing and transfer it to the sub-account “Sample Roofing LLC”?')
+  assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing in Hell-level?')
+  assert.equal(s.approvals[0].botId, 'echo')
 })

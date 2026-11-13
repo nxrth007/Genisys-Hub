@@ -23,7 +23,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   }
 
   const openSince = new Date(now.getTime() - SUBACCOUNT_OPEN_MS)
-  const [events, stages, intakes, claims, matches, runs, a2p, render, subaccountJobs, customizeJobs, numberJobs] = await Promise.all([
+  const [events, stages, intakes, claims, matches, runs, a2p, render, subaccountJobs, customizeJobs, numberRequests] = await Promise.all([
     safe('journey events', () =>
       prisma.clientJourneyEvent.findMany({
         where: { createdAt: { gte: since } },
@@ -96,19 +96,20 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         take: 40,
         select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
       }), []),
-    safe('number jobs', () =>
-      prisma.ghlNumberJob.findMany({
+    safe('number requests', () =>
+      prisma.hlNumberRequest.findMany({
         where: {
           client: { is: { archivedAt: null } },
           OR: [
-            { status: { in: ['awaiting_approval', 'queued', 'running'] } },
-            { status: { in: ['needs_human', 'failed'] }, updatedAt: { gte: openSince } },
+            { status: { in: ['awaiting_approval', 'buying'] } },
+            { status: 'failed', updatedAt: { gte: openSince } },
+            { status: 'bought', verifyNote: { not: null } },
             { updatedAt: { gte: since } },
           ],
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, detail: true, locationName: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+        select: { id: true, status: true, number: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true } } },
       }), []),
   ])
 
@@ -123,13 +124,13 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   input.subaccountJobs = [
     ...subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' })),
     ...customizeJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'customize' as const })),
-    ...numberJobs
-      .filter((j) => j.status !== 'awaiting_approval')
-      .map((j) => ({ id: j.id, status: j.status, detail: j.detail, updatedAt: j.updatedAt, heartbeatAt: j.heartbeatAt, nextAttemptAt: j.nextAttemptAt, finishedAt: j.finishedAt, clientName: j.client?.name ?? 'a client', kind: 'number' as const })),
   ]
-  input.approvals = numberJobs
-    .filter((j) => j.status === 'awaiting_approval')
-    .map((j) => ({ id: j.id, kind: 'number' as const, clientName: j.client?.name ?? 'a client', subAccountName: j.locationName, at: j.updatedAt }))
+  input.approvals = numberRequests
+    .filter((r) => r.status === 'awaiting_approval')
+    .map((r) => ({ id: r.id, kind: 'number' as const, clientName: r.client?.name ?? 'a client', ringTo: r.forwardTo, at: r.updatedAt }))
+  input.numberRequests = numberRequests
+    .filter((r) => r.status !== 'awaiting_approval')
+    .map((r) => ({ id: r.id, clientName: r.client?.name ?? 'a client', status: r.status, number: r.number, detail: r.detail, verifyNote: r.verifyNote, decidedAt: r.decidedAt, updatedAt: r.updatedAt }))
 
   return deriveOffice(input, now)
 }

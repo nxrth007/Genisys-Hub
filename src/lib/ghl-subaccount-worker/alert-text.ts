@@ -45,29 +45,18 @@ export function workerAlertText(kind: WorkerAlertKind, client: string, reason: s
   }
 }
 
-/** The number job (src/lib/ghl-number): a client's toll-free number from the number bank. */
-export type NumberAlertKind = 'approve' | 'bought' | 'id_check' | 'needs_human' | 'failed' | 'cap' | 'stuck' | 'waiting'
+/** A client's Hell-level toll-free number (src/lib/hl/number-request.ts). */
+export type NumberAlertKind = 'approve' | 'failed' | 'verify'
 
 export function numberAlertText(kind: NumberAlertKind, client: string, reason: string, link: string): string {
   const why = reason.trim() ? ` ${shortReason(reason)}` : ''
   switch (kind) {
     case 'approve':
-      // reason: the sub-account's name in GHL, when it isn't just the client's name.
-      return `Genisys Hub: ${client}'s GHL sub-account${reason.trim() && reason.trim() !== client ? ` "${reason.trim()}"` : ''} is ready. Approve its toll-free number (about $2.15/mo) in the Office: ${link}`
-    case 'bought':
-      return `Genisys Hub: bought ${reason.trim() || 'a toll-free number'} for ${client} and moved it into their GHL sub-account. Open: ${link}`
-    case 'id_check':
-      return `Genisys Hub: GHL wants its one-time ID check in the number bank before the Hub can buy ${client}'s number. Do it once in GHL (Lead Genisys → Settings → Phone System → Add Number), then press Buy and move now: ${link}`
+      return `Genisys Hub: ${client} just onboarded. Approve their Hell-level toll-free number (about $2.15/mo, no ID check) in the Office: ${link}`
     case 'failed':
-      return `Genisys Hub: getting ${client}'s toll-free number failed.${why} Open: ${link}`
-    case 'cap':
-      return `Genisys Hub: the Hub already bought its daily limit of numbers, so ${client}'s waits an hour and tries again. Open: ${link}`
-    case 'stuck':
-      return `Genisys Hub: the worker has been on ${client}'s toll-free number for over an hour and looks stuck.${why} Open: ${link}`
-    case 'waiting':
-      return `Genisys Hub: ${client}'s approved toll-free number has waited${why} for the worker. It may be stuck or paused. Open: ${link}`
+      return `Genisys Hub: buying ${client}'s toll-free number failed.${why} Open: ${link}`
     default:
-      return `Genisys Hub: ${client}'s toll-free number needs a person.${why} Open: ${link}`
+      return `Genisys Hub: ${client}'s toll-free texting verification can't be filed yet.${why} Open: ${link}`
   }
 }
 

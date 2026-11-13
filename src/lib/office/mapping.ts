@@ -24,9 +24,9 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'alfred', name: 'Alfred', role: 'Chief of Staff', color: '#f5c542', source: 'All journey events + every other bot' },
   { id: 'wren', name: 'Wren', role: 'Whop signup intake', color: '#38bdf8', source: 'Journey stage "signup", WhopSignupClaim' },
   { id: 'ivy', name: 'Ivy', role: 'Onboarding form', color: '#a78bfa', source: 'ClientIntake, journey stage "intake"' },
-  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob, GhlNumberJob' },
+  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob' },
   { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website"' },
-  { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p' },
+  { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p, HlNumberRequest' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
   { id: 'scout', name: 'Scout', role: 'SEO engine', color: '#22d3ee', source: 'SeoRun' },
   { id: 'sentinel', name: 'Sentinel', role: 'Render monitor', color: '#ef4444', source: 'AppSetting "render.monitor"' },
@@ -109,9 +109,8 @@ export type A2pIn = { id: string; accountName: string; stage: string; note: stri
 export type RenderMonitorIn = { enabled: boolean; heartbeatFailures: number; openProblems: number; lastDigestAt: Date | null } | null
 /**
  * One browser-worker job: a GhlSubaccountJob (creates a client's GHL
- * sub-account); with kind 'customize', a GhlCustomizeJob (puts their copy into
- * the GHL lead workflows with Workflow AI); with kind 'number', a GhlNumberJob
- * (buys a toll-free number in the number bank and moves it to the client).
+ * sub-account) or, with kind 'customize', a GhlCustomizeJob (puts their copy
+ * into the GHL lead workflows with Workflow AI).
  */
 export type SubaccountJobIn = {
   id: string
@@ -122,15 +121,28 @@ export type SubaccountJobIn = {
   heartbeatAt: Date | null
   nextAttemptAt: Date
   finishedAt: Date | null
-  /** customize = the lead-workflow copy job; number = the toll-free number job. */
-  kind?: 'create' | 'customize' | 'number'
+  /** customize = the lead-workflow copy job. */
+  kind?: 'create' | 'customize'
 }
 /**
- * A bot's question waiting for a Yes or No in the Office (today: buying a
- * client's toll-free number). subAccountName is the client's sub-account as
- * GHL names it, where the number will be moved.
+ * A bot's question waiting for a Yes or No in the Office (today: Echo asking
+ * to buy a new client's Hell-level toll-free number). ringTo is where its
+ * calls would ring (E.164), when a phone is on file.
  */
-export type ApprovalIn = { id: string; kind: 'number'; clientName: string; subAccountName?: string | null; at: Date }
+export type ApprovalIn = { id: string; kind: 'number'; clientName: string; ringTo?: string | null; at: Date }
+/** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
+export type NumberRequestIn = {
+  id: string
+  clientName: string
+  /** buying | bought | declined | failed */
+  status: string
+  number: string | null
+  detail: string | null
+  /** Why texting verification couldn't be filed yet; null once filed (or not yet due). */
+  verifyNote: string | null
+  decidedAt: Date | null
+  updatedAt: Date
+}
 
 export type OfficeInput = {
   journeyEvents: JourneyEventIn[]
@@ -143,6 +155,7 @@ export type OfficeInput = {
   render: RenderMonitorIn
   subaccountJobs: SubaccountJobIn[]
   approvals: ApprovalIn[]
+  numberRequests: NumberRequestIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -156,6 +169,7 @@ export const emptyInput = (): OfficeInput => ({
   a2p: [],
   render: null,
   subaccountJobs: [],
+  numberRequests: [],
 })
 
 // ---------- output ----------
@@ -173,12 +187,12 @@ export type OfficeApproval = {
   id: string
   kind: 'number'
   botId: BotId
-  /** What the bot asks, e.g. "Purchase a toll-free number for Acme and transfer it to the sub-account “Acme Roofing LLC”?" */
+  /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Hell-level?" */
   question: string
   note: string
   clientName: string
-  /** The GHL sub-account the number goes to, when known. */
-  subAccountName: string | null
+  /** Where its calls would ring (E.164), when a phone is on file. */
+  ringTo: string | null
   at: string
 }
 export type OfficeState = {
@@ -213,6 +227,11 @@ export function isWorking(s: OfficeStatus) {
 }
 
 const clip = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+/** "+18556762067" → "(855) 676-2067". */
+const phone = (n: string | null | undefined) => {
+  const d = (n ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : (n ?? '')
+}
 
 /** Pick the strongest candidate: priority first, then the newest. */
 export function pickCandidate(cands: Candidate[]): Candidate | null {
@@ -338,28 +357,23 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     })
   }
 
-  // Questions waiting for a Yes: Atlas asks before buying a client's toll-free number.
+  // Questions waiting for a Yes: Echo asks before buying a new client's toll-free number.
   const approvals: OfficeApproval[] = [...input.approvals]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((a) => ({
       id: a.id,
       kind: a.kind,
-      botId: 'atlas' as const,
-      question: a.subAccountName
-        ? `Purchase a toll-free number for ${a.clientName} and transfer it to the sub-account “${a.subAccountName}”?`
-        : `Purchase a toll-free number for ${a.clientName} and transfer it to their sub-account?`,
-      note: 'About $2.15/month. Bought in Lead Genisys, then moved with GHL’s Move Numbers.',
+      botId: 'echo' as const,
+      question: `Buy a toll-free number for ${a.clientName} in Hell-level?`,
+      note: `About $2.15/month on Genisys’s Twilio, no ID check. ${a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'} Texting verification is filed once their site link is in.`,
       clientName: a.clientName,
-      subAccountName: a.subAccountName ?? null,
+      ringTo: a.ringTo ?? null,
       at: a.at.toISOString(),
     }))
-  for (const a of input.approvals) {
-    const where = a.subAccountName ? ` (sub-account “${a.subAccountName}”)` : ''
-    feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'atlas', `Asked to buy a toll-free number for ${a.clientName}${where}`, 'needs_you')
-  }
+  for (const a of input.approvals) feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'echo', `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
   if (approvals.length) {
     const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
-    add('atlas', {
+    add('echo', {
       status: 'needs_you',
       task: approvals.length === 1 ? `Asking: buy a toll-free number for ${approvals[0].clientName}?` : `${approvals.length} toll-free numbers waiting for your Yes`,
       icon: 'alert',
@@ -369,36 +383,12 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
 
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.
   const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000))
-  /** `what` is set for lead-workflow and number jobs ("Lead workflows for X"); unset means a sub-account. */
-  const needsPerson: { name: string; at: Date; why: string; what?: string; verb?: 'needs' | 'need' }[] = []
+  /** `what` is set for lead-workflow jobs ("Lead workflows for X"); unset means a sub-account. */
+  const needsPerson: { name: string; at: Date; why: string; what?: string }[] = []
   const broken: { text: string; at: Date; customize?: boolean }[] = []
   for (const j of input.subaccountJobs) {
     const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
     const ended = j.finishedAt ?? j.updatedAt
-    if (j.kind === 'number') {
-      const what = `Toll-free number for ${j.clientName}`
-      if (j.status === 'running') {
-        const beat = j.heartbeatAt ?? j.updatedAt
-        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
-        else add('atlas', { status: 'browsing', task: `Buying and moving a toll-free number for ${j.clientName}`, icon: 'globe', at: j.updatedAt })
-      } else if (j.status === 'queued') {
-        const waited = t - j.nextAttemptAt.getTime()
-        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what, verb: 'needs' })
-        else add('atlas', { status: 'thinking', task: `${what} approved, queued`, icon: 'dots', at: j.updatedAt })
-      } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        needsPerson.push({ name: j.clientName, at: ended, why, what, verb: 'needs' })
-        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} needs a person${why}`), 'needs_you')
-      } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
-        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
-        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
-      } else if (j.status === 'succeeded') {
-        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Gave ${j.clientName} their toll-free number`, 'done')
-        if (age(ended) <= DONE_MS) add('atlas', { status: 'browsing', task: `Gave ${j.clientName} their toll-free number`, icon: 'check', at: ended })
-      } else if (j.status === 'declined') {
-        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Toll-free number for ${j.clientName} declined`, 'thinking')
-      }
-      continue
-    }
     if (j.kind === 'customize') {
       const what = `Lead workflows for ${j.clientName}`
       if (j.status === 'running') {
@@ -456,7 +446,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   }
   if (needsPerson.length) {
     const newest = needsPerson.reduce((a, b) => (b.at > a.at ? b : a))
-    const one = newest.what ? `${newest.what} ${newest.verb ?? 'need'} you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
+    const one = newest.what ? `${newest.what} need you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
     const noun = needsPerson.some((p) => p.what) ? 'GHL jobs' : 'sub-accounts'
     add('atlas', {
       status: 'needs_you',
@@ -494,6 +484,29 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   for (const a of input.a2p) {
     feed(`a2p:${a.id}:${a.updatedAt.getTime()}`, a.updatedAt, 'echo', `A2P for ${a.accountName} is at "${a.stage}"${a.note ? ` — ${clip(a.note, 60)}` : ''}`, 'terminal')
     if (age(a.updatedAt) <= ACTIVE_MS) add('echo', { status: 'terminal', task: `A2P ${a.stage}: ${a.accountName}`, icon: 'terminal', at: a.updatedAt })
+  }
+
+  // Hell-level toll-free numbers after the Office answer: buying, bought, a blocked texting verification, failed.
+  for (const r of input.numberRequests) {
+    const at = r.decidedAt ?? r.updatedAt
+    if (r.status === 'buying') {
+      add('echo', { status: 'terminal', task: `Buying a toll-free number for ${r.clientName}`, icon: 'terminal', at: r.updatedAt })
+    } else if (r.status === 'bought') {
+      const num = r.number ? phone(r.number) : 'a toll-free number'
+      feed(`nr:${r.id}:bought`, at, 'echo', `Bought ${num} for ${r.clientName}`, 'done')
+      if (r.verifyNote) {
+        add('echo', { status: 'needs_you', task: clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`), icon: 'alert', at: r.updatedAt })
+        feed(`nr:${r.id}:verify:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`, 140), 'needs_you')
+      } else if (age(at) <= DONE_MS) {
+        add('echo', { status: 'terminal', task: `Bought ${num} for ${r.clientName}`, icon: 'check', at })
+      }
+    } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
+      const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
+      add('echo', { status: 'error', task: clip(`Buying ${r.clientName}'s toll-free number failed${why}`), icon: 'error', at: r.updatedAt })
+      feed(`nr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Buying ${r.clientName}'s toll-free number failed${why}`, 140), 'error')
+    } else if (r.status === 'declined') {
+      feed(`nr:${r.id}:declined`, at, 'echo', `Toll-free number for ${r.clientName} declined`, 'thinking')
+    }
   }
 
   // Render monitor.
