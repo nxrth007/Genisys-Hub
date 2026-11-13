@@ -19,7 +19,7 @@ import { capturePage, claimBrowser, newWorkerContext, releaseBrowser, signInOnPa
 import { chromiumLaunchArgs, prepareChromiumEnv } from '@/lib/ghl-subaccount-worker/chromium-host'
 import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
-import { builderWork, formProblems, isConsentOption, publicFormUrl, renamedOptions, TEMPLATE_FORM, type PublicForm } from './plan'
+import { formProblems, isConsentOption, publicFormUrl, renamedOptions, TEMPLATE_FORM, type PublicForm } from './plan'
 
 export type FormFixOptions = {
   clientName: string
@@ -296,10 +296,12 @@ async function readPublicForm(context: BrowserContext, formId: string, signal?: 
       if (isConsentOption(text) || Date.now() >= deadline) break
       await sleep(700, signal)
     }
-    await sleep(1000, signal)
+    // The logo loads late and the policy links come from the form's scripts: let it settle.
+    await p.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {})
+    await sleep(2500, signal)
     return await p.evaluate(() => ({
       text: (document.body?.innerText || '').replace(/\s+/g, ' '),
-      images: Array.from(document.images).filter((i) => i.getBoundingClientRect().height > 20).length,
+      images: Array.from(document.images).filter((i) => i.getBoundingClientRect().height > 20 || i.naturalWidth > 40).length,
       links: Array.from(document.querySelectorAll('a')).map((a) => (a as HTMLAnchorElement).href),
     }))
   } finally {
@@ -376,8 +378,12 @@ async function deleteBlock(run: Run, frame: Frame, select: () => Promise<void>, 
   }
 }
 
-/** Step 3 (sub-accounts made before snapshot v2): delete the A Plus logo and policy-link blocks, then save. */
-async function cleanBuilder(run: Run, work: { logo: boolean; links: boolean }): Promise<void> {
+/**
+ * Step 3 (sub-accounts made before snapshot v2): delete the A Plus logo and
+ * policy-link blocks the builder shows, then save. Returns whether it changed
+ * anything (a v2 form has neither, and nothing is saved).
+ */
+async function cleanBuilder(run: Run): Promise<boolean> {
   const { page, opts } = run
   const frame = await builderFrame(run)
   await sleep(1500, opts.signal)
@@ -399,10 +405,18 @@ async function cleanBuilder(run: Run, work: { logo: boolean; links: boolean }): 
   }
   const logos = () => frame.locator('img').evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width > 80).length).catch(() => 0)
   const scripts = () => frame.getByText('Script Added!', { exact: true }).count().catch(() => 0)
+  // The logo's picture can arrive a few seconds after the form.
+  const seenBy = Date.now() + 8000
+  while (!(await logos()) && !(await scripts()) && Date.now() < seenBy) await sleep(700, opts.signal)
+  const work = { logo: (await logos()) > 0, links: (await scripts()) > 0 }
+  if (!work.logo && !work.links) return false
   // Blocks are clicked across the form's middle: the heading gives its centre.
   const heading = await visibleIn(frame.getByText('Get Your Free Estimate'))
   const middle = heading ? await heading.boundingBox() : null
   const clickRow = async (target: Locator) => {
+    // The policy blocks sit at the bottom of the form: bring the row into view before clicking its middle.
+    await target.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {})
+    await sleep(400, opts.signal)
     const box = await target.boundingBox()
     if (!box) throw new Halt('needs_human', 'A block in GHL\'s form builder had no position to click. Nothing was saved.')
     await page.mouse.click(middle ? middle.x + middle.width / 2 : box.x + box.width / 2, box.y + box.height / 2)
@@ -443,6 +457,7 @@ async function cleanBuilder(run: Run, work: { logo: boolean; links: boolean }): 
     await sleep(700, opts.signal)
   }
   await run.note('Saved the form.')
+  return true
 }
 
 export async function runFormFix(opts: FormFixOptions): Promise<FormFixResult> {
@@ -481,13 +496,10 @@ export async function runFormFix(opts: FormFixOptions): Promise<FormFixResult> {
       const renamed = await fixConsent(run)
       formId = await openTemplateForm(run)
       await opts.onFormId?.(formId)
-      // GHL may take a moment to show the renamed options on the public form.
+      // The builder (open now) shows whether this form still has A Plus's logo and policy blocks.
+      const cleaned = await cleanBuilder(run)
+      // GHL may take a moment to show the changes on the public form.
       let seen = await readPublicForm(context, formId, opts.signal)
-      const work = builderWork(seen)
-      if (work.logo || work.links) {
-        await cleanBuilder(run, work)
-        seen = await readPublicForm(context, formId, opts.signal)
-      }
       for (let i = 0; i < 4 && formProblems(seen, opts.businessName).length; i++) {
         await sleep(15_000, opts.signal)
         seen = await readPublicForm(context, formId, opts.signal)
@@ -496,7 +508,7 @@ export async function runFormFix(opts: FormFixOptions): Promise<FormFixResult> {
       if (problems.length) {
         throw new Halt('needs_human', `The public form still isn't ${opts.clientName}'s: ${problems.join('; ')}. ${publicFormUrl(formId)}`)
       }
-      const did = [renamed ? `consent names ${opts.businessName}` : `consent already named ${opts.businessName}`, work.logo || work.links ? "removed A Plus's logo and policy links" : '']
+      const did = [renamed ? `consent names ${opts.businessName}` : `consent already named ${opts.businessName}`, cleaned ? "removed A Plus's logo and policy links" : '']
       return {
         status: 'done',
         detail: `${opts.clientName}'s site form is theirs: ${did.filter(Boolean).join(', ')}. Checked on the public form: ${publicFormUrl(formId)}`,
