@@ -360,7 +360,12 @@ export async function previewClientSite(clientId: string): Promise<{ prompt: str
   if (!g) throw new SiteStop('No Hell-level sub-account for this client.')
   if (g.missing.length || !g.embeds) throw new SiteStop(`Can’t fill it: no ${g.missing.join(' or ')} on file.`)
   const res = await fillOneShot(g.facts)
-  return { prompt: buildOneShot(g.facts, res.fill, g.embeds, { shown: res.shown }), fill: res.fill, shown: res.shown, costUsd: res.costUsd, note: res.note, facts: g.facts }
+  try {
+    return { prompt: buildOneShot(g.facts, res.fill, g.embeds, { shown: res.shown }), fill: res.fill, shown: res.shown, costUsd: res.costUsd, note: res.note, facts: g.facts }
+  } catch (err) {
+    const notes = res.fill.notes.length ? ` Claude’s notes: ${res.fill.notes.join(' ')}` : ''
+    throw new SiteStop(`${describe(err)} ($${res.costUsd.toFixed(2)} of Claude spent.)${notes}`)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +404,9 @@ async function runStep(id: string): Promise<boolean> {
     if (err instanceof Superseded) return false
     const n = (tries.get(key) ?? 0) + 1
     tries.set(key, n)
-    const stop = err instanceof SiteStop || (err instanceof LovableMcpError && err.reconnect) || n >= MAX_TRIES
+    // Claude declining, cutting off or refusing the request won't change on a retry, and each fill costs money: at most two.
+    const claudeStop = err instanceof RefusalError || err instanceof TruncatedError || err instanceof FatalClaudeError
+    const stop = err instanceof SiteStop || claudeStop || (err instanceof LovableMcpError && err.reconnect) || n >= (r.status === 'filling' ? 2 : MAX_TRIES)
     if (stop) {
       tries.delete(key)
       const why = stopReason(err)
@@ -430,7 +437,14 @@ async function fillStep(r: SiteRow): Promise<boolean> {
   if (!g) throw new SiteStop('The client or their Hell-level sub-account is gone.')
   if (g.missing.length || !g.embeds) throw new SiteStop(`No ${g.missing.join(' or ')} on file. Add it in their Hell-level sub-account, then ask again from their folder in Sites.`)
   const res = await fillOneShot(g.facts)
-  const prompt = buildOneShot(g.facts, res.fill, g.embeds, { shown: res.shown })
+  let prompt: string
+  try {
+    prompt = buildOneShot(g.facts, res.fill, g.embeds, { shown: res.shown })
+  } catch (err) {
+    // The answers don't hold what the site needs: asking Claude again wouldn't change that.
+    const notes = res.fill.notes.length ? ` Claude’s notes: ${res.fill.notes.join(' ')}` : ''
+    throw new SiteStop(`${describe(err)} Add it to their Hell-level Business Profile or onboarding answers, then ask again from their folder in Sites.${notes}`)
+  }
   const kept = prompt.match(/^- https:\/\/\S+/gm)?.length ?? 0
   await move(r.id, 'filling', `Claude filled the one-shot for $${res.costUsd.toFixed(2)}: ${kept} of ${g.facts.photos.length} photo(s) kept.${res.note ? ` ${res.note}` : ''}`, {
     status: 'copying',

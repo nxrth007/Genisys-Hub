@@ -366,6 +366,34 @@ export const REQUIRED_VARIABLES: OneShotVariable[] = [
   'WIDGET_ID',
 ]
 
+/** What a blank variable means to a person, for the "missing" message. */
+const VARIABLE_WORDS: Partial<Record<OneShotVariable, string>> = {
+  LEGAL_NAME: 'business name',
+  DISPLAY_NAME: 'business name',
+  OWNER_NAME: 'owner’s name',
+  PHONE_DISPLAY: 'phone number',
+  PHONE_E164: 'phone number',
+  EMAIL: 'email address',
+  FULL_ADDRESS: 'city and state',
+  CITY_STATE: 'city and state',
+  SERVICE_AREA_SUMMARY: 'service area',
+  SERVICE_AREA_LIST: 'service area',
+  TIME_ZONE: 'time zone',
+  ABOUT: 'about the business',
+  WHY_CHOOSE_US: 'why customers choose them',
+  SERVICES_LIST: 'services',
+  TRADE: 'trade',
+  FORM_EMBED: 'Hell-level quote form',
+  FORM_ID: 'Hell-level quote form',
+  CHAT_WIDGET_CODE: 'Hell-level chat widget',
+  WIDGET_ID: 'Hell-level chat widget',
+}
+
+/** The missing variables in plain words, once each ("city and state, service area"); the rest by name. */
+export function missingWords(names: OneShotVariable[]): string {
+  return [...new Set(names.map((n) => VARIABLE_WORDS[n] ?? n.toLowerCase().replace(/_/g, ' ')))].join(', ')
+}
+
 /** "acme.com" counts; "this website" (no domain yet) doesn't. */
 export const isRealDomain = (d: string) => /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(d.trim())
 
@@ -388,7 +416,7 @@ function holds(condition: string, vars: OneShotVars): boolean {
  */
 export function renderOneShot(vars: OneShotVars, template = ONE_SHOT_TEMPLATE): string {
   const blank = REQUIRED_VARIABLES.filter((k) => !(vars[k] ?? '').trim())
-  if (blank.length) throw new Error(`The one-shot is missing ${blank.join(', ')}.`)
+  if (blank.length) throw new Error(`The one-shot is missing: ${missingWords(blank)} (${blank.join(', ')}).`)
   const out: string[] = []
   let block: { keep: boolean } | null = null
   for (const line of template.split('\n')) {

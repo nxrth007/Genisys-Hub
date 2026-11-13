@@ -173,7 +173,12 @@ test('photos: the ones Claude kept, with what they show; ones it could not see g
 test('a missing phone, email or required answer stops the build before Lovable', () => {
   assert.throws(() => plan.buildOneShot(facts({ phone: null }), fill(), embeds, { shown: [] }), /No phone number/)
   assert.throws(() => plan.buildOneShot(facts({ email: '' }), fill(), embeds, { shown: [] }), /No email address/)
-  assert.throws(() => plan.buildOneShot(facts(), fill({ heroHeadline: ' ' }), embeds, { shown: [] }), /missing HERO_HEADLINE/)
+  assert.throws(() => plan.buildOneShot(facts(), fill({ heroHeadline: ' ' }), embeds, { shown: [] }), /missing: hero headline \(HERO_HEADLINE\)/)
+  // No location from the answers: said in plain words, once.
+  assert.throws(
+    () => plan.buildOneShot(facts(), fill({ cityState: '', fullAddress: '', serviceAreaSummary: '', serviceAreaList: [] }), embeds, { shown: [] }),
+    /missing: city and state, service area \(FULL_ADDRESS, CITY_STATE, SERVICE_AREA_SUMMARY, SERVICE_AREA_LIST\)/,
+  )
 })
 
 test('Claude may fix the legal name’s capitals, never its words', () => {
