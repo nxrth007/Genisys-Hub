@@ -6,6 +6,7 @@
  */
 import { prisma } from '@/lib/prisma'
 import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
+import { currentCensus, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
@@ -17,6 +18,8 @@ export type SiteFolder = {
   siteUrl: string | null
   status: SiteStatus
   logoUrl: string | null
+  /** Where their phone number stands; needs = GHL shows none on their sub-account. */
+  phone: PhoneState
 }
 
 const ON_ROSTER = {
@@ -33,7 +36,10 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
       name: true,
       color: true,
       siteUrl: true,
-      hlAccount: { select: { profile: true } },
+      ghlLocationId: true,
+      hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { id: true }, take: 1 } } },
+      hlNumberRequest: { select: { status: true, route: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true } },
       journeyStages: { where: { stage: 'website' }, select: { status: true } },
     },
   })
@@ -45,6 +51,11 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
       siteUrl: c.siteUrl,
       status: siteStatus({ siteUrl: c.siteUrl, websiteStage: c.journeyStages[0]?.status }),
       logoUrl: readProfile(c.hlAccount?.profile).logoUrl || null,
+      phone: phoneState({
+        hlNumber: !!c.hlAccount?.numbers.length,
+        request: c.hlNumberRequest,
+        census: currentCensus(c.ghlNumberCensus, c.ghlLocationId)?.state ?? null,
+      }),
     })),
   )
 }
@@ -83,6 +94,10 @@ export type SiteDetail = {
   request: { status: string; route: string; detail: string | null; verifyNote: string | null } | null
   /** GHL's toll-free registration, for a number in GHL. */
   ghlRegistration: GhlRegistrationView | null
+  /** Where their phone number stands (src/lib/ghl-number/census-plan.ts). */
+  phone: PhoneState
+  /** What the Hub last read of the linked GHL sub-account's numbers; null without a linked sub-account. */
+  ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
 }
 
@@ -107,6 +122,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true, numbers: true, checkedAt: true, triedAt: true, detail: true } },
       ghlNumberJob: {
         select: {
           id: true,
@@ -132,6 +148,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   // A client on the GHL route has its number in GHL instead (the Office request records it).
   const ghlNumber = !n && c.hlNumberRequest?.route === 'ghl' && c.hlNumberRequest.status === 'bought' && c.hlNumberRequest.number ? c.hlNumberRequest : null
   const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
+  // What the Hub last read of their GHL sub-account's numbers (the daily read; a re-linked sub-account starts over).
+  const census = currentCensus(c.ghlNumberCensus, c.ghlLocationId)
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
@@ -159,6 +177,20 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         : null,
     request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route, detail: c.hlNumberRequest.detail, verifyNote: c.hlNumberRequest.verifyNote } : null,
     ghlRegistration: ghlNumber && c.ghlNumberJob ? registrationView(c.ghlNumberJob) : null,
+    phone: phoneState({
+      hlNumber: numbers.length > 0,
+      request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route } : null,
+      census: census?.state ?? null,
+    }),
+    ghlNumbers: c.ghlLocationId
+      ? {
+          state: census?.state ?? 'unchecked',
+          numbers: readCensusNumbers(census?.numbers),
+          checkedAt: census?.checkedAt?.toISOString() ?? null,
+          triedAt: census?.triedAt.toISOString() ?? null,
+          detail: census?.detail ?? null,
+        }
+      : null,
     seo: c.seoSite ? { repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId } : null,
   }
 }

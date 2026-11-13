@@ -24,6 +24,11 @@ export type AskCandidate = {
   /** When asking started: sub-accounts made before it are only asked about by hand. */
   since: Date
   trigger: 'onboarding' | 'sweep' | 'manual'
+  /**
+   * What GHL shows on the client's linked sub-account (src/lib/ghl-number/census-plan.ts):
+   * has a number already, none, no phone system, or not read yet; null without one.
+   */
+  ghlNumbers?: 'has' | 'none' | 'unavailable' | 'unchecked' | null
 }
 
 export type AskDecision = { ask: boolean; reason: string }
@@ -37,6 +42,8 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (c.archived) return { ask: false, reason: 'the client is archived' }
   if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
   if (c.hasTollFree) return { ask: false, reason: 'its sub-account already has a toll-free number' }
+  // Alex's rule (2026-11-13): a GHL sub-account that has a number is set up already.
+  if (c.ghlNumbers === 'has') return { ask: false, reason: 'its GHL sub-account already has a number' }
   const r = c.request?.status
   if (r === 'awaiting_approval' || r === 'buying') return { ask: false, reason: 'already asked' }
   if (r === 'bought') return { ask: false, reason: 'it already has its number' }
@@ -48,6 +55,8 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
     return { ask: false, reason: 'its sub-account is older than the number question' }
   }
+  // By hand, only once GHL was read: an older sub-account may have its number there already.
+  if (c.trigger === 'manual' && c.ghlNumbers === 'unchecked') return { ask: false, reason: 'the Hub hasn’t read its GHL numbers yet (it does once a day)' }
   return { ask: true, reason: 'its sub-account is ready' }
 }
 

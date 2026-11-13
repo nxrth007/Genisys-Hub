@@ -2,19 +2,27 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Check, Folder, Search } from 'lucide-react'
+import { Check, Folder, Phone, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import type { SiteFolder } from '@/lib/sites'
 import { siteHost, type SiteStatus } from '@/lib/site-status'
 
-type Filter = 'all' | 'needs' | 'live'
+type Filter = 'all' | 'needs' | 'live' | 'number'
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'needs', label: 'Need a site' },
   { id: 'live', label: 'Live' },
+  { id: 'number', label: 'Need a number' },
 ]
+
+function matches(f: SiteFolder, filter: Filter): boolean {
+  if (filter === 'all') return true
+  // GHL shows no number on their sub-account (the Hub reads it daily); Forte's is in Hell-level.
+  if (filter === 'number') return f.phone === 'needs'
+  return (filter === 'live') === (f.status === 'live')
+}
 
 /** The portfolio: a folder per client, ✓ when their site is live, ! when they still need one. */
 export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
@@ -22,7 +30,8 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
   const [filter, setFilter] = useState<Filter>('all')
   const live = folders.filter((f) => f.status === 'live').length
   const q = query.trim().toLowerCase()
-  const shown = folders.filter((f) => (filter === 'all' || (filter === 'live') === (f.status === 'live')) && (!q || f.name.toLowerCase().includes(q) || siteHost(f.siteUrl).includes(q)))
+  const needNumber = folders.filter((f) => f.phone === 'needs').length
+  const shown = folders.filter((f) => matches(f, filter) && (!q || f.name.toLowerCase().includes(q) || siteHost(f.siteUrl).includes(q)))
 
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
@@ -55,7 +64,7 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
                 filter === f.id ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
-              {f.label}
+              {f.id === 'number' ? `${f.label} (${needNumber})` : f.label}
             </button>
           ))}
         </div>
@@ -97,6 +106,16 @@ function FolderTile({ f }: { f: SiteFolder }) {
           />
         )}
         <StatusBadge status={f.status} className="absolute -right-1 top-1.5" />
+        {f.phone === 'needs' && (
+          <span
+            className="absolute -left-1 bottom-2 grid h-6 w-6 place-items-center rounded-full border-2 border-background bg-violet-500 text-white shadow-sm"
+            role="img"
+            aria-label="Needs a phone number"
+            title="Needs a phone number (GHL shows none)"
+          >
+            <Phone className="h-3 w-3" strokeWidth={2.5} />
+          </span>
+        )}
       </span>
       <span className="line-clamp-2 text-[12.5px] font-medium leading-tight text-foreground">{f.name}</span>
       <span className={cn('max-w-full truncate text-[11px]', live ? 'text-muted-foreground' : f.status === 'blocked' ? 'text-destructive' : 'text-amber-600 dark:text-amber-400')}>

@@ -20,6 +20,7 @@ import type { GhlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import type { PageSnap } from '@/lib/ghl-subaccount-worker/plan'
 import { adoptable, CONFIRM_BUY, displayNumber, e164, forwardingFrom, isIdentityCheck, MAX_TOLL_FREE_PRICE, parseBuyRow, pickTollFree, type ListedNumber } from './plan'
 import { pickOption, type FormField, type GhlForm } from './register-plan'
+import { censusFromPage, type CensusNumber, type CensusState } from './census-plan'
 
 export type GhlNumberState = { pickedNumber: string | null; buyStartedAt: Date | null; phoneNumber: string | null }
 
@@ -68,6 +69,8 @@ class Halt extends Error {
   constructor(
     readonly status: 'needs_identity' | 'needs_human' | 'error',
     message: string,
+    /** GHL wouldn't sign in: nothing else in this run can work either. */
+    readonly signIn = false,
   ) {
     super(message)
   }
@@ -138,23 +141,34 @@ function signedInPage(snap: PageSnap): boolean {
   }
 }
 
-/** Open the sub-account's Phone System → Manage Numbers, signing in first if GHL asks. */
-async function openPhoneSystem(run: PageRun): Promise<void> {
+/**
+ * Open the sub-account's Phone System → Manage Numbers, signing in first if
+ * GHL asks. A sub-account whose phone system "requires configuration" (not on
+ * LC Phone, like Forte's) stops the run, unless the caller only reads.
+ */
+async function openPhoneSystem(run: PageRun, o: { allowUnavailable?: boolean } = {}): Promise<'ready' | 'unavailable'> {
   const { page, opts } = run
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.goto(phoneSystemUrl(opts.locationId), { waitUntil: 'domcontentloaded', timeout: 60_000 })
     const deadline = Date.now() + 60_000
     let login = false
+    let unconfigured = 0
     for (;;) {
       if (await visibleIn(page.locator('input[type="password"]'))) {
         login = true
         break
       }
       const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '')
+      // Seen twice in a row, so a page still drawing isn't taken for it.
+      unconfigured = /Manage Numbers/.test(text) && /requires configuration/i.test(text) ? unconfigured + 1 : 0
+      if (unconfigured >= 2) {
+        if (o.allowUnavailable) return 'unavailable'
+        throw new Halt('needs_human', `GHL says ${opts.clientName}'s phone system requires configuration ("reach out to our support team"). Only GHL support can set it up.`)
+      }
       if (/Manage Numbers/.test(text) && (/No Data/.test(text) || /\d{3}-\d{3}-\d{4}|\+\d{6,}/.test(text))) {
         // A table that is still loading can flash "No Data"; let it settle before anyone reads it.
         await sleep(2500, opts.signal)
-        return
+        return 'ready'
       }
       if (Date.now() >= deadline) break
       await sleep(700, opts.signal)
@@ -173,7 +187,7 @@ async function openPhoneSystem(run: PageRun): Promise<void> {
       isSignedIn: signedInPage,
       signal: opts.signal,
     })
-    if (res.status !== 'signed_in') throw new Halt(res.status === 'failed' ? 'error' : 'needs_human', res.detail)
+    if (res.status !== 'signed_in') throw new Halt(res.status === 'failed' ? 'error' : 'needs_human', res.detail, true)
   }
   throw new Halt('error', "GHL's Phone System page didn't load after signing in.")
 }
@@ -724,6 +738,97 @@ export async function runGhlRegistration(opts: GhlRegisterOptions): Promise<GhlR
       if (err instanceof Halt) return { status: err.status === 'needs_identity' ? 'needs_human' : err.status, detail: err.message, storageState: await sessionOf(context) }
       throw err
     }
+  } finally {
+    await context?.close().catch(() => {})
+    await close?.().catch(() => {})
+    releaseBrowser()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The daily read of each linked client's GHL numbers (./census.ts). Read-only.
+// ---------------------------------------------------------------------------
+
+export type CensusLocation = { clientId: string; clientName: string; locationId: string }
+export type CensusRead = { state: CensusState; numbers: CensusNumber[]; detail: string }
+
+export type GhlCensusOptions = Omit<GhlBaseOptions, 'clientName' | 'locationId'> & {
+  locations: CensusLocation[]
+  /** Each sub-account's read as soon as it's done, so a later stop keeps the earlier ones. */
+  onRead: (loc: CensusLocation, read: CensusRead) => Promise<void>
+}
+
+/** Every table row's text on the open page, scrolling any scrolled table so no row is missed. */
+async function rowTexts(page: Page): Promise<string[]> {
+  return page
+    .evaluate(async () => {
+      const seen = new Set<string>()
+      const grab = () => {
+        for (const r of Array.from(document.querySelectorAll('tr'))) seen.add((r as HTMLElement).innerText.replace(/\s+/g, ' ').trim())
+      }
+      grab()
+      const scrollers = Array.from(document.querySelectorAll('*')).filter((el) => el.scrollHeight > el.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(el).overflowY) && el.querySelector('tr'))
+      for (const s of scrollers) {
+        for (let y = 0; y <= s.scrollHeight; y += 250) {
+          s.scrollTop = y
+          await new Promise((r) => setTimeout(r, 120))
+          grab()
+        }
+        s.scrollTop = 0
+      }
+      return Array.from(seen)
+    })
+    .catch(() => [] as string[])
+}
+
+/** Read each sub-account's Manage Numbers page in turn, in one browser. Nothing is clicked or changed. */
+export async function runGhlCensus(opts: GhlCensusOptions): Promise<{ storageState: string | null }> {
+  if (opts.signal?.aborted) throw new Error('The read ran out of time.')
+  claimBrowser()
+  let context: BrowserContext | null = null
+  let close: (() => Promise<void>) | null = null
+  try {
+    prepareChromiumEnv()
+    const pw = (await import('playwright')) as typeof import('playwright')
+    const browser = await pw.chromium.launch({ headless: opts.headless, executablePath: opts.executablePath || undefined, args: chromiumLaunchArgs() })
+    close = () => browser.close()
+    opts.signal?.addEventListener('abort', () => void browser.close().catch(() => {}), { once: true })
+    context = await newWorkerContext(browser, opts.storageState)
+    const page = await context.newPage()
+    page.setDefaultTimeout(20_000)
+    page.on('dialog', (d) => {
+      void d.dismiss().catch(() => {})
+    })
+    for (const loc of opts.locations) {
+      if (opts.signal?.aborted) break
+      const run: PageRun = {
+        page,
+        opts: { ...opts, clientName: loc.clientName, locationId: loc.locationId },
+        note: async (line) => {
+          await opts.onNote(line).catch(() => {})
+        },
+        shoot: async () => {},
+      }
+      let read: CensusRead
+      try {
+        if ((await openPhoneSystem(run, { allowUnavailable: true })) === 'unavailable') {
+          read = { state: 'unavailable', numbers: [], detail: 'GHL says this sub-account’s phone system requires configuration (GHL support sets it up).' }
+        } else {
+          const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '')
+          const seen = censusFromPage(text, await rowTexts(page))
+          read = seen
+            ? { ...seen, detail: seen.state === 'has' ? `${seen.numbers.length} number${seen.numbers.length === 1 ? '' : 's'} in GHL` : 'No numbers in GHL' }
+            : { state: 'error', numbers: [], detail: 'Manage Numbers showed neither numbers nor "No Data".' }
+        }
+      } catch (err) {
+        if (opts.signal?.aborted) throw err
+        // A sign-in GHL won't take stops the whole run; a page that won't load is only that sub-account's.
+        if (err instanceof Halt && err.signIn) throw err
+        read = { state: 'error', numbers: [], detail: (err instanceof Error ? err.message : String(err)).slice(0, 500) }
+      }
+      await opts.onRead(loc, read)
+    }
+    return { storageState: await sessionOf(context) }
   } finally {
     await context?.close().catch(() => {})
     await close?.().catch(() => {})

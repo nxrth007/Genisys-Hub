@@ -764,6 +764,7 @@ model Client {
   /// number from the number bank (one row).
   hlNumberRequest  HlNumberRequest?
   ghlNumberJob     GhlNumberJob?
+  ghlNumberCensus  GhlNumberCensus?
 }
 
 /// One queued attempt to create a client's GHL sub-account through the
@@ -897,6 +898,27 @@ model GhlNumberJob {
 
   @@index([status, nextAttemptAt])
   @@index([buyStartedAt])
+}
+
+/// Which numbers a linked client's GHL sub-account has, read by the browser worker
+/// from Phone System → Manage Numbers about once a day (read-only;
+/// src/lib/ghl-number/census.ts). A sub-account with a number is set up already and
+/// is never asked about one; one with none needs a number (Sites marks it).
+model GhlNumberCensus {
+  clientId   String    @id
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// The sub-account read (a client linked to another one since is read again).
+  locationId String
+  /// has | none | unavailable (GHL says its phone system needs configuration) | error (never read)
+  state      String
+  /// [{ number, tollFree, verificationRequired, isDefault }] from the last good read
+  numbers    Json?
+  /// What the last try found, or why it failed.
+  detail     String?   @db.Text
+  /// The last good read, and the last try (later than it when that try failed).
+  checkedAt  DateTime?
+  triedAt    DateTime
+  updatedAt  DateTime  @updatedAt
 }
 
 /// A page image from a GHL number run. Only the latest few are kept.

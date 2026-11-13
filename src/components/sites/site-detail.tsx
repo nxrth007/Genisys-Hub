@@ -192,6 +192,45 @@ function GhlRegistrationCard({ clientId, r, canAct }: { clientId: string; r: Ghl
   )
 }
 
+/** What the folder says when the client has no number the Hub bought: what GHL shows, from the daily read. */
+function ghlNumbersLine(d: SiteDetail): string {
+  const g = d.ghlNumbers
+  if (!g) return 'No toll-free number yet, and no GHL sub-account is linked.'
+  if (d.phone === 'needs') return 'GHL shows no number on this sub-account yet, so it needs one.'
+  if (d.phone === 'no_phone_system') return 'GHL says this sub-account’s phone system requires configuration (GHL support sets that up). A Hell-level number works without it.'
+  if (g.state === 'error') return `The Hub couldn’t read this sub-account’s numbers in GHL yet${g.detail ? `: ${g.detail}` : '.'} It tries again in a couple of hours.`
+  return 'No toll-free number yet. The Hub reads this sub-account’s numbers in GHL once a day and hasn’t yet.'
+}
+
+/** Numbers already in their GHL sub-account (the daily read): set up, so Echo doesn't ask about one. */
+function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
+  const unverified = g.numbers.some((x) => x.tollFree && x.verificationRequired)
+  return (
+    <>
+      <ul className="flex flex-col gap-2">
+        {g.numbers.map((x) => (
+          <li key={x.number} className="flex flex-wrap items-center gap-2">
+            <span className="text-[22px] font-semibold tabular-nums tracking-tight text-foreground">{pretty(x.number)}</span>
+            <CopyButton value={pretty(x.number)} label="the number" />
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">In GHL · {x.tollFree ? 'Toll-free' : 'Local'}</span>
+            {x.isDefault && g.numbers.length > 1 && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Default</span>}
+            {x.verificationRequired && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">Verification Required</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="text-[12.5px] text-muted-foreground">Already set up in GHL, so Echo doesn’t ask about a number for this client. Texts and calls land in GHL’s Conversations.</p>
+      {unverified && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">
+          GHL shows “Verification Required”: this toll-free number can’t send texts until its registration is filed in GHL.
+        </p>
+      )}
+      {g.checkedAt && <p className="text-[11.5px] text-muted-foreground">Read from GHL {new Date(g.checkedAt).toLocaleString()}.</p>}
+    </>
+  )
+}
+
 /** One client's folder, opened: their status, their site, and what the site build needs. */
 export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }) {
   const router = useRouter()
@@ -199,6 +238,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
   const [askMsg, setAskMsg] = useState<string | null>(null)
   const live = d.status === 'live'
   const req = d.request
+  // Only once GHL was read: a sub-account with a number there is set up already (Alex's rule).
+  const askable = !d.ghlNumbers || d.phone === 'needs' || d.phone === 'no_phone_system'
 
   async function ask() {
     setAsking(true)
@@ -292,6 +333,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                 {req?.verifyNote && d.number.verificationStatus !== 'rejected' ? ` Waiting on: ${req.verifyNote}` : ''}
               </p>
             </>
+          ) : d.phone === 'ghl' && d.ghlNumbers?.numbers.length ? (
+            <GhlNumbersList g={d.ghlNumbers} />
           ) : (
             <>
               <p className="text-[13px] text-foreground/90">
@@ -305,8 +348,9 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                     ? 'Someone answered No in the Office.'
                     : req?.status === 'failed'
                       ? `The last try failed${req.detail ? `: ${req.detail}` : '.'}`
-                      : 'No toll-free number yet.'}
+                      : ghlNumbersLine(d)}
               </p>
+              {(req?.status === 'declined' || req?.status === 'failed') && <p className="text-[12.5px] text-muted-foreground">{ghlNumbersLine(d)}</p>}
               <div className="flex flex-wrap items-center gap-2">
                 {req?.status === 'awaiting_approval' || req?.status === 'awaiting_identity' ? (
                   <Link href="/office" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium hover:bg-muted">
@@ -316,8 +360,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                   <button
                     type="button"
                     onClick={ask}
-                    disabled={asking || !d.account}
-                    title={!d.account ? 'This client has no Hell-level sub-account' : undefined}
+                    disabled={asking || !d.account || !askable}
+                    title={!d.account ? 'This client has no Hell-level sub-account' : !askable ? 'The Hub reads their GHL numbers first (once a day)' : undefined}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
                   >
                     {asking && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Ask in the Office

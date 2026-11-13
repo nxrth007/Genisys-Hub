@@ -77,6 +77,23 @@ test('askDecision: never twice by itself; by hand after a No or a failure', () =
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', accountCreatedAt: new Date('2026-10-24T00:00:00Z') }).ask, true)
 })
 
+test("askDecision: a GHL sub-account that already has a number is never asked about (Alex's rule)", () => {
+  for (const trigger of ['onboarding', 'sweep', 'manual']) {
+    assert.equal(plan.askDecision({ ...base, trigger, ghlNumbers: 'has' }).reason, 'its GHL sub-account already has a number', trigger)
+  }
+  // None in GHL, or no phone system there (a Hell-level number works without it): asked as before.
+  assert.equal(plan.askDecision({ ...base, ghlNumbers: 'none' }).ask, true)
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'none' }).ask, true)
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unavailable' }).ask, true)
+  // By hand only once GHL was read; right after onboarding the new sub-account has none to read.
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unchecked' }).reason, 'the Hub hasn’t read its GHL numbers yet (it does once a day)')
+  assert.equal(plan.askDecision({ ...base, ghlNumbers: 'unchecked' }).ask, true)
+  // No linked GHL sub-account: only Hell-level applies, as before.
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: null }).ask, true)
+  // Forte: its Hell-level number answers first.
+  assert.equal(plan.askDecision({ ...base, hasTollFree: true, ghlNumbers: 'unavailable' }).reason, 'its sub-account already has a toll-free number')
+})
+
 test('ringTo: the business phone, else the owner’s, else a missed-call catcher', () => {
   assert.equal(plan.ringTo({ businessPhone: '(603) 555-0142', notifyPhone: '+16035550199' }), '+16035550142')
   assert.equal(plan.ringTo({ businessPhone: '', notifyPhone: '603-555-0199, 603-555-0100' }), '+16035550199')

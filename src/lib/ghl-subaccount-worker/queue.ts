@@ -60,6 +60,7 @@ import { sealString } from './session'
 import { loadLogin, loadSession, makeOtpPuller, OTP_KEY, saveSession } from './session-store'
 import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib/ghl-customize/queue'
 import { ghlNumberTick, releaseLiveGhlNumber } from '@/lib/ghl-number/queue'
+import { ghlCensusTick, stopGhlCensus } from '@/lib/ghl-number/census'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const LEASE_MS = 20 * 60 * 1000
@@ -578,6 +579,7 @@ export function installWorkerLifecycle(): void {
     void releaseLiveCustomize('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-customize] could not release the in-flight job:', err)
     })
+    stopGhlCensus()
   }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
@@ -1159,6 +1161,14 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
         console.warn('[ghl-customize] tick:', err)
         return null
       })
+      if (!custom?.claimed && !shuttingDown) {
+        // Nothing else wants the browser: read the next few sub-accounts' GHL numbers (read-only, about daily).
+        const census = await ghlCensusTick({ runBrowser: true }).catch((err) => {
+          console.warn('[ghl-census] tick:', err)
+          return null
+        })
+        if (census?.claimed) return { enabled: true, ran: true, enqueued, claimed: true, ...(census.outcome ? { outcome: census.outcome } : {}), promoted, recovered }
+      }
       return {
         enabled: true,
         ran: true,

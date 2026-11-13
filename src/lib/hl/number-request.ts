@@ -21,6 +21,7 @@ import { jobLogEntry } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { ghlPhoneSystemLink, queueGhlNumber } from '@/lib/ghl-number/queue'
+import { askView } from '@/lib/ghl-number/census-plan'
 import { askDecision, FILE_RETRY_MS, nextNumberState, prettyPhone, readyToFile, reconcileVerify, ringTo, textsTo, type NumberChoice } from './number-plan'
 import { buyNumber, searchNumbers } from './twilio'
 import { submitVerification } from './verification'
@@ -57,6 +58,8 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
       id: true,
       name: true,
       archivedAt: true,
+      ghlLocationId: true,
+      ghlNumberCensus: { select: { locationId: true, state: true } },
       hlAccount: { select: { id: true, createdAt: true, profile: true, numbers: { where: { status: 'active', kind: 'toll_free' }, select: { id: true } } } },
       hlNumberRequest: { select: { id: true, status: true, log: true } },
     },
@@ -71,6 +74,7 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
     request: c.hlNumberRequest ? { status: c.hlNumberRequest.status } : null,
     since: await numberSince(),
     trigger,
+    ghlNumbers: askView(c.ghlNumberCensus, c.ghlLocationId),
   })
   if (!decision.ask || !account) return { ok: false, reason: decision.reason }
   const ring = ringTo(readProfile(account.profile))
