@@ -22,6 +22,19 @@
 
 export const TEMPLATE_FORM = 'A Plus Fence & Construction Forms'
 
+/**
+ * A Plus's logo, by its media file (seen on Susquehanna's untouched form,
+ * 2026-11-13: assets.cdn.filesafe.space/di0HxKo4yz2WXnVfo5lq/media/6aac79b1867721cb571103e0.png,
+ * shown through images.leadconnectorhq.com). Only this picture is removed: a
+ * client's own logo on a form fixed by hand stays.
+ */
+export const TEMPLATE_LOGO = '6aac79b1867721cb571103e0'
+/** A Plus's privacy policy and terms pages, which the template's policy blocks link to. */
+export const TEMPLATE_SITE = 'aplusconstruction.org'
+
+export const isTemplateLogo = (src: string) => src.includes(TEMPLATE_LOGO)
+export const isTemplateLink = (href: string) => href.toLowerCase().includes(TEMPLATE_SITE)
+
 const templateName = () => /A\s*Plus\s+Fence\s*(?:&|and)\s*Construction/gi
 
 /** Does this text name the template business (A Plus Fence & Construction)? */
@@ -29,9 +42,26 @@ export function mentionsTemplate(text: string): boolean {
   return templateName().test(text)
 }
 
+const KEEP_CAPS = new Set(['LLC', 'INC', 'LLP', 'LP', 'PLLC', 'CO', 'DBA', 'USA', 'HVAC', 'II', 'III', 'IV'])
+
+/** A name typed in capitals reads as a name ("SUSQUEHANNA TREE SOLUTIONS LLC" → "Susquehanna Tree Solutions LLC"); others stay as typed. */
+export function readableName(name: string): string {
+  const n = name.replace(/\s+/g, ' ').trim()
+  if (/[a-z]/.test(n) || !/[A-Z]{4}/.test(n)) return n
+  return n
+    .split(' ')
+    .map((w) => {
+      const bare = w.replace(/[^A-Z]/g, '')
+      if (KEEP_CAPS.has(bare)) return w
+      // A letter after "&", "-", "(" or "/" starts a word ("C&J"); after an apostrophe it doesn't ("Jake's").
+      return w.toLowerCase().replace(/(^|[-&(/])([a-z])/g, (_m, p: string, c: string) => p + c.toUpperCase())
+    })
+    .join(' ')
+}
+
 /** The name the consent text gives the client: their business name from onboarding, else the client's name. */
 export function consentName(o: { businessName?: string | null; clientName: string }): string {
-  return (o.businessName?.trim() ? o.businessName : o.clientName).replace(/\s+/g, ' ').trim()
+  return readableName(o.businessName?.trim() ? o.businessName : o.clientName)
 }
 
 /** A consent option with the template business's name swapped for the client's. */
@@ -50,17 +80,21 @@ export function isConsentOption(text: string): boolean {
   return /By checking this box/i.test(text)
 }
 
-/** What a lead sees on the public form. */
-export type PublicForm = { text: string; images: number; links: string[] }
+/** What a lead sees on the public form: its text, its pictures' addresses and its links. */
+export type PublicForm = { text: string; images: string[]; links: string[] }
 
 /** The template's leftovers the form builder has to remove (sub-accounts made before snapshot v2). */
 export function builderWork(f: PublicForm): { logo: boolean; links: boolean } {
-  return { logo: f.images > 0, links: f.links.some((h) => /aplusconstruction\.org/i.test(h)) }
+  return { logo: f.images.some(isTemplateLogo), links: f.links.some(isTemplateLink) }
 }
 
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
 
-/** What's still wrong with the public form for this client; empty when it's theirs. */
+/**
+ * What's still wrong with the public form for this client; empty when it's
+ * theirs. With no business name, whose name the consent gives isn't checked
+ * (a form fixed by hand may word it its own way).
+ */
 export function formProblems(f: PublicForm, business: string): string[] {
   const out: string[] = []
   if (!isConsentOption(f.text)) out.push('its consent checkboxes are missing')

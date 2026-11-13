@@ -32,15 +32,22 @@ test('nothing to change: already renamed, or no name to put in', () => {
   assert.equal(plan.renamedOptions(['Some other checkbox'], 'Royal Driveway Cleaning LLC'), null)
 })
 
-test('the consent name: the business name from onboarding, else the client', () => {
+test('the consent name: the business name from onboarding, else the client; capitals read as a name', () => {
   assert.equal(plan.consentName({ businessName: ' Royal  Driveway Cleaning ', clientName: 'Royal Driveway Cleaning LLC' }), 'Royal Driveway Cleaning')
+  assert.equal(plan.consentName({ clientName: 'SUSQUEHANNA TREE SOLUTIONS LLC' }), 'Susquehanna Tree Solutions LLC')
+  assert.equal(plan.readableName("JAKE'S PROPERTY MAINTENANCE, INC."), "Jake's Property Maintenance, INC.")
+  assert.equal(plan.readableName('C&J CONCRETE COATINGS LLC'), 'C&J Concrete Coatings LLC')
+  // Typed with lowercase letters, or short: as typed.
+  assert.equal(plan.readableName('K&P Remodeling LLC'), 'K&P Remodeling LLC')
+  assert.equal(plan.readableName('A1M'), 'A1M')
   assert.equal(plan.consentName({ businessName: '', clientName: 'Royal Driveway Cleaning LLC' }), 'Royal Driveway Cleaning LLC')
   assert.equal(plan.consentName({ clientName: 'Royal Driveway Cleaning LLC' }), 'Royal Driveway Cleaning LLC')
 })
 
 test("the public form is the client's only with their name and none of A Plus's logo, name or links", () => {
   const text = (o) => `Get Your Free Estimate Full Name * Phone * ${o.join(' ')} SEND`
-  const old = { text: text([OPT1, OPT2]), images: 1, links: ['https://aplusconstruction.org/privacy-policy', 'https://aplusconstruction.org/terms-of-service-534985'] }
+  const LOGO = 'https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/di0HxKo4yz2WXnVfo5lq/media/6aac79b1867721cb571103e0.png'
+  const old = { text: text([OPT1, OPT2]), images: [LOGO], links: ['https://aplusconstruction.org/privacy-policy', 'https://aplusconstruction.org/terms-of-service-534985'] }
   assert.deepEqual(plan.builderWork(old), { logo: true, links: true })
   assert.deepEqual(plan.formProblems(old, 'Royal Driveway Cleaning LLC'), [
     'it still says A Plus Fence & Construction',
@@ -48,12 +55,16 @@ test("the public form is the client's only with their name and none of A Plus's 
     'it still links to A Plus’s privacy policy and terms',
   ])
   // Snapshot v2: no logo or links, only the name left to change.
-  const v2 = { text: text([OPT1, OPT2]), images: 0, links: [] }
+  const v2 = { text: text([OPT1, OPT2]), images: [], links: [] }
   assert.deepEqual(plan.builderWork(v2), { logo: false, links: false })
   assert.deepEqual(plan.formProblems(v2, 'Royal Driveway Cleaning LLC'), ['it still says A Plus Fence & Construction'])
-  const done = { text: text(plan.renamedOptions([OPT1, OPT2], 'Royal Driveway Cleaning LLC')), images: 0, links: [] }
+  const done = { text: text(plan.renamedOptions([OPT1, OPT2], 'Royal Driveway Cleaning LLC')), images: [], links: [] }
   assert.deepEqual(plan.formProblems(done, 'Royal Driveway Cleaning LLC'), [])
   assert.deepEqual(plan.formProblems(done, 'Someone Else LLC'), ["its consent doesn't name Someone Else LLC"])
-  assert.deepEqual(plan.formProblems({ text: 'Get Your Free Estimate SEND', images: 0, links: [] }, 'X'), ['its consent checkboxes are missing', "its consent doesn't name X"])
+  assert.deepEqual(plan.formProblems({ text: 'Get Your Free Estimate SEND', images: [], links: [] }, 'X'), ['its consent checkboxes are missing', "its consent doesn't name X"])
+  // Fixed by hand: the client's own logo and policy links stay, and their wording isn't second-guessed.
+  const byHand = { text: text(plan.renamedOptions([OPT1, OPT2], 'Royal Driveway')), images: ['https://assets.cdn.filesafe.space/OTHERLOC/media/theirlogo.png'], links: ['https://royaldriveway.com/privacy'] }
+  assert.deepEqual(plan.builderWork(byHand), { logo: false, links: false })
+  assert.deepEqual(plan.formProblems(byHand, ''), [])
   assert.equal(plan.publicFormUrl('MjFjsUTjl07QuTFvli6f'), 'https://api.leadconnectorhq.com/widget/form/MjFjsUTjl07QuTFvli6f')
 })
