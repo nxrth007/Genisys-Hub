@@ -200,7 +200,8 @@ function ApprovalCard({
                 <button type="button" onClick={() => answer('hl')} disabled={locked} className={BTN_PRIMARY}>
                   {spin('hl') || <Check className="h-3.5 w-3.5" />} Buy in Hell-level
                 </button>
-                {ghlButton('Verify identity in GHL', 'ghl')}
+                {/* New clients are Hell-level only; the GHL route is for an older client whose GHL sub-account is linked. */}
+                {a.ghlLink && ghlButton('Verify identity in GHL', 'ghl')}
                 <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
                   {spin('no') || <X className="h-3.5 w-3.5" />} No
                 </button>

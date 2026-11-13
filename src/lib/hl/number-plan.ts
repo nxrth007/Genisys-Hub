@@ -34,11 +34,12 @@ export type AskCandidate = {
 export type AskDecision = { ask: boolean; reason: string }
 
 /**
- * Echo asks once per client, once their GHL sub-account is made and its
- * snapshot loaded.
+ * Echo asks once per client, right after onboarding made their sub-account.
  * Older sub-accounts, and a client someone already answered No for, are only
  * asked again by hand.
  */
+export const UNREAD_GHL = 'the Hub hasn’t read its GHL sub-account’s numbers (that daily check is paused), and it may have one already'
+
 export function askDecision(c: AskCandidate): AskDecision {
   if (c.archived) return { ask: false, reason: 'the client is archived' }
   if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
@@ -56,9 +57,9 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
     return { ask: false, reason: 'its sub-account is older than the number question' }
   }
-  // Only a sub-account the worker just made (onboarding) is known to have no number; by hand or
-  // from the sweep, wait until GHL was read: a linked sub-account may have its number there already.
-  if (c.trigger !== 'onboarding' && c.ghlNumbers === 'unchecked') return { ask: false, reason: 'the Hub hasn’t read its GHL numbers yet (it does once a day)' }
+  // A new client has no GHL sub-account (null here). An older one with a linked GHL sub-account may
+  // have its number there already, so by hand or from the sweep it waits until GHL was read.
+  if (c.trigger !== 'onboarding' && c.ghlNumbers === 'unchecked') return { ask: false, reason: UNREAD_GHL }
   return { ask: true, reason: 'its sub-account is ready' }
 }
 

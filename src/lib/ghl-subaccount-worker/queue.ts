@@ -23,6 +23,8 @@ import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { runCreateInBrowser } from './browser'
 import {
+  AUTO_CREATE_FOR_NEW_CLIENTS,
+  NO_AUTO_CREATE_REASON,
   MAX_ATTEMPTS,
   ONBOARDING_WEBHOOK_SECRET_NAME,
   retryDelayMs,
@@ -233,6 +235,8 @@ export async function enqueueClient(
     return { ok: false, status: 'skipped', reason: 'client already has a sub-account' }
   }
   const facts = clientFacts(client, opts)
+  // Made by hand only (Settings: force) since new clients went to Hell-level.
+  if (!opts.force && !AUTO_CREATE_FOR_NEW_CLIENTS) return { ok: false, status: 'skipped', reason: NO_AUTO_CREATE_REASON }
   if (!opts.force) {
     const since = await workerCutoff()
     const allowed = autoEnqueueAllowed({
@@ -399,7 +403,7 @@ export async function enqueueMissedIntakes(): Promise<number> {
 }
 
 export async function sweepEligibleClients(): Promise<number> {
-  if (!workerEnabled()) return 0
+  if (!workerEnabled() || !AUTO_CREATE_FOR_NEW_CLIENTS) return 0
   const since = await workerCutoff()
   const clients = await prisma.client.findMany({
     where: {

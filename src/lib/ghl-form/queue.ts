@@ -270,8 +270,14 @@ let lastCatchup = 0
  * were fixed by hand, a few may still need it): when no form is queued or
  * running, queue the next linked client never checked, newest first, at most
  * one every few minutes, so the worker (and the 2 GB instance) is never swamped.
+ * Off since the same evening: clients are moving to Hell-level's own forms, so
+ * GHL forms that aren't on a live site yet aren't worth the browser time. The
+ * 24 on live sites were done; "Fix the form in GHL" still runs one by hand.
  */
+const CATCHUP_ON: boolean = false
+
 async function catchUp(now = Date.now()): Promise<void> {
+  if (!CATCHUP_ON) return
   if (now - lastCatchup < CATCHUP_GAP_MS) return
   lastCatchup = now
   if (await prisma.ghlFormJob.count({ where: { status: { in: ['queued', 'running'] } } })) return

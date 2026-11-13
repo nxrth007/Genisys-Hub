@@ -200,7 +200,7 @@ function GhlRegistrationCard({ clientId, r, canAct }: { clientId: string; r: Ghl
 /** What the folder says when the client has no number the Hub bought: what GHL shows, from the daily read. */
 function ghlNumbersLine(d: SiteDetail): string {
   const g = d.ghlNumbers
-  if (!g) return 'No toll-free number yet, and no GHL sub-account is linked.'
+  if (!g) return 'No toll-free number yet. Echo asks about one in the Office right after onboarding (Hell-level).'
   if (d.phone === 'needs') return 'GHL shows no number on this sub-account yet, so it needs one.'
   if (d.phone === 'no_phone_system') return 'GHL says this sub-account’s phone system requires configuration (GHL support sets that up). A Hell-level number works without it.'
   if (g.state === 'error') return `The Hub couldn’t read this sub-account’s numbers in GHL yet${g.detail ? `: ${g.detail}` : '.'} It tries again in a couple of hours.`

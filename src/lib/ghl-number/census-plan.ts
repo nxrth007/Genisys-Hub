@@ -107,22 +107,31 @@ export function askView(row: { locationId: string; state: string; version: numbe
  * Where a client's phone number stands, for Sites: hell_level = a number in
  * Hell-level (Forte's toll-free one); ghl = a number in their GHL sub-account
  * (bought through the Office, or there already); asked = Echo's question or
- * the purchase is under way; needs = GHL shows no number; no_phone_system =
- * GHL says the phone system needs configuration; unchecked = not read yet, or
- * no linked sub-account.
+ * the purchase is under way; needs = GHL shows no number, or (new clients,
+ * Hell-level only) no GHL sub-account and none in Hell-level; no_phone_system
+ * = GHL says the phone system needs configuration; unchecked = a linked GHL
+ * sub-account not read yet.
  */
 export type PhoneState = 'hell_level' | 'ghl' | 'asked' | 'needs' | 'no_phone_system' | 'unchecked'
 
 const UNDER_WAY = new Set(['awaiting_approval', 'awaiting_identity', 'buying', 'ghl_working'])
 
-export function phoneState(o: { hlNumber: boolean; request: { status: string; route: string } | null; census: string | null }): PhoneState {
+export function phoneState(o: { hlNumber: boolean; request: { status: string; route: string } | null; census: string | null; ghlLinked?: boolean }): PhoneState {
   if (o.hlNumber) return 'hell_level'
   if (o.request?.status === 'bought') return o.request.route === 'ghl' ? 'ghl' : 'hell_level'
   if (o.census === 'has') return 'ghl'
   if (o.request && UNDER_WAY.has(o.request.status)) return 'asked'
   if (o.census === 'none') return 'needs'
+  // No GHL sub-account to hold one: a client with no Hell-level number needs one.
+  if (o.ghlLinked === false) return 'needs'
   if (o.census === 'unavailable') return 'no_phone_system'
   return 'unchecked'
+}
+
+/** A Hell-level toll-free number Twilio hasn't approved for texting yet (nothing approved among them). */
+export function hlCantTextYet(numbers: { kind: string; verificationStatus: string }[]): boolean {
+  const tollFree = numbers.filter((n) => n.kind === 'toll_free')
+  return tollFree.length > 0 && !tollFree.some((n) => n.verificationStatus === 'approved')
 }
 
 /**

@@ -99,6 +99,22 @@ test("a client's phone, for Sites: Hell-level first (Forte), then a number in GH
   assert.equal(p({ census: 'unavailable' }), 'no_phone_system')
   assert.equal(p({ census: 'error' }), 'unchecked')
   assert.equal(p({}), 'unchecked')
+  // New clients are Hell-level only: no GHL sub-account and no Hell-level number means it needs one.
+  assert.equal(p({ ghlLinked: false }), 'needs')
+  assert.equal(p({ ghlLinked: false, request: { status: 'declined', route: 'hl' } }), 'needs')
+  assert.equal(p({ ghlLinked: false, request: { status: 'awaiting_approval', route: 'hl' } }), 'asked')
+  assert.equal(p({ ghlLinked: false, hlNumber: true }), 'hell_level')
+  assert.equal(p({ ghlLinked: true }), 'unchecked')
+})
+
+test("Hell-level toll-free numbers can't text until Twilio approves one", () => {
+  assert.equal(plan.hlCantTextYet([]), false)
+  assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'none' }]), true)
+  assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'in_review' }]), true)
+  assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'approved' }]), false)
+  assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'rejected' }, { kind: 'toll_free', verificationStatus: 'approved' }]), false)
+  // A local number's texting goes by its A2P registration, not this.
+  assert.equal(plan.hlCantTextYet([{ kind: 'local', verificationStatus: 'none' }]), false)
 })
 
 test('saved numbers are read back safely', () => {

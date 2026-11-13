@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { looksLikePhoneNumber, promoteIntakeToClient } from '@/lib/client-from-intake'
 import { ensureClientGeo } from '@/lib/geocode'
 import { provisionGhlSubAccountForNewClient } from '@/lib/ghl-subaccount-provisioning'
-import { workerEnabled } from '@/lib/ghl-subaccount-worker/config'
+import { AUTO_CREATE_FOR_NEW_CLIENTS, NO_AUTO_CREATE_REASON, workerEnabled } from '@/lib/ghl-subaccount-worker/config'
 import { enqueueGhlSubaccountForNewClient } from '@/lib/ghl-subaccount-worker/queue'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
@@ -13,6 +13,7 @@ import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { advanceJourneyStage, getJourney, recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { createAccountForClient } from '@/lib/hl/accounts'
 import { fillBrandFromSite } from '@/lib/hl/logo'
+import { askForClientNumber } from '@/lib/hl/number-request'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -211,15 +212,17 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // Nothing texts until someone buys the client a number.
     void createAccountForClient(id)
       .then(async (a) => {
-        // Echo asks about their toll-free number once the browser worker has made their GHL
-        // sub-account and its snapshot has loaded (src/lib/ghl-subaccount-worker/queue.ts).
+        // Echo asks in the Office whether to buy them a Hell-level toll-free number (src/lib/hl/number-request.ts).
+        if (a.created) void askForClientNumber(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] toll-free number question for ${id}:`, err))
         // A client who already has a website gets its logo and colour straight away; others when their site goes live.
         await fillBrandFromSite(a.id)
       })
       .catch((err) => console.warn(`[client-onboarding] hell-level sub-account for ${id}:`, err))
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.
-    if (created) {
+    if (created && !AUTO_CREATE_FOR_NEW_CLIENTS) {
+      console.log(`[client-onboarding] no GHL sub-account for ${id}: ${NO_AUTO_CREATE_REASON}`)
+    } else if (created) {
       const timeKnown = !!data.receivedAt || source === 'webhook'
       // The browser worker replaces the API create, which Agency Unlimited refuses.
       if (workerEnabled()) {

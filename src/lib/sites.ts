@@ -7,7 +7,7 @@
 import { prisma } from '@/lib/prisma'
 import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
 import { publicFormUrl } from '@/lib/ghl-form/plan'
-import { cantTextYet, currentCensus, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
+import { cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
@@ -40,7 +40,7 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
       color: true,
       siteUrl: true,
       ghlLocationId: true,
-      hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { id: true }, take: 1 } } },
+      hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { kind: true, verificationStatus: true } } } },
       hlNumberRequest: { select: { status: true, route: true } },
       ghlNumberCensus: { select: { locationId: true, state: true, version: true, numbers: true } },
       journeyStages: { where: { stage: 'website' }, select: { status: true } },
@@ -50,7 +50,8 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
     clients.map((c) => {
       // What the Hub last read of their GHL sub-account's numbers (the daily read).
       const census = currentCensus(c.ghlNumberCensus, c.ghlLocationId)
-      const phone = phoneState({ hlNumber: !!c.hlAccount?.numbers.length, request: c.hlNumberRequest, census: census?.state ?? null })
+      const hlNumbers = c.hlAccount?.numbers ?? []
+      const phone = phoneState({ hlNumber: hlNumbers.length > 0, request: c.hlNumberRequest, census: census?.state ?? null, ghlLinked: !!c.ghlLocationId })
       return {
         id: c.id,
         name: c.name,
@@ -59,7 +60,8 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
         status: siteStatus({ siteUrl: c.siteUrl, websiteStage: c.journeyStages[0]?.status }),
         logoUrl: readProfile(c.hlAccount?.profile).logoUrl || null,
         phone,
-        cantText: phone === 'ghl' && cantTextYet(readCensusNumbers(census?.numbers)).length > 0,
+        // GHL's "Verification Required", or a Hell-level toll-free number Twilio hasn't approved yet.
+        cantText: (phone === 'ghl' && cantTextYet(readCensusNumbers(census?.numbers)).length > 0) || (phone === 'hell_level' && hlCantTextYet(hlNumbers)),
       }
     }),
   )
@@ -198,6 +200,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       hlNumber: numbers.length > 0,
       request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route } : null,
       census: census?.state ?? null,
+      ghlLinked: !!c.ghlLocationId,
     }),
     ghlNumbers: c.ghlLocationId
       ? {
