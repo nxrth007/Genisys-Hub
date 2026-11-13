@@ -54,7 +54,7 @@ export async function numberSince(now = new Date()): Promise<Date> {
 export type NumberAskResult = { ok: true; status: string; id: string } | { ok: false; reason: string }
 
 /** Put the question in the Office for this client (and text the team). Never throws for an ordinary "no". */
-export async function askForClientNumber(clientId: string, trigger: 'onboarding' | 'sweep' | 'manual'): Promise<NumberAskResult> {
+export async function askForClientNumber(clientId: string, trigger: 'onboarding' | 'sweep' | 'manual', o: { overrideGhl?: boolean } = {}): Promise<NumberAskResult> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
@@ -78,6 +78,7 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
     since: await numberSince(),
     trigger,
     ghlNumbers: askView(c.ghlNumberCensus, c.ghlLocationId),
+    overrideGhl: o.overrideGhl,
   })
   if (!decision.ask || !account) return { ok: false, reason: decision.reason }
   const ring = ringTo(readProfile(account.profile))

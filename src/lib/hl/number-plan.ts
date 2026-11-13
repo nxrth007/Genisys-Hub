@@ -29,6 +29,11 @@ export type AskCandidate = {
    * has a number already, none, no phone system, or not read yet; null without one.
    */
   ghlNumbers?: 'has' | 'none' | 'unavailable' | 'unchecked' | null
+  /**
+   * By hand only: ask even though their GHL sub-account has a number (a test,
+   * or moving a client off GHL). Alex chose this for Panacea, 2026-11-13.
+   */
+  overrideGhl?: boolean
 }
 
 export type AskDecision = { ask: boolean; reason: string }
@@ -45,7 +50,7 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
   if (c.hasTollFree) return { ask: false, reason: 'its sub-account already has a toll-free number' }
   // Alex's rule (2026-11-13): a GHL sub-account that has a number is set up already.
-  if (c.ghlNumbers === 'has') return { ask: false, reason: 'its GHL sub-account already has a number' }
+  if (c.ghlNumbers === 'has' && !(c.trigger === 'manual' && c.overrideGhl)) return { ask: false, reason: 'its GHL sub-account already has a number' }
   const r = c.request?.status
   if (r === 'awaiting_approval' || r === 'buying') return { ask: false, reason: 'already asked' }
   if (r === 'bought') return { ask: false, reason: 'it already has its number' }

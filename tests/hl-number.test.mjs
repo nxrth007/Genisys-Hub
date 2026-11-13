@@ -93,6 +93,10 @@ test("askDecision: a GHL sub-account that already has a number is never asked ab
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'none' }).ask, true)
   // No linked GHL sub-account: only Hell-level applies, as before.
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: null }).ask, true)
+  // A person can override it by hand (Panacea's test, or moving a client off GHL); never by itself.
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'has', overrideGhl: true }).ask, true)
+  assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'has', overrideGhl: true }).ask, false)
+  assert.equal(plan.askDecision({ ...base, ghlNumbers: 'has', overrideGhl: true }).ask, false)
   // Forte: its Hell-level number answers first.
   assert.equal(plan.askDecision({ ...base, hasTollFree: true, ghlNumbers: 'unavailable' }).reason, 'its sub-account already has a toll-free number')
 })

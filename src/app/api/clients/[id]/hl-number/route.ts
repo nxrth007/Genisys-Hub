@@ -27,9 +27,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireAdmin()
   if (denied) return denied
-  const body = (await req.json().catch(() => null)) as { action?: unknown } | null
+  const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown } | null
   if (body?.action !== 'ask') return NextResponse.json({ error: 'send { "action": "ask" }' }, { status: 400 })
   const { id } = await params
-  const res = await askForClientNumber(id, 'manual')
+  // overrideGhl: ask even though their GHL sub-account already has a number (a test, or moving them off GHL).
+  const res = await askForClientNumber(id, 'manual', { overrideGhl: body.overrideGhl === true })
   return NextResponse.json(res, { status: res.ok ? 200 : 409 })
 }
