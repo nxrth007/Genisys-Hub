@@ -85,8 +85,8 @@ test("askDecision: a GHL sub-account that already has a number is never asked ab
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unavailable' }).ask, true)
-  // By hand only once GHL was read; a brand-new client has no GHL sub-account to read.
-  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unchecked' }).reason, plan.UNREAD_GHL)
+  // By hand a person decides, GHL read or not (the daily read is paused); a brand-new client has no GHL sub-account to read.
+  assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unchecked' }).ask, true)
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'unchecked' }).ask, true)
   // The sweep (a sub-account linked rather than made by the worker) waits for GHL's numbers too.
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'unchecked' }).reason, plan.UNREAD_GHL)

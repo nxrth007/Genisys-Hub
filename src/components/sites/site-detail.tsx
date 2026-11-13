@@ -203,8 +203,9 @@ function ghlNumbersLine(d: SiteDetail): string {
   if (!g) return 'No toll-free number yet. Echo asks about one in the Office right after onboarding (Hell-level).'
   if (d.phone === 'needs') return 'GHL shows no number on this sub-account yet, so it needs one.'
   if (d.phone === 'no_phone_system') return 'GHL says this sub-account’s phone system requires configuration (GHL support sets that up). A Hell-level number works without it.'
-  if (g.state === 'error') return `The Hub couldn’t read this sub-account’s numbers in GHL yet${g.detail ? `: ${g.detail}` : '.'} It tries again in a couple of hours.`
-  return 'No toll-free number yet. The Hub reads this sub-account’s numbers in GHL once a day and hasn’t yet.'
+  // The daily GHL read is paused (2026-11-13), so most older clients were never read.
+  if (g.state === 'error') return `No toll-free number yet, and the Hub couldn’t read this client’s GHL numbers${g.detail ? ` (${g.detail})` : ''}. Check their GHL sub-account for a number before asking.`
+  return 'No toll-free number yet. The Hub hasn’t checked their GHL sub-account for a number, so look there before asking.'
 }
 
 /** Numbers already in their GHL sub-account (the daily read): set up, so Echo doesn't ask about one. */
@@ -312,8 +313,9 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
   const [askMsg, setAskMsg] = useState<string | null>(null)
   const live = d.status === 'live'
   const req = d.request
-  // Only once GHL was read: a sub-account with a number there is set up already (Alex's rule).
-  const askable = !d.ghlNumbers || d.phone === 'needs' || d.phone === 'no_phone_system'
+  // A person can always ask, except when GHL is known to have their number (Alex's rule: set up
+  // already). Not read yet is no longer a reason to wait: that daily read is paused.
+  const askable = d.phone !== 'ghl'
 
   async function ask() {
     setAsking(true)
@@ -435,7 +437,7 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                     type="button"
                     onClick={ask}
                     disabled={asking || !d.account || !askable}
-                    title={!d.account ? 'This client has no Hell-level sub-account' : !askable ? 'The Hub reads their GHL numbers first (once a day)' : undefined}
+                    title={!d.account ? 'This client has no Hell-level sub-account' : !askable ? 'Their GHL sub-account already has a number' : undefined}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
                   >
                     {asking && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Ask in the Office

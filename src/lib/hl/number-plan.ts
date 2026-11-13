@@ -57,9 +57,10 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
     return { ask: false, reason: 'its sub-account is older than the number question' }
   }
-  // A new client has no GHL sub-account (null here). An older one with a linked GHL sub-account may
-  // have its number there already, so by hand or from the sweep it waits until GHL was read.
-  if (c.trigger !== 'onboarding' && c.ghlNumbers === 'unchecked') return { ask: false, reason: UNREAD_GHL }
+  // A new client has no GHL sub-account (null here). The sweep waits for GHL to be read: a linked GHL
+  // sub-account may have its number there already. By hand (Sites → Ask in the Office) a person decides,
+  // since the daily GHL read is paused and an older client moving to Hell-level could never be asked.
+  if (c.trigger === 'sweep' && c.ghlNumbers === 'unchecked') return { ask: false, reason: UNREAD_GHL }
   return { ask: true, reason: 'its sub-account is ready' }
 }
 
