@@ -26,7 +26,7 @@ const norm = (s: string) => s.toLowerCase().replace(/[{}\s_.]/g, '')
 const haystack = (f: MergeFieldDoc) => norm([f.token, f.label, f.example, f.hl, ...(f.also ?? []), ...f.ghl, ...(f.ghlNot ?? [])].filter(Boolean).join('|'))
 
 function Code({ children }: { children: React.ReactNode }) {
-  return <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground/90">{children}</code>
+  return <code className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground/90 [overflow-wrap:anywhere]">{children}</code>
 }
 
 function Codes({ list }: { list: string[] }) {
@@ -142,7 +142,7 @@ function NotFilled({ rows, onTake, picking }: { rows: typeof GHL_NOT_FILLED; onT
           <tbody>
             {rows.map((m) => (
               <tr key={m.token} className="border-b border-border-soft align-top last:border-0">
-                <td className="px-3 py-2 font-mono text-foreground/90">{m.token}</td>
+                <td className="px-3 py-2 font-mono text-foreground/90 [overflow-wrap:anywhere]">{m.token}</td>
                 <td className="px-3 py-2">{m.becomes === 'kept' ? <Badge color="red">As typed</Badge> : <Badge>Blank</Badge>}</td>
                 <td className="px-3 py-2 text-foreground/85">
                   {m.instead && (
@@ -209,12 +209,13 @@ export function MergeReference({
     setCopied(token)
     window.setTimeout(() => setCopied((c) => (c === token ? null : c)), 1500)
   }
+  // Side by side only when the reference itself is wide enough (a settings page in a narrow window stacks).
   return (
-    <div className="flex flex-col gap-4">
+    <div className="@container flex flex-col gap-4">
       <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search, or paste a GoHighLevel field like {{location.name}}" aria-label="Search merge fields" />
-      <div className="flex flex-col gap-4 sm:flex-row">
+      <div className="flex flex-col gap-4 @2xl:flex-row">
         {!q && (
-          <nav className="flex shrink-0 flex-wrap gap-1 sm:w-52 sm:flex-col sm:flex-nowrap sm:gap-px">
+          <nav className="flex shrink-0 flex-wrap gap-1 @2xl:w-52 @2xl:flex-col @2xl:flex-nowrap @2xl:gap-px">
             {MERGE_GROUPS.map((g) => (
               <NavItem key={g.key} on={view === g.key} label={g.title} count={g.fields.length} onClick={() => setView(g.key)} />
             ))}
@@ -227,7 +228,7 @@ export function MergeReference({
             <section key={g.key} className="flex flex-col gap-2.5">
               {q ? <p className="eyebrow text-muted-foreground">{g.title}</p> : <p className="text-[13px] text-muted-foreground">{g.intro}</p>}
               {g.fields.map((f) => (
-                <FieldCard key={f.token} f={f} merge={merge} account={g.key === 'account'} picking={!!onPick} copied={copied} onTake={take} />
+                <FieldCard key={f.token} f={f} merge={merge} account={g.key === 'account' || g.key === 'ghl'} picking={!!onPick} copied={copied} onTake={take} />
               ))}
             </section>
           ))}
