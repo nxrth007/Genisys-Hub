@@ -353,7 +353,8 @@ export function oneShotVars(facts: SiteFacts, fill: SiteFill, embeds: SiteEmbeds
     REGION_CONTEXT: one(fill.regionContext),
     HERO_HEADLINE: one(fill.heroHeadline),
     HERO_COPY: one(fill.heroCopy).replace(/^"|"$/g, ''),
-    HERO_IMAGE: one(fill.heroImage),
+    // The photo list Lovable gets isn't numbered, so "(photo 13)" would mean nothing to it.
+    HERO_IMAGE: one(fill.heroImage).replace(/\s*\((?:client |their )?photos? \d+(?:\s*(?:,|and|&)\s*\d+)*\)/gi, ''),
     PRIMARY_CTA: one(fill.primaryCta).replace(/^"|"$/g, ''),
     SERVICES_LIST: fill.services
       .filter((s) => one(s.name))

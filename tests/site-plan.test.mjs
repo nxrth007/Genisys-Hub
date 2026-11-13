@@ -181,6 +181,12 @@ test('a missing phone, email or required answer stops the build before Lovable',
   )
 })
 
+test('the hero image is named by what it shows, not by a photo number Lovable never sees', () => {
+  const vars = plan.oneShotVars(facts(), fill({ heroImage: 'Their photo of a finished bathroom with a corner tub under a window (photo 13).' }), embeds, { shown: [] })
+  assert.equal(vars.HERO_IMAGE, 'Their photo of a finished bathroom with a corner tub under a window.')
+  assert.equal(plan.oneShotVars(facts(), fill({ heroImage: 'a deck at dusk (photos 2 and 5)' }), embeds, { shown: [] }).HERO_IMAGE, 'a deck at dusk')
+})
+
 test('Claude may fix the legal name’s capitals, never its words', () => {
   assert.equal(plan.oneShotVars(facts(), fill(), embeds, { shown: [] }).LEGAL_NAME, 'Panacea Homes LLC')
   assert.equal(plan.oneShotVars(facts(), fill({ legalName: 'Panacea Kitchens LLC' }), embeds, { shown: [] }).LEGAL_NAME, 'Panacea homes llc.')

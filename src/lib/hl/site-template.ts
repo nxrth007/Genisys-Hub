@@ -11,7 +11,9 @@
  *   - "his photos" reads "the client's photos" (owners aren't all men);
  *   - an optional line for other facts the owner supplied (financing, free
  *     estimates…), which Ethan's filled examples add by hand;
- *   - each photo link carries what it shows, so Lovable can place it.
+ *   - each photo link carries what it shows, so Lovable can place it;
+ *   - the hero's "don't claim" line allows what section 1 says the owner
+ *     offers (Ethan's filled examples adapt that line per client).
  *
  * Fill it with renderOneShot(vars): {{NAME}} takes a value, and
  * [IF NAME] … [/IF] / [IF NO NAME] … [/IF] / [IF A OR B] … [/IF] keep their
@@ -90,7 +92,7 @@ Define the logo colors once as CSS variables/design tokens and use them everywhe
 - Secondary CTA: "Call {{PHONE_DISPLAY}}"
 [IF PROMO] - Promo callout: "{{PROMO}}" [/IF]
 - Hero image: {{HERO_IMAGE}}
-- Do not claim free estimates (unless supplied), same-day or emergency service, warranties, guarantees, financing, or pricing.
+- Do not claim free estimates, same-day or emergency service, warranties, guarantees, financing, or pricing unless section 1 says the owner offers it.
 
 ### Our Services (centered; every service needs an icon in the dropdown)
 Give each a concise, accurate description. Do not invent materials, brands, methods, timelines, warranties, permit handling, or prices.

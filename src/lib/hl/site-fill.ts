@@ -43,8 +43,10 @@ const SiteFillSchema = z.object({
   licenseLine: text.describe('License or registration exactly as supplied, e.g. "WA Contractor Reg. #ABC*123XY". Empty for none/no/N/A, and never an EIN.'),
   about: text.describe("The owner's About answer, cleaned up (spelling, grammar), 2-4 sentences, no added claims."),
   whyChooseUs: z.array(text).describe("The owner's reasons customers choose them, cleaned up, one per item. Without an answer: plain facts they supplied (services, area, experience), no superlatives."),
-  promo: text.describe('The promotion exactly as worded by the owner. Empty when none.'),
-  extraFacts: z.array(text).describe('Other concrete offers the owner supplied that no other field holds (free estimates, financing available, emergency service), short and exact. Empty list when none.'),
+  promo: text.describe('A discount or special offer the owner mentioned in any answer (e.g. "5% military discount"), worded as they did; several joined with "; ". Empty when none.'),
+  extraFacts: z
+    .array(text)
+    .describe('Other concrete things the owner offers that no other field holds and that are not discounts (free estimates, financing available, emergency service, a guarantee as stated), short and exact. Empty list when none.'),
   brandColors: text.describe("The client's colors as supplied (cleaned), or empty when none."),
   colorDirection: text.describe('One or two sentences on building the palette: from their colors, or a trade-appropriate palette when none.'),
   trade: text.describe('The trade in a few words, e.g. "roofing", "junk removal", "kitchen and bath remodeling".'),
