@@ -176,7 +176,8 @@ async function fixConsent(run: Run): Promise<boolean> {
     return (await page.locator('tr').count().catch(() => 0)) > 1 || /No (data|fields|results)/i.test(text)
   })
   // The table draws its rows a moment after the page (seen 2026-11-13: the first run looked too early).
-  const rows = page.locator('tr').filter({ hasText: /\bCheckbox\b/ })
+  // A row's text runs its cells together ("aCheckboxForm | Form 0…"), so look for the word inside it.
+  const rows = page.locator('tr').filter({ hasText: 'Checkbox' })
   const listed = Date.now() + 20_000
   while (!(await rows.count().catch(() => 0)) && Date.now() < listed) await sleep(700, opts.signal)
   await sleep(800, opts.signal)
