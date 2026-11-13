@@ -352,15 +352,17 @@ test('Echo shows the toll-free numbers after the answer: buying, bought, blocked
   assert.ok(no.activity.some((x) => x.text === 'Toll-free number for Client a declined'))
 })
 
-test('demo state carries a sample question', () => {
+test('demo state carries sample questions: a number, and a filled GHL registration', () => {
   const source = readFileSync(new URL('../src/lib/office/demo.ts', import.meta.url), 'utf8')
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } })
   const m = { exports: {} }
   runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
   const s = m.exports.demoState(NOW)
-  assert.equal(s.approvals.length, 1)
+  assert.equal(s.approvals.length, 2)
   assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing: in Hell-level, or in GHL after an ID check?')
   assert.equal(s.approvals[0].botId, 'echo')
+  assert.equal(s.approvals[1].question, 'Send Sample Painting’s toll-free registration in GHL?')
+  assert.equal(s.approvals[1].kind, 'registration')
 })
 
 test("GHL's toll-free registration: filled and held for an OK, with where to see what was filled", () => {

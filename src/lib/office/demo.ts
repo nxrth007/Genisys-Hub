@@ -40,7 +40,10 @@ export function demoInput(now: Date): OfficeInput {
       { id: 'j2', clientName: 'Sample Plumbing', status: 'succeeded', detail: 'Created "Sam: Sample Plumbing" (sample)', updatedAt: m(25), heartbeatAt: m(25), nextAttemptAt: m(30), finishedAt: m(25) },
       { id: 'c1', clientName: 'Sample Plumbing', status: 'succeeded', detail: "Put the Hub's copy into the 3 Incoming Lead workflows (sample)", updatedAt: m(12), heartbeatAt: m(12), nextAttemptAt: m(20), finishedAt: m(12), kind: 'customize' },
     ],
-    approvals: [{ id: 'sample-approval', kind: 'number', clientName: 'Sample Roofing', ringTo: '+16035550142', at: m(3) }],
+    approvals: [
+      { id: 'sample-approval', kind: 'number', clientName: 'Sample Roofing', ringTo: '+16035550142', at: m(3) },
+      { id: 'sample-registration', kind: 'registration', clientName: 'Sample Painting', stage: 'review', number: '+18555550188', reviewLink: '/sites', at: m(2) },
+    ],
     numberRequests: [
       { id: 'nr1', clientName: 'Sample Plumbing', status: 'bought', number: '+18555550123', detail: null, verifyNote: null, decidedAt: m(40), updatedAt: m(40), verification: 'in_review', verificationAt: m(35), verificationChangedAt: m(35) },
     ],
