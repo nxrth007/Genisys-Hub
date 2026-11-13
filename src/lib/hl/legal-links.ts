@@ -82,7 +82,9 @@ async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Se
     prisma.seoSite.findUnique({ where: { clientId }, select: { liveUrl: true, repoFullName: true, defaultBranch: true } }),
     prisma.client.findUnique({ where: { id: clientId }, select: { siteUrl: true } }),
   ])
-  const base = httpUrl(site?.liveUrl) ?? httpUrl(client?.siteUrl)
+  // The site set for the client in Clients decides (Alex, 2026-11-13). The SEO site's address follows
+  // it, but is saved alongside it, so on a site move it can still be the old one for a moment.
+  const base = httpUrl(client?.siteUrl) ?? httpUrl(site?.liveUrl)
   if (!base) return null
   const origin = new URL(base).origin
   const paths = new Set<string>()
@@ -127,6 +129,23 @@ export async function siteFormPages(clientId: string): Promise<string[]> {
   return [`${found.origin}/`, ...extra.map((p) => `${found.origin}${p}`)]
 }
 
+/** A link's host without www, for "is this on the client's site?". */
+export function siteHost(url: string | null | undefined): string | null {
+  const u = httpUrl(url)
+  if (!u) return null
+  try {
+    return new URL(u).hostname.replace(/^www\./i, '').toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/** Whether both links are on the client's site (set in Clients): what the twice-daily sync leaves alone. */
+export function legalLinksOnSite(profile: Pick<HlProfile, 'privacyUrl' | 'termsUrl'>, siteUrl: string | null | undefined): boolean {
+  const host = siteHost(siteUrl)
+  return !!host && siteHost(profile.privacyUrl) === host && siteHost(profile.termsUrl) === host
+}
+
 const lastLook = new Map<string, number>()
 
 /**
@@ -155,4 +174,30 @@ export async function fillLegalLinksFromSite(accountId: string, force = false): 
     console.warn(`[hell-level] legal links for ${accountId}:`, err instanceof Error ? err.message : err)
     return null
   }
+}
+
+/**
+ * Twice a day: each client sub-account's privacy and terms links follow the
+ * site set for the client in Clients (Alex, 2026-11-13: the consent wording's
+ * links must open that site's pages). Links that are blank, the Hub's own
+ * pages, or on another address are read again from the site; they only
+ * change when the site has the pages. Catches sites set before this, set
+ * outside the Clients page, and sites that were down when they were set.
+ */
+let lastSync = 0
+export async function maybeSyncLegalLinks(now = Date.now()): Promise<number> {
+  if (now - lastSync < 12 * 3600_000) return 0
+  lastSync = now
+  const accounts = await prisma.hlAccount.findMany({
+    where: { archivedAt: null, client: { is: { archivedAt: null, siteUrl: { not: null } } } },
+    select: { id: true, profile: true, client: { select: { siteUrl: true } } },
+  })
+  let changed = 0
+  for (const a of accounts) {
+    const p = readProfile(a.profile)
+    if (!siteHost(a.client?.siteUrl) || legalLinksOnSite(p, a.client?.siteUrl)) continue
+    const after = await fillLegalLinksFromSite(a.id, true)
+    if (after && (after.privacyUrl !== (p.privacyUrl || null) || after.termsUrl !== (p.termsUrl || null))) changed++
+  }
+  return changed
 }

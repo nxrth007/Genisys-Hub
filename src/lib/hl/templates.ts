@@ -60,7 +60,9 @@ export const QUOTE_FORM_SETTINGS: HlFormSettings = {
   thankYou: "Thanks! We got your request and we'll be in touch shortly.",
   consents: DEFAULT_CONSENTS,
   color: '#155EEF',
-  showLegalLinks: true,
+  // No "Privacy policy · Texting terms" line under the form (Alex, 2026-11-13): the site
+  // template shows those links below it, and the consent wording links to them anyway.
+  showLegalLinks: false,
 }
 
 export const CHAT_SETTINGS: HlFormSettings = {

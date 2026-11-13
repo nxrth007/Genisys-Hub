@@ -208,6 +208,42 @@ export async function maybeUpgradeClientAccounts(): Promise<number> {
   return accounts.length
 }
 
+/**
+ * Once: client sub-accounts' kit quote form ("Website Quote Form") stops showing
+ * its own "Privacy policy · Texting terms" line under the form, as new ones now
+ * start (Alex, 2026-11-13: the site template shows those links; the consent
+ * wording still links to the client's pages). Forms already switched off,
+ * renamed, or on a sub-account with no client (Lead Genisys's own) are left.
+ */
+let quoteLinksDone = false
+export async function maybeHideQuoteFormLegalLinks(): Promise<number> {
+  if (quoteLinksDone) return 0
+  const key = 'hl.quoteFormLegalLinksOff.v1'
+  if (await prisma.appSetting.findUnique({ where: { key }, select: { id: true } })) {
+    quoteLinksDone = true
+    return 0
+  }
+  try {
+    await prisma.appSetting.create({ data: { key, value: 'running' } })
+  } catch {
+    return 0 // another container got there first
+  }
+  quoteLinksDone = true
+  const forms = await prisma.hlForm.findMany({
+    where: { archivedAt: null, kind: 'form', name: 'Website Quote Form', account: { is: { archivedAt: null, clientId: { not: null } } } },
+    select: { id: true, settings: true },
+  })
+  let changed = 0
+  for (const f of forms) {
+    const s = f.settings && typeof f.settings === 'object' && !Array.isArray(f.settings) ? (f.settings as Record<string, unknown>) : {}
+    if (s.showLegalLinks === false) continue
+    await prisma.hlForm.update({ where: { id: f.id }, data: { settings: { ...s, showLegalLinks: false } as Prisma.InputJsonValue } })
+    changed++
+  }
+  await prisma.appSetting.update({ where: { key }, data: { value: `done ${new Date().toISOString()}: ${changed} of ${forms.length} quote forms` } })
+  return changed
+}
+
 /** A sub-account with no client behind it (the agency's own, a test account…). */
 export async function createStandaloneAccount(name: string): Promise<{ id: string }> {
   const n = clean(name)

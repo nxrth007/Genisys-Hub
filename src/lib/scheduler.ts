@@ -55,7 +55,8 @@ import { maybeSweepNumberRequests } from './hl/number-request'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
-import { maybeUpgradeClientAccounts } from './hl/accounts'
+import { maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
+import { maybeSyncLegalLinks } from './hl/legal-links'
 import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
 import { maybeSyncGoogleCalendars } from './hl/google-sync'
 import { maybeFillLogos } from './hl/logo'
@@ -538,6 +539,18 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
+    // Once: client quote forms drop the "Privacy policy · Texting terms" line under the form (now off by default).
+    void maybeHideQuoteFormLegalLinks()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} quote form(s) no longer show the links under the form`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level quote form links failed:', err))
+    // Twice a day: privacy and terms links follow the site set for the client in Clients.
+    void maybeSyncLegalLinks()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} sub-account(s) now link their site's privacy and terms pages`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level legal links failed:', err))
     // Google Calendar changes (moves, deletions, new busy time), read every 10 minutes in case a push went missing.
     void maybeSyncGoogleCalendars()
       .then((n) => {
