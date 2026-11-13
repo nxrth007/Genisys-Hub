@@ -537,9 +537,13 @@ export async function lovableMcpRemix(o: { projectId: string; workspaceId: strin
   const s = res.structured ?? {}
   const status = strOf(s.remix_status) ?? strOf(s.status) ?? 'unknown'
   const flat = (id: string | null) => (id ? projectRef({ id, name: o.name, editor_url: s.editor_url, preview_url: s.preview_url, workspace_id: o.workspaceId }) : null)
+  // A link to a project anywhere in the answer ("…lovable.dev/projects/<id>", or a preview address).
+  const linked = [...res.text.matchAll(/lovable\.dev\/projects\/([0-9a-f-]{36})|id-preview--([0-9a-f-]{36})/gi)].map((m) => flat(m[1] ?? m[2]))
   // The answer may echo the source project's id too: the copy is whichever project isn't the source.
   const project =
-    [projectRef(s.project), projectRef(s.new_project), flat(strOf(s.new_project_id)), flat(strOf(s.project_id))].find((p) => !!p && p.id !== o.projectId) ?? null
+    [projectRef(s.project), projectRef(s.new_project), flat(strOf(s.new_project_id)), flat(strOf(s.project_id)), projectRef(recOf(s.result)), ...linked].find((p) => !!p && p.id !== o.projectId) ??
+    null
+  if (status === 'completed' && !project) console.warn(`[lovable-mcp] remix completed but no new project id in the answer (keys: ${Object.keys(s).join(', ')})`)
   return { project: status === 'completed' ? project : null, status, error: strOf(s.error) ?? strOf(s.message) ?? (status === 'completed' ? null : res.text.slice(0, 300) || null) }
 }
 

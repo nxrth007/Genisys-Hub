@@ -298,7 +298,7 @@ export async function askForClientSite(clientId: string, trigger: 'onboarding' |
     ? siteQuestionDetail({ photos: g.facts.photos.length, skipped: g.facts.skipped.length, domain: g.facts.domain, phoneSource: g.facts.phoneSource, numberAsked: g.numberAsked, domainAsked: g.domainAsked, missing: g.missing })
     : null
   const earlier = c.hlSiteRequest?.editorUrl ? ` The earlier copy stays in Lovable: ${c.hlSiteRequest.editorUrl}` : ''
-  const who = trigger === 'manual' ? `by hand${opts.by ? ` (${opts.by})` : ''}` : 'the client just onboarded'
+  const who = trigger === 'manual' ? `by ${opts.by ?? 'an admin'}, by hand` : 'after onboarding'
   const data = {
     accountId: account.id,
     status: 'awaiting_approval',
@@ -319,7 +319,7 @@ export async function askForClientSite(clientId: string, trigger: 'onboarding' |
     stepAt: null,
     leaseUntil: null,
     finishedAt: null,
-    log: [{ at: new Date().toISOString(), what: `Asked in the Office (${who}).${earlier}` }] as unknown as Prisma.InputJsonValue,
+    log: [{ at: new Date().toISOString(), what: `Asked in the Office ${who}.${earlier}` }] as unknown as Prisma.InputJsonValue,
   }
   const row = c.hlSiteRequest
     ? await prisma.hlSiteRequest.update({ where: { id: c.hlSiteRequest.id }, data, select: { id: true } })
@@ -510,8 +510,8 @@ async function copyStep(r: SiteRow): Promise<boolean> {
   if (res.status === 'error' && !/time(d)? ?out|timeout/i.test(res.error ?? '')) {
     throw new SiteStop(`Lovable couldn’t copy the template: ${res.error ?? 'no reason given'}. Check Lovable for a project named “${name}” before asking again.`)
   }
-  // Still copying on Lovable's side: the next checks look for it by name.
-  await note(r.id, `Lovable is still copying (${res.error ?? res.status}).`)
+  // Still copying on Lovable's side (or its answer didn't name the copy): the next checks look for it by name.
+  await note(r.id, res.status === 'completed' ? 'Lovable copied the template; looking the copy up by name.' : `Lovable is still copying (${res.error ?? res.status}).`)
   return false
 }
 
