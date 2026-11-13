@@ -62,6 +62,7 @@ import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib
 import { ghlNumberTick, releaseLiveGhlNumber } from '@/lib/ghl-number/queue'
 import { ghlCensusTick, stopGhlCensus } from '@/lib/ghl-number/census'
 import { askForClientNumber } from '@/lib/hl/number-request'
+import { formFixTick, queueFormFix, releaseLiveFormFix } from '@/lib/ghl-form/queue'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const LEASE_MS = 20 * 60 * 1000
@@ -580,6 +581,9 @@ export function installWorkerLifecycle(): void {
     void releaseLiveCustomize('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-customize] could not release the in-flight job:', err)
     })
+    void releaseLiveFormFix('Released back to the queue because this instance is shutting down.').catch((err) => {
+      console.warn('[ghl-form] could not release the in-flight job:', err)
+    })
     stopGhlCensus()
   }
   process.once('SIGTERM', stop)
@@ -793,6 +797,8 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     // instead may have numbers already: the number sweep asks once GHL has been read.
     if (created && workerMode() === 'create') {
       void askForClientNumber(job.clientId, 'onboarding').catch((err) => console.warn('[ghl-subaccount-worker] toll-free number question:', describe(err)))
+      // And the snapshot's site form becomes theirs (src/lib/ghl-form): their name in the consent checkboxes.
+      void queueFormFix(job.clientId, { trigger: 'snapshot' }).catch((err) => console.warn('[ghl-subaccount-worker] site form:', describe(err)))
     }
     return 'succeeded'
   }
@@ -1153,6 +1159,7 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
     }
     if (!workerRunsBrowser()) {
       await ghlNumberTick({ runBrowser: false }).catch((err) => console.warn('[ghl-number] tick:', err))
+      await formFixTick({ runBrowser: false }).catch((err) => console.warn('[ghl-form] tick:', err))
       await customizeTick({ runBrowser: false }).catch((err) => console.warn('[ghl-customize] tick:', err))
       return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
     }
@@ -1165,6 +1172,12 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
         return null
       })
       if (num?.claimed) return { enabled: true, ran: true, enqueued, claimed: true, ...(num.outcome ? { outcome: `number:${num.outcome}` } : {}), promoted, recovered }
+      // Then a new client's site form (right after their snapshot loaded, before the site is built).
+      const form = await formFixTick({ runBrowser: !shuttingDown }).catch((err) => {
+        console.warn('[ghl-form] tick:', err)
+        return null
+      })
+      if (form?.claimed) return { enabled: true, ran: true, enqueued, claimed: true, ...(form.outcome ? { outcome: form.outcome } : {}), promoted, recovered }
       const custom = await customizeTick({ runBrowser: !shuttingDown }).catch((err) => {
         console.warn('[ghl-customize] tick:', err)
         return null

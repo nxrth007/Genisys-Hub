@@ -240,6 +240,71 @@ function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
   )
 }
 
+/** The snapshot's site form, made the client's own in GHL (src/lib/ghl-form), and the button that runs it. */
+function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullable<SiteDetail['siteForm']>; canAct: boolean }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const working = f.status === 'queued' || f.status === 'running'
+  async function fix() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/ghl-form`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'fix' }) })
+      const out = (await res.json().catch(() => ({}))) as { reason?: string; error?: string }
+      setMsg(res.ok ? out.reason || 'Queued.' : out.error || `HTTP ${res.status}`)
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const line = working
+    ? 'The worker is making the form theirs in GHL: their name in the consent checkboxes, no A Plus logo or links.'
+    : f.status === 'succeeded'
+      ? 'Theirs: the consent checkboxes name the client, with no A Plus logo or links (checked on the public form).'
+      : f.status === 'needs_human' || f.status === 'failed'
+        ? 'The last run stopped before saving anything half-done:'
+        : 'Not made theirs yet. The Hub does it right after a new sub-account’s snapshot loads; for this one, press Fix the form in GHL.'
+  return (
+    <Card title="Form for the site" id="site-form">
+      <p className="text-[12.5px] text-foreground/90">{line}</p>
+      {(f.status === 'needs_human' || f.status === 'failed') && f.detail && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">{f.detail}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-3 text-[12.5px]">
+        {f.formUrl && (
+          <a href={f.formUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> Public form
+          </a>
+        )}
+        {f.hasShot && (f.status === 'needs_human' || f.status === 'failed') && (
+          <a href={`/api/clients/${clientId}/ghl-form/shot`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> Where it stopped
+          </a>
+        )}
+        {f.at && (
+          <span className="text-[11.5px] text-muted-foreground" suppressHydrationWarning>
+            Last run {new Date(f.at).toLocaleString()}
+          </span>
+        )}
+      </div>
+      {canAct && !working && (
+        <div>
+          <button
+            type="button"
+            onClick={fix}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} {f.status === 'succeeded' ? 'Check the form again' : 'Fix the form in GHL'}
+          </button>
+        </div>
+      )}
+      {msg && <p className="text-[12px] text-muted-foreground">{msg}</p>}
+    </Card>
+  )
+}
+
 /** One client's folder, opened: their status, their site, and what the site build needs. */
 export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }) {
   const router = useRouter()
@@ -398,6 +463,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
       </div>
 
       {d.ghlRegistration && <GhlRegistrationCard clientId={d.client.id} r={d.ghlRegistration} canAct={canAsk} />}
+
+      {d.siteForm && <SiteFormCard clientId={d.client.id} f={d.siteForm} canAct={canAsk} />}
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
         <Card title="Details for the site">

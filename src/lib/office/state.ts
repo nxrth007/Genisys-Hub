@@ -139,6 +139,18 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       ghlLink: r.client?.ghlLocationId ? ghlPhoneSystemLink(r.client.ghlLocationId) : null,
       detail: r.status === 'awaiting_identity' ? r.detail : null,
     }))
+  // Site forms made the client's own (src/lib/ghl-form): Atlas shows them like the workflow copy job.
+  const formJobs = await safe('form jobs', () =>
+    prisma.ghlFormJob.findMany({
+      where: {
+        client: { is: { archivedAt: null } },
+        OR: [{ status: { in: ['queued', 'running'] } }, { status: { in: ['needs_human', 'failed'] }, updatedAt: { gte: openSince } }, { updatedAt: { gte: since } }],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 40,
+      select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+    }), [])
+  input.subaccountJobs.push(...formJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'form' as const })))
   // GHL toll-free registrations (src/lib/ghl-number/queue.ts): filled and waiting for an OK, stopped, moving, sent.
   const regs = await safe('ghl registrations', () =>
     prisma.ghlNumberJob.findMany({

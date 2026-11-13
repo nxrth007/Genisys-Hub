@@ -765,6 +765,7 @@ model Client {
   hlNumberRequest  HlNumberRequest?
   ghlNumberJob     GhlNumberJob?
   ghlNumberCensus  GhlNumberCensus?
+  ghlFormJob       GhlFormJob?
 }
 
 /// One queued attempt to create a client's GHL sub-account through the
@@ -921,6 +922,37 @@ model GhlNumberCensus {
   /// How it was read (CENSUS_VERSION in census-plan.ts): an older read doesn't count and is read again.
   version    Int       @default(1)
   updatedAt  DateTime  @updatedAt
+}
+
+/// Making the snapshot's site form a client's own (src/lib/ghl-form): the consent
+/// checkboxes name the client, and an older sub-account's A Plus logo and policy
+/// links go. One row per client; the browser worker runs it after their snapshot loads.
+model GhlFormJob {
+  id            String    @id @default(cuid())
+  clientId      String    @unique
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  locationId    String
+  /// queued | running | succeeded | needs_human | failed
+  status        String    @default("queued")
+  /// snapshot (right after the worker loaded it) | manual (Sites → Fix the form in GHL)
+  trigger       String    @default("snapshot")
+  attempts      Int       @default(0)
+  leaseUntil    DateTime?
+  heartbeatAt   DateTime?
+  nextAttemptAt DateTime  @default(now())
+  /// The form's id in GHL; its public page is api.leadconnectorhq.com/widget/form/<id>.
+  formId        String?
+  detail        String?   @db.Text
+  lastError     String?   @db.Text
+  log           Json?
+  /// The latest page image (where it stopped, or the end), and its step.
+  shot          Bytes?
+  shotStep      String?
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
 }
 
 /// A page image from a GHL number run. Only the latest few are kept.

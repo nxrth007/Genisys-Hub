@@ -121,8 +121,8 @@ export type SubaccountJobIn = {
   heartbeatAt: Date | null
   nextAttemptAt: Date
   finishedAt: Date | null
-  /** customize = the lead-workflow copy job. */
-  kind?: 'create' | 'customize'
+  /** customize = the lead-workflow copy job; form = the site form made the client's own. */
+  kind?: 'create' | 'customize' | 'form'
 }
 /**
  * A bot's question waiting for an answer in the Office: Echo asking where to
@@ -466,6 +466,28 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   for (const j of input.subaccountJobs) {
     const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
     const ended = j.finishedAt ?? j.updatedAt
+    if (j.kind === 'form') {
+      const what = `Site form for ${j.clientName}`
+      if (j.status === 'running') {
+        const beat = j.heartbeatAt ?? j.updatedAt
+        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
+        else add('atlas', { status: 'browsing', task: `Making ${j.clientName}'s site form theirs in GHL`, icon: 'globe', at: j.updatedAt })
+      } else if (j.status === 'queued') {
+        const waited = t - j.nextAttemptAt.getTime()
+        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what })
+        else add('atlas', { status: 'thinking', task: `${what} queued`, icon: 'dots', at: j.updatedAt })
+      } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        needsPerson.push({ name: j.clientName, at: ended, why, what })
+        feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} needs a person${why}`), 'needs_you')
+      } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
+        feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
+      } else if (j.status === 'succeeded') {
+        feed(`fj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Made ${j.clientName}'s site form theirs in GHL`, 'done')
+        if (age(ended) <= DONE_MS) add('atlas', { status: 'browsing', task: `Made ${j.clientName}'s site form theirs`, icon: 'check', at: ended })
+      }
+      continue
+    }
     if (j.kind === 'customize') {
       const what = `Lead workflows for ${j.clientName}`
       if (j.status === 'running') {

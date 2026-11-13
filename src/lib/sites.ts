@@ -6,6 +6,7 @@
  */
 import { prisma } from '@/lib/prisma'
 import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
+import { publicFormUrl } from '@/lib/ghl-form/plan'
 import { cantTextYet, currentCensus, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
@@ -98,6 +99,8 @@ export type SiteDetail = {
   request: { status: string; route: string; detail: string | null; verifyNote: string | null } | null
   /** GHL's toll-free registration, for a number in GHL. */
   ghlRegistration: GhlRegistrationView | null
+  /** The snapshot's site form made theirs (src/lib/ghl-form); null without a linked GHL sub-account. */
+  siteForm: { status: string | null; detail: string | null; formUrl: string | null; at: string | null; hasShot: boolean } | null
   /** Where their phone number stands (src/lib/ghl-number/census-plan.ts). */
   phone: PhoneState
   /** What the Hub last read of the linked GHL sub-account's numbers; null without a linked sub-account. */
@@ -127,6 +130,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
       ghlNumberCensus: { select: { locationId: true, state: true, numbers: true, checkedAt: true, triedAt: true, detail: true, version: true } },
+      ghlFormJob: { select: { status: true, detail: true, formId: true, updatedAt: true, finishedAt: true, shotStep: true } },
       ghlNumberJob: {
         select: {
           id: true,
@@ -181,6 +185,15 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         : null,
     request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route, detail: c.hlNumberRequest.detail, verifyNote: c.hlNumberRequest.verifyNote } : null,
     ghlRegistration: ghlNumber && c.ghlNumberJob ? registrationView(c.ghlNumberJob) : null,
+    siteForm: c.ghlLocationId
+      ? {
+          status: c.ghlFormJob?.status ?? null,
+          detail: c.ghlFormJob?.detail ?? null,
+          formUrl: c.ghlFormJob?.formId ? publicFormUrl(c.ghlFormJob.formId) : null,
+          at: (c.ghlFormJob?.finishedAt ?? c.ghlFormJob?.updatedAt)?.toISOString() ?? null,
+          hasShot: !!c.ghlFormJob?.shotStep,
+        }
+      : null,
     phone: phoneState({
       hlNumber: numbers.length > 0,
       request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route } : null,
