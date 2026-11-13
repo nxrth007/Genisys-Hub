@@ -3,7 +3,8 @@
 import { useMutation } from '@tanstack/react-query'
 import { Plus, Send, X } from 'lucide-react'
 import { renderTemplate, type MergeData } from '@/lib/hl/merge'
-import { MERGE_FIELDS, WEBHOOK_METHODS, type HlStep, type HlWebhookAuth } from '@/lib/hl/types'
+import { MERGE_FIELDS, MERGE_PICKER } from '@/lib/hl/merge-fields'
+import { WEBHOOK_METHODS, type HlStep, type HlWebhookAuth } from '@/lib/hl/types'
 import { Badge, Button, Field, Input, Select, Textarea, Toggle, hlFetch } from './ui'
 
 /**
@@ -141,10 +142,14 @@ export function WebhookStepFields({
             <div className="flex gap-2">
               <select value="" onChange={(e) => e.target.value && set({ rawBody: `${c.rawBody ?? ''}${e.target.value}` })} className="h-7 rounded-md border border-border bg-card px-2 text-[12px] text-foreground/90">
                 <option value="">{'{ }'} Insert field…</option>
-                {MERGE_FIELDS.map((m) => (
-                  <option key={m.token} value={m.token}>
-                    {m.label}
-                  </option>
+                {MERGE_PICKER.map((g) => (
+                  <optgroup key={g.title} label={g.title}>
+                    {g.options.map((m) => (
+                      <option key={m.token} value={m.token}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
                 {groups.map((g) => (
                   <optgroup key={g.label} label={g.label}>

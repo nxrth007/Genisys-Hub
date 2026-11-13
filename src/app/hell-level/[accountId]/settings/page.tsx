@@ -14,6 +14,7 @@ import { NotYet, RecordsTable, rv } from '@/components/hell-level/section'
 import { SETTINGS_PAGES } from '@/components/hell-level/nav'
 import { PipelinesManager } from '@/components/hell-level/pipelines-manager'
 import { ImportPanel } from '@/components/hell-level/import-panel'
+import { MergeReference } from '@/components/hell-level/merge-reference'
 import { DomainsPanel } from '@/components/hell-level/domains-panel'
 import { EmailPanel } from '@/components/hell-level/email-panel'
 import { StaffPanel } from '@/components/hell-level/staff-panel'
@@ -121,6 +122,12 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
       )
     case 'custom-values':
       return <CustomValuesPanel accountId={accountId} />
+    case 'merge-fields':
+      return (
+        <Panel title="Merge Fields" description="Every {{…}} field a workflow message can use: what it fills with, where that comes from, what happens when it’s blank, and GoHighLevel’s name for it.">
+          <MergeFieldsPanel accountId={accountId} />
+        </Panel>
+      )
     case 'tags':
       return (
         <RecordsTable
@@ -190,13 +197,23 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
   }
 }
 
+/** Merge Fields: the reference the step editor opens, with this sub-account's values. */
+function MergeFieldsPanel({ accountId }: { accountId: string }) {
+  const account = useAccount(accountId)
+  return (
+    <Card className="p-5">
+      <MergeReference profile={account.data?.account.profile ?? {}} />
+    </Card>
+  )
+}
+
 /** Custom Values: the business-profile values automations use ({{account.*}}) and the ones imported from GHL. */
 function CustomValuesPanel({ accountId }: { accountId: string }) {
   const account = useAccount(accountId)
   const p = account.data?.account.profile ?? {}
   return (
     <div className="flex flex-col">
-      <Panel title="Custom Values" description="Values every automation can drop into a message. Edit Hell-level’s under Business Profile.">
+      <Panel title="Custom Values" description="Values every automation can drop into a message. Edit them under Business Profile. The ones copied from GoHighLevel below are kept for reference: messages don’t fill them.">
         <Card>
           <Table head={['Name', 'Merge field', 'Value']}>
             {PROFILE_FIELDS.filter((f) => f.key !== 'ein').map((f) => (
@@ -208,6 +225,13 @@ function CustomValuesPanel({ accountId }: { accountId: string }) {
             ))}
           </Table>
         </Card>
+        <p className="text-[13px] text-muted-foreground">
+          Every field a message can use, and GoHighLevel’s names for them:{' '}
+          <Link href={`/hell-level/${accountId}/settings?tab=merge-fields`} className="font-medium text-foreground underline underline-offset-2 hover:text-primary">
+            Merge Fields
+          </Link>
+          .
+        </p>
       </Panel>
       <RecordsTable
         accountId={accountId}
@@ -281,7 +305,12 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
       </div>
       <div className="border-t border-border pt-5">
         <p className="text-[15px] font-semibold text-foreground">Business profile</p>
-        <p className="mb-4 text-[13px] text-muted-foreground">These fill the {'{{account.*}}'} fields in every automation (GHL’s custom values), and the texting verification.</p>
+        <p className="mb-4 text-[13px] text-muted-foreground">
+          These fill the {'{{account.*}}'} fields in every automation (GHL’s custom values), and the texting verification.{' '}
+          <Link href={`/hell-level/${accountId}/settings?tab=merge-fields`} className="font-medium text-foreground underline underline-offset-2 hover:text-primary">
+            Every merge field
+          </Link>
+        </p>
         <div className="grid gap-4 sm:grid-cols-2">
           {PROFILE_FIELDS.filter((f) => f.key !== 'logoUrl' && f.key !== 'brandColor').map((f) => (
             <Field key={f.key} label={f.label} hint={f.hint ?? `{{${f.merge}}}`}>

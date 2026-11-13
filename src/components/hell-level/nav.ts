@@ -227,6 +227,7 @@ export const SETTINGS_PAGES: SectionTab[] = [
   { key: 'reputation', label: 'Reputation Management' },
   { key: 'custom-fields', label: 'Custom Fields' },
   { key: 'custom-values', label: 'Custom Values' },
+  { key: 'merge-fields', label: 'Merge Fields' },
   { key: 'scoring', label: 'Manage Scoring' },
   { key: 'domains', label: 'Domains & URL Redirects' },
   { key: 'integrations', label: 'Integrations' },

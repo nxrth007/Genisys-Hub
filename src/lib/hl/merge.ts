@@ -50,6 +50,18 @@ export type MergeData = {
 /** GHL's scope for an inbound webhook's request, and a shorter one. */
 const WEBHOOK_SCOPES = ['inboundwebhookrequest', 'webhook']
 
+/**
+ * GHL custom values the Automation Copy board gave every client's GHL
+ * sub-account (AUTOMATION_VALUE_DEFS in src/lib/automation-copy.ts) whose key
+ * isn't the Business Profile field's own, so GHL copy that uses them fills.
+ * The other three (owner_first_name, business_name, business_phone) already match.
+ */
+export const GHL_CUSTOM_VALUE_KEYS: Record<string, keyof HlProfile> = {
+  owner_full_name: 'ownerName',
+  website_link: 'website',
+  notification_email: 'notifyEmail',
+}
+
 /** "Tuesday, October 28, 2026 at 2:00 PM EDT" and its parts, in the appointment's zone. */
 export function appointmentTimes(a: Pick<MergeAppointment, 'startTime' | 'timezone'>) {
   const d = new Date(a.startTime)
@@ -184,7 +196,8 @@ function value(path: string, d: MergeData): string | null {
   }
   if (scope === 'account' || scope === 'custom_values') {
     const a = (d.account ?? {}) as Record<string, unknown>
-    const hit = Object.keys(a).find((k) => snake(k) === key)
+    const ghlKey = scope === 'custom_values' && Object.prototype.hasOwnProperty.call(GHL_CUSTOM_VALUE_KEYS, key) ? GHL_CUSTOM_VALUE_KEYS[key] : undefined
+    const hit = Object.keys(a).find((k) => snake(k) === key) ?? ghlKey
     const v = hit ? str(a[hit]) : ''
     return key.endsWith('phone') ? prettyPhone(v) : v
   }
@@ -210,12 +223,12 @@ export function renderTemplate(text: string, d: MergeData): string {
     .replace(/\b(Hey|Hi|Hello),?\s+([!,.])/g, '$1$2')
 }
 
-/** Merge tokens in the text that wouldn't fill (unknown scope). */
+/** Merge tokens in the text that wouldn't fill (unknown scope). {{today}} counts as known: workflow actions fill it before this. */
 export function unknownTokens(text: string): string[] {
   const out: string[] = []
   for (const m of text.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
     const bare = m[1].trim().toLowerCase()
-    if (bare === 'reschedule_link' || bare === 'cancellation_link') continue
+    if (bare === 'reschedule_link' || bare === 'cancellation_link' || bare === 'today') continue
     const scope = bare.split('.')[0]
     if (!['contact', 'account', 'custom_values', 'form', 'call', 'appointment', 'user', 'location', 'trigger_link', 'custom_webhook', ...WEBHOOK_SCOPES].includes(scope)) out.push(m[0])
   }

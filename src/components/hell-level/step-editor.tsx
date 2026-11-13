@@ -4,7 +4,9 @@ import { useRef, useState } from 'react'
 import { Ban, CalendarClock, Clock, CornerUpLeft, Droplets, FileText, Filter, FilterX, GitBranch, GitFork, ListPlus, ListX, Mail, MailOpen, MessageCircle, MessageSquareReply, PenLine, Puzzle, Smartphone, Tag, UserPen, Webhook, Zap } from 'lucide-react'
 import { GHL_WEBHOOK_TYPES, ghlWebhookConfig } from '@/lib/hl/ghl-webhook-step'
 import { renderTemplate, unknownTokens, type MergeData } from '@/lib/hl/merge'
-import { APPOINTMENT_STATUSES, MERGE_FIELDS, STEPS, TRIGGERS, type HlCondition, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { MERGE_FIELDS, MERGE_PICKER, fillToday, sampleMerge } from '@/lib/hl/merge-fields'
+import { APPOINTMENT_STATUSES, STEPS, TRIGGERS, type HlCondition, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { MergeReferenceButton, MergeReferenceModal } from './merge-reference'
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from './ui'
 import { WebhookStepFields, type FieldGroup } from './webhook-step'
 import { WebhookTriggerFields, newHookId } from './webhook-trigger'
@@ -42,23 +44,6 @@ export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ classNa
 }
 
 export const TRIGGER_LOOK = { icon: Zap, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' }
-
-export const SAMPLE = (profile: HlProfile) => ({
-  contact: { firstName: 'Jennifer', lastName: 'Smith', phone: '+15125550123', email: 'jennifer@example.com' },
-  account: profile,
-  form: { service: 'Roof repair', message: 'Small leak over the kitchen' },
-  call: { from: '+15125550123' },
-  links: { review: 'https://genisys-hub.onrender.com/hl/l/sample' },
-  appointment: {
-    title: 'Jennifer Smith',
-    startTime: '2026-11-03T19:00:00.000Z',
-    timezone: 'America/New_York',
-    calendarName: 'Free Estimate',
-    location: '123 Main St',
-    rescheduleUrl: 'https://genisys-hub.onrender.com/hl/a/sample',
-    cancelUrl: 'https://genisys-hub.onrender.com/hl/a/sample?cancel=1',
-  },
-})
 
 const STATUS_LABEL: Record<string, string> = { confirmed: 'Confirmed', cancelled: 'Cancelled', showed: 'Showed', noshow: 'No-show', rescheduled: 'Rescheduled' }
 
@@ -180,41 +165,58 @@ function MessageField({
       el.setSelectionRange(start + token.length, start + token.length)
     })
   }
-  const preview = renderTemplate(value, { ...SAMPLE(profile), ...sample })
+  // The merge field reference: null = closed; text = opened searched for it.
+  const [guide, setGuide] = useState<string | null>(null)
+  const preview = renderTemplate(fillToday(value), { ...sampleMerge(profile), ...sample })
   const unknown = unknownTokens(value)
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-end justify-between gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <span className="text-[13px] font-medium text-foreground/90">{label}</span>
-        <select
-          value=""
-          onChange={(e) => e.target.value && insert(e.target.value)}
-          className="h-7 rounded-md border border-border bg-card px-2 text-[12px] text-foreground/90"
-        >
-          <option value="">{'{ }'} Insert field…</option>
-          {MERGE_FIELDS.map((m) => (
-            <option key={m.token} value={m.token}>
-              {m.label}
-            </option>
-          ))}
-          {groups.map((g) => (
-            <optgroup key={g.label} label={g.label}>
-              {g.options.map((m) => (
-                <option key={m.token} value={m.token}>
-                  {m.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <div className="ml-auto flex items-center gap-1.5">
+          <MergeReferenceButton onClick={() => setGuide('')} />
+          <select
+            value=""
+            onChange={(e) => e.target.value && insert(e.target.value)}
+            className="h-7 max-w-[160px] rounded-md border border-border bg-card px-2 text-[12px] text-foreground/90"
+          >
+            <option value="">{'{ }'} Insert field…</option>
+            {MERGE_PICKER.map((g) => (
+              <optgroup key={g.title} label={g.title}>
+                {g.options.map((m) => (
+                  <option key={m.token} value={m.token}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            {groups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.options.map((m) => (
+                  <option key={m.token} value={m.token}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
       </div>
       <Textarea ref={ref} rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
       {hint && <span className="text-[12px] text-muted-foreground">{hint}</span>}
-      {unknown.length > 0 && <span className="text-[12px] text-warning">Won’t fill: {unknown.join(', ')}</span>}
+      {unknown.length > 0 && (
+        <span className="text-[12px] text-warning">
+          Won’t fill: {unknown.join(', ')}.{' '}
+          <button type="button" onClick={() => setGuide(unknown[0])} className="font-medium underline underline-offset-2 hover:text-foreground">
+            What to use instead
+          </button>
+        </span>
+      )}
       <div className="rounded-lg bg-surface-muted p-3">
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Preview (sample lead)</p>
         <p className="whitespace-pre-wrap text-[13px] text-foreground/90">{preview || '—'}</p>
       </div>
+      <MergeReferenceModal open={guide !== null} query={guide ?? ''} onClose={() => setGuide(null)} profile={profile} data={sample} onPick={insert} />
     </div>
   )
 }
@@ -572,7 +574,7 @@ export function StepEditor({
           {(s.config.paths ?? []).reduce((n, p) => n + (Number(p.percent) || 0), 0) !== 100 && <p className="text-[12px] text-warning">The percentages should add up to 100.</p>}
         </div>
       )}
-      {s.type === 'webhook' && <WebhookStepFields stepId={s.id} config={s.config} set={set} accountId={accountId} groups={fieldGroups.filter((g) => g.stepId !== s.id)} sample={sample ?? {}} sampleMerge={SAMPLE(profile)} />}
+      {s.type === 'webhook' && <WebhookStepFields stepId={s.id} config={s.config} set={set} accountId={accountId} groups={fieldGroups.filter((g) => g.stepId !== s.id)} sample={sample ?? {}} sampleMerge={sampleMerge(profile)} />}
       {s.type === 'ghl' && GHL_WEBHOOK_TYPES.includes(s.ghl?.type ?? '') && ghlWebhookConfig(s.ghl!.type, s.ghl!.attributes) && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary-soft p-3">
           <span className="text-[13px] text-foreground/90">

@@ -329,23 +329,7 @@ export const triggerLabel = (t: HlTriggerType) => TRIGGERS.find((s) => s.type ==
 /** What a trigger card says: its own name (GHL names each one), else its kind. */
 export const triggerTitle = (t: HlTrigger) => t.name || (t.type === 'ghl' ? `GHL: ${t.ghl?.type ?? 'trigger'}` : triggerLabel(t.type))
 
-/** Merge fields offered in the builder. {{form.<key>}} also works for any form field. */
-export const MERGE_FIELDS: { token: string; label: string }[] = [
-  { token: '{{contact.first_name}}', label: 'Contact first name' },
-  { token: '{{contact.full_name}}', label: 'Contact full name' },
-  { token: '{{contact.phone}}', label: 'Contact phone' },
-  { token: '{{contact.email}}', label: 'Contact email' },
-  { token: '{{form.service}}', label: 'Form: service needed' },
-  { token: '{{form.message}}', label: 'Form: project details' },
-  { token: '{{appointment.start_time}}', label: 'Appointment: date and time' },
-  { token: '{{appointment.only_start_date}}', label: 'Appointment: date' },
-  { token: '{{appointment.only_start_time}}', label: 'Appointment: time' },
-  { token: '{{appointment.calendar}}', label: 'Appointment: calendar' },
-  { token: '{{appointment.meeting_location}}', label: 'Appointment: where' },
-  { token: '{{appointment.reschedule_link}}', label: 'Appointment: reschedule link' },
-  { token: '{{appointment.cancellation_link}}', label: 'Appointment: cancel link' },
-  ...PROFILE_FIELDS.filter((f) => f.key !== 'ein').map((f) => ({ token: `{{${f.merge}}}`, label: f.label })),
-]
+// The merge fields the builder offers, and what each one fills with: src/lib/hl/merge-fields.ts.
 
 // ---------------------------------------------------------------------------
 // Forms and pipelines
