@@ -50,7 +50,10 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
               role="radio"
               aria-checked={filter === f.id}
               onClick={() => setFilter(f.id)}
-              className={cn('rounded-md px-3 py-1.5 text-[12.5px] font-medium transition', filter === f.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-[12.5px] font-medium transition',
+                filter === f.id ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
             >
               {f.label}
             </button>

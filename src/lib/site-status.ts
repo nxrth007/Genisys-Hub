@@ -45,6 +45,37 @@ export function sortFolders<T extends { status: SiteStatus; name: string }>(rows
   return [...rows].sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name))
 }
 
+export type StageFacts = {
+  /** The Clients page has the site link. */
+  siteLive: boolean
+  /** A GHL sub-account is linked to the client. */
+  ghlLinked: boolean
+  /** An onboarding form came in for the client. */
+  hasIntake: boolean
+  /** The site number's toll-free texting verification, when it has one: none | pending | in_review | approved | rejected. */
+  texting: string | null
+}
+
+/**
+ * A journey stage as the folder shows it. Clients from before the journey
+ * tracker have no stage rows, so what the Hub knows wins: a site link means
+ * the website is done, an approved toll-free number means texting is
+ * registered, and so on. A stage with no row and no fact says "none" (No
+ * record) rather than "Not started".
+ */
+export function stageView(stage: string, row: { status: string; note: string | null; updatedAt: string | null }, f: StageFacts): { status: string; note: string | null } {
+  if (stage === 'website' && f.siteLive) return { status: 'done', note: row.status === 'done' ? row.note : 'Site link is on the Clients page' }
+  if (stage === 'a2p' && f.texting && f.texting !== 'none') {
+    if (f.texting === 'approved') return { status: 'done', note: 'Toll-free texting approved' }
+    if (f.texting === 'rejected') return { status: 'blocked', note: 'Toll-free texting verification rejected' }
+    return { status: 'in_progress', note: 'Toll-free texting verification is with Twilio' }
+  }
+  if (stage === 'subaccount' && f.ghlLinked && row.status !== 'done') return { status: 'done', note: 'GHL sub-account linked' }
+  if (stage === 'intake' && f.hasIntake && row.status !== 'done') return { status: 'done', note: 'Onboarding form received' }
+  if (!row.updatedAt && row.status === 'pending') return { status: 'none', note: null }
+  return { status: row.status, note: row.note }
+}
+
 /** What a toll-free number's texting verification means for the site build, in a sentence. */
 export function textingLine(o: { verificationStatus: string | null; verificationNote?: string | null; siteLive: boolean }): string {
   switch (o.verificationStatus) {

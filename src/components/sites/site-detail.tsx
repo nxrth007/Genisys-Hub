@@ -20,8 +20,9 @@ const STAGE_STYLE: Record<string, string> = {
   in_progress: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
   blocked: 'bg-red-500/15 text-red-600 dark:text-red-400',
   pending: 'bg-muted text-muted-foreground',
+  none: 'text-muted-foreground/70',
 }
-const STAGE_WORD: Record<string, string> = { done: 'Done', in_progress: 'In progress', blocked: 'Blocked', pending: 'Not started' }
+const STAGE_WORD: Record<string, string> = { done: 'Done', in_progress: 'In progress', blocked: 'Blocked', pending: 'Not started', none: 'No record' }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)

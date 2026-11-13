@@ -7,7 +7,7 @@
 import { prisma } from '@/lib/prisma'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
-import { siteStatus, sortFolders, type SiteStatus } from '@/lib/site-status'
+import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
   id: string
@@ -91,6 +91,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       siteUrl: true,
       siteLiveAt: true,
       lifecycle: true,
+      ghlLocationId: true,
       hlAccount: {
         select: {
           id: true,
@@ -103,16 +104,21 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     },
   })
   if (!c) return null
-  const journey = await getJourney(clientId)
+  const [journey, intakes] = await Promise.all([getJourney(clientId), prisma.clientIntake.count({ where: { clientId } })])
   const website = journey.stages.find((s) => s.stage === 'website')
   const p = c.hlAccount ? readProfile(c.hlAccount.profile) : null
   // The number for the site: the toll-free one, else whatever the sub-account texts from.
   const numbers = c.hlAccount?.numbers ?? []
   const n = numbers.find((x) => x.kind === 'toll_free') ?? numbers[0] ?? null
+  const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
-    journey: journey.stages.map((s) => ({ stage: s.stage, label: STAGE_LABEL[s.stage], status: s.status, note: s.note, updatedAt: s.updatedAt?.toISOString() ?? null })),
+    journey: journey.stages.map((s) => {
+      const updatedAt = s.updatedAt?.toISOString() ?? null
+      const view = stageView(s.stage, { status: s.status, note: s.note, updatedAt }, facts)
+      return { stage: s.stage, label: STAGE_LABEL[s.stage], status: view.status, note: view.note, updatedAt }
+    }),
     account:
       c.hlAccount && p
         ? {

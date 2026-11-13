@@ -46,6 +46,30 @@ test('sortFolders: the ones that need a site come first, by name; live ones last
   )
 })
 
+test('stageView: what the Hub knows beats a missing journey row; no row and no fact says "none"', () => {
+  const none = { status: 'pending', note: null, updatedAt: null }
+  const facts = { siteLive: true, ghlLinked: true, hasIntake: true, texting: 'approved' }
+  // Forte: no journey rows at all, but a live site, a GHL sub-account, a form and an approved number.
+  assert.deepEqual(s.stageView('website', none, facts), { status: 'done', note: 'Site link is on the Clients page' })
+  assert.deepEqual(s.stageView('a2p', none, facts), { status: 'done', note: 'Toll-free texting approved' })
+  assert.deepEqual(s.stageView('subaccount', none, facts), { status: 'done', note: 'GHL sub-account linked' })
+  assert.deepEqual(s.stageView('intake', none, facts), { status: 'done', note: 'Onboarding form received' })
+  assert.deepEqual(s.stageView('signup', none, facts), { status: 'none', note: null })
+  assert.deepEqual(s.stageView('qa', none, facts), { status: 'none', note: null })
+
+  const bare = { siteLive: false, ghlLinked: false, hasIntake: false, texting: null }
+  // A real row stays as it is.
+  const building = { status: 'in_progress', note: 'Lovable build started', updatedAt: '2026-11-12T10:00:00.000Z' }
+  assert.deepEqual(s.stageView('website', building, bare), { status: 'in_progress', note: 'Lovable build started' })
+  assert.deepEqual(s.stageView('website', { status: 'pending', note: null, updatedAt: '2026-11-12T10:00:00.000Z' }, bare), { status: 'pending', note: null })
+  // A done row keeps its own note when the site is live.
+  assert.deepEqual(s.stageView('website', { status: 'done', note: 'Shipped', updatedAt: '2026-11-12T10:00:00.000Z' }, facts), { status: 'done', note: 'Shipped' })
+  // Texting follows the number: filed → in progress; rejected → blocked; not filed → the row.
+  assert.equal(s.stageView('a2p', none, { ...bare, texting: 'in_review' }).status, 'in_progress')
+  assert.equal(s.stageView('a2p', none, { ...bare, texting: 'rejected' }).status, 'blocked')
+  assert.equal(s.stageView('a2p', none, { ...bare, texting: 'none' }).status, 'none')
+})
+
 test('textingLine: what the number can do, in a sentence', () => {
   assert.match(s.textingLine({ verificationStatus: 'approved', siteLive: true }), /^Texting approved/)
   assert.match(s.textingLine({ verificationStatus: 'in_review', siteLive: true }), /Twilio is reviewing it/)
