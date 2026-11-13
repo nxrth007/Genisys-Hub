@@ -18,6 +18,7 @@ import {
   type TollFreeGroup,
   type TollFreeInputs,
 } from '@/lib/toll-free'
+import { NumberPanel } from './number-panel'
 
 type Saved = { values: Partial<TollFreeInputs>; checks: string[]; updatedAt: string | null }
 type BoardData = {
@@ -171,6 +172,7 @@ export function TollFreeBoard({ clientId }: { clientId: string }) {
           {completeMsg.text}
         </p>
       )}
+      <NumberPanel clientId={clientId} />
       {q.isLoading ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…

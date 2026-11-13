@@ -59,6 +59,7 @@ import { ghlLabels } from './labels'
 import { sealString } from './session'
 import { loadLogin, loadSession, makeOtpPuller, OTP_KEY, saveSession } from './session-store'
 import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib/ghl-customize/queue'
+import { numberAfterCreate, numberTick, releaseLiveNumber, watchNumberStalls } from '@/lib/ghl-number/queue'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const LEASE_MS = 20 * 60 * 1000
@@ -574,6 +575,9 @@ export function installWorkerLifecycle(): void {
     void releaseLiveCustomize('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-customize] could not release the in-flight job:', err)
     })
+    void releaseLiveNumber('Released back to the queue because this instance is shutting down.').catch((err) => {
+      console.warn('[ghl-number] could not release the in-flight job:', err)
+    })
   }
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
@@ -780,6 +784,8 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       detail = `${detail} ${loaded.note}`
     }
     await saveJob(id, lease, { status: 'succeeded', leaseUntil: null, locationId, detail, lastError: null, finishedAt: new Date() })
+    // Atlas asks in the Office whether to get this client its toll-free number (src/lib/ghl-number).
+    void numberAfterCreate(job.clientId)
     return 'succeeded'
   }
 
@@ -1124,6 +1130,7 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
   })
   await watchForStalls().catch((err) => console.warn('[ghl-subaccount-worker] stall check:', err))
   await watchCustomizeStalls().catch((err) => console.warn('[ghl-customize] stall check:', err))
+  await watchNumberStalls().catch((err) => console.warn('[ghl-number] stall check:', err))
   if (shuttingDown) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   if (inFlight) return { enabled: true, ran: false, enqueued: 0, claimed: false, recovered }
   inFlight = true
@@ -1138,12 +1145,18 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
       promoted = res.count
     }
     if (!workerRunsBrowser()) {
+      await numberTick({ runBrowser: false }).catch((err) => console.warn('[ghl-number] tick:', err))
       await customizeTick({ runBrowser: false }).catch((err) => console.warn('[ghl-customize] tick:', err))
       return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
     }
     const claimed = await claimOne()
     if (!claimed) {
-      // No sub-account to create: the browser is free for a workflow customize job.
+      // No sub-account to create: the browser is free for an approved toll-free number, then workflow copy.
+      const num = await numberTick({ runBrowser: !shuttingDown }).catch((err) => {
+        console.warn('[ghl-number] tick:', err)
+        return null
+      })
+      if (num?.claimed) return { enabled: true, ran: true, enqueued, claimed: true, ...(num.outcome ? { outcome: `number:${num.outcome}` } : {}), promoted, recovered }
       const custom = await customizeTick({ runBrowser: !shuttingDown }).catch((err) => {
         console.warn('[ghl-customize] tick:', err)
         return null

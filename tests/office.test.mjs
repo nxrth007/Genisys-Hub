@@ -249,3 +249,64 @@ test('Atlas also shows the lead-workflow customize jobs: running, held, needs yo
   assert.equal(bot(done, 'atlas').icon, 'check')
   assert.ok(done.activity.some((a) => a.botId === 'atlas' && /Put the Hub's copy into Client a's lead workflows/.test(a.text) && a.tone === 'done'))
 })
+
+test('Atlas asks before buying a toll-free number: the question, its status and feed line', () => {
+  const s = deriveOffice({ ...emptyInput(), approvals: [{ id: 'n1', kind: 'number', clientName: 'Acme Roofing', at: ago(2) }] }, NOW)
+  assert.equal(s.approvals.length, 1)
+  const a = s.approvals[0]
+  assert.equal(a.id, 'n1')
+  assert.equal(a.botId, 'atlas')
+  assert.equal(a.question, 'Purchase a toll-free number for Acme Roofing and transfer it to their sub-account?')
+  assert.match(a.note, /\$2\.15\/month/)
+  assert.equal(a.at, ago(2).toISOString())
+  const atlas = bot(s, 'atlas')
+  assert.equal(atlas.status, 'needs_you')
+  assert.equal(atlas.task, 'Asking: buy a toll-free number for Acme Roofing?')
+  assert.ok(s.activity.some((x) => x.botId === 'atlas' && x.text === 'Asked to buy a toll-free number for Acme Roofing' && x.tone === 'needs_you'))
+  assert.ok(s.counts.needsYou >= 1)
+
+  // Oldest question first; the bot sums them up.
+  const two = deriveOffice(
+    { ...emptyInput(), approvals: [{ id: 'n2', kind: 'number', clientName: 'B Co', at: ago(1) }, { id: 'n1', kind: 'number', clientName: 'A Co', at: ago(5) }] },
+    NOW,
+  )
+  assert.deepEqual(two.approvals.map((x) => x.id), ['n1', 'n2'])
+  assert.equal(bot(two, 'atlas').task, '2 toll-free numbers waiting for your Yes')
+
+  assert.deepEqual(deriveOffice(emptyInput(), NOW).approvals, [])
+})
+
+test('Atlas shows the toll-free number jobs: approved, buying, needs you, failed, done, declined', () => {
+  const job = (id, status, extra = {}) => ({ id, clientName: `Client ${id}`, status, detail: null, updatedAt: ago(1), heartbeatAt: ago(0.2), nextAttemptAt: ago(2), finishedAt: null, kind: 'number', ...extra })
+  const run = (jobs) => bot(deriveOffice({ ...emptyInput(), subaccountJobs: jobs }, NOW), 'atlas')
+
+  const busy = run([job('a', 'running')])
+  assert.equal(busy.status, 'browsing')
+  assert.equal(busy.task, 'Buying and moving a toll-free number for Client a')
+  assert.equal(run([job('a', 'queued')]).task, 'Toll-free number for Client a approved, queued')
+  assert.equal(run([job('a', 'running', { heartbeatAt: ago(5) })]).status, 'error')
+
+  const id = run([job('a', 'needs_human', { detail: 'GHL wants its one-time ID check', finishedAt: ago(3) })])
+  assert.equal(id.status, 'needs_you')
+  assert.equal(id.task, 'Toll-free number for Client a needs you: GHL wants its one-time ID check')
+
+  assert.equal(run([job('a', 'failed', { detail: 'boom', finishedAt: ago(2) })]).status, 'error')
+
+  const done = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'succeeded', { finishedAt: ago(2) })] }, NOW)
+  assert.equal(bot(done, 'atlas').icon, 'check')
+  assert.ok(done.activity.some((x) => x.text === 'Gave Client a their toll-free number' && x.tone === 'done'))
+
+  const no = deriveOffice({ ...emptyInput(), subaccountJobs: [job('a', 'declined', { finishedAt: ago(2) })] }, NOW)
+  assert.equal(bot(no, 'atlas').status, 'idle')
+  assert.ok(no.activity.some((x) => x.text === 'Toll-free number for Client a declined'))
+})
+
+test('demo state carries a sample question', () => {
+  const source = readFileSync(new URL('../src/lib/office/demo.ts', import.meta.url), 'utf8')
+  const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } })
+  const m = { exports: {} }
+  runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
+  const s = m.exports.demoState(NOW)
+  assert.equal(s.approvals.length, 1)
+  assert.match(s.approvals[0].question, /^Purchase a toll-free number for Sample Roofing/)
+})

@@ -45,6 +45,31 @@ export function workerAlertText(kind: WorkerAlertKind, client: string, reason: s
   }
 }
 
+/** The number job (src/lib/ghl-number): a client's toll-free number from the number bank. */
+export type NumberAlertKind = 'approve' | 'bought' | 'id_check' | 'needs_human' | 'failed' | 'cap' | 'stuck' | 'waiting'
+
+export function numberAlertText(kind: NumberAlertKind, client: string, reason: string, link: string): string {
+  const why = reason.trim() ? ` ${shortReason(reason)}` : ''
+  switch (kind) {
+    case 'approve':
+      return `Genisys Hub: ${client}'s GHL sub-account is ready. Approve its toll-free number (about $2.15/mo) in the Office: ${link}`
+    case 'bought':
+      return `Genisys Hub: bought ${reason.trim() || 'a toll-free number'} for ${client} and moved it into their GHL sub-account. Open: ${link}`
+    case 'id_check':
+      return `Genisys Hub: GHL wants its one-time ID check in the number bank before the Hub can buy ${client}'s number. Do it once in GHL (Lead Genisys → Settings → Phone System → Add Number), then press Buy and move now: ${link}`
+    case 'failed':
+      return `Genisys Hub: getting ${client}'s toll-free number failed.${why} Open: ${link}`
+    case 'cap':
+      return `Genisys Hub: the Hub already bought its daily limit of numbers, so ${client}'s waits an hour and tries again. Open: ${link}`
+    case 'stuck':
+      return `Genisys Hub: the worker has been on ${client}'s toll-free number for over an hour and looks stuck.${why} Open: ${link}`
+    case 'waiting':
+      return `Genisys Hub: ${client}'s approved toll-free number has waited${why} for the worker. It may be stuck or paused. Open: ${link}`
+    default:
+      return `Genisys Hub: ${client}'s toll-free number needs a person.${why} Open: ${link}`
+  }
+}
+
 /** The workflow customize job (src/lib/ghl-customize): putting a client's copy into their lead workflows. */
 export type CustomizeAlertKind = 'needs_human' | 'failed' | 'code' | 'held' | 'stuck' | 'waiting'
 

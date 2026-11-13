@@ -2,13 +2,13 @@
 
 import dynamic from 'next/dynamic'
 import { useSyncExternalStore, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Pause, Play, Radio } from 'lucide-react'
+import { Check, Loader2, Pause, Play, Radio, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
-import type { OfficeState, OfficeStatus } from '@/lib/office/mapping'
+import type { OfficeApproval, OfficeBot, OfficeState, OfficeStatus } from '@/lib/office/mapping'
 import { OFFICE_THEMES, STATUS_META, type OfficeTheme } from './theme'
 
 // The SVG scene + animation loop only runs in the browser and stays out of
@@ -59,6 +59,98 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
+/**
+ * A bot's question waiting for a Yes or No (today: Atlas asking to buy a
+ * client's toll-free number). Yes sends the worker off to do it.
+ */
+function ApprovalCard({ a, bot, canAnswer, demo, onAnswered }: { a: OfficeApproval; bot: OfficeBot | undefined; canAnswer: boolean; demo: boolean; onAnswered: () => void }) {
+  const [busy, setBusy] = useState<'yes' | 'no' | null>(null)
+  const [done, setDone] = useState<'yes' | 'no' | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const color = bot?.color ?? '#34d399'
+  const locked = demo || !canAnswer || !!busy || !!done
+
+  async function answer(decision: 'yes' | 'no') {
+    setBusy(decision)
+    setErr(null)
+    try {
+      const res = await fetch('/api/office/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: a.id, decision }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`)
+      setDone(decision)
+      onAnswered()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div
+      className="pointer-events-auto w-full max-w-[480px] rounded-xl border border-white/10 bg-[#0b0e13]/90 p-3 backdrop-blur"
+      style={{ boxShadow: `0 0 0 1px ${color}40, 0 12px 40px rgba(0,0,0,0.55)` }}
+      role="alertdialog"
+      aria-label={a.question}
+    >
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold text-black" style={{ background: color, boxShadow: `0 0 8px ${color}66` }}>
+          {(bot?.name ?? 'Atlas')[0]}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-zinc-400">
+            <span className="font-medium" style={{ color }}>
+              {bot?.name ?? 'Atlas'}
+            </span>{' '}
+            · {bot?.role ?? 'CRM sub-accounts'} · <span className="font-mono">{format(new Date(a.at), 'h:mm a')}</span>
+          </div>
+          <p className="mt-0.5 text-[13px] font-medium leading-snug text-zinc-100">{a.question}</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-500">{a.note}</p>
+          {err && <p className="mt-1.5 text-[11px] text-red-300">{err}</p>}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            {done ? (
+              <span className={cn('inline-flex items-center gap-1 text-[12px] font-medium', done === 'yes' ? 'text-emerald-400' : 'text-zinc-400')}>
+                {done === 'yes' ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+                {done === 'yes' ? 'Approved. Atlas is on it.' : 'Declined.'}
+              </span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => answer('yes')}
+                  disabled={locked}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-40"
+                >
+                  {busy === 'yes' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Yes, buy it
+                </button>
+                <button
+                  type="button"
+                  onClick={() => answer('no')}
+                  disabled={locked}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/5 disabled:opacity-40"
+                >
+                  {busy === 'no' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} No
+                </button>
+                {demo ? (
+                  <span className="text-[11px] text-amber-300/80">Sample request (demo mode)</span>
+                ) : !canAnswer ? (
+                  <span className="text-[11px] text-zinc-500">Only an admin can answer this.</span>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const APPROVALS_SHOWN = 3
+
 export function OfficeView({ demo, user }: { demo: boolean; user: { name: string | null; email: string | null; image: string | null; role: string | null } }) {
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => 'night' as OfficeTheme)
   const [paused, setPaused] = useState(false)
@@ -74,7 +166,9 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
     refetchIntervalInBackground: false,
   })
 
+  const qc = useQueryClient()
   const bots = data?.bots ?? []
+  const approvals = data?.approvals ?? []
   const occupied = bots.filter((b) => b.id === 'alfred' || b.status !== 'idle').length
   const free = Math.max(0, DESKS.length - occupied)
   const working = data?.counts.working ?? 0
@@ -104,9 +198,26 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
         </header>
 
         <div className="relative flex-1">
-          {error ? (
-            <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded bg-red-500/15 px-3 py-1.5 text-xs text-red-300">Couldn&apos;t load office state ({(error as Error).message}). Retrying…</div>
-          ) : null}
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-3">
+            {error ? (
+              <div className="pointer-events-auto rounded bg-red-500/15 px-3 py-1.5 text-xs text-red-300">Couldn&apos;t load office state ({(error as Error).message}). Retrying…</div>
+            ) : null}
+            {approvals.slice(0, APPROVALS_SHOWN).map((a) => (
+              <ApprovalCard
+                key={a.id}
+                a={a}
+                bot={bots.find((b) => b.id === a.botId)}
+                canAnswer={user.role === 'admin'}
+                demo={demo}
+                onAnswered={() => qc.invalidateQueries({ queryKey: ['office-state', demo] })}
+              />
+            ))}
+            {approvals.length > APPROVALS_SHOWN && (
+              <div className="pointer-events-auto rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-zinc-300 backdrop-blur">
+                {approvals.length - APPROVALS_SHOWN} more waiting for an answer
+              </div>
+            )}
+          </div>
           {isLoading ? (
             <div className="grid h-full place-items-center text-xs text-zinc-500">Loading office…</div>
           ) : (

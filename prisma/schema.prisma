@@ -760,6 +760,9 @@ model Client {
   /// Browser-worker job that puts this client's copy into the GHL Incoming
   /// Lead workflows with Workflow AI (one row).
   ghlCustomizeJob  GhlCustomizeJob?
+  /// Browser-worker job that gets this client's GHL sub-account its toll-free
+  /// number from the number bank (one row).
+  ghlNumberJob     GhlNumberJob?
 }
 
 /// One queued attempt to create a client's GHL sub-account through the
@@ -846,6 +849,61 @@ model GhlCustomizeJob {
   shots         GhlCustomizeJobShot[]
 
   @@index([status, nextAttemptAt])
+}
+
+/// Gets a client's GHL sub-account its toll-free number without a GHL ID
+/// check per client (src/lib/ghl-number): the worker buys the number in the
+/// "number bank" sub-account (Lead Genisys, ID-checked once), moves it into
+/// the client's sub-account with GHL's Move Numbers tool, and checks where
+/// its calls ring. It never moves a number it didn't buy for this job.
+model GhlNumberJob {
+  id            String    @id @default(cuid())
+  clientId      String    @unique
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// The client's sub-account.
+  locationId    String
+  /// awaiting_approval (Atlas asked in the Office) | queued (a Yes) | running |
+  /// needs_human | succeeded | failed | declined (a No) | dry_run
+  status        String    @default("queued")
+  attempts      Int       @default(0)
+  leaseUntil    DateTime?
+  heartbeatAt   DateTime?
+  nextAttemptAt DateTime  @default(now())
+  /// The number chosen in the bank's buy list (E.164), saved before Buy is
+  /// pressed so a later run checks the bank for it instead of buying again.
+  pickedNumber  String?
+  buyStartedAt  DateTime?
+  /// The toll-free number this client got (E.164), once it is in the bank.
+  phoneNumber   String?
+  /// When it showed up in the client's sub-account.
+  movedAt       DateTime?
+  /// Where its calls ring, read back from GHL after the move.
+  forwardsTo    String?
+  lastError     String?   @db.Text
+  detail        String?   @db.Text
+  log           Json?
+  /// subaccount | sweep | manual
+  trigger       String    @default("subaccount")
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  shots         GhlNumberJobShot[]
+
+  @@index([status, nextAttemptAt])
+  @@index([buyStartedAt])
+}
+
+/// A page image from a number run. Only the latest few are kept.
+model GhlNumberJobShot {
+  id        String       @id @default(cuid())
+  jobId     String
+  job       GhlNumberJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  step      String
+  mime      String
+  data      Bytes
+  createdAt DateTime     @default(now())
+
+  @@index([jobId, createdAt])
 }
 
 /// A page image from a customize run. Only the latest few are kept.

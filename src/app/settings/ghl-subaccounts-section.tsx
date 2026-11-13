@@ -63,6 +63,97 @@ const CUSTOMIZE_LABELS: Record<string, string> = {
   dry_run: 'dry run',
 }
 
+type NumberState = {
+  ask: boolean
+  bankLocationId: string
+  jobs: { id: string; clientId: string; clientName: string; status: string; detail: string | null; phoneNumber: string | null; updatedAt: string }[]
+}
+
+const NUMBER_LABELS: Record<string, string> = {
+  awaiting_approval: 'waiting for a Yes in the Office',
+  queued: 'approved, queued',
+  running: 'running',
+  needs_human: 'needs a person',
+  failed: 'failed',
+  succeeded: 'done',
+  declined: 'declined',
+  dry_run: 'dry run',
+}
+
+/**
+ * The switch for the toll-free number ask: when the Hub finishes a new
+ * sub-account, Atlas asks in the Office to buy a toll-free number in the number
+ * bank (Lead Genisys) and move it there (src/lib/ghl-number). Nothing is bought
+ * without a Yes.
+ */
+function NumberAskRow() {
+  const qc = useQueryClient()
+  const q = useQuery<NumberState>({
+    queryKey: ['ghl-number'],
+    queryFn: async () => readJson<NumberState>(await fetch('/api/admin/ghl-number')),
+    retry: (count, err) => !(err instanceof ForbiddenError) && count < 2,
+  })
+  const set = useMutation({
+    mutationFn: async (ask: boolean) =>
+      readJson<NumberState>(
+        await fetch('/api/admin/ghl-number', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ask }) }),
+      ),
+    onSuccess: (data) => qc.setQueryData(['ghl-number'], data),
+  })
+  if (q.error instanceof ForbiddenError) return null
+  const on = !!q.data?.ask
+  const recent = (q.data?.jobs ?? []).slice(0, 5)
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-background px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Ask for a toll-free number when a new sub-account is ready</p>
+          <p className="text-xs text-muted-foreground">
+            Atlas asks in the Office; a Yes buys one in Lead Genisys (about $2.15/month) and moves it into the client&apos;s sub-account with GHL&apos;s
+            Move Numbers. A client&apos;s Toll-Free page can ask or buy either way.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={q.isLoading || set.isPending}
+          onClick={() => set.mutate(!on)}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50',
+            on ? 'bg-success/15 text-success' : 'bg-muted text-foreground/85',
+          )}
+        >
+          {set.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : on ? (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              Enabled
+            </>
+          ) : (
+            'Disabled'
+          )}
+        </button>
+      </div>
+      {recent.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs">
+          {recent.map((j) => (
+            <li key={j.id} className="flex flex-wrap items-baseline gap-x-2">
+              <a href={`/clients/${j.clientId}/toll-free`} className="font-medium hover:underline">
+                {j.clientName}
+              </a>
+              <span className="text-muted-foreground">
+                {NUMBER_LABELS[j.status] ?? j.status}
+                {j.phoneNumber ? ` · ${j.phoneNumber}` : ''}
+              </span>
+              <span className="text-muted-foreground/70">{new Date(j.updatedAt).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * The switch for the lead-workflow customize job: once a client's site link
  * is added, the Hub puts their Automation Copy into the three Incoming Lead
@@ -387,6 +478,7 @@ export function GhlSubaccountsSection() {
       </div>
 
       <CustomizeAutoRow />
+      <NumberAskRow />
 
       <div className="mt-3 rounded-lg border border-border bg-background px-4 py-3">
         <label htmlFor="ghl-snapshot-id" className="text-sm font-medium">

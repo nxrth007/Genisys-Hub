@@ -2,10 +2,12 @@ import { prisma } from '@/lib/prisma'
 import { textTeam } from '@/lib/team-sms'
 import {
   customizeAlertText,
+  numberAlertText,
   TEXT_AGAIN_AFTER_MS,
   textsTeamFor,
   workerAlertText,
   type CustomizeAlertKind,
+  type NumberAlertKind,
   type WorkerAlertKind,
 } from './alert-text'
 
@@ -33,6 +35,11 @@ async function textOnce(settingKey: string, p: Problem, message: string, label: 
 /** One sub-account problem, keyed by a job or client id. */
 export async function textWorkerProblem(opts: Problem & { kind: WorkerAlertKind }): Promise<void> {
   await textOnce(`ghlWorker.texted.${opts.kind}.${opts.key}`, opts, workerAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'GHL sub-account')
+}
+
+/** One toll-free number event (an approval to give, a purchase, a problem), keyed by a job id. */
+export async function textNumberEvent(opts: Problem & { kind: NumberAlertKind }): Promise<void> {
+  await textOnce(`ghlNumber.texted.${opts.kind}.${opts.key}`, opts, numberAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'GHL number')
 }
 
 /** One lead-workflow customize problem, keyed by a job or client id. */

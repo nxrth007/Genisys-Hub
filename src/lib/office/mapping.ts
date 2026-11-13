@@ -24,7 +24,7 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'alfred', name: 'Alfred', role: 'Chief of Staff', color: '#f5c542', source: 'All journey events + every other bot' },
   { id: 'wren', name: 'Wren', role: 'Whop signup intake', color: '#38bdf8', source: 'Journey stage "signup", WhopSignupClaim' },
   { id: 'ivy', name: 'Ivy', role: 'Onboarding form', color: '#a78bfa', source: 'ClientIntake, journey stage "intake"' },
-  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob' },
+  { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob, GhlNumberJob' },
   { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website"' },
   { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
@@ -109,8 +109,9 @@ export type A2pIn = { id: string; accountName: string; stage: string; note: stri
 export type RenderMonitorIn = { enabled: boolean; heartbeatFailures: number; openProblems: number; lastDigestAt: Date | null } | null
 /**
  * One browser-worker job: a GhlSubaccountJob (creates a client's GHL
- * sub-account) or, with kind 'customize', a GhlCustomizeJob (puts their copy
- * into the GHL lead workflows with Workflow AI).
+ * sub-account); with kind 'customize', a GhlCustomizeJob (puts their copy into
+ * the GHL lead workflows with Workflow AI); with kind 'number', a GhlNumberJob
+ * (buys a toll-free number in the number bank and moves it to the client).
  */
 export type SubaccountJobIn = {
   id: string
@@ -121,8 +122,11 @@ export type SubaccountJobIn = {
   heartbeatAt: Date | null
   nextAttemptAt: Date
   finishedAt: Date | null
-  kind?: 'create' | 'customize'
+  /** customize = the lead-workflow copy job; number = the toll-free number job. */
+  kind?: 'create' | 'customize' | 'number'
 }
+/** A bot's question waiting for a Yes or No in the Office (today: buying a client's toll-free number). */
+export type ApprovalIn = { id: string; kind: 'number'; clientName: string; at: Date }
 
 export type OfficeInput = {
   journeyEvents: JourneyEventIn[]
@@ -134,9 +138,11 @@ export type OfficeInput = {
   a2p: A2pIn[]
   render: RenderMonitorIn
   subaccountJobs: SubaccountJobIn[]
+  approvals: ApprovalIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
+  approvals: [],
   journeyEvents: [],
   openStages: [],
   intakes: [],
@@ -159,12 +165,24 @@ export type OfficeBot = RosterEntry & {
 }
 export type OfficeActivity = { id: string; at: string; botId: BotId; text: string; tone: OfficeStatus | 'done' }
 export type OfficeHandoff = { id: string; from: BotId; to: BotId; at: string; clientName: string }
+export type OfficeApproval = {
+  id: string
+  kind: 'number'
+  botId: BotId
+  /** What the bot asks, e.g. "Purchase a toll-free number for Acme and transfer it to their sub-account?" */
+  question: string
+  note: string
+  clientName: string
+  at: string
+}
 export type OfficeState = {
   generatedAt: string
   demo: boolean
   bots: OfficeBot[]
   activity: OfficeActivity[]
   handoffs: OfficeHandoff[]
+  /** Questions waiting for a person's Yes or No. */
+  approvals: OfficeApproval[]
   counts: { working: number; idle: number; needsYou: number; error: number }
 }
 
@@ -314,14 +332,61 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     })
   }
 
+  // Questions waiting for a Yes: Atlas asks before buying a client's toll-free number.
+  const approvals: OfficeApproval[] = [...input.approvals]
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      botId: 'atlas' as const,
+      question: `Purchase a toll-free number for ${a.clientName} and transfer it to their sub-account?`,
+      note: 'About $2.15/month. Bought in Lead Genisys, then moved with GHL’s Move Numbers.',
+      clientName: a.clientName,
+      at: a.at.toISOString(),
+    }))
+  for (const a of input.approvals) feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'atlas', `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
+  if (approvals.length) {
+    const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
+    add('atlas', {
+      status: 'needs_you',
+      task: approvals.length === 1 ? `Asking: buy a toll-free number for ${approvals[0].clientName}?` : `${approvals.length} toll-free numbers waiting for your Yes`,
+      icon: 'alert',
+      at: newest.at,
+    })
+  }
+
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.
   const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000))
-  /** `what` is set for lead-workflow jobs ("Lead workflows for X"); unset means a sub-account. */
-  const needsPerson: { name: string; at: Date; why: string; what?: string }[] = []
+  /** `what` is set for lead-workflow and number jobs ("Lead workflows for X"); unset means a sub-account. */
+  const needsPerson: { name: string; at: Date; why: string; what?: string; verb?: 'needs' | 'need' }[] = []
   const broken: { text: string; at: Date; customize?: boolean }[] = []
   for (const j of input.subaccountJobs) {
     const why = j.detail ? `: ${clip(j.detail, 80)}` : ''
     const ended = j.finishedAt ?? j.updatedAt
+    if (j.kind === 'number') {
+      const what = `Toll-free number for ${j.clientName}`
+      if (j.status === 'running') {
+        const beat = j.heartbeatAt ?? j.updatedAt
+        if (age(beat) > SUBACCOUNT_STALL_MS) broken.push({ text: `${what} stalled (no heartbeat for ${minutes(age(beat))} min)`, at: beat, customize: true })
+        else add('atlas', { status: 'browsing', task: `Buying and moving a toll-free number for ${j.clientName}`, icon: 'globe', at: j.updatedAt })
+      } else if (j.status === 'queued') {
+        const waited = t - j.nextAttemptAt.getTime()
+        if (waited > SUBACCOUNT_WAIT_MS) needsPerson.push({ name: j.clientName, at: j.nextAttemptAt, why: `: waiting ${minutes(waited)} min for the worker`, what, verb: 'needs' })
+        else add('atlas', { status: 'thinking', task: `${what} approved, queued`, icon: 'dots', at: j.updatedAt })
+      } else if (j.status === 'needs_human' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        needsPerson.push({ name: j.clientName, at: ended, why, what, verb: 'needs' })
+        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} needs a person${why}`), 'needs_you')
+      } else if (j.status === 'failed' && age(ended) <= SUBACCOUNT_OPEN_MS) {
+        broken.push({ text: clip(`${what} failed${why}`), at: ended, customize: true })
+        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', clip(`${what} failed${why}`), 'error')
+      } else if (j.status === 'succeeded') {
+        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Gave ${j.clientName} their toll-free number`, 'done')
+        if (age(ended) <= DONE_MS) add('atlas', { status: 'browsing', task: `Gave ${j.clientName} their toll-free number`, icon: 'check', at: ended })
+      } else if (j.status === 'declined') {
+        feed(`nj:${j.id}:${ended.getTime()}`, ended, 'atlas', `Toll-free number for ${j.clientName} declined`, 'thinking')
+      }
+      continue
+    }
     if (j.kind === 'customize') {
       const what = `Lead workflows for ${j.clientName}`
       if (j.status === 'running') {
@@ -379,7 +444,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   }
   if (needsPerson.length) {
     const newest = needsPerson.reduce((a, b) => (b.at > a.at ? b : a))
-    const one = newest.what ? `${newest.what} need you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
+    const one = newest.what ? `${newest.what} ${newest.verb ?? 'need'} you${newest.why}` : `Sub-account for ${newest.name} needs you${newest.why}`
     const noun = needsPerson.some((p) => p.what) ? 'GHL jobs' : 'sub-accounts'
     add('atlas', {
       status: 'needs_you',
@@ -483,6 +548,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     bots: all,
     activity: dedup.slice(0, opts.feedLimit ?? 50),
     handoffs,
+    approvals,
     counts: {
       working: all.filter((b) => isWorking(b.status)).length,
       idle: all.filter((b) => b.status === 'idle').length,
