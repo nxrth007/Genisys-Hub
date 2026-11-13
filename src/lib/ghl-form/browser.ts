@@ -175,8 +175,11 @@ async function fixConsent(run: Run): Promise<boolean> {
     if (!/Custom fields/i.test(text)) return false
     return (await page.locator('tr').count().catch(() => 0)) > 1 || /No (data|fields|results)/i.test(text)
   })
-  await sleep(1500, opts.signal)
+  // The table draws its rows a moment after the page (seen 2026-11-13: the first run looked too early).
   const rows = page.locator('tr').filter({ hasText: /\bCheckbox\b/ })
+  const listed = Date.now() + 20_000
+  while (!(await rows.count().catch(() => 0)) && Date.now() < listed) await sleep(700, opts.signal)
+  await sleep(800, opts.signal)
   const n = Math.min(await rows.count().catch(() => 0), 8)
   if (!n) throw new Halt('needs_human', `${opts.clientName}'s Custom Fields have no Checkbox field, so the snapshot's consent checkboxes aren't there. Nothing was changed.`)
   let changed = false
