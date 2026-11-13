@@ -134,34 +134,56 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
     await textNumberEvent({ key: id, kind: 'failed', client: r.client.name, reason: detail, link: hubLink('/office') })
     return { ok: false, reason: detail }
   }
+  let account: { id: string; name: string; profile: Prisma.JsonValue } | null = null
+  let num: Awaited<ReturnType<typeof buyNumber>> | null = null
+  let purchasing = false
   try {
-    const account = await prisma.hlAccount.findUnique({
+    const found = await prisma.hlAccount.findUnique({
       where: { id: r.accountId },
       select: { id: true, name: true, profile: true, numbers: { where: { status: 'active', kind: 'toll_free' }, orderBy: { createdAt: 'asc' } } },
     })
-    if (!account) return await fail("The client's Hell-level sub-account is gone, so nothing was bought.")
-    let num = account.numbers[0] ?? null
+    if (!found) return await fail("The client's Hell-level sub-account is gone, so nothing was bought.")
+    account = found
+    num = found.numbers[0] ?? null
     if (num) {
-      await note(id, `${account.name} already has ${prettyPhone(num.number)}; using it instead of buying another.`)
+      await note(id, `${found.name} already has ${prettyPhone(num.number)}; using it instead of buying another.`)
     } else {
       const pick = (await searchNumbers({ kind: 'toll_free' }))[0]
       if (!pick) return await fail('Twilio offered no toll-free numbers just now, so nothing was bought. Ask again in a while.')
-      num = await buyNumber(account.id, pick.number, 'toll_free')
-      console.log(`[hell-level] bought ${num.number} (toll_free) for ${account.name} after an Office Yes`)
-      await note(id, `Bought ${prettyPhone(num.number)} on Genisys's Twilio for ${account.name}.`)
+      purchasing = true
+      num = await buyNumber(found.id, pick.number, 'toll_free')
+      console.log(`[hell-level] bought ${num.number} (toll_free) for ${found.name} after an Office Yes`)
     }
-    // Calls ring the business phone (press any key to connect); with none on file every call is a missed call.
-    const ring = ringTo(readProfile(account.profile))
-    if (ring && !num.forwardTo) await prisma.hlPhoneNumber.update({ where: { id: num.id }, data: { forwardTo: ring, whisper: true } })
-    const rings = num.forwardTo ?? ring
-    const detail = `${prettyPhone(num.number)} is ${r.client.name}'s toll-free number. ${rings ? `Calls ring ${prettyPhone(rings)}.` : 'No business phone is on file, so every call to it counts as missed and gets the text-back.'}`
-    await note(id, detail, { status: 'bought', numberId: num.id, number: num.number, forwardTo: rings, detail })
-    const filed = await fileNumberVerification(r.clientId)
-    return { ok: true, status: 'bought', number: num.number, detail: filed ? `${detail} ${filed}` : detail }
   } catch (err) {
     const msg = describe(err)
-    return fail(err instanceof HlInputError ? msg : `Buying the number failed: ${msg}`)
+    if (err instanceof HlInputError) return fail(msg)
+    // Twilio may have sold the number even though saving it failed: say where to look before anyone asks again.
+    return fail(purchasing ? `Buying the number failed: ${msg} Check Twilio for a toll-free number that isn't in Hell-level before asking again.` : `Buying the number failed: ${msg}`)
   }
+  // From here the number is the client's: a later hiccup never marks the request failed (a retry would just find the number).
+  const ring = ringTo(readProfile(account.profile))
+  let unpointed = false
+  if (ring && !num.forwardTo) {
+    // Calls ring the business phone (press any key to connect); with none on file every call is a missed call.
+    await prisma.hlPhoneNumber.update({ where: { id: num.id }, data: { forwardTo: ring, whisper: true } }).catch((err) => {
+      unpointed = true
+      console.warn('[hell-level] pointing a new toll-free number at the business phone:', describe(err))
+    })
+  }
+  const rings = unpointed ? num.forwardTo : (num.forwardTo ?? ring)
+  const detail = [
+    `${prettyPhone(num.number)} is ${r.client.name}'s toll-free number.`,
+    unpointed
+      ? `Calls aren't pointed at ${prettyPhone(ring)} yet; set it in Hell-level → Settings → Phone Numbers.`
+      : rings
+        ? `Calls ring ${prettyPhone(rings)}.`
+        : 'No business phone is on file, so every call to it counts as missed and gets the text-back.',
+  ].join(' ')
+  await note(id, purchasing ? `Bought ${prettyPhone(num.number)} on Genisys's Twilio. ${detail}` : detail, { status: 'bought', numberId: num.id, number: num.number, forwardTo: rings, detail }).catch(
+    (err) => console.warn('[hell-level] saving a bought number on its request:', describe(err)),
+  )
+  const filed = await fileNumberVerification(r.clientId).catch(() => null)
+  return { ok: true, status: 'bought', number: num.number, detail: filed ? `${detail} ${filed}` : detail }
 }
 
 /**
