@@ -111,3 +111,10 @@ test('saved numbers are read back safely', () => {
   assert.deepEqual(plan.currentCensus({ locationId: 'L1', version: plan.CENSUS_VERSION }, 'L1'), { locationId: 'L1', version: plan.CENSUS_VERSION })
   assert.equal(plan.currentCensus({ locationId: 'L1', version: 1 }, 'L1'), null)
 })
+
+test("can't text yet: the numbers GHL marks Verification Required", () => {
+  const n = (number, verificationRequired, tollFree = true) => ({ number, tollFree, verificationRequired, isDefault: false })
+  assert.deepEqual(plan.cantTextYet([n('+18333482520', true), n('+19124916344', false, false)]).map((x) => x.number), ['+18333482520'])
+  assert.deepEqual(plan.cantTextYet([n('+19124916344', false, false)]), [])
+  assert.deepEqual(plan.cantTextYet([]), [])
+})

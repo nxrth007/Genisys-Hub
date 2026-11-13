@@ -125,6 +125,16 @@ export function phoneState(o: { hlNumber: boolean; request: { status: string; ro
   return 'unchecked'
 }
 
+/**
+ * Numbers GHL marks "Verification Required": they can't send texts, replies
+ * included, until their registration is filed in GHL, so the client's
+ * texting automations don't go out (seen on All Pro Painting's and
+ * Clogbusters' toll-free numbers, 2026-11-13).
+ */
+export function cantTextYet(numbers: CensusNumber[]): CensusNumber[] {
+  return numbers.filter((n) => n.verificationRequired)
+}
+
 /** The numbers saved with a read (JSON from the database), keeping only well-formed ones. */
 export function readCensusNumbers(json: unknown): CensusNumber[] {
   if (!Array.isArray(json)) return []

@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
+import { cantTextYet } from '@/lib/ghl-number/census-plan'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
 
@@ -208,7 +209,7 @@ function ghlNumbersLine(d: SiteDetail): string {
 
 /** Numbers already in their GHL sub-account (the daily read): set up, so Echo doesn't ask about one. */
 function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
-  const unverified = g.numbers.some((x) => x.tollFree && x.verificationRequired)
+  const unverified = cantTextYet(g.numbers)
   return (
     <>
       <ul className="flex flex-col gap-2">
@@ -225,9 +226,9 @@ function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
         ))}
       </ul>
       <p className="text-[12.5px] text-muted-foreground">Already set up in GHL, so Echo doesn’t ask about a number for this client. Texts and calls land in GHL’s Conversations.</p>
-      {unverified && (
+      {unverified.length > 0 && (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">
-          GHL shows “Verification Required”: this toll-free number can’t send texts until its registration is filed in GHL.
+          Can’t text yet: GHL shows “Verification Required” on {unverified.length === 1 ? pretty(unverified[0].number) : `${unverified.length} of these numbers`}. No texts go out from {unverified.length === 1 ? 'it' : 'them'}, replies and this client’s texting automations included, until the registration is filed in GHL.
         </p>
       )}
       {g.checkedAt && (
