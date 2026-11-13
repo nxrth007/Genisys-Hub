@@ -61,6 +61,7 @@ import { loadLogin, loadSession, makeOtpPuller, OTP_KEY, saveSession } from './s
 import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib/ghl-customize/queue'
 import { ghlNumberTick, releaseLiveGhlNumber } from '@/lib/ghl-number/queue'
 import { ghlCensusTick, stopGhlCensus } from '@/lib/ghl-number/census'
+import { askForClientNumber } from '@/lib/hl/number-request'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const LEASE_MS = 20 * 60 * 1000
@@ -768,7 +769,8 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     }
   }
 
-  const acceptLocation = async (locationId: string, detail: string): Promise<string> => {
+  /** created: the worker made this sub-account just now (so it has no number yet). */
+  const acceptLocation = async (locationId: string, detail: string, created = false): Promise<string> => {
     if (workerMode() === 'create') {
       await appendLog(
         id,
@@ -786,6 +788,12 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       detail = `${detail} ${loaded.note}`
     }
     await saveJob(id, lease, { status: 'succeeded', leaseUntil: null, locationId, detail, lastError: null, finishedAt: new Date() })
+    // Sub-account made and its snapshot loaded: now Echo asks about their toll-free number
+    // (Hell-level, or GHL after an ID check). Alex's order, 2026-11-13. One that was linked
+    // instead may have numbers already: the number sweep asks once GHL has been read.
+    if (created && workerMode() === 'create') {
+      void askForClientNumber(job.clientId, 'onboarding').catch((err) => console.warn('[ghl-subaccount-worker] toll-free number question:', describe(err)))
+    }
     return 'succeeded'
   }
 
@@ -914,7 +922,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
       if (!linked.ok) {
         return failHuman(`${result.detail || 'GHL accepted it'} The Hub couldn't link it: ${linked.reason}`, result.locationId)
       }
-      return acceptLocation(linked.locationId || result.locationId, result.detail || `Created the sub-account ${result.locationId}.`)
+      return acceptLocation(linked.locationId || result.locationId, result.detail || `Created the sub-account ${result.locationId}.`, true)
     }
 
     if (result.status === 'dry_run') {
@@ -945,7 +953,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
             note: `Browser worker created sub-account ${found.id}; the page did not show a location id, so it was linked from the agency list`,
           })
           if (!linked.ok) return failHuman(`${result.detail || 'GHL may have created it.'} The Hub couldn't link "${found.name}": ${linked.reason}`, found.id)
-          return acceptLocation(linked.locationId || found.id, `Created "${found.name}". The page did not show a location id; it was found on the agency list and linked.`)
+          return acceptLocation(linked.locationId || found.id, `Created "${found.name}". The page did not show a location id; it was found on the agency list and linked.`, true)
         }
         return failHuman(`${result.detail || 'GHL needs a person before this can continue.'} Searched the agency list for "${fields.name}" and it was not there.`)
       }

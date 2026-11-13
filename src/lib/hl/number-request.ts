@@ -1,14 +1,16 @@
 /**
  * A client's Hell-level toll-free number, asked for in the Office.
  *
- * Right after onboarding makes the client's Hell-level sub-account, Echo asks:
- * "Buy a toll-free number for <client> in Hell-level?" (status
- * awaiting_approval, plus a text). Yes buys one on Genisys's Twilio and rings
- * the client's business phone. There's no ID check: GHL's selfie is only for
- * numbers on its own phone system. Once the client's site link is in, the
- * number's texting verification is filed (free; Twilio reviews it in about 3
- * business days). No drops it. Buying costs money, so it never happens
- * without a Yes.
+ * Once the browser worker has made a new client's GHL sub-account and its
+ * snapshot has loaded, Echo asks: buy their toll-free number in Hell-level, or
+ * in GHL after an ID check? (status awaiting_approval, plus a text).
+ * Hell-level buys one on Genisys's Twilio right away, with no ID check, and
+ * rings the client's business phone; once their site link is in, its texting
+ * verification is filed (free; Twilio reviews it in about 3 business days).
+ * GHL waits for a person's ID check there, then the browser worker takes the
+ * number (src/lib/ghl-number). No drops it. Buying costs money, so it never
+ * happens without an answer. A GHL sub-account that already has a number is
+ * never asked about (the daily read, src/lib/ghl-number/census.ts).
  *
  * Decisions are in ./number-plan.ts; the Office shows the questions
  * (src/lib/office) and answers them through /api/office/approvals.
@@ -78,7 +80,7 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
   })
   if (!decision.ask || !account) return { ok: false, reason: decision.reason }
   const ring = ringTo(readProfile(account.profile))
-  const msg = `Asked in the Office (${trigger === 'manual' ? 'by hand' : 'the client just onboarded'}). Calls would ring ${ring ? prettyPhone(ring) : 'nobody (no business phone on file)'}.`
+  const msg = `Asked in the Office (${trigger === 'manual' ? 'by hand' : 'their GHL sub-account and snapshot are ready'}). Calls would ring ${ring ? prettyPhone(ring) : 'nobody (no business phone on file)'}.`
   const data = {
     accountId: account.id,
     status: 'awaiting_approval',
@@ -275,7 +277,14 @@ export async function maybeSweepNumberRequests(now = Date.now()): Promise<number
   let changed = 0
   const since = await numberSince()
   const fresh = await prisma.client.findMany({
-    where: { archivedAt: null, hlNumberRequest: { is: null }, hlAccount: { is: { createdAt: { gte: since } } } },
+    where: {
+      archivedAt: null,
+      hlNumberRequest: { is: null },
+      hlAccount: { is: { createdAt: { gte: since } } },
+      // Only once their GHL sub-account is ready: linked, and the worker's run (if any) finished with the snapshot loaded.
+      ghlLocationId: { not: null },
+      OR: [{ ghlSubaccountJob: { is: null } }, { ghlSubaccountJob: { is: { status: 'succeeded' } } }],
+    },
     select: { id: true },
     take: 20,
   })

@@ -51,7 +51,7 @@ test('prettyPhone: (855) 676-2067 from any US form, anything else unchanged', ()
   assert.equal(plan.prettyPhone(null), '')
 })
 
-test('askDecision: Echo asks once, right after onboarding made the sub-account', () => {
+test('askDecision: Echo asks once, when the sub-account is made and its snapshot loaded', () => {
   assert.deepEqual(plan.askDecision(base), { ask: true, reason: 'its sub-account is ready' })
   assert.equal(plan.askDecision({ ...base, archived: true }).ask, false)
   assert.equal(plan.askDecision({ ...base, accountId: null }).reason, 'no Hell-level sub-account yet')
@@ -85,9 +85,12 @@ test("askDecision: a GHL sub-account that already has a number is never asked ab
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unavailable' }).ask, true)
-  // By hand only once GHL was read; right after onboarding the new sub-account has none to read.
+  // By hand only once GHL was read; right after its snapshot loads, a new sub-account has none to read.
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unchecked' }).reason, 'the Hub hasn’t read its GHL numbers yet (it does once a day)')
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'unchecked' }).ask, true)
+  // The sweep (a sub-account linked rather than made by the worker) waits for GHL's numbers too.
+  assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'unchecked' }).reason, 'the Hub hasn’t read its GHL numbers yet (it does once a day)')
+  assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'none' }).ask, true)
   // No linked GHL sub-account: only Hell-level applies, as before.
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: null }).ask, true)
   // Forte: its Hell-level number answers first.
@@ -181,7 +184,7 @@ test('number texts: plain, short, and each links to where to act', () => {
     assert.ok(t.endsWith(link), k)
     assert.ok(t.length <= 320, `${k} is ${t.length} chars`)
   }
-  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /just onboarded\. Approve their Hell-level toll-free number \(about \$2\.15\/mo, no ID check\) in the Office/)
+  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /Acme Roofing's GHL sub-account and snapshot are ready\. Pick their toll-free number in the Office \(Hell-level, or GHL after an ID check\)/)
   assert.match(alertText.numberAlertText('failed', 'Acme Roofing', 'Twilio said no.', link), /buying Acme Roofing's toll-free number failed\. Twilio said no\./)
   assert.match(alertText.numberAlertText('verify', 'Acme Roofing', 'Add the address.', link), /texting verification can't be filed yet\. Add the address\./)
   assert.match(alertText.numberAlertText('rejected', 'Acme Roofing', '30509: opt-in link not public', link), /Twilio rejected Acme Roofing's toll-free texting verification\. 30509/)

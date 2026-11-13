@@ -34,7 +34,8 @@ export type AskCandidate = {
 export type AskDecision = { ask: boolean; reason: string }
 
 /**
- * Echo asks once per client, right after onboarding made their sub-account.
+ * Echo asks once per client, once their GHL sub-account is made and its
+ * snapshot loaded.
  * Older sub-accounts, and a client someone already answered No for, are only
  * asked again by hand.
  */
@@ -55,8 +56,9 @@ export function askDecision(c: AskCandidate): AskDecision {
   if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
     return { ask: false, reason: 'its sub-account is older than the number question' }
   }
-  // By hand, only once GHL was read: an older sub-account may have its number there already.
-  if (c.trigger === 'manual' && c.ghlNumbers === 'unchecked') return { ask: false, reason: 'the Hub hasn’t read its GHL numbers yet (it does once a day)' }
+  // Only a sub-account the worker just made (onboarding) is known to have no number; by hand or
+  // from the sweep, wait until GHL was read: a linked sub-account may have its number there already.
+  if (c.trigger !== 'onboarding' && c.ghlNumbers === 'unchecked') return { ask: false, reason: 'the Hub hasn’t read its GHL numbers yet (it does once a day)' }
   return { ask: true, reason: 'its sub-account is ready' }
 }
 
