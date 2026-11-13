@@ -210,6 +210,11 @@ test('uploads: EIN letters, documents and HEIC files are left out by name', () =
 test('phone, domain and link helpers', () => {
   assert.deepEqual(plan.phoneParts('484-362-7127'), { display: '(484) 362-7127', e164: '+14843627127' })
   assert.equal(plan.phoneParts('12345'), null)
+  // Two numbers in one answer: the first goes on the site.
+  assert.deepEqual(plan.phoneParts('540-555-0101 and 703-555-0199'), { display: '(540) 555-0101', e164: '+15405550101' })
+  assert.deepEqual(plan.phoneParts('+1 (540) 555-0101 / cell'), { display: '(540) 555-0101', e164: '+15405550101' })
+  assert.equal(plan.firstEmail('owner@acme.com and office@acme.com'), 'owner@acme.com')
+  assert.equal(plan.firstEmail('none'), '')
   assert.equal(plan.cleanDomain('https://www.Acme-Roofing.com/contact'), 'acme-roofing.com')
   assert.equal(plan.cleanDomain('no'), null)
   assert.deepEqual(plan.socialLinksFrom('FB: facebook.com/acme.roofing, ig https://instagram.com/acme and none'), [

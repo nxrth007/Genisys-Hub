@@ -111,11 +111,22 @@ export function pickPhotos(files: string[], max = 30): { photos: SitePhoto[]; sk
   return { photos, skipped }
 }
 
-/** "+14843627127" → { display: "(484) 362-7127", e164: "+14843627127" }; null when it isn't a US number. */
+/**
+ * "+14843627127" → { display: "(484) 362-7127", e164: "+14843627127" }; null
+ * when there's no US number. An answer with two ("540-… and 703-…") gives
+ * the first.
+ */
 export function phoneParts(raw: string | null | undefined): { display: string; e164: string } | null {
-  const d = (raw ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
-  if (d.length !== 10) return null
-  return { display: `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`, e164: `+1${d}` }
+  for (const part of (raw ?? '').split(/\s*(?:,|;|\/|&|\n|\band\b|\bor\b)\s*/i)) {
+    const d = part.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+    if (d.length === 10) return { display: `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`, e164: `+1${d}` }
+  }
+  return null
+}
+
+/** The first email address in an answer ("a@x.com and b@y.com" → "a@x.com"), or blank. */
+export function firstEmail(raw: string | null | undefined): string {
+  return /[^\s@,;:<>()"']+@[^\s@,;:<>()"']+\.[a-z]{2,}/i.exec(raw ?? '')?.[0] ?? ''
 }
 
 /** "https://www.Acme.com/x" → "acme.com"; null when it isn't a domain. */
