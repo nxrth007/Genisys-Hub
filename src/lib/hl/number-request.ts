@@ -20,7 +20,8 @@ import { textNumberEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { jobLogEntry } from '@/lib/ghl-subaccount-worker/heartbeat'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
-import { askDecision, FILE_RETRY_MS, prettyPhone, readyToFile, reconcileVerify, ringTo, textsTo } from './number-plan'
+import { ghlPhoneSystemLink, queueGhlNumber } from '@/lib/ghl-number/queue'
+import { askDecision, FILE_RETRY_MS, nextNumberState, prettyPhone, readyToFile, reconcileVerify, ringTo, textsTo, type NumberChoice } from './number-plan'
 import { buyNumber, searchNumbers } from './twilio'
 import { submitVerification } from './verification'
 
@@ -97,26 +98,59 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
   return { ok: true, status: 'awaiting_approval', id: row.id }
 }
 
-export type NumberDecisionResult = { ok: true; status: string; number?: string | null; detail?: string | null } | { ok: false; reason: string }
+export type NumberDecisionResult = { ok: true; status: string; number?: string | null; detail?: string | null; link?: string } | { ok: false; reason: string }
 
-/** Yes or No on an Office question. A Yes buys the number right away. */
-export async function decideClientNumber(id: string, decision: 'yes' | 'no', by: string): Promise<NumberDecisionResult> {
-  const r = await prisma.hlNumberRequest.findUnique({ where: { id }, select: { id: true, status: true, log: true } })
+/**
+ * An answer to an Office number question (see nextNumberState):
+ * - hl (or yes): buy a Hell-level number now;
+ * - ghl: wait while a person passes GHL's ID check for the client's sub-account;
+ * - identified: hand the GHL route to the browser worker (src/lib/ghl-number);
+ * - no: decline.
+ */
+export async function decideClientNumber(id: string, decision: 'yes' | NumberChoice, by: string): Promise<NumberDecisionResult> {
+  const choice: NumberChoice = decision === 'yes' ? 'hl' : decision
+  const r = await prisma.hlNumberRequest.findUnique({
+    where: { id },
+    select: { id: true, status: true, log: true, clientId: true, client: { select: { name: true, ghlLocationId: true } } },
+  })
   if (!r) return { ok: false, reason: 'That question is gone.' }
-  if (r.status !== 'awaiting_approval') return { ok: false, reason: `It was already answered (${r.status.replace('_', ' ')}).` }
-  const yes = decision === 'yes'
+  const next = nextNumberState(r.status, choice)
+  if (!next) return { ok: false, reason: `It was already answered (${r.status.replace(/_/g, ' ')}).` }
+  const location = r.client.ghlLocationId
+  if ((choice === 'ghl' || choice === 'identified') && !location) {
+    return { ok: false, reason: `${r.client.name} has no GHL sub-account linked, so the GHL route isn't open. Buy it in Hell-level, or link the sub-account first.` }
+  }
+  const said: Record<NumberChoice, string> = {
+    hl: `Hell-level chosen by ${by}.`,
+    ghl: `GHL chosen by ${by}: waiting for GHL's ID check.`,
+    identified: `Identification complete, said ${by}.`,
+    no: `Declined by ${by}.`,
+  }
   const moved = await prisma.hlNumberRequest.updateMany({
-    where: { id, status: 'awaiting_approval' },
+    where: { id, status: r.status },
     data: {
-      status: yes ? 'buying' : 'declined',
+      status: next,
+      ...(choice === 'hl' ? { route: 'hl' } : choice === 'no' ? {} : { route: 'ghl' }),
       decidedBy: by,
       decidedAt: new Date(),
-      detail: yes ? null : `Declined by ${by}.`,
-      log: logged(r.log, yes ? `Approved by ${by}.` : `Declined by ${by}.`),
+      detail: choice === 'no' ? `Declined by ${by}.` : null,
+      log: logged(r.log, said[choice]),
     },
   })
   if (moved.count !== 1) return { ok: false, reason: 'Someone else answered it first.' }
-  if (!yes) return { ok: true, status: 'declined' }
+  if (choice === 'no') return { ok: true, status: 'declined' }
+  if (choice === 'ghl') {
+    return {
+      ok: true,
+      status: 'awaiting_identity',
+      link: ghlPhoneSystemLink(location!),
+      detail: `In ${r.client.name}'s GHL sub-account: Add Number → pick a toll-free number → Proceed to Buy, then finish GHL's ID check. Then press Identification complete.`,
+    }
+  }
+  if (choice === 'identified') {
+    await queueGhlNumber({ clientId: r.clientId, requestId: id, locationId: location!, by })
+    return { ok: true, status: 'ghl_working', detail: 'The worker is getting the number in GHL now. It shows up here in a few minutes.' }
+  }
   return buyForRequest(id)
 }
 
@@ -264,7 +298,7 @@ export async function maybeSweepNumberRequests(now = Date.now()): Promise<number
   }
   const blocked = await prisma.hlNumberRequest.findMany({
     // Never tried (the site link came in while the hook was down), or tried and blocked a while ago.
-    where: { status: 'bought', client: { siteUrl: { not: null } }, OR: [{ verifyTriedAt: null }, { verifyNote: { not: null }, verifyTriedAt: { lt: new Date(now - FILE_RETRY_MS) } }] },
+    where: { status: 'bought', route: 'hl', client: { siteUrl: { not: null } }, OR: [{ verifyTriedAt: null }, { verifyNote: { not: null }, verifyTriedAt: { lt: new Date(now - FILE_RETRY_MS) } }] },
     select: { clientId: true },
     take: 10,
   })

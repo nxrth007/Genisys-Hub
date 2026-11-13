@@ -125,6 +125,7 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-[26px] font-semibold tabular-nums tracking-tight text-foreground">{pretty(d.number.number)}</span>
                 <CopyButton value={pretty(d.number.number)} label="the toll-free number" />
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{d.number.where === 'ghl' ? 'In GHL' : 'Hell-level'}</span>
               </div>
               <p className="text-[12.5px] text-muted-foreground">Put this number on their site. Leads who call or text it reach the client, and every lead goes through Hell-level’s automations.</p>
               <ul className="flex flex-col gap-1.5 text-[12.5px] text-foreground/90">
@@ -134,7 +135,11 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                 </li>
                 <li className="flex items-center gap-2">
                   <MessageSquareShare className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  {d.number.forwardTextsTo ? `Texts are forwarded to ${pretty(d.number.forwardTextsTo)}.` : 'Texts aren’t forwarded (set it in Hell-level → Settings → Phone Numbers).'}
+                  {d.number.where === 'ghl'
+                    ? 'Texts land in GHL’s Conversations for the sub-account.'
+                    : d.number.forwardTextsTo
+                      ? `Texts are forwarded to ${pretty(d.number.forwardTextsTo)}.`
+                      : 'Texts aren’t forwarded (set it in Hell-level → Settings → Phone Numbers).'}
                 </li>
               </ul>
               <p
@@ -155,7 +160,11 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
             <>
               <p className="text-[13px] text-foreground/90">
                 {req?.status === 'awaiting_approval'
-                  ? 'Echo asked in the Office; the number is bought once someone answers Yes.'
+                  ? 'Echo asked in the Office: Hell-level, or GHL after an ID check.'
+                  : req?.status === 'awaiting_identity'
+                    ? 'GHL chosen: waiting for the ID check, then Identification complete in the Office.'
+                    : req?.status === 'ghl_working' || req?.status === 'buying'
+                      ? 'Getting the number now.'
                   : req?.status === 'declined'
                     ? 'Someone answered No in the Office.'
                     : req?.status === 'failed'
@@ -163,7 +172,7 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
                       : 'No toll-free number yet.'}
               </p>
               <div className="flex flex-wrap items-center gap-2">
-                {req?.status === 'awaiting_approval' ? (
+                {req?.status === 'awaiting_approval' || req?.status === 'awaiting_identity' ? (
                   <Link href="/office" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium hover:bg-muted">
                     Answer it in the Office
                   </Link>

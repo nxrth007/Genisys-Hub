@@ -51,6 +51,21 @@ export function askDecision(c: AskCandidate): AskDecision {
   return { ask: true, reason: 'its sub-account is ready' }
 }
 
+/** The answers an Office number question takes: Hell-level, GHL, Identification complete, or No. */
+export type NumberChoice = 'hl' | 'ghl' | 'identified' | 'no'
+
+/**
+ * Where an answer leads, or null when it doesn't fit the question's state.
+ * Asked: Hell-level buys now, GHL waits for the ID check, No declines.
+ * Waiting on the ID check: Identification complete hands it to the browser
+ * worker; Hell-level and No still work (a change of mind).
+ */
+export function nextNumberState(status: string, choice: NumberChoice): string | null {
+  if (status === 'awaiting_approval') return choice === 'hl' ? 'buying' : choice === 'ghl' ? 'awaiting_identity' : choice === 'no' ? 'declined' : null
+  if (status === 'awaiting_identity') return choice === 'identified' ? 'ghl_working' : choice === 'hl' ? 'buying' : choice === 'no' ? 'declined' : null
+  return null
+}
+
 /**
  * Where the number's calls ring: the business phone leads are told to call,
  * else the owner's notification phone. Null leaves it a missed-call catcher

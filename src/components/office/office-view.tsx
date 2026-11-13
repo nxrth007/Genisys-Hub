@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useSyncExternalStore, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Check, Loader2, Pause, Play, Radio, X } from 'lucide-react'
+import { Check, ExternalLink, Loader2, Pause, Play, Radio, ShieldCheck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
@@ -59,12 +59,19 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Answer = { decision: 'yes' | 'no'; text: string }
+type Decision = 'hl' | 'ghl' | 'identified' | 'no'
+type Answer = { decision: Decision; text: string }
+
+const BTN_PRIMARY = 'inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-40'
+const BTN_SECONDARY = 'inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-[12px] font-medium text-zinc-100 transition hover:bg-white/10 disabled:opacity-40'
+const BTN_GHOST = 'inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-medium text-zinc-400 transition hover:bg-white/5 hover:text-zinc-200 disabled:opacity-40'
 
 /**
- * A bot's question waiting for a Yes or No (today: Echo asking to buy a new
- * client's Hell-level toll-free number). Yes buys it right away, and the card
- * stays a few seconds to say what was bought.
+ * A bot's question waiting for an answer (today: Echo asking where to get a new
+ * client's toll-free number). Asked: Buy in Hell-level (right away, no ID
+ * check) or Verify identity in GHL (opens the client's GHL Phone System and
+ * waits). Then Identification complete hands the GHL route to the browser
+ * worker. An answer that settles it stays a few seconds to say what happened.
  */
 function ApprovalCard({
   a,
@@ -81,12 +88,13 @@ function ApprovalCard({
   done: Answer | null
   onAnswered: (answer: Answer) => void
 }) {
-  const [busy, setBusy] = useState<'yes' | 'no' | null>(null)
+  const [busy, setBusy] = useState<Decision | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const color = bot?.color ?? '#f472b6'
   const locked = demo || !canAnswer || !!busy || !!done
+  const spin = (d: Decision) => busy === d && <Loader2 className="h-3.5 w-3.5 animate-spin" />
 
-  async function answer(decision: 'yes' | 'no') {
+  async function answer(decision: Decision) {
     setBusy(decision)
     setErr(null)
     try {
@@ -97,7 +105,7 @@ function ApprovalCard({
       })
       const out = (await res.json().catch(() => ({}))) as { error?: string; detail?: string | null }
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`)
-      onAnswered({ decision, text: decision === 'yes' ? out.detail || 'Approved.' : 'Declined.' })
+      onAnswered({ decision, text: decision === 'no' ? 'Declined.' : out.detail || 'Done.' })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -105,9 +113,21 @@ function ApprovalCard({
     }
   }
 
+  const ghlButton = (label: string, decision: Decision | null) =>
+    a.ghlLink && !locked ? (
+      // A real link, so the new tab opens from the click itself (an opened-after-fetch window gets blocked).
+      <a href={a.ghlLink} target="_blank" rel="noopener noreferrer" onClick={() => decision && void answer(decision)} className={BTN_SECONDARY}>
+        {decision && spin(decision)} {label} <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    ) : (
+      <button type="button" disabled className={BTN_SECONDARY} title={a.ghlLink ? undefined : 'No GHL sub-account is linked to this client'}>
+        {label} <ExternalLink className="h-3.5 w-3.5" />
+      </button>
+    )
+
   return (
     <div
-      className="pointer-events-auto w-full max-w-[480px] rounded-xl border border-white/10 bg-[#0b0e13]/90 p-3 backdrop-blur"
+      className="pointer-events-auto w-full max-w-[520px] rounded-xl border border-white/10 bg-[#0b0e13]/90 p-3 backdrop-blur"
       style={{ boxShadow: `0 0 0 1px ${color}40, 0 12px 40px rgba(0,0,0,0.55)` }}
       role="alertdialog"
       aria-label={a.question}
@@ -125,38 +145,43 @@ function ApprovalCard({
           </div>
           <p className="mt-0.5 text-[13px] font-medium leading-snug text-zinc-100">{a.question}</p>
           <p className="mt-1 text-[11px] leading-snug text-zinc-500">{a.note}</p>
+          {a.detail && <p className="mt-1.5 rounded-md bg-amber-400/10 px-2 py-1 text-[11px] leading-snug text-amber-300">{a.detail}</p>}
           {err && <p className="mt-1.5 text-[11px] text-red-300">{err}</p>}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {done ? (
-              <span className={cn('inline-flex items-start gap-1 text-[12px] font-medium leading-snug', done.decision === 'yes' ? 'text-emerald-400' : 'text-zinc-400')}>
-                {done.decision === 'yes' ? <Check className="mt-px h-3.5 w-3.5 shrink-0" /> : <X className="mt-px h-3.5 w-3.5 shrink-0" />}
+              <span className={cn('inline-flex items-start gap-1 text-[12px] font-medium leading-snug', done.decision === 'no' ? 'text-zinc-400' : 'text-emerald-400')}>
+                {done.decision === 'no' ? <X className="mt-px h-3.5 w-3.5 shrink-0" /> : <Check className="mt-px h-3.5 w-3.5 shrink-0" />}
                 {done.text}
               </span>
+            ) : a.stage === 'identity' ? (
+              <>
+                {ghlButton('Open GHL', null)}
+                <button type="button" onClick={() => answer('identified')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('identified') || <ShieldCheck className="h-3.5 w-3.5" />} Identification complete
+                </button>
+                <button type="button" onClick={() => answer('hl')} disabled={locked} className={BTN_GHOST}>
+                  {spin('hl')} Buy in Hell-level instead
+                </button>
+                <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
+                  {spin('no') || <X className="h-3.5 w-3.5" />} No
+                </button>
+              </>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => answer('yes')}
-                  disabled={locked}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-40"
-                >
-                  {busy === 'yes' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Yes, buy it
+                <button type="button" onClick={() => answer('hl')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('hl') || <Check className="h-3.5 w-3.5" />} Buy in Hell-level
                 </button>
-                <button
-                  type="button"
-                  onClick={() => answer('no')}
-                  disabled={locked}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-[12px] font-medium text-zinc-300 transition hover:bg-white/5 disabled:opacity-40"
-                >
-                  {busy === 'no' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} No
+                {ghlButton('Verify identity in GHL', 'ghl')}
+                <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
+                  {spin('no') || <X className="h-3.5 w-3.5" />} No
                 </button>
-                {demo ? (
-                  <span className="text-[11px] text-amber-300/80">Sample request (demo mode)</span>
-                ) : !canAnswer ? (
-                  <span className="text-[11px] text-zinc-500">Only an admin can answer this.</span>
-                ) : null}
               </>
             )}
+            {!done && (demo ? (
+              <span className="text-[11px] text-amber-300/80">Sample request (demo mode)</span>
+            ) : !canAnswer ? (
+              <span className="text-[11px] text-zinc-500">Only an admin can answer this.</span>
+            ) : null)}
           </div>
         </div>
       </div>
@@ -190,7 +215,8 @@ export function OfficeView({ demo, user }: { demo: boolean; user: { name: string
     ...(data?.approvals ?? []).filter((a) => !answered.some((x) => x.a.id === a.id)),
   ]
   function onAnswered(a: OfficeApproval, answer: Answer) {
-    setAnswered((prev) => [...prev.filter((x) => x.a.id !== a.id), { a, answer }])
+    // Choosing GHL doesn't settle it: the same card comes back at its next step (the ID check).
+    if (answer.decision !== 'ghl') setAnswered((prev) => [...prev.filter((x) => x.a.id !== a.id), { a, answer }])
     void qc.invalidateQueries({ queryKey: ['office-state', demo] })
     setTimeout(() => setAnswered((prev) => prev.filter((x) => x.a.id !== a.id)), 12_000)
   }

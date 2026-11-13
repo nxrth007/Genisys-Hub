@@ -86,6 +86,8 @@ export function textingLine(o: { verificationStatus: string | null; verification
       return 'Texting verification filed; Twilio is reviewing it (about 3 business days).'
     case 'rejected':
       return `Texting verification rejected${o.verificationNote ? `: ${o.verificationNote}` : ''}. Fix it and file again in Hell-level.`
+    case 'ghl':
+      return 'This number is in GHL: texts and calls land in GHL, and its toll-free registration goes through GHL’s own form once the site is live.'
     default:
       return o.siteLive
         ? 'Texting verification not filed yet: the Hub files it within minutes of the site link going in.'

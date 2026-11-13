@@ -763,6 +763,7 @@ model Client {
   /// Browser-worker job that gets this client's GHL sub-account its toll-free
   /// number from the number bank (one row).
   hlNumberRequest  HlNumberRequest?
+  ghlNumberJob     GhlNumberJob?
 }
 
 /// One queued attempt to create a client's GHL sub-account through the
@@ -849,6 +850,56 @@ model GhlCustomizeJob {
   shots         GhlCustomizeJobShot[]
 
   @@index([status, nextAttemptAt])
+}
+
+/// The GHL route of a client's toll-free number (src/lib/ghl-number): after a
+/// person passes GHL's ID check for the client's sub-account and presses
+/// "Identification complete" in the Office, the browser worker takes the
+/// toll-free number bought there (or buys one) and points its calls at the
+/// client's phone.
+model GhlNumberJob {
+  id            String    @id @default(cuid())
+  clientId      String    @unique
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// The HlNumberRequest this answers.
+  requestId     String
+  /// The client's GHL sub-account.
+  locationId    String
+  /// queued | running | needs_identity | needs_human | succeeded | failed | dry_run
+  status        String    @default("queued")
+  attempts      Int       @default(0)
+  leaseUntil    DateTime?
+  heartbeatAt   DateTime?
+  nextAttemptAt DateTime  @default(now())
+  /// Saved before "Proceed to Buy", so a later run looks for it instead of buying again.
+  pickedNumber  String?
+  buyStartedAt  DateTime?
+  /// The client's toll-free number in GHL (E.164) and where its calls ring.
+  phoneNumber   String?
+  forwardsTo    String?
+  lastError     String?   @db.Text
+  detail        String?   @db.Text
+  log           Json?
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  shots         GhlNumberJobShot[]
+
+  @@index([status, nextAttemptAt])
+  @@index([buyStartedAt])
+}
+
+/// A page image from a GHL number run. Only the latest few are kept.
+model GhlNumberJobShot {
+  id        String       @id @default(cuid())
+  jobId     String
+  job       GhlNumberJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  step      String
+  mime      String
+  data      Bytes
+  createdAt DateTime     @default(now())
+
+  @@index([jobId, createdAt])
 }
 
 /// A page image from a customize run. Only the latest few are kept.
@@ -2523,8 +2574,12 @@ model HlNumberRequest {
   client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   /// The client's Hell-level sub-account.
   accountId     String
-  /// awaiting_approval (Echo asked) | buying (a Yes) | bought | declined (a No) | failed
+  /// awaiting_approval (Echo asked) | buying (Hell-level chosen) | awaiting_identity (GHL
+  /// chosen: a person passes GHL's ID check) | ghl_working (Identification complete: the
+  /// browser worker takes it, see GhlNumberJob) | bought | declined (a No) | failed
   status        String    @default("awaiting_approval")
+  /// hl = a Hell-level number on Genisys's Twilio; ghl = a number in the client's GHL sub-account.
+  route         String    @default("hl")
   /// Where calls will ring (E.164), shown in the question; null = a missed-call catcher.
   forwardTo     String?
   /// The HlPhoneNumber it got, and its E.164.

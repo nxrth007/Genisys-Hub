@@ -129,13 +129,27 @@ export type SubaccountJobIn = {
  * to buy a new client's Hell-level toll-free number). ringTo is where its
  * calls would ring (E.164), when a phone is on file.
  */
-export type ApprovalIn = { id: string; kind: 'number'; clientName: string; ringTo?: string | null; at: Date }
+export type ApprovalIn = {
+  id: string
+  kind: 'number'
+  clientName: string
+  ringTo?: string | null
+  at: Date
+  /** ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check. */
+  stage?: 'ask' | 'identity'
+  /** The client's GHL Phone System, where the ID check starts; null without a linked sub-account. */
+  ghlLink?: string | null
+  /** What the last try said (e.g. GHL still asked for the ID check). */
+  detail?: string | null
+}
 /** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
   id: string
   clientName: string
-  /** buying | bought | declined | failed */
+  /** buying | ghl_working | bought | declined | failed */
   status: string
+  /** hl = Hell-level number; ghl = a number in the client's GHL sub-account. */
+  route?: string
   number: string | null
   detail: string | null
   /** Why texting verification couldn't be filed yet, or Twilio's rejection; null otherwise. */
@@ -199,6 +213,9 @@ export type OfficeApproval = {
   /** Where its calls would ring (E.164), when a phone is on file. */
   ringTo: string | null
   at: string
+  stage: 'ask' | 'identity'
+  ghlLink: string | null
+  detail: string | null
 }
 export type OfficeState = {
   generatedAt: string
@@ -362,25 +379,46 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     })
   }
 
-  // Questions waiting for a Yes: Echo asks before buying a new client's toll-free number.
+  // Questions waiting for an answer: Echo asks where to get a new client's toll-free number.
   const approvals: OfficeApproval[] = [...input.approvals]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
-    .map((a) => ({
-      id: a.id,
-      kind: a.kind,
-      botId: 'echo' as const,
-      question: `Buy a toll-free number for ${a.clientName} in Hell-level?`,
-      note: `About $2.15/month on Genisys’s Twilio, no ID check. ${a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'} Texting verification is filed once their site link is in.`,
-      clientName: a.clientName,
-      ringTo: a.ringTo ?? null,
-      at: a.at.toISOString(),
-    }))
-  for (const a of input.approvals) feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'echo', `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
+    .map((a) => {
+      const stage = a.stage ?? 'ask'
+      const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
+      return {
+        id: a.id,
+        kind: a.kind,
+        botId: 'echo' as const,
+        stage,
+        question:
+          stage === 'identity'
+            ? `Verify ${a.clientName}’s identity in GHL, then press Identification complete.`
+            : `Buy a toll-free number for ${a.clientName}: in Hell-level, or in GHL after an ID check?`,
+        note:
+          stage === 'identity'
+            ? 'In GHL: Phone System → Add Number → pick a toll-free number → Proceed to Buy, then finish the ID check (ID and selfie). The Hub uses the number you buy there, points its calls and handles the rest.'
+            : `Hell-level: about $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in. GHL: pass GHL’s ID check for their sub-account first.`,
+        clientName: a.clientName,
+        ringTo: a.ringTo ?? null,
+        ghlLink: a.ghlLink ?? null,
+        detail: a.detail ?? null,
+        at: a.at.toISOString(),
+      }
+    })
+  for (const a of approvals) {
+    feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', a.stage === 'identity' ? `Waiting on GHL’s ID check for ${a.clientName}` : `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
+  }
   if (approvals.length) {
     const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
+    const one = approvals[0]
     add('echo', {
       status: 'needs_you',
-      task: approvals.length === 1 ? `Asking: buy a toll-free number for ${approvals[0].clientName}?` : `${approvals.length} toll-free numbers waiting for your Yes`,
+      task:
+        approvals.length === 1
+          ? one.stage === 'identity'
+            ? `Waiting on the GHL ID check for ${one.clientName}`
+            : `Asking: buy a toll-free number for ${one.clientName}?`
+          : `${approvals.length} toll-free numbers waiting for you`,
       icon: 'alert',
       at: newest.at,
     })
@@ -496,9 +534,12 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     const at = r.decidedAt ?? r.updatedAt
     if (r.status === 'buying') {
       add('echo', { status: 'terminal', task: `Buying a toll-free number for ${r.clientName}`, icon: 'terminal', at: r.updatedAt })
+    } else if (r.status === 'ghl_working') {
+      add('echo', { status: 'browsing', task: `Getting ${r.clientName}’s toll-free number in GHL`, icon: 'globe', at: r.updatedAt })
     } else if (r.status === 'bought') {
       const num = r.number ? phone(r.number) : 'a toll-free number'
-      feed(`nr:${r.id}:bought`, at, 'echo', `Bought ${num} for ${r.clientName}`, 'done')
+      const where = r.route === 'ghl' ? ' in GHL' : ''
+      feed(`nr:${r.id}:bought`, r.route === 'ghl' ? r.updatedAt : at, 'echo', `Got ${num}${where} for ${r.clientName}`, 'done')
       // The toll-free registration (filed with the client's own details, like Forte's), as Twilio answers it.
       if (r.verificationAt && r.verification && r.verification !== 'none') {
         feed(`nr:${r.id}:filed`, r.verificationAt, 'echo', `Filed texting verification for ${r.clientName}'s ${num}`, 'terminal')
@@ -509,8 +550,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       if (r.verifyNote) {
         add('echo', { status: 'needs_you', task: clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`), icon: 'alert', at: r.updatedAt })
         feed(`nr:${r.id}:verify:${r.updatedAt.getTime()}`, r.updatedAt, 'echo', clip(`Texting verification for ${r.clientName} is blocked: ${r.verifyNote}`, 140), 'needs_you')
-      } else if (age(at) <= DONE_MS) {
-        add('echo', { status: 'terminal', task: `Bought ${num} for ${r.clientName}`, icon: 'check', at })
+      } else if (age(r.route === 'ghl' ? r.updatedAt : at) <= DONE_MS) {
+        add('echo', { status: 'terminal', task: `Got ${num}${where} for ${r.clientName}`, icon: 'check', at: r.route === 'ghl' ? r.updatedAt : at })
       }
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''

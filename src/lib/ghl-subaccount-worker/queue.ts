@@ -59,6 +59,7 @@ import { ghlLabels } from './labels'
 import { sealString } from './session'
 import { loadLogin, loadSession, makeOtpPuller, OTP_KEY, saveSession } from './session-store'
 import { customizeTick, releaseLiveCustomize, watchCustomizeStalls } from '@/lib/ghl-customize/queue'
+import { ghlNumberTick, releaseLiveGhlNumber } from '@/lib/ghl-number/queue'
 
 const SINCE_KEY = 'ghlSubaccountWorker.since'
 const LEASE_MS = 20 * 60 * 1000
@@ -570,6 +571,9 @@ export function installWorkerLifecycle(): void {
     shuttingDown = true
     void releaseLiveJob('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-subaccount-worker] could not release the in-flight job:', err)
+    })
+    void releaseLiveGhlNumber('Released back to the queue because this instance is shutting down.').catch((err) => {
+      console.warn('[ghl-number] could not release the in-flight job:', err)
     })
     void releaseLiveCustomize('Released back to the queue because this instance is shutting down.').catch((err) => {
       console.warn('[ghl-customize] could not release the in-flight job:', err)
@@ -1138,12 +1142,19 @@ export async function runGhlSubaccountWorkerTick(): Promise<TickResult> {
       promoted = res.count
     }
     if (!workerRunsBrowser()) {
+      await ghlNumberTick({ runBrowser: false }).catch((err) => console.warn('[ghl-number] tick:', err))
       await customizeTick({ runBrowser: false }).catch((err) => console.warn('[ghl-customize] tick:', err))
       return { enabled: true, ran: false, enqueued, claimed: false, promoted, recovered }
     }
     const claimed = await claimOne()
     if (!claimed) {
-      // No sub-account to create: the browser is free for a workflow customize job.
+      // No sub-account to create: the browser is free for a client's GHL number (after an Office
+      // "Identification complete"), then for workflow copy.
+      const num = await ghlNumberTick({ runBrowser: !shuttingDown }).catch((err) => {
+        console.warn('[ghl-number] tick:', err)
+        return null
+      })
+      if (num?.claimed) return { enabled: true, ran: true, enqueued, claimed: true, ...(num.outcome ? { outcome: `number:${num.outcome}` } : {}), promoted, recovered }
       const custom = await customizeTick({ runBrowser: !shuttingDown }).catch((err) => {
         console.warn('[ghl-customize] tick:', err)
         return null

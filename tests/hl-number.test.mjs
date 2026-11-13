@@ -84,6 +84,23 @@ test('ringTo: the business phone, else the owner’s, else a missed-call catcher
   assert.equal(plan.ringTo({}), null)
 })
 
+test('nextNumberState: Hell-level, GHL, Identification complete or No, each only where it fits', () => {
+  assert.equal(plan.nextNumberState('awaiting_approval', 'hl'), 'buying')
+  assert.equal(plan.nextNumberState('awaiting_approval', 'ghl'), 'awaiting_identity')
+  assert.equal(plan.nextNumberState('awaiting_approval', 'no'), 'declined')
+  // Identification complete only after GHL was chosen.
+  assert.equal(plan.nextNumberState('awaiting_approval', 'identified'), null)
+  assert.equal(plan.nextNumberState('awaiting_identity', 'identified'), 'ghl_working')
+  // A change of mind while waiting on the ID check.
+  assert.equal(plan.nextNumberState('awaiting_identity', 'hl'), 'buying')
+  assert.equal(plan.nextNumberState('awaiting_identity', 'no'), 'declined')
+  assert.equal(plan.nextNumberState('awaiting_identity', 'ghl'), null)
+  // Anything already settled takes no more answers.
+  for (const s of ['buying', 'ghl_working', 'bought', 'declined', 'failed']) {
+    for (const c of ['hl', 'ghl', 'identified', 'no']) assert.equal(plan.nextNumberState(s, c), null, `${s} ${c}`)
+  }
+})
+
 test('textsTo: forwarded texts go to the phone from the onboarding form (a cell), else the business phone', () => {
   assert.equal(plan.textsTo({ businessPhone: '(603) 555-0142', notifyPhone: '603-555-0199, 603-555-0100' }), '+16035550199')
   assert.equal(plan.textsTo({ businessPhone: '(603) 555-0142', notifyPhone: '' }), '+16035550142')

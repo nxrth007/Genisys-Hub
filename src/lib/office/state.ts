@@ -3,6 +3,7 @@
  * the pure mapping in ./mapping.ts. Read-only; no new tables.
  */
 import { prisma } from '@/lib/prisma'
+import { ghlPhoneSystemLink } from '@/lib/ghl-number/queue'
 import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
 const DAY = 24 * 60 * 60_000
@@ -101,7 +102,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         where: {
           client: { is: { archivedAt: null } },
           OR: [
-            { status: { in: ['awaiting_approval', 'buying'] } },
+            { status: { in: ['awaiting_approval', 'awaiting_identity', 'buying', 'ghl_working'] } },
             { status: 'failed', updatedAt: { gte: openSince } },
             { status: 'bought', verifyNote: { not: null } },
             { updatedAt: { gte: since } },
@@ -109,7 +110,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true } } },
+        select: { id: true, status: true, route: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true, ghlLocationId: true } } },
       }), []),
   ])
 
@@ -125,9 +126,19 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
     ...subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' })),
     ...customizeJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'customize' as const })),
   ]
+  const asking = new Set(['awaiting_approval', 'awaiting_identity'])
   input.approvals = numberRequests
-    .filter((r) => r.status === 'awaiting_approval')
-    .map((r) => ({ id: r.id, kind: 'number' as const, clientName: r.client?.name ?? 'a client', ringTo: r.forwardTo, at: r.updatedAt }))
+    .filter((r) => asking.has(r.status))
+    .map((r) => ({
+      id: r.id,
+      kind: 'number' as const,
+      clientName: r.client?.name ?? 'a client',
+      ringTo: r.forwardTo,
+      at: r.updatedAt,
+      stage: r.status === 'awaiting_identity' ? ('identity' as const) : ('ask' as const),
+      ghlLink: r.client?.ghlLocationId ? ghlPhoneSystemLink(r.client.ghlLocationId) : null,
+      detail: r.status === 'awaiting_identity' ? r.detail : null,
+    }))
   // Where each bought number's texting verification stands (filed, approved, rejected).
   const numberIds = numberRequests.map((r) => r.numberId).filter((x): x is string => !!x)
   const verifications = numberIds.length
@@ -135,13 +146,14 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         prisma.hlPhoneNumber.findMany({ where: { id: { in: numberIds } }, select: { id: true, verificationStatus: true, verificationAt: true, updatedAt: true } }), [])
     : []
   input.numberRequests = numberRequests
-    .filter((r) => r.status !== 'awaiting_approval')
+    .filter((r) => !asking.has(r.status))
     .map((r) => {
       const v = verifications.find((x) => x.id === r.numberId)
       return {
         id: r.id,
         clientName: r.client?.name ?? 'a client',
         status: r.status,
+        route: r.route,
         number: r.number,
         detail: r.detail,
         verifyNote: r.verifyNote,

@@ -256,9 +256,11 @@ test('Echo asks before buying a new client a toll-free number: the question, its
   const a = s.approvals[0]
   assert.equal(a.id, 'n1')
   assert.equal(a.botId, 'echo')
-  assert.equal(a.question, 'Buy a toll-free number for Acme Roofing in Hell-level?')
-  assert.match(a.note, /\$2\.15\/month on Genisys’s Twilio, no ID check\. Calls ring \(603\) 555-0142\./)
-  assert.match(a.note, /Texting verification is filed once their site link is in\./)
+  assert.equal(a.question, 'Buy a toll-free number for Acme Roofing: in Hell-level, or in GHL after an ID check?')
+  assert.match(a.note, /^Hell-level: about \$2\.15\/month on Genisys’s Twilio, no ID check\. Calls ring \(603\) 555-0142\./)
+  assert.match(a.note, /Texting verification is filed once their site link is in\. GHL: pass GHL’s ID check for their sub-account first\.$/)
+  assert.equal(a.stage, 'ask')
+  assert.equal(a.ghlLink, null)
   assert.equal(a.ringTo, '+16035550142')
   assert.equal(a.at, ago(2).toISOString())
   const echo = bot(s, 'echo')
@@ -279,9 +281,26 @@ test('Echo asks before buying a new client a toll-free number: the question, its
     NOW,
   )
   assert.deepEqual(two.approvals.map((x) => x.id), ['n1', 'n2'])
-  assert.equal(bot(two, 'echo').task, '2 toll-free numbers waiting for your Yes')
+  assert.equal(bot(two, 'echo').task, '2 toll-free numbers waiting for you')
 
   assert.deepEqual(deriveOffice(emptyInput(), NOW).approvals, [])
+})
+
+test('GHL chosen: the same question waits on the ID check, with the link and what the last try said', () => {
+  const link = 'https://app.gohighlevel.com/v2/location/loc1/settings/phone_system?tab=manage'
+  const s = deriveOffice(
+    { ...emptyInput(), approvals: [{ id: 'n1', kind: 'number', clientName: 'Acme Roofing', stage: 'identity', ghlLink: link, detail: 'GHL still asks for its identity check.', at: ago(1) }] },
+    NOW,
+  )
+  const a = s.approvals[0]
+  assert.equal(a.stage, 'identity')
+  assert.equal(a.question, 'Verify Acme Roofing’s identity in GHL, then press Identification complete.')
+  assert.match(a.note, /Phone System → Add Number → pick a toll-free number → Proceed to Buy/)
+  assert.equal(a.ghlLink, link)
+  assert.equal(a.detail, 'GHL still asks for its identity check.')
+  assert.equal(bot(s, 'echo').status, 'needs_you')
+  assert.equal(bot(s, 'echo').task, 'Waiting on the GHL ID check for Acme Roofing')
+  assert.ok(s.activity.some((x) => x.text === 'Waiting on GHL’s ID check for Acme Roofing' && x.tone === 'needs_you'))
 })
 
 test('Echo shows the toll-free numbers after the answer: buying, bought, blocked verification, failed, declined', () => {
@@ -294,8 +313,16 @@ test('Echo shows the toll-free numbers after the answer: buying, bought, blocked
 
   const bought = run([req('a', 'bought', { number: '+18556762067' })])
   assert.equal(bot(bought, 'echo').icon, 'check')
-  assert.equal(bot(bought, 'echo').task, 'Bought (855) 676-2067 for Client a')
-  assert.ok(bought.activity.some((x) => x.text === 'Bought (855) 676-2067 for Client a' && x.tone === 'done'))
+  assert.equal(bot(bought, 'echo').task, 'Got (855) 676-2067 for Client a')
+  assert.ok(bought.activity.some((x) => x.text === 'Got (855) 676-2067 for Client a' && x.tone === 'done'))
+
+  // The GHL route: the worker is on it, then the number is in the client's GHL sub-account.
+  const working = bot(run([req('a', 'ghl_working', { route: 'ghl' })]), 'echo')
+  assert.equal(working.status, 'browsing')
+  assert.equal(working.task, 'Getting Client a’s toll-free number in GHL')
+  const inGhl = run([req('a', 'bought', { route: 'ghl', number: '+18556762067', decidedAt: ago(30), updatedAt: ago(2) })])
+  assert.equal(bot(inGhl, 'echo').task, 'Got (855) 676-2067 in GHL for Client a')
+  assert.ok(inGhl.activity.some((x) => x.text === 'Got (855) 676-2067 in GHL for Client a' && x.tone === 'done'))
 
   // Long after the purchase Echo is idle again, but the feed keeps the line.
   const old = run([req('a', 'bought', { number: '+18556762067', decidedAt: ago(60), updatedAt: ago(60) })])
@@ -332,6 +359,6 @@ test('demo state carries a sample question', () => {
   runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
   const s = m.exports.demoState(NOW)
   assert.equal(s.approvals.length, 1)
-  assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing in Hell-level?')
+  assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing: in Hell-level, or in GHL after an ID check?')
   assert.equal(s.approvals[0].botId, 'echo')
 })

@@ -72,12 +72,14 @@ export type SiteDetail = {
   } | null
   number: {
     number: string
+    /** hl = a Hell-level number on Genisys's Twilio; ghl = in the client's GHL sub-account. */
+    where: 'hl' | 'ghl'
     forwardTo: string | null
     forwardTextsTo: string | null
     verificationStatus: string
     verificationNote: string | null
   } | null
-  request: { status: string; detail: string | null; verifyNote: string | null } | null
+  request: { status: string; route: string; detail: string | null; verifyNote: string | null } | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
 }
 
@@ -99,7 +101,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
         },
       },
-      hlNumberRequest: { select: { status: true, detail: true, verifyNote: true } },
+      hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
     },
   })
@@ -110,6 +112,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   // The number for the site: the toll-free one, else whatever the sub-account texts from.
   const numbers = c.hlAccount?.numbers ?? []
   const n = numbers.find((x) => x.kind === 'toll_free') ?? numbers[0] ?? null
+  // A client on the GHL route has its number in GHL instead (the Office request records it).
+  const ghlNumber = !n && c.hlNumberRequest?.route === 'ghl' && c.hlNumberRequest.status === 'bought' && c.hlNumberRequest.number ? c.hlNumberRequest : null
   const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
@@ -132,9 +136,11 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           }
         : null,
     number: n
-      ? { number: n.number, forwardTo: n.forwardTo, forwardTextsTo: n.forwardTextsTo, verificationStatus: n.verificationStatus, verificationNote: n.verificationNote }
-      : null,
-    request: c.hlNumberRequest,
+      ? { number: n.number, where: 'hl', forwardTo: n.forwardTo, forwardTextsTo: n.forwardTextsTo, verificationStatus: n.verificationStatus, verificationNote: n.verificationNote }
+      : ghlNumber
+        ? { number: ghlNumber.number!, where: 'ghl', forwardTo: ghlNumber.forwardTo, forwardTextsTo: null, verificationStatus: 'ghl', verificationNote: null }
+        : null,
+    request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, route: c.hlNumberRequest.route, detail: c.hlNumberRequest.detail, verifyNote: c.hlNumberRequest.verifyNote } : null,
     seo: c.seoSite ? { repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId } : null,
   }
 }
