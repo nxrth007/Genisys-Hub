@@ -306,6 +306,82 @@ function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullabl
   )
 }
 
+/** A build Forge is on (asked, or under way in Lovable): nobody asks again meanwhile. */
+const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable']
+
+/** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and asking Forge in the Office. */
+function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [prompt, setPrompt] = useState<string | null>(null)
+  const b = d.build
+  const working = !!b && BUILD_WORKING.includes(b.status)
+
+  async function ask(overrideGhl: boolean) {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask', overrideGhl }) })
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
+      setMsg(out.ok ? 'Asked in the Office. Nothing is built until someone presses Build it there.' : out.reason || out.error || 'Couldn’t ask.')
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function showPrompt() {
+    if (prompt) return setPrompt(null)
+    const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { cache: 'no-store' })
+    const out = (await res.json().catch(() => ({}))) as { request?: { prompt?: string | null } | null }
+    setPrompt(out.request?.prompt ?? 'No one-shot saved.')
+  }
+
+  return (
+    <Card title="Website build">
+      <p className="text-[13px] text-foreground/90">
+        {b ? b.label : d.ghlLinked ? 'Set up in GHL: their site is built by hand, with GHL’s form.' : 'Forge hasn’t asked about their website yet.'}
+      </p>
+      {b?.detail && <p className="text-[12.5px] leading-snug text-muted-foreground">{b.detail}</p>}
+      {(b?.editorUrl || b?.hasPrompt) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
+          {b?.editorUrl && (
+            <a href={b.editorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {b.projectName ?? 'Their copy'} in Lovable
+            </a>
+          )}
+          {b?.hasPrompt && (
+            <button type="button" onClick={showPrompt} className="text-foreground hover:underline">
+              {prompt ? 'Hide the one-shot' : 'See the one-shot'}
+            </button>
+          )}
+        </div>
+      )}
+      {canAct && !working && d.account && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => ask(false)}
+            disabled={busy || d.ghlLinked}
+            title={d.ghlLinked ? 'They have a GHL sub-account' : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+          >
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {b ? 'Ask to build it again' : 'Ask Forge to build it'}
+          </button>
+          {d.ghlLinked && (
+            <button type="button" onClick={() => ask(true)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
+              Ask anyway (Hell-level form and chat)
+            </button>
+          )}
+        </div>
+      )}
+      {msg && <p className="text-[12px] text-muted-foreground">{msg}</p>}
+      {prompt && <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg bg-background px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-muted-foreground">{prompt}</pre>}
+    </Card>
+  )
+}
+
 /** One client's folder, opened: their status, their site, and what the site build needs. */
 export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }) {
   const router = useRouter()
@@ -467,6 +543,8 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
       {d.ghlRegistration && <GhlRegistrationCard clientId={d.client.id} r={d.ghlRegistration} canAct={canAsk} />}
 
       {d.siteForm && <SiteFormCard clientId={d.client.id} f={d.siteForm} canAct={canAsk} />}
+
+      <SiteBuildCard d={d} canAct={canAsk} />
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
         <Card title="Details for the site">

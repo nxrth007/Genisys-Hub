@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useSyncExternalStore, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Check, ExternalLink, Loader2, Pause, Play, Radio, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
+import { Check, ExternalLink, Hammer, Loader2, Pause, Play, Radio, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
@@ -59,7 +59,7 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy'
+type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy' | 'build'
 /** Answers that leave things as they are (shown quietly). */
 const quiet = (d: Decision) => d === 'no' || d === 'hold'
 type Answer = { decision: Decision; text: string }
@@ -173,6 +173,20 @@ function ApprovalCard({
                 )}
                 <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
                   {spin('no') || <X className="h-3.5 w-3.5" />} {(a.choices ?? []).length ? 'None of these' : 'No'}
+                </button>
+              </>
+            ) : a.kind === 'site' ? (
+              <>
+                <button type="button" onClick={() => answer('build')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('build') || <Hammer className="h-3.5 w-3.5" />} Build it
+                </button>
+                {a.reviewLink && (
+                  <a href={a.reviewLink} target="_blank" rel="noopener noreferrer" className={BTN_SECONDARY}>
+                    Their folder <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+                <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
+                  {spin('no') || <X className="h-3.5 w-3.5" />} Not now
                 </button>
               </>
             ) : a.kind === 'registration' && a.stage === 'review' ? (

@@ -4,12 +4,14 @@ import {
   customizeAlertText,
   domainAlertText,
   numberAlertText,
+  siteAlertText,
   TEXT_AGAIN_AFTER_MS,
   textsTeamFor,
   workerAlertText,
   type CustomizeAlertKind,
   type DomainAlertKind,
   type NumberAlertKind,
+  type SiteAlertKind,
   type WorkerAlertKind,
 } from './alert-text'
 
@@ -47,6 +49,11 @@ export async function textNumberEvent(opts: Problem & { kind: NumberAlertKind })
 /** One domain question or failed purchase (src/lib/hl/domain-request.ts), keyed by a request id. */
 export async function textDomainEvent(opts: Problem & { kind: DomainAlertKind }): Promise<void> {
   await textOnce(`hlDomain.texted.${opts.kind}.${opts.key}`, opts, domainAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'Website domain')
+}
+
+/** One website build event (built, Lovable waiting on a person, didn't finish), keyed by a request id and the step. */
+export async function textSiteEvent(opts: Problem & { kind: SiteAlertKind }): Promise<void> {
+  await textOnce(`hlSite.texted.${opts.kind}.${opts.key}`, opts, siteAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'Website build')
 }
 
 /** One lead-workflow customize problem, keyed by a job or client id. */

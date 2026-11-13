@@ -221,7 +221,7 @@ export class ClaudeSession {
     return result
   }
 
-  /** A schema-constrained answer, validated with zod. No tools. */
+  /** A schema-constrained answer, validated with zod. No tools. Images (by URL, each after its label) go between the context and the task. */
   async structured<T>(o: {
     label: string
     system: string
@@ -230,8 +230,13 @@ export class ClaudeSession {
     schema: z.ZodType<T>
     effort: 'low' | 'medium' | 'high'
     maxTokens?: number
+    images?: { label: string; url: string }[]
   }): Promise<T> {
     const format = { type: 'json_schema' as const, schema: structuredSchema(o.schema) }
+    const images: Anthropic.Beta.BetaContentBlockParam[] = (o.images ?? []).flatMap((img) => [
+      { type: 'text' as const, text: img.label },
+      { type: 'image' as const, source: { type: 'url' as const, url: img.url } },
+    ])
     const m = await this.stream(o.label, {
       max_tokens: o.maxTokens ?? 32_000,
       thinking: { type: 'adaptive', display: 'omitted' },
@@ -240,10 +245,7 @@ export class ClaudeSession {
       messages: [
         {
           role: 'user',
-          content: [
-            { type: 'text', text: o.context, cache_control: { type: 'ephemeral', ttl: '1h' } },
-            { type: 'text', text: o.task },
-          ],
+          content: [{ type: 'text', text: o.context, cache_control: { type: 'ephemeral', ttl: '1h' } }, ...images, { type: 'text', text: o.task }],
         },
       ],
     })

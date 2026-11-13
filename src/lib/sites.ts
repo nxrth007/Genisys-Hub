@@ -10,6 +10,7 @@ import { publicFormUrl } from '@/lib/ghl-form/plan'
 import { cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
+import { SITE_STATUS_TEXT, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
@@ -108,6 +109,10 @@ export type SiteDetail = {
   /** What the Hub last read of the linked GHL sub-account's numbers; null without a linked sub-account. */
   ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
+  /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
+  build: { status: string; label: string; detail: string | null; editorUrl: string | null; projectName: string | null; hasPrompt: boolean; updatedAt: string } | null
+  /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
+  ghlLinked: boolean
 }
 
 export type { GhlRegistrationView }
@@ -146,6 +151,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
+      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, updatedAt: true } },
     },
   })
   if (!c) return null
@@ -212,5 +218,17 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         }
       : null,
     seo: c.seoSite ? { repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId } : null,
+    build: c.hlSiteRequest
+      ? {
+          status: c.hlSiteRequest.status,
+          label: SITE_STATUS_TEXT[c.hlSiteRequest.status as BuildStatus] ?? c.hlSiteRequest.status,
+          detail: c.hlSiteRequest.detail,
+          editorUrl: c.hlSiteRequest.editorUrl,
+          projectName: c.hlSiteRequest.projectName,
+          hasPrompt: !!c.hlSiteRequest.prompt,
+          updatedAt: c.hlSiteRequest.updatedAt.toISOString(),
+        }
+      : null,
+    ghlLinked: !!c.ghlLocationId,
   }
 }

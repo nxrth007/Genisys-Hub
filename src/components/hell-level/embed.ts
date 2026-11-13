@@ -5,9 +5,10 @@ type EmbedForm = { id: string; kind: string; name: string }
 export function embedCode(origin: string, f: EmbedForm): string {
   // The bubble asks the Hub for its colour, greeting and logo, so changing them there changes the site.
   if (f.kind === 'chat') return `<script src="${origin}/hl/widget.js" data-form="${f.id}" async></script>`
+  // The form can sit twice on one page (a site's hero and its contact section): each copy takes the height its own frame reports.
   return [
     `<iframe src="${origin}/hl/f/${f.id}" id="hl-form-${f.id}" title="${f.name.replace(/"/g, '')}" style="width:100%;min-height:640px;border:0" loading="lazy"></iframe>`,
-    `<script>window.addEventListener('message',function(e){if(e.data&&e.data.hlForm==='${f.id}'){var el=document.getElementById('hl-form-${f.id}');if(el)el.style.height=e.data.height+'px'}})</script>`,
+    `<script>window.addEventListener('message',function(e){if(e.data&&e.data.hlForm==='${f.id}'){document.querySelectorAll('iframe[id="hl-form-${f.id}"]').forEach(function(el){if(el.contentWindow===e.source)el.style.height=e.data.height+'px'})}})</script>`,
   ].join('\n')
 }
 

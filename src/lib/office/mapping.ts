@@ -25,7 +25,7 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'wren', name: 'Wren', role: 'Whop signup intake', color: '#38bdf8', source: 'Journey stage "signup", WhopSignupClaim' },
   { id: 'ivy', name: 'Ivy', role: 'Onboarding form', color: '#a78bfa', source: 'ClientIntake, journey stage "intake"' },
   { id: 'atlas', name: 'Atlas', role: 'CRM sub-accounts', color: '#34d399', source: 'Journey stage "subaccount", SubaccountMatchSuggestion, GhlSubaccountJob, GhlCustomizeJob' },
-  { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website"' },
+  { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website", HlDomainRequest, HlSiteRequest' },
   { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p, HlNumberRequest' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
   { id: 'scout', name: 'Scout', role: 'SEO engine', color: '#22d3ee', source: 'SeoRun' },
@@ -134,7 +134,7 @@ export type SubaccountJobIn = {
  */
 export type ApprovalIn = {
   id: string
-  kind: 'number' | 'registration' | 'domain'
+  kind: 'number' | 'registration' | 'domain' | 'site'
   clientName: string
   ringTo?: string | null
   at: Date
@@ -147,7 +147,7 @@ export type ApprovalIn = {
   ghlLink?: string | null
   /** What the last try said (e.g. GHL still asked for the ID check, or what stopped the registration). */
   detail?: string | null
-  /** registration: the number (E.164), and where a person sees what was filled (the client's folder in Sites). */
+  /** registration: the number (E.164), and where a person sees what was filled (the client's folder in Sites). site: the client's folder in Sites. */
   number?: string | null
   reviewLink?: string | null
   /** domain: the three Forge suggests, and the client's Hell-level Domains page (search any name there). */
@@ -158,6 +158,25 @@ export type ApprovalIn = {
 export type DomainChoiceView = { name: string; costCents: number; renewalCents: number | null }
 /** A client's domain question once answered (src/lib/hl/domain-request.ts). */
 export type DomainRequestIn = { id: string; accountId?: string; clientName: string; status: string; name: string | null; detail: string | null; decidedAt: Date | null; updatedAt: Date }
+/**
+ * A client's website build once a person answered (src/lib/hl/site-request.ts):
+ * filling | copying | sending | building | waiting_on_lovable | built | failed | declined.
+ */
+export type SiteRequestIn = {
+  id: string
+  clientId: string
+  clientName: string
+  status: string
+  detail: string | null
+  /** The client's copy in Lovable's editor, once it exists. */
+  editorUrl: string | null
+  /** Clients: their site link is saved (the site went live). */
+  siteLive: boolean
+  /** When the current step started. */
+  stepAt: Date | null
+  finishedAt: Date | null
+  updatedAt: Date
+}
 /** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
   id: string
@@ -197,6 +216,7 @@ export type OfficeInput = {
   numberRequests: NumberRequestIn[]
   ghlRegistrations?: GhlRegistrationIn[]
   domainRequests?: DomainRequestIn[]
+  siteRequests?: SiteRequestIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -226,7 +246,7 @@ export type OfficeActivity = { id: string; at: string; botId: BotId; text: strin
 export type OfficeHandoff = { id: string; from: BotId; to: BotId; at: string; clientName: string }
 export type OfficeApproval = {
   id: string
-  kind: 'number' | 'registration' | 'domain'
+  kind: 'number' | 'registration' | 'domain' | 'site'
   botId: BotId
   /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Hell-level?" */
   question: string
@@ -430,7 +450,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   // Questions waiting for an answer: Echo asks where to get a new client's toll-free number,
   // and whether to send GHL's toll-free registration it filled (or says what stopped it).
   // Forge's domain questions are mapped below.
-  const echoAsks = input.approvals.filter((a) => a.kind !== 'domain')
+  const echoAsks = input.approvals.filter((a) => a.kind !== 'domain' && a.kind !== 'site')
   const approvals: OfficeApproval[] = [...echoAsks]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((a) => {
@@ -543,6 +563,70 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       feed(`dr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'forge', clip(`Buying ${r.clientName}'s domain didn't finish${why}`, 140), 'error')
     } else if (r.status === 'declined') {
       feed(`dr:${r.id}:declined`, at, 'forge', `No suggested domain for ${r.clientName} (None of these)`, 'thinking')
+    }
+  }
+
+  // Forge asks whether to build a new client's website (src/lib/hl/site-request.ts).
+  const siteAsks = input.approvals.filter((a) => a.kind === 'site').sort((a, b) => a.at.getTime() - b.at.getTime())
+  for (const a of siteAsks) {
+    approvals.push({
+      id: a.id,
+      kind: 'site',
+      botId: 'forge',
+      stage: 'ask',
+      question: `Build ${a.clientName}’s website?`,
+      note: 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
+      clientName: a.clientName,
+      ringTo: null,
+      ghlLink: null,
+      detail: a.detail ?? null,
+      reviewLink: a.reviewLink ?? null,
+      at: a.at.toISOString(),
+    })
+    feed(`sq:${a.id}:${a.at.getTime()}`, a.at, 'forge', `Asked whether to build ${a.clientName}’s website`, 'needs_you')
+  }
+  if (siteAsks.length) {
+    const newest = siteAsks[siteAsks.length - 1]
+    add('forge', {
+      status: 'needs_you',
+      task: siteAsks.length === 1 ? `Asking: build ${newest.clientName}’s website?` : `${siteAsks.length} websites to build`,
+      icon: 'alert',
+      at: newest.at,
+    })
+  }
+  // After the Yes: filling, copying, sending, building, waiting on a person in Lovable, built, failed, Not now.
+  for (const r of input.siteRequests ?? []) {
+    const at = r.stepAt ?? r.updatedAt
+    const lovable = r.editorUrl ?? `/sites/${r.clientId}`
+    const retrying = r.detail?.startsWith('Trying again') ? ' (retrying)' : ''
+    if (r.status === 'filling') {
+      add('forge', { status: 'thinking', task: `Filling ${r.clientName}’s one-shot with Claude${retrying}`, icon: 'dots', at })
+    } else if (r.status === 'copying') {
+      add('forge', { status: 'browsing', task: `Copying the template in Lovable for ${r.clientName}${retrying}`, icon: 'globe', at })
+    } else if (r.status === 'sending') {
+      add('forge', { status: 'terminal', task: `Sending ${r.clientName}’s one-shot to Lovable${retrying}`, icon: 'terminal', at })
+    } else if (r.status === 'building') {
+      add('forge', { status: 'coding', task: `Lovable is building ${r.clientName}’s website`, icon: 'code', at })
+      feed(`sb:${r.id}:sent:${at.getTime()}`, at, 'forge', `Sent ${r.clientName}’s one-shot to Lovable`, 'coding')
+    } else if (r.status === 'waiting_on_lovable') {
+      const why = r.detail ? `: ${r.detail}` : ''
+      add('forge', { status: 'needs_you', task: clip(`Lovable is waiting for you on ${r.clientName}’s website${why}`), icon: 'alert', at: r.updatedAt })
+      request(`sb:${r.id}:waiting`, 'forge', 'stuck', `Lovable is waiting for a person on ${r.clientName}’s website${why}`, r.updatedAt, lovable)
+    } else if (r.status === 'built') {
+      const done = r.finishedAt ?? r.updatedAt
+      feed(`sb:${r.id}:built`, done, 'forge', `Built ${r.clientName}’s website in Lovable`, 'done')
+      if (age(done) <= DONE_MS) add('forge', { status: 'coding', task: `Built ${r.clientName}’s website in Lovable`, icon: 'check', at: done })
+      // Until the link is saved in Clients: a person reviews and publishes it.
+      if (!r.siteLive && age(done) <= SUBACCOUNT_OPEN_MS) {
+        request(`sb:${r.id}:review`, 'forge', 'stuck', `${r.clientName}’s new website is built in Lovable. Review it, publish it, connect the domain and GitHub there, then save the live link in Clients.`, done, lovable)
+      }
+    } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
+      const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
+      add('forge', { status: 'error', task: clip(`Building ${r.clientName}’s website didn’t finish${why}`), icon: 'error', at: r.updatedAt })
+      request(`sb:${r.id}:failed`, 'forge', 'error', `Building ${r.clientName}’s website didn’t finish${r.detail ? `: ${r.detail}` : ''}`, r.updatedAt, lovable)
+      feed(`sb:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'forge', clip(`Building ${r.clientName}’s website didn’t finish${why}`, 140), 'error')
+    } else if (r.status === 'declined') {
+      feed(`sb:${r.id}:declined`, r.updatedAt, 'forge', `Not building ${r.clientName}’s website for now`, 'thinking')
     }
   }
 

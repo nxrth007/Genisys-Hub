@@ -768,6 +768,52 @@ model Client {
   ghlFormJob       GhlFormJob?
   /// Forge's question in the Office: which of 3 domains to buy on Porkbun.
   hlDomainRequest  HlDomainRequest?
+  /// Forge's question in the Office: build their website in Lovable?
+  hlSiteRequest    HlSiteRequest?
+}
+
+/// A new client's website, built in Lovable after a Yes in the Office (src/lib/hl/site-request.ts):
+/// Claude fills Ethan's one-shot from the onboarding answers, the Hub copies the template
+/// project and sends the copy the one-shot, then watches Lovable until it finishes.
+model HlSiteRequest {
+  id          String    @id @default(cuid())
+  clientId    String    @unique
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// The client's Hell-level sub-account: its quote form and chat widget go on the site.
+  accountId   String
+  /// awaiting_approval (Forge asked) | declined (Not now) | filling | copying | sending |
+  /// building | waiting_on_lovable (Lovable stopped to ask a person) | built | failed
+  status      String    @default("awaiting_approval")
+  /// The Lovable project copied (the template) and the workspace the copy goes in.
+  templateId  String?
+  workspaceId String?
+  /// The client's copy in Lovable.
+  projectId   String?
+  projectName String?
+  editorUrl   String?
+  previewUrl  String?
+  /// Lovable's ids for the one-shot message sent to the copy.
+  messageId   String?
+  threadId    String?
+  /// The filled one-shot: what was (or will be) sent.
+  prompt      String?   @db.Text
+  /// What Claude made of the answers (the template's variables), and the photos it kept.
+  fill        Json?
+  detail      String?   @db.Text
+  log         Json?
+  /// onboarding | sweep | manual
+  trigger     String    @default("onboarding")
+  decidedBy   String?
+  decidedAt   DateTime?
+  /// When the current step started, to settle a step a restart interrupted.
+  stepAt      DateTime?
+  /// One runner at a time: a step claims the row until this time.
+  leaseUntil  DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
 }
 
 /// A new client's website domain, asked for in the Office (src/lib/hl/domain-request.ts):

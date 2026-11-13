@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { decideGhlRegistration } from '@/lib/ghl-number/queue'
 import { decideClientNumber } from '@/lib/hl/number-request'
 import { decideClientDomain } from '@/lib/hl/domain-request'
+import { decideClientSite } from '@/lib/hl/site-request'
 
 /**
  * POST /api/office/approvals { id, decision, kind? } — answer a bot's question
@@ -21,6 +22,10 @@ import { decideClientDomain } from '@/lib/hl/domain-request'
  * Forge asking which domain to buy for a new client (kind "domain"): 'buy'
  * with `name` (one of its three) buys it on Porkbun at the price shown;
  * 'no' (None of these) drops the question.
+ *
+ * Forge asking whether to build a new client's website (kind "site"):
+ * 'build' has Claude fill the one-shot, copies the template in Lovable and
+ * sends it (Lovable credits); 'no' (Not now) drops the question.
  */
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +41,13 @@ export async function POST(req: Request) {
     const name = typeof body?.name === 'string' ? body.name.trim().toLowerCase() : null
     if (!id || !decision || (decision === 'buy' && !name)) return NextResponse.json({ error: 'send { "id": "...", "kind": "domain", "decision": "buy", "name": "acme.com" } or decision "no"' }, { status: 400 })
     const res = await decideClientDomain(id, decision, name, by)
+    if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
+    return NextResponse.json(res)
+  }
+  if (body?.kind === 'site') {
+    const decision = body?.decision === 'build' || body?.decision === 'no' ? body.decision : null
+    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "no" }' }, { status: 400 })
+    const res = await decideClientSite(id, decision, by)
     if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
     return NextResponse.json(res)
   }

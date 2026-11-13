@@ -70,6 +70,16 @@ export function domainAlertText(kind: DomainAlertKind, client: string, reason: s
   return `Genisys Hub: buying ${client}'s domain didn't finish.${reason.trim() ? ` ${shortReason(reason)}` : ''} Open: ${link}`
 }
 
+/** Forge's website build (src/lib/hl/site-request.ts): built and waiting for a review, stopped in Lovable for a person, or didn't finish. */
+export type SiteAlertKind = 'built' | 'lovable' | 'failed'
+
+export function siteAlertText(kind: SiteAlertKind, client: string, reason: string, link: string): string {
+  const why = reason.trim() ? ` ${shortReason(reason)}` : ''
+  if (kind === 'built') return `Genisys Hub: ${client}'s new website is built in Lovable. Review it there, then publish: ${link}`
+  if (kind === 'lovable') return `Genisys Hub: Lovable stopped to ask a person something while building ${client}'s website.${why} Answer it in Lovable: ${link}`
+  return `Genisys Hub: building ${client}'s website didn't finish.${why} Open: ${link}`
+}
+
 /** The workflow customize job (src/lib/ghl-customize): putting a client's copy into their lead workflows. */
 export type CustomizeAlertKind = 'needs_human' | 'failed' | 'code' | 'held' | 'stuck' | 'waiting'
 

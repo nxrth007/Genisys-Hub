@@ -53,6 +53,7 @@ import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
 import { maybeSweepNumberRequests } from './hl/number-request'
 import { maybeSweepDomainRequests } from './hl/domain-request'
+import { maybeSweepSiteRequests } from './hl/site-request'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
@@ -589,6 +590,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} domain question(s) moved on`)
       })
       .catch((err) => console.error('[scheduler] hell-level domain requests failed:', err))
+    // Website builds: carry each on (a step a restart cut off, Lovable to check on), and ask about new sub-accounts the onboarding hook missed.
+    void maybeSweepSiteRequests()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} website build(s) moved on`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level website builds failed:', err))
     // Calendar notifications: reminders before appointments and follow-ups after.
     void maybeSendCalendarReminders()
       .then((n) => {

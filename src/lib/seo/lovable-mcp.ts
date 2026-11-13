@@ -474,6 +474,125 @@ export async function lovableMcpGetProject(projectId: string): Promise<LovableMc
   }
 }
 
+// ---------------------------------------------------------------------------
+// Building a site (src/lib/hl/site-request.ts): copy a template project, send
+// the copy a prompt, and watch the agent until it's done. Remixing is free;
+// a message to the agent uses the workspace's Lovable credits.
+// ---------------------------------------------------------------------------
+
+const strOf = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+const recOf = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
+
+export type LovableProjectRef = { id: string; name: string | null; workspaceId: string | null; editorUrl: string | null; previewUrl: string | null; createdAt: string | null }
+
+function projectRef(v: unknown): LovableProjectRef | null {
+  const p = recOf(v)
+  const id = p && (strOf(p.id) ?? strOf(p.project_id))
+  if (!p || !id) return null
+  return {
+    id,
+    name: strOf(p.name) ?? strOf(p.display_name),
+    workspaceId: strOf(p.workspace_id),
+    editorUrl: strOf(p.editor_url) ?? `https://lovable.dev/projects/${id}`,
+    previewUrl: strOf(p.preview_url),
+    createdAt: strOf(p.created_at),
+  }
+}
+
+/** A project's workspace and addresses (null when the sign-in can't see it). */
+export async function lovableMcpProjectRef(projectId: string): Promise<LovableProjectRef | null> {
+  let res: McpToolResult
+  try {
+    res = await lovableMcpCall('get_project', { project_id: projectId }, 30_000)
+  } catch (err) {
+    if (err instanceof LovableMcpError && !err.reconnect && /not[_ ]found|\b404\b/i.test(err.message)) return null
+    throw err
+  }
+  const s = res.structured ?? {}
+  return projectRef(recOf(s.project) ?? s)
+}
+
+/** Projects in a workspace whose name matches `query` (Lovable's fuzzy search), newest first as Lovable lists them. */
+export async function lovableMcpFindProjects(workspaceId: string, query: string): Promise<LovableProjectRef[]> {
+  const res = await lovableMcpCall('list_projects', { workspace_id: workspaceId, query, limit: 50 }, 60_000)
+  const s = res.structured ?? {}
+  const list = Array.isArray(s.projects) ? s.projects : Array.isArray(s.data) ? s.data : []
+  return list.map(projectRef).filter((p): p is LovableProjectRef => !!p)
+}
+
+export type LovableRemix = { project: LovableProjectRef | null; status: string; error: string | null }
+
+/**
+ * Copy a project into a workspace and wait for the copy (up to
+ * `timeoutSeconds`). Lovable says not to retry a remix that timed out: the
+ * copy may still appear, so callers look for it by name instead.
+ */
+export async function lovableMcpRemix(o: { projectId: string; workspaceId: string; name: string; timeoutSeconds: number }): Promise<LovableRemix> {
+  const res = await lovableMcpCall(
+    'remix_project',
+    { project_id: o.projectId, workspace_id: o.workspaceId, project_name: o.name, include_history: false, include_custom_knowledge: false, timeout_seconds: o.timeoutSeconds },
+    (o.timeoutSeconds + 60) * 1000,
+  )
+  const s = res.structured ?? {}
+  const status = strOf(s.remix_status) ?? strOf(s.status) ?? 'unknown'
+  const flat = (id: string | null) => (id ? projectRef({ id, name: o.name, editor_url: s.editor_url, preview_url: s.preview_url, workspace_id: o.workspaceId }) : null)
+  // The answer may echo the source project's id too: the copy is whichever project isn't the source.
+  const project =
+    [projectRef(s.project), projectRef(s.new_project), flat(strOf(s.new_project_id)), flat(strOf(s.project_id))].find((p) => !!p && p.id !== o.projectId) ?? null
+  return { project: status === 'completed' ? project : null, status, error: strOf(s.error) ?? strOf(s.message) ?? (status === 'completed' ? null : res.text.slice(0, 300) || null) }
+}
+
+/** Send the project's agent a message without waiting; the agent works on it in the background. */
+export async function lovableMcpSend(projectId: string, message: string): Promise<{ messageId: string; threadId: string | null; status: string | null }> {
+  const res = await lovableMcpCall('send_message', { project_id: projectId, message, wait: false }, 90_000)
+  const s = res.structured ?? {}
+  const messageId = strOf(s.message_id) ?? strOf(recOf(s.message)?.message_id)
+  if (!messageId) throw new LovableMcpError(`Lovable took the message but gave no message id (${res.text.slice(0, 200) || 'empty answer'}).`)
+  return { messageId, threadId: strOf(s.thread_id), status: strOf(s.status) }
+}
+
+/** The project's latest messages (newest first), to find one sent before a restart. */
+export async function lovableMcpRecentMessages(projectId: string, limit = 5): Promise<{ id: string; role: string | null; content: string; createdAt: string | null }[]> {
+  const res = await lovableMcpCall('list_messages', { project_id: projectId, limit }, 60_000)
+  const s = res.structured ?? {}
+  const list = Array.isArray(s.messages) ? s.messages : Array.isArray(s.data) ? s.data : []
+  return list.flatMap((m) => {
+    const r = recOf(m)
+    const id = r && strOf(r.message_id)
+    return r && id ? [{ id, role: strOf(r.role), content: typeof r.content === 'string' ? r.content : '', createdAt: strOf(r.created_at) }] : []
+  })
+}
+
+export type LovableAgentState = {
+  /** working: still on it. done: finished. stopped / error: ended without finishing. waiting: paused for a person in Lovable's editor. */
+  state: 'working' | 'done' | 'stopped' | 'error' | 'waiting'
+  /** Lovable's own words: the agent's summary when done, or why it stopped or waits. */
+  note: string | null
+  credits: number | null
+  previewUrl: string | null
+}
+
+/** Where the agent is with a message sent by lovableMcpSend. */
+export async function lovableMcpAgentState(projectId: string, messageId: string, threadId: string | null): Promise<LovableAgentState> {
+  const res = await lovableMcpCall('get_message', { project_id: projectId, message_id: messageId, ...(threadId ? { thread_id: threadId } : {}), wait_seconds: 0 }, 60_000)
+  const s = res.structured ?? {}
+  const r = recOf(s.response)
+  const top = strOf(s.status)
+  const agent = strOf(r?.status)
+  const awaiting = recOf(r?.awaiting_input) ?? recOf(s.awaiting_input)
+  const why = (x: Record<string, unknown> | null) => (x ? (strOf(x.summary) ?? strOf(x.error) ?? strOf(x.completion_reason) ?? strOf(x.message)) : null)
+  const credits = typeof r?.cost_credits === 'number' ? r.cost_credits : null
+  const previewUrl = strOf(s.preview_url)
+  if (agent === 'completed') return { state: 'done', note: why(r), credits, previewUrl }
+  if (agent === 'awaiting_input' || top === 'awaiting_input' || awaiting) {
+    const tool = awaiting ? (strOf(awaiting.tool_id) ?? strOf(awaiting.tool_name)) : null
+    return { state: 'waiting', note: tool ? `Lovable wants a person to approve “${tool}”.` : (why(r) ?? 'Lovable paused for a person (a check-in in its editor).'), credits, previewUrl }
+  }
+  if (agent === 'stopped' || top === 'stopped') return { state: 'stopped', note: why(r) ?? strOf(s.error), credits, previewUrl }
+  if (agent === 'error' || top === 'error') return { state: 'error', note: why(r) ?? strOf(s.error) ?? res.text.slice(0, 300), credits, previewUrl }
+  return { state: 'working', note: null, credits, previewUrl }
+}
+
 /** Publish a project to production — the same as clicking Publish in Lovable. */
 export async function lovableMcpDeploy(projectId: string): Promise<{ url: string | null; detail: string }> {
   // Kept under the publish poller's five-minute lease, with room for its live checks.
