@@ -209,8 +209,8 @@ function Status({ view }: { view: View }) {
           Waiting for a Yes in the{' '}
           <Link href="/office" className="font-medium underline">
             Office
-          </Link>{' '}
-          (asked {when(job.updatedAt)}).
+          </Link>
+          {job.locationName ? <> to buy one for the sub-account “{job.locationName}”</> : null} (asked {when(job.updatedAt)}).
         </span>
       </p>
     )

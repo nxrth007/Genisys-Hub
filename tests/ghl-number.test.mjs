@@ -142,4 +142,7 @@ test('number texts: plain, short, and each one links to where to act', () => {
   assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /Approve its toll-free number \(about \$2\.15\/mo\) in the Office/)
   assert.match(alertText.numberAlertText('bought', 'Acme Roofing', '(855) 465-6514', link), /bought \(855\) 465-6514 for Acme Roofing/)
   assert.match(alertText.numberAlertText('id_check', 'Acme Roofing', '', link), /one-time ID check/)
+  // The approval text names the GHL sub-account when it differs from the client's name.
+  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', 'Acme Roofing LLC', link), /Acme Roofing's GHL sub-account "Acme Roofing LLC" is ready/)
+  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', 'Acme Roofing', link), /Acme Roofing's GHL sub-account is ready/)
 })

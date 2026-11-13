@@ -274,6 +274,16 @@ test('Atlas asks before buying a toll-free number: the question, its status and 
   assert.equal(bot(two, 'atlas').task, '2 toll-free numbers waiting for your Yes')
 
   assert.deepEqual(deriveOffice(emptyInput(), NOW).approvals, [])
+  assert.equal(s.approvals[0].subAccountName, null)
+
+  // With the sub-account's GHL name, the question says where the number goes.
+  const named = deriveOffice(
+    { ...emptyInput(), approvals: [{ id: 'n3', kind: 'number', clientName: 'Snapshot Check 2 LLC', subAccountName: 'Test: Snapshot Check 2 LLC', at: ago(1) }] },
+    NOW,
+  )
+  assert.equal(named.approvals[0].question, 'Purchase a toll-free number for Snapshot Check 2 LLC and transfer it to the sub-account “Test: Snapshot Check 2 LLC”?')
+  assert.equal(named.approvals[0].subAccountName, 'Test: Snapshot Check 2 LLC')
+  assert.ok(named.activity.some((x) => x.text === 'Asked to buy a toll-free number for Snapshot Check 2 LLC (sub-account “Test: Snapshot Check 2 LLC”)'))
 })
 
 test('Atlas shows the toll-free number jobs: approved, buying, needs you, failed, done, declined', () => {
@@ -308,5 +318,5 @@ test('demo state carries a sample question', () => {
   runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
   const s = m.exports.demoState(NOW)
   assert.equal(s.approvals.length, 1)
-  assert.match(s.approvals[0].question, /^Purchase a toll-free number for Sample Roofing/)
+  assert.equal(s.approvals[0].question, 'Purchase a toll-free number for Sample Roofing and transfer it to the sub-account “Sample Roofing LLC”?')
 })

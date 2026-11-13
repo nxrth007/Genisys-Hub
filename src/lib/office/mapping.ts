@@ -125,8 +125,12 @@ export type SubaccountJobIn = {
   /** customize = the lead-workflow copy job; number = the toll-free number job. */
   kind?: 'create' | 'customize' | 'number'
 }
-/** A bot's question waiting for a Yes or No in the Office (today: buying a client's toll-free number). */
-export type ApprovalIn = { id: string; kind: 'number'; clientName: string; at: Date }
+/**
+ * A bot's question waiting for a Yes or No in the Office (today: buying a
+ * client's toll-free number). subAccountName is the client's sub-account as
+ * GHL names it, where the number will be moved.
+ */
+export type ApprovalIn = { id: string; kind: 'number'; clientName: string; subAccountName?: string | null; at: Date }
 
 export type OfficeInput = {
   journeyEvents: JourneyEventIn[]
@@ -169,10 +173,12 @@ export type OfficeApproval = {
   id: string
   kind: 'number'
   botId: BotId
-  /** What the bot asks, e.g. "Purchase a toll-free number for Acme and transfer it to their sub-account?" */
+  /** What the bot asks, e.g. "Purchase a toll-free number for Acme and transfer it to the sub-account “Acme Roofing LLC”?" */
   question: string
   note: string
   clientName: string
+  /** The GHL sub-account the number goes to, when known. */
+  subAccountName: string | null
   at: string
 }
 export type OfficeState = {
@@ -339,12 +345,18 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       id: a.id,
       kind: a.kind,
       botId: 'atlas' as const,
-      question: `Purchase a toll-free number for ${a.clientName} and transfer it to their sub-account?`,
+      question: a.subAccountName
+        ? `Purchase a toll-free number for ${a.clientName} and transfer it to the sub-account “${a.subAccountName}”?`
+        : `Purchase a toll-free number for ${a.clientName} and transfer it to their sub-account?`,
       note: 'About $2.15/month. Bought in Lead Genisys, then moved with GHL’s Move Numbers.',
       clientName: a.clientName,
+      subAccountName: a.subAccountName ?? null,
       at: a.at.toISOString(),
     }))
-  for (const a of input.approvals) feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'atlas', `Asked to buy a toll-free number for ${a.clientName}`, 'needs_you')
+  for (const a of input.approvals) {
+    const where = a.subAccountName ? ` (sub-account “${a.subAccountName}”)` : ''
+    feed(`ap:${a.id}:${a.at.getTime()}`, a.at, 'atlas', `Asked to buy a toll-free number for ${a.clientName}${where}`, 'needs_you')
+  }
   if (approvals.length) {
     const newest = input.approvals.reduce((x, y) => (y.at > x.at ? y : x))
     add('atlas', {

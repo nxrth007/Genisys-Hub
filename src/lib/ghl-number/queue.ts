@@ -92,6 +92,17 @@ export async function bankLocationId(): Promise<string> {
 
 export type NumberQueueResult = { ok: true; status: string; jobId: string } | { ok: false; reason: string }
 
+/** The sub-account's name as GHL shows it now; the name it was created with when GHL can't be asked. */
+async function subAccountNameNow(locationId: string, fallback: string | null): Promise<string | null> {
+  try {
+    const loc = await getLocation(await getAgencyContext(), locationId)
+    if (loc?.name) return loc.name
+  } catch (err) {
+    console.warn('[ghl-number] sub-account name lookup:', describe(err))
+  }
+  return fallback
+}
+
 const IN_HAND = new Set(['awaiting_approval', 'queued', 'running'])
 
 /**
@@ -129,8 +140,10 @@ export async function askForNumber(clientId: string, trigger: 'subaccount' | 'sw
     if (!decision.queue) return { ok: false, reason: decision.reason }
   }
   const msg = `Waiting for approval in the Office (${trigger === 'manual' ? 'asked from the client page' : 'the sub-account is ready'}).`
+  const subName = await subAccountNameNow(c.ghlLocationId, readBrowserFields(c.ghlSubaccountJob?.payload)?.name || null)
   const data = {
     locationId: c.ghlLocationId,
+    locationName: subName,
     status: 'awaiting_approval',
     trigger,
     attempts: 0,
@@ -147,8 +160,7 @@ export async function askForNumber(clientId: string, trigger: 'subaccount' | 'sw
     update: { ...data, log: logged(job?.log, msg) },
     select: { id: true },
   })
-  const sub = readBrowserFields(c.ghlSubaccountJob?.payload)?.name || c.name
-  await textNumberEvent({ key: row.id, kind: 'approve', client: c.name, subAccountName: sub, link: hubLink('/office') })
+  await textNumberEvent({ key: row.id, kind: 'approve', client: c.name, subAccountName: subName || c.name, reason: subName ?? '', link: hubLink('/office') })
   return { ok: true, status: 'awaiting_approval', jobId: row.id }
 }
 
@@ -367,6 +379,7 @@ async function executeNumber(id: string, lease: Date): Promise<string> {
     if (!bank?.name) return await needsHuman(`The number bank sub-account (${bankId}) wasn't found in the agency.`)
     if (!sub?.name) return await needsHuman(`The client's sub-account (${clientLocationId}) wasn't found in the agency.`)
     if (bank.id === sub.id) return await needsHuman('The client is linked to the number bank itself, so nothing was bought.')
+    await saveJob(id, lease, { locationName: sub.name })
     const board = await boardInputs(client.id)
     const businessPhone = e164(board?.phone)
     const save = workerMode() === 'create'
@@ -506,6 +519,7 @@ export async function numberView(clientId: string) {
       id: true,
       status: true,
       detail: true,
+      locationName: true,
       phoneNumber: true,
       forwardsTo: true,
       pickedNumber: true,

@@ -40,7 +40,7 @@ export function demoInput(now: Date): OfficeInput {
       { id: 'j2', clientName: 'Sample Plumbing', status: 'succeeded', detail: 'Created "Sam: Sample Plumbing" (sample)', updatedAt: m(25), heartbeatAt: m(25), nextAttemptAt: m(30), finishedAt: m(25) },
       { id: 'c1', clientName: 'Sample Plumbing', status: 'succeeded', detail: "Put the Hub's copy into the 3 Incoming Lead workflows (sample)", updatedAt: m(12), heartbeatAt: m(12), nextAttemptAt: m(20), finishedAt: m(12), kind: 'customize' },
     ],
-    approvals: [{ id: 'sample-approval', kind: 'number', clientName: 'Sample Roofing', at: m(3) }],
+    approvals: [{ id: 'sample-approval', kind: 'number', clientName: 'Sample Roofing', subAccountName: 'Sample Roofing LLC', at: m(3) }],
   }
 }
 

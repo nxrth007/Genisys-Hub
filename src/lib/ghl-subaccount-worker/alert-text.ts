@@ -52,7 +52,8 @@ export function numberAlertText(kind: NumberAlertKind, client: string, reason: s
   const why = reason.trim() ? ` ${shortReason(reason)}` : ''
   switch (kind) {
     case 'approve':
-      return `Genisys Hub: ${client}'s GHL sub-account is ready. Approve its toll-free number (about $2.15/mo) in the Office: ${link}`
+      // reason: the sub-account's name in GHL, when it isn't just the client's name.
+      return `Genisys Hub: ${client}'s GHL sub-account${reason.trim() && reason.trim() !== client ? ` "${reason.trim()}"` : ''} is ready. Approve its toll-free number (about $2.15/mo) in the Office: ${link}`
     case 'bought':
       return `Genisys Hub: bought ${reason.trim() || 'a toll-free number'} for ${client} and moved it into their GHL sub-account. Open: ${link}`
     case 'id_check':

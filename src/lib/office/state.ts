@@ -108,7 +108,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, status: true, detail: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
+        select: { id: true, status: true, detail: true, locationName: true, updatedAt: true, heartbeatAt: true, nextAttemptAt: true, finishedAt: true, client: { select: { name: true } } },
       }), []),
   ])
 
@@ -123,11 +123,13 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
   input.subaccountJobs = [
     ...subaccountJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client' })),
     ...customizeJobs.map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'customize' as const })),
-    ...numberJobs.filter((j) => j.status !== 'awaiting_approval').map((j) => ({ ...j, clientName: j.client?.name ?? 'a client', kind: 'number' as const })),
+    ...numberJobs
+      .filter((j) => j.status !== 'awaiting_approval')
+      .map((j) => ({ id: j.id, status: j.status, detail: j.detail, updatedAt: j.updatedAt, heartbeatAt: j.heartbeatAt, nextAttemptAt: j.nextAttemptAt, finishedAt: j.finishedAt, clientName: j.client?.name ?? 'a client', kind: 'number' as const })),
   ]
   input.approvals = numberJobs
     .filter((j) => j.status === 'awaiting_approval')
-    .map((j) => ({ id: j.id, kind: 'number' as const, clientName: j.client?.name ?? 'a client', at: j.updatedAt }))
+    .map((j) => ({ id: j.id, kind: 'number' as const, clientName: j.client?.name ?? 'a client', subAccountName: j.locationName, at: j.updatedAt }))
 
   return deriveOffice(input, now)
 }

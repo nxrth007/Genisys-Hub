@@ -862,6 +862,8 @@ model GhlNumberJob {
   client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   /// The client's sub-account.
   locationId    String
+  /// Its name in GHL when Atlas asked (the Office question shows it); each run refreshes it.
+  locationName  String?
   /// awaiting_approval (Atlas asked in the Office) | queued (a Yes) | running |
   /// needs_human | succeeded | failed | declined (a No) | dry_run
   status        String    @default("queued")
