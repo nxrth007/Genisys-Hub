@@ -20,7 +20,7 @@ import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS, jobLogEntry } from '@/lib/gh
 import { ghlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import { loadLogin, loadSession, makeOtpPuller, saveSession } from '@/lib/ghl-subaccount-worker/session-store'
 import { runFormFix } from './browser'
-import { consentName } from './plan'
+import { consentName, mentionsTemplate } from './plan'
 
 /**
  * The rules a check ran by. 2 (2026-11-13): the form's own Privacy Policy / Terms
@@ -50,12 +50,19 @@ function environmentFailure(message: string): boolean {
 export async function queueFormFix(clientId: string, o: { trigger: 'snapshot' | 'manual' | 'catchup'; by?: string }): Promise<{ ok: boolean; reason: string; id?: string }> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { id: true, archivedAt: true, ghlLocationId: true, ghlFormJob: { select: { id: true, status: true, log: true } } },
+    select: { id: true, name: true, archivedAt: true, ghlLocationId: true, ghlFormJob: { select: { id: true, status: true, log: true } } },
   })
   if (!c) return { ok: false, reason: 'Client not found.' }
   if (c.archivedAt) return { ok: false, reason: 'The client is archived.' }
   if (!c.ghlLocationId) return { ok: false, reason: 'This client has no linked GHL sub-account yet.' }
   const job = c.ghlFormJob
+  // A Plus Fence & Construction's own sub-account: its form, name and policy links really are A Plus's.
+  if (mentionsTemplate(c.name)) {
+    const detail = `This is A Plus Fence & Construction's own sub-account: its form, name and policy links are theirs, so it's left alone.`
+    const done = { locationId: c.ghlLocationId, status: 'succeeded', trigger: o.trigger, detail, finishedAt: new Date(), version: FORM_VERSION }
+    const row = await prisma.ghlFormJob.upsert({ where: { clientId }, create: { clientId, ...done, log: logged(null, detail) }, update: { ...done, log: logged(job?.log, detail) }, select: { id: true } })
+    return { ok: true, reason: detail, id: row.id }
+  }
   if (job && (job.status === 'queued' || job.status === 'running')) return { ok: true, reason: 'Already queued.', id: job.id }
   const msg =
     o.trigger === 'manual'
@@ -181,6 +188,10 @@ async function execute(id: string, lease: Date): Promise<string> {
     if (client.archivedAt) {
       await finish('failed', 'The client is archived, so the form was left alone.')
       return 'failed'
+    }
+    if (mentionsTemplate(client.name)) {
+      await finish('succeeded', "This is A Plus Fence & Construction's own sub-account: its form, name and policy links are theirs, so it's left alone.")
+      return 'succeeded'
     }
     const locationId = client.ghlLocationId ?? job.locationId
     if (workerMode() !== 'create') {
