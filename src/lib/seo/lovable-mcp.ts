@@ -509,7 +509,8 @@ export async function lovableMcpProjectRef(projectId: string): Promise<LovablePr
     throw err
   }
   const s = res.structured ?? {}
-  return projectRef(recOf(s.project) ?? s)
+  // The details (name, workspace_id, editor_url) are top level; the nested `project` is only its build status.
+  return projectRef({ ...(recOf(s.project) ?? {}), ...s })
 }
 
 /** Projects in a workspace whose name matches `query` (Lovable's fuzzy search), newest first as Lovable lists them. */
