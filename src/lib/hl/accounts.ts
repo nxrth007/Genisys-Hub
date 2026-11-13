@@ -244,6 +244,22 @@ export async function maybeHideQuoteFormLegalLinks(): Promise<number> {
   return changed
 }
 
+/**
+ * The client's Google review link on their Hell-level sub-account: where the
+ * review survey sends a happy customer (blank: a Google search for the
+ * business). True when it changed.
+ */
+export async function setHlReviewLink(clientId: string, url: string, o: { onlyIfBlank?: boolean } = {}): Promise<boolean> {
+  const link = clean(url)
+  if (!/^https?:\/\/\S+$/i.test(link)) return false
+  const account = await prisma.hlAccount.findUnique({ where: { clientId }, select: { id: true, profile: true } })
+  if (!account) return false
+  const p = readProfile(account.profile)
+  if ((o.onlyIfBlank && p.reviewLink?.trim()) || p.reviewLink === link) return false
+  await prisma.hlAccount.update({ where: { id: account.id }, data: { profile: { ...p, reviewLink: link } as Prisma.InputJsonValue } })
+  return true
+}
+
 /** A sub-account with no client behind it (the agency's own, a test account…). */
 export async function createStandaloneAccount(name: string): Promise<{ id: string }> {
   const n = clean(name)

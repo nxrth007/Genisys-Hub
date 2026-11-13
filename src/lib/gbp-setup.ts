@@ -2,6 +2,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
 import { setClientCustomValue } from '@/lib/ghl-automation-values'
+import { setHlReviewLink } from '@/lib/hl/accounts'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { PLACES_KEY_ENTRY, placesApiKey } from '@/lib/places-key'
 import { markTeamEdits, readMeta } from '@/lib/seo/client-facts'
@@ -36,7 +37,8 @@ import {
  *      every few days until someone marks it verified.
  *   4. Verified: the profile link goes into the SEO engine's facts (the
  *      site's sameAs) and the review link into the GHL sub-account's
- *      "Review Google URL" custom value, which the review workflows use.
+ *      "Review Google URL" custom value and the Hell-level sub-account's
+ *      Google review link, which the review workflows use.
  *
  * State lives in AppSetting `gbp.client.<id>`; no schema change.
  */
@@ -203,12 +205,11 @@ const words = (s: string) =>
 
 /**
  * Search Google Maps (Places API, New) for the business, with the Vault's
- * "Places API (New)" key (lib/places-key.ts). Read-only.
+ * "Places API (New)" key (lib/places-key.ts). Read-only: changes nothing,
+ * on the board or anywhere else. Candidates are only listings that share the
+ * business's phone, website or name.
  */
-export async function lookupExistingListing(id: string): Promise<GbpState['lookup']> {
-  const board = await gbpBoard(id)
-  if (!board) return null
-  const x = { ...board.prefill, ...board.state.values }
+export async function searchMapsListings(x: GbpInputs): Promise<NonNullable<GbpState['lookup']>> {
   const areas = x.serviceAreas.split('\n').map((s) => s.trim()).filter(Boolean)
   const city = x.locationMode === 'address' ? x.address : areas[0] ?? ''
   const query = [x.businessName, city].filter(Boolean).join(' ')
@@ -265,6 +266,15 @@ export async function lookupExistingListing(id: string): Promise<GbpState['looku
         ? `Google Maps search is off for this key: enable “Places API (New)” for the Vault’s "${PLACES_KEY_ENTRY}" key in Google Cloud. (${msg})`
         : msg
   }
+  return result
+}
+
+/** The board's own lookup: the Maps search, saved on the board, and its status moved on. */
+export async function lookupExistingListing(id: string): Promise<GbpState['lookup']> {
+  const board = await gbpBoard(id)
+  if (!board) return null
+  const result = await searchMapsListings({ ...board.prefill, ...board.state.values })
+  const query = result.query
   const state = await load(id)
   state.lookup = result
   // A strong match (phone or website) means claim, not create.
@@ -364,6 +374,9 @@ export async function markVerified(
   if (reviewUrl) {
     const r = await setClientCustomValue(id, 'Review Google URL', reviewUrl).catch((err) => ({ ok: false, detail: err instanceof Error ? err.message : String(err) }))
     results.push(r.ok ? `GHL: ${r.detail}` : `GHL review link not set: ${r.detail}`)
+    // Hell-level's review survey sends happy customers to the sub-account's Google review link.
+    const hl = await setHlReviewLink(id, reviewUrl).catch(() => false)
+    if (hl) results.push('Hell-level: Google review link set')
   }
   state.history.push({ at: now(), by, what: `Marked verified. ${results.join('. ')}` })
   await save(id, state)
