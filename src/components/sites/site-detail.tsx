@@ -126,7 +126,11 @@ function GhlRegistrationCard({ clientId, r, canAct }: { clientId: string; r: Ghl
         <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', r.running ? STAGE_STYLE.in_progress : (REG_STYLE[r.state] ?? STAGE_STYLE.pending))}>
           {r.running ? 'Filling now' : (REG_WORD[r.state] ?? r.state)}
         </span>
-        {r.at && <span className="text-[11.5px] text-muted-foreground">Last run {new Date(r.at).toLocaleString()}</span>}
+        {r.at && (
+          <span className="text-[11.5px] text-muted-foreground" suppressHydrationWarning>
+            Last run {new Date(r.at).toLocaleString()}
+          </span>
+        )}
       </div>
       <p className="text-[12.5px] text-foreground/90">{registrationLine(r)}</p>
       {showDetail && <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">{r.detail}</p>}
@@ -226,7 +230,11 @@ function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
           GHL shows “Verification Required”: this toll-free number can’t send texts until its registration is filed in GHL.
         </p>
       )}
-      {g.checkedAt && <p className="text-[11.5px] text-muted-foreground">Read from GHL {new Date(g.checkedAt).toLocaleString()}.</p>}
+      {g.checkedAt && (
+        <p className="text-[11.5px] text-muted-foreground" suppressHydrationWarning>
+          Read from GHL {new Date(g.checkedAt).toLocaleString()}.
+        </p>
+      )}
     </>
   )
 }

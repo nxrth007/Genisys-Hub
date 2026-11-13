@@ -39,7 +39,7 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
       ghlLocationId: true,
       hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { id: true }, take: 1 } } },
       hlNumberRequest: { select: { status: true, route: true } },
-      ghlNumberCensus: { select: { locationId: true, state: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true, version: true } },
       journeyStages: { where: { stage: 'website' }, select: { status: true } },
     },
   })
@@ -122,7 +122,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
-      ghlNumberCensus: { select: { locationId: true, state: true, numbers: true, checkedAt: true, triedAt: true, detail: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true, numbers: true, checkedAt: true, triedAt: true, detail: true, version: true } },
       ghlNumberJob: {
         select: {
           id: true,

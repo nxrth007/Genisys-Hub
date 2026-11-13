@@ -918,6 +918,8 @@ model GhlNumberCensus {
   /// The last good read, and the last try (later than it when that try failed).
   checkedAt  DateTime?
   triedAt    DateTime
+  /// How it was read (CENSUS_VERSION in census-plan.ts): an older read doesn't count and is read again.
+  version    Int       @default(1)
   updatedAt  DateTime  @updatedAt
 }
 

@@ -12,7 +12,7 @@ import { workerEnabled, workerHeadless, workerPaused } from '@/lib/ghl-subaccoun
 import { ghlLabels } from '@/lib/ghl-subaccount-worker/labels'
 import { loadLogin, loadSession, makeOtpPuller, saveSession } from '@/lib/ghl-subaccount-worker/session-store'
 import { runGhlCensus, type CensusLocation, type CensusRead } from './browser'
-import { dueForCensus } from './census-plan'
+import { CENSUS_VERSION, dueForCensus } from './census-plan'
 
 const LEASE_KEY = 'ghlCensus.lease'
 const LEASE_MS = 20 * 60_000
@@ -47,9 +47,9 @@ async function dropLease(): Promise<void> {
 /** Save one sub-account's read. A failed read keeps the last good one and only says what went wrong. */
 async function save(loc: CensusLocation, read: CensusRead): Promise<void> {
   const now = new Date()
-  const prior = await prisma.ghlNumberCensus.findUnique({ where: { clientId: loc.clientId }, select: { locationId: true } })
+  const prior = await prisma.ghlNumberCensus.findUnique({ where: { clientId: loc.clientId }, select: { locationId: true, version: true } })
   const detail = read.detail.slice(0, 2000)
-  if (read.state === 'error' && prior?.locationId === loc.locationId) {
+  if (read.state === 'error' && prior?.locationId === loc.locationId && prior.version >= CENSUS_VERSION) {
     await prisma.ghlNumberCensus.update({ where: { clientId: loc.clientId }, data: { triedAt: now, detail } })
     return
   }
@@ -60,6 +60,7 @@ async function save(loc: CensusLocation, read: CensusRead): Promise<void> {
     detail,
     checkedAt: read.state === 'error' ? null : now,
     triedAt: now,
+    version: CENSUS_VERSION,
   }
   await prisma.ghlNumberCensus.upsert({ where: { clientId: loc.clientId }, create: { clientId: loc.clientId, ...data }, update: data })
 }
@@ -71,7 +72,7 @@ export async function ghlCensusTick(opts: { runBrowser: boolean }): Promise<{ cl
   if (now < pausedUntil) return { claimed: false }
   const clients = await prisma.client.findMany({
     where: { archivedAt: null, ghlLocationId: { not: null } },
-    select: { id: true, name: true, ghlLocationId: true, ghlNumberCensus: { select: { locationId: true, state: true, checkedAt: true, triedAt: true } } },
+    select: { id: true, name: true, ghlLocationId: true, ghlNumberCensus: { select: { locationId: true, state: true, checkedAt: true, triedAt: true, version: true } } },
   })
   const due = dueForCensus(
     clients.map((c) => ({ id: c.id, locationId: c.ghlLocationId!, census: c.ghlNumberCensus })),

@@ -54,7 +54,7 @@ test('what a loaded page says: numbers, none, no phone system; still loading is 
 test('who is read next: never read or re-linked first, then everything due oldest first (failed after two hours, good after a day)', () => {
   const NOW = Date.UTC(2026, 10, 13, 12)
   const h = (n) => new Date(NOW - n * 60 * 60_000)
-  const row = (locationId, checkedAt, triedAt = checkedAt) => ({ locationId, state: checkedAt ? 'has' : 'error', checkedAt, triedAt })
+  const row = (locationId, checkedAt, triedAt = checkedAt, version = plan.CENSUS_VERSION) => ({ locationId, state: checkedAt ? 'has' : 'error', checkedAt, triedAt, version })
   const clients = [
     { id: 'fresh', locationId: 'L1', census: null },
     { id: 'relinked', locationId: 'L2', census: row('OLD', h(1)) },
@@ -64,20 +64,25 @@ test('who is read next: never read or re-linked first, then everything due oldes
     { id: 'failedJustNow', locationId: 'L6', census: row('L6', h(30), h(1)) },
     { id: 'failedEarlier', locationId: 'L7', census: row('L7', h(30), h(3)) },
     { id: 'neverWorked', locationId: 'L8', census: row('L8', null, h(5)) },
+    // Read an hour ago, but by the version that could take GHL's early "No Data": read again first.
+    { id: 'oldVersion', locationId: 'L9', census: row('L9', h(1), h(1), 1) },
   ]
-  assert.deepEqual(plan.dueForCensus(clients, NOW, 20), ['fresh', 'relinked', 'staler', 'stale', 'neverWorked', 'failedEarlier'])
-  assert.deepEqual(plan.dueForCensus(clients, NOW, 3), ['fresh', 'relinked', 'staler'])
+  assert.deepEqual(plan.dueForCensus(clients, NOW, 20), ['fresh', 'relinked', 'oldVersion', 'staler', 'stale', 'neverWorked', 'failedEarlier'])
+  assert.deepEqual(plan.dueForCensus(clients, NOW, 3), ['fresh', 'relinked', 'oldVersion'])
   assert.deepEqual(plan.dueForCensus([{ id: 'recent', locationId: 'L3', census: row('L3', h(3)) }], NOW), [])
 })
 
 test("what Echo's question goes by: only a read of the linked sub-account counts", () => {
+  const v = plan.CENSUS_VERSION
   assert.equal(plan.askView(null, null), null)
   assert.equal(plan.askView(null, 'L1'), 'unchecked')
-  assert.equal(plan.askView({ locationId: 'OLD', state: 'has' }, 'L1'), 'unchecked')
-  assert.equal(plan.askView({ locationId: 'L1', state: 'has' }, 'L1'), 'has')
-  assert.equal(plan.askView({ locationId: 'L1', state: 'none' }, 'L1'), 'none')
-  assert.equal(plan.askView({ locationId: 'L1', state: 'unavailable' }, 'L1'), 'unavailable')
-  assert.equal(plan.askView({ locationId: 'L1', state: 'error' }, 'L1'), 'unchecked')
+  assert.equal(plan.askView({ locationId: 'OLD', state: 'has', version: v }, 'L1'), 'unchecked')
+  assert.equal(plan.askView({ locationId: 'L1', state: 'has', version: v }, 'L1'), 'has')
+  assert.equal(plan.askView({ locationId: 'L1', state: 'none', version: v }, 'L1'), 'none')
+  assert.equal(plan.askView({ locationId: 'L1', state: 'unavailable', version: v }, 'L1'), 'unavailable')
+  assert.equal(plan.askView({ locationId: 'L1', state: 'error', version: v }, 'L1'), 'unchecked')
+  // A first-version "none" may have been GHL's table before it loaded: it doesn't count.
+  assert.equal(plan.askView({ locationId: 'L1', state: 'none', version: 1 }, 'L1'), 'unchecked')
 })
 
 test("a client's phone, for Sites: Hell-level first (Forte), then a number in GHL, a question under way, none, no phone system", () => {
@@ -102,6 +107,7 @@ test('saved numbers are read back safely', () => {
   ])
   assert.deepEqual(plan.readCensusNumbers(null), [])
   assert.deepEqual(plan.readCensusNumbers({}), [])
-  assert.equal(plan.currentCensus({ locationId: 'L1' }, 'L2'), null)
-  assert.deepEqual(plan.currentCensus({ locationId: 'L1' }, 'L1'), { locationId: 'L1' })
+  assert.equal(plan.currentCensus({ locationId: 'L1', version: plan.CENSUS_VERSION }, 'L2'), null)
+  assert.deepEqual(plan.currentCensus({ locationId: 'L1', version: plan.CENSUS_VERSION }, 'L1'), { locationId: 'L1', version: plan.CENSUS_VERSION })
+  assert.equal(plan.currentCensus({ locationId: 'L1', version: 1 }, 'L1'), null)
 })

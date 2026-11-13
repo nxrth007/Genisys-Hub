@@ -149,27 +149,51 @@ function signedInPage(snap: PageSnap): boolean {
 async function openPhoneSystem(run: PageRun, o: { allowUnavailable?: boolean } = {}): Promise<'ready' | 'unavailable'> {
   const { page, opts } = run
   for (let attempt = 0; attempt < 2; attempt++) {
+    // GHL draws "No Data" before it has even asked for the numbers (seen 2026-11-13: "No Data" at
+    // 5.3 s, the numbers request at 6.4 s, the number at 7.5 s). An empty table only counts once
+    // that request is back, or after it has said so for a long while.
+    let listedAt = 0
+    void page
+      .waitForResponse((r) => r.request().method() === 'GET' && r.url().includes(`/phone-system/numbers/v2/location/${opts.locationId}`), { timeout: 90_000 })
+      .then(() => {
+        listedAt = Date.now()
+      })
+      .catch(() => {})
     await page.goto(phoneSystemUrl(opts.locationId), { waitUntil: 'domcontentloaded', timeout: 60_000 })
     const deadline = Date.now() + 60_000
     let login = false
     let unconfigured = 0
+    let emptySince = 0
     for (;;) {
       if (await visibleIn(page.locator('input[type="password"]'))) {
         login = true
         break
       }
-      const text = await page.evaluate(() => document.body?.innerText || '').catch(() => '')
+      const seen = await page
+        .evaluate(() => ({
+          text: document.body?.innerText || '',
+          rows: Array.from(document.querySelectorAll('tr')).filter((r) => {
+            const t = (r as HTMLElement).innerText
+            return /\+\d[\d\s().-]{6,}\d/.test(t) && !/\$\s?\d/.test(t)
+          }).length,
+        }))
+        .catch(() => ({ text: '', rows: 0 }))
+      const text = seen.text
       // Seen twice in a row, so a page still drawing isn't taken for it.
       unconfigured = /Manage Numbers/.test(text) && /requires configuration/i.test(text) ? unconfigured + 1 : 0
       if (unconfigured >= 2) {
         if (o.allowUnavailable) return 'unavailable'
         throw new Halt('needs_human', `GHL says ${opts.clientName}'s phone system requires configuration ("reach out to our support team"). Only GHL support can set it up.`)
       }
-      if (/Manage Numbers/.test(text) && (/No Data/.test(text) || /\d{3}-\d{3}-\d{4}|\+\d{6,}/.test(text))) {
-        // A table that is still loading can flash "No Data"; let it settle before anyone reads it.
+      const manage = /Manage Numbers/.test(text)
+      if (manage && seen.rows > 0) {
+        // More rows may still be drawing.
         await sleep(2500, opts.signal)
         return 'ready'
       }
+      const empty = manage && /No Data/.test(text)
+      emptySince = empty ? emptySince || Date.now() : 0
+      if (empty && ((listedAt && Date.now() - listedAt >= 3000) || Date.now() - emptySince >= 15_000)) return 'ready'
       if (Date.now() >= deadline) break
       await sleep(700, opts.signal)
     }

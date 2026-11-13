@@ -59,7 +59,7 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
       name: true,
       archivedAt: true,
       ghlLocationId: true,
-      ghlNumberCensus: { select: { locationId: true, state: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true, version: true } },
       hlAccount: { select: { id: true, createdAt: true, profile: true, numbers: { where: { status: 'active', kind: 'toll_free' }, select: { id: true } } } },
       hlNumberRequest: { select: { id: true, status: true, log: true } },
     },

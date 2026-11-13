@@ -31,6 +31,12 @@ export const CENSUS_EVERY_MS = 20 * 60 * 60_000
 export const CENSUS_RETRY_MS = 2 * 60 * 60_000
 /** Sub-accounts read per browser run. */
 export const CENSUS_BATCH = 8
+/**
+ * How reads are made now. 2: an empty table only counts once GHL's numbers
+ * request came back (version 1 could take "No Data" drawn before it, 2026-11-13).
+ * An older read doesn't count and is read again first.
+ */
+export const CENSUS_VERSION = 2
 
 /** One Manage Numbers row's text → its number, or null for a header or any other row. */
 export function parseNumberRow(text: string): CensusNumber | null {
@@ -60,19 +66,20 @@ export function censusFromPage(pageText: string, rowTexts: string[]): { state: E
   return null
 }
 
-export type CensusRow = { locationId: string; state: string; checkedAt: Date | null; triedAt: Date }
+export type CensusRow = { locationId: string; state: string; checkedAt: Date | null; triedAt: Date; version: number }
 
 /**
- * Which linked clients to read next: never read (or linked to a different
- * sub-account since) first, then everything due, oldest try first. A failed
- * read is due again after CENSUS_RETRY_MS, a good one after CENSUS_EVERY_MS.
+ * Which linked clients to read next: never read (or read from a different
+ * sub-account, or by an older version) first, then everything due, oldest try
+ * first. A failed read is due again after CENSUS_RETRY_MS, a good one after
+ * CENSUS_EVERY_MS. Any try saves the current version, so nothing loops.
  */
 export function dueForCensus(clients: { id: string; locationId: string; census: CensusRow | null }[], now: number, max = CENSUS_BATCH): string[] {
   const fresh: string[] = []
   const later: { id: string; at: number }[] = []
   for (const c of clients) {
     const r = c.census
-    if (!r || r.locationId !== c.locationId) {
+    if (!r || r.locationId !== c.locationId || r.version < CENSUS_VERSION) {
       fresh.push(c.id)
       continue
     }
@@ -84,13 +91,13 @@ export function dueForCensus(clients: { id: string; locationId: string; census: 
   return [...fresh, ...later.map((x) => x.id)].slice(0, Math.max(0, max))
 }
 
-/** The read that applies to the client's linked sub-account now; null when there's none yet (or it was another sub-account). */
-export function currentCensus<T extends { locationId: string }>(row: T | null | undefined, locationId: string | null | undefined): T | null {
-  return row && locationId && row.locationId === locationId ? row : null
+/** The read that applies to the client's linked sub-account now; null when there's none (another sub-account's, or an older version's). */
+export function currentCensus<T extends { locationId: string; version: number }>(row: T | null | undefined, locationId: string | null | undefined): T | null {
+  return row && locationId && row.locationId === locationId && row.version >= CENSUS_VERSION ? row : null
 }
 
 /** What Echo's number question goes by: has a number, none, no phone system, not read yet; null without a linked sub-account. */
-export function askView(row: { locationId: string; state: string } | null | undefined, locationId: string | null | undefined): 'has' | 'none' | 'unavailable' | 'unchecked' | null {
+export function askView(row: { locationId: string; state: string; version: number } | null | undefined, locationId: string | null | undefined): 'has' | 'none' | 'unavailable' | 'unchecked' | null {
   if (!locationId) return null
   const r = currentCensus(row, locationId)
   return r && (r.state === 'has' || r.state === 'none' || r.state === 'unavailable') ? r.state : 'unchecked'
