@@ -415,7 +415,7 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
             <>
               <p className="text-[13px] text-foreground/90">
                 {req?.status === 'awaiting_approval'
-                  ? 'Echo asked in the Office: Hell-level, or GHL after an ID check.'
+                  ? 'Echo asked in the Office whether to buy a Hell-level toll-free number.'
                   : req?.status === 'awaiting_identity'
                     ? 'GHL chosen: waiting for the ID check, then Identification complete in the Office.'
                     : req?.status === 'ghl_working' || req?.status === 'buying'

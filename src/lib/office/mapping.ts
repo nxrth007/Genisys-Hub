@@ -438,9 +438,10 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
       const num = a.number ? phone(a.number) : 'their number'
       const words: Record<OfficeApproval['stage'], { question: string; note: string }> = {
+        // Hell-level only since 2026-11-13: clients set up in GHL keep their numbers and aren't asked.
         ask: {
-          question: `Buy a toll-free number for ${a.clientName}: in Hell-level, or in GHL after an ID check?`,
-          note: `Hell-level: about $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in. GHL: pass GHL’s ID check for their sub-account first.`,
+          question: `Buy a toll-free number for ${a.clientName} in Hell-level?`,
+          note: `About $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in.`,
         },
         identity: {
           question: `Verify ${a.clientName}’s identity in GHL, then press Identification complete.`,

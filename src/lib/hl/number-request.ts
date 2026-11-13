@@ -101,7 +101,8 @@ export async function askForClientNumber(clientId: string, trigger: 'onboarding'
     update: { ...data, log: logged(c.hlNumberRequest?.log, msg) },
     select: { id: true },
   })
-  await textNumberEvent({ key: row.id, kind: 'approve', client: c.name, link: hubLink('/office') })
+  // A text for a question the Hub asked by itself; whoever asks by hand is already looking.
+  if (trigger !== 'manual') await textNumberEvent({ key: row.id, kind: 'approve', client: c.name, link: hubLink('/office') })
   return { ok: true, status: 'awaiting_approval', id: row.id }
 }
 
