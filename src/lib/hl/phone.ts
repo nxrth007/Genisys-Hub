@@ -13,6 +13,18 @@ export function toE164(raw: string | null | undefined): string | null {
   return null
 }
 
+/**
+ * The first dialable number in an answer that may hold several, as clients type them on the
+ * onboarding form ("571-276-7875 and 301-928-2611", "603-555-1234 / 603-555-9876").
+ */
+export function firstPhone(raw: string | null | undefined): string | null {
+  for (const part of (raw ?? '').split(/\s*(?:,|;|\/|&|\n|\band\b|\bor\b)\s*/i)) {
+    const p = toE164(part)
+    if (p) return p
+  }
+  return null
+}
+
 /** Several numbers in one field ("603-555-1234, 603-555-9876"). */
 export function phoneList(raw: string | null | undefined): string[] {
   return [...new Set((raw ?? '').split(/[,;\n/]+/).map(toE164).filter((p): p is string => !!p))]

@@ -4,7 +4,9 @@
  */
 import { prisma } from '@/lib/prisma'
 import { ghlPhoneSystemLink } from '@/lib/ghl-number/queue'
+import { readProfile } from '@/lib/hl/accounts'
 import { readChoices } from '@/lib/hl/domain-plan'
+import { ringTo } from '@/lib/hl/number-plan'
 import { bareHost, siteDomainChoice } from '@/lib/hl/site-plan'
 import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
@@ -112,7 +114,20 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         },
         orderBy: { updatedAt: 'desc' },
         take: 40,
-        select: { id: true, clientId: true, status: true, route: true, number: true, numberId: true, forwardTo: true, detail: true, verifyNote: true, decidedAt: true, updatedAt: true, client: { select: { name: true, ghlLocationId: true } } },
+        select: {
+          id: true,
+          clientId: true,
+          status: true,
+          route: true,
+          number: true,
+          numberId: true,
+          forwardTo: true,
+          detail: true,
+          verifyNote: true,
+          decidedAt: true,
+          updatedAt: true,
+          client: { select: { name: true, ghlLocationId: true, hlAccount: { select: { profile: true } } } },
+        },
       }), []),
   ])
 
@@ -135,7 +150,8 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       id: r.id,
       kind: 'number' as const,
       clientName: r.client?.name ?? 'a client',
-      ringTo: r.forwardTo,
+      // Where calls would ring now (the profile may have been fixed since Echo asked), else what was saved then.
+      ringTo: (r.client?.hlAccount ? ringTo(readProfile(r.client.hlAccount.profile)) : null) ?? r.forwardTo,
       at: r.updatedAt,
       stage: r.status === 'awaiting_identity' ? ('identity' as const) : ('ask' as const),
       ghlLink: r.client?.ghlLocationId ? ghlPhoneSystemLink(r.client.ghlLocationId) : null,

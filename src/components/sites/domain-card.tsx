@@ -69,7 +69,15 @@ export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
             <span className="font-mono text-[18px] font-semibold tracking-tight text-foreground">{ready.name}</span>
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{ready.managed ? 'In Hell-level' : 'DNS managed elsewhere'}</span>
           </div>
-          <p className="text-[12.5px] text-muted-foreground">Forge puts it in the site it builds and connects it once the site is published.</p>
+          <p className="text-[12.5px] text-muted-foreground">
+            {d.build?.status === 'connected'
+              ? 'Their website is live on it.'
+              : d.build?.status === 'connecting'
+                ? 'Being connected to their website (Website build, below).'
+                : d.build?.status === 'published'
+                  ? 'Their website is published: connect it from Website build, below.'
+                  : 'Forge puts it in the site it builds and connects it once the site is published.'}
+          </p>
           {domainsPage && (
             <Link href={domainsPage} className="w-fit text-[12.5px] text-foreground hover:underline">
               Their domains

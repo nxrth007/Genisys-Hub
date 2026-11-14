@@ -4,7 +4,7 @@
  * ring, and whether its texting verification can be filed yet. The work
  * itself is in ./number-request.ts.
  */
-import { toE164 } from './phone'
+import { firstPhone, toE164 } from './phone'
 
 /** "+18556762067" → "(855) 676-2067"; anything else comes back as it was. */
 export function prettyPhone(n: string | null | undefined): string {
@@ -87,10 +87,11 @@ export function nextNumberState(status: string, choice: NumberChoice): string | 
 /**
  * Where the number's calls ring: the business phone leads are told to call,
  * else the owner's notification phone. Null leaves it a missed-call catcher
- * (every call to it counts as missed and gets the text-back).
+ * (every call to it counts as missed and gets the text-back). An answer with
+ * two numbers ("571-… and 301-…") rings the first.
  */
 export function ringTo(p: { businessPhone?: string | null; notifyPhone?: string | null }): string | null {
-  return toE164(p.businessPhone) ?? toE164((p.notifyPhone ?? '').split(',')[0]) ?? null
+  return firstPhone(p.businessPhone) ?? firstPhone(p.notifyPhone) ?? null
 }
 
 /**
@@ -98,7 +99,7 @@ export function ringTo(p: { businessPhone?: string | null; notifyPhone?: string 
  * onboarding form (the notification phone, a cell), else the business phone.
  */
 export function textsTo(p: { businessPhone?: string | null; notifyPhone?: string | null }): string | null {
-  return toE164((p.notifyPhone ?? '').split(',')[0]) ?? toE164(p.businessPhone) ?? null
+  return firstPhone(p.notifyPhone) ?? firstPhone(p.businessPhone) ?? null
 }
 
 /** The owner's own phones for a number: texts from these are the owner, never a lead. */

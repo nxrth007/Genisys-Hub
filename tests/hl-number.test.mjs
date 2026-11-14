@@ -106,6 +106,10 @@ test('ringTo: the business phone, else the owner’s, else a missed-call catcher
   assert.equal(plan.ringTo({ businessPhone: '', notifyPhone: '603-555-0199, 603-555-0100' }), '+16035550199')
   assert.equal(plan.ringTo({ businessPhone: 'call us', notifyPhone: '' }), null)
   assert.equal(plan.ringTo({}), null)
+  // Two numbers in one answer (American Home Innovations typed "571-… and 301-…"): the first rings.
+  assert.equal(plan.ringTo({ businessPhone: '571-276-7875 and 301-928-2611', notifyPhone: '' }), '+15712767875')
+  assert.equal(plan.ringTo({ businessPhone: '', notifyPhone: '603-555-0199 / 603-555-0100' }), '+16035550199')
+  assert.equal(plan.textsTo({ businessPhone: '571-276-7875 or 301-928-2611', notifyPhone: '' }), '+15712767875')
 })
 
 test('nextNumberState: Hell-level, GHL, Identification complete or No, each only where it fits', () => {
