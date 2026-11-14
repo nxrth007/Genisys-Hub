@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { askForClientSite, previewClientSite } from '@/lib/hl/site-request'
+import { askForClientSite, decideClientSite, previewClientSite } from '@/lib/hl/site-request'
 
 /**
  * GET /api/clients/:id/hl-site — this client's website build: where it
@@ -16,6 +16,9 @@ import { askForClientSite, previewClientSite } from '@/lib/hl/site-request'
  *
  * POST { action: 'preview' } — admin only: the one-shot as it would be sent,
  * without copying or sending anything in Lovable. One Claude call.
+ *
+ * POST { action: 'publish' } — admin only: the same as Publish it on Forge's
+ * question in the Office, for a built site (also after a Not now).
  */
 export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
@@ -40,6 +43,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       decidedBy: true,
       decidedAt: true,
       finishedAt: true,
+      liveUrl: true,
+      publishedAt: true,
       log: true,
       updatedAt: true,
     },
@@ -52,9 +57,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (denied) return denied
   const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown } | null
   const { id } = await params
-  if (body?.action === 'ask') {
+  if (body?.action === 'ask' || body?.action === 'publish') {
     const session = await auth()
     const by = session?.user?.name || session?.user?.email || 'an admin'
+    if (body.action === 'publish') {
+      const row = await prisma.hlSiteRequest.findUnique({ where: { clientId: id }, select: { id: true } })
+      if (!row) return NextResponse.json({ ok: false, reason: 'Forge never built a site for this client.' }, { status: 409 })
+      const res = await decideClientSite(row.id, 'publish', by)
+      return NextResponse.json(res, { status: res.ok ? 200 : 409 })
+    }
     const res = await askForClientSite(id, 'manual', { overrideGhl: body.overrideGhl === true, by })
     return NextResponse.json(res, { status: res.ok ? 200 : 409 })
   }
@@ -66,5 +77,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, { status: 409 })
     }
   }
-  return NextResponse.json({ error: 'send { "action": "ask" } or { "action": "preview" }' }, { status: 400 })
+  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" } or { "action": "publish" }' }, { status: 400 })
 }

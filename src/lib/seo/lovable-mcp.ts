@@ -598,10 +598,15 @@ export async function lovableMcpAgentState(projectId: string, messageId: string,
   return { state: 'working', note: null, credits, previewUrl }
 }
 
-/** Publish a project to production — the same as clicking Publish in Lovable. */
-export async function lovableMcpDeploy(projectId: string): Promise<{ url: string | null; detail: string }> {
+/**
+ * Publish a project to production — the same as clicking Publish in Lovable.
+ * `name` asks for that lovable.app address on a first publish (Lovable picks
+ * one without it). Lovable answers "pending" with the intended address:
+ * that it loads is the proof it's live.
+ */
+export async function lovableMcpDeploy(projectId: string, name?: string): Promise<{ url: string | null; detail: string }> {
   // Kept under the publish poller's five-minute lease, with room for its live checks.
-  const res = await lovableMcpCall('deploy_project', { project_id: projectId }, 150_000)
+  const res = await lovableMcpCall('deploy_project', { project_id: projectId, ...(name ? { name } : {}) }, 150_000)
   const s = res.structured ?? {}
   const url =
     (['url', 'live_url', 'published_url', 'deployment_url'].map((k) => s[k]).find((v) => typeof v === 'string' && v) as string | undefined) ??

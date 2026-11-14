@@ -110,7 +110,7 @@ export type SiteDetail = {
   ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
   /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
-  build: { status: string; label: string; detail: string | null; editorUrl: string | null; projectName: string | null; hasPrompt: boolean; updatedAt: string } | null
+  build: { status: string; label: string; detail: string | null; editorUrl: string | null; projectName: string | null; hasPrompt: boolean; liveUrl: string | null; updatedAt: string } | null
   /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
   ghlLinked: boolean
 }
@@ -151,7 +151,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
-      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, updatedAt: true } },
+      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, updatedAt: true } },
     },
   })
   if (!c) return null
@@ -226,6 +226,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           editorUrl: c.hlSiteRequest.editorUrl,
           projectName: c.hlSiteRequest.projectName,
           hasPrompt: !!c.hlSiteRequest.prompt,
+          liveUrl: c.hlSiteRequest.status === 'published' ? c.hlSiteRequest.liveUrl : null,
           updatedAt: c.hlSiteRequest.updatedAt.toISOString(),
         }
       : null,

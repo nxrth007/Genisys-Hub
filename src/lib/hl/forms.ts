@@ -3,7 +3,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
 import { logActivity, upsertContact } from './contacts'
-import { resolveLegalLinks, type LegalLinks } from './legal-links'
+import { builtSiteLegalLinks, resolveLegalLinks, type LegalLinks } from './legal-links'
 import { toE164 } from './phone'
 import { CONSENT_TEXT } from './templates'
 import type { HlConsentBox, HlField, HlFormSettings } from './types'
@@ -57,13 +57,19 @@ export function greetingOf(s: HlFormSettings): string | null {
   return s.heading?.trim() || 'Hi there! Have a question? Text us here.'
 }
 
-export async function publicForm(formId: string): Promise<PublicForm | null> {
+/**
+ * A form as the public sees it. `shownOn` is the page it's embedded on (the
+ * frame's Referer): on the site Forge built for the client, its privacy and
+ * terms links open that site's own pages.
+ */
+export async function publicForm(formId: string, shownOn?: string | null): Promise<PublicForm | null> {
   const form = await prisma.hlForm.findUnique({ where: { id: formId }, include: { account: { select: { id: true, name: true, profile: true, archivedAt: true } } } })
   if (!form || form.archivedAt || form.account.archivedAt) return null
   const profile = readProfile(form.account.profile)
   const business = profile.businessName || form.account.name
   const settings = asSettings(form.settings)
   const consents = consentsOf(settings).map((c) => ({ ...c, text: c.text.replace(/\{\{\s*business\s*\}\}/g, business) }))
+  const onSite = shownOn ? await builtSiteLegalLinks(form.account.id, shownOn) : null
   return {
     id: form.id,
     kind: form.kind === 'chat' ? 'chat' : 'form',
@@ -71,7 +77,7 @@ export async function publicForm(formId: string): Promise<PublicForm | null> {
     business,
     fields: asFields(form.fields),
     settings: { ...settings, color: formColor(settings, profile.brandColor), consentText: undefined, consents },
-    legal: resolveLegalLinks(form.account.id, profile, settings),
+    legal: resolveLegalLinks(form.account.id, profile, settings, onSite),
     accountId: form.account.id,
     logo: settings.showLogo !== false && /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
   }

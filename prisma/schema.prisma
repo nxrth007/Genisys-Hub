@@ -782,7 +782,8 @@ model HlSiteRequest {
   /// The client's Hell-level sub-account: its quote form and chat widget go on the site.
   accountId   String
   /// awaiting_approval (Forge asked) | declined (Not now) | filling | copying | sending |
-  /// building | waiting_on_lovable (Lovable stopped to ask a person) | built | failed
+  /// building | waiting_on_lovable (Lovable stopped to ask a person) | built (Forge asks
+  /// to publish it) | held (Not now to publishing) | publishing | published | failed
   status      String    @default("awaiting_approval")
   /// The Lovable project copied (the template) and the workspace the copy goes in.
   templateId  String?
@@ -810,6 +811,9 @@ model HlSiteRequest {
   /// One runner at a time: a step claims the row until this time.
   leaseUntil  DateTime?
   finishedAt  DateTime?
+  /// Where Lovable published the copy (its lovable.app address, or the domain it redirects to).
+  liveUrl     String?
+  publishedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

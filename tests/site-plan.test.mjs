@@ -245,10 +245,10 @@ test('who Forge asks', () => {
   assert.equal(plan.siteAskDecision({ ...base, siteLive: true }).ask, false)
   assert.equal(plan.siteAskDecision({ ...base, accountId: null }).ask, false)
   assert.equal(plan.siteAskDecision({ ...base, trigger: 'sweep', accountCreatedAt: new Date('2026-11-01T00:00:00Z') }).ask, false, 'older sub-accounts aren’t swept in')
-  for (const status of ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable']) {
+  for (const status of ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing']) {
     assert.equal(plan.siteAskDecision({ ...base, trigger: 'manual', request: { status } }).ask, false, status)
   }
-  for (const status of ['declined', 'failed', 'built']) {
+  for (const status of ['declined', 'failed', 'built', 'held', 'published']) {
     assert.equal(plan.siteAskDecision({ ...base, request: { status } }).ask, false, `${status} isn't asked again by itself`)
     assert.equal(plan.siteAskDecision({ ...base, trigger: 'manual', request: { status } }).ask, true, `${status} can be asked again by hand`)
   }
@@ -317,13 +317,74 @@ test('Forge shows the build as it goes, and what a person does next', () => {
   assert.equal(waiting.bot.status, 'needs_you')
   assert.equal(waiting.requests[0].link, 'https://lovable.dev/projects/p1')
 
+  // Built: the next step is Forge's Publish question (an approval), not a request.
   const built = forge(row({ status: 'built', finishedAt: ago(2) }))
-  assert.equal(built.requests.length, 1)
-  assert.equal(built.requests[0].kind, 'stuck')
-  assert.match(built.requests[0].text, /built in Lovable\. Review it, publish it/)
-  assert.equal(forge(row({ status: 'built', finishedAt: ago(2), siteLive: true })).requests.length, 0, 'gone once the link is saved')
+  assert.equal(built.requests.length, 0)
+  assert.match(built.bot.task, /Built Acme Roofing’s website in Lovable/)
+
+  const publishing = forge(row({ status: 'publishing', stepAt: ago(1) }))
+  assert.equal(publishing.bot.status, 'browsing')
+  assert.match(publishing.bot.task, /Publishing Acme Roofing’s website/)
+
+  const published = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app.' }))
+  assert.equal(published.requests.length, 1)
+  assert.equal(published.requests[0].kind, 'stuck')
+  assert.match(published.requests[0].text, /live at https:\/\/acme-roofing\.lovable\.app\. Connect their domain and GitHub in Lovable, then save the site link in Clients/)
+  assert.ok(published.activity.some((x) => /Published Acme Roofing’s website at https:\/\/acme-roofing\.lovable\.app/.test(x.text)))
+  assert.equal(forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), siteLive: true })).requests.length, 0, 'gone once the link is saved')
+  const noPages = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app. Its /privacy page didn’t load, and the form and chat link them: look in Lovable.' }))
+  assert.ok(noPages.requests.some((x) => x.kind === 'error' && /privacy or terms page didn’t load/.test(x.text)))
 
   const failed = forge(row({ status: 'failed', detail: 'Lovable couldn’t copy the template.' }))
   assert.equal(failed.bot.status, 'error')
   assert.equal(failed.requests[0].kind, 'error')
+})
+
+test('Forge asks "Publish X’s website?" once Lovable built it', () => {
+  const input = mapping.emptyInput()
+  input.approvals = [
+    { id: 'sr1', kind: 'site', clientName: 'Acme Roofing', at: ago(5), stage: 'publish', detail: 'Claude’s notes to check: two photos show a person.', reviewLink: 'https://lovable.dev/projects/p1' },
+  ]
+  const s = mapping.deriveOffice(input, NOW)
+  const a = s.approvals.find((x) => x.id === 'sr1')
+  assert.equal(a.botId, 'forge')
+  assert.equal(a.kind, 'site')
+  assert.equal(a.stage, 'publish')
+  assert.equal(a.question, 'Publish Acme Roofing’s website?')
+  assert.match(a.note, /Look it over in Lovable first/)
+  assert.equal(a.reviewLink, 'https://lovable.dev/projects/p1')
+  assert.match(s.bots.find((b) => b.id === 'forge').task, /Asking: publish Acme Roofing’s website\?/)
+  assert.equal(s.bots.find((b) => b.id === 'echo').status, 'idle')
+})
+
+test('the lovable.app name is the business name', () => {
+  assert.equal(plan.publishSlug('Acme Roofing & Gutters, LLC'), 'acme-roofing-and-gutters')
+  assert.equal(plan.publishSlug('American Home Innovations'), 'american-home-innovations')
+  assert.equal(plan.publishSlug('Bob’s Décor Co.'), 'bobs-decor')
+  assert.equal(plan.publishSlug('J.R. Painting (Tampa)'), 'j-r-painting')
+  assert.equal(plan.publishSlug('LLC'), null)
+  assert.ok(plan.publishSlug('A'.repeat(80)).length <= 48)
+})
+
+test('on the site Forge built, the form and chat link that site’s own policy pages', () => {
+  const own = ['americanhomeinnovations.com']
+  const hub = ['genisys-hub.onrender.com']
+  // The copy's preview, its published lovable.app address, and their own domain (with or without www).
+  assert.deepEqual(plan.builtSiteLegal('https://id-preview--d0db55f2-a49e-4355-95fc-83f47958d5e6.lovable.app/', own, hub), {
+    privacy: 'https://id-preview--d0db55f2-a49e-4355-95fc-83f47958d5e6.lovable.app/privacy',
+    terms: 'https://id-preview--d0db55f2-a49e-4355-95fc-83f47958d5e6.lovable.app/terms',
+  })
+  assert.equal(plan.builtSiteLegal('https://american-home-innovations.lovable.app/contact?x=1', own, hub).privacy, 'https://american-home-innovations.lovable.app/privacy')
+  assert.equal(plan.builtSiteLegal('https://www.americanhomeinnovations.com/', own, hub).terms, 'https://www.americanhomeinnovations.com/terms')
+  assert.equal(plan.builtSiteLegal('https://d0db55f2.lovableproject.com/', own, hub).terms, 'https://d0db55f2.lovableproject.com/terms')
+  // Anywhere else, or no Referer: the usual links.
+  assert.equal(plan.builtSiteLegal('https://someone-else.com/', own, hub), null)
+  assert.equal(plan.builtSiteLegal('https://genisys-hub.onrender.com/hl/f/abc', own, hub), null)
+  assert.equal(plan.builtSiteLegal('https://lovable.dev/projects/p1', own, hub), null)
+  assert.equal(plan.builtSiteLegal('https://notlovable.app.evil.com/', own, hub), null)
+  assert.equal(plan.builtSiteLegal(null, own, hub), null)
+  assert.equal(plan.builtSiteLegal('not a url', own, hub), null)
+  assert.equal(plan.bareHost('https://WWW.Acme.com/x'), 'acme.com')
+  assert.equal(plan.bareHost('acme.com'), 'acme.com')
+  assert.equal(plan.bareHost(''), null)
 })

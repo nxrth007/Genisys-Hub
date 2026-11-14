@@ -6,21 +6,38 @@
  * Office: build their website? On a Yes, Claude fills Ethan's one-shot
  * (./site-template.ts) from the onboarding answers, the Hub copies the
  * template project in Lovable and sends the copy the one-shot, and Forge
- * reports until Lovable is done. Nothing is published, connected or bought.
+ * reports until Lovable is done. Then Forge asks again: publish it? Nothing
+ * is published without that second Yes; nothing is connected or bought.
  *
  * This file decides who gets asked, which uploads count as photos, which
- * phone and domain go on the site, and turns Claude's answers into the
- * template's variables.
+ * phone and domain go on the site, turns Claude's answers into the
+ * template's variables, and says where a built site's form links its
+ * privacy and terms pages.
  */
 import { isRealDomain, renderOneShot, type OneShotVars } from './site-template'
 
 /** Robert Taylor's site (Jake's Property Maintenance): the project Ethan remixes for every new client. */
 export const DEFAULT_TEMPLATE_PROJECT = '793befd4-d2b4-4a7a-ba08-029e195a3007'
 
-export type SiteStatus = 'awaiting_approval' | 'declined' | 'filling' | 'copying' | 'sending' | 'building' | 'waiting_on_lovable' | 'built' | 'failed'
+export type SiteStatus =
+  | 'awaiting_approval'
+  | 'declined'
+  | 'filling'
+  | 'copying'
+  | 'sending'
+  | 'building'
+  | 'waiting_on_lovable'
+  | 'built'
+  | 'held'
+  | 'publishing'
+  | 'published'
+  | 'failed'
 
-/** The Hub is working on it (a step runs, or Lovable builds): nobody can ask again meanwhile. */
-export const SITE_WORKING: SiteStatus[] = ['filling', 'copying', 'sending', 'building', 'waiting_on_lovable']
+/** The Hub is working on it (a step runs, Lovable builds, or it's being published): nobody can ask again meanwhile. */
+export const SITE_WORKING: SiteStatus[] = ['filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing']
+
+/** Built and not published: the statuses a person can press Publish it from. */
+export const SITE_PUBLISHABLE: SiteStatus[] = ['built', 'held']
 
 // ---------------------------------------------------------------------------
 // Who gets asked
@@ -56,7 +73,7 @@ export function siteAskDecision(c: SiteAskCandidate): { ask: boolean; reason: st
   if (c.ghlLinked && !(c.trigger === 'manual' && c.overrideGhl)) return { ask: false, reason: 'they have a GHL sub-account (set up in GHL)' }
   if (c.trigger !== 'manual') {
     if (c.siteLive) return { ask: false, reason: 'their site is already live' }
-    if (r === 'built') return { ask: false, reason: 'their site was already built' }
+    if (r === 'built' || r === 'held' || r === 'published') return { ask: false, reason: 'their site was already built' }
     if (r === 'declined') return { ask: false, reason: 'someone answered Not now' }
     if (r) return { ask: false, reason: 'the last try failed; a person picks it up' }
     if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
@@ -417,6 +434,76 @@ export const SITE_STATUS_TEXT: Record<SiteStatus, string> = {
   sending: 'Sending the one-shot to Lovable',
   building: 'Lovable is building the site',
   waiting_on_lovable: 'Lovable is waiting for a person',
-  built: 'Built in Lovable: review it, then publish',
+  built: 'Built in Lovable: review it, then publish it from the Office',
+  held: 'Built in Lovable, not published (Not now)',
+  publishing: 'Publishing in Lovable',
+  published: 'Published',
   failed: 'Didn’t finish',
+}
+
+// ---------------------------------------------------------------------------
+// Publishing, and the built site's own policy pages
+// ---------------------------------------------------------------------------
+
+const LEGAL_ENDING = /\b(l\.?l\.?c|inc|incorporated|corp|corporation|co|company|ltd|pllc|lp)\b\.?/gi
+
+/**
+ * The lovable.app name Forge asks for when it publishes: the business name,
+ * "Acme Roofing & Gutters, LLC" → acme-roofing-and-gutters(.lovable.app).
+ * Null when too little of the name is left; Lovable then picks one.
+ */
+export function publishSlug(business: string): string | null {
+  const slug = business
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(LEGAL_ENDING, ' ')
+    .replace(/&/g, ' and ')
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+    .replace(/-+$/, '')
+  return slug.length >= 3 ? slug : null
+}
+
+/** The policy pages every site Forge builds has: the template's /privacy and /terms. */
+export const BUILT_SITE_PAGES = { privacy: '/privacy', terms: '/terms' } as const
+
+/** Lovable serves it: a copy's preview, or a site published at lovable.app. */
+export const isLovableHost = (host: string) => /(^|\.)(lovable\.app|lovableproject\.com)$/i.test(host)
+
+/** A host as compared here: lowercase, no www. Accepts a bare domain or a full link. */
+export function bareHost(v: string | null | undefined): string | null {
+  const s = v?.trim()
+  if (!s) return null
+  try {
+    return new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`).hostname.toLowerCase().replace(/^www\./, '') || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The privacy and terms links for a form or chat shown on `shownOn` (the
+ * page's address as the browser sends it), when that page is the site Forge
+ * built for the client: that site's own /privacy and /terms (Alex,
+ * 2026-11-13: the consent links on the site open the site's pages, not the
+ * Hub's). The page counts when Lovable serves it (the copy's preview, or
+ * its lovable.app address) or it's at one of the client's own addresses
+ * (`ownHosts`). Null otherwise, and on the Hub itself: the usual links apply.
+ */
+export function builtSiteLegal(shownOn: string | null | undefined, ownHosts: string[], hubHosts: string[]): { privacy: string; terms: string } | null {
+  let url: URL
+  try {
+    url = new URL(shownOn ?? '')
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  const host = bareHost(url.href)
+  if (!host || hubHosts.includes(host) || host.endsWith('.onrender.com')) return null
+  if (!isLovableHost(host) && !ownHosts.includes(host)) return null
+  return { privacy: `${url.origin}${BUILT_SITE_PAGES.privacy}`, terms: `${url.origin}${BUILT_SITE_PAGES.terms}` }
 }

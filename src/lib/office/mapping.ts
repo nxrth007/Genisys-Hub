@@ -141,8 +141,9 @@ export type ApprovalIn = {
   /**
    * number: ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check.
    * registration: review = filled and stopped before Send; blocked = it stopped and needs a person.
+   * site: ask = build it?; publish = Lovable built it, publish it? (reviewLink = the copy in Lovable).
    */
-  stage?: 'ask' | 'identity' | 'review' | 'blocked'
+  stage?: 'ask' | 'identity' | 'review' | 'blocked' | 'publish'
   /** The client's GHL Phone System, where the ID check starts; null without a linked sub-account. */
   ghlLink?: string | null
   /** What the last try said (e.g. GHL still asked for the ID check, or what stopped the registration). */
@@ -160,7 +161,8 @@ export type DomainChoiceView = { name: string; costCents: number; renewalCents: 
 export type DomainRequestIn = { id: string; accountId?: string; clientName: string; status: string; name: string | null; detail: string | null; decidedAt: Date | null; updatedAt: Date }
 /**
  * A client's website build once a person answered (src/lib/hl/site-request.ts):
- * filling | copying | sending | building | waiting_on_lovable | built | failed | declined.
+ * filling | copying | sending | building | waiting_on_lovable | built | held |
+ * publishing | published | failed | declined.
  */
 export type SiteRequestIn = {
   id: string
@@ -170,6 +172,9 @@ export type SiteRequestIn = {
   detail: string | null
   /** The client's copy in Lovable's editor, once it exists. */
   editorUrl: string | null
+  /** Where it was published, and when. */
+  liveUrl?: string | null
+  publishedAt?: Date | null
   /** Clients: their site link is saved (the site went live). */
   siteLive: boolean
   /** When the current step started. */
@@ -255,7 +260,7 @@ export type OfficeApproval = {
   /** Where its calls would ring (E.164), when a phone is on file. */
   ringTo: string | null
   at: string
-  stage: 'ask' | 'identity' | 'review' | 'blocked'
+  stage: 'ask' | 'identity' | 'review' | 'blocked' | 'publish'
   ghlLink: string | null
   detail: string | null
   /** registration: the client's folder in Sites, showing what was filled. */
@@ -451,13 +456,15 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   // and whether to send GHL's toll-free registration it filled (or says what stopped it).
   // Forge's domain questions are mapped below.
   const echoAsks = input.approvals.filter((a) => a.kind !== 'domain' && a.kind !== 'site')
-  const approvals: OfficeApproval[] = [...echoAsks]
+  /** Echo's stages: publishing is Forge's. */
+  type EchoStage = Exclude<OfficeApproval['stage'], 'publish'>
+  const echoApprovals = [...echoAsks]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
-    .map((a) => {
-      const stage = a.stage ?? 'ask'
+    .map((a): OfficeApproval & { stage: EchoStage } => {
+      const stage: EchoStage = !a.stage || a.stage === 'publish' ? 'ask' : a.stage
       const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
       const num = a.number ? phone(a.number) : 'their number'
-      const words: Record<OfficeApproval['stage'], { question: string; note: string }> = {
+      const words: Record<EchoStage, { question: string; note: string }> = {
         // Hell-level only since 2026-11-13: clients set up in GHL keep their numbers and aren't asked.
         ask: {
           question: `Buy a toll-free number for ${a.clientName} in Hell-level?`,
@@ -491,17 +498,18 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
         at: a.at.toISOString(),
       }
     })
-  const asked: Record<OfficeApproval['stage'], (name: string) => string> = {
+  const approvals: OfficeApproval[] = [...echoApprovals]
+  const asked: Record<EchoStage, (name: string) => string> = {
     ask: (n) => `Asked to buy a toll-free number for ${n}`,
     identity: (n) => `Waiting on GHL’s ID check for ${n}`,
     review: (n) => `Filled ${n}’s toll-free registration in GHL; waiting for your OK`,
     blocked: (n) => `${n}’s toll-free registration in GHL needs you`,
   }
-  for (const a of approvals) feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', asked[a.stage](a.clientName), 'needs_you')
-  if (approvals.length) {
+  for (const a of echoApprovals) feed(`ap:${a.id}:${a.stage}:${a.at}`, new Date(a.at), 'echo', asked[a.stage](a.clientName), 'needs_you')
+  if (echoApprovals.length) {
     const newest = echoAsks.reduce((x, y) => (y.at > x.at ? y : x))
-    const one = approvals[0]
-    const task: Record<OfficeApproval['stage'], string> = {
+    const one = echoApprovals[0]
+    const task: Record<EchoStage, string> = {
       ask: `Asking: buy a toll-free number for ${one.clientName}?`,
       identity: `Waiting on the GHL ID check for ${one.clientName}`,
       review: `Asking: send ${one.clientName}’s toll-free registration in GHL?`,
@@ -509,7 +517,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     }
     add('echo', {
       status: 'needs_you',
-      task: approvals.length === 1 ? task[one.stage] : `${approvals.length} toll-free ${approvals.every((x) => x.kind === 'number') ? 'numbers' : 'questions'} waiting for you`,
+      task: echoApprovals.length === 1 ? task[one.stage] : `${echoApprovals.length} toll-free ${echoApprovals.every((x) => x.kind === 'number') ? 'numbers' : 'questions'} waiting for you`,
       icon: 'alert',
       at: newest.at,
     })
@@ -566,16 +574,19 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     }
   }
 
-  // Forge asks whether to build a new client's website (src/lib/hl/site-request.ts).
+  // Forge asks whether to build a new client's website, and once Lovable built it, whether to publish it (src/lib/hl/site-request.ts).
   const siteAsks = input.approvals.filter((a) => a.kind === 'site').sort((a, b) => a.at.getTime() - b.at.getTime())
   for (const a of siteAsks) {
+    const publish = a.stage === 'publish'
     approvals.push({
       id: a.id,
       kind: 'site',
       botId: 'forge',
-      stage: 'ask',
-      question: `Build ${a.clientName}’s website?`,
-      note: 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
+      stage: publish ? 'publish' : 'ask',
+      question: publish ? `Publish ${a.clientName}’s website?` : `Build ${a.clientName}’s website?`,
+      note: publish
+        ? 'Lovable built it. Look it over in Lovable first. Publishing puts it live at a lovable.app address (free, no Lovable credits); connecting their domain and GitHub comes after.'
+        : 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
       clientName: a.clientName,
       ringTo: null,
       ghlLink: null,
@@ -583,13 +594,17 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       reviewLink: a.reviewLink ?? null,
       at: a.at.toISOString(),
     })
-    feed(`sq:${a.id}:${a.at.getTime()}`, a.at, 'forge', `Asked whether to build ${a.clientName}’s website`, 'needs_you')
+    feed(`sq:${a.id}:${publish ? 'publish:' : ''}${a.at.getTime()}`, a.at, 'forge', publish ? `Asked whether to publish ${a.clientName}’s website` : `Asked whether to build ${a.clientName}’s website`, 'needs_you')
   }
   if (siteAsks.length) {
     const newest = siteAsks[siteAsks.length - 1]
+    const publishing = siteAsks.every((a) => a.stage === 'publish')
     add('forge', {
       status: 'needs_you',
-      task: siteAsks.length === 1 ? `Asking: build ${newest.clientName}’s website?` : `${siteAsks.length} websites to build`,
+      task:
+        siteAsks.length === 1
+          ? `Asking: ${newest.stage === 'publish' ? 'publish' : 'build'} ${newest.clientName}’s website?`
+          : `${siteAsks.length} websites to ${publishing ? 'publish' : 'build or publish'}`,
       icon: 'alert',
       at: newest.at,
     })
@@ -612,13 +627,25 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       const why = r.detail ? `: ${r.detail}` : ''
       add('forge', { status: 'needs_you', task: clip(`Lovable is waiting for you on ${r.clientName}’s website${why}`), icon: 'alert', at: r.updatedAt })
       request(`sb:${r.id}:waiting`, 'forge', 'stuck', `Lovable is waiting for a person on ${r.clientName}’s website${why}`, r.updatedAt, lovable)
-    } else if (r.status === 'built') {
+    } else if (r.status === 'built' || r.status === 'held') {
+      // Forge's Publish question is the next step (an approval); Not now leaves it in their folder.
       const done = r.finishedAt ?? r.updatedAt
       feed(`sb:${r.id}:built`, done, 'forge', `Built ${r.clientName}’s website in Lovable`, 'done')
       if (age(done) <= DONE_MS) add('forge', { status: 'coding', task: `Built ${r.clientName}’s website in Lovable`, icon: 'check', at: done })
-      // Until the link is saved in Clients: a person reviews and publishes it.
-      if (!r.siteLive && age(done) <= SUBACCOUNT_OPEN_MS) {
-        request(`sb:${r.id}:review`, 'forge', 'stuck', `${r.clientName}’s new website is built in Lovable. Review it, publish it, connect the domain and GitHub there, then save the live link in Clients.`, done, lovable)
+      if (r.status === 'held') feed(`sb:${r.id}:held`, r.updatedAt, 'forge', `Not publishing ${r.clientName}’s website for now`, 'thinking')
+    } else if (r.status === 'publishing') {
+      add('forge', { status: 'browsing', task: `Publishing ${r.clientName}’s website in Lovable${retrying}`, icon: 'globe', at })
+    } else if (r.status === 'published') {
+      const live = r.publishedAt ?? r.updatedAt
+      const where = r.liveUrl ? ` at ${r.liveUrl}` : ''
+      feed(`sb:${r.id}:published`, live, 'forge', `Published ${r.clientName}’s website${where}`, 'done')
+      if (age(live) <= DONE_MS) add('forge', { status: 'coding', task: `Published ${r.clientName}’s website`, icon: 'check', at: live })
+      if (age(live) <= SUBACCOUNT_OPEN_MS) {
+        // Until the link is saved in Clients: the domain and GitHub are connected by hand in Lovable.
+        if (!r.siteLive) request(`sb:${r.id}:domain`, 'forge', 'stuck', `${r.clientName}’s new website is live${where}. Connect their domain and GitHub in Lovable, then save the site link in Clients.`, live, lovable)
+        if (r.detail?.includes('didn’t load')) {
+          request(`sb:${r.id}:pages`, 'forge', 'error', `${r.clientName}’s website is live, but its privacy or terms page didn’t load, and its form and chat link them. Look in Lovable.`, live, lovable)
+        }
       }
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''

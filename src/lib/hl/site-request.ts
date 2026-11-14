@@ -19,9 +19,17 @@
  *   building — every minute the scheduler asks Lovable how the agent is doing,
  *              until it's done, stopped, or waiting for a person in its editor.
  *
- * Then the site is built but not published: a person reviews it in Lovable,
- * publishes, connects the domain and GitHub there, and saves the live link in
- * Clients (which sets up the sub-account's website and texting verification).
+ * Then the site is built but not published, and Forge asks again in the
+ * Office: publish it? A person looks it over in Lovable first. On Publish it:
+ *
+ *   publishing — the Hub's Lovable sign-in publishes the copy at
+ *                <business-name>.lovable.app (free), then checks every minute
+ *                until that address loads.
+ *
+ * Still by hand after that: connect the domain and GitHub in Lovable, and
+ * save the live link in Clients (which sets up the sub-account's website and
+ * texting verification). The site's form and chat link its own /privacy and
+ * /terms wherever it's shown (./legal-links.ts builtSiteLegalLinks).
  */
 import { Prisma } from '@/generated/prisma/client'
 import { embedCode } from '@/components/hell-level/embed'
@@ -33,6 +41,7 @@ import { BudgetExceededError, FatalClaudeError, RefusalError, TruncatedError } f
 import {
   LovableMcpError,
   lovableMcpAgentState,
+  lovableMcpDeploy,
   lovableMcpFindProjects,
   lovableMcpProjectRef,
   lovableMcpRecentMessages,
@@ -46,6 +55,7 @@ import { REVIEW_REQUEST_FORM } from './client-kit'
 import { fillOneShot } from './site-fill'
 import {
   buildOneShot,
+  BUILT_SITE_PAGES,
   cleanDomain,
   DEFAULT_TEMPLATE_PROJECT,
   firstEmail,
@@ -53,8 +63,10 @@ import {
   phoneParts,
   pickPhotos,
   projectNameFor,
+  publishSlug,
   siteAskDecision,
   siteQuestionDetail,
+  SITE_PUBLISHABLE,
   SITE_WORKING,
   socialLinksFrom,
   zoneWord,
@@ -76,6 +88,8 @@ const REMIX_WAIT_S = 540
 const COPY_GIVE_UP_MS = 40 * 60_000
 /** A build this old gets a note to look at it in Lovable (it keeps being checked). */
 const BUILD_SLOW_MS = 4 * 60 * 60_000
+/** A publish whose address still doesn't load after this long goes back to a person. */
+const PUBLISH_GIVE_UP_MS = 30 * 60_000
 /** Lovable or Claude not answering: tries of one step before a person is asked to look. */
 const MAX_TRIES = 6
 
@@ -319,6 +333,8 @@ export async function askForClientSite(clientId: string, trigger: 'onboarding' |
     stepAt: null,
     leaseUntil: null,
     finishedAt: null,
+    liveUrl: null,
+    publishedAt: null,
     log: [{ at: new Date().toISOString(), what: `Asked in the Office ${who}.${earlier}` }] as unknown as Prisma.InputJsonValue,
   }
   const row = c.hlSiteRequest
@@ -329,10 +345,15 @@ export async function askForClientSite(clientId: string, trigger: 'onboarding' |
 
 export type SiteDecision = { ok: true; status: string; detail: string | null } | { ok: false; reason: string }
 
-/** A person's answer in the Office: Build it (fill, copy, send, watch) or Not now. */
-export async function decideClientSite(id: string, decision: 'build' | 'no', by: string): Promise<SiteDecision> {
-  const r = await prisma.hlSiteRequest.findUnique({ where: { id }, select: { id: true, status: true } })
+/**
+ * A person's answer in the Office. To "Build X's website?": Build it (fill,
+ * copy, send, watch) or Not now. To "Publish X's website?" once it's built:
+ * Publish it, or Not now (it can be published later from their folder).
+ */
+export async function decideClientSite(id: string, decision: 'build' | 'publish' | 'no', by: string): Promise<SiteDecision> {
+  const r = await prisma.hlSiteRequest.findUnique({ where: { id }, select: { id: true, status: true, projectId: true } })
   if (!r) return { ok: false, reason: 'That question is gone.' }
+  if (decision === 'publish' || (decision === 'no' && r.status === 'built')) return decidePublish(r, decision, by)
   if (r.status !== 'awaiting_approval') return { ok: false, reason: (SITE_WORKING as string[]).includes(r.status) ? 'It’s already being built.' : 'That question was already answered.' }
   if (decision === 'no') {
     await note(r.id, `${by} answered Not now.`, { status: 'declined', decidedBy: by, decidedAt: new Date(), detail: null })
@@ -350,6 +371,32 @@ export async function decideClientSite(id: string, decision: 'build' | 'no', by:
   await note(r.id, `${by} answered Build it.`)
   void advanceSiteBuild(r.id).catch((err) => console.error(`[hl-site] build ${r.id}:`, err))
   return { ok: true, status: 'filling', detail: 'Started. Claude fills the one-shot, then the Hub copies the template in Lovable and sends it. Forge shows how it’s going.' }
+}
+
+/** Forge's second question, once Lovable built the site: Publish it, or Not now. */
+async function decidePublish(r: { id: string; status: string; projectId: string | null }, decision: 'publish' | 'no', by: string): Promise<SiteDecision> {
+  if (r.status === 'publishing') return { ok: false, reason: 'It’s already being published.' }
+  if (r.status === 'published') return { ok: false, reason: 'It’s already published.' }
+  if (!(SITE_PUBLISHABLE as string[]).includes(r.status)) return { ok: false, reason: 'There’s no built site to publish.' }
+  if (decision === 'no') {
+    const held = await move(r.id, 'built', `${by} answered Not now to publishing.`, { status: 'held', detail: 'Not published. Publish it from their folder in Sites when it’s ready.' }).then(
+      () => true,
+      () => false,
+    )
+    return held ? { ok: true, status: 'held', detail: 'Not published. Publish it from their folder in Sites.' } : { ok: false, reason: 'Someone else just answered it.' }
+  }
+  if (!r.projectId) return { ok: false, reason: 'The Hub lost track of the Lovable copy. Publish it in Lovable instead.' }
+  const lovable = await lovableMcpStatus()
+  if (!lovable.connected) return { ok: false, reason: 'The Hub isn’t signed in to Lovable. Connect it on the SEO page (Setup card), then press Publish it again.' }
+  const now = new Date()
+  const claimed = await prisma.hlSiteRequest.updateMany({
+    where: { id: r.id, status: { in: SITE_PUBLISHABLE } },
+    data: { status: 'publishing', stepAt: now, leaseUntil: null, liveUrl: null, publishedAt: null, detail: null },
+  })
+  if (!claimed.count) return { ok: false, reason: 'Someone else just answered it.' }
+  await note(r.id, `${by} answered Publish it.`)
+  void advanceSiteBuild(r.id).catch((err) => console.error(`[hl-site] publish ${r.id}:`, err))
+  return { ok: true, status: 'publishing', detail: 'Publishing. Forge says when it’s live, usually within a few minutes.' }
 }
 
 /**
@@ -398,6 +445,7 @@ async function runStep(id: string): Promise<boolean> {
     if (r.status === 'filling') next = await fillStep(r)
     else if (r.status === 'copying') next = await copyStep(r)
     else if (r.status === 'sending') next = await sendStep(r)
+    else if (r.status === 'publishing') next = await publishStep(r)
     else await checkStep(r)
     tries.delete(key)
     return next
@@ -410,7 +458,13 @@ async function runStep(id: string): Promise<boolean> {
     const stop = err instanceof SiteStop || claudeStop || (err instanceof LovableMcpError && err.reconnect) || n >= (r.status === 'filling' ? 2 : MAX_TRIES)
     if (stop) {
       tries.delete(key)
-      const why = stopReason(err)
+      const why = stopReason(err, r.status)
+      if (r.status === 'publishing') {
+        // The site is still built: back to Forge's question, with what went wrong, for a person to try again.
+        const back = await move(r.id, r.status, `Publishing stopped: ${why}`, { status: 'built', detail: `Publishing didn’t finish: ${why}` }).then(() => true, () => false)
+        if (back) await textSiteEvent({ key: `${r.id}:${(r.stepAt ?? r.updatedAt).getTime()}`, kind: 'publish_failed', client: r.client.name, reason: why, link: r.editorUrl ?? sitesFolder(r.clientId) })
+        return false
+      }
       const failed = await move(r.id, r.status, `Stopped while ${r.status}: ${why}`, { status: 'failed', detail: why, finishedAt: new Date() }).then(() => true, () => false)
       if (failed) await textSiteEvent({ key: r.id, kind: 'failed', client: r.client.name, reason: why, link: r.editorUrl ?? sitesFolder(r.clientId) })
     } else {
@@ -423,8 +477,10 @@ async function runStep(id: string): Promise<boolean> {
   }
 }
 
-function stopReason(err: unknown): string {
-  if (err instanceof LovableMcpError && err.reconnect) return `${err.message} (SEO page → Setup card), then ask again from their folder in Sites.`
+function stopReason(err: unknown, status: string): string {
+  if (err instanceof LovableMcpError && err.reconnect) {
+    return `${err.message} (SEO page → Setup card), then ${status === 'publishing' ? 'press Publish it again in the Office' : 'ask again from their folder in Sites'}.`
+  }
   if (err instanceof RefusalError) return `Claude declined to fill the one-shot (${err.message}).`
   if (err instanceof TruncatedError) return 'Claude’s one-shot came back cut off.'
   if (err instanceof BudgetExceededError) return err.message
@@ -557,7 +613,7 @@ async function checkStep(r: SiteRow): Promise<void> {
       status: 'built',
       finishedAt: new Date(),
       previewUrl: s.previewUrl ?? r.previewUrl,
-      detail: `Built${credits}. Review it in Lovable, then publish it, connect the domain and GitHub there, and save the live link in Clients.`,
+      detail: `Built${credits}. Look it over in Lovable, then answer Forge’s question in the Office: publish it?`,
     })
     await textSiteEvent({ key: r.id, kind: 'built', client: r.client.name, link })
     return
@@ -577,6 +633,76 @@ async function checkStep(r: SiteRow): Promise<void> {
   else if (Date.now() - (r.stepAt ?? r.updatedAt).getTime() > BUILD_SLOW_MS && !r.detail?.startsWith('Still building')) {
     await note(r.id, 'Still building after 4 hours.', { detail: 'Still building after 4 hours: have a look in Lovable.' })
   }
+}
+
+/** Where an address ends up when it loads (Lovable sends a site with a domain on to it), or null. */
+async function loads(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(20_000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; GenisysHub/1.0)' } })
+    await res.body?.cancel().catch(() => undefined)
+    return res.ok ? res.url || url : null
+  } catch {
+    return null
+  }
+}
+
+/** Lovable answering that it won't (a name it won't take, security findings, a plan limit), as opposed to no answer at all. */
+const lovableSaidNo = (err: unknown) => err instanceof LovableMcpError && !err.reconnect && /^deploy_project failed|refused/i.test(err.message)
+
+/**
+ * publishing → published: the Hub's Lovable sign-in publishes the copy at
+ * <business-name>.lovable.app (free), then every minute checks the address
+ * until it loads, and that its /privacy and /terms do (the form links them).
+ */
+async function publishStep(r: SiteRow): Promise<boolean> {
+  const template = r.templateId ?? templateProject()
+  if (!r.projectId) throw new SiteStop('The Hub lost track of the Lovable copy. Publish it in Lovable instead.')
+  if (r.projectId === template || r.projectId === DEFAULT_TEMPLATE_PROJECT) throw new SiteStop('Refused to publish the template project itself.')
+  if (!r.liveUrl) {
+    const fill = (r.fill ?? {}) as Partial<SiteFill>
+    const named = publishSlug(fill.displayName || fill.legalName || r.client.name)
+    // An address that already loads is another site's (a copy is never published before this): Lovable picks one instead.
+    const slug = named && !(await loads(`https://${named}.lovable.app`)) ? named : null
+    if (named && !slug) await note(r.id, `${named}.lovable.app is taken. Letting Lovable pick the address.`)
+    let dep: Awaited<ReturnType<typeof lovableMcpDeploy>>
+    try {
+      dep = await lovableMcpDeploy(r.projectId, slug ?? undefined)
+    } catch (err) {
+      if (!lovableSaidNo(err)) throw err
+      if (!slug) throw new SiteStop(`Lovable wouldn’t publish it: ${describe(err)}`)
+      // Most likely the name is someone else's: Lovable picks an address instead.
+      await note(r.id, `Lovable wouldn’t publish it as ${slug}.lovable.app (${describe(err).slice(0, 200)}). Letting Lovable pick the address.`)
+      try {
+        dep = await lovableMcpDeploy(r.projectId)
+      } catch (again) {
+        throw lovableSaidNo(again) ? new SiteStop(`Lovable wouldn’t publish it: ${describe(again)}`) : again
+      }
+    }
+    const url = dep.url ?? (slug ? `https://${slug}.lovable.app` : null)
+    if (!url) throw new SiteStop(`Lovable didn’t say where it published the site (${dep.detail || 'no answer'}). Look in Lovable.`)
+    await move(r.id, 'publishing', `Asked Lovable to publish it at ${url}.`, { liveUrl: url })
+    return false
+  }
+  const served = await loads(r.liveUrl)
+  if (!served) {
+    if (Date.now() - (r.stepAt ?? r.updatedAt).getTime() > PUBLISH_GIVE_UP_MS) {
+      throw new SiteStop(`Lovable was asked to publish it, but ${r.liveUrl} still doesn’t load after 30 minutes. Look in Lovable (its Publish button).`)
+    }
+    return false
+  }
+  const live = new URL(served).origin
+  const missing = (await Promise.all([BUILT_SITE_PAGES.privacy, BUILT_SITE_PAGES.terms].map(async (p) => ((await loads(`${live}${p}`)) ? null : p)))).filter(
+    (p): p is (typeof BUILT_SITE_PAGES)[keyof typeof BUILT_SITE_PAGES] => !!p,
+  )
+  const pagesNote = missing.length ? ` Its ${missing.join(' and ')} page${missing.length > 1 ? 's' : ''} didn’t load, and the form and chat link them: look in Lovable.` : ''
+  await move(r.id, 'publishing', `Live at ${live}.${pagesNote}`, {
+    status: 'published',
+    liveUrl: live,
+    publishedAt: new Date(),
+    detail: `Live at ${live}.${pagesNote} Next: connect their domain and GitHub in Lovable, then save the site link in Clients.`,
+  })
+  await textSiteEvent({ key: `${r.id}:${live}`, kind: 'published', client: r.client.name, link: live })
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -599,7 +725,7 @@ export async function maybeSweepSiteRequests(now = Date.now()): Promise<number> 
     take: 20,
   })
   for (const w of working) {
-    const watching = w.status === 'building' || w.status === 'waiting_on_lovable'
+    const watching = w.status === 'building' || w.status === 'waiting_on_lovable' || w.status === 'publishing'
     if (watching && now - (lastPoll.get(w.id) ?? 0) < POLL_EVERY_MS - 5_000) continue
     lastPoll.set(w.id, now)
     // Not awaited: a fill or a copy takes minutes, and the lease keeps it to one runner.

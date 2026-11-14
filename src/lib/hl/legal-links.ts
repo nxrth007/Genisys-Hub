@@ -2,15 +2,18 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { getTree, readFile } from '@/lib/seo/github'
 import { readProfile } from './accounts'
+import { bareHost, builtSiteLegal } from './site-plan'
 import { publicBase } from './twilio'
 import type { HlFormSettings, HlProfile } from './types'
 
 /**
  * Where a form's "Privacy Policy" and "Terms" links go. In order: the form's
- * own links, the sub-account's (Business Profile), then the pages the Hub
- * hosts for every sub-account. Genisys-built sites have their own
- * SMS-ready /privacy and /terms pages, so a client with a live site and a
- * connected repo gets those filled into the profile (fillLegalLinksFromSite).
+ * own links; the site the form is on, when it's the site Forge built for the
+ * client (builtSiteLegalLinks); the sub-account's (Business Profile); then
+ * the pages the Hub hosts for every sub-account. Genisys-built sites have
+ * their own SMS-ready /privacy and /terms pages, so a client with a live
+ * site and a connected repo gets those filled into the profile
+ * (fillLegalLinksFromSite).
  */
 
 export type LegalLinks = { privacy: string; terms: string }
@@ -32,10 +35,39 @@ export function isHubUrl(url: string): boolean {
   }
 }
 
-export function resolveLegalLinks(accountId: string, profile: HlProfile, settings?: HlFormSettings): LegalLinks {
+export function resolveLegalLinks(accountId: string, profile: HlProfile, settings?: HlFormSettings, onSite?: LegalLinks | null): LegalLinks {
   return {
-    privacy: httpUrl(settings?.privacyUrl) ?? httpUrl(profile.privacyUrl) ?? hostedLegalUrl(accountId, 'privacy'),
-    terms: httpUrl(settings?.termsUrl) ?? httpUrl(profile.termsUrl) ?? hostedLegalUrl(accountId, 'terms'),
+    privacy: httpUrl(settings?.privacyUrl) ?? onSite?.privacy ?? httpUrl(profile.privacyUrl) ?? hostedLegalUrl(accountId, 'privacy'),
+    terms: httpUrl(settings?.termsUrl) ?? onSite?.terms ?? httpUrl(profile.termsUrl) ?? hostedLegalUrl(accountId, 'terms'),
+  }
+}
+
+/**
+ * A form or chat shown on the site Forge built for the client links that
+ * site's own /privacy and /terms (./site-plan.ts builtSiteLegal): the
+ * copy's preview, its lovable.app address, or the client's own domain.
+ * `shownOn` is the page the browser says the form is on (its frame's
+ * Referer). Null before Forge made the client's Lovable copy, off that site,
+ * or when the browser didn't say.
+ */
+export async function builtSiteLegalLinks(accountId: string, shownOn: string | null | undefined): Promise<LegalLinks | null> {
+  if (!shownOn) return null
+  try {
+    const account = await prisma.hlAccount.findUnique({
+      where: { id: accountId },
+      select: {
+        domains: { select: { name: true } },
+        client: { select: { siteUrl: true, seoSite: { select: { liveUrl: true } }, hlSiteRequest: { select: { projectId: true, liveUrl: true } } } },
+      },
+    })
+    const c = account?.client
+    if (!account || !c?.hlSiteRequest?.projectId) return null
+    const own = [c.siteUrl, c.seoSite?.liveUrl, c.hlSiteRequest.liveUrl, ...account.domains.map((d) => d.name)].map(bareHost).filter((h): h is string => !!h)
+    const hub = bareHost(publicBase())
+    return builtSiteLegal(shownOn, own, hub ? [hub] : [])
+  } catch (err) {
+    console.warn(`[hell-level] site policy links for ${accountId}:`, err instanceof Error ? err.message : err)
+    return null
   }
 }
 

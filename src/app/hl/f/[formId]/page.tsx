@@ -1,3 +1,4 @@
+import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { publicForm } from '@/lib/hl/forms'
 import { formBackground } from '@/lib/hl/form-style'
@@ -13,10 +14,14 @@ export async function generateMetadata({ params }: Props) {
   return { title: form ? `${form.settings.heading || form.name} | ${form.business}` : 'Form', robots: { index: false } }
 }
 
-/** A Hell-level form as embedded on a client's website (iframe), or opened on its own. */
+/**
+ * A Hell-level form as embedded on a client's website (iframe), or opened on
+ * its own. The browser names the site the frame is on (Referer, its origin):
+ * on the site Forge built, the privacy and terms links open that site's pages.
+ */
 export default async function HostedFormPage({ params, searchParams }: Props) {
   const { formId } = await params
-  const form = await publicForm(formId)
+  const form = await publicForm(formId, (await headers()).get('referer'))
   if (!form) notFound()
   const { page } = await searchParams
   const background = formBackground(form.settings)

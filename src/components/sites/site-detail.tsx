@@ -307,7 +307,9 @@ function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullabl
 }
 
 /** A build Forge is on (asked, or under way in Lovable): nobody asks again meanwhile. */
-const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable']
+const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing']
+/** Built, not published: Publish it can be pressed here as well as in the Office. */
+const BUILD_PUBLISHABLE = ['built', 'held']
 
 /** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and asking Forge in the Office. */
 function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
@@ -317,6 +319,7 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const [prompt, setPrompt] = useState<string | null>(null)
   const b = d.build
   const working = !!b && BUILD_WORKING.includes(b.status)
+  const publishable = !!b && BUILD_PUBLISHABLE.includes(b.status) && !!b.editorUrl
 
   async function ask(overrideGhl: boolean) {
     setBusy(true)
@@ -325,6 +328,19 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
       const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask', overrideGhl }) })
       const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
       setMsg(out.ok ? 'Asked in the Office. Nothing is built until someone presses Build it there.' : out.reason || out.error || 'Couldn’t ask.')
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function publish() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'publish' }) })
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; detail?: string | null; error?: string }
+      setMsg(out.ok ? out.detail || 'Publishing.' : out.reason || out.error || 'Couldn’t publish.')
       router.refresh()
     } finally {
       setBusy(false)
@@ -344,8 +360,13 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
         {b ? b.label : d.ghlLinked ? 'Set up in GHL: their site is built by hand, with GHL’s form.' : 'Forge hasn’t asked about their website yet.'}
       </p>
       {b?.detail && <p className="text-[12.5px] leading-snug text-muted-foreground">{b.detail}</p>}
-      {(b?.editorUrl || b?.hasPrompt) && (
+      {(b?.editorUrl || b?.hasPrompt || b?.liveUrl) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
+          {b?.liveUrl && (
+            <a href={b.liveUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {b.liveUrl.replace(/^https?:\/\//, '')}
+            </a>
+          )}
           {b?.editorUrl && (
             <a href={b.editorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
               <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {b.projectName ?? 'Their copy'} in Lovable
@@ -360,16 +381,32 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
       )}
       {canAct && !working && d.account && (
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => ask(false)}
-            disabled={busy || d.ghlLinked}
-            title={d.ghlLinked ? 'They have a GHL sub-account' : undefined}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
-          >
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {b ? 'Ask to build it again' : 'Ask Forge to build it'}
-          </button>
-          {d.ghlLinked && (
+          {publishable && (
+            <button
+              type="button"
+              onClick={publish}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Publish it
+            </button>
+          )}
+          {b?.status !== 'published' && (
+            <button
+              type="button"
+              onClick={() => ask(false)}
+              disabled={busy || d.ghlLinked}
+              title={d.ghlLinked ? 'They have a GHL sub-account' : undefined}
+              className={
+                publishable
+                  ? 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50'
+                  : 'inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50'
+              }
+            >
+              {busy && !publishable && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {b ? 'Ask to build it again' : 'Ask Forge to build it'}
+            </button>
+          )}
+          {d.ghlLinked && b?.status !== 'published' && (
             <button type="button" onClick={() => ask(true)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
               Ask anyway (Hell-level form and chat)
             </button>

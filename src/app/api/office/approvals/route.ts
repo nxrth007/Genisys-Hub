@@ -25,7 +25,9 @@ import { decideClientSite } from '@/lib/hl/site-request'
  *
  * Forge asking whether to build a new client's website (kind "site"):
  * 'build' has Claude fill the one-shot, copies the template in Lovable and
- * sends it (Lovable credits); 'no' (Not now) drops the question.
+ * sends it (Lovable credits); 'no' (Not now) drops the question. Once
+ * Lovable built it, Forge asks to publish it (same kind): 'publish'
+ * publishes the copy at a lovable.app address; 'no' leaves it unpublished.
  */
 export const dynamic = 'force-dynamic'
 
@@ -45,8 +47,8 @@ export async function POST(req: Request) {
     return NextResponse.json(res)
   }
   if (body?.kind === 'site') {
-    const decision = body?.decision === 'build' || body?.decision === 'no' ? body.decision : null
-    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "no" }' }, { status: 400 })
+    const decision = body?.decision === 'build' || body?.decision === 'publish' || body?.decision === 'no' ? body.decision : null
+    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "publish" | "no" }' }, { status: 400 })
     const res = await decideClientSite(id, decision, by)
     if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
     return NextResponse.json(res)

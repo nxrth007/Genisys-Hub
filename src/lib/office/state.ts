@@ -173,18 +173,40 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       where: {
         client: { is: { archivedAt: null } },
         OR: [
-          { status: { in: ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable'] } },
-          { status: { in: ['built', 'failed'] }, updatedAt: { gte: openSince } },
+          // Questions (build it? publish it?) stay until someone answers them.
+          { status: { in: ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'built', 'publishing'] } },
+          { status: { in: ['held', 'published', 'failed'] }, updatedAt: { gte: openSince } },
           { updatedAt: { gte: since } },
         ],
       },
       orderBy: { updatedAt: 'desc' },
       take: 40,
-      select: { id: true, clientId: true, status: true, detail: true, editorUrl: true, stepAt: true, finishedAt: true, updatedAt: true, client: { select: { name: true, siteUrl: true } } },
+      select: {
+        id: true,
+        clientId: true,
+        status: true,
+        detail: true,
+        editorUrl: true,
+        liveUrl: true,
+        fill: true,
+        stepAt: true,
+        finishedAt: true,
+        publishedAt: true,
+        updatedAt: true,
+        client: { select: { name: true, siteUrl: true } },
+      },
     }), [])
   for (const s of siteRequests) {
-    if (s.status !== 'awaiting_approval') continue
-    input.approvals.push({ id: s.id, kind: 'site', clientName: s.client?.name ?? 'a client', at: s.updatedAt, stage: 'ask', detail: s.detail, reviewLink: `/sites/${s.clientId}` })
+    const clientName = s.client?.name ?? 'a client'
+    if (s.status === 'awaiting_approval') {
+      input.approvals.push({ id: s.id, kind: 'site', clientName, at: s.updatedAt, stage: 'ask', detail: s.detail, reviewLink: `/sites/${s.clientId}` })
+    } else if (s.status === 'built' && !s.client?.siteUrl?.trim()) {
+      // Built and not live: Forge asks to publish it. Under it, what went wrong last time, else what Claude said to check.
+      const notes = Array.isArray((s.fill as { notes?: unknown } | null)?.notes) ? ((s.fill as { notes: unknown[] }).notes.filter((n) => typeof n === 'string') as string[]) : []
+      const checks = notes.length ? `Claude’s notes to check: ${notes.join(' ')}` : null
+      const detail = s.detail?.startsWith('Publishing didn’t finish') ? s.detail : checks && checks.length > 320 ? `${checks.slice(0, 319).trimEnd()}…` : checks
+      input.approvals.push({ id: s.id, kind: 'site', clientName, at: s.finishedAt ?? s.updatedAt, stage: 'publish', detail, reviewLink: s.editorUrl ?? `/sites/${s.clientId}` })
+    }
   }
   input.siteRequests = siteRequests
     .filter((s) => s.status !== 'awaiting_approval')
@@ -195,6 +217,8 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       status: s.status,
       detail: s.detail,
       editorUrl: s.editorUrl,
+      liveUrl: s.liveUrl,
+      publishedAt: s.publishedAt,
       siteLive: !!s.client?.siteUrl?.trim(),
       stepAt: s.stepAt,
       finishedAt: s.finishedAt,
