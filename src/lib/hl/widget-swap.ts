@@ -20,6 +20,7 @@
  * in ./widget-swap-plan.ts.
  */
 import { embedCode } from '@/components/hell-level/embed'
+import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
   LovableMcpError,
@@ -89,8 +90,13 @@ export type WidgetSwap = {
   detail: string | null
   /** The step a failed swap stopped at (a resume picks it up there). */
   stoppedAt?: SwapStatus | null
+  /** Held by the Hub instance running a step (two overlap during a deploy). */
+  leaseUntil?: string | null
   log: { at: string; text: string }[]
 }
+
+/** How long a step may hold its swap; a lease left by a restart runs out after this. */
+const LEASE_MS = 10 * 60_000
 
 class SwapStop extends Error {}
 
@@ -128,17 +134,50 @@ function parse(value: string): WidgetSwap | null {
   }
 }
 
-async function load(clientId: string): Promise<WidgetSwap | null> {
+/** A swap as stored: its exact text (to write only if no one changed it since) and the state. */
+async function loadRow(clientId: string): Promise<{ raw: string; s: WidgetSwap } | null> {
   const row = await prisma.appSetting.findUnique({ where: { key: KEY + clientId } })
-  return row ? parse(row.value) : null
+  const s = row ? parse(row.value) : null
+  return row && s ? { raw: row.value, s } : null
 }
 
-async function save(s: WidgetSwap): Promise<void> {
+function stamp(s: WidgetSwap): string {
   s.updatedAt = new Date().toISOString()
   s.log = s.log.slice(-40)
+  return JSON.stringify(s)
+}
+
+/** Write the swap (by the instance holding its lease). */
+async function save(s: WidgetSwap): Promise<void> {
   const key = KEY + s.clientId
-  const value = JSON.stringify(s)
+  const value = stamp(s)
   await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })
+}
+
+/** Write the swap only if its row still reads `raw` (null: only if there's no row yet). False when someone changed it first. */
+async function saveIfUnchanged(s: WidgetSwap, raw: string | null): Promise<boolean> {
+  const key = KEY + s.clientId
+  const value = stamp(s)
+  if (raw === null) {
+    try {
+      await prisma.appSetting.create({ data: { key, value } })
+      return true
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return false
+      throw err
+    }
+  }
+  return (await prisma.appSetting.updateMany({ where: { key, value: raw }, data: { value } })).count === 1
+}
+
+const leased = (s: WidgetSwap) => !!s.leaseUntil && Date.parse(s.leaseUntil) > Date.now()
+
+/** Take a swap's lease for one step, if no other instance holds it or changed it since it was read. */
+async function claim(clientId: string): Promise<WidgetSwap | null> {
+  const row = await loadRow(clientId)
+  if (!row || leased(row.s) || !(row.s.status === 'queued' || WORKING.includes(row.s.status))) return null
+  row.s.leaseUntil = new Date(Date.now() + LEASE_MS).toISOString()
+  return (await saveIfUnchanged(row.s, row.raw)) ? row.s : null
 }
 
 function logLine(s: WidgetSwap, text: string) {
@@ -146,8 +185,8 @@ function logLine(s: WidgetSwap, text: string) {
   console.log(`[widget-swap] ${s.name || s.clientId}: ${text}`)
 }
 
-/** Log a line and move to `status` (a new step: its clock and tries start over). */
-async function move(s: WidgetSwap, status: SwapStatus, text: string, detail: string | null = null): Promise<void> {
+/** Log a line and set `status` (a new step: its clock and tries start over), without writing. */
+function shift(s: WidgetSwap, status: SwapStatus, text: string, detail: string | null): void {
   logLine(s, text)
   if (s.status !== status) {
     s.status = status
@@ -155,6 +194,11 @@ async function move(s: WidgetSwap, status: SwapStatus, text: string, detail: str
     s.tries = 0
   }
   s.detail = detail
+}
+
+/** Log a line, move to `status`, and write. */
+async function move(s: WidgetSwap, status: SwapStatus, text: string, detail: string | null = null): Promise<void> {
+  shift(s, status, text, detail)
   await save(s)
 }
 
@@ -186,7 +230,12 @@ export async function queueWidgetSwaps(clientIds: string[], by: string, opts: { 
       out.push({ clientId, name: c.name, queued: false, note: 'Verified on GoHighLevel: stays there (Alex, 2026-11-14).' })
       continue
     }
-    const prev = await load(clientId)
+    const row = await loadRow(clientId)
+    const prev = row?.s ?? null
+    if (prev && leased(prev)) {
+      out.push({ clientId, name: c.name, queued: false, note: 'Busy with a step right now: try again in a minute.' })
+      continue
+    }
     if (prev && (prev.status === 'queued' || WORKING.includes(prev.status))) {
       out.push({ clientId, name: c.name, queued: false, note: `Already ${prev.status === 'queued' ? 'queued' : `under way (${prev.status})`}.` })
       continue
@@ -219,8 +268,8 @@ export async function queueWidgetSwaps(clientIds: string[], by: string, opts: { 
       detail: null,
       log: prev ? [...prev.log.slice(-10), { at: now, text: `Queued again by ${by} (was ${prev.status}).` }] : [{ at: now, text: `Queued by ${by}.` }],
     }
-    await save(s)
-    out.push({ clientId, name: c.name, queued: true, note: 'Queued.' })
+    const ok = await saveIfUnchanged(s, row?.raw ?? null)
+    out.push(ok ? { clientId, name: c.name, queued: true, note: 'Queued.' } : { clientId, name: c.name, queued: false, note: 'It changed just now: try again.' })
   }
   return out
 }
@@ -229,13 +278,15 @@ export async function queueWidgetSwaps(clientIds: string[], by: string, opts: { 
 export async function unqueueWidgetSwaps(clientIds: string[], by: string): Promise<QueueResult[]> {
   const out: QueueResult[] = []
   for (const clientId of [...new Set(clientIds)]) {
-    const s = await load(clientId)
-    if (!s || s.status !== 'queued') {
-      out.push({ clientId, name: s?.name ?? null, queued: false, note: s ? `Not queued (${s.status}).` : 'Never queued.' })
+    const row = await loadRow(clientId)
+    const s = row?.s ?? null
+    if (!row || !s || s.status !== 'queued' || leased(s)) {
+      out.push({ clientId, name: s?.name ?? null, queued: false, note: !s ? 'Never queued.' : s.status !== 'queued' ? `Not queued (${s.status}).` : 'It’s starting right now.' })
       continue
     }
-    await move(s, 'failed', `Taken off the queue by ${by}.`, `Taken off the queue by ${by}.`)
-    out.push({ clientId, name: s.name, queued: false, note: 'Taken off the queue.' })
+    shift(s, 'failed', `Taken off the queue by ${by}.`, `Taken off the queue by ${by}.`)
+    const ok = await saveIfUnchanged(s, row.raw)
+    out.push({ clientId, name: s.name, queued: false, note: ok ? 'Taken off the queue.' : 'It changed just now: try again.' })
   }
   return out
 }
@@ -258,15 +309,18 @@ function stoppedAt(s: WidgetSwap): SwapStatus | null {
 export async function resumeWidgetSwaps(clientIds: string[], by: string): Promise<QueueResult[]> {
   const out: QueueResult[] = []
   for (const clientId of [...new Set(clientIds)]) {
-    const s = await load(clientId)
+    const row = await loadRow(clientId)
+    const s = row?.s ?? null
     const at = s?.status === 'failed' ? stoppedAt(s) : null
-    if (!s || !at || !RESUMABLE.includes(at)) {
-      out.push({ clientId, name: s?.name ?? null, queued: false, note: !s ? 'Never queued.' : s.status !== 'failed' ? `Not failed (${s.status}).` : 'It stopped before Lovable was sent the swap: queue it again instead.' })
+    if (!row || !s || !at || !RESUMABLE.includes(at) || leased(s)) {
+      const note = !s ? 'Never queued.' : s.status !== 'failed' ? `Not failed (${s.status}).` : leased(s) ? 'Busy right now: try again in a minute.' : 'It stopped before Lovable was sent the swap: queue it again instead.'
+      out.push({ clientId, name: s?.name ?? null, queued: false, note })
       continue
     }
     s.stoppedAt = null
-    await move(s, at, `Picked up again at ${at} by ${by}.`, `Picked up again at ${at}.`)
-    out.push({ clientId, name: s.name, queued: true, note: `Picked up again at ${at}.` })
+    shift(s, at, `Picked up again at ${at} by ${by}.`, `Picked up again at ${at}.`)
+    const ok = await saveIfUnchanged(s, row.raw)
+    out.push({ clientId, name: s.name, queued: ok, note: ok ? `Picked up again at ${at}.` : 'It changed just now: try again.' })
   }
   return out
 }
@@ -539,29 +593,37 @@ async function runStep(s: WidgetSwap): Promise<boolean> {
 
 /** Carry one swap on as far as it can go now. True when it moved to another step. */
 async function advance(clientId: string): Promise<boolean> {
+  // One instance at a time: during a deploy the old and new Hub both run the scheduler for a while.
+  const s = await claim(clientId)
+  if (!s) return false
   let moved = false
-  for (let i = 0; i < 4; i++) {
-    const s = await load(clientId)
-    if (!s || !(s.status === 'queued' || WORKING.includes(s.status))) return moved
-    const was = s.status
-    try {
-      const again = await runStep(s)
-      moved ||= s.status !== was
-      if (!again) return moved
-    } catch (err) {
-      const stop = err instanceof SwapStop || (err instanceof LovableMcpError && err.reconnect) || s.tries + 1 >= MAX_TRIES
-      if (stop) {
-        const why = err instanceof LovableMcpError && err.reconnect ? `${err.message} (SEO page → Setup card), then queue the swap again.` : describe(err)
-        s.stoppedAt = was
-        await move(s, 'failed', `Stopped while ${was}: ${why}`, why)
-        return true
+  try {
+    for (let i = 0; i < 4; i++) {
+      if (!(s.status === 'queued' || WORKING.includes(s.status))) break
+      const was = s.status
+      try {
+        const again = await runStep(s)
+        moved ||= s.status !== was
+        if (!again) break
+      } catch (err) {
+        const stop = err instanceof SwapStop || (err instanceof LovableMcpError && err.reconnect) || s.tries + 1 >= MAX_TRIES
+        if (stop) {
+          const why = err instanceof LovableMcpError && err.reconnect ? `${err.message} (SEO page → Setup card), then queue the swap again.` : describe(err)
+          s.stoppedAt = was
+          await move(s, 'failed', `Stopped while ${was}: ${why}`, why)
+          moved = true
+          break
+        }
+        s.tries += 1
+        logLine(s, `Try ${s.tries} of ${MAX_TRIES} while ${was} didn’t go through: ${describe(err).slice(0, 300)}`)
+        s.detail = `Trying again: ${describe(err).slice(0, 200)}`
+        await save(s)
+        break
       }
-      s.tries += 1
-      logLine(s, `Try ${s.tries} of ${MAX_TRIES} while ${was} didn’t go through: ${describe(err).slice(0, 300)}`)
-      s.detail = `Trying again: ${describe(err).slice(0, 200)}`
-      await save(s)
-      return moved
     }
+  } finally {
+    s.leaseUntil = null
+    await save(s).catch((err) => console.warn(`[widget-swap] letting go of ${clientId}:`, describe(err)))
   }
   return moved
 }
