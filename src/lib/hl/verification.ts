@@ -132,6 +132,11 @@ function summaryOf(name: string, promos: boolean): string {
  * number in their GHL sub-account, src/lib/ghl-number/register.ts). Throws
  * with what's missing.
  */
+/** The first person in an owner answer that names two ("Fadi Kahlil and Chris Cepeda" → "Fadi Kahlil"). */
+function firstPerson(raw: string | null | undefined): string {
+  return (raw ?? '').split(/\s+(?:and|&)\s+|\s*[,/;]\s*/i)[0]?.trim() ?? ''
+}
+
 export async function tollFreeFiling(accountId: string) {
   const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, include: { forms: { where: { archivedAt: null } } } })
   if (!account) throw new HlInputError('The client’s Hell-level sub-account is gone.')
@@ -139,9 +144,14 @@ export async function tollFreeFiling(accountId: string) {
   const clientId = account.clientId
   if (clientId) await fillLegalLinksFromSite(accountId)
   const p = readProfile((await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { profile: true } })).profile)
+  // The site the filing names is the one its opt-in form and policy pages are on: the site link in
+  // Clients (the site we built), else the profile's website. A website typed at onboarding can be
+  // their old site (American Home Innovations: .com, while the new site is .org), and a mismatch
+  // with the policy pages gets a filing rejected.
+  const siteLink = (clientId ? (await prisma.client.findUnique({ where: { id: clientId }, select: { siteUrl: true } }))?.siteUrl?.trim() : '') || p.website?.trim() || ''
   const missing = [
     !p.businessName && 'business name',
-    !p.website && 'website',
+    !siteLink && 'website',
     !p.notifyEmail && 'notification email',
   ].filter(Boolean)
   if (missing.length) throw new HlInputError(`Fill in the business profile first: ${missing.join(', ')} (Settings → Business Profile).`)
@@ -150,7 +160,7 @@ export async function tollFreeFiling(accountId: string) {
   const contactPhone = firstPhone(p.notifyPhone) ?? firstPhone(p.businessPhone)
   if (!contactPhone) throw new HlInputError(`Add a phone number for ${p.businessName} in Settings → Business Profile: Twilio needs a contact phone for the business.`)
   const helpPhone = firstPhone(p.businessPhone) ?? contactPhone
-  const website = /^https?:\/\//i.test(p.website!) ? p.website! : `https://${p.website}`
+  const website = /^https?:\/\//i.test(siteLink) ? siteLink : `https://${siteLink}`
   // Hell-level's own forms (an imported GHL form isn't served from here).
   const own = account.forms.filter((f) => !f.ghlId)
   // A form with the separate promotional box means some texts are marketing, and the filing has to say so.
@@ -170,12 +180,14 @@ export async function tollFreeFiling(accountId: string) {
   // Where people opt in: the quote form on the client's own pages, never a Hub address.
   const pages = clientId ? await siteFormPages(clientId) : []
   const optInPages = pages.length ? pages : [website]
+  // One person and one number, as a message would say them (owner answers can name two of each).
+  const person = firstPerson(p.ownerName || p.ownerFirstName)
   const sample = renderTemplate(
     "Hey {{contact.first_name}}! Just got your quote form.\n\nI'll be in touch with you shortly. Please feel free to reach out to us directly at {{account.business_phone}}\n\n- {{account.owner_name}} at {{account.business_name}}\n\nReply STOP to opt out.",
-    { contact: { firstName: 'Jennifer' }, account: p },
+    { contact: { firstName: 'Jennifer' }, account: { ...p, businessPhone: prettyPhone(helpPhone), ownerName: person || p.ownerName } },
   )
   const ein = (p.ein ?? '').replace(/\D/g, '')
-  const owner = splitName(p.ownerName || p.ownerFirstName)
+  const owner = splitName(person)
   const business = p.legalName || p.businessName!
   return {
       businessName: business,
