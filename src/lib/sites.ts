@@ -253,7 +253,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       ? {
           status: c.hlSiteRequest.status,
           label: SITE_STATUS_TEXT[c.hlSiteRequest.status as BuildStatus] ?? c.hlSiteRequest.status,
-          detail: c.hlSiteRequest.detail,
+          // A row from when Forge asked Lovable's chat to connect a domain can quote its markup: no use to a person.
+          detail: c.hlSiteRequest.detail && /<lov-[a-z-]+/i.test(c.hlSiteRequest.detail) ? null : c.hlSiteRequest.detail,
           editorUrl: c.hlSiteRequest.editorUrl,
           projectName: c.hlSiteRequest.projectName,
           hasPrompt: !!c.hlSiteRequest.prompt,

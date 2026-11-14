@@ -122,12 +122,16 @@ export function BuilderWindow({
   const lovable = useRef<Window | null>(null)
   const lastWhere = useRef<'editor' | 'domains' | null>(null)
   const [lovableOpen, setLovableOpen] = useState(false)
-  const [blocked, setBlocked] = useState(false)
+  // A browser that allows no pop-up windows (the desktop app's browser pane, a blocker): which one it refused.
+  const [blocked, setBlocked] = useState<'editor' | 'domains' | null>(null)
   const [frame, setFrame] = useState<Frame | null>(site.siteUrl ? { url: site.siteUrl, kind: 'live' } : null)
   const [loading, setLoading] = useState(false)
   const [frameNote, setFrameNote] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const closeRef = useRef<HTMLButtonElement>(null)
+  // The folder passes a new onClose each render (a refresh after a paste): opening runs once regardless.
+  const closeCb = useRef(onClose)
+  closeCb.current = onClose
 
   /** Lovable's own preview of the latest build (no Lovable login), for one hour on the Hub's address. */
   async function showLatest() {
@@ -145,7 +149,7 @@ export function BuilderWindow({
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeCb.current()
     window.addEventListener('keydown', onKey)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -157,7 +161,7 @@ export function BuilderWindow({
       document.body.style.overflow = overflow
       window.clearInterval(watch)
     }
-  }, [open, onClose])
+  }, [open])
 
   useEffect(() => {
     // Not published anywhere yet: show Lovable's preview of the build straight away.
@@ -174,7 +178,7 @@ export function BuilderWindow({
       return
     }
     const win = openLovableWindow(site.projectId, where, current)
-    setBlocked(!win)
+    setBlocked(win ? null : where)
     if (win) {
       lovable.current = win
       lastWhere.current = where
@@ -224,7 +228,15 @@ export function BuilderWindow({
                 </button>
               </div>
               {lovableOpen && <p className="text-[12px] text-emerald-600 dark:text-emerald-400">Lovable is open in its own window. The buttons bring it forward.</p>}
-              {blocked && <p className="text-[12px] text-amber-600 dark:text-amber-400">The browser blocked Lovable’s window. Allow pop-ups for the Hub, then press it again.</p>}
+              {blocked && (
+                <p className="text-[12px] leading-snug text-amber-600 dark:text-amber-400">
+                  This browser didn’t open Lovable’s window. Allow pop-ups for the Hub and press it again, or{' '}
+                  <a href={lovableBuilderUrl(site.projectId, blocked)} target="_blank" rel="noopener noreferrer" className="underline">
+                    open Lovable in a tab
+                  </a>
+                  .
+                </p>
+              )}
             </section>
 
             {connect && (
@@ -244,7 +256,7 @@ export function BuilderWindow({
               </section>
             )}
 
-            {detail && (
+            {detail && !connect && (
               <section className="flex flex-col gap-1">
                 <h3 className="text-[13px] font-semibold text-foreground">Where it stands</h3>
                 <p className="whitespace-pre-wrap break-words text-[12px] leading-snug text-muted-foreground">{detail}</p>
