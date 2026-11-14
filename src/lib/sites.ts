@@ -11,7 +11,7 @@ import { cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumber
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
-import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
+import { siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
   id: string
@@ -130,6 +130,12 @@ export type SiteDetail = {
   siteDomain: SiteDomainChoice
   /** Forge's "Buy a website domain for X?" question, when it was asked (src/lib/hl/domain-request.ts). */
   domainQuestion: { status: string; detail: string | null } | null
+  /**
+   * Their site in Lovable, for the folder's builder window: Forge's copy, else the SEO seat's
+   * project, and where the site shows now (their connected domain, the published lovable.app
+   * address, or the site link in Clients). Null without a Lovable project.
+   */
+  builder: { projectId: string; siteUrl: string | null } | null
 }
 
 export type { GhlRegistrationView }
@@ -169,7 +175,9 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
-      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, updatedAt: true } },
+      hlSiteRequest: {
+        select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, updatedAt: true },
+      },
       hlDomainRequest: { select: { status: true, detail: true } },
     },
   })
@@ -185,6 +193,10 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
   // What the Hub last read of their GHL sub-account's numbers (the daily read; a re-linked sub-account starts over).
   const census = currentCensus(c.ghlNumberCensus, c.ghlLocationId)
+  const forge = c.hlSiteRequest
+  const lovableProject = forge?.projectId ?? c.seoSite?.lovableProjectId ?? null
+  const forgeLive = forge && ['published', 'connecting', 'connected'].includes(forge.status) ? forge.liveUrl : null
+  const builderSite = forge?.status === 'connected' && forge.domain ? `https://${forge.domain}` : (forgeLive ?? (c.siteUrl?.trim() ? siteHref(c.siteUrl.trim()) : null))
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
@@ -255,5 +267,6 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     ghlLinked: !!c.ghlLocationId,
     siteDomain: siteDomainChoice(c.hlAccount?.domains ?? []),
     domainQuestion: c.hlDomainRequest ? { status: c.hlDomainRequest.status, detail: c.hlDomainRequest.detail } : null,
+    builder: lovableProject ? { projectId: lovableProject, siteUrl: builderSite } : null,
   }
 }

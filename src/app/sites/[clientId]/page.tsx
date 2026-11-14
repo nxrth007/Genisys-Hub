@@ -11,12 +11,20 @@ import { SiteDetailView } from '@/components/sites/site-detail'
 export const metadata = { title: 'Site · Genisys Hub' }
 export const dynamic = 'force-dynamic'
 
-export default async function SitePage({ params }: { params: Promise<{ clientId: string }> }) {
+export default async function SitePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const session = await auth()
   const role = (session?.user as { role?: string } | undefined)?.role
   if (role !== 'admin' && role !== 'member') redirect('/today')
   const { clientId } = await params
   const detail = await getSiteDetail(clientId)
   if (!detail) notFound()
-  return <SiteDetailView d={detail} canAsk={role === 'admin'} />
+  // ?builder=1 (the Office's link for connecting a domain) opens the builder window straight away.
+  const { builder } = await searchParams
+  return <SiteDetailView d={detail} canAsk={role === 'admin'} openBuilder={builder === '1'} />
 }

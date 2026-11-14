@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
+import { lovableEmbedUrl } from '@/lib/seo/lovable-mcp'
 
 /**
  * GET /api/clients/:id/hl-site — this client's website build: where it
@@ -26,6 +27,10 @@ import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite 
  * POST { action: 'code', text } — staff: while Forge connects their domain,
  * what Lovable showed for it (its lovable_verify= code, or both codes). A
  * domain held here gets its DNS set at Porkbun.
+ *
+ * POST { action: 'embed' } — staff: Lovable's preview of the client's latest
+ * build for an iframe on the asking page's origin (the Sites folder's builder
+ * window), valid an hour. Forge's copy, else the SEO seat's project.
  */
 export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
@@ -65,6 +70,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown; text?: unknown } | null
   const { id } = await params
+  // Lovable's preview of the latest build, for the folder's builder window: staff, like the folder.
+  if (body?.action === 'embed') {
+    const staffDenied = await requireStaff()
+    if (staffDenied) return staffDenied
+    // The page asking is the one that embeds it: the browser's own Origin header, on https.
+    const origin = req.headers.get('origin') ?? ''
+    if (!/^https:\/\/[a-z0-9.-]+$/.test(origin)) return NextResponse.json({ ok: false, reason: 'Lovable’s preview only loads on the Hub’s https address.' }, { status: 400 })
+    const row = await prisma.client.findUnique({ where: { id }, select: { hlSiteRequest: { select: { projectId: true } }, seoSite: { select: { lovableProjectId: true } } } })
+    const projectId = row?.hlSiteRequest?.projectId ?? row?.seoSite?.lovableProjectId ?? null
+    if (!projectId) return NextResponse.json({ ok: false, reason: 'This client has no Lovable project.' }, { status: 409 })
+    try {
+      const e = await lovableEmbedUrl(projectId, origin)
+      return NextResponse.json({ ok: true, url: e.url, expiresAt: e.expiresAt })
+    } catch (err) {
+      return NextResponse.json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, { status: 409 })
+    }
+  }
   // Pasting Lovable's code is the step Ethan (staff) does in Lovable, so it isn't admin only.
   if (body?.action === 'code') {
     const staffDenied = await requireStaff()

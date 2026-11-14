@@ -430,6 +430,32 @@ export async function lovableMcpCall(tool: string, args: Record<string, unknown>
   return { text, structured }
 }
 
+/**
+ * Lovable's own preview of a project's latest build, for an iframe on one
+ * exact https origin, valid an hour, with no Lovable login: the documented
+ * POST /v1/projects/{id}/embed-url. Lovable's /v1 API accepts the Hub's MCP
+ * sign-in (checked 2026-11-14). It shows the site only: Lovable's builder
+ * can't be shown inside another site at all (X-Frame-Options: DENY).
+ */
+export async function lovableEmbedUrl(projectId: string, parentOrigin: string): Promise<{ url: string; expiresAt: string | null }> {
+  const token = await accessToken()
+  const res = await fetch(`https://api.lovable.dev/v1/projects/${encodeURIComponent(projectId)}/embed-url`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json', 'Lovable-Version': '2026-09-11' },
+    body: JSON.stringify({ parent_origin: parentOrigin }),
+    signal: AbortSignal.timeout(20_000),
+  })
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    const why = (typeof data.detail === 'string' && data.detail) || (typeof data.title === 'string' && data.title) || `HTTP ${res.status}`
+    if (res.status === 402 || data.type === 'payment_required') throw new LovableMcpError(`Lovable shows its preview inside other sites only on a Business plan (${why}).`)
+    throw new LovableMcpError(`Lovable wouldn’t make a preview (${why}).`)
+  }
+  const url = typeof data.embed_url === 'string' ? data.embed_url : null
+  if (!url) throw new LovableMcpError('Lovable gave no preview address.')
+  return { url, expiresAt: typeof data.expires_at === 'string' ? data.expires_at : null }
+}
+
 function accountFrom(me: McpToolResult): string | null {
   const s = me.structured ?? {}
   const user = (typeof s.user === 'object' && s.user ? s.user : s) as Record<string, unknown>

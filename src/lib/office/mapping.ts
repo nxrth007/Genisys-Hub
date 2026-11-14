@@ -701,8 +701,13 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       const stepAt = r.domainStepAt ?? r.updatedAt
       if (r.domainStep === 'records' || r.domainStep === 'asking' || r.domainStep === 'lovable') {
         // A person: Lovable's code into their Sites folder (or, for a domain elsewhere, its DNS records).
+        // The link opens the folder's builder window, which has the steps: Lovable beside it, the paste
+        // box in it. So the request stays short; only a domain elsewhere shows its records here.
         add('forge', { status: 'needs_you', task: clip(`Connecting ${name} to ${r.clientName}’s website needs you`), icon: 'alert', at: stepAt })
-        request(`sb:${r.id}:records`, 'forge', 'stuck', `${r.clientName}: ${r.detail ?? `${name} needs Lovable’s code pasted in their Sites folder.`}`, stepAt, `/sites/${r.clientId}`)
+        const todo = r.detail?.startsWith('Add these DNS records')
+          ? r.detail
+          : `${name} needs Lovable’s code. Open the builder: Lovable opens beside the Hub at Domains, and the paste box is in the Hub’s window.`
+        request(`sb:${r.id}:records`, 'forge', 'stuck', `${r.clientName}: ${todo}`, stepAt, `/sites/${r.clientId}?builder=1`)
       } else if (r.domainStep === 'live') {
         add('forge', { status: 'thinking', task: `Waiting for ${name} to show ${r.clientName}’s website`, icon: 'dots', at: stepAt })
         if (r.detail?.startsWith('Still waiting')) request(`sb:${r.id}:slow`, 'forge', 'stuck', `${r.clientName}: ${r.detail}`, r.updatedAt, lovable)

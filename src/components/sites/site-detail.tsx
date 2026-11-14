@@ -3,12 +3,13 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
+import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
 import { cantTextYet } from '@/lib/ghl-number/census-plan'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
+import { BuilderWindow, DomainCodeBox } from './builder-window'
 
 /** "+18556762067" → "(855) 676-2067". */
 function pretty(n: string | null | undefined): string {
@@ -313,8 +314,14 @@ const BUILD_LIVE = ['published', 'connected']
 /** Built, not published: Publish it can be pressed here as well as in the Office. */
 const BUILD_PUBLISHABLE = ['built', 'held']
 
+/** Connecting their domain waits for what Lovable shows for it (Settings → Domains → Connect domain → manual). */
+function wantsLovableCode(d: SiteDetail): boolean {
+  const b = d.build
+  return !!b && b.status === 'connecting' && ['records', 'asking', 'lovable'].includes(b.domainStep ?? '') && !b.hasCode
+}
+
 /** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and asking Forge in the Office. */
-function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
+function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: boolean; onOpenBuilder: (() => void) | null }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -326,9 +333,7 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const moving = d.siteDomain && 'waiting' in d.siteDomain ? d.siteDomain.waiting : null
   const connectable = !!b && b.status === 'published' && !!ready
   const domainAsked = d.domainQuestion?.status === 'awaiting_approval' || d.domainQuestion?.status === 'buying'
-  // Connecting their domain waits for what Lovable shows for it (Settings → Domains → Connect domain → manual).
-  const wantsCode = !!b && b.status === 'connecting' && ['records', 'asking', 'lovable'].includes(b.domainStep ?? '') && !b.hasCode
-  const [code, setCode] = useState('')
+  const wantsCode = wantsLovableCode(d)
 
   async function ask(overrideGhl: boolean) {
     setBusy(true)
@@ -370,21 +375,6 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
     }
   }
 
-  /** What Lovable showed for the domain: the Hub sets its DNS (held here) or lists the records to add. */
-  async function pasteCode() {
-    setBusy(true)
-    setMsg(null)
-    try {
-      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'code', text: code }) })
-      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; detail?: string | null; error?: string }
-      setMsg(out.ok ? out.detail || 'Done.' : out.reason || out.error || 'Couldn’t use that code.')
-      if (out.ok) setCode('')
-      router.refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function showPrompt() {
     if (prompt) return setPrompt(null)
     const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { cache: 'no-store' })
@@ -417,16 +407,16 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
               ? `Domain: Forge is asking in the Office which one to buy.${d.domainQuestion?.detail ? ` ${d.domainQuestion.detail}` : ''}`
               : 'Domain: none yet. Ask Forge for one (three names to pick from in the Office), or add theirs in Hell-level → Domains.'}
       </p>
-      {(b?.editorUrl || b?.hasPrompt || b?.liveUrl) && (
+      {(onOpenBuilder || b?.hasPrompt || b?.liveUrl) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
+          {onOpenBuilder && (
+            <button type="button" onClick={onOpenBuilder} className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+              <AppWindow className="h-3.5 w-3.5 text-muted-foreground" /> Open website in builder
+            </button>
+          )}
           {b?.liveUrl && (
             <a href={b.liveUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
               <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {b.liveUrl.replace(/^https?:\/\//, '')}
-            </a>
-          )}
-          {b?.editorUrl && (
-            <a href={b.editorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
-              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {b.projectName ?? 'Their copy'} in Lovable
             </a>
           )}
           {b?.hasPrompt && (
@@ -436,31 +426,7 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
           )}
         </div>
       )}
-      {wantsCode && (
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="lovable-code" className="text-[12.5px] text-foreground/90">
-            Paste Lovable’s code for {b?.domain ?? 'their domain'} (it starts with lovable_verify=; both codes if it shows two)
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              id="lovable-code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="lovable_verify=…"
-              spellCheck={false}
-              className="min-w-[260px] flex-1 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-[12.5px] text-foreground outline-none focus:border-foreground/40"
-            />
-            <button
-              type="button"
-              onClick={pasteCode}
-              disabled={busy || !code.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
-            >
-              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Connect it
-            </button>
-          </div>
-        </div>
-      )}
+      {wantsCode && <DomainCodeBox clientId={d.client.id} domain={b?.domain ?? null} inputId="lovable-code" />}
       {canAct && !working && d.account && (
         <div className="flex flex-wrap items-center gap-2">
           {!ready && !moving && !domainAsked && (
@@ -521,13 +487,16 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   )
 }
 
-/** One client's folder, opened: their status, their site, and what the site build needs. */
-export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }) {
+/** One client's folder, opened: their status, their site, and what the site build needs. `openBuilder` opens the builder window straight away (?builder=1, the Office's link). */
+export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDetail; canAsk: boolean; openBuilder?: boolean }) {
   const router = useRouter()
   const [asking, setAsking] = useState(false)
   const [askMsg, setAskMsg] = useState<string | null>(null)
+  const [builderOpen, setBuilderOpen] = useState(openBuilder && !!d.builder)
   const live = d.status === 'live'
   const req = d.request
+  const ready = d.siteDomain && 'name' in d.siteDomain ? d.siteDomain : null
+  const connectDomain = wantsLovableCode(d) ? (d.build?.domain ?? null) : null
   // A person can always ask, except when GHL is known to have their number (Alex's rule: set up
   // already). Not read yet is no longer a reason to wait: that daily read is paused.
   const askable = d.phone !== 'ghl'
@@ -570,21 +539,47 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
             {live && d.client.siteUrl ? ` · ${siteHost(d.client.siteUrl)}` : ''}
           </p>
         </div>
-        {live && d.client.siteUrl ? (
-          <a
-            href={siteHref(d.client.siteUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-4 py-2 text-[13px] font-medium text-background transition hover:opacity-90"
-          >
-            <ExternalLink className="h-4 w-4" /> Open website
-          </a>
-        ) : (
-          <Link href={`/clients?focus=${d.client.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-[13px] font-medium text-foreground transition hover:bg-muted">
-            Add the site link on Clients
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {d.builder && (
+            <button
+              type="button"
+              onClick={() => setBuilderOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-4 py-2 text-[13px] font-medium text-background transition hover:opacity-90"
+            >
+              <AppWindow className="h-4 w-4" /> Open website in builder
+            </button>
+          )}
+          {live && d.client.siteUrl ? (
+            <a
+              href={siteHref(d.client.siteUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium transition',
+                d.builder ? 'border border-border bg-card text-foreground hover:bg-muted' : 'border border-foreground/20 bg-foreground text-background hover:opacity-90',
+              )}
+            >
+              <ExternalLink className="h-4 w-4" /> Open website
+            </a>
+          ) : (
+            <Link href={`/clients?focus=${d.client.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-[13px] font-medium text-foreground transition hover:bg-muted">
+              Add the site link on Clients
+            </Link>
+          )}
+        </div>
       </header>
+
+      {d.builder && (
+        <BuilderWindow
+          open={builderOpen}
+          onClose={() => setBuilderOpen(false)}
+          clientId={d.client.id}
+          clientName={d.client.name}
+          site={d.builder}
+          connect={connectDomain ? { domain: connectDomain, managed: ready && ready.name === connectDomain ? ready.managed : true } : null}
+          detail={d.build?.detail ?? null}
+        />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
         <Card title="Toll-free number for the site">
@@ -683,7 +678,7 @@ export function SiteDetailView({ d, canAsk }: { d: SiteDetail; canAsk: boolean }
 
       {d.siteForm && <SiteFormCard clientId={d.client.id} f={d.siteForm} canAct={canAsk} />}
 
-      <SiteBuildCard d={d} canAct={canAsk} />
+      <SiteBuildCard d={d} canAct={canAsk} onOpenBuilder={d.builder ? () => setBuilderOpen(true) : null} />
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
         <Card title="Details for the site">

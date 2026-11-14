@@ -468,7 +468,7 @@ async function decideConnect(r: { id: string; clientId: string; status: string; 
   if (!d.choice) return { ok: false, reason: 'They have no domain yet. Buy one with Forge’s domain question, or add theirs in Hell-level → Domains.' }
   if ('waiting' in d.choice) return { ok: false, reason: `${d.choice.waiting} is still moving in. Connect it once that’s done.` }
   const row = await prisma.hlSiteRequest.findUnique({ where: { id: r.id }, select: { editorUrl: true, client: { select: { name: true } } } })
-  const help = connectHelp(d.choice.name, row?.editorUrl ?? null, d.choice.managed)
+  const help = connectHelp(d.choice.name, d.choice.managed)
   const now = new Date()
   const claimed = await prisma.hlSiteRequest.updateMany({
     where: { id: r.id, status: 'published' },
@@ -476,13 +476,16 @@ async function decideConnect(r: { id: string; clientId: string; status: string; 
   })
   if (!claimed.count) return { ok: false, reason: 'Someone else just answered it.' }
   await note(r.id, `${by} answered Connect it (${d.choice.name}).`)
-  await textSiteEvent({ key: `${r.id}:${d.choice.name}:code:${now.getTime()}`, kind: 'connect_help', client: row?.client.name ?? 'a client', reason: help, link: sitesFolder(r.clientId) })
+  await textSiteEvent({ key: `${r.id}:${d.choice.name}:code:${now.getTime()}`, kind: 'connect_help', client: row?.client.name ?? 'a client', reason: help, link: hubLink(`/sites/${r.clientId}?builder=1`) })
   return { ok: true, status: 'connecting', detail: help }
 }
 
-/** What a person does in Lovable, said the same way in the Office, the text and their folder. */
-function connectHelp(domain: string, editorUrl: string | null, managed: boolean): string {
-  return `In Lovable, open the site${editorUrl ? ` (${editorUrl})` : ''} → Settings → Domains → Connect domain → ${domain} → manual setup, and copy the code that starts with lovable_verify=. Paste it in their Sites folder (Website build), ${managed ? 'and the Hub sets the DNS at Porkbun and finishes.' : 'then add the DNS records Forge lists where the domain’s DNS is managed.'}`
+/**
+ * What a person does, said the same way in the Office, the text and their folder. Lovable's builder
+ * can't be shown inside the Hub, so the folder's builder window opens it beside the Hub at Domains.
+ */
+function connectHelp(domain: string, managed: boolean): string {
+  return `In their Sites folder, press Open website in builder: Lovable opens beside it at Settings → Domains. There, Connect domain → ${domain} → Connect a different way → Set up manually, copy the code that starts with lovable_verify= and press Done. Paste it in the Hub’s window, ${managed ? 'and the Hub sets the DNS at Porkbun and finishes.' : 'then add the DNS records Forge lists where the domain’s DNS is managed.'}`
 }
 
 /**
@@ -828,7 +831,7 @@ async function publishStep(r: SiteRow): Promise<boolean> {
   // The domain they had when Publish it was pressed is connected straight away (that Yes covered it).
   const domainNext = r.domainStep === 'queued' && r.domain
   const now = new Date()
-  const help = domainNext && r.domain ? connectHelp(r.domain, r.editorUrl, isManaged(await clientDomain(r.clientId))) : null
+  const help = domainNext && r.domain ? connectHelp(r.domain, isManaged(await clientDomain(r.clientId))) : null
   await move(r.id, 'publishing', `Live at ${live}.${pagesNote}${domainNext ? ` Connecting ${r.domain} next.` : ''}`, {
     status: domainNext ? 'connecting' : 'published',
     liveUrl: live,

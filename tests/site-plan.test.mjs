@@ -448,10 +448,11 @@ test('Forge asks to connect the domain once the site is live, and shows it throu
     const s = mapping.deriveOffice(input, NOW)
     return { bot: s.bots.find((b) => b.id === 'forge'), requests: s.requests, activity: s.activity }
   }
-  const code = forge(row({ domainStep: 'records', detail: 'In Lovable, open the site → Settings → Domains → Connect domain → acme.com → manual setup, and copy the code that starts with lovable_verify=.' }))
+  const code = forge(row({ domainStep: 'records', detail: 'In their Sites folder, press Open website in builder: Lovable opens beside it at Settings → Domains. There, Connect domain → acme.com → Connect a different way → Set up manually, copy the code that starts with lovable_verify= and press Done.' }))
   assert.equal(code.bot.status, 'needs_you')
-  assert.equal(code.requests[0].link, '/sites/c1', 'the paste box is in their Sites folder')
-  assert.match(code.requests[0].text, /copy the code that starts with lovable_verify=/)
+  assert.equal(code.requests[0].link, '/sites/c1?builder=1', 'opens their Sites folder with the builder window (Lovable beside it, the paste box in it)')
+  assert.equal(code.requests[0].text, 'Acme Roofing: acme.com needs Lovable’s code. Open the builder: Lovable opens beside the Hub at Domains, and the paste box is in the Hub’s window.')
+  assert.equal(forge(row({ domainStep: 'records', detail: '<lov-tool-use>…' })).requests[0].text, code.requests[0].text, 'what Lovable’s chat once said isn’t shown')
   const records = forge(row({ domainStep: 'records', detail: 'Add these DNS records for acme.com where its DNS is managed: A acme.com → 185.158.133.1.' }))
   assert.match(records.requests[0].text, /Add these DNS records for acme\.com/)
   const live = forge(row({ domainStep: 'live' }))
