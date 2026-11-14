@@ -91,3 +91,17 @@ test('saved suggestions are read back safely', () => {
   assert.deepEqual(plan.readChoices({}), [])
   assert.equal(plan.yearly(1108), '$11.08/yr')
 })
+
+test('townOf: the first city without its state, for a domain', () => {
+  assert.equal(plan.townOf('Austin TX'), 'Austin')
+  assert.equal(plan.townOf('Round Rock, Texas'), 'Round Rock')
+  assert.equal(plan.townOf('Haymarket VA'), 'Haymarket')
+  assert.equal(plan.townOf('Kansas City, Kansas'), 'Kansas City')
+  assert.equal(plan.townOf('Kansas City'), 'Kansas City')
+  assert.equal(plan.townOf('Washington'), 'Washington', 'a city named like a state stays')
+  assert.equal(plan.townOf('New York'), 'New York')
+  assert.equal(plan.townOf('Ponte Vedra Beach FL'), 'Ponte Vedra Beach')
+  assert.equal(plan.townOf('Mount ida'), 'Mount ida', 'a two-letter state counts only in capitals')
+  assert.equal(plan.townOf(''), null)
+  assert.ok(!plan.domainCandidates('Acme Roofing', plan.townOf('Austin TX')).some((n) => n.includes('austintx')))
+})

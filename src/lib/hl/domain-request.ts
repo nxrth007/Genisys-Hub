@@ -17,7 +17,7 @@ import { hubLink } from '@/lib/hub-alerts'
 import { prisma } from '@/lib/prisma'
 import { textDomainEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { readProfile } from './accounts'
-import { domainAskDecision, domainCandidates, pickDomainOptions, readChoices, yearly, type DomainChoice } from './domain-plan'
+import { domainAskDecision, domainCandidates, pickDomainOptions, readChoices, townOf, yearly, type DomainChoice } from './domain-plan'
 import { buyDomain } from './domains'
 import { HlInputError } from './http'
 import { checkDomains, PorkbunError, quoteRegistration } from './porkbun'
@@ -51,7 +51,8 @@ async function note(id: string, what: string, data: Prisma.HlDomainRequestUpdate
 
 /** The first city they serve (Business Profile's service area, else onboarding), else the city in the profile's address. */
 function cityOf(cities: string | null | undefined, address: string | null | undefined): string | null {
-  const first = (cities ?? '').split(/[,\n;]/)[0]?.trim()
+  // "Austin TX, Round Rock TX": the first city, without its state (else the domain reads "austintx").
+  const first = townOf((cities ?? '').split(/\s*(?:[,\n;]|\band\b)\s*(?=[A-Za-z])/)[0]?.trim())
   if (first) return first
   const parts = (address ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   return parts.length >= 3 ? parts[parts.length - 2] : null

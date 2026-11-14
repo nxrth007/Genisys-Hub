@@ -31,6 +31,27 @@ export function domainSlug(name: string): string {
     .replace(/[^a-z0-9]/g, '')
 }
 
+const STATES = [
+  'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana',
+  'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska',
+  'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+  'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming',
+]
+const TRAILING_STATE = new RegExp(`(?:,?\\s+(?:[A-Z]{2}|${STATES.join('|')}))$`, 'i')
+
+/**
+ * The town a domain can carry, from a service-area answer's first city: "Austin TX" or "Round Rock,
+ * Texas" (the onboarding form now writes the state after each city) → "Austin", "Round Rock". A
+ * two-letter state code counts only in capitals, so a town like "Ola" stays whole.
+ */
+export function townOf(city: string | null | undefined): string | null {
+  const raw = (city ?? '').trim()
+  if (!raw) return null
+  const m = TRAILING_STATE.exec(raw)
+  const cut = m && (/^,?\s+[A-Z]{2}$/.test(m[0]) || m[0].length > 3) ? raw.slice(0, m.index).trim() : raw
+  return cut || raw
+}
+
 /** The names to check, best first (at most 25: one Porkbun call). */
 export function domainCandidates(businessName: string, city?: string | null): string[] {
   const base = domainSlug(businessName)
