@@ -7,8 +7,9 @@
 import { prisma } from '@/lib/prisma'
 import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
 import { publicFormUrl } from '@/lib/ghl-form/plan'
-import { askView, cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
+import { askView, cantTextYet, currentCensus, ghlAllUnverified, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { readChoices } from '@/lib/hl/domain-plan'
+import { staysOnGhl } from '@/lib/hl/widget-swap-plan'
 import { folderBuild, folderDomain, folderNumber, type FolderBuild, type FolderDomain, type FolderNumber } from '@/lib/hl/folder-plan'
 import { ringTo, textsTo } from '@/lib/hl/number-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
@@ -258,6 +259,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       hasAccount,
       hasTollFree: numbers.some((x) => x.kind === 'toll_free'),
       ghlHasNumber: askView(c.ghlNumberCensus, c.ghlLocationId) === 'has',
+      ghlCantText: ghlAllUnverified(readCensusNumbers(census?.numbers)),
+      staysOnGhl: staysOnGhl(c.name),
       status: c.hlNumberRequest?.status ?? null,
     }),
     build: folderBuild({ hasAccount, ghlLinked: !!c.ghlLocationId, status: forge?.status ?? null }),

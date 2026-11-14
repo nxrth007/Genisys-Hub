@@ -144,6 +144,11 @@ export function cantTextYet(numbers: CensusNumber[]): CensusNumber[] {
   return numbers.filter((n) => n.verificationRequired)
 }
 
+/** Every number in the GHL sub-account shows "Verification Required" (none can text); false with no numbers. */
+export function ghlAllUnverified(numbers: CensusNumber[]): boolean {
+  return numbers.length > 0 && cantTextYet(numbers).length === numbers.length
+}
+
 /** The numbers saved with a read (JSON from the database), keeping only well-formed ones. */
 export function readCensusNumbers(json: unknown): CensusNumber[] {
   if (!Array.isArray(json)) return []

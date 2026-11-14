@@ -213,7 +213,7 @@ function ghlNumbersLine(d: SiteDetail): string {
 }
 
 /** Numbers already in their GHL sub-account (the daily read): set up, so Echo doesn't ask about one. */
-function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
+function GhlNumbersList({ g, offerHellLevel = false }: { g: NonNullable<SiteDetail['ghlNumbers']>; offerHellLevel?: boolean }) {
   const unverified = cantTextYet(g.numbers)
   return (
     <>
@@ -230,7 +230,11 @@ function GhlNumbersList({ g }: { g: NonNullable<SiteDetail['ghlNumbers']> }) {
           </li>
         ))}
       </ul>
-      <p className="text-[12.5px] text-muted-foreground">Already set up in GHL, so Echo doesn’t ask about a number for this client. Texts and calls land in GHL’s Conversations.</p>
+      <p className="text-[12.5px] text-muted-foreground">
+        {offerHellLevel
+          ? 'In GHL: texts and calls land in GHL’s Conversations.'
+          : 'Already set up in GHL, so Echo doesn’t ask about a number for this client. Texts and calls land in GHL’s Conversations.'}
+      </p>
       {unverified.length > 0 && (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12.5px] leading-snug">
           Can’t text yet: GHL shows “Verification Required” on {unverified.length === 1 ? pretty(unverified[0].number) : `${unverified.length} of these numbers`}. No texts go out from {unverified.length === 1 ? 'it' : 'them'}, replies and this client’s texting automations included, until the registration is filed in GHL.
@@ -727,7 +731,27 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
               </p>
             </>
           ) : d.phone === 'ghl' && d.ghlNumbers?.numbers.length ? (
-            <GhlNumbersList g={d.ghlNumbers} />
+            <>
+              <GhlNumbersList g={d.ghlNumbers} offerHellLevel={numberAction.kind === 'buy' && numberAction.overGhl} />
+              {canAsk && numberAction.kind === 'buy' && numberAction.overGhl && (
+                <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface px-3 py-3">
+                  <p className="text-[12.5px] leading-snug text-foreground/90">
+                    Get them texting from Hell-level instead: buy a toll-free number on Genisys’s Twilio and file its texting verification
+                    {live ? ' right away (their site is live).' : ' as soon as their site link is in.'} Their GHL number stays as it is.
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setBuyOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Phone className="h-3.5 w-3.5" /> Purchase and verify
+                    </button>
+                  </div>
+                </div>
+              )}
+              {askMsg && <p className="text-[12px] text-muted-foreground">{askMsg}</p>}
+            </>
           ) : (
             <>
               <p className="text-[13px] text-foreground/90">
@@ -763,20 +787,35 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
                 <p className="text-[12.5px] text-muted-foreground">{numberAction.reason}</p>
               )}
               {askMsg && <p className="text-[12px] text-muted-foreground">{askMsg}</p>}
-              <ConfirmDialog open={buyOpen} title={`Buy a toll-free number for ${d.client.name}?`} confirmLabel="Buy it" onConfirm={buyNumber} onClose={() => setBuyOpen(false)}>
-                <p>About $2.15/month on Genisys’s Twilio (Hell-level), no ID check. Twilio picks an available toll-free number.</p>
-                <p>
-                  {d.numberTo.ring
-                    ? `Calls ring ${pretty(d.numberTo.ring)}; whoever answers presses a key to take the call.`
-                    : 'No business phone is on file, so every call to it counts as missed and gets the text-back.'}
-                  {d.numberTo.texts ? ` Texts to it are forwarded to ${pretty(d.numberTo.texts)}.` : ''}
-                </p>
-                <p className="text-muted-foreground">
-                  Its texting verification is filed once their site link is in (free; Twilio reviews it in about 3 business days).
-                  {numberAction.kind === 'buy' && numberAction.answersOffice ? ' This answers Echo’s question in the Office.' : ''}
-                </p>
-              </ConfirmDialog>
             </>
+          )}
+          {numberAction.kind === 'buy' && (
+            <ConfirmDialog
+              open={buyOpen}
+              title={numberAction.overGhl ? `Purchase and verify a toll-free number for ${d.client.name}?` : `Buy a toll-free number for ${d.client.name}?`}
+              confirmLabel={numberAction.overGhl ? 'Purchase and verify' : 'Buy it'}
+              onConfirm={buyNumber}
+              onClose={() => setBuyOpen(false)}
+            >
+              <p>About $2.15/month on Genisys’s Twilio (Hell-level), no ID check. Twilio picks an available toll-free number.</p>
+              <p>
+                {d.numberTo.ring
+                  ? `Calls ring ${pretty(d.numberTo.ring)}; whoever answers presses a key to take the call.`
+                  : 'No business phone is on file, so every call to it counts as missed and gets the text-back.'}
+                {d.numberTo.texts ? ` Texts to it are forwarded to ${pretty(d.numberTo.texts)}.` : ''}
+              </p>
+              <p className="text-muted-foreground">
+                {live
+                  ? 'Its texting verification is filed with Twilio right after (free; Twilio reviews it in about 3 business days).'
+                  : 'Its texting verification is filed once their site link is in (free; Twilio reviews it in about 3 business days).'}
+                {numberAction.answersOffice ? ' This answers Echo’s question in the Office.' : ''}
+              </p>
+              {numberAction.overGhl && (
+                <p className="text-muted-foreground">
+                  Their GHL number stays in GHL, unchanged. Put the new number on their site, and leads reach Hell-level once the site uses Hell-level’s form and chat.
+                </p>
+              )}
+            </ConfirmDialog>
           )}
         </Card>
 

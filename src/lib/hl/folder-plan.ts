@@ -33,23 +33,42 @@ export function folderBuild(f: { hasAccount: boolean; ghlLinked: boolean; status
   return { kind: 'build', overrideGhl: f.ghlLinked, again: !!s && s !== 'awaiting_approval' && s !== 'declined', answersOffice: s === 'awaiting_approval' }
 }
 
-export type FolderNumber = { kind: 'buy'; answersOffice: boolean } | { kind: 'none'; reason: string }
+export type FolderNumber =
+  | {
+      kind: 'buy'
+      answersOffice: boolean
+      /** Their GHL sub-account has a number that can't text yet: "Purchase and verify" buys one in Hell-level instead. */
+      overGhl: boolean
+    }
+  | { kind: 'none'; reason: string }
 
 /**
- * A Hell-level toll-free number, bought on Genisys's Twilio. Not for a client who has one, nor one
- * whose GHL sub-account has a number (Alex's rule: set up in GHL already), nor while GHL's route
- * (an ID check, then the browser worker) is under way.
+ * A Hell-level toll-free number, bought on Genisys's Twilio. Not for a client who has one, nor while
+ * GHL's route (an ID check, then the browser worker) is under way. A client whose GHL sub-account has
+ * a number is set up in GHL (Alex's rule), unless every number there shows GHL's "Verification
+ * Required" (Alex, 2026-11-14: "Purchase and verify" buys one in Hell-level and files its
+ * verification), and never for the clients that stay on GHL, verified there.
  */
-export function folderNumber(f: { hasAccount: boolean; hasTollFree: boolean; ghlHasNumber: boolean; status: string | null }): FolderNumber {
+export function folderNumber(f: {
+  hasAccount: boolean
+  hasTollFree: boolean
+  ghlHasNumber: boolean
+  /** Every number in their GHL sub-account shows "Verification Required" (the last GHL read). */
+  ghlCantText?: boolean
+  /** One of the clients verified on GHL that stay there (src/lib/hl/widget-swap-plan.ts). */
+  staysOnGhl?: boolean
+  status: string | null
+}): FolderNumber {
   if (!f.hasAccount) return { kind: 'none', reason: 'They have no Hell-level sub-account to put a number on.' }
   if (f.hasTollFree) return { kind: 'none', reason: 'They have their toll-free number.' }
-  if (f.ghlHasNumber) return { kind: 'none', reason: 'Their GHL sub-account already has a number, so it’s set up in GHL.' }
+  if (f.ghlHasNumber && f.staysOnGhl) return { kind: 'none', reason: 'They’re verified on GHL and stay there, so their number stays in GHL.' }
+  if (f.ghlHasNumber && !f.ghlCantText) return { kind: 'none', reason: 'Their GHL sub-account already has a number, so it’s set up in GHL.' }
   const s = f.status
   if (s === 'buying') return { kind: 'none', reason: 'Buying it now.' }
   if (s === 'bought') return { kind: 'none', reason: 'It was bought.' }
   if (s === 'awaiting_identity') return { kind: 'none', reason: 'GHL was chosen: finish GHL’s ID check, then press Identification complete in the Office.' }
   if (s === 'ghl_working') return { kind: 'none', reason: 'The worker is getting the number in GHL.' }
-  return { kind: 'buy', answersOffice: s === 'awaiting_approval' }
+  return { kind: 'buy', answersOffice: s === 'awaiting_approval', overGhl: f.ghlHasNumber }
 }
 
 export type FolderDomain =

@@ -47,13 +47,23 @@ test('Build site: offered with a Hell-level sub-account, never while Forge works
 
 test('Buy toll-free number: Hell-level only, never over a number they have or one GHL has', () => {
   const base = { hasAccount: true, hasTollFree: false, ghlHasNumber: false, status: null }
-  assert.deepEqual(folder.folderNumber(base), { kind: 'buy', answersOffice: false })
-  assert.deepEqual(folder.folderNumber({ ...base, status: 'awaiting_approval' }), { kind: 'buy', answersOffice: true })
+  assert.deepEqual(folder.folderNumber(base), { kind: 'buy', answersOffice: false, overGhl: false })
+  assert.deepEqual(folder.folderNumber({ ...base, status: 'awaiting_approval' }), { kind: 'buy', answersOffice: true, overGhl: false })
   for (const status of ['declined', 'failed']) assert.equal(folder.folderNumber({ ...base, status }).kind, 'buy', status)
   assert.equal(folder.folderNumber({ ...base, hasAccount: false }).kind, 'none')
   assert.equal(folder.folderNumber({ ...base, hasTollFree: true }).kind, 'none')
   assert.match(folder.folderNumber({ ...base, ghlHasNumber: true }).reason, /GHL sub-account already has a number/)
   for (const status of ['buying', 'bought', 'awaiting_identity', 'ghl_working']) assert.equal(folder.folderNumber({ ...base, status }).kind, 'none', status)
+})
+
+test('Purchase and verify: over a GHL number only when none there can text, and never for those staying on GHL', () => {
+  const ghl = { hasAccount: true, hasTollFree: false, ghlHasNumber: true, status: null }
+  assert.equal(folder.folderNumber({ ...ghl, ghlCantText: false }).kind, 'none', 'a GHL number that texts stays the number')
+  assert.deepEqual(folder.folderNumber({ ...ghl, ghlCantText: true }), { kind: 'buy', answersOffice: false, overGhl: true })
+  assert.match(folder.folderNumber({ ...ghl, ghlCantText: true, staysOnGhl: true }).reason, /stay there/)
+  // Still never twice, nor over their own Hell-level number or while buying.
+  assert.equal(folder.folderNumber({ ...ghl, ghlCantText: true, hasTollFree: true }).kind, 'none')
+  assert.equal(folder.folderNumber({ ...ghl, ghlCantText: true, status: 'buying' }).kind, 'none')
 })
 
 test('Domain: find Porkbun’s three, pick one; nothing over a domain they have or one being bought', () => {

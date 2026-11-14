@@ -6,7 +6,7 @@
  * Office is answered, never asked twice. ./folder-plan.ts says which buttons apply; it is checked
  * again here, so a stale page can't buy what the folder wouldn't offer.
  */
-import { askView } from '@/lib/ghl-number/census-plan'
+import { askView, currentCensus, ghlAllUnverified, readCensusNumbers } from '@/lib/ghl-number/census-plan'
 import { prisma } from '@/lib/prisma'
 import { lovableMcpStatus } from '@/lib/seo/lovable-mcp'
 import { readChoices, type DomainChoice } from './domain-plan'
@@ -15,6 +15,7 @@ import { folderBuild, folderDomain, folderNumber } from './folder-plan'
 import { askForClientNumber, decideClientNumber } from './number-request'
 import { siteQuestionDetail } from './site-plan'
 import { askForClientSite, decideClientSite, gatherSite } from './site-request'
+import { staysOnGhl } from './widget-swap-plan'
 
 export type FolderResult = { ok: true; status: string; detail: string | null } | { ok: false; reason: string }
 
@@ -63,9 +64,10 @@ export async function buyNumberNow(clientId: string, by: string): Promise<Folder
   const c = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
+      name: true,
       archivedAt: true,
       ghlLocationId: true,
-      ghlNumberCensus: { select: { locationId: true, state: true, version: true } },
+      ghlNumberCensus: { select: { locationId: true, state: true, version: true, numbers: true } },
       hlAccount: { select: { archivedAt: true, numbers: { where: { status: 'active', kind: 'toll_free' }, select: { id: true } } } },
       hlNumberRequest: { select: { id: true, status: true } },
     },
@@ -75,12 +77,15 @@ export async function buyNumberNow(clientId: string, by: string): Promise<Folder
     hasAccount: !!c.hlAccount && !c.hlAccount.archivedAt,
     hasTollFree: !!c.hlAccount?.numbers.length,
     ghlHasNumber: askView(c.ghlNumberCensus, c.ghlLocationId) === 'has',
+    ghlCantText: ghlAllUnverified(readCensusNumbers(currentCensus(c.ghlNumberCensus, c.ghlLocationId)?.numbers)),
+    staysOnGhl: staysOnGhl(c.name),
     status: c.hlNumberRequest?.status ?? null,
   })
   if (plan.kind === 'none') return { ok: false, reason: plan.reason }
   let id = plan.answersOffice ? c.hlNumberRequest!.id : null
   if (!id) {
-    const asked = await askForClientNumber(clientId, 'manual')
+    // Purchase and verify: their GHL number can't text, so the GHL rule is set aside for this one.
+    const asked = await askForClientNumber(clientId, 'manual', { overrideGhl: plan.overGhl })
     if (!asked.ok) return { ok: false, reason: sentence(asked.reason) }
     id = asked.id
   }
