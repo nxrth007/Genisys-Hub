@@ -560,7 +560,8 @@ export function domainConnectMessage(domain: string, managed: boolean): string {
   ].join(' ')
 }
 
-const VERIFY = /lovable_verify=[A-Za-z0-9._-]+/g
+/** lovable_verify=…: dots only inside the value, so a sentence's full stop isn't taken as part of it. */
+const VERIFY = /lovable_verify=[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/g
 
 /**
  * Lovable's verification values in its reply: the one on the _lovable.www

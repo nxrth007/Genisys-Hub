@@ -674,10 +674,12 @@ async function copyStep(r: SiteRow): Promise<boolean> {
 }
 
 /** The one-shot already in the copy's chat (sent before a restart, or a send that timed out but arrived). */
-async function findSent(projectId: string, prompt: string): Promise<string | null> {
+async function findSent(projectId: string, prompt: string, sinceMs?: number): Promise<string | null> {
   const head = prompt.slice(0, 200)
   const recent = await lovableMcpRecentMessages(projectId, 5)
-  return recent.find((m) => m.role === 'user' && m.content.trim().startsWith(head.trim()))?.id ?? null
+  // With sinceMs, only a message sent since then counts (an earlier try's same words don't).
+  const recentEnough = (createdAt: string | null) => sinceMs === undefined || (!!createdAt && Date.parse(createdAt) >= sinceMs)
+  return recent.find((m) => m.role === 'user' && m.content.trim().startsWith(head.trim()) && recentEnough(m.createdAt))?.id ?? null
 }
 
 /** sending → building: the one-shot goes to the copy. Never twice (each send uses credits). */
@@ -872,7 +874,9 @@ async function askLovableToConnect(r: SiteRow, domain: string, managed: boolean)
   const projectId = r.projectId!
   const message = domainConnectMessage(domain, managed)
   const next = { domainStep: 'lovable', domainStepAt: new Date() }
-  const before = await findSent(projectId, message)
+  // This try started at domainStepAt: the same words from an earlier try that stopped don't count as sent.
+  const since = (r.domainStepAt ?? r.updatedAt).getTime() - 2 * 60_000
+  const before = await findSent(projectId, message, since)
   if (before) {
     await move(r.id, 'connecting', `The “connect ${domain}” message was already in Lovable’s chat (sent before a restart).`, { ...next, domainMessageId: before, domainThreadId: r.domainThreadId ?? 'main' })
     return false
@@ -882,7 +886,7 @@ async function askLovableToConnect(r: SiteRow, domain: string, managed: boolean)
     sent = await lovableMcpSend(projectId, message)
   } catch (err) {
     // A send that timed out may still have arrived: look before trying again.
-    const arrived = await findSent(projectId, message).catch(() => null)
+    const arrived = await findSent(projectId, message, since).catch(() => null)
     if (!arrived) throw err
     sent = { messageId: arrived, threadId: 'main', status: null }
   }
@@ -922,7 +926,8 @@ async function readLovableConnect(r: SiteRow, domain: string, managed: boolean, 
   await note(r.id, `Lovable answered about ${domain}${s.credits !== null ? ` (${s.credits} credits)` : ''}: ${reply.replace(/\s+/g, ' ').slice(0, 600) || '(no reply text)'}`)
   if (!rootTxt) {
     // Lovable didn't say its code: a person copies it from Lovable onto the domain's page here, and Forge carries on.
-    const help = `Lovable didn’t give ${domain}’s verification code in its reply. In Lovable open the site → Settings → Domains, copy the code that starts with lovable_verify=, and paste it on ${domain}’s page in Hell-level → Domains (Connect to Lovable). Forge carries on from there.`
+    const said = reply.replace(/\s+/g, ' ').trim()
+    const help = `Lovable didn’t give ${domain}’s verification code in its reply${said ? ` (it said: “${said.slice(0, 220)}${said.length > 220 ? '…' : ''}”)` : ''}. In Lovable open the site → Settings → Domains, copy the code that starts with lovable_verify=, and paste it on ${domain}’s page in Hell-level → Domains (Connect to Lovable). Forge carries on from there.`
     await move(r.id, 'connecting', `No verification code in Lovable’s reply for ${domain}; asked a person to paste it.`, { domainStep: 'records', domainStepAt: new Date(), detail: help })
     await textSiteEvent({ key: `${r.id}:${domain}:code`, kind: 'connect_help', client: r.client.name, reason: help, link: domainsPage(accountId) ?? link })
     return false
@@ -979,8 +984,14 @@ async function waitForLive(r: SiteRow, domain: string): Promise<boolean> {
       domainAt: new Date(),
       detail: `Live at ${url}. Saved as their site link in Clients. Still by hand: connect GitHub in Lovable.`,
     })
-    const saved = await saveSiteLink(r.clientId, url)
-    if (saved.changed) await note(r.id, `Their site link in Clients is now ${url}${saved.prior ? ` (was ${saved.prior})` : ''}.`)
+    try {
+      const saved = await saveSiteLink(r.clientId, url)
+      if (saved.changed) await note(r.id, `Their site link in Clients is now ${url}${saved.prior ? ` (was ${saved.prior})` : ''}.`)
+    } catch (err) {
+      await note(r.id, `Couldn’t save ${url} as their site link in Clients (${describe(err).slice(0, 200)}): save it there by hand.`, {
+        detail: `Live at ${url}, but saving it as their site link in Clients failed: save it there by hand. Still by hand: connect GitHub in Lovable.`,
+      })
+    }
     await textSiteEvent({ key: `${r.id}:${domain}:live`, kind: 'connected', client: r.client.name, link: url })
     return false
   }

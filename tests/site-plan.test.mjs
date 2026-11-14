@@ -427,7 +427,8 @@ test('Lovable is asked to connect the domain without buying anything, and its co
 
   const table = ['| Type | Host | Value |', '| A | @ | 185.158.133.1 |', '| TXT | _lovable | lovable_verify=abc123 |', '| TXT | _lovable.www | lovable_verify=www456 |'].join('\n')
   assert.deepEqual(plan.lovableVerifyCodes(table), { rootTxt: 'lovable_verify=abc123', wwwTxt: 'lovable_verify=www456' })
-  assert.deepEqual(plan.lovableVerifyCodes('Add a TXT record with lovable_verify=onlyone.'), { rootTxt: 'lovable_verify=onlyone.', wwwTxt: null })
+  assert.deepEqual(plan.lovableVerifyCodes('Add a TXT record with lovable_verify=onlyone.'), { rootTxt: 'lovable_verify=onlyone', wwwTxt: null }, 'a full stop isn’t part of the code')
+  assert.deepEqual(plan.lovableVerifyCodes('| TXT | _lovable | lovable_verify=a1.b2 |'), { rootTxt: 'lovable_verify=a1.b2', wwwTxt: null })
   assert.deepEqual(plan.lovableVerifyCodes('first lovable_verify=a1 then lovable_verify=b2'), { rootTxt: 'lovable_verify=a1', wwwTxt: 'lovable_verify=b2' })
   assert.deepEqual(plan.lovableVerifyCodes('Done! Your domain is connecting.'), { rootTxt: null, wwwTxt: null })
 
