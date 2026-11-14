@@ -71,6 +71,7 @@ import {
 } from '@/lib/seo/lovable-mcp'
 import { afterSiteLinkChange, saveSiteLink } from '@/lib/site-link'
 import { isHubUrl } from './legal-links'
+import { domainCandidates } from './domain-plan'
 import { listRegistrarDomains } from './porkbun'
 import { readProfile, zoneFromAnswers } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
@@ -1219,7 +1220,8 @@ let finding = false
  * masonry, 2026-11-14: built by hand, its domain connected in Lovable, the folder still saying
  * "Being built"). Lovable's API doesn't say where a project is published, so the Hub looks where
  * the domain could be: their Hell-level Domains, their onboarding domain and website answers, the
- * SEO site's address, and every domain in Genisys's Porkbun account. A page counts only when it
+ * SEO site's address, every domain in Genisys's Porkbun account, and the names a domain would take
+ * from the business name (concretemasonryllc.org was bought outside Porkbun). A page counts only when it
  * carries the client's own project id (lovp_…); a match becomes their site link in Clients, and
  * what follows a site link runs (policy pages, logo, the toll-free filing). It only reads.
  */
@@ -1228,6 +1230,7 @@ export async function findLiveSites(): Promise<number> {
     where: { archivedAt: null, lifecycle: { notIn: ['churned', 'denied'] }, OR: [{ siteUrl: null }, { siteUrl: '' }] },
     select: {
       id: true,
+      name: true,
       website: true,
       hlSiteRequest: { select: { id: true, projectId: true } },
       seoSite: { select: { lovableProjectId: true, liveUrl: true } },
@@ -1251,6 +1254,8 @@ export async function findLiveSites(): Promise<number> {
       isHub,
     })
     for (const h of own) hosts.add(h)
+    // The names a domain from the business name would take ("Concrete masonry llc" → concretemasonryllc.org).
+    for (const g of domainCandidates(c.name, null).slice(0, 16)) hosts.add(g)
   }
   if (!owner.size) return 0
   for (const d of await listRegistrarDomains().catch(() => [])) {
@@ -1260,25 +1265,28 @@ export async function findLiveSites(): Promise<number> {
   // A domain that's already some client's site link isn't anyone else's.
   const taken = new Set((await prisma.client.findMany({ where: { siteUrl: { not: null } }, select: { siteUrl: true } })).map((c) => bareHost(c.siteUrl)))
   let found = 0
-  for (const host of hosts) {
-    if (!owner.size) break
-    if (taken.has(host)) continue
-    const at = await page(`https://${host}/`)
-    if (!at?.lovableId || bareHost(at.url) !== host) continue
-    const c = owner.get(at.lovableId)
-    if (!c) continue
-    owner.delete(at.lovableId)
-    const url = `https://${host}`
-    try {
-      const saved = await saveSiteLink(c.id, url)
-      if (!saved.changed) afterSiteLinkChange(c.id, url, saved.prior)
-      if (c.hlSiteRequest) await note(c.hlSiteRequest.id, `Found their site live at ${url} (its page carries the project’s id ${at.lovableId}); saved as their site link in Clients.`)
-      console.log(`[hl-site] found ${url} live for client ${c.id}; saved as their site link`)
-      found += 1
-    } catch (err) {
-      console.warn(`[hl-site] saving ${url} as a site link:`, describe(err))
+  const queue = [...hosts].filter((h) => !taken.has(h))
+  // A few pages at a time: most guessed names don't exist and fail at once; a live one is one page.
+  const worker = async () => {
+    for (let host = queue.shift(); host && owner.size; host = queue.shift()) {
+      const at = await page(`https://${host}/`)
+      if (!at?.lovableId || bareHost(at.url) !== host) continue
+      const c = owner.get(at.lovableId)
+      if (!c) continue
+      owner.delete(at.lovableId)
+      const url = `https://${host}`
+      try {
+        const saved = await saveSiteLink(c.id, url)
+        if (!saved.changed) afterSiteLinkChange(c.id, url, saved.prior)
+        if (c.hlSiteRequest) await note(c.hlSiteRequest.id, `Found their site live at ${url} (its page carries the project’s id ${at.lovableId}); saved as their site link in Clients.`)
+        console.log(`[hl-site] found ${url} live for client ${c.id}; saved as their site link`)
+        found += 1
+      } catch (err) {
+        console.warn(`[hl-site] saving ${url} as a site link:`, describe(err))
+      }
     }
   }
+  await Promise.all(Array.from({ length: 6 }, worker))
   return found
 }
 
