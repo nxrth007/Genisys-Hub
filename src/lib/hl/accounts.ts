@@ -5,7 +5,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { applyClientKit, KIT_VERSION } from './client-kit'
 import { boardProfileChanges, type ProfileKey } from './board-sync'
 import { HlInputError } from './http'
-import { toE164 } from './phone'
+import { firstPhone } from './phone'
 import type { HlProfile } from './types'
 
 /**
@@ -46,7 +46,8 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
   } catch {
     // no Google profile board yet
   }
-  const ownerPhone = toE164(intake?.customerPhone) ?? toE164(client.contactPhone) ?? toE164(intake?.businessContact)
+  // An answer with two numbers ("571-… and 301-…") gives the first, rather than no phone at all.
+  const ownerPhone = firstPhone(intake?.customerPhone) ?? firstPhone(client.contactPhone) ?? firstPhone(intake?.businessContact)
   const ein = clean(intake?.ein || client.ein).replace(/[^\d-]/g, '')
   // Older intakes have the name and address answers crossed: the street address sits in businessName.
   const crossed = looksLikeAddress(intake?.businessName) && !looksLikeAddress(intake?.businessAddress)
