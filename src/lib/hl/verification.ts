@@ -3,7 +3,8 @@ import { parseUsAddress } from '@/lib/address-parse'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { renderTemplate } from './merge'
-import { splitName, toE164 } from './phone'
+import { prettyPhone } from './number-plan'
+import { firstPhone, splitName } from './phone'
 import { asSettings, consentsOf } from './forms'
 import { fillLegalLinksFromSite, isHubUrl, resolveLegalLinks, siteFormPages } from './legal-links'
 import { PRIMARY_PROFILE_POLICY, profileKinds, publicBase, twilioClient, type TwilioClient } from './twilio'
@@ -144,6 +145,11 @@ export async function tollFreeFiling(accountId: string) {
     !p.notifyEmail && 'notification email',
   ].filter(Boolean)
   if (missing.length) throw new HlInputError(`Fill in the business profile first: ${missing.join(', ')} (Settings → Business Profile).`)
+  // Twilio requires a contact phone: the owner's (onboarding) phone, else the business phone; an answer
+  // with two numbers ("571-… and 301-…", American Home Innovations) gives the first.
+  const contactPhone = firstPhone(p.notifyPhone) ?? firstPhone(p.businessPhone)
+  if (!contactPhone) throw new HlInputError(`Add a phone number for ${p.businessName} in Settings → Business Profile: Twilio needs a contact phone for the business.`)
+  const helpPhone = firstPhone(p.businessPhone) ?? contactPhone
   const website = /^https?:\/\//i.test(p.website!) ? p.website! : `https://${p.website}`
   // Hell-level's own forms (an imported GHL form isn't served from here).
   const own = account.forms.filter((f) => !f.ghlId)
@@ -184,14 +190,14 @@ export async function tollFreeFiling(accountId: string) {
       businessCountry: 'US',
       ...(owner.firstName ? { businessContactFirstName: owner.firstName, businessContactLastName: owner.lastName ?? owner.firstName } : {}),
       businessContactEmail: (p.notifyEmail ?? '').split(/[,;\s]+/)[0],
-      ...(toE164(p.notifyPhone?.split(',')[0]) ? { businessContactPhone: toE164(p.notifyPhone?.split(',')[0])! } : {}),
+      businessContactPhone: contactPhone,
       useCaseCategories: promos ? ['CUSTOMER_CARE', 'MARKETING'] : ['CUSTOMER_CARE'],
       useCaseSummary: summaryOf(p.businessName!, promos),
       productionMessageSample: sample,
       optInType: 'WEB_FORM' as const,
       optInImageUrls: optInPages,
       optInConfirmationMessage: `${p.businessName}: thanks for reaching out! We'll text you about your request. Msg & data rates may apply. Reply STOP to opt out, HELP for help.`,
-      helpMessageSample: `${p.businessName}: for help call ${p.businessPhone || 'us'} or visit ${website}. Reply STOP to opt out.`,
+      helpMessageSample: `${p.businessName}: for help call ${prettyPhone(helpPhone)} or visit ${website}. Reply STOP to opt out.`,
       messageVolume: '1,000',
       privacyPolicyUrl: legal.privacy,
       termsAndConditionsUrl: legal.terms,

@@ -7,7 +7,7 @@ import { HlInputError } from './http'
 import { asSettings, consentsOf } from './forms'
 import { fillLegalLinksFromSite, hostedLegalUrl, isHubUrl, resolveLegalLinks, siteFormPages, type LegalLinks } from './legal-links'
 import { prettyPhone } from './merge'
-import { splitName, toE164 } from './phone'
+import { firstPhone, splitName, toE164 } from './phone'
 import { individualProfileProblem, primaryProfile, readTwilioSettings } from './verification'
 import { publicBase, twilioAccountType, twilioClient, type TwilioClient } from './twilio'
 import {
@@ -234,7 +234,7 @@ export async function a2pDraft(accountId: string, now = new Date()): Promise<Dra
   const addr = parseUsAddress(p.address || board?.address)
   const owner = splitName(p.ownerName || p.ownerFirstName || (board?.ownerFirstName ?? ''))
   const email = (p.notifyEmail ?? '').split(/[,;\s]+/).find((e) => e.includes('@')) || board?.contactEmail || ''
-  const phone = toE164(p.notifyPhone?.split(',')[0]) ?? toE164(p.businessPhone) ?? toE164(board?.phone) ?? ''
+  const phone = firstPhone(p.notifyPhone) ?? firstPhone(p.businessPhone) ?? firstPhone(board?.phone) ?? ''
   const website = originOf(p.website) || originOf(board?.domain)
   const marketing = !!marketingBox
   const trade = board?.trade?.trim() ?? ''
