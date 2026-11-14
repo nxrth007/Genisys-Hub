@@ -621,6 +621,29 @@ export async function lovableMcpRecentMessages(projectId: string, limit = 5): Pr
 }
 
 /**
+ * Every line in the project's files holding `query` (literal text, any case), as Lovable's
+ * grep_files finds it: { data: [{ path, matches: [{ line, line_content }] }], truncated }.
+ * An answer in another shape throws rather than reading as "no matches".
+ */
+export async function lovableMcpGrep(projectId: string, query: string, limit = 200): Promise<{ hits: { path: string; line: number; text: string }[]; truncated: boolean }> {
+  const res = await lovableMcpCall('grep_files', { project_id: projectId, query, limit }, 60_000)
+  const s = res.structured
+  if (!s || !Array.isArray(s.data)) throw new LovableMcpError(`Lovable’s code search answered in a shape the Hub can’t read (${res.text.slice(0, 200) || 'empty answer'}).`)
+  const hits = s.data.flatMap((f) => {
+    const r = recOf(f)
+    const path = r && strOf(r.path)
+    const matches = r && Array.isArray(r.matches) ? r.matches : []
+    return path
+      ? matches.map((m) => {
+          const x = recOf(m)
+          return { path, line: typeof x?.line === 'number' ? x.line : 0, text: typeof x?.line_content === 'string' ? x.line_content.slice(0, 300) : '' }
+        })
+      : []
+  })
+  return { hits, truncated: s.truncated === true }
+}
+
+/**
  * Answer a pause the agent is on: a tool approval, or its questions
  * (`userInput` holds the answers for awaiting_input.input_schema). Lovable's
  * rule is that a person decides: callers pass a person's answer, or one the

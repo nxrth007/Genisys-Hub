@@ -54,6 +54,7 @@ import { maybeRefreshVerifications } from './hl/verification'
 import { maybeSweepNumberRequests } from './hl/number-request'
 import { maybeSweepDomainRequests } from './hl/domain-request'
 import { maybeSweepSiteRequests } from './hl/site-request'
+import { maybeSweepWidgetSwaps } from './hl/widget-swap'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
@@ -596,6 +597,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] hell-level: ${n} website build(s) moved on`)
       })
       .catch((err) => console.error('[scheduler] hell-level website builds failed:', err))
+    // Client sites moving from GoHighLevel's form and chat to Hell-level's: only the ones a person queued.
+    void maybeSweepWidgetSwaps()
+      .then((n) => {
+        if (n) console.log(`[scheduler] hell-level: ${n} site form-and-chat swap(s) moved on`)
+      })
+      .catch((err) => console.error('[scheduler] hell-level form-and-chat swaps failed:', err))
     // Calendar notifications: reminders before appointments and follow-ups after.
     void maybeSendCalendarReminders()
       .then((n) => {
