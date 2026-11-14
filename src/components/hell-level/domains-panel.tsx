@@ -343,7 +343,7 @@ function RegistrarSetup({ status }: { status: Registrar | undefined }) {
           <a href="https://porkbun.com" target="_blank" rel="noreferrer" className="text-primary hover:underline">
             porkbun.com
           </a>{' '}
-          and verify its email and phone (Account → Settings / Billing → “Account Owner and Recovery”).
+          and verify its email and phone (Account → Settings / Billing → Your details → “send verification”).
         </li>
         <li>Under Account → API Access: create a key (a sandbox key first lets you try everything free), set a monthly spend limit, and turn on API access for all domains.</li>
         <li>Add some credit under Account → Account Credit (purchases are paid from it).</li>

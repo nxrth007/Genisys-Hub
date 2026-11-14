@@ -18,7 +18,7 @@ export const VAULT_SECRET = 'Porkbun Secret API Key'
 
 /** Porkbun's refusals that need something done in the Porkbun account, said for people (Porkbun's own text is written for API clients). */
 const PLAIN: Record<string, string> = {
-  VERIFICATION_REQUIRED: 'Porkbun needs the account’s phone number and email verified before it can buy anything: on porkbun.com, Account → Settings / Billing → the blue “Account Owner and Recovery” section → verify the email and the phone number.',
+  VERIFICATION_REQUIRED: 'Porkbun needs the account’s phone number and email verified before it can buy anything: on porkbun.com, Account → Settings / Billing → Your details → “send verification” next to Phone Number (and next to an email that isn’t verified), then enter the code Porkbun sends.',
   INSUFFICIENT_FUNDS: 'Not enough credit in the Porkbun account. Add some at porkbun.com → Account → Account Credit.',
   API_ACCESS_DISABLED: 'API access is off for this domain in Porkbun. Turn it on at porkbun.com → Account → API Access (for all domains), or on the domain’s Details.',
   INVALID_API_KEYS: 'Porkbun says the keys in the Vault aren’t valid. Make new ones at porkbun.com → Account → API Access.',
