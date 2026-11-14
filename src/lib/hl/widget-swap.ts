@@ -33,7 +33,7 @@ import {
   lovableProjectPublic,
 } from '@/lib/seo/lovable-mcp'
 import { REVIEW_REQUEST_FORM } from './client-kit'
-import { lovablePublicId } from './site-plan'
+import { DEFAULT_TEMPLATE_PROJECT, lovablePublicId } from './site-plan'
 import { publicBase } from './twilio'
 import {
   codeGaps,
@@ -402,6 +402,11 @@ async function prepare(s: WidgetSwap): Promise<boolean> {
   if (!/^https?:\/\/\S+$/i.test(siteUrl)) throw new SwapStop('No site link in Clients: add it there, then queue the swap again.')
   const projectId = c.hlSiteRequest?.projectId ?? c.seoSite?.lovableProjectId ?? null
   if (!projectId) throw new SwapStop('The Hub doesn’t know their Lovable project (no site build or SEO seat with one).')
+  // Forge copies every new client's site from this project (Jake's property maintenance): never edited by a swap.
+  const template = process.env.HL_SITE_TEMPLATE_PROJECT?.trim() || DEFAULT_TEMPLATE_PROJECT
+  if (projectId === template || projectId === DEFAULT_TEMPLATE_PROJECT) {
+    throw new SwapStop(`Their Lovable project is Forge’s template (every new site is copied from it), so a swap never edits it. Swap it by hand in Lovable if wanted (${editorLink(projectId)}).`)
+  }
   if (!c.hlAccount || c.hlAccount.archivedAt) throw new SwapStop('No Hell-level sub-account.')
   const native = c.hlAccount.forms.filter((f) => !f.ghlId)
   const quote = native.find((f) => f.kind === 'form' && f.name === 'Website Quote Form') ?? native.find((f) => f.kind === 'form' && f.name !== REVIEW_REQUEST_FORM)
