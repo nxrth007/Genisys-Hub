@@ -71,6 +71,7 @@ import {
 } from '@/lib/seo/lovable-mcp'
 import { afterSiteLinkChange, saveSiteLink } from '@/lib/site-link'
 import { isHubUrl } from './legal-links'
+import { listRegistrarDomains } from './porkbun'
 import { readProfile, zoneFromAnswers } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
 import { metaOf, siteRecords } from './domain-shared'
@@ -97,6 +98,7 @@ import {
   DEFAULT_TEMPLATE_PROJECT,
   firstEmail,
   gbpLinkFrom,
+  isLovableHost,
   lovablePublicId,
   lovableVerifyCodes,
   outsideHosts,
@@ -1207,8 +1209,91 @@ async function reconcileOutside(): Promise<number> {
   return moved
 }
 
+/** Sites live on a domain the Hub was never told about: looked for this often (and at start). */
+const FIND_EVERY_MS = 6 * 3600_000
+let lastFind = 0
+let finding = false
+
+/**
+ * A client's site, built in Lovable and live on a domain the Hub was never told about (Concrete
+ * masonry, 2026-11-14: built by hand, its domain connected in Lovable, the folder still saying
+ * "Being built"). Lovable's API doesn't say where a project is published, so the Hub looks where
+ * the domain could be: their Hell-level Domains, their onboarding domain and website answers, the
+ * SEO site's address, and every domain in Genisys's Porkbun account. A page counts only when it
+ * carries the client's own project id (lovp_…); a match becomes their site link in Clients, and
+ * what follows a site link runs (policy pages, logo, the toll-free filing). It only reads.
+ */
+export async function findLiveSites(): Promise<number> {
+  const clients = await prisma.client.findMany({
+    where: { archivedAt: null, lifecycle: { notIn: ['churned', 'denied'] }, OR: [{ siteUrl: null }, { siteUrl: '' }] },
+    select: {
+      id: true,
+      website: true,
+      hlSiteRequest: { select: { id: true, projectId: true } },
+      seoSite: { select: { lovableProjectId: true, liveUrl: true } },
+      hlAccount: { select: { domains: { select: { name: true } } } },
+      intakes: { orderBy: { receivedAt: 'desc' }, take: 1, select: { domainName: true, website: true } },
+    },
+  })
+  const isHub = (h: string) => isHubUrl(`https://${h}`)
+  // Each published project's public id, and whose it is.
+  const owner = new Map<string, (typeof clients)[number]>()
+  const hosts = new Set<string>()
+  for (const c of clients) {
+    const projectId = c.hlSiteRequest?.projectId ?? c.seoSite?.lovableProjectId ?? null
+    if (!projectId) continue
+    const pub = await lovableProjectPublic(projectId).catch(() => null)
+    if (!pub?.isPublished || !pub.publicId) continue
+    owner.set(pub.publicId.toLowerCase(), c)
+    const own = outsideHosts({
+      domains: [...(c.hlAccount?.domains.map((d) => d.name) ?? []), c.intakes[0]?.domainName, c.seoSite?.liveUrl],
+      siteUrl: c.website ?? c.intakes[0]?.website,
+      isHub,
+    })
+    for (const h of own) hosts.add(h)
+  }
+  if (!owner.size) return 0
+  for (const d of await listRegistrarDomains().catch(() => [])) {
+    const h = bareHost(d.name)
+    if (h && !isLovableHost(h) && !isHub(h)) hosts.add(h)
+  }
+  // A domain that's already some client's site link isn't anyone else's.
+  const taken = new Set((await prisma.client.findMany({ where: { siteUrl: { not: null } }, select: { siteUrl: true } })).map((c) => bareHost(c.siteUrl)))
+  let found = 0
+  for (const host of hosts) {
+    if (!owner.size) break
+    if (taken.has(host)) continue
+    const at = await page(`https://${host}/`)
+    if (!at?.lovableId || bareHost(at.url) !== host) continue
+    const c = owner.get(at.lovableId)
+    if (!c) continue
+    owner.delete(at.lovableId)
+    const url = `https://${host}`
+    try {
+      const saved = await saveSiteLink(c.id, url)
+      if (!saved.changed) afterSiteLinkChange(c.id, url, saved.prior)
+      if (c.hlSiteRequest) await note(c.hlSiteRequest.id, `Found their site live at ${url} (its page carries the project’s id ${at.lovableId}); saved as their site link in Clients.`)
+      console.log(`[hl-site] found ${url} live for client ${c.id}; saved as their site link`)
+      found += 1
+    } catch (err) {
+      console.warn(`[hl-site] saving ${url} as a site link:`, describe(err))
+    }
+  }
+  return found
+}
+
 export async function maybeSweepSiteRequests(now = Date.now()): Promise<number> {
   let moved = 0
+  if (!finding && now - lastFind >= FIND_EVERY_MS) {
+    lastFind = now
+    finding = true
+    // Not awaited: it fetches a page per domain, and nothing waits on it.
+    void findLiveSites()
+      .catch((err) => console.warn('[hl-site] looking for live sites the Hub doesn’t know:', err))
+      .finally(() => {
+        finding = false
+      })
+  }
   if (now - lastOutside >= OUTSIDE_EVERY_MS) {
     lastOutside = now
     moved += await reconcileOutside().catch((err) => {
