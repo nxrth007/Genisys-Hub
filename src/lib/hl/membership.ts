@@ -52,6 +52,7 @@ export async function readMembership(accountId: string): Promise<Membership | nu
           lifecycle: true,
           siteUrl: true,
           siteLiveAt: true,
+          ghlLocationId: true,
           ghlProvisionStatus: true,
           ghlProvisionedAt: true,
           intakes: { orderBy: { receivedAt: 'asc' }, take: 1, select: { receivedAt: true } },
@@ -61,6 +62,8 @@ export async function readMembership(accountId: string): Promise<Membership | nu
       })
     : null
   const step = (stage: string) => c?.journeyStages.find((s) => s.stage === stage) ?? null
+  // Their GoHighLevel sub-account: the one Clients links, else the one this sub-account was copied from.
+  const ghlLocationId = c?.ghlLocationId ?? a.ghlLocationId
   return membershipOf({
     signupStep: step('signup'),
     subAccountStep: step('subaccount'),
@@ -68,9 +71,10 @@ export async function readMembership(accountId: string): Promise<Membership | nu
     trackerStart: c?.tracker?.startDate ?? null,
     clientAddedAt: c?.createdAt ?? null,
     ghlProvision: { status: c?.ghlProvisionStatus ?? null, at: c?.ghlProvisionedAt ?? null },
-    ghlLocationAddedAt: a.ghlLocationId ? await ghlLocationAddedAt(a.ghlLocationId) : null,
+    ghlLocationAddedAt: ghlLocationId ? await ghlLocationAddedAt(ghlLocationId) : null,
     accountCreatedAt: a.createdAt,
-    ghlLocationId: a.ghlLocationId,
+    ghlLocationId,
+    copiedFromGhl: !!a.ghlLocationId,
     siteLiveAt: c?.siteLiveAt ?? null,
     siteUrl: c?.siteUrl ?? null,
     numbers: a.numbers,

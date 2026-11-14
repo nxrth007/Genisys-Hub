@@ -21,8 +21,10 @@ export type MembershipFacts = {
   ghlLocationAddedAt: Date | null
   /** This Hell-level sub-account. */
   accountCreatedAt: Date
-  /** Copied in from GoHighLevel (that location), or made in Hell-level (null). */
+  /** Their GoHighLevel sub-account (Clients' link, or the one this was copied from); null: Hell-level only. */
   ghlLocationId: string | null
+  /** This Hell-level sub-account is a copy of their GoHighLevel one (the import), not one Genisys made fresh. */
+  copiedFromGhl: boolean
   siteLiveAt: Date | null
   siteUrl: string | null
   numbers: { number: string; kind: string; createdAt: Date; verificationStatus: string; verificationAt: Date | null }[]
@@ -40,8 +42,8 @@ export type Membership = {
   registered: { at: string; how: string } | null
   /** When they got their sub-account (GoHighLevel's for a client from before Hell-level). */
   subAccount: { at: string | null; how: string }
-  /** When a GoHighLevel sub-account was copied into Hell-level. */
-  copiedAt: string | null
+  /** For a client from GoHighLevel: when their Hell-level sub-account was made or copied in. */
+  hellLevel: { at: string; how: string } | null
   daysAsClient: number | null
   /** What happened, oldest first. */
   timeline: Dated[]
@@ -100,9 +102,12 @@ export function registeredFrom(f: MembershipFacts): { at: Date; how: string } | 
   return { at: pick.at, how: pick.how }
 }
 
-/** When they got their sub-account, and how the Hub knows. */
-export function subAccountFrom(f: MembershipFacts): { at: Date | null; how: string; copiedAt: Date | null } {
-  if (!f.ghlLocationId) return { at: f.accountCreatedAt, how: 'Hell-level sub-account made', copiedAt: null }
+/**
+ * When they got their sub-account, and how the Hub knows. A client from before Hell-level got theirs
+ * in GoHighLevel; their Hell-level one came later (made by Genisys, or copied in), so it's a second date.
+ */
+export function subAccountFrom(f: MembershipFacts): { at: Date | null; how: string; hellLevel: { at: Date; how: string } | null } {
+  if (!f.ghlLocationId) return { at: f.accountCreatedAt, how: 'Hell-level sub-account made', hellLevel: null }
   const made =
     f.ghlLocationAddedAt ??
     (f.ghlProvision.status === 'created' ? f.ghlProvision.at : null) ??
@@ -110,7 +115,7 @@ export function subAccountFrom(f: MembershipFacts): { at: Date | null; how: stri
   return {
     at: made,
     how: made ? 'GoHighLevel sub-account made' : 'Made in GoHighLevel (GoHighLevel doesn’t give the date)',
-    copiedAt: f.accountCreatedAt,
+    hellLevel: { at: f.accountCreatedAt, how: f.copiedFromGhl ? 'Copied into Hell-level' : 'Hell-level sub-account made' },
   }
 }
 
@@ -131,8 +136,8 @@ export function membershipOf(f: MembershipFacts, now = new Date()): Membership {
   if (fromWhop(f.signupStep?.note)) add(f.signupStep?.completedAt, 'Signed up on Whop')
   add(f.firstIntakeAt, 'Sent the onboarding form')
   if (!f.firstIntakeAt && !fromWhop(f.signupStep?.note) && reg) add(reg.at, reg.how)
-  add(sub.at, sub.at && f.ghlLocationId ? 'Got their GoHighLevel sub-account' : 'Got their Hell-level sub-account')
-  if (sub.copiedAt) add(sub.copiedAt, 'Copied into Hell-level from GoHighLevel')
+  add(sub.at, f.ghlLocationId ? 'Got their GoHighLevel sub-account' : 'Got their Hell-level sub-account')
+  if (sub.hellLevel) add(sub.hellLevel.at, f.copiedFromGhl ? 'Copied into Hell-level from GoHighLevel' : 'Hell-level sub-account made')
   for (const l of f.logins) add(l.invitedAt, `Hell-level login sent to ${l.who}`)
   add(f.siteLiveAt, `Website live${f.siteUrl ? ` at ${host(f.siteUrl)}` : ''}`)
   for (const d of f.domains) add(d.createdAt, `Domain ${d.name} added`)
@@ -153,7 +158,7 @@ export function membershipOf(f: MembershipFacts, now = new Date()): Membership {
   return {
     registered: reg ? { at: iso(reg.at), how: reg.how } : null,
     subAccount: { at: sub.at ? iso(sub.at) : null, how: sub.how },
-    copiedAt: sub.copiedAt ? iso(sub.copiedAt) : null,
+    hellLevel: sub.hellLevel ? { at: iso(sub.hellLevel.at), how: sub.hellLevel.how } : null,
     daysAsClient: reg ? Math.max(0, Math.floor((now.getTime() - reg.at.getTime()) / DAY_MS)) : null,
     timeline: timeline.map((t) => ({ at: iso(t.at), label: t.label })),
     next: f.archivedAt || churned ? [] : next,

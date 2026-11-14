@@ -30,6 +30,7 @@ const base = {
   ghlLocationAddedAt: null,
   accountCreatedAt: d('2026-11-13T15:00:00Z'),
   ghlLocationId: null,
+  copiedFromGhl: false,
   siteLiveAt: null,
   siteUrl: null,
   numbers: [],
@@ -70,12 +71,13 @@ test('registered: an older client is the earliest record, else when the Hub adde
   assert.equal(plan.registeredFrom(base), null)
 })
 
-test('sub-account: Hell-level’s own date; GoHighLevel’s for one copied over, never the copy date', () => {
-  assert.deepEqual(plan.subAccountFrom(base), { at: base.accountCreatedAt, how: 'Hell-level sub-account made', copiedAt: null })
+test('sub-account: Hell-level’s own date; GoHighLevel’s for a client from there, Hell-level’s second', () => {
+  assert.deepEqual(plan.subAccountFrom(base), { at: base.accountCreatedAt, how: 'Hell-level sub-account made', hellLevel: null })
   const ghl = { ...base, ghlLocationId: 'loc1', accountCreatedAt: d('2026-10-20T00:00:00Z') }
   const unknown = plan.subAccountFrom(ghl)
   assert.equal(unknown.at, null)
-  assert.equal(unknown.copiedAt.toISOString().slice(0, 10), '2026-10-20')
+  assert.deepEqual([unknown.hellLevel.how, unknown.hellLevel.at.toISOString().slice(0, 10)], ['Hell-level sub-account made', '2026-10-20'])
+  assert.equal(plan.subAccountFrom({ ...ghl, copiedFromGhl: true }).hellLevel.how, 'Copied into Hell-level')
   assert.equal(plan.subAccountFrom({ ...ghl, ghlLocationAddedAt: d('2026-08-30T00:00:00Z') }).at.toISOString().slice(0, 10), '2026-08-30')
   // The Hub made it in GoHighLevel: its own record; a link to one made by hand isn't a date it was made.
   assert.equal(plan.subAccountFrom({ ...ghl, ghlProvision: { status: 'created', at: d('2026-10-05T00:00:00Z') } }).at.toISOString().slice(0, 10), '2026-10-05')
@@ -107,10 +109,11 @@ test('the card: timeline in order, what’s still to come, and how long they’v
 })
 
 test('a client from GoHighLevel isn’t asked for a Hell-level number; an archived one has nothing to come', () => {
-  const ghl = { ...base, ghlLocationId: 'loc1', siteUrl: 'https://acme.com', siteLiveAt: d('2026-10-01T00:00:00Z') }
+  const ghl = { ...base, ghlLocationId: 'loc1', siteUrl: 'https://acme.com', siteLiveAt: d('2026-10-01T00:00:00Z'), ghlLocationAddedAt: d('2026-09-01T00:00:00Z') }
   assert.deepEqual(plan.membershipOf(ghl).next, [])
-  assert.ok(plan.membershipOf(ghl).timeline.some((t) => t.label === 'Website live at acme.com'))
-  assert.ok(plan.membershipOf(ghl).timeline.some((t) => t.label === 'Copied into Hell-level from GoHighLevel'))
+  const labels = plan.membershipOf(ghl).timeline.map((t) => t.label)
+  assert.deepEqual(labels, ['Got their GoHighLevel sub-account', 'Website live at acme.com', 'Hell-level sub-account made'])
+  assert.ok(plan.membershipOf({ ...ghl, copiedFromGhl: true }).timeline.some((t) => t.label === 'Copied into Hell-level from GoHighLevel'))
   const gone = plan.membershipOf({ ...base, archivedAt: d('2026-11-01T00:00:00Z') })
   assert.deepEqual(gone.next, [])
   assert.equal(gone.ended, 'Archived 2026-11-01')

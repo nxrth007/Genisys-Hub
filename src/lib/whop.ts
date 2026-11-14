@@ -39,6 +39,8 @@ export type WhopOrder = {
   customerUsername: string | null
   productTitle: string | null
   planId: string | null
+  /** The membership the payment is for (mem_…), when Whop names it. */
+  membershipId: string | null
   membershipStatus: string | null
   cardBrand: string | null
   cardLast4: string | null
@@ -190,6 +192,7 @@ function shape(p: Raw): WhopOrder {
     customerUsername: str(user.username),
     productTitle: str(product.title),
     planId: str(plan.id),
+    membershipId: str(membership.id),
     membershipStatus: str(membership.status),
     // Whop reports the card both at the top level and on payment_method,
     // and which one is populated varies by payment type.
