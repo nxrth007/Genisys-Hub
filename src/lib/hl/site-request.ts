@@ -295,7 +295,14 @@ export async function gatherSite(clientId: string): Promise<Gathered | null> {
   const origin = publicBase()
   const embeds = quote && chat ? { formId: quote.id, formEmbed: embedCode(origin, quote), chatId: chat.id, chatEmbed: embedCode(origin, chat) } : null
 
-  const missing = [!phone && 'phone number', !facts.email && 'email address', !embeds && 'Hell-level quote form and chat widget'].filter((x): x is string => !!x)
+  // Claude won't guess where a business works (Cnc transportation, 2026-11-13, stopped after its call):
+  // with neither an address nor a service area, the build stops here before anything is spent.
+  const missing = [
+    !phone && 'phone number',
+    !facts.email && 'email address',
+    !facts.address.trim() && !facts.cities.trim() && 'address or service area',
+    !embeds && 'Hell-level quote form and chat widget',
+  ].filter((x): x is string => !!x)
   return {
     accountId: account.id,
     facts,
