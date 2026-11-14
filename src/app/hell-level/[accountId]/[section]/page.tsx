@@ -19,13 +19,7 @@ const PAGES: Record<string, Record<string, { title: string; what: string }>> = {
     'agent-templates': { title: 'Agent Templates', what: 'Ready-made AI agents for common jobs.' },
     'content-ai': { title: 'Content AI', what: 'AI writing for emails, posts and pages.' },
   },
-  memberships: {
-    dashboard: { title: 'Memberships', what: 'Online courses and communities. GHL’s API doesn’t export courses, so nothing comes over from GHL here.' },
-    courses: { title: 'Courses', what: 'Video courses with lessons and drip schedules.' },
-    communities: { title: 'Communities', what: 'Member groups with posts and chat.' },
-    certificates: { title: 'Certificates', what: 'Certificates for finishing a course.' },
-    'client-portal': { title: 'Client Portal', what: 'One login for the business’s customers to reach courses and communities.' },
-  },
+  // Memberships has its own page (./memberships): the client's membership with Genisys.
 }
 
 export default function SectionPage() {

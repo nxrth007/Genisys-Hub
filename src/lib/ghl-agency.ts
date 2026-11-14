@@ -275,8 +275,11 @@ export async function loadSnapshotIntoLocation(ctx: AgencyContext, locationId: s
   }
 }
 
-/** One sub-account by id; null when GHL has no such location or it isn't this agency's. */
-export async function getLocation(ctx: AgencyContext, locationId: string): Promise<(AgencyLocation & { companyId: string | null }) | null> {
+/**
+ * One sub-account by id; null when GHL has no such location or it isn't this agency's. `dateAdded`
+ * is when GHL made it, when its answer carries one (Hell-level → Memberships shows it).
+ */
+export async function getLocation(ctx: AgencyContext, locationId: string): Promise<(AgencyLocation & { companyId: string | null; dateAdded: string | null }) | null> {
   let res: { location?: Record<string, unknown> }
   try {
     res = await agencyFetch<{ location?: Record<string, unknown> }>(ctx.token, `/locations/${encodeURIComponent(locationId)}`)
@@ -288,7 +291,8 @@ export async function getLocation(ctx: AgencyContext, locationId: string): Promi
   if (!isRecordWithId(loc)) return null
   const companyId = typeof loc.companyId === 'string' ? loc.companyId : null
   if (companyId && companyId !== ctx.companyId) return null
-  return { id: loc.id as string, name: typeof loc.name === 'string' ? loc.name : '', companyId }
+  const added = [loc.dateAdded, loc.createdAt, loc.date_added].find((v): v is string => typeof v === 'string' && !Number.isNaN(Date.parse(v))) ?? null
+  return { id: loc.id as string, name: typeof loc.name === 'string' ? loc.name : '', companyId, dateAdded: added }
 }
 
 function isRecordWithId(v: unknown): v is Record<string, unknown> {
