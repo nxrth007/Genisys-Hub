@@ -70,6 +70,22 @@ test('stageView: what the Hub knows beats a missing journey row; no row and no f
   assert.equal(s.stageView('a2p', none, { ...bare, texting: 'none' }).status, 'none')
 })
 
+test('Hell-level sub-account: its own row; the GHL row isn’t waiting on anyone for a Hell-level-only client', () => {
+  // Cnc transportation (2026-11-14): Hell-level made at onboarding, no GHL, and the old "create it in GHL" row.
+  const ghlRow = { status: 'in_progress', note: 'Automatic creation is off — create the sub-account in GHL and link it.', updatedAt: '2026-11-13T15:00:00.000Z' }
+  const hellLevel = { createdAt: '2026-11-13T15:00:00.000Z', archived: false }
+  const facts = { siteLive: false, ghlLinked: false, hellLevel, hasIntake: true, texting: null }
+  assert.deepEqual(s.stageView('subaccount', ghlRow, facts), { status: 'not_needed', note: 'Hell-level only: no GHL sub-account' })
+  // A linked GHL sub-account still says so; an archived Hell-level one, or none, leaves the row alone.
+  assert.deepEqual(s.stageView('subaccount', ghlRow, { ...facts, ghlLinked: true }), { status: 'done', note: 'GHL sub-account linked' })
+  assert.deepEqual(s.stageView('subaccount', ghlRow, { ...facts, hellLevel: { ...hellLevel, archived: true } }), { status: 'in_progress', note: ghlRow.note })
+  assert.deepEqual(s.stageView('subaccount', ghlRow, { ...facts, hellLevel: null }), { status: 'in_progress', note: ghlRow.note })
+  // The Hell-level row itself.
+  assert.deepEqual(s.hellLevelStage(hellLevel), { status: 'done', note: 'Set up Nov 13, 2026' })
+  assert.deepEqual(s.hellLevelStage({ ...hellLevel, archived: true }), { status: 'none', note: 'Archived in Hell-level' })
+  assert.deepEqual(s.hellLevelStage(null), { status: 'none', note: null })
+})
+
 test('textingLine: what the number can do, in a sentence', () => {
   assert.match(s.textingLine({ verificationStatus: 'approved', siteLive: true }), /^Texting approved/)
   assert.match(s.textingLine({ verificationStatus: 'in_review', siteLive: true }), /Twilio is reviewing it/)

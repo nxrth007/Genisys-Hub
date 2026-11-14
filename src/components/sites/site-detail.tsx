@@ -24,9 +24,10 @@ const STAGE_STYLE: Record<string, string> = {
   in_progress: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
   blocked: 'bg-red-500/15 text-red-600 dark:text-red-400',
   pending: 'bg-muted text-muted-foreground',
+  not_needed: 'bg-muted text-muted-foreground',
   none: 'text-muted-foreground/70',
 }
-const STAGE_WORD: Record<string, string> = { done: 'Done', in_progress: 'In progress', blocked: 'Blocked', pending: 'Not started', none: 'No record' }
+const STAGE_WORD: Record<string, string> = { done: 'Done', in_progress: 'In progress', blocked: 'Blocked', pending: 'Not started', not_needed: 'Not needed', none: 'No record' }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false)
@@ -678,7 +679,13 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
             {d.journey.map((s) => (
               <li key={s.stage} className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
                 <span className="min-w-0">
-                  <span className="text-[13px] font-medium text-foreground">{s.label}</span>
+                  {s.href ? (
+                    <Link href={s.href} className="text-[13px] font-medium text-foreground underline-offset-2 hover:text-primary hover:underline">
+                      {s.label}
+                    </Link>
+                  ) : (
+                    <span className="text-[13px] font-medium text-foreground">{s.label}</span>
+                  )}
                   {s.note && <span className="block truncate text-[11.5px] text-muted-foreground" title={s.note}>{s.note}</span>}
                 </span>
                 <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', STAGE_STYLE[s.status] ?? STAGE_STYLE.pending)}>{STAGE_WORD[s.status] ?? s.status}</span>

@@ -50,6 +50,8 @@ export type StageFacts = {
   siteLive: boolean
   /** A GHL sub-account is linked to the client. */
   ghlLinked: boolean
+  /** Their Hell-level sub-account: when it was made, and whether it's archived. Null without one. */
+  hellLevel?: { createdAt: string; archived: boolean } | null
   /** An onboarding form came in for the client. */
   hasIntake: boolean
   /** The site number's toll-free texting verification, when it has one: none | pending | in_review | approved | rejected. */
@@ -71,9 +73,26 @@ export function stageView(stage: string, row: { status: string; note: string | n
     return { status: 'in_progress', note: 'Toll-free texting verification is with Twilio' }
   }
   if (stage === 'subaccount' && f.ghlLinked && row.status !== 'done') return { status: 'done', note: 'GHL sub-account linked' }
+  // Hell-level only (new clients since 2026-11-13): no GHL sub-account is made for them, so
+  // the GHL row isn't waiting on anyone, whatever its old "create it in GHL" note says.
+  if (stage === 'subaccount' && !f.ghlLinked && f.hellLevel && !f.hellLevel.archived && row.status !== 'done') {
+    return { status: 'not_needed', note: 'Hell-level only: no GHL sub-account' }
+  }
   if (stage === 'intake' && f.hasIntake && row.status !== 'done') return { status: 'done', note: 'Onboarding form received' }
   if (!row.updatedAt && row.status === 'pending') return { status: 'none', note: null }
   return { status: row.status, note: row.note }
+}
+
+/**
+ * The Hell-level sub-account as a Status row, listed just before the GHL one. It isn't a
+ * journey stage: the Hub knows it from the sub-account itself (made at onboarding).
+ */
+export function hellLevelStage(hl: StageFacts['hellLevel']): { status: string; note: string | null } {
+  if (!hl) return { status: 'none', note: null }
+  if (hl.archived) return { status: 'none', note: 'Archived in Hell-level' }
+  const made = new Date(hl.createdAt)
+  const day = Number.isNaN(made.getTime()) ? '' : made.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })
+  return { status: 'done', note: day ? `Set up ${day}` : 'Set up' }
 }
 
 /** What a toll-free number's texting verification means for the site build, in a sentence. */

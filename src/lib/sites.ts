@@ -14,7 +14,7 @@ import { ringTo, textsTo } from '@/lib/hl/number-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
-import { siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
+import { hellLevelStage, siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
   id: string
@@ -83,7 +83,8 @@ const STAGE_LABEL: Record<JourneyStage, string> = {
 export type SiteDetail = {
   client: { id: string; name: string; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string }
   status: SiteStatus
-  journey: { stage: string; label: string; status: string; note: string | null; updatedAt: string | null }[]
+  /** The Status card's rows: the journey stages, plus their Hell-level sub-account (`href` opens it). */
+  journey: { stage: string; label: string; status: string; note: string | null; updatedAt: string | null; href?: string | null }[]
   account: {
     id: string
     businessName: string | null
@@ -166,6 +167,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           id: true,
           profile: true,
           archivedAt: true,
+          createdAt: true,
           numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
           domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true } },
         },
@@ -201,7 +203,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   const n = numbers.find((x) => x.kind === 'toll_free') ?? numbers[0] ?? null
   // A client on the GHL route has its number in GHL instead (the Office request records it).
   const ghlNumber = !n && c.hlNumberRequest?.route === 'ghl' && c.hlNumberRequest.status === 'bought' && c.hlNumberRequest.number ? c.hlNumberRequest : null
-  const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
+  const hellLevel = c.hlAccount ? { createdAt: c.hlAccount.createdAt.toISOString(), archived: !!c.hlAccount.archivedAt } : null
+  const facts = { siteLive: !!c.siteUrl?.trim(), ghlLinked: !!c.ghlLocationId, hellLevel, hasIntake: intakes > 0, texting: n?.kind === 'toll_free' ? n.verificationStatus : null }
   // What the Hub last read of their GHL sub-account's numbers (the daily read; a re-linked sub-account starts over).
   const census = currentCensus(c.ghlNumberCensus, c.ghlLocationId)
   const forge = c.hlSiteRequest
@@ -229,10 +232,15 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
-    journey: journey.stages.map((s) => {
+    journey: journey.stages.flatMap((s) => {
       const updatedAt = s.updatedAt?.toISOString() ?? null
       const view = stageView(s.stage, { status: s.status, note: s.note, updatedAt }, facts)
-      return { stage: s.stage, label: STAGE_LABEL[s.stage], status: view.status, note: view.note, updatedAt }
+      const row = { stage: s.stage, label: STAGE_LABEL[s.stage], status: view.status, note: view.note, updatedAt }
+      if (s.stage !== 'subaccount') return [row]
+      // Their Hell-level sub-account, just before the GHL one.
+      const hl = hellLevelStage(hellLevel)
+      const href = c.hlAccount && !c.hlAccount.archivedAt ? `/hell-level/${c.hlAccount.id}` : null
+      return [{ stage: 'hell_level', label: 'Hell-level sub-account', ...hl, updatedAt: hellLevel?.createdAt ?? null, href }, row]
     }),
     account:
       c.hlAccount && p
