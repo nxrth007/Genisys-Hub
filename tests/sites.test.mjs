@@ -103,3 +103,32 @@ test('personName: the client themself, tidied for the folders', () => {
   assert.equal(s.personName('   '), null)
   assert.equal(s.personName(null), null)
 })
+
+test('domainStage: "Domain purchased" from Hell-level Domains, Forge’s question, or the site’s own domain', () => {
+  const at = '2026-11-13T18:00:00Z'
+  const none = { domains: [], question: null, siteHost: null }
+  assert.deepEqual(s.domainStage(none), { status: 'pending', note: null })
+  assert.deepEqual(s.domainStage({ ...none, domains: [{ name: 'acme.com', origin: 'bought', status: 'active', createdAt: at }] }), { status: 'done', note: 'acme.com, bought Nov 13, 2026' })
+  assert.equal(s.domainStage({ ...none, domains: [{ name: 'acme.com', origin: 'external', status: 'active', createdAt: at }] }).note, 'acme.com, registered outside the Hub')
+  assert.equal(s.domainStage({ ...none, domains: [{ name: 'acme.com', origin: 'bought', status: 'pending', createdAt: at }] }).status, 'in_progress')
+  // A failed row isn't a domain; the question's own state shows instead.
+  assert.deepEqual(s.domainStage({ ...none, domains: [{ name: 'x.com', origin: 'bought', status: 'failed', createdAt: at }], question: { status: 'failed', name: 'x.com', detail: 'Porkbun said no' } }), { status: 'blocked', note: 'Porkbun said no' })
+  assert.deepEqual(s.domainStage({ ...none, question: { status: 'buying', name: 'acme.com', detail: null } }), { status: 'in_progress', note: 'Buying acme.com' })
+  assert.equal(s.domainStage({ ...none, question: { status: 'awaiting_approval', name: null, detail: null } }).status, 'pending')
+  assert.deepEqual(s.domainStage({ ...none, siteHost: 'concretemasonryllc.org' }), { status: 'done', note: 'concretemasonryllc.org, registered outside the Hub' })
+})
+
+test('tollFreeStage: "Toll-Free Number Purchased & Verified" from the number, GHL’s, or Echo’s question', () => {
+  const base = { number: null, ghl: null, request: null, ghlLinked: false, siteLive: true }
+  const n = (verificationStatus, verificationNote = null) => ({ ...base, number: { number: '+18556090482', verificationStatus, verificationNote } })
+  assert.deepEqual(s.tollFreeStage(n('approved')), { status: 'done', note: '(855) 609-0482: bought and verified' })
+  assert.deepEqual(s.tollFreeStage(n('pending')), { status: 'in_progress', note: '(855) 609-0482: bought; Twilio is reviewing the verification' })
+  assert.deepEqual(s.tollFreeStage(n('rejected', 'Website unreachable')), { status: 'blocked', note: '(855) 609-0482: verification rejected (Website unreachable)' })
+  assert.equal(s.tollFreeStage({ ...n('none'), siteLive: false }).note, '(855) 609-0482: bought; verification is filed once the site is live')
+  assert.equal(s.tollFreeStage({ ...base, ghl: { number: '+18445550100', registration: 'approved' } }).status, 'done')
+  assert.equal(s.tollFreeStage({ ...base, ghl: { number: '+18445550100', registration: 'waiting_site' } }).note, '(844) 555-0100 in GHL: bought; its registration waits for the live site')
+  assert.equal(s.tollFreeStage({ ...base, request: { status: 'awaiting_approval', detail: null } }).status, 'pending')
+  assert.deepEqual(s.tollFreeStage({ ...base, request: { status: 'failed', detail: 'Twilio had no numbers' } }), { status: 'blocked', note: 'Twilio had no numbers' })
+  assert.equal(s.tollFreeStage({ ...base, ghlLinked: true }).status, 'none')
+  assert.deepEqual(s.tollFreeStage(base), { status: 'pending', note: null })
+})

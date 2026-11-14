@@ -110,6 +110,89 @@ export function hellLevelStage(hl: StageFacts['hellLevel']): { status: string; n
   return { status: 'done', note: day ? `Set up ${day}` : 'Set up' }
 }
 
+const statusDay = (iso: string | null | undefined): string => {
+  const d = iso ? new Date(iso) : null
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }) : ''
+}
+
+const statusPhone = (n: string): string => {
+  const d = n.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : n
+}
+
+/**
+ * "Domain purchased" as a Status row (Alex, 2026-11-14): a domain in their Hell-level Domains (bought
+ * through the Hub, transferred in, already in Genisys's Porkbun, or registered elsewhere), Forge's
+ * domain question, or failing those the site link's own domain.
+ */
+export function domainStage(f: {
+  domains: { name: string; origin: string; status: string; createdAt: string }[]
+  question: { status: string; name: string | null; detail: string | null } | null
+  /** The site link's domain when it's their own (not a lovable.app address). */
+  siteHost: string | null
+}): { status: string; note: string | null } {
+  const held = f.domains.filter((d) => d.status !== 'failed')
+  const d = held.find((x) => x.status === 'active') ?? held[0]
+  if (d) {
+    if (d.status !== 'active') return { status: 'in_progress', note: `${d.name}: ${d.origin === 'transfer' ? 'transfer' : 'purchase'} still going through` }
+    const how = d.origin === 'bought' ? `bought ${statusDay(d.createdAt)}`.trim() : d.origin === 'transfer' ? 'transferred in' : d.origin === 'external' ? 'registered outside the Hub' : 'in Genisys’s Porkbun'
+    return { status: 'done', note: `${d.name}, ${how}` }
+  }
+  const q = f.question?.status
+  if (q === 'buying') return { status: 'in_progress', note: `Buying ${f.question?.name ?? 'their domain'}` }
+  if (q === 'failed') return { status: 'blocked', note: f.question?.detail ?? 'The purchase didn’t go through' }
+  if (f.siteHost) return { status: 'done', note: `${f.siteHost}, registered outside the Hub` }
+  if (q === 'awaiting_approval') return { status: 'pending', note: 'Waiting on a pick in the Office or “Domain for the site” below' }
+  if (q === 'declined') return { status: 'pending', note: 'None of the suggestions was picked' }
+  return { status: 'pending', note: null }
+}
+
+/** GHL's toll-free registration for a number in GHL, in words (src/lib/ghl-number/register-plan.ts). */
+const GHL_REGISTRATION: Record<string, string> = {
+  none: 'isn’t filed yet',
+  waiting_site: 'waits for the live site',
+  queued: 'is queued',
+  review: 'waits on a review in the Office',
+  submitted: 'is with GHL',
+  held: 'is on hold',
+  needs_human: 'needs a person',
+}
+
+/**
+ * "Toll-Free Number Purchased & Verified" as a Status row (Alex, 2026-11-14): their Hell-level
+ * toll-free number and its texting verification, or a number bought in their GHL sub-account and GHL's
+ * registration, or where Echo's number question stands.
+ */
+export function tollFreeStage(f: {
+  number: { number: string; verificationStatus: string; verificationNote: string | null } | null
+  ghl: { number: string; registration: string | null } | null
+  request: { status: string; detail: string | null } | null
+  ghlLinked: boolean
+  siteLive: boolean
+}): { status: string; note: string | null } {
+  if (f.number) {
+    const n = statusPhone(f.number.number)
+    const v = f.number.verificationStatus
+    if (v === 'approved') return { status: 'done', note: `${n}: bought and verified` }
+    if (v === 'rejected') return { status: 'blocked', note: `${n}: verification rejected${f.number.verificationNote ? ` (${f.number.verificationNote})` : ''}` }
+    if (v === 'pending' || v === 'in_review') return { status: 'in_progress', note: `${n}: bought; Twilio is reviewing the verification` }
+    return { status: 'in_progress', note: `${n}: bought; verification ${f.siteLive ? 'not filed yet' : 'is filed once the site is live'}` }
+  }
+  if (f.ghl) {
+    const n = statusPhone(f.ghl.number)
+    if (f.ghl.registration === 'approved') return { status: 'done', note: `${n} in GHL: bought and verified` }
+    return { status: 'in_progress', note: `${n} in GHL: bought; its registration ${GHL_REGISTRATION[f.ghl.registration ?? 'none'] ?? `is ${(f.ghl.registration ?? '').replace(/_/g, ' ')}`}` }
+  }
+  const r = f.request?.status
+  if (r === 'buying' || r === 'ghl_working') return { status: 'in_progress', note: 'Buying it now' }
+  if (r === 'awaiting_approval') return { status: 'pending', note: 'Waiting on a Yes in the Office or “Toll-free number for the site”' }
+  if (r === 'awaiting_identity') return { status: 'blocked', note: 'Waiting on the owner’s ID check in GHL' }
+  if (r === 'failed') return { status: 'blocked', note: f.request?.detail ?? 'The purchase didn’t go through' }
+  if (r === 'declined') return { status: 'pending', note: 'Echo’s question was answered No' }
+  if (f.ghlLinked) return { status: 'none', note: 'None in Hell-level; they may text from their GHL sub-account' }
+  return { status: 'pending', note: null }
+}
+
 /** What a toll-free number's texting verification means for the site build, in a sentence. */
 export function textingLine(o: { verificationStatus: string | null; verificationNote?: string | null; siteLive: boolean }): string {
   switch (o.verificationStatus) {

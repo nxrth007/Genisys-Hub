@@ -15,7 +15,7 @@ import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { readSavedPause, type SitePause } from '@/lib/hl/site-pause'
-import { hellLevelStage, personName, siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
+import { domainStage, hellLevelStage, personName, siteHost, siteHref, siteStatus, sortFolders, stageView, tollFreeStage, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
   id: string
@@ -177,7 +177,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           archivedAt: true,
           createdAt: true,
           numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
-          domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true } },
+          domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true, createdAt: true } },
         },
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
@@ -221,6 +221,31 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   const builderSite = forge?.status === 'connected' && forge.domain ? `https://${forge.domain}` : (forgeLive ?? (c.siteUrl?.trim() ? siteHref(c.siteUrl.trim()) : null))
   // The folder's buttons: the same rules src/lib/hl/folder-actions.ts checks again before acting.
   const hasAccount = !!c.hlAccount && !c.hlAccount.archivedAt
+  // The Status card's "Domain purchased" and "Toll-Free Number Purchased & Verified" rows (Alex, 2026-11-14).
+  const ownHost = siteHost(c.siteUrl)
+  const domainRow = {
+    stage: 'domain',
+    label: 'Domain purchased',
+    ...domainStage({
+      domains: (c.hlAccount?.domains ?? []).map((x) => ({ ...x, createdAt: x.createdAt.toISOString() })),
+      question: c.hlDomainRequest ? { status: c.hlDomainRequest.status, name: c.hlDomainRequest.name, detail: c.hlDomainRequest.detail } : null,
+      siteHost: ownHost && !/(^|\.)(lovable\.app|lovableproject\.com|onrender\.com)$/i.test(ownHost) ? ownHost : null,
+    }),
+    updatedAt: null,
+  }
+  const tollFree = numbers.find((x) => x.kind === 'toll_free') ?? null
+  const tollFreeRow = {
+    stage: 'toll_free',
+    label: 'Toll-Free Number Purchased & Verified',
+    ...tollFreeStage({
+      number: tollFree ? { number: tollFree.number, verificationStatus: tollFree.verificationStatus, verificationNote: tollFree.verificationNote } : null,
+      ghl: ghlNumber ? { number: ghlNumber.number!, registration: c.ghlNumberJob?.registration ?? null } : null,
+      request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, detail: c.hlNumberRequest.detail } : null,
+      ghlLinked: !!c.ghlLocationId,
+      siteLive: facts.siteLive,
+    }),
+    updatedAt: null,
+  }
   const actions = {
     domain: folderDomain({
       hasAccount,
@@ -240,10 +265,13 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   return {
     client: { id: c.id, name: c.name, person: personName(c.contactName) ?? personName(p?.ownerName), color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
-    journey: journey.stages.flatMap((s) => {
+    journey: journey.stages.flatMap((s): SiteDetail['journey'] => {
       const updatedAt = s.updatedAt?.toISOString() ?? null
       const view = stageView(s.stage, { status: s.status, note: s.note, updatedAt }, facts)
       const row = { stage: s.stage, label: STAGE_LABEL[s.stage], status: view.status, note: view.note, updatedAt }
+      // Their domain just before the website; their toll-free number just before texting registration.
+      if (s.stage === 'website') return [domainRow, row]
+      if (s.stage === 'a2p') return [tollFreeRow, row]
       if (s.stage !== 'subaccount') return [row]
       // Their Hell-level sub-account, just before the GHL one.
       const hl = hellLevelStage(hellLevel)
