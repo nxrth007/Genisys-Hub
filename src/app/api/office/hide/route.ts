@@ -4,8 +4,8 @@ import { requireStaff } from '@/lib/auth-helpers'
 import { setHidden } from '@/lib/office/hidden'
 
 /**
- * POST /api/office/hide { id, sig, hidden } — hide an Office request or question from your own
- * view (or show it again). It answers nothing: the bot keeps waiting and the question stays
+ * POST /api/office/hide { id, sig, hidden } — hide an Office question from the Office floor, your
+ * own main view (or show it there again); the Requests tab still lists it. It answers nothing: the bot keeps waiting and the question stays
  * answerable. `sig` is what the item said (src/lib/office/hide-plan.ts): when it says something
  * new, it shows again. Staff; each person hides for themselves.
  */

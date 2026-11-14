@@ -1,7 +1,7 @@
 /**
- * Hiding an Office request or question from your own view (Alex, 2026-11-14: "hide them from the
- * main office view", without deciding anything). Hiding never answers: the bot keeps waiting, the
- * question stays answerable, and it's one click to show it again. A hidden item stays hidden while
+ * Hiding an Office question from the Office floor, your own main view (Alex, 2026-11-14: "hide them
+ * from the main office view"; the Requests tab keeps listing everything, marked hidden there). Hiding
+ * never answers: the bot keeps waiting, the question stays answerable, and it's one click to show it again. A hidden item stays hidden while
  * it says the same thing; when the bot raises it again with something new (another failure, the next
  * step of a question), it shows again. Each person hides for themselves.
  *

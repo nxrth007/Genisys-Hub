@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
 import type { OfficeApproval, OfficeBot, OfficeRequest, OfficeState, OfficeStatus } from '@/lib/office/mapping'
-import { approvalSig, nextHidden, requestSig, splitHidden, type HiddenMap } from '@/lib/office/hide-plan'
+import { approvalSig, isHidden, nextHidden, splitHidden, type HiddenMap } from '@/lib/office/hide-plan'
 import { OFFICE_THEMES, STATUS_META, type OfficeTheme } from './theme'
 
 // The SVG scene + animation loop only runs in the browser and stays out of
@@ -89,6 +89,8 @@ function ApprovalCard({
   done,
   onAnswered,
   onHide,
+  hiddenOnFloor = false,
+  onShow,
 }: {
   a: OfficeApproval
   bot: OfficeBot | undefined
@@ -96,8 +98,11 @@ function ApprovalCard({
   demo: boolean
   done: Answer | null
   onAnswered: (answer: Answer) => void
-  /** Hide it from your view without answering (the bot keeps waiting). */
+  /** Hide it from the Office floor without answering (the bot keeps waiting; Requests still lists it). */
   onHide?: () => void
+  /** In Requests: it's hidden from the Office floor, and this puts it back there. */
+  hiddenOnFloor?: boolean
+  onShow?: () => void
 }) {
   // What's spinning: a decision, or "buy:<domain>" for one of Forge's suggestions.
   const [busy, setBusy] = useState<string | null>(null)
@@ -156,10 +161,20 @@ function ApprovalCard({
               </span>{' '}
               · {bot?.role ?? 'A2P registration'} · <span className="font-mono">{format(new Date(a.at), 'h:mm a')}</span>
             </div>
-            {onHide && !done && (
-              <button type="button" onClick={onHide} className={HIDE_BTN} title="Hide it from your view. It isn’t answered: the bot keeps waiting.">
-                <EyeOff className="h-3.5 w-3.5" /> Hide
-              </button>
+            {hiddenOnFloor && onShow ? (
+              <span className="flex shrink-0 items-center gap-1.5">
+                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-zinc-500">Hidden from the Office</span>
+                <button type="button" onClick={onShow} className={HIDE_BTN} title="Show it on the Office floor again.">
+                  <Eye className="h-3.5 w-3.5" /> Show there
+                </button>
+              </span>
+            ) : (
+              onHide &&
+              !done && (
+                <button type="button" onClick={onHide} className={HIDE_BTN} title="Hide it from the Office floor. It isn’t answered, and Requests still lists it.">
+                  <EyeOff className="h-3.5 w-3.5" /> Hide
+                </button>
+              )
             )}
           </div>
           <p className="mt-0.5 text-[13px] font-medium leading-snug text-zinc-100">{a.question}</p>
@@ -283,9 +298,6 @@ const WORKING: ReadonlySet<OfficeStatus> = new Set(['coding', 'browsing', 'termi
 function RequestsPanel({
   approvals,
   requests,
-  hiddenApprovals,
-  hiddenRequests,
-  onHide,
   bots,
   loading,
   error,
@@ -293,17 +305,11 @@ function RequestsPanel({
 }: {
   approvals: OfficeApproval[]
   requests: OfficeRequest[]
-  /** What this person hid: shown at the bottom, each one click from showing again. */
-  hiddenApprovals: OfficeApproval[]
-  hiddenRequests: OfficeRequest[]
-  onHide: (id: string, sig: string, hidden: boolean) => void
   bots: OfficeBot[]
   loading: boolean
   error: string | null
   renderApproval: (a: OfficeApproval) => ReactNode
 }) {
-  const [showHidden, setShowHidden] = useState(false)
-  const hiddenCount = hiddenApprovals.length + hiddenRequests.length
   const busy = bots.filter((b) => b.id !== 'alfred' && WORKING.has(b.status))
   const errors = requests.filter((r) => r.kind === 'error')
   const stuck = requests.filter((r) => r.kind === 'stuck')
@@ -326,9 +332,6 @@ function RequestsPanel({
             Open <ExternalLink className="h-3.5 w-3.5" />
           </a>
         )}
-        <button type="button" onClick={() => onHide(r.id, requestSig(r), true)} className={cn(HIDE_BTN, 'mt-1')} title="Hide it from your view. Nothing is decided; it shows again if something new happens.">
-          <EyeOff className="h-3.5 w-3.5" /> Hide
-        </button>
       </li>
     )
   }
@@ -376,51 +379,6 @@ function RequestsPanel({
           <p className="text-[12.5px] text-zinc-500">All quiet.</p>
         )}
       </section>
-      {hiddenCount > 0 && (
-        <section className="mt-6 border-t border-white/5 pt-4">
-          <button type="button" onClick={() => setShowHidden((v) => !v)} className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300">
-            {showHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />} Hidden by you · {hiddenCount}
-          </button>
-          {showHidden && (
-            <ul className="flex flex-col gap-2">
-              {hiddenApprovals.map((a) => {
-                const bot = bots.find((b) => b.id === a.botId)
-                return (
-                  <li key={`a:${a.id}`} className="flex items-start gap-3 rounded-lg border border-white/5 px-3 py-2 opacity-70">
-                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-400/60" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] text-zinc-500">
-                        <span className="font-medium" style={{ color: bot?.color }}>{bot?.name ?? a.botId}</span> · question, not answered
-                      </div>
-                      <p className="mt-0.5 text-[12.5px] leading-snug text-zinc-300">{a.question}</p>
-                    </div>
-                    <button type="button" onClick={() => onHide(a.id, approvalSig(a), false)} className={HIDE_BTN}>
-                      <Eye className="h-3.5 w-3.5" /> Show again
-                    </button>
-                  </li>
-                )
-              })}
-              {hiddenRequests.map((r) => {
-                const bot = bots.find((b) => b.id === r.botId)
-                return (
-                  <li key={`r:${r.id}`} className="flex items-start gap-3 rounded-lg border border-white/5 px-3 py-2 opacity-70">
-                    <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', r.kind === 'error' ? 'bg-red-400/60' : 'bg-yellow-400/60')} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] text-zinc-500">
-                        <span className="font-medium" style={{ color: bot?.color }}>{bot?.name ?? r.botId}</span> · {r.kind === 'error' ? 'failed' : 'stuck'}
-                      </div>
-                      <p className="mt-0.5 text-[12.5px] leading-snug text-zinc-300">{r.text}</p>
-                    </div>
-                    <button type="button" onClick={() => onHide(r.id, requestSig(r), false)} className={HIDE_BTN}>
-                      <Eye className="h-3.5 w-3.5" /> Show again
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
-      )}
     </div>
   )
 }
@@ -475,12 +433,11 @@ export function OfficeView({
   }
   // Answered questions stay a few seconds (the next poll drops them) so the card can say what happened.
   const [answered, setAnswered] = useState<{ a: OfficeApproval; answer: Answer }[]>([])
-  const asked = splitHidden(
-    (data?.approvals ?? []).filter((a) => !answered.some((x) => x.a.id === a.id)),
-    hidden,
-    approvalSig,
-  )
-  const approvals = [...answered.map((x) => x.a), ...asked.shown]
+  const waiting = (data?.approvals ?? []).filter((a) => !answered.some((x) => x.a.id === a.id))
+  // Requests lists every question; the Office floor leaves out the ones this person hid there.
+  const approvals = [...answered.map((x) => x.a), ...waiting]
+  const floor = splitHidden(waiting, hidden, approvalSig)
+  const floorApprovals = [...answered.map((x) => x.a), ...floor.shown]
   function onAnswered(a: OfficeApproval, answer: Answer) {
     // Choosing GHL doesn't settle it: the same card comes back at its next step (the ID check).
     if (answer.decision !== 'ghl') setAnswered((prev) => [...prev.filter((x) => x.a.id !== a.id), { a, answer }])
@@ -492,8 +449,7 @@ export function OfficeView({
   const working = data?.counts.working ?? 0
   const idle = data?.counts.idle ?? 0
   const needs = (data?.counts.needsYou ?? 0) + (data?.counts.error ?? 0)
-  const reqs = splitHidden(data?.requests ?? [], hidden, requestSig)
-  const requests = reqs.shown
+  const requests = data?.requests ?? []
   const requestCount = approvals.length + requests.length
 
   return (
@@ -541,9 +497,6 @@ export function OfficeView({
           <RequestsPanel
             approvals={approvals}
             requests={requests}
-            hiddenApprovals={asked.hidden}
-            hiddenRequests={reqs.hidden}
-            onHide={onHide}
             bots={bots}
             loading={isLoading}
             error={error ? (error as Error).message : null}
@@ -557,6 +510,8 @@ export function OfficeView({
                 done={answered.find((x) => x.a.id === a.id)?.answer ?? null}
                 onAnswered={(answer) => onAnswered(a, answer)}
                 onHide={() => onHide(a.id, approvalSig(a), true)}
+                hiddenOnFloor={isHidden(hidden, a.id, approvalSig(a))}
+                onShow={() => onHide(a.id, approvalSig(a), false)}
               />
             )}
           />
@@ -566,7 +521,7 @@ export function OfficeView({
             {error ? (
               <div className="pointer-events-auto rounded bg-red-500/15 px-3 py-1.5 text-xs text-red-300">Couldn&apos;t load office state ({(error as Error).message}). Retrying…</div>
             ) : null}
-            {approvals.slice(0, APPROVALS_SHOWN).map((a) => (
+            {floorApprovals.slice(0, APPROVALS_SHOWN).map((a) => (
               <ApprovalCard
                 key={a.id}
                 a={a}
@@ -578,10 +533,20 @@ export function OfficeView({
                 onHide={() => onHide(a.id, approvalSig(a), true)}
               />
             ))}
-            {approvals.length > APPROVALS_SHOWN && (
-              <div className="pointer-events-auto rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-zinc-300 backdrop-blur">
-                {approvals.length - APPROVALS_SHOWN} more waiting for an answer
-              </div>
+            {(floorApprovals.length > APPROVALS_SHOWN || floor.hidden.length > 0) && (
+              <button
+                type="button"
+                onClick={() => setTab('requests')}
+                className="pointer-events-auto rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] text-zinc-300 backdrop-blur hover:bg-black/75"
+              >
+                {[
+                  floorApprovals.length > APPROVALS_SHOWN ? `${floorApprovals.length - APPROVALS_SHOWN} more waiting for an answer` : null,
+                  floor.hidden.length ? `${floor.hidden.length} hidden` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}{' '}
+                → Requests
+              </button>
             )}
           </div>
           {isLoading ? (
