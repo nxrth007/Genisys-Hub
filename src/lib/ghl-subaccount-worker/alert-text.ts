@@ -71,12 +71,13 @@ export function domainAlertText(kind: DomainAlertKind, client: string, reason: s
 }
 
 /** Forge's website build (src/lib/hl/site-request.ts): built and waiting for a review, stopped in Lovable for a person, or didn't finish. */
-export type SiteAlertKind = 'built' | 'lovable' | 'failed' | 'published' | 'publish_failed' | 'connected' | 'connect_help' | 'connect_failed'
+export type SiteAlertKind = 'built' | 'lovable' | 'question' | 'failed' | 'published' | 'publish_failed' | 'connected' | 'connect_help' | 'connect_failed'
 
 export function siteAlertText(kind: SiteAlertKind, client: string, reason: string, link: string): string {
   const why = reason.trim() ? ` ${shortReason(reason)}` : ''
   if (kind === 'built') return `Genisys Hub: ${client}'s new website is built in Lovable. Look it over there, then answer Forge's Publish question in the Office: ${link}`
   if (kind === 'lovable') return `Genisys Hub: Lovable stopped to ask a person something while building ${client}'s website.${why} Answer it in Lovable: ${link}`
+  if (kind === 'question') return `Genisys Hub: Lovable asked something Forge can't answer from the brief while building ${client}'s website.${why} Answer it in their folder: ${link}`
   if (kind === 'published') return `Genisys Hub: ${client}'s new website is live: ${link}${why || ' Forge asks to connect their domain once they have one.'}`
   if (kind === 'publish_failed') return `Genisys Hub: publishing ${client}'s website didn't finish.${why} Open: ${link}`
   if (kind === 'connected') return `Genisys Hub: ${client}'s website now shows on ${link}. It's saved as their site link in Clients. Still by hand: connect GitHub in Lovable.`

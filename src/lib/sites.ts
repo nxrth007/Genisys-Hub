@@ -14,6 +14,7 @@ import { ringTo, textsTo } from '@/lib/hl/number-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
+import { readSavedPause, type SitePause } from '@/lib/hl/site-pause'
 import { hellLevelStage, siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
@@ -126,6 +127,8 @@ export type SiteDetail = {
     domain: string | null
     domainStep: string | null
     hasCode: boolean
+    /** What Lovable is paused on for a person, with Forge's suggestion (src/lib/hl/site-pause.ts). */
+    pause: SitePause | null
     updatedAt: string
   } | null
   /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
@@ -189,7 +192,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
       hlSiteRequest: {
-        select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, updatedAt: true },
+        select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, pause: true, updatedAt: true },
       },
       hlDomainRequest: { select: { status: true, detail: true, name: true, suggestions: true } },
     },
@@ -299,6 +302,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           domain: c.hlSiteRequest.domain,
           domainStep: c.hlSiteRequest.domainStep,
           hasCode: !!c.hlSiteRequest.domainTxt,
+          pause: c.hlSiteRequest.status === 'waiting_on_lovable' ? readSavedPause(c.hlSiteRequest.pause) : null,
           updatedAt: c.hlSiteRequest.updatedAt.toISOString(),
         }
       : null,

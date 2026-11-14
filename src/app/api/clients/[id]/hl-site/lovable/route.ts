@@ -35,5 +35,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       : Promise.resolve(null),
     read('list_messages', { project_id: r.projectId, limit: 5 }),
   ])
-  return NextResponse.json({ status: r.status, projectId: r.projectId, messageId: r.messageId, threadId: r.threadId, message, recent })
+  // Each other person-side message's own state: one paused on a question holds Forge's one-shot in the queue.
+  const list = 'structured' in recent && recent.structured ? ((recent.structured.messages ?? recent.structured.data) as unknown) : null
+  const others = (Array.isArray(list) ? list : [])
+    .map((m) => (m && typeof m === 'object' ? (m as Record<string, unknown>) : null))
+    .filter((m): m is Record<string, unknown> => !!m && m.role === 'user' && typeof m.message_id === 'string' && m.message_id !== r.messageId)
+    .slice(0, 3)
+  const earlier = await Promise.all(
+    others.map(async (m) => ({ id: m.message_id, state: await read('get_message', { project_id: r.projectId, message_id: m.message_id, ...(r.threadId ? { thread_id: r.threadId } : {}), wait_seconds: 0 }) })),
+  )
+  return NextResponse.json({ status: r.status, projectId: r.projectId, messageId: r.messageId, threadId: r.threadId, message, recent, earlier })
 }

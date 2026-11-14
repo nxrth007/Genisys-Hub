@@ -831,6 +831,9 @@ model HlSiteRequest {
   /// When the current domain step started, and when the domain showed the site.
   domainStepAt    DateTime?
   domainAt        DateTime?
+  /// What Lovable is paused on mid-build (questions, or a tool to approve) and what Forge
+  /// made of it: src/lib/hl/site-pause.ts. Cleared once the pause is answered.
+  pause           Json?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

@@ -62,8 +62,10 @@ import {
   lovableMcpProjectRef,
   lovableMcpRecentMessages,
   lovableMcpRemix,
+  lovableMcpRespond,
   lovableMcpSend,
   lovableMcpStatus,
+  type LovableAgentState,
   type LovableProjectRef,
 } from '@/lib/seo/lovable-mcp'
 import { saveSiteLink } from '@/lib/site-link'
@@ -72,6 +74,19 @@ import { REVIEW_REQUEST_FORM } from './client-kit'
 import { metaOf, siteRecords } from './domain-shared'
 import { connectDomain, connectLovable, verifyExternal } from './domains'
 import { fillOneShot } from './site-fill'
+import {
+  answerWords,
+  forgeMayAnswer,
+  forgeResponse,
+  isCopyChatTurn,
+  MAX_FORGE_ANSWERS,
+  pauseSummary,
+  personResponse,
+  readPause,
+  readSavedPause,
+  type SitePause,
+} from './site-pause'
+import { readPauseAgainstBrief } from './site-pause-read'
 import {
   bareHost,
   buildOneShot,
@@ -755,25 +770,165 @@ async function checkStep(r: SiteRow): Promise<void> {
       finishedAt: new Date(),
       previewUrl: s.previewUrl ?? r.previewUrl,
       detail: `Built${credits}. Look it over in Lovable, then answer Forge’s question in the Office: publish it?`,
+      pause: Prisma.DbNull,
     })
     await textSiteEvent({ key: r.id, kind: 'built', client: r.client.name, link })
     return
   }
   if (s.state === 'waiting') {
-    if (r.status !== 'waiting_on_lovable') {
-      await move(r.id, r.status, `Lovable is waiting for a person: ${s.note ?? 'a check-in in its editor'}`, { status: 'waiting_on_lovable', detail: `${s.note ?? 'Lovable paused for a person.'} Answer it in Lovable’s editor; Forge carries on after.` })
-      await textSiteEvent({ key: `${r.id}:${r.messageId}`, kind: 'lovable', client: r.client.name, reason: s.note ?? '', link })
-    }
+    await onPause(r, pauseFrom(s), r.messageId, link)
     return
   }
   if (s.state === 'stopped' || s.state === 'error') {
     throw new SiteStop(`Lovable ${s.state === 'stopped' ? 'stopped' : 'hit an error'} before the site was done${s.note ? `: ${s.note.slice(0, 300)}` : ''}. Look at it in Lovable.`)
   }
+  // Queued behind an earlier turn that's paused for a person: usually Lovable's own message after the copy.
+  if (s.queue?.paused && (await clearQueue(r, link))) return
   // Still working.
-  if (r.status === 'waiting_on_lovable') await move(r.id, r.status, 'Lovable carried on building.', { status: 'building', detail: null })
+  if (r.status === 'waiting_on_lovable') await move(r.id, r.status, 'Lovable carried on building.', { status: 'building', detail: null, pause: Prisma.DbNull })
   else if (Date.now() - (r.stepAt ?? r.updatedAt).getTime() > BUILD_SLOW_MS && !r.detail?.startsWith('Still building')) {
     await note(r.id, 'Still building after 4 hours.', { detail: 'Still building after 4 hours: have a look in Lovable.' })
   }
+}
+
+/** The start of every log line for an answer Forge gave Lovable itself (counted against MAX_FORGE_ANSWERS). */
+const FORGE_ANSWERED = 'Forge answered Lovable:'
+
+const pauseFrom = (s: LovableAgentState): SitePause => readPause(s.awaitingRaw ?? null, s.reply ?? null, new Date())
+const clipText = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+
+/**
+ * Forge's one-shot sits queued behind a paused turn. Lovable's own message after
+ * the copy ("What would be a good next step?") isn't part of the build: Forge
+ * declines its question, and the brief runs. Anything else holding it up goes to
+ * a person. False when no paused turn turns up (it may have cleared meanwhile).
+ */
+async function clearQueue(r: SiteRow, link: string): Promise<boolean> {
+  const recent = await lovableMcpRecentMessages(r.projectId!, 10)
+  // A queued message isn't in Lovable's list: the build step started when it was sent.
+  const sentAt = recent.find((m) => m.id === r.messageId)?.createdAt ?? (r.stepAt ?? r.updatedAt).toISOString()
+  const answered = ((r.log as LogEntry[] | null) ?? []).filter((e) => e.what.startsWith(FORGE_ANSWERED)).length
+  for (const m of recent) {
+    if (m.role !== 'user' || m.id === r.messageId) continue
+    const st = await lovableMcpAgentState(r.projectId!, m.id, r.threadId)
+    if (st.state !== 'waiting') continue
+    const pause = pauseFrom(st)
+    if (pause.eventId && pause.kind !== 'editor' && answered < MAX_FORGE_ANSWERS && isCopyChatTurn(m, { id: r.messageId!, createdAt: sentAt })) {
+      const res = await lovableMcpRespond({
+        projectId: r.projectId!,
+        messageId: m.id,
+        threadId: r.threadId,
+        eventId: pause.eventId,
+        decision: 'rejected',
+        userInput: 'Not now, thanks. The next message is this copy’s brief.',
+      })
+      await note(
+        r.id,
+        `${FORGE_ANSWERED} Lovable’s own message after the copy (“${clipText(m.content.trim(), 90)}”) had stopped on a question (“${pauseSummary(pause)}”), holding up the brief. Forge declined it, so the brief runs now.${res.alreadyAnswered ? ' Someone had already answered it.' : ''}`,
+      )
+      return true
+    }
+    await onPause(r, pause, m.id, link, 'An earlier message in this copy is paused, and Lovable holds the brief until it’s answered.')
+    return true
+  }
+  return false
+}
+
+/**
+ * Lovable stopped for a person (src/lib/hl/site-pause.ts). Forge answers from
+ * the brief when it may; otherwise a person does, with Forge's suggestion: in
+ * the client's Sites folder when the Hub can pass the answer on, else in
+ * Lovable's editor.
+ */
+async function onPause(r: SiteRow, pause: SitePause, on: string, link: string, context?: string): Promise<void> {
+  pause.on = on
+  const saved = readSavedPause(r.pause)
+  // Already with a person: nothing new to do.
+  if (r.status === 'waiting_on_lovable' && saved && saved.on === on && saved.eventId === pause.eventId) return
+  const answered = ((r.log as LogEntry[] | null) ?? []).filter((e) => e.what.startsWith(FORGE_ANSWERED)).length
+  if (forgeMayAnswer(pause) && r.prompt && answered < MAX_FORGE_ANSWERS) {
+    try {
+      const { read, costUsd } = await readPauseAgainstBrief(r.prompt, pause)
+      pause.forge = read
+      const resp = forgeResponse(pause, read)
+      if (resp) {
+        await lovableMcpRespond({
+          projectId: r.projectId!,
+          messageId: on,
+          threadId: r.threadId,
+          eventId: pause.eventId!,
+          decision: resp.decision,
+          userInput: resp.decision === 'approved' ? resp.userInput : resp.reason,
+        })
+        const cost = ` (Claude read it for $${costUsd.toFixed(2)}.)`
+        await note(
+          r.id,
+          resp.decision === 'approved'
+            ? `${FORGE_ANSWERED} it asked “${pauseSummary(pause)}”, and Forge answered “${answerWords(pause, resp.userInput)}”, as the brief says: “${clipText(read.briefLine, 200)}”.${cost}`
+            : `${FORGE_ANSWERED} it finished the brief and offered more (“${pauseSummary(pause)}”), and Forge said no, that’s all.${cost}`,
+          r.status === 'waiting_on_lovable' ? { status: 'building', detail: null, pause: Prisma.DbNull } : {},
+        )
+        return
+      }
+    } catch (err) {
+      pause.forge = null
+      console.warn('[hl-site] reading a Lovable pause:', describe(err))
+    }
+  }
+  const inHub = pause.kind !== 'editor' && !!pause.eventId
+  const what = pauseSummary(pause)
+  const suggests = pause.kind === 'questions' && pause.forge && Object.keys(pause.forge.answers).length ? ` Forge suggests: ${answerWords(pause, pause.forge.answers)}.` : ''
+  const where = inHub ? 'Answer it in their Sites folder' : 'Answer it in Lovable’s editor'
+  await move(r.id, r.status, `Lovable stopped for a person: ${what}`, {
+    status: 'waiting_on_lovable',
+    detail: `${context ? `${context} ` : ''}Lovable is asking: ${what}${suggests} ${where}; Forge carries on after.`,
+    pause: pause as unknown as Prisma.InputJsonValue,
+  })
+  await textSiteEvent({
+    key: `${r.id}:${pause.eventId ?? on}`,
+    kind: inHub ? 'question' : 'lovable',
+    client: r.client.name,
+    reason: `${what}${suggests}`,
+    link: inHub ? hubLink(`/sites/${r.clientId}`) : link,
+  })
+}
+
+/**
+ * A person's answer to what Lovable paused on, from the client's Sites folder:
+ * passed on to Lovable as theirs. `decision`: answer (with `answers` per
+ * question key) | skip, for questions; approve | decline, for a tool.
+ */
+export async function answerSitePause(
+  clientId: string,
+  by: string,
+  body: { eventId?: unknown; decision?: unknown; answers?: unknown },
+): Promise<{ ok: true; detail: string } | { ok: false; reason: string }> {
+  const r = await prisma.hlSiteRequest.findUnique({ where: { clientId } })
+  if (!r || r.status !== 'waiting_on_lovable' || !r.projectId) return { ok: false, reason: 'Lovable isn’t waiting on a question for this build.' }
+  const pause = readSavedPause(r.pause)
+  if (!pause?.eventId || pause.eventId !== body.eventId) return { ok: false, reason: 'That question has changed. Reload the folder.' }
+  const decision = body.decision === 'answer' || body.decision === 'skip' || body.decision === 'approve' || body.decision === 'decline' ? body.decision : null
+  if (!decision) return { ok: false, reason: 'Say answer, skip, approve or decline.' }
+  const answers = body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers) ? (body.answers as Record<string, unknown>) : undefined
+  const resp = personResponse(pause, { decision, answers })
+  if (!resp) return { ok: false, reason: pause.kind === 'questions' ? 'Pick an answer for each question, or Skip.' : 'That doesn’t fit what Lovable asked.' }
+  let already = false
+  try {
+    const res = await lovableMcpRespond({
+      projectId: r.projectId,
+      messageId: pause.on ?? r.messageId!,
+      threadId: r.threadId,
+      eventId: pause.eventId,
+      decision: resp.decision,
+      userInput: resp.decision === 'approved' ? resp.userInput : resp.reason,
+    })
+    already = res.alreadyAnswered
+  } catch (err) {
+    return { ok: false, reason: `Lovable didn’t take the answer: ${describe(err).slice(0, 200)}` }
+  }
+  const did = resp.decision === 'approved' ? (resp.userInput ? `answered “${answerWords(pause, resp.userInput)}”` : 'approved it') : pause.kind === 'questions' ? 'skipped it' : 'declined it'
+  await move(r.id, 'waiting_on_lovable', `${by} ${did} (Lovable asked: ${pauseSummary(pause)}).${already ? ' It had already been answered.' : ''}`, { status: 'building', detail: null, pause: Prisma.DbNull }).catch(() => {})
+  return { ok: true, detail: 'Sent to Lovable. Forge carries on with the build.' }
 }
 
 /** Where an address ends up when it loads (Lovable sends a site with a domain on to it), or null. */

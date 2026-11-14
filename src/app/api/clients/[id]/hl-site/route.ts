@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
+import { answerSitePause, askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
 import { lovableEmbedUrl } from '@/lib/seo/lovable-mcp'
 import { buildSiteNow, sitePreflight } from '@/lib/hl/folder-actions'
 
@@ -38,6 +38,11 @@ import { buildSiteNow, sitePreflight } from '@/lib/hl/folder-actions'
  * POST { action: 'embed' } — staff: Lovable's preview of the client's latest
  * build for an iframe on the asking page's origin (the Sites folder's builder
  * window), valid an hour. Forge's copy, else the SEO seat's project.
+ *
+ * POST { action: 'answer', eventId, decision, answers? } — staff: answer what
+ * Lovable paused the build on (its `pause`), passed on to Lovable as theirs.
+ * decision: answer (answers per question key) | skip, for questions;
+ * decline | approve (admin only), for a tool it wants to run.
  */
 export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
@@ -69,6 +74,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       domain: true,
       domainStep: true,
       domainAt: true,
+      pause: true,
       log: true,
       updatedAt: true,
     },
@@ -77,8 +83,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown; text?: unknown } | null
+  const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown; text?: unknown; eventId?: unknown; decision?: unknown; answers?: unknown } | null
   const { id } = await params
+  // What Lovable paused the build on, answered from the folder: staff (Ethan builds sites); approving a tool Lovable wants to run is admin only.
+  if (body?.action === 'answer') {
+    const denied = body.decision === 'approve' ? await requireAdmin() : await requireStaff()
+    if (denied) return denied
+    const session = await auth()
+    const res = await answerSitePause(id, session?.user?.name || session?.user?.email || 'staff', { eventId: body.eventId, decision: body.decision, answers: body.answers })
+    return NextResponse.json(res, { status: res.ok ? 200 : 409 })
+  }
   // Lovable's preview of the latest build, for the folder's builder window: staff, like the folder.
   if (body?.action === 'embed') {
     const staffDenied = await requireStaff()

@@ -322,6 +322,110 @@ function wantsLovableCode(d: SiteDetail): boolean {
 }
 
 /** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and Build site (the Office's question answered here). */
+type Pause = NonNullable<NonNullable<SiteDetail['build']>['pause']>
+
+/**
+ * What Lovable paused the build on, for a person (src/lib/hl/site-pause.ts): its questions with
+ * Forge's suggestion picked, or a tool it wants to run. The answer goes to Lovable as theirs.
+ */
+function LovablePauseBox({ clientId, pause, editorUrl, canAct }: { clientId: string; pause: Pause; editorUrl: string | null; canAct: boolean }) {
+  const router = useRouter()
+  const suggested = pause.forge?.answers ?? {}
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>(() =>
+    Object.fromEntries(pause.questions.map((q) => [q.key, suggested[q.key] ?? (q.multi ? [] : '')])),
+  )
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const inHub = pause.kind !== 'editor' && !!pause.eventId
+
+  async function send(decision: 'answer' | 'skip' | 'approve' | 'decline') {
+    setBusy(true)
+    setMsg(null)
+    const r = await postAction(`/api/clients/${clientId}/hl-site`, { action: 'answer', eventId: pause.eventId, decision, answers })
+    setBusy(false)
+    if (!r.ok) return setMsg(r.reason)
+    setMsg(typeof r.data.detail === 'string' ? r.data.detail : 'Sent.')
+    router.refresh()
+  }
+
+  const pick = (key: string, label: string, multi: boolean) =>
+    setAnswers((a) => {
+      if (!multi) return { ...a, [key]: label }
+      const now = Array.isArray(a[key]) ? (a[key] as string[]) : []
+      return { ...a, [key]: now.includes(label) ? now.filter((x) => x !== label) : [...now, label] }
+    })
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+      <p className="text-[12.5px] font-semibold text-foreground">Lovable is asking</p>
+      {pause.kind === 'questions' &&
+        pause.questions.map((q) => (
+          <fieldset key={q.key} className="flex flex-col gap-1.5">
+            <legend className="mb-1 text-[12.5px] text-foreground">{q.text}</legend>
+            {q.options.map((o) => {
+              const on = q.multi ? Array.isArray(answers[q.key]) && (answers[q.key] as string[]).includes(o.label) : answers[q.key] === o.label
+              const forge = Array.isArray(suggested[q.key]) ? (suggested[q.key] as string[]).includes(o.label) : suggested[q.key] === o.label
+              return (
+                <label key={o.label} className="flex cursor-pointer items-start gap-2 text-[12.5px]">
+                  <input type={q.multi ? 'checkbox' : 'radio'} name={`q-${q.key}`} checked={on} onChange={() => pick(q.key, o.label, q.multi)} disabled={!canAct || busy} className="mt-0.5" />
+                  <span className="min-w-0">
+                    <span className="text-foreground">{o.label}</span>
+                    {forge && <span className="ml-1.5 rounded bg-foreground/10 px-1 py-px text-[10.5px] font-semibold text-foreground">Forge’s pick</span>}
+                    {o.description && <span className="block text-[11.5px] text-muted-foreground">{o.description}</span>}
+                  </span>
+                </label>
+              )
+            })}
+            {/* Lovable's card also takes a written answer ("Write your own…"). */}
+            <input
+              value={typeof answers[q.key] === 'string' && !q.options.some((o) => o.label === answers[q.key]) ? (answers[q.key] as string) : ''}
+              onChange={(e) => setAnswers((a) => ({ ...a, [q.key]: e.target.value }))}
+              placeholder={q.options.length ? 'Or write your own answer' : 'Write an answer'}
+              disabled={!canAct || busy}
+              className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-foreground"
+            />
+          </fieldset>
+        ))}
+      {pause.kind === 'tool' && (
+        <p className="text-[12.5px] text-foreground">
+          It wants to run “{pause.toolId ?? 'a tool'}”.
+          {pause.params && <span className="mt-1 block break-words text-[11.5px] text-muted-foreground">{pause.params.slice(0, 400)}</span>}
+        </p>
+      )}
+      {pause.kind === 'editor' && <p className="text-[12.5px] text-foreground">{pause.editorWhy ?? 'Only Lovable’s editor can answer this one.'}</p>}
+      {pause.forge?.why && <p className="text-[11.5px] text-muted-foreground">Forge: {pause.forge.why}</p>}
+      {msg && <p className="text-[12px] text-foreground">{msg}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        {canAct && inHub && pause.kind === 'questions' && (
+          <>
+            <button type="button" onClick={() => send('answer')} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Send answer
+            </button>
+            <button type="button" onClick={() => send('skip')} disabled={busy} className="rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
+              Skip
+            </button>
+          </>
+        )}
+        {canAct && inHub && pause.kind === 'tool' && (
+          <>
+            <button type="button" onClick={() => send('approve')} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50">
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Approve
+            </button>
+            <button type="button" onClick={() => send('decline')} disabled={busy} className="rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
+              Decline
+            </button>
+          </>
+        )}
+        {editorUrl && (
+          <a href={editorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[12.5px] text-foreground hover:underline">
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> {inHub ? 'See it in Lovable' : 'Answer it in Lovable'}
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: boolean; onOpenBuilder: (() => void) | null }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -427,6 +531,7 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
         </div>
       )}
       {wantsCode && <DomainCodeBox clientId={d.client.id} domain={b?.domain ?? null} inputId="lovable-code" />}
+      {b?.pause && <LovablePauseBox clientId={d.client.id} pause={b.pause} editorUrl={b.editorUrl} canAct={canAct} />}
       {canAct && !working && d.account && (publishable || (connectable && ready) || build.kind === 'build') && (
         <div className="flex flex-wrap items-center gap-2">
           {publishable && (

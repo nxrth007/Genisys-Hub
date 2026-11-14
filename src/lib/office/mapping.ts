@@ -191,6 +191,8 @@ export type SiteRequestIn = {
   repoLinked?: boolean
   /** Clients: their site link is saved (the site went live). */
   siteLive: boolean
+  /** Lovable is paused on something a person can answer in the client's Sites folder (src/lib/hl/site-pause.ts). */
+  pauseInHub?: boolean
   /** When the current step started. */
   stepAt: Date | null
   finishedAt: Date | null
@@ -660,7 +662,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'waiting_on_lovable') {
       const why = r.detail ? `: ${r.detail}` : ''
       add('forge', { status: 'needs_you', task: clip(`Lovable is waiting for you on ${r.clientName}’s website${why}`), icon: 'alert', at: r.updatedAt })
-      request(`sb:${r.id}:waiting`, 'forge', 'stuck', `Lovable is waiting for a person on ${r.clientName}’s website${why}`, r.updatedAt, lovable)
+      // Answerable in their folder (the Hub passes it on to Lovable), else only in Lovable's editor.
+      request(`sb:${r.id}:waiting`, 'forge', 'stuck', `Lovable is waiting for a person on ${r.clientName}’s website${why}`, r.updatedAt, r.pauseInHub ? `/sites/${r.clientId}` : lovable)
     } else if (r.status === 'built' || r.status === 'held') {
       // Forge's Publish question is the next step (an approval); Not now leaves it in their folder.
       const done = r.finishedAt ?? r.updatedAt

@@ -583,15 +583,47 @@ export async function lovableMcpSend(projectId: string, message: string): Promis
 }
 
 /** The project's latest messages (newest first), to find one sent before a restart. */
-export async function lovableMcpRecentMessages(projectId: string, limit = 5): Promise<{ id: string; role: string | null; content: string; createdAt: string | null }[]> {
+export async function lovableMcpRecentMessages(projectId: string, limit = 5): Promise<{ id: string; role: string | null; content: string; createdAt: string | null; status: string | null }[]> {
   const res = await lovableMcpCall('list_messages', { project_id: projectId, limit }, 60_000)
   const s = res.structured ?? {}
   const list = Array.isArray(s.messages) ? s.messages : Array.isArray(s.data) ? s.data : []
   return list.flatMap((m) => {
     const r = recOf(m)
     const id = r && strOf(r.message_id)
-    return r && id ? [{ id, role: strOf(r.role), content: typeof r.content === 'string' ? r.content : '', createdAt: strOf(r.created_at) }] : []
+    return r && id ? [{ id, role: strOf(r.role), content: typeof r.content === 'string' ? r.content : '', createdAt: strOf(r.created_at), status: strOf(r.status) }] : []
   })
+}
+
+/**
+ * Answer a pause the agent is on: a tool approval, or its questions
+ * (`userInput` holds the answers for awaiting_input.input_schema). Lovable's
+ * rule is that a person decides: callers pass a person's answer, or one the
+ * brief the person approved already gives (src/lib/hl/site-pause.ts).
+ * Doesn't wait for the resumed turn.
+ */
+export async function lovableMcpRespond(o: {
+  projectId: string
+  messageId: string
+  threadId: string | null
+  eventId: string
+  decision: 'approved' | 'rejected'
+  userInput?: Record<string, unknown> | string
+}): Promise<{ status: string | null; alreadyAnswered: boolean; text: string }> {
+  const res = await lovableMcpCall(
+    'respond_to_approval',
+    {
+      project_id: o.projectId,
+      message_id: o.messageId,
+      event_id: o.eventId,
+      decision: o.decision,
+      ...(o.threadId ? { thread_id: o.threadId } : {}),
+      ...(o.userInput !== undefined ? { user_input: o.userInput } : {}),
+      wait: false,
+    },
+    90_000,
+  )
+  const s = res.structured ?? {}
+  return { status: strOf(s.status), alreadyAnswered: s.already_answered === true, text: res.text.slice(0, 500) }
 }
 
 export type LovableAgentState = {
@@ -608,6 +640,15 @@ export type LovableAgentState = {
    * params, Lovable's proposal) or questions for a person (input_schema).
    */
   awaiting?: { eventId: string | null; toolId: string | null; params: unknown; asks: boolean } | null
+  /** Lovable's awaiting_input object as it sent it (src/lib/hl/site-pause.ts reads the questions from it). */
+  awaitingRaw?: Record<string, unknown> | null
+  /**
+   * The message hasn't started: it's queued. `paused` with reason "hitl_tool"
+   * means an earlier turn in the project is paused for a person and this one
+   * runs once that's answered (Cnc transportation, 2026-11-14: Lovable's own
+   * message after a copy had stopped on a question).
+   */
+  queue?: { paused: boolean; reason: string | null } | null
 }
 
 /** Where the agent is with a message sent by lovableMcpSend. */
@@ -632,11 +673,14 @@ export async function lovableMcpAgentState(projectId: string, messageId: string,
       previewUrl,
       reply,
       awaiting: awaiting ? { eventId: strOf(awaiting.event_id), toolId: tool, params: awaiting.params ?? null, asks: !!awaiting.input_schema } : null,
+      awaitingRaw: awaiting,
     }
   }
   if (agent === 'stopped' || top === 'stopped') return { state: 'stopped', note: why(r) ?? strOf(s.error), credits, previewUrl }
   if (agent === 'error' || top === 'error') return { state: 'error', note: why(r) ?? strOf(s.error) ?? res.text.slice(0, 300), credits, previewUrl }
-  return { state: 'working', note: null, credits, previewUrl }
+  const paused = s.queue_paused === true || s.queue_paused === 'true'
+  const queue = top === 'queued' ? { paused, reason: strOf(s.queue_pause_reason) } : null
+  return { state: 'working', note: null, credits, previewUrl, queue }
 }
 
 /**

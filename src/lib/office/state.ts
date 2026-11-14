@@ -8,6 +8,7 @@ import { readProfile } from '@/lib/hl/accounts'
 import { readChoices } from '@/lib/hl/domain-plan'
 import { ringTo } from '@/lib/hl/number-plan'
 import { bareHost, siteDomainChoice } from '@/lib/hl/site-plan'
+import { pauseAnswerableInHub, readSavedPause } from '@/lib/hl/site-pause'
 import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
 const DAY = 24 * 60 * 60_000
@@ -213,6 +214,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         domainStep: true,
         domainStepAt: true,
         domainAt: true,
+        pause: true,
         updatedAt: true,
         client: {
           select: {
@@ -271,6 +273,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       readyDomain: siteDomainChoice(s.client?.hlAccount?.domains ?? []),
       repoLinked: !!s.client?.seoSite?.repoFullName,
       siteLive: !!s.client?.siteUrl?.trim(),
+      pauseInHub: pauseAnswerableInHub(readSavedPause(s.pause)),
       stepAt: s.stepAt,
       finishedAt: s.finishedAt,
       updatedAt: s.updatedAt,

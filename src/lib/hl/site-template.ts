@@ -13,7 +13,10 @@
  *     estimates…), which Ethan's filled examples add by hand;
  *   - each photo link carries what it shows, so Lovable can place it;
  *   - the hero's "don't claim" line allows what section 1 says the owner
- *     offers (Ethan's filled examples adapt that line per client).
+ *     offers (Ethan's filled examples adapt that line per client);
+ *   - a line telling Lovable nobody is watching: no questions, choices or
+ *     next-step offers (Cnc's build sat on "Which should I tackle next?",
+ *     2026-11-14).
  *
  * Fill it with renderOneShot(vars): {{NAME}} takes a value, and
  * [IF NAME] … [/IF] / [IF NO NAME] … [/IF] / [IF A OR B] … [/IF] keep their
@@ -36,6 +39,7 @@ Keep this project exactly the same, but swap out the current information with th
 - Make sure every service in the service dropdowns has an icon.
 - Only create 9 blog posts.
 - Use as few credits as possible while still completing every task in this prompt. Make all changes in as few passes as possible, edit existing components instead of rebuilding them, and only generate AI images where a real photo isn't available.
+- Nobody is watching this chat while you work, so finish the whole prompt in one go. Don't stop to ask questions or offer choices: where something isn't specified here, keep what the template already has. When the final check passes, end with a short summary of what you changed. Don't ask about or suggest next steps.
 
 ## 1. BUSINESS INFORMATION — USE THESE DETAILS EXACTLY
 
