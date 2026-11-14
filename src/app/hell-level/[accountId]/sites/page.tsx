@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { Suspense, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, ExternalLink, FileText, MessageCircle, Pencil, Plus } from 'lucide-react'
-import { Badge, Button, Card, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, copyText, hlFetch, timeAgo } from '@/components/hell-level/ui'
+import { AppWindow, Check, Copy, ExternalLink, FileText, Folder, Globe, MessageCircle, Pencil, Plus } from 'lucide-react'
+import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, copyText, hlFetch, timeAgo } from '@/components/hell-level/ui'
 import { embedCode, lovablePrompt } from '@/components/hell-level/embed'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/hell-level/section'
 
@@ -37,17 +37,21 @@ function SitesSection() {
   if (tab === 'chat-widget') return <FormsList kind="chat" />
   if (tab === 'funnels' || tab === 'websites')
     return (
-      <RecordsTable
-        accountId={accountId}
-        kind={tab === 'funnels' ? 'funnel' : 'website'}
-        title={tab === 'funnels' ? 'Funnels' : 'Websites'}
-        emptyText={tab === 'funnels' ? 'Funnels from GoHighLevel show up here after the import (names and steps; GHL’s API has no export of the pages themselves).' : 'GHL-hosted websites show up here after the import. Client websites are built in Lovable.'}
-        columns={[
-          { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
-          { label: 'Steps', render: (r) => <span className="tabular-nums">{Array.isArray(r.data.steps) ? r.data.steps.length : '—'}</span> },
-          { label: 'Domain', render: (r) => <span className="break-all text-muted-foreground">{rv(r, 'domainName', 'url') || '—'}</span> },
-        ]}
-      />
+      <>
+        {/* The client's own website (built in Lovable) first; GoHighLevel's websites, imported, below it. */}
+        {tab === 'websites' && <ClientWebsite accountId={accountId} />}
+        <RecordsTable
+          accountId={accountId}
+          kind={tab === 'funnels' ? 'funnel' : 'website'}
+          title={tab === 'funnels' ? 'Funnels' : 'From GoHighLevel'}
+          emptyText={tab === 'funnels' ? 'Funnels from GoHighLevel show up here after the import (names and steps; GHL’s API has no export of the pages themselves).' : 'None. GHL-hosted websites show up here after the import.'}
+          columns={[
+            { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
+            { label: 'Steps', render: (r) => <span className="tabular-nums">{Array.isArray(r.data.steps) ? r.data.steps.length : '—'}</span> },
+            { label: 'Domain', render: (r) => <span className="break-all text-muted-foreground">{rv(r, 'domainName', 'url') || '—'}</span> },
+          ]}
+        />
+      </>
     )
   if (tab === 'surveys')
     return (
@@ -61,6 +65,92 @@ function SitesSection() {
     )
   const n = NOT_YET[tab]
   return <NotYet title={n?.title ?? 'Sites'} what={n?.what ?? 'Not in Hell-level yet.'} />
+}
+
+type ClientSite = {
+  url: string | null
+  host: string | null
+  status: string
+  label: string
+  live: boolean
+  liveSince: string | null
+  connecting: string | null
+  clientsLink: string | null
+  screenshot: string | null
+  builtByForge: boolean
+  staff: { folder: string; builder: string | null; lovable: string | null } | null
+}
+
+/** The client's own website, built in Lovable: where it's live and where it stands (GET …/website). */
+function ClientWebsite({ accountId }: { accountId: string }) {
+  const q = useQuery<{ site: ClientSite | null }>({ queryKey: ['hl', 'website', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/website`) })
+  const s = q.data?.site ?? null
+  const linkClass = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50'
+  return (
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 pt-6">
+      <div>
+        <h1 className="text-[24px] font-semibold tracking-tight text-foreground">Websites</h1>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">The client’s own website, built in Lovable. Websites imported from GoHighLevel are below it.</p>
+      </div>
+      <Card>
+        {q.isLoading ? (
+          <div className="flex justify-center py-14">
+            <Spinner />
+          </div>
+        ) : !s ? (
+          <Empty icon={<Globe className="h-5 w-5" />} title="No website yet">
+            Genisys builds the client’s website in Lovable. Once it’s live, it shows here.
+          </Empty>
+        ) : (
+          <div className="flex flex-col gap-5 p-5 md:flex-row">
+            {s.screenshot && (
+              <a href={s.url ?? undefined} target="_blank" rel="noreferrer" className="block shrink-0" title={s.url ? `Open ${s.host}` : undefined}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- Lovable's picture of the latest build */}
+                <img src={s.screenshot} alt={`${s.host ?? 'The website'}, as built`} loading="lazy" className="h-44 w-full rounded-lg border border-border object-cover object-top md:w-72" />
+              </a>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate text-[18px] font-semibold text-foreground">{s.host ?? 'Not on the web yet'}</span>
+                <Badge color={s.live ? 'green' : s.status === 'failed' ? 'red' : 'amber'} dot>
+                  {s.live && (s.status === 'connected' || s.status === 'live') ? 'Live' : s.label}
+                </Badge>
+              </div>
+              <p className="text-[13px] text-muted-foreground">
+                {[
+                  s.live && s.liveSince ? `Live since ${new Date(s.liveSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : null,
+                  s.connecting ? `Connecting ${s.connecting} to it` : null,
+                  s.builtByForge ? 'Built by Forge in Lovable' : 'Built in Lovable',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+              {s.clientsLink && <p className="text-[12.5px] text-muted-foreground">The site link in Clients is another address: {s.clientsLink.replace(/^https?:\/\//, '')}</p>}
+              <div className="mt-1 flex flex-wrap gap-2">
+                {s.url && (
+                  <a href={s.url} target="_blank" rel="noreferrer" className={linkClass}>
+                    <ExternalLink className="h-3.5 w-3.5" /> Open website
+                  </a>
+                )}
+                {s.staff?.builder && (
+                  <Link href={s.staff.builder} className={linkClass}>
+                    <AppWindow className="h-3.5 w-3.5" /> Open in builder
+                  </Link>
+                )}
+                {s.staff && (
+                  <Link href={s.staff.folder} className={linkClass}>
+                    <Folder className="h-3.5 w-3.5" /> Their folder in Sites
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+      <ErrorNote error={q.error} />
+    </div>
+  )
 }
 
 function FormsList({ kind }: { kind: 'form' | 'chat' }) {

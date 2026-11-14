@@ -462,7 +462,7 @@ export async function lovableEmbedUrl(projectId: string, parentOrigin: string): 
  * screenshot address, and Lovable puts the same id in a published page's preview image:
  * how the Hub tells that a domain shows this very project (src/lib/hl/site-request.ts).
  */
-export async function lovableProjectPublic(projectId: string): Promise<{ isPublished: boolean | null; publicId: string | null }> {
+export async function lovableProjectPublic(projectId: string): Promise<{ isPublished: boolean | null; publicId: string | null; screenshotUrl: string | null }> {
   const token = await accessToken()
   const res = await fetch(`https://api.lovable.dev/v1/projects/${encodeURIComponent(projectId)}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Lovable-Version': '2026-09-11' },
@@ -474,7 +474,12 @@ export async function lovableProjectPublic(projectId: string): Promise<{ isPubli
     throw new LovableMcpError(`Lovable wouldn’t say whether the project is published (${why}).`)
   }
   const shot = typeof data.latest_screenshot_url === 'string' ? data.latest_screenshot_url : ''
-  return { isPublished: typeof data.is_published === 'boolean' ? data.is_published : null, publicId: /lovp_[a-z0-9]{8,}/i.exec(shot)?.[0] ?? null }
+  return {
+    isPublished: typeof data.is_published === 'boolean' ? data.is_published : null,
+    publicId: /lovp_[a-z0-9]{8,}/i.exec(shot)?.[0] ?? null,
+    // A picture of the latest build, public (Hell-level → Sites → Websites shows it).
+    screenshotUrl: /^https:\/\//i.test(shot) ? shot : null,
+  }
 }
 
 function accountFrom(me: McpToolResult): string | null {
