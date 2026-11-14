@@ -153,7 +153,7 @@ export async function tollFreeFiling(accountId: string) {
   // Reviewers check the business's own site: the Hub's pages (its domain or Render's) get a registration rejected.
   if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
     throw new HlInputError(
-      `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms in the site’s repo (Clients → the site). If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
+      `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms on their site (Clients → the site: its repo, else the live site), so this clears once the site is live there. If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
     )
   // Twilio makes the client's own profile from the filing, so the address has to be whole.
   const addr = parseUsAddress(p.address)

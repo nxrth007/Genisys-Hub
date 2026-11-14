@@ -146,16 +146,25 @@ async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Se
   const paths = new Set<string>()
   // No repo linked (yet): ask the live site for the usual pages instead.
   if (!site?.repoFullName) return { origin, paths: await probePaths(origin) }
+  const legal = () => [...paths].some((p) => /privac|terms/i.test(p))
   const ref = site.defaultBranch || 'main'
-  const { entries } = await getTree(site.repoFullName, ref)
-  for (const e of entries) {
-    const p = e.type === 'blob' ? routePath(e.path) : null
-    if (p) paths.add(p)
+  try {
+    const { entries } = await getTree(site.repoFullName, ref)
+    for (const e of entries) {
+      const p = e.type === 'blob' ? routePath(e.path) : null
+      if (p) paths.add(p)
+    }
+    if (!legal()) {
+      const app = await readFile(site.repoFullName, 'src/App.tsx', ref).catch(() => null)
+      for (const m of app?.matchAll(/path=["'`](\/[^"'`]*)["'`]/g) ?? []) paths.add(m[1])
+    }
+  } catch (err) {
+    console.warn(`[hell-level] reading ${site.repoFullName} for the site's pages:`, err instanceof Error ? err.message : err)
   }
-  if (![...paths].some((p) => /privac|terms/i.test(p))) {
-    const app = await readFile(site.repoFullName, 'src/App.tsx', ref).catch(() => null)
-    for (const m of app?.matchAll(/path=["'`](\/[^"'`]*)["'`]/g) ?? []) paths.add(m[1])
-  }
+  // The linked repo may not be this site's at all: a site Forge built in a new Lovable copy keeps the
+  // SEO seat's old repo until GitHub is connected to the copy (Cnc, AHI, 2026-11-14). Without policy
+  // pages there, the live site itself is asked (Forge's sites answer 404 for pages they don't have).
+  if (!legal()) for (const p of await probePaths(origin)) paths.add(p)
   return { origin, paths }
 }
 

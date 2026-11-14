@@ -68,7 +68,7 @@ import {
   type LovableAgentState,
   type LovableProjectRef,
 } from '@/lib/seo/lovable-mcp'
-import { saveSiteLink } from '@/lib/site-link'
+import { afterSiteLinkChange, saveSiteLink } from '@/lib/site-link'
 import { readProfile, zoneFromAnswers } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
 import { metaOf, siteRecords } from './domain-shared'
@@ -1100,6 +1100,10 @@ async function waitForLive(r: SiteRow, domain: string): Promise<boolean> {
     try {
       const saved = await saveSiteLink(r.clientId, url)
       if (saved.changed) await note(r.id, `Their site link in Clients is now ${url}${saved.prior ? ` (was ${saved.prior})` : ''}.`)
+      // Already their link in Clients (typed in before the domain showed the site): what follows a new
+      // link runs now that the site is really there: its policy pages, its logo, and their toll-free
+      // number's texting verification, which waits for those pages.
+      else afterSiteLinkChange(r.clientId, url, saved.prior)
     } catch (err) {
       await note(r.id, `Couldn’t save ${url} as their site link in Clients (${describe(err).slice(0, 200)}): save it there by hand.`, {
         detail: `Live at ${url}, but saving it as their site link in Clients failed: save it there by hand. Still by hand: connect GitHub in Lovable.`,
