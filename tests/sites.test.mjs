@@ -132,3 +132,12 @@ test('tollFreeStage: "Toll-Free Number Purchased & Verified" from the number, GH
   assert.equal(s.tollFreeStage({ ...base, ghlLinked: true }).status, 'none')
   assert.deepEqual(s.tollFreeStage(base), { status: 'pending', note: null })
 })
+
+test('tollFreeStage: a GHL number that can’t text points at Purchase and verify', () => {
+  const base = { number: null, ghl: null, request: null, ghlLinked: true, siteLive: true }
+  assert.deepEqual(s.tollFreeStage({ ...base, ghlCantText: true }), {
+    status: 'pending',
+    note: 'Their GHL number can’t text (Verification Required): Purchase and verify is in the toll-free card',
+  })
+  assert.equal(s.tollFreeStage({ ...base, ghlCantText: false }).status, 'none')
+})

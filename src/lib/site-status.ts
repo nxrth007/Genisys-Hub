@@ -169,6 +169,8 @@ export function tollFreeStage(f: {
   ghl: { number: string; registration: string | null } | null
   request: { status: string; detail: string | null } | null
   ghlLinked: boolean
+  /** Every number in their GHL sub-account shows GHL's "Verification Required" (the last GHL read). */
+  ghlCantText?: boolean
   siteLive: boolean
 }): { status: string; note: string | null } {
   if (f.number) {
@@ -190,6 +192,7 @@ export function tollFreeStage(f: {
   if (r === 'awaiting_identity') return { status: 'blocked', note: 'Waiting on the owner’s ID check in GHL' }
   if (r === 'failed') return { status: 'blocked', note: f.request?.detail ?? 'The purchase didn’t go through' }
   if (r === 'declined') return { status: 'pending', note: 'Echo’s question was answered No' }
+  if (f.ghlLinked && f.ghlCantText) return { status: 'pending', note: 'Their GHL number can’t text (Verification Required): Purchase and verify is in the toll-free card' }
   if (f.ghlLinked) return { status: 'none', note: 'None in Hell-level; they may text from their GHL sub-account' }
   return { status: 'pending', note: null }
 }

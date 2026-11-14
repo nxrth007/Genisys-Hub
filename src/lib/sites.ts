@@ -222,6 +222,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   const builderSite = forge?.status === 'connected' && forge.domain ? `https://${forge.domain}` : (forgeLive ?? (c.siteUrl?.trim() ? siteHref(c.siteUrl.trim()) : null))
   // The folder's buttons: the same rules src/lib/hl/folder-actions.ts checks again before acting.
   const hasAccount = !!c.hlAccount && !c.hlAccount.archivedAt
+  // Every GHL number shows "Verification Required" (the last GHL read), and they don't stay on GHL: Purchase and verify applies.
+  const ghlCantText = ghlAllUnverified(readCensusNumbers(census?.numbers)) && !staysOnGhl(c.name)
   // The Status card's "Domain purchased" and "Toll-Free Number Purchased & Verified" rows (Alex, 2026-11-14).
   const ownHost = siteHost(c.siteUrl)
   const domainRow = {
@@ -243,6 +245,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       ghl: ghlNumber ? { number: ghlNumber.number!, registration: c.ghlNumberJob?.registration ?? null } : null,
       request: c.hlNumberRequest ? { status: c.hlNumberRequest.status, detail: c.hlNumberRequest.detail } : null,
       ghlLinked: !!c.ghlLocationId,
+      ghlCantText,
       siteLive: facts.siteLive,
     }),
     updatedAt: null,
