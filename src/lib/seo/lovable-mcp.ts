@@ -430,50 +430,6 @@ export async function lovableMcpCall(tool: string, args: Record<string, unknown>
   return { text, structured }
 }
 
-// ---------------------------------------------------------------------------
-// Lovable's own web API (read-only probe)
-// ---------------------------------------------------------------------------
-
-/** What a JWT says about itself (never the token): who issued it, for which service, with which permissions. */
-function tokenClaims(token: string): Record<string, unknown> | null {
-  const part = token.split('.')[1]
-  if (!part) return null
-  try {
-    const c = JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as Record<string, unknown>
-    const pick: Record<string, unknown> = {}
-    for (const k of ['iss', 'aud', 'scope', 'scp', 'client_id', 'azp', 'exp', 'token_use', 'typ']) if (k in c) pick[k] = c[k]
-    return pick
-  } catch {
-    return null
-  }
-}
-
-/**
- * One read on api.lovable.dev with the Hub's MCP sign-in: the routes
- * Lovable's own editor calls (e.g. /projects/{id}/v2/domains, its Settings →
- * Domains list) or a documented /v1 one. Unofficial and read-only: it shows
- * whether that sign-in is accepted there at all, which decides whether the
- * Hub could add a client's domain in Lovable itself. Answers Lovable's status
- * and body as they came, plus the sign-in's claims (issuer, audience, scope),
- * never the token.
- */
-export async function lovableWebGet(path: string): Promise<{ status: number; body: unknown; claims: Record<string, unknown> | null }> {
-  if (!/^\/[A-Za-z0-9/_.-]+$/.test(path)) throw new LovableMcpError('Not a Lovable API path.')
-  const token = await accessToken()
-  const res = await fetch(`https://api.lovable.dev${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Lovable-Version': '2026-09-11' },
-    signal: AbortSignal.timeout(20_000),
-  })
-  const text = await res.text()
-  let body: unknown = text.slice(0, 4000)
-  try {
-    body = JSON.parse(text)
-  } catch {
-    /* keep the text */
-  }
-  return { status: res.status, body, claims: tokenClaims(token) }
-}
-
 function accountFrom(me: McpToolResult): string | null {
   const s = me.structured ?? {}
   const user = (typeof s.user === 'object' && s.user ? s.user : s) as Record<string, unknown>

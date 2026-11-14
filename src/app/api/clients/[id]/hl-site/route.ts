@@ -3,7 +3,6 @@ import { auth } from '@/auth'
 import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
-import { lovableWebGet } from '@/lib/seo/lovable-mcp'
 
 /**
  * GET /api/clients/:id/hl-site — this client's website build: where it
@@ -32,36 +31,10 @@ export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
 export const maxDuration = 600
 
-/**
- * GET ?probe=domains|hostname|v1 — admin only, read-only: what Lovable's own
- * API answers the Hub's Lovable sign-in for this client's copy (its domain
- * list as Settings → Domains shows it, its hostname, or the documented /v1
- * project). Shows whether the Hub could connect domains in Lovable itself.
- */
-const PROBES: Record<string, (projectId: string) => string> = {
-  domains: (p) => `/projects/${p}/v2/domains`,
-  hostname: (p) => `/projects/${p}/hostname`,
-  v1: (p) => `/v1/projects/${p}`,
-}
-
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireStaff()
   if (denied) return denied
   const { id } = await params
-  const probe = new URL(req.url).searchParams.get('probe')
-  if (probe) {
-    const adminDenied = await requireAdmin()
-    if (adminDenied) return adminDenied
-    const path = PROBES[probe]
-    if (!path) return NextResponse.json({ error: `probe is one of ${Object.keys(PROBES).join(', ')}` }, { status: 400 })
-    const row = await prisma.hlSiteRequest.findUnique({ where: { clientId: id }, select: { projectId: true } })
-    if (!row?.projectId) return NextResponse.json({ error: 'Forge has no Lovable copy for this client.' }, { status: 409 })
-    try {
-      return NextResponse.json({ probe, ...(await lovableWebGet(path(row.projectId))) })
-    } catch (err) {
-      return NextResponse.json({ probe, error: err instanceof Error ? err.message : String(err) }, { status: 502 })
-    }
-  }
   const request = await prisma.hlSiteRequest.findUnique({
     where: { clientId: id },
     select: {
