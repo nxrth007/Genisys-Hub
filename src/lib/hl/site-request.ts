@@ -65,10 +65,12 @@ import {
   lovableMcpRespond,
   lovableMcpSend,
   lovableMcpStatus,
+  lovableProjectPublic,
   type LovableAgentState,
   type LovableProjectRef,
 } from '@/lib/seo/lovable-mcp'
 import { afterSiteLinkChange, saveSiteLink } from '@/lib/site-link'
+import { isHubUrl } from './legal-links'
 import { readProfile, zoneFromAnswers } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
 import { metaOf, siteRecords } from './domain-shared'
@@ -95,7 +97,9 @@ import {
   DEFAULT_TEMPLATE_PROJECT,
   firstEmail,
   gbpLinkFrom,
+  lovablePublicId,
   lovableVerifyCodes,
+  outsideHosts,
   phoneParts,
   pickPhotos,
   projectNameFor,
@@ -1015,8 +1019,8 @@ function isManaged(d: Awaited<ReturnType<typeof clientDomain>>): boolean {
 // Connecting their domain
 // ---------------------------------------------------------------------------
 
-/** A page as fetched: where it ended up (after redirects) and its <title>. Null when it doesn't load. */
-async function page(url: string): Promise<{ url: string; title: string | null } | null> {
+/** A page as fetched: where it ended up (after redirects), its <title>, and the Lovable project id it carries. Null when it doesn't load. */
+async function page(url: string): Promise<{ url: string; title: string | null; lovableId: string | null } | null> {
   try {
     const res = await fetch(url, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(20_000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; GenisysHub/1.0)' } })
     if (!res.ok) {
@@ -1025,7 +1029,7 @@ async function page(url: string): Promise<{ url: string; title: string | null } 
     }
     const html = (await res.text()).slice(0, 200_000)
     const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() || null
-    return { url: res.url || url, title }
+    return { url: res.url || url, title, lovableId: lovablePublicId(html) }
   } catch {
     return null
   }
@@ -1135,8 +1139,83 @@ const lastPoll = new Map<string, number>()
  * check on), and every 10 minutes ask about new sub-accounts the onboarding
  * hook missed.
  */
+/** Built sites a person may have published (and put on their domain) in Lovable by hand: looked at this often. */
+const OUTSIDE_EVERY_MS = 15 * 60_000
+let lastOutside = 0
+
+/**
+ * A site Forge built that a person published and connected in Lovable itself (Cnc, 2026-11-14): the
+ * Hub's row still said built, so the Office kept asking to publish it. When Lovable says the project
+ * is published and their domain (or the link in Clients) shows a page carrying the project's public
+ * id, the row becomes connected, the domain is saved as their site link, and what follows a site link
+ * runs (policy pages, logo, the toll-free filing). It only reads: nothing is published or changed in
+ * Lovable, and a page that isn't this project's never counts.
+ */
+async function reconcileOutside(): Promise<number> {
+  const rows = await prisma.hlSiteRequest.findMany({
+    where: {
+      projectId: { not: null },
+      client: { is: { archivedAt: null } },
+      OR: [{ status: { in: ['built', 'held', 'published'] } }, { status: 'connecting', domainStep: { in: ['records', 'asking', 'lovable'] } }],
+    },
+    select: { id: true, clientId: true, status: true, projectId: true, domain: true, domainStep: true, publishedAt: true, client: { select: { siteUrl: true } } },
+    take: 20,
+  })
+  let moved = 0
+  for (const r of rows) {
+    const d = await clientDomain(r.clientId)
+    const hosts = outsideHosts({
+      domains: [r.domain, d.choice && 'name' in d.choice ? d.choice.name : null],
+      siteUrl: r.client.siteUrl,
+      isHub: (h) => isHubUrl(`https://${h}`),
+    })
+    if (!hosts.length || !r.projectId) continue
+    const pub = await lovableProjectPublic(r.projectId).catch(() => null)
+    if (!pub?.isPublished || !pub.publicId) continue
+    for (const host of hosts) {
+      const at = await page(`https://${host}/`)
+      if (!at || bareHost(at.url) !== host || at.lovableId !== pub.publicId.toLowerCase()) continue
+      const url = `https://${host}`
+      const now = new Date()
+      const found = await prisma.hlSiteRequest.updateMany({
+        where: { id: r.id, status: r.status, ...(r.status === 'connecting' ? { domainStep: r.domainStep } : {}) },
+        data: {
+          status: 'connected',
+          domain: host,
+          domainStep: null,
+          domainAt: now,
+          publishedAt: r.publishedAt ?? now,
+          liveUrl: url,
+          leaseUntil: null,
+          detail: `Live at ${url}: published and connected in Lovable by hand, and the Hub found it there. Still by hand: connect GitHub in Lovable.`,
+        },
+      })
+      if (!found.count) break
+      await note(r.id, `Found the site live at ${url}, published in Lovable by hand (its page carries the project’s id ${pub.publicId}).`)
+      try {
+        const saved = await saveSiteLink(r.clientId, url)
+        if (saved.changed) await note(r.id, `Their site link in Clients is now ${url}${saved.prior ? ` (was ${saved.prior})` : ''}.`)
+        // Already their link: what follows a site link runs now that the site is really there.
+        else afterSiteLinkChange(r.clientId, url, saved.prior)
+      } catch (err) {
+        await note(r.id, `Couldn’t save ${url} as their site link in Clients (${describe(err).slice(0, 200)}): save it there by hand.`)
+      }
+      moved += 1
+      break
+    }
+  }
+  return moved
+}
+
 export async function maybeSweepSiteRequests(now = Date.now()): Promise<number> {
   let moved = 0
+  if (now - lastOutside >= OUTSIDE_EVERY_MS) {
+    lastOutside = now
+    moved += await reconcileOutside().catch((err) => {
+      console.warn('[hl-site] looking for sites published in Lovable by hand:', err)
+      return 0
+    })
+  }
   const working = await prisma.hlSiteRequest.findMany({
     where: { status: { in: SITE_WORKING }, OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date(now) } }] },
     select: { id: true, status: true, domainStep: true },

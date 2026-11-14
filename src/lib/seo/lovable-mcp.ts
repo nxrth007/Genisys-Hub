@@ -456,6 +456,27 @@ export async function lovableEmbedUrl(projectId: string, parentOrigin: string): 
   return { url, expiresAt: typeof data.expires_at === 'string' ? data.expires_at : null }
 }
 
+/**
+ * Whether a project is published, and its public id ("lovp_…"), from the documented
+ * GET /v1/projects/{id} with the Hub's sign-in. The public id is in the project's
+ * screenshot address, and Lovable puts the same id in a published page's preview image:
+ * how the Hub tells that a domain shows this very project (src/lib/hl/site-request.ts).
+ */
+export async function lovableProjectPublic(projectId: string): Promise<{ isPublished: boolean | null; publicId: string | null }> {
+  const token = await accessToken()
+  const res = await fetch(`https://api.lovable.dev/v1/projects/${encodeURIComponent(projectId)}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Lovable-Version': '2026-09-11' },
+    signal: AbortSignal.timeout(20_000),
+  })
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    const why = (typeof data.detail === 'string' && data.detail) || (typeof data.title === 'string' && data.title) || `HTTP ${res.status}`
+    throw new LovableMcpError(`Lovable wouldn’t say whether the project is published (${why}).`)
+  }
+  const shot = typeof data.latest_screenshot_url === 'string' ? data.latest_screenshot_url : ''
+  return { isPublished: typeof data.is_published === 'boolean' ? data.is_published : null, publicId: /lovp_[a-z0-9]{8,}/i.exec(shot)?.[0] ?? null }
+}
+
 function accountFrom(me: McpToolResult): string | null {
   const s = me.structured ?? {}
   const user = (typeof s.user === 'object' && s.user ? s.user : s) as Record<string, unknown>

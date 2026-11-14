@@ -464,3 +464,20 @@ test('Forge asks to connect the domain once the site is live, and shows it throu
   const failed = forge(row({ status: 'published', domainStep: null, liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(60), detail: 'Connecting acme.com didn’t finish: Lovable stopped.', readyDomain: { name: 'acme.com', managed: true } }))
   assert.ok(failed.requests.some((x) => x.kind === 'error' && /Connecting acme\.com didn’t finish/.test(x.text)))
 })
+
+test('a site published in Lovable by hand is known by the project id its page carries', () => {
+  const page = '<meta property="og:image" content="https://pub-bb2e.r2.dev/lovp_1wwdr8ttp39q0sdnw7nx8469x1/dba9_1794681248705.png">'
+  assert.equal(plan.lovablePublicId(page), 'lovp_1wwdr8ttp39q0sdnw7nx8469x1')
+  assert.equal(plan.lovablePublicId('https://screenshot2.lovable.dev/lovp_1WWDR8TTP39Q0SDNW7NX8469X1/x.png'), 'lovp_1wwdr8ttp39q0sdnw7nx8469x1', 'the API address matches the page whatever the case')
+  assert.equal(plan.lovablePublicId('<title>A parked domain</title>'), null)
+  assert.equal(plan.lovablePublicId(null), null)
+})
+
+test('where to look for it: their domain and the Clients link, never lovable.app or the Hub', () => {
+  const isHub = (h) => h.endsWith('.onrender.com')
+  assert.deepEqual(plan.outsideHosts({ domains: [null, 'cnctransportationservices.org'], siteUrl: 'https://www.cnctransportationservices.org/', isHub }), ['cnctransportationservices.org'])
+  assert.deepEqual(plan.outsideHosts({ domains: ['acme.com', 'acme.org'], siteUrl: 'acme.com', isHub }), ['acme.com', 'acme.org'])
+  assert.deepEqual(plan.outsideHosts({ domains: [], siteUrl: 'https://acme-roofing.lovable.app', isHub }), [])
+  assert.deepEqual(plan.outsideHosts({ domains: [], siteUrl: 'https://genisys-hub.onrender.com/hl/x', isHub }), [])
+  assert.deepEqual(plan.outsideHosts({ domains: [undefined], siteUrl: null, isHub }), [])
+})

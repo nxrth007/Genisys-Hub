@@ -494,6 +494,25 @@ export const BUILT_SITE_PAGES = { privacy: '/privacy', terms: '/terms' } as cons
 /** Lovable serves it: a copy's preview, or a site published at lovable.app. */
 export const isLovableHost = (host: string) => /(^|\.)(lovable\.app|lovableproject\.com)$/i.test(host)
 
+/**
+ * A Lovable project's public id ("lovp_…") in a page or an address. Lovable's API gives it in the
+ * project's screenshot address, and a published page carries it in its preview image: the same id
+ * on both is how the Hub knows a domain shows that very project.
+ */
+export function lovablePublicId(text: string | null | undefined): string | null {
+  return /lovp_[a-z0-9]{8,}/i.exec(text ?? '')?.[0]?.toLowerCase() ?? null
+}
+
+/**
+ * Where a site Forge built could be live after a person published it in Lovable by hand: the domain
+ * Forge was to connect, their domain in Hell-level → Domains, and the link in Clients. Never a
+ * lovable.app address (not theirs) or the Hub's own.
+ */
+export function outsideHosts(o: { domains: (string | null | undefined)[]; siteUrl: string | null | undefined; isHub: (host: string) => boolean }): string[] {
+  const hosts = [...o.domains, o.siteUrl].map((v) => bareHost(v)).filter((h): h is string => !!h && !isLovableHost(h) && !o.isHub(h))
+  return [...new Set(hosts)]
+}
+
 /** A host as compared here: lowercase, no www. Accepts a bare domain or a full link. */
 export function bareHost(v: string | null | undefined): string | null {
   const s = v?.trim()
