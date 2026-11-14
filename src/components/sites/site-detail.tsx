@@ -400,7 +400,17 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
       {b?.detail && <p className="text-[12.5px] leading-snug text-muted-foreground">{b.detail}</p>}
       <p className="text-[12.5px] leading-snug text-muted-foreground">
         {ready
-          ? `Domain: ${ready.name}${ready.managed ? '' : ' (its DNS is managed outside the Hub)'}${b?.status === 'connected' ? ', connected.' : '. Forge connects it once the site is published.'}`
+          ? `Domain: ${ready.name}${ready.managed ? '' : ' (its DNS is managed outside the Hub)'}${
+              b?.status === 'connected'
+                ? ', connected.'
+                : b?.status === 'connecting'
+                  ? ', being connected.'
+                  : b?.status === 'published'
+                    ? b.domainStep === 'held'
+                      ? '. Not connected (Not now): connect it from here.'
+                      : '. Forge asks in the Office to connect it.'
+                    : '. Forge connects it once the site is published.'
+            }`
           : moving
             ? `Domain: ${moving} is still moving into their Hell-level Domains. Forge connects it once it has.`
             : domainAsked
