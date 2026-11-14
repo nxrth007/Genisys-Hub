@@ -7,7 +7,10 @@
 import { prisma } from '@/lib/prisma'
 import { registrationView, type GhlRegistrationView } from '@/lib/ghl-number/register-plan'
 import { publicFormUrl } from '@/lib/ghl-form/plan'
-import { cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
+import { askView, cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
+import { readChoices } from '@/lib/hl/domain-plan'
+import { folderBuild, folderDomain, folderNumber, type FolderBuild, type FolderDomain, type FolderNumber } from '@/lib/hl/folder-plan'
+import { ringTo, textsTo } from '@/lib/hl/number-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
@@ -129,7 +132,14 @@ export type SiteDetail = {
   /** Their domain for the site, from their Hell-level Domains (src/lib/hl/site-plan.ts siteDomainChoice). */
   siteDomain: SiteDomainChoice
   /** Forge's "Buy a website domain for X?" question, when it was asked (src/lib/hl/domain-request.ts). */
-  domainQuestion: { status: string; detail: string | null } | null
+  domainQuestion: { status: string; detail: string | null; name: string | null } | null
+  /**
+   * The folder's buttons, the Office's questions answered here (src/lib/hl/folder-plan.ts): pick a
+   * domain from Porkbun's suggestions, buy their Hell-level toll-free number, build the site.
+   */
+  actions: { domain: FolderDomain; number: FolderNumber; build: FolderBuild }
+  /** Where a Hell-level number bought now would ring and forward texts (src/lib/hl/number-plan.ts). */
+  numberTo: { ring: string | null; texts: string | null }
   /**
    * Their site in Lovable, for the folder's builder window: Forge's copy, else the SEO seat's
    * project, and where the site shows now (their connected domain, the published lovable.app
@@ -155,6 +165,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         select: {
           id: true,
           profile: true,
+          archivedAt: true,
           numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
           domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true } },
         },
@@ -178,7 +189,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       hlSiteRequest: {
         select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, updatedAt: true },
       },
-      hlDomainRequest: { select: { status: true, detail: true } },
+      hlDomainRequest: { select: { status: true, detail: true, name: true, suggestions: true } },
     },
   })
   if (!c) return null
@@ -197,6 +208,24 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
   const lovableProject = forge?.projectId ?? c.seoSite?.lovableProjectId ?? null
   const forgeLive = forge && ['published', 'connecting', 'connected'].includes(forge.status) ? forge.liveUrl : null
   const builderSite = forge?.status === 'connected' && forge.domain ? `https://${forge.domain}` : (forgeLive ?? (c.siteUrl?.trim() ? siteHref(c.siteUrl.trim()) : null))
+  // The folder's buttons: the same rules src/lib/hl/folder-actions.ts checks again before acting.
+  const hasAccount = !!c.hlAccount && !c.hlAccount.archivedAt
+  const actions = {
+    domain: folderDomain({
+      hasAccount,
+      hasDomain: (c.hlAccount?.domains ?? []).some((x) => x.status !== 'failed'),
+      status: c.hlDomainRequest?.status ?? null,
+      choices: readChoices(c.hlDomainRequest?.suggestions),
+      buying: c.hlDomainRequest?.name ?? null,
+    }),
+    number: folderNumber({
+      hasAccount,
+      hasTollFree: numbers.some((x) => x.kind === 'toll_free'),
+      ghlHasNumber: askView(c.ghlNumberCensus, c.ghlLocationId) === 'has',
+      status: c.hlNumberRequest?.status ?? null,
+    }),
+    build: folderBuild({ hasAccount, ghlLinked: !!c.ghlLocationId, status: forge?.status ?? null }),
+  }
   return {
     client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
@@ -267,7 +296,9 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       : null,
     ghlLinked: !!c.ghlLocationId,
     siteDomain: siteDomainChoice(c.hlAccount?.domains ?? []),
-    domainQuestion: c.hlDomainRequest ? { status: c.hlDomainRequest.status, detail: c.hlDomainRequest.detail } : null,
+    domainQuestion: c.hlDomainRequest ? { status: c.hlDomainRequest.status, detail: c.hlDomainRequest.detail, name: c.hlDomainRequest.name } : null,
     builder: lovableProject ? { projectId: lovableProject, siteUrl: builderSite } : null,
+    actions,
+    numberTo: p ? { ring: ringTo(p), texts: textsTo(p) } : { ring: null, texts: null },
   }
 }

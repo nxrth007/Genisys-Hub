@@ -405,24 +405,40 @@ export function buildOneShot(facts: SiteFacts, fill: SiteFill, embeds: SiteEmbed
 }
 
 /** What the Office shows under "Build X's website?": what the site will get, and what's still missing. */
-export function siteQuestionDetail(f: {
-  photos: number
-  skipped: number
-  domain: string | null
-  phoneSource: SiteFacts['phoneSource']
-  numberAsked: boolean
-  domainAsked: boolean
-  missing: string[]
-}): string {
+/**
+ * What the build would use, in a sentence: for Forge's question in the Office, or (`folder`) for
+ * the Build site confirmation in their Sites folder, whose domain and number cards sit above it.
+ */
+export function siteQuestionDetail(
+  f: {
+    photos: number
+    skipped: number
+    domain: string | null
+    phoneSource: SiteFacts['phoneSource']
+    numberAsked: boolean
+    domainAsked: boolean
+    missing: string[]
+  },
+  from: 'office' | 'folder' = 'office',
+): string {
   if (f.missing.length) return `Can’t build yet: no ${f.missing.join(' or ')} on file. Add it in their Hell-level → Settings → Business Profile.`
+  const folder = from === 'folder'
   const parts = [
     f.photos ? `${f.photos} photo${f.photos === 1 ? '' : 's'} from onboarding${f.skipped ? ` (${f.skipped} other upload${f.skipped === 1 ? '' : 's'} left out)` : ''}` : 'No photos: Lovable makes them all',
-    f.domain ? `Domain ${f.domain}` : f.domainAsked ? 'No domain yet: answer Forge’s domain question first to put it in the site' : 'No domain yet: the site says “this website”',
+    f.domain
+      ? `Domain ${f.domain}`
+      : folder
+        ? 'No domain yet: the site says “this website” (pick their domain first to put it in)'
+        : f.domainAsked
+          ? 'No domain yet: answer Forge’s domain question first to put it in the site'
+          : 'No domain yet: the site says “this website”',
     f.phoneSource === 'toll_free' || f.phoneSource === 'hell_level' || f.phoneSource === 'ghl'
       ? 'Their toll-free number goes on the site'
-      : f.numberAsked
-        ? 'Their own phone goes on the site: answer Echo’s toll-free question first to use that number'
-        : 'Their own phone goes on the site',
+      : folder
+        ? 'Their own phone goes on the site (buy their toll-free number first to use that)'
+        : f.numberAsked
+          ? 'Their own phone goes on the site: answer Echo’s toll-free question first to use that number'
+          : 'Their own phone goes on the site',
   ]
   return `${parts.join('. ')}.`
 }

@@ -80,8 +80,11 @@ export async function suggestDomains(businessName: string, city: string | null):
 
 export type DomainAskResult = { ok: true; status: string; id: string } | { ok: false; reason: string }
 
-/** Put Forge's question in the Office for this client, if it should be asked (./domain-plan.ts). */
-export async function askForClientDomain(clientId: string, trigger: 'onboarding' | 'sweep' | 'manual'): Promise<DomainAskResult> {
+/**
+ * Put Forge's question in the Office for this client, if it should be asked (./domain-plan.ts).
+ * `refresh` (by hand, from their folder): fresh suggestions for a question that's still open.
+ */
+export async function askForClientDomain(clientId: string, trigger: 'onboarding' | 'sweep' | 'manual', opts: { refresh?: boolean } = {}): Promise<DomainAskResult> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
@@ -106,6 +109,7 @@ export async function askForClientDomain(clientId: string, trigger: 'onboarding'
     trigger,
     accountCreatedAt: account?.createdAt ?? null,
     since: await domainSince(),
+    refresh: opts.refresh,
   })
   if (!decision.ask || !account) return { ok: false, reason: decision.reason }
   const profile = readProfile(account.profile)
@@ -120,7 +124,8 @@ export async function askForClientDomain(clientId: string, trigger: 'onboarding'
   const detail = found.choices.length
     ? found.warning
     : `No available domain under ${yearly(2500)} from “${business}”${found.warning ? ` (${found.warning})` : ''}. Search any name in their Hell-level → Settings → Domains.`
-  const what = `Asked in the Office (${trigger === 'manual' ? 'by hand' : 'the client just onboarded'}): ${found.choices.map((x) => `${x.name} ${yearly(x.costCents)}`).join(', ') || 'no suggestions'}.`
+  const how = trigger !== 'manual' ? 'the client just onboarded' : c.hlDomainRequest?.status === 'awaiting_approval' ? 'fresh suggestions, by hand' : 'by hand'
+  const what = `Asked in the Office (${how}): ${found.choices.map((x) => `${x.name} ${yearly(x.costCents)}`).join(', ') || 'no suggestions'}.`
   const data = {
     accountId: account.id,
     status: 'awaiting_approval',

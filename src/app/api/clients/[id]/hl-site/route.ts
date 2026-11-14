@@ -4,10 +4,17 @@ import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
 import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
 import { lovableEmbedUrl } from '@/lib/seo/lovable-mcp'
+import { buildSiteNow, sitePreflight } from '@/lib/hl/folder-actions'
 
 /**
  * GET /api/clients/:id/hl-site — this client's website build: where it
  * stands, the Lovable copy, the one-shot that was sent, and the log.
+ * ?preflight=1 — what a build would use (photos, domain, phone) and what stops it.
+ *
+ * POST { action: 'build', overrideGhl? } — admin only: their Sites folder's
+ * Build site, the same as Build it in the Office (Forge's open question is
+ * answered; otherwise it's asked and answered at once). Claude and Lovable
+ * credits, nothing published. A client set up in GHL needs overrideGhl.
  *
  * POST { action: 'ask', overrideGhl? } — admin only: put Forge's question
  * ("Build X's website?") in the Office by hand: an older client, again after
@@ -36,10 +43,12 @@ export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
 export const maxDuration = 600
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireStaff()
   if (denied) return denied
   const { id } = await params
+  // ?preflight=1: what a build would use and what stops it (the folder's Build site confirmation).
+  if (new URL(req.url).searchParams.get('preflight') === '1') return NextResponse.json({ preflight: await sitePreflight(id) })
   const request = await prisma.hlSiteRequest.findUnique({
     where: { clientId: id },
     select: {
@@ -98,6 +107,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const denied = await requireAdmin()
   if (denied) return denied
+  if (body?.action === 'build') {
+    const session = await auth()
+    const res = await buildSiteNow(id, session?.user?.name || session?.user?.email || 'an admin', body.overrideGhl === true)
+    return NextResponse.json(res, { status: res.ok ? 200 : 409 })
+  }
   if (body?.action === 'ask' || body?.action === 'publish' || body?.action === 'connect') {
     const session = await auth()
     const by = session?.user?.name || session?.user?.email || 'an admin'
@@ -118,5 +132,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, { status: 409 })
     }
   }
-  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" }, { "action": "publish" }, { "action": "connect" } or { "action": "code", "text": "lovable_verify=…" }' }, { status: 400 })
+  return NextResponse.json(
+    { error: 'send { "action": "build" }, { "action": "ask" }, { "action": "preview" }, { "action": "publish" }, { "action": "connect" }, { "action": "embed" } or { "action": "code", "text": "lovable_verify=…" }' },
+    { status: 400 },
+  )
 }

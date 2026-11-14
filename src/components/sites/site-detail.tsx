@@ -3,13 +3,15 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Loader2, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
+import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Hammer, Loader2, Phone, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
 import { cantTextYet } from '@/lib/ghl-number/census-plan'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
 import { BuilderWindow, DomainCodeBox } from './builder-window'
+import { ConfirmDialog, postAction } from './confirm-dialog'
+import { DomainCard } from './domain-card'
 
 /** "+18556762067" → "(855) 676-2067". */
 function pretty(n: string | null | undefined): string {
@@ -307,10 +309,8 @@ function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullabl
   )
 }
 
-/** A build Forge is on (asked, or under way in Lovable): nobody asks again meanwhile. */
-const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing', 'connecting']
-/** Live (on lovable.app or their domain): not built again from here. */
-const BUILD_LIVE = ['published', 'connected']
+/** A build Forge is under way on (Lovable building, publishing, connecting): nothing to press meanwhile. */
+const BUILD_WORKING = ['filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing', 'connecting']
 /** Built, not published: Publish it can be pressed here as well as in the Office. */
 const BUILD_PUBLISHABLE = ['built', 'held']
 
@@ -320,7 +320,7 @@ function wantsLovableCode(d: SiteDetail): boolean {
   return !!b && b.status === 'connecting' && ['records', 'asking', 'lovable'].includes(b.domainStep ?? '') && !b.hasCode
 }
 
-/** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and asking Forge in the Office. */
+/** Forge's website build: where it stands, the copy in Lovable, the one-shot it sent, and Build site (the Office's question answered here). */
 function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: boolean; onOpenBuilder: (() => void) | null }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -334,18 +334,31 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
   const connectable = !!b && b.status === 'published' && !!ready
   const domainAsked = d.domainQuestion?.status === 'awaiting_approval' || d.domainQuestion?.status === 'buying'
   const wantsCode = wantsLovableCode(d)
+  const build = d.actions.build
+  const [buildOpen, setBuildOpen] = useState(false)
+  // What the build would use, read when its confirmation opens (no cost): photos, domain, phone, and what stops it.
+  const [pre, setPre] = useState<{ text: string; missing: string[] } | null>(null)
 
-  async function ask(overrideGhl: boolean) {
-    setBusy(true)
-    setMsg(null)
+  async function openBuild() {
+    setPre(null)
+    setBuildOpen(true)
     try {
-      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask', overrideGhl }) })
-      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
-      setMsg(out.ok ? 'Asked in the Office. Nothing is built until someone presses Build it there.' : out.reason || out.error || 'Couldn’t ask.')
-      router.refresh()
-    } finally {
-      setBusy(false)
+      const res = await fetch(`/api/clients/${d.client.id}/hl-site?preflight=1`, { cache: 'no-store' })
+      const out = (await res.json().catch(() => ({}))) as { preflight?: { text: string; missing: string[] } }
+      setPre(out.preflight ?? { text: 'Couldn’t read what the build would use; the Hub checks again when you press Build it.', missing: [] })
+    } catch {
+      setPre({ text: 'Couldn’t read what the build would use; the Hub checks again when you press Build it.', missing: [] })
     }
+  }
+
+  /** Build site: Forge's Build it, from here (Claude and Lovable credits; nothing is published). */
+  async function startBuild(): Promise<string | null> {
+    if (build.kind !== 'build') return null
+    const r = await postAction(`/api/clients/${d.client.id}/hl-site`, { action: 'build', overrideGhl: build.overrideGhl })
+    router.refresh()
+    if (!r.ok) return r.reason
+    setMsg(typeof r.data.detail === 'string' && r.data.detail ? r.data.detail : 'Started.')
+    return null
   }
 
   async function act(action: 'publish' | 'connect') {
@@ -355,20 +368,6 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
       const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) })
       const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; detail?: string | null; error?: string }
       setMsg(out.ok ? out.detail || 'Started.' : out.reason || out.error || (action === 'publish' ? 'Couldn’t publish.' : 'Couldn’t connect it.'))
-      router.refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /** Forge's "Buy a website domain for X?" question, by hand (three Porkbun names; nothing is bought until someone picks one). */
-  async function askDomain() {
-    setBusy(true)
-    setMsg(null)
-    try {
-      const res = await fetch(`/api/clients/${d.client.id}/hl-domain`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask' }) })
-      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
-      setMsg(out.ok ? 'Asked in the Office: pick one of Forge’s names there. Nothing is bought until someone does.' : out.reason || out.error || 'Couldn’t ask.')
       router.refresh()
     } finally {
       setBusy(false)
@@ -404,8 +403,8 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
           : moving
             ? `Domain: ${moving} is still moving into their Hell-level Domains. Forge connects it once it has.`
             : domainAsked
-              ? `Domain: Forge is asking in the Office which one to buy.${d.domainQuestion?.detail ? ` ${d.domainQuestion.detail}` : ''}`
-              : 'Domain: none yet. Ask Forge for one (three names to pick from in the Office), or add theirs in Hell-level → Domains.'}
+              ? 'Domain: pick one of Forge’s suggestions above (Domain for the site).'
+              : 'Domain: none yet. Pick one above (Domain for the site), or add theirs in Hell-level → Domains.'}
       </p>
       {(onOpenBuilder || b?.hasPrompt || b?.liveUrl) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
@@ -427,18 +426,8 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
         </div>
       )}
       {wantsCode && <DomainCodeBox clientId={d.client.id} domain={b?.domain ?? null} inputId="lovable-code" />}
-      {canAct && !working && d.account && (
+      {canAct && !working && d.account && (publishable || (connectable && ready) || build.kind === 'build') && (
         <div className="flex flex-wrap items-center gap-2">
-          {!ready && !moving && !domainAsked && (
-            <button
-              type="button"
-              onClick={askDomain}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
-            >
-              Ask Forge for a domain
-            </button>
-          )}
           {publishable && (
             <button
               type="button"
@@ -459,30 +448,46 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Connect {ready.name}
             </button>
           )}
-          {!BUILD_LIVE.includes(b?.status ?? '') && (
+          {build.kind === 'build' && (
             <button
               type="button"
-              onClick={() => ask(false)}
-              disabled={busy || d.ghlLinked}
-              title={d.ghlLinked ? 'They have a GHL sub-account' : undefined}
+              onClick={openBuild}
+              disabled={busy}
               className={
                 publishable
                   ? 'inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50'
                   : 'inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50'
               }
             >
-              {busy && !publishable && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {b ? 'Ask to build it again' : 'Ask Forge to build it'}
-            </button>
-          )}
-          {d.ghlLinked && !BUILD_LIVE.includes(b?.status ?? '') && (
-            <button type="button" onClick={() => ask(true)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
-              Ask anyway (Hell-level form and chat)
+              <Hammer className="h-3.5 w-3.5" /> {build.again ? 'Build it again' : build.overrideGhl ? 'Build site (Hell-level form and chat)' : 'Build site'}
             </button>
           )}
         </div>
       )}
+      {canAct && build.kind === 'none' && !b && <p className="text-[12.5px] text-muted-foreground">{build.reason}</p>}
       {msg && <p className="text-[12px] text-muted-foreground">{msg}</p>}
       {prompt && <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-lg bg-background px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-muted-foreground">{prompt}</pre>}
+      <ConfirmDialog
+        open={buildOpen}
+        title={`Build ${d.client.name}’s website?`}
+        confirmLabel="Build it"
+        disabled={!pre || pre.missing.length > 0}
+        onConfirm={startBuild}
+        onClose={() => setBuildOpen(false)}
+      >
+        <p>
+          Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in
+          Lovable (free) and sends it the one-shot: Lovable credits (the last build used about 19) and about 20 minutes.
+        </p>
+        <p className={pre?.missing.length ? 'rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2' : 'text-muted-foreground'}>
+          {pre ? pre.text : 'Checking what it would use…'}
+        </p>
+        {build.kind === 'build' && build.overrideGhl && <p>They’re set up in GHL: this site gets Hell-level’s quote form and chat, not GHL’s.</p>}
+        {build.kind === 'build' && build.again && <p>The earlier copy stays in Lovable; Forge works on the new one.</p>}
+        <p className="text-muted-foreground">
+          Nothing is published: Forge asks before it publishes.{build.kind === 'build' && build.answersOffice ? ' This answers Forge’s question in the Office.' : ''}
+        </p>
+      </ConfirmDialog>
     </Card>
   )
 }
@@ -490,28 +495,23 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
 /** One client's folder, opened: their status, their site, and what the site build needs. `openBuilder` opens the builder window straight away (?builder=1, the Office's link). */
 export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDetail; canAsk: boolean; openBuilder?: boolean }) {
   const router = useRouter()
-  const [asking, setAsking] = useState(false)
   const [askMsg, setAskMsg] = useState<string | null>(null)
+  const [buyOpen, setBuyOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(openBuilder && !!d.builder)
   const live = d.status === 'live'
   const req = d.request
   const ready = d.siteDomain && 'name' in d.siteDomain ? d.siteDomain : null
   const connectDomain = wantsLovableCode(d) ? (d.build?.domain ?? null) : null
-  // A person can always ask, except when GHL is known to have their number (Alex's rule: set up
-  // already). Not read yet is no longer a reason to wait: that daily read is paused.
-  const askable = d.phone !== 'ghl'
+  // Buy toll-free number: Echo's question answered here (src/lib/hl/folder-plan.ts says when it applies;
+  // never when their GHL sub-account has a number: Alex's rule, set up already).
+  const numberAction = d.actions.number
 
-  async function ask() {
-    setAsking(true)
-    setAskMsg(null)
-    try {
-      const res = await fetch(`/api/clients/${d.client.id}/hl-number`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask' }) })
-      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
-      setAskMsg(out.ok ? 'Asked in the Office. It’s bought once someone answers Yes there.' : out.reason || out.error || 'Couldn’t ask.')
-      router.refresh()
-    } finally {
-      setAsking(false)
-    }
+  async function buyNumber(): Promise<string | null> {
+    const r = await postAction(`/api/clients/${d.client.id}/hl-number`, { action: 'buy' })
+    router.refresh()
+    if (!r.ok) return r.reason
+    setAskMsg(typeof r.data.detail === 'string' && r.data.detail ? r.data.detail : 'Bought.')
+    return null
   }
 
   const details: { label: string; value: string | null }[] = [
@@ -638,23 +638,37 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
               </p>
               {(req?.status === 'declined' || req?.status === 'failed') && <p className="text-[12.5px] text-muted-foreground">{ghlNumbersLine(d)}</p>}
               <div className="flex flex-wrap items-center gap-2">
-                {req?.status === 'awaiting_approval' || req?.status === 'awaiting_identity' ? (
+                {canAsk && numberAction.kind === 'buy' ? (
+                  <button
+                    type="button"
+                    onClick={() => setBuyOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    <Phone className="h-3.5 w-3.5" /> Buy toll-free number
+                  </button>
+                ) : req?.status === 'awaiting_approval' || req?.status === 'awaiting_identity' ? (
                   <Link href="/office" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium hover:bg-muted">
                     Answer it in the Office
                   </Link>
-                ) : canAsk ? (
-                  <button
-                    type="button"
-                    onClick={ask}
-                    disabled={asking || !d.account || !askable}
-                    title={!d.account ? 'This client has no Hell-level sub-account' : !askable ? 'Their GHL sub-account already has a number' : undefined}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
-                  >
-                    {asking && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Ask in the Office
-                  </button>
                 ) : null}
               </div>
+              {canAsk && numberAction.kind === 'none' && (!req || req.status === 'declined' || req.status === 'failed') && (
+                <p className="text-[12.5px] text-muted-foreground">{numberAction.reason}</p>
+              )}
               {askMsg && <p className="text-[12px] text-muted-foreground">{askMsg}</p>}
+              <ConfirmDialog open={buyOpen} title={`Buy a toll-free number for ${d.client.name}?`} confirmLabel="Buy it" onConfirm={buyNumber} onClose={() => setBuyOpen(false)}>
+                <p>About $2.15/month on Genisys’s Twilio (Hell-level), no ID check. Twilio picks an available toll-free number.</p>
+                <p>
+                  {d.numberTo.ring
+                    ? `Calls ring ${pretty(d.numberTo.ring)}; whoever answers presses a key to take the call.`
+                    : 'No business phone is on file, so every call to it counts as missed and gets the text-back.'}
+                  {d.numberTo.texts ? ` Texts to it are forwarded to ${pretty(d.numberTo.texts)}.` : ''}
+                </p>
+                <p className="text-muted-foreground">
+                  Its texting verification is filed once their site link is in (free; Twilio reviews it in about 3 business days).
+                  {numberAction.kind === 'buy' && numberAction.answersOffice ? ' This answers Echo’s question in the Office.' : ''}
+                </p>
+              </ConfirmDialog>
             </>
           )}
         </Card>
@@ -677,6 +691,8 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
       {d.ghlRegistration && <GhlRegistrationCard clientId={d.client.id} r={d.ghlRegistration} canAct={canAsk} />}
 
       {d.siteForm && <SiteFormCard clientId={d.client.id} f={d.siteForm} canAct={canAsk} />}
+
+      <DomainCard d={d} canAct={canAsk} />
 
       <SiteBuildCard d={d} canAct={canAsk} onOpenBuilder={d.builder ? () => setBuilderOpen(true) : null} />
 

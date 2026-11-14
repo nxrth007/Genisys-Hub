@@ -79,6 +79,11 @@ test('by hand: older clients, own domain or a live site, after None of these; ne
   assert.equal(plan.domainAskDecision({ ...manual, request: { status: 'declined' } }).ask, true)
   assert.equal(plan.domainAskDecision({ ...manual, request: { status: 'awaiting_approval' } }).ask, false)
   assert.equal(plan.domainAskDecision({ ...manual, hasDomain: true }).ask, false)
+  // Fresh suggestions from their folder: an open question is refreshed, never one that's buying or done.
+  assert.equal(plan.domainAskDecision({ ...manual, refresh: true, request: { status: 'awaiting_approval' } }).ask, true)
+  assert.equal(plan.domainAskDecision({ ...manual, refresh: true, request: { status: 'buying' } }).ask, false)
+  assert.equal(plan.domainAskDecision({ ...manual, refresh: true, request: { status: 'bought' } }).ask, false)
+  assert.equal(plan.domainAskDecision({ ...base, refresh: true, request: { status: 'awaiting_approval' } }).ask, false, 'only by hand')
 })
 
 test('saved suggestions are read back safely', () => {

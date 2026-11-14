@@ -84,6 +84,8 @@ export type DomainAskCandidate = {
   trigger: 'onboarding' | 'sweep' | 'manual'
   accountCreatedAt: Date | null
   since: Date
+  /** By hand from their folder: fresh suggestions for a question that's still open (never while buying). */
+  refresh?: boolean
 }
 
 /**
@@ -96,7 +98,8 @@ export function domainAskDecision(c: DomainAskCandidate): { ask: boolean; reason
   if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
   if (c.hasDomain) return { ask: false, reason: 'its sub-account already has a domain' }
   const r = c.request?.status
-  if (r === 'awaiting_approval' || r === 'buying') return { ask: false, reason: 'already asked' }
+  if (r === 'buying') return { ask: false, reason: 'it’s buying one now' }
+  if (r === 'awaiting_approval' && !(c.trigger === 'manual' && c.refresh)) return { ask: false, reason: 'already asked' }
   if (r === 'bought') return { ask: false, reason: 'it already has its domain' }
   if (c.trigger !== 'manual') {
     if (c.bringingOwnDomain) return { ask: false, reason: 'they’re bringing their own domain (onboarding form)' }
