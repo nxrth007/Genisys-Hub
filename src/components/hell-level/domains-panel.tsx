@@ -343,10 +343,10 @@ function RegistrarSetup({ status }: { status: Registrar | undefined }) {
           <a href="https://porkbun.com" target="_blank" rel="noreferrer" className="text-primary hover:underline">
             porkbun.com
           </a>{' '}
-          and verify its email and phone.
+          and verify its email and phone (Account → Settings / Billing → “Account Owner and Recovery”).
         </li>
         <li>Under Account → API Access: create a key (a sandbox key first lets you try everything free), set a monthly spend limit, and turn on API access for all domains.</li>
-        <li>Add some credit under Account → Billing (purchases are paid from it).</li>
+        <li>Add some credit under Account → Account Credit (purchases are paid from it).</li>
         <li>
           Put the two keys in the{' '}
           <a href="/vault" className="text-primary hover:underline">
