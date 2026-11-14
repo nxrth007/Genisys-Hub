@@ -26,6 +26,7 @@ import {
   lovableMcpAgentState,
   lovableMcpDeploy,
   lovableMcpGrep,
+  lovableMcpReadFiles,
   lovableMcpRecentMessages,
   lovableMcpSend,
   lovableProjectPublic,
@@ -35,6 +36,7 @@ import { lovablePublicId } from './site-plan'
 import { publicBase } from './twilio'
 import {
   codeGaps,
+  findInFiles,
   followUpMessage,
   ghlInCode,
   hlInCode,
@@ -42,7 +44,9 @@ import {
   liveState,
   liveSwapped,
   staysOnGhl,
+  wantFile,
   widgetSwapMessage,
+  type CodeHit,
   type LiveState,
 } from './widget-swap-plan'
 
@@ -83,6 +87,8 @@ export type WidgetSwap = {
   before: LiveState | null
   after: LiveState | null
   detail: string | null
+  /** The step a failed swap stopped at (a resume picks it up there). */
+  stoppedAt?: SwapStatus | null
   log: { at: string; text: string }[]
 }
 
@@ -230,6 +236,37 @@ export async function unqueueWidgetSwaps(clientIds: string[], by: string): Promi
     }
     await move(s, 'failed', `Taken off the queue by ${by}.`, `Taken off the queue by ${by}.`)
     out.push({ clientId, name: s.name, queued: false, note: 'Taken off the queue.' })
+  }
+  return out
+}
+
+/** Steps a failed swap can pick up again without sending Lovable the swap a second time. */
+const RESUMABLE: SwapStatus[] = ['editing', 'checking_code', 'publishing', 'checking_live']
+
+/** The step a failed swap stopped at: saved since 2026-11-14, else read from its "Stopped while …" line. */
+function stoppedAt(s: WidgetSwap): SwapStatus | null {
+  if (s.stoppedAt) return s.stoppedAt
+  const line = [...s.log].reverse().find((l) => l.text.startsWith('Stopped while '))
+  const m = line && /^Stopped while ([a-z_]+):/.exec(line.text)
+  return m ? (m[1] as SwapStatus) : null
+}
+
+/**
+ * Pick failed swaps up again at the step they stopped at (once the cause is fixed: a person answered
+ * Lovable, or the Hub's check was mended). Never at queued or sending: queue it again for that.
+ */
+export async function resumeWidgetSwaps(clientIds: string[], by: string): Promise<QueueResult[]> {
+  const out: QueueResult[] = []
+  for (const clientId of [...new Set(clientIds)]) {
+    const s = await load(clientId)
+    const at = s?.status === 'failed' ? stoppedAt(s) : null
+    if (!s || !at || !RESUMABLE.includes(at)) {
+      out.push({ clientId, name: s?.name ?? null, queued: false, note: !s ? 'Never queued.' : s.status !== 'failed' ? `Not failed (${s.status}).` : 'It stopped before Lovable was sent the swap: queue it again instead.' })
+      continue
+    }
+    s.stoppedAt = null
+    await move(s, at, `Picked up again at ${at} by ${by}.`, `Picked up again at ${at}.`)
+    out.push({ clientId, name: s.name, queued: true, note: `Picked up again at ${at}.` })
   }
   return out
 }
@@ -398,16 +435,42 @@ async function watchEdit(s: WidgetSwap): Promise<boolean> {
   return false
 }
 
+/** At most this many of a project's source files are read for the code check. */
+const MAX_FILES = 150
+/** Whether the Hub's Lovable account has grep_files (null: not tried since the Hub started). */
+let grepWorks: boolean | null = null
+
+/**
+ * Every line holding each needle in the project's code: by Lovable's code search where the account
+ * has it, else by reading the site's own source files (the Hub's account doesn't, 2026-11-14).
+ */
+async function searchCode(projectId: string, needles: string[]): Promise<{ find: (needle: string) => CodeHit[]; how: string }> {
+  if (grepWorks !== false) {
+    try {
+      const found = new Map<string, CodeHit[]>()
+      for (const n of needles) found.set(n, (await lovableMcpGrep(projectId, n)).hits)
+      grepWorks = true
+      return { find: (n) => found.get(n) ?? [], how: 'Lovable’s code search' }
+    } catch (err) {
+      if (!(err instanceof LovableMcpError && /not enabled/i.test(err.message))) throw err
+      grepWorks = false
+    }
+  }
+  const read = await lovableMcpReadFiles(projectId, wantFile, MAX_FILES)
+  if (!read.files.length) throw new SwapStop(`Lovable listed ${read.listed} files in the project but none of the site’s own source to check. Look in Lovable (${editorLink(projectId)}); nothing was published.`)
+  const more = read.wanted > read.files.length ? ` (the first ${read.files.length} of ${read.wanted})` : ''
+  return { find: (n) => findInFiles(read.files, n), how: `the site’s ${read.files.length} source files${more}` }
+}
+
 /** checking_code → publishing, or one follow-up, or failed. */
 async function checkCode(s: WidgetSwap): Promise<boolean> {
   if (!s.projectId || !s.formId || !s.chatId) throw new SwapStop('Lost the project or the form and chat ids.')
-  const grep = async (q: string) => (await lovableMcpGrep(s.projectId!, q)).hits
-  const ghlHits = [...(await grep('leadconnectorhq')), ...(await grep('msgsndr')), ...(await grep('chat-widget'))]
-  const ghl = ghlInCode(ghlHits)
-  const hl = hlInCode({ formHits: await grep(s.formId), widgetHits: await grep('hl/widget.js'), chatHits: await grep(s.chatId) })
+  const code = await searchCode(s.projectId, ['leadconnectorhq', 'msgsndr', 'chat-widget', s.formId, 'hl/widget.js', s.chatId])
+  const ghl = ghlInCode([...code.find('leadconnectorhq'), ...code.find('msgsndr'), ...code.find('chat-widget')])
+  const hl = hlInCode({ formHits: code.find(s.formId), widgetHits: code.find('hl/widget.js'), chatHits: code.find(s.chatId) })
   const gaps = codeGaps({ ghl, hl })
   if (!gaps.length) {
-    await move(s, 'publishing', 'Lovable’s code search: our form and chat are in, and GoHighLevel’s form and chat are out.', 'Publishing.')
+    await move(s, 'publishing', `Checked ${code.how}: our form and chat are in, and GoHighLevel’s form and chat are out.`, 'Publishing.')
     return true
   }
   if (Date.now() - Date.parse(s.stepAt) < 45_000) {
@@ -489,6 +552,7 @@ async function advance(clientId: string): Promise<boolean> {
       const stop = err instanceof SwapStop || (err instanceof LovableMcpError && err.reconnect) || s.tries + 1 >= MAX_TRIES
       if (stop) {
         const why = err instanceof LovableMcpError && err.reconnect ? `${err.message} (SEO page → Setup card), then queue the swap again.` : describe(err)
+        s.stoppedAt = was
         await move(s, 'failed', `Stopped while ${was}: ${why}`, why)
         return true
       }

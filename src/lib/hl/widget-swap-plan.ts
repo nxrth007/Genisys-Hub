@@ -58,6 +58,32 @@ export type CodeHit = { path: string; line: number; text: string }
 /** Notes and plans in the project (Lovable's .lovable folder, docs, READMEs) aren't the site's code. */
 const notCode = (path: string) => /(^|\/)(\.lovable|docs?)\//i.test(path) || /\.(md|mdx|txt)$/i.test(path) || /(^|\/)package(-lock)?\.json$/i.test(path)
 
+/**
+ * The files the code check reads when the account has no code search: the site's own source and
+ * HTML. Not shadcn's ui kit, tests, build output, notes, or JSON (configs, and the SEO engine's
+ * blog posts).
+ */
+export function wantFile(path: string): boolean {
+  if (notCode(path)) return false
+  if (/(^|\/)(node_modules|dist|build|\.git|\.github)\//.test(path)) return false
+  if (/(^|\/)src\/components\/ui\//.test(path)) return false
+  if (/\.(test|spec|stories)\.[cm]?[jt]sx?$/i.test(path) || /\.d\.ts$/i.test(path)) return false
+  return /\.([cm]?[jt]sx?|html?|vue|svelte|astro)$/i.test(path)
+}
+
+/** Every line holding `needle` (any case) in the files read, as a code search would give it. */
+export function findInFiles(files: { path: string; text: string }[], needle: string): CodeHit[] {
+  const n = needle.toLowerCase()
+  const hits: CodeHit[] = []
+  for (const f of files) {
+    if (!f.text.toLowerCase().includes(n)) continue
+    f.text.split(/\r?\n/).forEach((text, i) => {
+      if (text.toLowerCase().includes(n)) hits.push({ path: f.path, line: i + 1, text: text.slice(0, 300) })
+    })
+  }
+  return hits
+}
+
 const BOOKING = /widget\/(booking|bookings|appointment|calendars?|group)\b|form_embed\.js/i
 const GHL_FORM = /widget\/(form|survey|quiz)\b/i
 const GHL_CHAT = /widgets\.leadconnectorhq\.com|chat-widget|data-widget-id/i

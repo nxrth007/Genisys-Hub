@@ -80,6 +80,22 @@ test('GoHighLevel in the code: forms and chat count, a booking calendar and note
   assert.equal(plan.ghlInCode([hit('index.html', '<chat-widget location-id="loc1"></chat-widget>')]).chat.length, 1)
 })
 
+test('without a code search: the site’s own source and HTML are read, line by line', () => {
+  for (const p of ['index.html', 'src/App.tsx', 'src/main.tsx', 'src/components/site/QuoteForm.tsx', 'src/pages/Contact.jsx', 'src/routes/__root.tsx', 'public/thanks.html']) {
+    assert.equal(plan.wantFile(p), true, p)
+  }
+  for (const p of ['src/components/ui/button.tsx', 'README.md', '.lovable/plan.md', 'package.json', 'src/content/blog/post-1.json', 'src/App.test.tsx', 'src/vite-env.d.ts', 'node_modules/x/index.js', 'dist/assets/index.js', 'public/logo.png']) {
+    assert.equal(plan.wantFile(p), false, p)
+  }
+  const files = [
+    { path: 'index.html', text: '<html>\n<body>\n<script src="https://widgets.leadconnectorhq.com/loader.js" data-widget-id="w1"></script>\n</body>' },
+    { path: 'src/App.tsx', text: 'export default App' },
+  ]
+  assert.deepEqual(plan.findInFiles(files, 'LeadConnectorHQ'), [{ path: 'index.html', line: 3, text: '<script src="https://widgets.leadconnectorhq.com/loader.js" data-widget-id="w1"></script>' }])
+  assert.deepEqual(plan.findInFiles(files, 'hl/widget.js'), [])
+  assert.equal(plan.ghlInCode(plan.findInFiles(files, 'leadconnectorhq')).chat.length, 1)
+})
+
 test('Hell-level in the code: the form id, and the widget script with the chat id', () => {
   const f = [hit('src/components/QuoteForm.tsx', 'const FORM = "form123"')]
   const w = [hit('index.html', '<script src="https://hub/hl/widget.js" data-form="chat456" async></script>')]

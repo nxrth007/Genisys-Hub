@@ -389,6 +389,11 @@ function scopeHint(text: string): string | null {
 
 /** Call one Lovable MCP tool: initialize a session, then tools/call. */
 export async function lovableMcpCall(tool: string, args: Record<string, unknown>, timeoutMs = 120_000): Promise<McpToolResult> {
+  return (await mcpSession()).call(tool, args, timeoutMs)
+}
+
+/** An initialized MCP session, for several tool calls in a row (reading many files) without a handshake each. */
+async function mcpSession(): Promise<{ call: (tool: string, args: Record<string, unknown>, timeoutMs?: number) => Promise<McpToolResult> }> {
   const token = await accessToken()
   const init = await rpc(
     token,
@@ -399,8 +404,18 @@ export async function lovableMcpCall(tool: string, args: Record<string, unknown>
   if (init.reply?.error) throw new LovableMcpError(`Lovable’s MCP server wouldn’t start a session: ${init.reply.error.message ?? 'unknown error'}`)
   // Required by the protocol before any request; servers that keep no session ignore it.
   await rpc(token, init.session, { method: 'notifications/initialized' }, 15_000).catch(() => undefined)
+  let next = 2
+  return {
+    call: async (tool, args, timeoutMs = 120_000) => {
+      const call = await rpc(token, init.session, { id: next, method: 'tools/call', params: { name: tool, arguments: args } }, timeoutMs)
+      next += 1
+      return toolResult(tool, call.reply)
+    },
+  }
+}
 
-  const call = await rpc(token, init.session, { id: 2, method: 'tools/call', params: { name: tool, arguments: args } }, timeoutMs)
+function toolResult(tool: string, reply: Rpc | null): McpToolResult {
+  const call = { reply }
   if (!call.reply) throw new LovableMcpError(`Lovable’s MCP server gave no answer to ${tool}.`)
   if (call.reply.error) {
     const hint = scopeHint(call.reply.error.message ?? '')
@@ -641,6 +656,44 @@ export async function lovableMcpGrep(projectId: string, query: string, limit = 2
       : []
   })
   return { hits, truncated: s.truncated === true }
+}
+
+/**
+ * The project's text files whose paths `want` accepts (the first `max` of them), read in one MCP
+ * session: list_files a page at a time ({ data: [{ path, binary }], pagination: { next_cursor,
+ * has_more } }), then read_file each (its raw text). For accounts without grep_files: Lovable
+ * answers "grep_files is not enabled for this account. Use list_files and read_file instead."
+ */
+export async function lovableMcpReadFiles(
+  projectId: string,
+  want: (path: string) => boolean,
+  max = 150,
+): Promise<{ files: { path: string; text: string }[]; listed: number; wanted: number }> {
+  const session = await mcpSession()
+  const paths: string[] = []
+  let listed = 0
+  let cursor: string | null = null
+  for (let page = 0; page < 30; page++) {
+    const res = await session.call('list_files', { project_id: projectId, limit: 100, ...(cursor ? { cursor } : {}) }, 60_000)
+    const s = res.structured
+    if (!s || !Array.isArray(s.data)) throw new LovableMcpError(`Lovable’s file list answered in a shape the Hub can’t read (${res.text.slice(0, 200) || 'empty answer'}).`)
+    for (const f of s.data) {
+      const r = recOf(f)
+      const path = r && strOf(r.path)
+      if (!r || !path) continue
+      listed += 1
+      if (r.binary !== true && want(path)) paths.push(path)
+    }
+    const p = recOf(s.pagination)
+    cursor = p && p.has_more === true ? strOf(p.next_cursor) : null
+    if (!cursor) break
+  }
+  const files: { path: string; text: string }[] = []
+  for (const path of paths.slice(0, max)) {
+    const res = await session.call('read_file', { project_id: projectId, path }, 60_000)
+    files.push({ path, text: res.text })
+  }
+  return { files, listed, wanted: paths.length }
 }
 
 /**
