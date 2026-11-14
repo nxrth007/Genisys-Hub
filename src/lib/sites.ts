@@ -15,11 +15,13 @@ import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { readSavedPause, type SitePause } from '@/lib/hl/site-pause'
-import { hellLevelStage, siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
+import { hellLevelStage, personName, siteHref, siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
   id: string
   name: string
+  /** The client themself (the person), under the company name. */
+  person: string | null
   color: string
   siteUrl: string | null
   status: SiteStatus
@@ -42,6 +44,7 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
     select: {
       id: true,
       name: true,
+      contactName: true,
       color: true,
       siteUrl: true,
       ghlLocationId: true,
@@ -60,6 +63,7 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
       return {
         id: c.id,
         name: c.name,
+        person: personName(c.contactName) ?? personName(readProfile(c.hlAccount?.profile).ownerName),
         color: c.color,
         siteUrl: c.siteUrl,
         status: siteStatus({ siteUrl: c.siteUrl, websiteStage: c.journeyStages[0]?.status }),
@@ -82,7 +86,7 @@ const STAGE_LABEL: Record<JourneyStage, string> = {
 }
 
 export type SiteDetail = {
-  client: { id: string; name: string; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string }
+  client: { id: string; name: string; person: string | null; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string }
   status: SiteStatus
   /** The Status card's rows: the journey stages, plus their Hell-level sub-account (`href` opens it). */
   journey: { stage: string; label: string; status: string; note: string | null; updatedAt: string | null; href?: string | null }[]
@@ -160,6 +164,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     select: {
       id: true,
       name: true,
+      contactName: true,
       color: true,
       siteUrl: true,
       siteLiveAt: true,
@@ -233,7 +238,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     build: folderBuild({ hasAccount, ghlLinked: !!c.ghlLocationId, status: forge?.status ?? null }),
   }
   return {
-    client: { id: c.id, name: c.name, color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
+    client: { id: c.id, name: c.name, person: personName(c.contactName) ?? personName(p?.ownerName), color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
     journey: journey.stages.flatMap((s) => {
       const updatedAt = s.updatedAt?.toISOString() ?? null

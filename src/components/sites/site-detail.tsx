@@ -640,6 +640,7 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[24px] font-semibold tracking-tight text-foreground">{d.client.name}</h1>
+          {d.client.person && <p className="truncate text-[14px] text-foreground/80">{d.client.person}</p>}
           <p className={cn('text-[13px]', live ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400')}>
             {SITE_STATUS_LABEL[d.status]}
             {live && d.client.siteUrl ? ` · ${siteHost(d.client.siteUrl)}` : ''}

@@ -23,6 +23,21 @@ export const SITE_STATUS_LABEL: Record<SiteStatus, string> = {
   needs_site: 'Needs a site',
 }
 
+const JOINERS = new Set(['and', 'or', 'of', '&'])
+
+/**
+ * The client's own name (the person, from the onboarding form) as the Sites folders show it: spaces
+ * tidied, and a word typed all lower or all upper case capitalised ("Clyde hilliker" → "Clyde
+ * Hilliker"), joiners left alone ("Fadi Kahlil and Chris Cepeda"). Null when blank.
+ */
+export function personName(raw: string | null | undefined): string | null {
+  const words = (raw ?? '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
+  if (!words.length) return null
+  return words
+    .map((w) => (JOINERS.has(w.toLowerCase()) ? w.toLowerCase() : w === w.toLowerCase() || w === w.toUpperCase() ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ')
+}
+
 /** "https://www.acmeroofing.com/" → "acmeroofing.com". */
 export function siteHost(url: string | null | undefined): string {
   if (!url?.trim()) return ''

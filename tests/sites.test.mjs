@@ -93,3 +93,13 @@ test('textingLine: what the number can do, in a sentence', () => {
   assert.match(s.textingLine({ verificationStatus: 'none', siteLive: false }), /once the site link is in/)
   assert.match(s.textingLine({ verificationStatus: 'none', siteLive: true }), /within minutes of the site link/)
 })
+
+test('personName: the client themself, tidied for the folders', () => {
+  assert.equal(s.personName('Clyde hilliker'), 'Clyde Hilliker')
+  assert.equal(s.personName('  Fadi Kahlil and Chris Cepeda '), 'Fadi Kahlil and Chris Cepeda')
+  assert.equal(s.personName('JOHN SMITH'), 'John Smith')
+  assert.equal(s.personName('LeRoy  Symbol'), 'LeRoy Symbol', 'a name typed with its own capitals stays as typed')
+  assert.equal(s.personName('ben & jerry'), 'Ben & Jerry')
+  assert.equal(s.personName('   '), null)
+  assert.equal(s.personName(null), null)
+})

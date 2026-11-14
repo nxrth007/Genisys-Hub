@@ -35,7 +35,7 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
   const q = query.trim().toLowerCase()
   const needNumber = folders.filter((f) => f.phone === 'needs').length
   const cantText = folders.filter((f) => f.cantText).length
-  const shown = folders.filter((f) => matches(f, filter) && (!q || f.name.toLowerCase().includes(q) || siteHost(f.siteUrl).includes(q)))
+  const shown = folders.filter((f) => matches(f, filter) && (!q || f.name.toLowerCase().includes(q) || !!f.person?.toLowerCase().includes(q) || siteHost(f.siteUrl).includes(q)))
 
   return (
     <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
@@ -50,8 +50,8 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a client or site"
-            aria-label="Find a client or site"
+            placeholder="Find a company, person or site"
+            aria-label="Find a company, person or site"
             className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
         </label>
@@ -132,6 +132,11 @@ function FolderTile({ f }: { f: SiteFolder }) {
         )}
       </span>
       <span className="line-clamp-2 text-[12.5px] font-medium leading-tight text-foreground">{f.name}</span>
+      {f.person && (
+        <span className="line-clamp-2 text-[11.5px] leading-tight text-foreground/70" title={f.person}>
+          {f.person}
+        </span>
+      )}
       <span className={cn('max-w-full truncate text-[11px]', live ? 'text-muted-foreground' : f.status === 'blocked' ? 'text-destructive' : 'text-amber-600 dark:text-amber-400')}>
         {live ? siteHost(f.siteUrl) : f.status === 'building' ? 'Being built' : f.status === 'blocked' ? 'Build blocked' : 'Needs a site'}
       </span>
