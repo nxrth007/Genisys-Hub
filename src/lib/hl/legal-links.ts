@@ -2,21 +2,27 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { getTree, readFile } from '@/lib/seo/github'
 import { readProfile } from './accounts'
-import { bareHost, builtSiteLegal } from './site-plan'
+import { bareHost, builtSiteLegal, firstOwnLinks, type OwnLegalLinks } from './site-plan'
 import { publicBase } from './twilio'
 import type { HlFormSettings, HlProfile } from './types'
 
 /**
- * Where a form's "Privacy Policy" and "Terms" links go. In order: the form's
- * own links; the site the form is on, when it's the site Forge built for the
- * client (builtSiteLegalLinks); the sub-account's (Business Profile); then
- * the pages the Hub hosts for every sub-account. Genisys-built sites have
- * their own SMS-ready /privacy and /terms pages, so a client with a live
- * site and a connected repo gets those filled into the profile
- * (fillLegalLinksFromSite).
+ * Where "Privacy Policy" and "Terms" links go.
+ *
+ * Forms, the chat widget and booking calendars (ownLegalLinks) link only the
+ * client's own pages, never the Hub's (Alex, 2026-11-13). In order: the
+ * form's own links; the site it's shown on, when that's the site Forge built
+ * (builtSiteLegalLinks); the sub-account's (Business Profile); the site
+ * Forge published. With none of those, the words show without a link.
+ *
+ * Texting registration and the Hub's opt-in page (resolveLegalLinks) still
+ * fall back to the pages the Hub hosts for every sub-account. Genisys-built
+ * sites have their own SMS-ready /privacy and /terms pages, so a client with
+ * a live site gets those filled into the profile (fillLegalLinksFromSite).
  */
 
 export type LegalLinks = { privacy: string; terms: string }
+export type { OwnLegalLinks }
 
 const httpUrl = (v: string | null | undefined): string | null => {
   const s = v?.trim()
@@ -35,40 +41,58 @@ export function isHubUrl(url: string): boolean {
   }
 }
 
-export function resolveLegalLinks(accountId: string, profile: HlProfile, settings?: HlFormSettings, onSite?: LegalLinks | null): LegalLinks {
+/** For texting registration and the Hub's opt-in page: the form's or profile's links, else the pages the Hub hosts. */
+export function resolveLegalLinks(accountId: string, profile: HlProfile, settings?: HlFormSettings): LegalLinks {
   return {
-    privacy: httpUrl(settings?.privacyUrl) ?? onSite?.privacy ?? httpUrl(profile.privacyUrl) ?? hostedLegalUrl(accountId, 'privacy'),
-    terms: httpUrl(settings?.termsUrl) ?? onSite?.terms ?? httpUrl(profile.termsUrl) ?? hostedLegalUrl(accountId, 'terms'),
+    privacy: httpUrl(settings?.privacyUrl) ?? httpUrl(profile.privacyUrl) ?? hostedLegalUrl(accountId, 'privacy'),
+    terms: httpUrl(settings?.termsUrl) ?? httpUrl(profile.termsUrl) ?? hostedLegalUrl(accountId, 'terms'),
   }
 }
 
 /**
- * A form or chat shown on the site Forge built for the client links that
- * site's own /privacy and /terms (./site-plan.ts builtSiteLegal): the
- * copy's preview, its lovable.app address, or the client's own domain.
- * `shownOn` is the page the browser says the form is on (its frame's
- * Referer). Null before Forge made the client's Lovable copy, off that site,
- * or when the browser didn't say.
+ * The site Forge built for the client, as policy links: `onPage` when the
+ * form is shown on it (the copy's preview, its lovable.app address, or the
+ * client's own domain; `shownOn` is the frame's Referer), and `published`
+ * once Forge published it (for a form opened anywhere else). Both null
+ * before Forge made the client's Lovable copy.
  */
-export async function builtSiteLegalLinks(accountId: string, shownOn: string | null | undefined): Promise<LegalLinks | null> {
-  if (!shownOn) return null
+export async function builtSiteLegalLinks(accountId: string, shownOn: string | null | undefined): Promise<{ onPage: LegalLinks | null; published: LegalLinks | null }> {
+  const none = { onPage: null, published: null }
   try {
     const account = await prisma.hlAccount.findUnique({
       where: { id: accountId },
       select: {
         domains: { select: { name: true } },
-        client: { select: { siteUrl: true, seoSite: { select: { liveUrl: true } }, hlSiteRequest: { select: { projectId: true, liveUrl: true } } } },
+        client: { select: { siteUrl: true, seoSite: { select: { liveUrl: true } }, hlSiteRequest: { select: { projectId: true, status: true, liveUrl: true } } } },
       },
     })
     const c = account?.client
-    if (!account || !c?.hlSiteRequest?.projectId) return null
-    const own = [c.siteUrl, c.seoSite?.liveUrl, c.hlSiteRequest.liveUrl, ...account.domains.map((d) => d.name)].map(bareHost).filter((h): h is string => !!h)
+    const built = c?.hlSiteRequest
+    if (!account || !c || !built?.projectId) return none
+    const own = [c.siteUrl, c.seoSite?.liveUrl, built.liveUrl, ...account.domains.map((d) => d.name)].map(bareHost).filter((h): h is string => !!h)
     const hub = bareHost(publicBase())
-    return builtSiteLegal(shownOn, own, hub ? [hub] : [])
+    const hubs = hub ? [hub] : []
+    return {
+      onPage: shownOn ? builtSiteLegal(shownOn, own, hubs) : null,
+      published: built.status === 'published' && built.liveUrl ? builtSiteLegal(built.liveUrl, own, hubs) : null,
+    }
   } catch (err) {
     console.warn(`[hell-level] site policy links for ${accountId}:`, err instanceof Error ? err.message : err)
-    return null
+    return none
   }
+}
+
+/**
+ * The policy links a form, chat or booking calendar shows: only the client's
+ * own pages (see the top of this file), never the Hub's. `shownOn` is the
+ * page it's embedded on (its frame's Referer), when known.
+ */
+export async function ownLegalLinks(accountId: string, profile: HlProfile, settings: HlFormSettings | undefined, shownOn: string | null | undefined): Promise<OwnLegalLinks> {
+  const site = await builtSiteLegalLinks(accountId, shownOn)
+  return firstOwnLinks(
+    [{ privacy: settings?.privacyUrl, terms: settings?.termsUrl }, site.onPage, { privacy: profile.privacyUrl, terms: profile.termsUrl }, site.published],
+    isHubUrl,
+  )
 }
 
 /** A route file's URL path: TanStack's src/routes/privacy.tsx → /privacy, legal.terms.tsx or legal/terms.tsx → /legal/terms. Null for layouts and dynamic routes. */

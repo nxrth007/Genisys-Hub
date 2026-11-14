@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { inkOn, shade } from '@/lib/hl/color'
 import type { HlConsentBox, HlField, HlFormSettings } from '@/lib/hl/types'
 import { BrandAvatar as Avatar, UsFlag, phonePretty as pretty, phoneTyping as typing } from './brand-bits'
-import { Linked } from './public-form'
+import { Linked, type PolicyLinks } from './public-form'
 
 /**
  * The chat widget's panel, inside the bubble on a client's website: a
@@ -25,7 +25,7 @@ type Props = {
   logo: string | null
   fields: HlField[]
   settings: HlFormSettings & { consents: HlConsentBox[] }
-  legal: { privacy: string; terms: string }
+  legal: PolicyLinks
   pageUrl: string | null
 }
 
@@ -330,12 +330,16 @@ export function ChatPanel({ formId, business, logo, fields, settings, legal, pag
           </>
         )}
         <p className={`flex items-center justify-center gap-1.5 text-[11px] text-[#98A2B3] ${sent ? '' : 'mt-2'}`}>
-          {settings.showLegalLinks !== false && (
+          {settings.showLegalLinks !== false && legal.privacy && (
             <>
               <a href={legal.privacy} target="_blank" rel="noreferrer" className="hover:text-[#667085] hover:underline">
                 Privacy
               </a>
               <span aria-hidden>·</span>
+            </>
+          )}
+          {settings.showLegalLinks !== false && legal.terms && (
+            <>
               <a href={legal.terms} target="_blank" rel="noreferrer" className="hover:text-[#667085] hover:underline">
                 Texting terms
               </a>

@@ -4,7 +4,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from '@/lib/hl/accounts'
 import { asSettings, consentsOf } from '@/lib/hl/forms'
 import { hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
-import { fillLegalLinksFromSite, resolveLegalLinks } from '@/lib/hl/legal-links'
+import { fillLegalLinksFromSite, ownLegalLinks } from '@/lib/hl/legal-links'
 import type { HlConsentBox, HlField, HlFieldType, HlFormSettings } from '@/lib/hl/types'
 
 type Ctx = { params: Promise<{ id: string; formId: string }> }
@@ -104,7 +104,8 @@ export async function GET(req: Request, { params }: Ctx) {
   ])
   const profile = readProfile(account.profile)
   const settings = asSettings(form.settings)
-  const fallback = resolveLegalLinks(id, profile)
+  // What a blank link becomes off the client's site (never the Hub's page; null shows the words without a link).
+  const fallback = await ownLegalLinks(id, profile, undefined, null)
   return NextResponse.json({
     form: { ...form, settings: { ...settings, consentText: undefined, consents: consentsOf(settings) } },
     submissions,

@@ -44,8 +44,8 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'address', label: 'Business address', merge: 'account.address' },
   { key: 'legalName', label: 'Legal business name', merge: 'account.legal_name', hint: 'As registered, for texting verification' },
   { key: 'ein', label: 'EIN', merge: 'account.ein', hint: 'For texting verification. Leave blank for a sole proprietor' },
-  { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
-  { key: 'termsUrl', label: 'Terms link', merge: 'account.terms_url', hint: 'Forms link here. Blank = the page the Hub hosts' },
+  { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms and texting registration link here. Blank: forms link their website’s own page (or nothing); registration uses the page the Hub hosts' },
+  { key: 'termsUrl', label: 'Terms link', merge: 'account.terms_url', hint: 'Forms and texting registration link here. Blank: forms link their website’s own page (or nothing); registration uses the page the Hub hosts' },
   { key: 'logoUrl', label: 'Logo', merge: 'account.logo_url', hint: 'An image link. Forms show it at the top' },
   { key: 'brandColor', label: 'Brand colour', merge: 'account.brand_color', hint: 'Forms and the chat widget use it' },
 ]

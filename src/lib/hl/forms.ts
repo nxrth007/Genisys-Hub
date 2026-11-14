@@ -3,7 +3,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { fireTrigger } from './automation'
 import { logActivity, upsertContact } from './contacts'
-import { builtSiteLegalLinks, resolveLegalLinks, type LegalLinks } from './legal-links'
+import { ownLegalLinks, type OwnLegalLinks } from './legal-links'
 import { toE164 } from './phone'
 import { CONSENT_TEXT } from './templates'
 import type { HlConsentBox, HlField, HlFormSettings } from './types'
@@ -35,7 +35,8 @@ export type PublicForm = {
   fields: HlField[]
   /** consents as shown: the business name filled in. */
   settings: HlFormSettings & { consents: HlConsentBox[] }
-  legal: LegalLinks
+  /** The client's own policy pages; null where there's none (never the Hub's). */
+  legal: OwnLegalLinks
   accountId: string
   /** The business logo at the top, unless the form turns it off. */
   logo: string | null
@@ -60,7 +61,7 @@ export function greetingOf(s: HlFormSettings): string | null {
 /**
  * A form as the public sees it. `shownOn` is the page it's embedded on (the
  * frame's Referer): on the site Forge built for the client, its privacy and
- * terms links open that site's own pages.
+ * terms links open that site's own pages. They never open the Hub's.
  */
 export async function publicForm(formId: string, shownOn?: string | null): Promise<PublicForm | null> {
   const form = await prisma.hlForm.findUnique({ where: { id: formId }, include: { account: { select: { id: true, name: true, profile: true, archivedAt: true } } } })
@@ -69,7 +70,6 @@ export async function publicForm(formId: string, shownOn?: string | null): Promi
   const business = profile.businessName || form.account.name
   const settings = asSettings(form.settings)
   const consents = consentsOf(settings).map((c) => ({ ...c, text: c.text.replace(/\{\{\s*business\s*\}\}/g, business) }))
-  const onSite = shownOn ? await builtSiteLegalLinks(form.account.id, shownOn) : null
   return {
     id: form.id,
     kind: form.kind === 'chat' ? 'chat' : 'form',
@@ -77,7 +77,7 @@ export async function publicForm(formId: string, shownOn?: string | null): Promi
     business,
     fields: asFields(form.fields),
     settings: { ...settings, color: formColor(settings, profile.brandColor), consentText: undefined, consents },
-    legal: resolveLegalLinks(form.account.id, profile, settings, onSite),
+    legal: await ownLegalLinks(form.account.id, profile, settings, shownOn),
     accountId: form.account.id,
     logo: settings.showLogo !== false && /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
   }

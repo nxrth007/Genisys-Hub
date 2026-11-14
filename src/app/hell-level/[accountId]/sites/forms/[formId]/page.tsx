@@ -16,8 +16,11 @@ type FormDetail = {
   form: { id: string; name: string; kind: string; fields: HlField[]; settings: HlFormSettings & { consents: HlConsentBox[] } }
   submissions: { id: string; createdAt: string; data: Record<string, unknown>; pageUrl: string | null; contact: { id: string; firstName: string | null; lastName: string | null } | null }[]
   /** What blank settings fall back to. */
-  defaults: { business: string; privacy: string; terms: string; fromProfile: { privacy: boolean; terms: boolean }; logo: string | null }
+  defaults: { business: string; privacy: string | null; terms: string | null; fromProfile: { privacy: boolean; terms: boolean }; logo: string | null }
 }
+
+/** What a blank link does when the client's own page isn't known. */
+const BLANK_LINK = 'on the site Forge built, that site’s own page; anywhere else no link until their website’s page is known (never the Hub’s)'
 
 const CONSENT_KINDS: { kind: HlConsentBox['kind']; label: string; text: string }[] = [
   { kind: 'sms', label: 'Texts about their request', text: SMS_CONSENT_TEXT },
@@ -299,7 +302,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[15px] font-semibold text-foreground">Privacy policy and terms</p>
-                  <p className="text-[12.5px] text-muted-foreground">Where the links in the consent wording and under the form go. Blank uses the sub-account’s.</p>
+                  <p className="text-[12.5px] text-muted-foreground">Where the links in the consent wording and under the form go. Blank uses the sub-account’s, else the client’s own website pages, never the Hub’s.</p>
                 </div>
                 <Button size="sm" variant="ghost" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={lookAgain.isPending} onClick={() => lookAgain.mutate()} title="Read the client's website again for its /privacy and /terms pages">
                   Check their website
@@ -309,11 +312,11 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
                 Show “Privacy policy · Texting terms” under the form
                 <Toggle checked={settings.showLegalLinks !== false} onChange={(v) => setSettings({ ...settings, showLegalLinks: v })} label="Show the links under the form" />
               </label>
-              <Field label="Privacy policy link" hint={`Blank: ${defaults.privacy}${defaults.fromProfile.privacy ? '' : ' (hosted by the Hub)'}`}>
-                <Input value={settings.privacyUrl ?? ''} onChange={(e) => setSettings({ ...settings, privacyUrl: e.target.value })} placeholder={defaults.privacy} />
+              <Field label="Privacy policy link" hint={`Blank: ${defaults.privacy ?? BLANK_LINK}`}>
+                <Input value={settings.privacyUrl ?? ''} onChange={(e) => setSettings({ ...settings, privacyUrl: e.target.value })} placeholder={defaults.privacy ?? 'https://their-site.com/privacy'} />
               </Field>
-              <Field label="Terms link" hint={`Blank: ${defaults.terms}${defaults.fromProfile.terms ? '' : ' (hosted by the Hub)'}`}>
-                <Input value={settings.termsUrl ?? ''} onChange={(e) => setSettings({ ...settings, termsUrl: e.target.value })} placeholder={defaults.terms} />
+              <Field label="Terms link" hint={`Blank: ${defaults.terms ?? BLANK_LINK}`}>
+                <Input value={settings.termsUrl ?? ''} onChange={(e) => setSettings({ ...settings, termsUrl: e.target.value })} placeholder={defaults.terms ?? 'https://their-site.com/terms'} />
               </Field>
               <ErrorNote error={lookAgain.error} />
             </Card>

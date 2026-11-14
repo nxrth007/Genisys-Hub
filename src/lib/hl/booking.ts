@@ -10,7 +10,7 @@ import { asCalendarSettings, durationsOf, recurringLabel, recurringOf, type HlCa
 import { logActivity, upsertContact } from './contacts'
 import { googleBusy, syncAppointmentToGoogle } from './google-calendar'
 import { HlInputError } from './http'
-import { resolveLegalLinks, type LegalLinks } from './legal-links'
+import { ownLegalLinks, type OwnLegalLinks } from './legal-links'
 import { resourcesFor, slotsWithResources } from './resources'
 import { appointmentTimes, renderTemplate } from './merge'
 import { toE164 } from './phone'
@@ -161,7 +161,8 @@ export type PublicCalendar = {
   /** The business's logo (an image link), for the page's header. */
   logo: string | null
   consents: HlConsentBox[]
-  legal: LegalLinks
+  /** The client's own policy pages; null where there's none (never the Hub's). */
+  legal: OwnLegalLinks
   askEmail: boolean
   requireEmail: boolean
   askNotes: boolean
@@ -204,7 +205,7 @@ export async function publicCalendar(calendarId: string): Promise<PublicCalendar
     color: calendarColor(s, profile.brandColor),
     logo: /^https?:\/\//i.test(profile.logoUrl ?? '') ? profile.logoUrl! : null,
     consents,
-    legal: resolveLegalLinks(cal.account.id, profile),
+    legal: await ownLegalLinks(cal.account.id, profile, undefined, null),
     askEmail: s.askEmail !== false,
     requireEmail: s.requireEmail === true,
     askNotes: s.askNotes !== false,

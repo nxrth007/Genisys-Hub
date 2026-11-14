@@ -21,9 +21,10 @@ export function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
   const { formId } = await params
-  const form = await publicForm(formId)
+  // The site asking (its Referer) decides the policy links, as for the embedded form.
+  const form = await publicForm(formId, req.headers.get('referer'))
   if (!form) return NextResponse.json({ error: 'Form not found' }, { status: 404, headers: CORS })
   // Everything but the sub-account id.
   return NextResponse.json({ form: { id: form.id, kind: form.kind, name: form.name, business: form.business, fields: form.fields, settings: form.settings, legal: form.legal } }, { headers: CORS })

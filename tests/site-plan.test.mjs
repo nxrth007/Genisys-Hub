@@ -388,3 +388,16 @@ test('on the site Forge built, the form and chat link that site’s own policy p
   assert.equal(plan.bareHost('acme.com'), 'acme.com')
   assert.equal(plan.bareHost(''), null)
 })
+
+test('forms and chat never link the Hub’s policy pages', () => {
+  const isHub = (u) => /genisys-hub\.onrender\.com/.test(u)
+  const hub = { privacy: 'https://genisys-hub.onrender.com/hl/legal/acc/privacy', terms: 'https://genisys-hub.onrender.com/hl/legal/acc/terms' }
+  const site = { privacy: 'https://acme.com/privacy', terms: 'https://acme.com/terms' }
+  // The form's own links first, then the site it's on, the profile, the published site.
+  assert.deepEqual(plan.firstOwnLinks([{ privacy: 'https://own.com/p', terms: '' }, site], isHub), { privacy: 'https://own.com/p', terms: 'https://acme.com/terms' })
+  assert.deepEqual(plan.firstOwnLinks([null, undefined, site], isHub), site)
+  // A Hub page is skipped wherever it comes from; with nothing else, no link.
+  assert.deepEqual(plan.firstOwnLinks([hub, site], isHub), site)
+  assert.deepEqual(plan.firstOwnLinks([hub], isHub), { privacy: null, terms: null })
+  assert.deepEqual(plan.firstOwnLinks([{ privacy: 'not a link', terms: '  ' }], isHub), { privacy: null, terms: null })
+})

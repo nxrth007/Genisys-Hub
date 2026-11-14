@@ -82,7 +82,8 @@ export function BookingFrame({
   title: string
   facts?: FrameFact[]
   description?: string | null
-  legal: { privacy: string; terms: string } | null
+  /** The client's own policy pages; a link shows only where there's one. */
+  legal: { privacy: string | null; terms: string | null } | null
   children: React.ReactNode
 }) {
   const ink = inkOn(color)
@@ -122,12 +123,16 @@ export function BookingFrame({
         <div className="px-5 py-5 sm:px-8 sm:py-7">{children}</div>
       </div>
       <p className="hl-legal flex flex-wrap items-center justify-center gap-1.5 px-4 pb-6 pt-4 text-[11.5px] text-[#98A2B3]">
-        {legal && (
+        {legal?.privacy && (
           <>
             <a href={legal.privacy} target="_blank" rel="noreferrer" className="hover:text-[#667085] hover:underline">
               Privacy
             </a>
             <span aria-hidden>·</span>
+          </>
+        )}
+        {legal?.terms && (
+          <>
             <a href={legal.terms} target="_blank" rel="noreferrer" className="hover:text-[#667085] hover:underline">
               Texting terms
             </a>

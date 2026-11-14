@@ -494,6 +494,20 @@ export function bareHost(v: string | null | undefined): string | null {
  * its lovable.app address) or it's at one of the client's own addresses
  * (`ownHosts`). Null otherwise, and on the Hub itself: the usual links apply.
  */
+/** A form's policy links: null where there's no page of the client's own to link (the words then show without a link). */
+export type OwnLegalLinks = { privacy: string | null; terms: string | null }
+
+/**
+ * For each link, the first option that's a web address and not one of the
+ * Hub's own pages (Alex, 2026-11-13: forms and chat never link the Hub's
+ * /hl/legal pages). Null when no option has one.
+ */
+export function firstOwnLinks(options: ({ privacy?: string | null; terms?: string | null } | null | undefined)[], isHub: (url: string) => boolean): OwnLegalLinks {
+  const pick = (k: 'privacy' | 'terms') =>
+    options.map((o) => o?.[k]?.trim() || null).find((u): u is string => !!u && /^https?:\/\/[^\s/$.?#][^\s]*$/i.test(u) && !isHub(u)) ?? null
+  return { privacy: pick('privacy'), terms: pick('terms') }
+}
+
 export function builtSiteLegal(shownOn: string | null | undefined, ownHosts: string[], hubHosts: string[]): { privacy: string; terms: string } | null {
   let url: URL
   try {

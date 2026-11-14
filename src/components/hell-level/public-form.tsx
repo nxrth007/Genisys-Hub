@@ -4,24 +4,24 @@ import { Fragment, useState } from 'react'
 import { formStyle } from '@/lib/hl/form-style'
 import type { HlConsentBox, HlField, HlFormSettings } from '@/lib/hl/types'
 
-/** "Privacy Policy" and "Terms" in the consent wording become links. */
-export function Linked({ text, legal }: { text: string; legal: { privacy: string; terms: string } }) {
+/** The client's own policy pages; null where there's none (the words then show without a link). */
+export type PolicyLinks = { privacy: string | null; terms: string | null }
+
+/** "Privacy Policy" and "Terms" in the consent wording become links, where the client has the page. */
+export function Linked({ text, legal }: { text: string; legal: PolicyLinks }) {
   const parts = text.split(/(Privacy Policy|Terms(?: of Service| and Conditions| & Conditions)?)/g)
   return (
     <>
-      {parts.map((p, i) =>
-        /^Privacy Policy$/.test(p) ? (
-          <a key={i} href={legal.privacy} target="_blank" rel="noreferrer" className="underline">
-            {p}
-          </a>
-        ) : /^Terms/.test(p) ? (
-          <a key={i} href={legal.terms} target="_blank" rel="noreferrer" className="underline">
+      {parts.map((p, i) => {
+        const href = /^Privacy Policy$/.test(p) ? legal.privacy : /^Terms/.test(p) ? legal.terms : null
+        return href ? (
+          <a key={i} href={href} target="_blank" rel="noreferrer" className="underline">
             {p}
           </a>
         ) : (
           <Fragment key={i}>{p}</Fragment>
-        ),
-      )}
+        )
+      })}
     </>
   )
 }
@@ -45,7 +45,7 @@ export function PublicForm({
   formId: string
   fields: HlField[]
   settings: HlFormSettings & { consents: HlConsentBox[] }
-  legal: { privacy: string; terms: string }
+  legal: PolicyLinks
   variant: 'form' | 'chat'
   pageUrl: string | null
   /** The business logo, shown at the top of a form (not the chat panel). */
@@ -185,18 +185,22 @@ export function ChatClose() {
   )
 }
 
-/** The Privacy policy · Texting terms line under a form (off when the form hides it). */
-export function LegalFooter({ settings, legal, short }: { settings: HlFormSettings; legal: { privacy: string; terms: string }; short?: boolean }) {
-  if (settings.showLegalLinks === false) return null
+/** The Privacy policy · Texting terms line under a form (off when the form hides it, or the client has neither page). */
+export function LegalFooter({ settings, legal, short }: { settings: HlFormSettings; legal: PolicyLinks; short?: boolean }) {
+  if (settings.showLegalLinks === false || (!legal.privacy && !legal.terms)) return null
   return (
     <p className="mt-5 text-center text-[11px] text-[color-mix(in_srgb,var(--hl-text)_55%,transparent)]" style={formStyle(settings)}>
-      <a href={legal.privacy} target="_blank" rel="noreferrer" className="underline">
-        {short ? 'Privacy' : 'Privacy policy'}
-      </a>
-      {' · '}
-      <a href={legal.terms} target="_blank" rel="noreferrer" className="underline">
-        Texting terms
-      </a>
+      {legal.privacy && (
+        <a href={legal.privacy} target="_blank" rel="noreferrer" className="underline">
+          {short ? 'Privacy' : 'Privacy policy'}
+        </a>
+      )}
+      {legal.privacy && legal.terms && ' · '}
+      {legal.terms && (
+        <a href={legal.terms} target="_blank" rel="noreferrer" className="underline">
+          Texting terms
+        </a>
+      )}
     </p>
   )
 }

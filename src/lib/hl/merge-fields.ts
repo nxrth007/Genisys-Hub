@@ -115,13 +115,13 @@ const PROFILE_DOCS: Record<keyof HlProfile, ProfileDoc> = {
   privacyUrl: {
     fills: 'The client’s privacy policy page.',
     from: 'Their website’s /privacy page, filled in when Genisys built the site; or typed in Business Profile.',
-    blank: 'Nothing. Forms link to the privacy page the Hub hosts instead.',
+    blank: 'Nothing. Forms link their website’s own privacy page instead, or show the words without a link.',
     ghl: [],
   },
   termsUrl: {
     fills: 'The client’s terms page.',
     from: 'Their website’s /terms page, filled in when Genisys built the site; or typed in Business Profile.',
-    blank: 'Nothing. Forms link to the terms page the Hub hosts instead.',
+    blank: 'Nothing. Forms link their website’s own terms page instead, or show the words without a link.',
     ghl: [],
   },
   logoUrl: {
