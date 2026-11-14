@@ -269,7 +269,8 @@ export async function gatherSite(clientId: string): Promise<Gathered | null> {
     phoneSource,
     email: emailOrBlank(firstEmail(i?.leadEmail)) || emailOrBlank(firstEmail(p.notifyEmail)) || emailOrBlank(firstEmail(c.contactEmail)),
     address,
-    cities: answer(i?.cities),
+    // Business Profile → Service area first: staff type it there when the onboarding answer isn't a place.
+    cities: clean(p.serviceArea) || answer(i?.cities),
     timeZoneAnswer: answer(i?.timeZone),
     timeZoneHint: zoneWord(zoneFromAnswers(i?.timeZone, address) ?? account.timezone),
     currentWebsite: answer(i?.website) || answer(c.website),
@@ -638,7 +639,7 @@ async function fillStep(r: SiteRow): Promise<boolean> {
   } catch (err) {
     // The answers don't hold what the site needs: asking Claude again wouldn't change that.
     const notes = res.fill.notes.length ? ` Claude’s notes: ${res.fill.notes.join(' ')}` : ''
-    throw new SiteStop(`${describe(err)} Add it to their Hell-level Business Profile or onboarding answers, then ask again from their folder in Sites.${notes}`)
+    throw new SiteStop(`${describe(err)} Add it to their Hell-level Business Profile (Business address with city, state and ZIP; Service area) or onboarding answers, then ask again from their folder in Sites.${notes}`)
   }
   const kept = prompt.match(/^- https:\/\/\S+/gm)?.length ?? 0
   await move(r.id, 'filling', `Claude filled the one-shot for $${res.costUsd.toFixed(2)}: ${kept} of ${g.facts.photos.length} photo(s) kept.${res.note ? ` ${res.note}` : ''}`, {

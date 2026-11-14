@@ -49,7 +49,7 @@ async function note(id: string, what: string, data: Prisma.HlDomainRequestUpdate
   await prisma.hlDomainRequest.update({ where: { id }, data: { ...data, log: log as unknown as Prisma.InputJsonValue } })
 }
 
-/** The first city they serve (onboarding), else the city in the profile's address. */
+/** The first city they serve (Business Profile's service area, else onboarding), else the city in the profile's address. */
 function cityOf(cities: string | null | undefined, address: string | null | undefined): string | null {
   const first = (cities ?? '').split(/[,\n;]/)[0]?.trim()
   if (first) return first
@@ -116,7 +116,7 @@ export async function askForClientDomain(clientId: string, trigger: 'onboarding'
   const business = profile.businessName || c.name
   let found: Awaited<ReturnType<typeof suggestDomains>>
   try {
-    found = await suggestDomains(business, cityOf(c.intakes[0]?.cities, profile.address))
+    found = await suggestDomains(business, cityOf(profile.serviceArea?.trim() || c.intakes[0]?.cities, profile.address))
   } catch (err) {
     // Porkbun not connected or not answering: the question still goes in, pointing at a search by hand.
     found = { choices: [], warning: describe(err) }

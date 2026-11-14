@@ -19,6 +19,12 @@ export type HlProfile = {
   /** Google review link for review requests. */
   reviewLink?: string
   address?: string
+  /**
+   * Where they work: the towns, cities or counties ("Tampa, Clearwater and St.
+   * Petersburg, FL"). Their website is built from it. Blank = the onboarding
+   * form's "cities or areas served" answer.
+   */
+  serviceArea?: string
   /** EIN, for texting verification. Blank = verify as a sole proprietor. */
   ein?: string
   /** LLC, Inc… as registered, for texting verification. */
@@ -42,6 +48,7 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'notifyEmail', label: 'Notification email', merge: 'account.notify_email', hint: 'Owner emails go here. Separate several with commas' },
   { key: 'reviewLink', label: 'Google review link', merge: 'account.review_link' },
   { key: 'address', label: 'Business address', merge: 'account.address' },
+  { key: 'serviceArea', label: 'Service area', merge: 'account.service_area', hint: 'Towns, cities or counties they work in. Their website is built from it. Blank: their onboarding answer' },
   { key: 'legalName', label: 'Legal business name', merge: 'account.legal_name', hint: 'As registered, for texting verification' },
   { key: 'ein', label: 'EIN', merge: 'account.ein', hint: 'For texting verification. Leave blank for a sole proprietor' },
   { key: 'privacyUrl', label: 'Privacy policy link', merge: 'account.privacy_url', hint: 'Forms and texting registration link here. Blank: forms link their website’s own page (or nothing); registration uses the page the Hub hosts' },

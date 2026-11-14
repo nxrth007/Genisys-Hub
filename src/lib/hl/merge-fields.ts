@@ -100,6 +100,12 @@ const PROFILE_DOCS: Record<keyof HlProfile, ProfileDoc> = {
     ghl: ['{{location.address}}', '{{location.full_address}}'],
     ghlNot: ['{{location.city}}', '{{location.state}}', '{{location.postal_code}}'],
   },
+  serviceArea: {
+    fills: 'Where the business works: the towns, cities or counties typed in Business Profile.',
+    from: 'Typed in Business Profile. The website build reads it first, then the onboarding form’s “cities or areas served” answer.',
+    blank: 'Nothing.',
+    ghl: [],
+  },
   legalName: {
     fills: 'The registered name (LLC, Inc…), for texting verification.',
     from: 'The onboarding form’s business name, else the client’s name in the Hub.',

@@ -186,7 +186,7 @@ export async function logoPrompt(accountId: string): Promise<string> {
     : null
   const name = (p.businessName ?? '').trim() || account.name
   const services = clip(intake?.mainServices, 200)
-  const city = clip(intake?.cities, 60)
+  const city = clip(p.serviceArea?.trim() || intake?.cities, 60)
   const colours = clip(intake?.brandColors, 120) || (p.brandColor ?? '')
   return [
     `Design a logo for "${name}"${services ? `, a local business offering ${services}` : ''}${city ? `, serving ${city}` : ''}.`,
