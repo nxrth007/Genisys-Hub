@@ -31,10 +31,12 @@ export type SiteStatus =
   | 'held'
   | 'publishing'
   | 'published'
+  | 'connecting'
+  | 'connected'
   | 'failed'
 
-/** The Hub is working on it (a step runs, Lovable builds, or it's being published): nobody can ask again meanwhile. */
-export const SITE_WORKING: SiteStatus[] = ['filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing']
+/** The Hub is working on it (a step runs, Lovable builds, it's being published or its domain connected): nobody can ask again meanwhile. */
+export const SITE_WORKING: SiteStatus[] = ['filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing', 'connecting']
 
 /** Built and not published: the statuses a person can press Publish it from. */
 export const SITE_PUBLISHABLE: SiteStatus[] = ['built', 'held']
@@ -73,7 +75,7 @@ export function siteAskDecision(c: SiteAskCandidate): { ask: boolean; reason: st
   if (c.ghlLinked && !(c.trigger === 'manual' && c.overrideGhl)) return { ask: false, reason: 'they have a GHL sub-account (set up in GHL)' }
   if (c.trigger !== 'manual') {
     if (c.siteLive) return { ask: false, reason: 'their site is already live' }
-    if (r === 'built' || r === 'held' || r === 'published') return { ask: false, reason: 'their site was already built' }
+    if (r === 'built' || r === 'held' || r === 'published' || r === 'connected') return { ask: false, reason: 'their site was already built' }
     if (r === 'declined') return { ask: false, reason: 'someone answered Not now' }
     if (r) return { ask: false, reason: 'the last try failed; a person picks it up' }
     if (c.trigger === 'sweep' && (!c.accountCreatedAt || c.accountCreatedAt.getTime() < c.since.getTime())) {
@@ -438,6 +440,8 @@ export const SITE_STATUS_TEXT: Record<SiteStatus, string> = {
   held: 'Built in Lovable, not published (Not now)',
   publishing: 'Publishing in Lovable',
   published: 'Published',
+  connecting: 'Connecting their domain',
+  connected: 'Live on their domain',
   failed: 'Didn’t finish',
 }
 
@@ -520,4 +524,76 @@ export function builtSiteLegal(shownOn: string | null | undefined, ownHosts: str
   if (!host || hubHosts.includes(host) || host.endsWith('.onrender.com')) return null
   if (!isLovableHost(host) && !ownHosts.includes(host)) return null
   return { privacy: `${url.origin}${BUILT_SITE_PAGES.privacy}`, terms: `${url.origin}${BUILT_SITE_PAGES.terms}` }
+}
+
+// ---------------------------------------------------------------------------
+// Connecting the client's domain to the published site
+// ---------------------------------------------------------------------------
+
+/** A domain on the client's Hell-level sub-account, as the Domains page holds it. */
+export type SiteDomainRow = { name: string; origin: string; status: string }
+
+/**
+ * The domain Forge connects. managed: held in the Hub's Porkbun account
+ * (bought, moved in or linked), so the Hub sets its DNS. Not managed: added
+ * in Hell-level → Domains as one whose DNS stays elsewhere, so a person adds
+ * the records Forge lists. waiting: one still moving in. Null: none yet.
+ */
+export type SiteDomainChoice = { name: string; managed: boolean } | { waiting: string } | null
+
+/** The client's domain for the site, oldest first (the one the one-shot named): one held here, else one whose DNS is elsewhere. */
+export function siteDomainChoice(domains: SiteDomainRow[]): SiteDomainChoice {
+  const held = domains.find((d) => d.origin !== 'external' && d.status === 'active')
+  if (held) return { name: held.name, managed: true }
+  const moving = domains.find((d) => d.origin !== 'external' && ['pending', 'held', 'transferring'].includes(d.status))
+  if (moving) return { waiting: moving.name }
+  const elsewhere = domains.find((d) => d.origin === 'external' && d.status === 'active')
+  return elsewhere ? { name: elsewhere.name, managed: false } : null
+}
+
+/** The message that asks the copy's Lovable agent to connect the domain (Lovable has no API for domains, only its editor and its chat). */
+export function domainConnectMessage(domain: string, managed: boolean): string {
+  return [
+    `Connect my custom domain ${domain} to this project, with www.${domain} going to it too.`,
+    `I already own ${domain} and ${managed ? 'manage its DNS myself at Porkbun' : 'manage its DNS myself'}, so don't buy a domain, don't move its nameservers, and don't change any code or content.`,
+    'Once it is connected, reply with the exact DNS records to add: type, host and value for each, including the full TXT verification values (they start with lovable_verify=).',
+  ].join(' ')
+}
+
+const VERIFY = /lovable_verify=[A-Za-z0-9._-]+/g
+
+/**
+ * Lovable's verification values in its reply: the one on the _lovable.www
+ * line for www, the one on the _lovable line for the domain. Without those
+ * names, the first value is the domain's and a second one www's.
+ */
+export function lovableVerifyCodes(text: string): { rootTxt: string | null; wwwTxt: string | null } {
+  let rootTxt: string | null = null
+  let wwwTxt: string | null = null
+  const loose: string[] = []
+  for (const line of text.split('\n')) {
+    for (const code of line.match(VERIFY) ?? []) {
+      if (/_lovable\.www\b/i.test(line)) wwwTxt ??= code
+      else if (/_lovable\b/i.test(line)) rootTxt ??= code
+      else loose.push(code)
+    }
+  }
+  for (const code of loose) {
+    if (code === rootTxt || code === wwwTxt) continue
+    if (!rootTxt) rootTxt = code
+    else if (!wwwTxt) wwwTxt = code
+  }
+  return { rootTxt, wwwTxt }
+}
+
+/**
+ * Whether the action Lovable paused on is connecting exactly this domain,
+ * and nothing that buys, registers or moves anything. Only then does the
+ * Hub approve it for the person who said Yes in the Office; anything else
+ * waits for a person in Lovable.
+ */
+export function approvesDomainConnect(toolId: string | null, params: unknown, domain: string): boolean {
+  const text = `${toolId ?? ''} ${JSON.stringify(params ?? {})}`.toLowerCase()
+  if (/buy|purchase|regist|checkout|payment|billing|transfer|nameserver|delete|remove|disconnect/.test(text)) return false
+  return /domain/.test(text) && text.includes(domain.toLowerCase())
 }

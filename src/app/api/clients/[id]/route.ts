@@ -2,15 +2,13 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { archiveSite } from '@/lib/seo/actions'
-import { syncSeoSiteLiveUrl } from '@/lib/seo/link-client'
 import { ensureClientGeo, GEO_RESET } from '@/lib/geocode'
 import { normalizeClientPatch } from '@/lib/clients'
 import { backfillClientDeliveries } from '@/lib/client-delivery'
 import { backfillClientAlerts } from '@/lib/client-alert'
 import { installLeadAlertWorkflow } from '@/lib/lead-alert-install'
 import { getSecretByName } from '@/lib/vault-service'
-import { syncClientSite } from '@/lib/hl/client-site'
-import { queueCustomizeForSite } from '@/lib/ghl-customize/queue'
+import { afterSiteLinkChange } from '@/lib/site-link'
 
 /**
  * Email allowed to perform destructive operations on the Client
@@ -173,13 +171,9 @@ export async function PATCH(
       },
     })
 
-    // The site we built moved or went live: the SEO site audits the new address.
+    // The site we built moved or went live: the SEO site, the Hell-level sub-account and the GHL workflows follow.
     if ('siteUrl' in parsed.data && parsed.data.siteUrl && parsed.data.siteUrl !== priorSiteUrl) {
-      void syncSeoSiteLiveUrl(id, parsed.data.siteUrl).catch((err) => console.warn('[clients] seo site url sync failed:', err))
-      // Their Hell-level sub-account takes the site as its website, with its policy pages and logo.
-      void syncClientSite(id, parsed.data.siteUrl, priorSiteUrl).catch((err) => console.warn('[clients] hell-level site sync failed:', err))
-      // Their GHL lead workflows get the copy with this link (when automatic customizing is on).
-      void queueCustomizeForSite(id)
+      afterSiteLinkChange(id, parsed.data.siteUrl, priorSiteUrl)
     }
 
     // Sync linked User roles when lifecycle changes. Without this, a

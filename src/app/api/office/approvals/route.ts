@@ -28,6 +28,8 @@ import { decideClientSite } from '@/lib/hl/site-request'
  * sends it (Lovable credits); 'no' (Not now) drops the question. Once
  * Lovable built it, Forge asks to publish it (same kind): 'publish'
  * publishes the copy at a lovable.app address; 'no' leaves it unpublished.
+ * Once it's live, Forge asks to connect their domain (same kind): 'connect'
+ * has Lovable connect it and sets its DNS; 'no' leaves it on lovable.app.
  */
 export const dynamic = 'force-dynamic'
 
@@ -47,8 +49,9 @@ export async function POST(req: Request) {
     return NextResponse.json(res)
   }
   if (body?.kind === 'site') {
-    const decision = body?.decision === 'build' || body?.decision === 'publish' || body?.decision === 'no' ? body.decision : null
-    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "publish" | "no" }' }, { status: 400 })
+    const SITE = ['build', 'publish', 'connect', 'no'] as const
+    const decision = SITE.find((d) => d === body?.decision) ?? null
+    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "publish" | "connect" | "no" }' }, { status: 400 })
     const res = await decideClientSite(id, decision, by)
     if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
     return NextResponse.json(res)

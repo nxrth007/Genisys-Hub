@@ -575,6 +575,13 @@ export type LovableAgentState = {
   note: string | null
   credits: number | null
   previewUrl: string | null
+  /** The agent's reply, as written (when there is one). */
+  reply?: string | null
+  /**
+   * What it paused on: a tool it wants approved (eventId, the tool and its
+   * params, Lovable's proposal) or questions for a person (input_schema).
+   */
+  awaiting?: { eventId: string | null; toolId: string | null; params: unknown; asks: boolean } | null
 }
 
 /** Where the agent is with a message sent by lovableMcpSend. */
@@ -588,14 +595,35 @@ export async function lovableMcpAgentState(projectId: string, messageId: string,
   const why = (x: Record<string, unknown> | null) => (x ? (strOf(x.summary) ?? strOf(x.error) ?? strOf(x.completion_reason) ?? strOf(x.message)) : null)
   const credits = typeof r?.cost_credits === 'number' ? r.cost_credits : null
   const previewUrl = strOf(s.preview_url)
-  if (agent === 'completed') return { state: 'done', note: why(r), credits, previewUrl }
+  const reply = typeof r?.content === 'string' ? r.content : null
+  if (agent === 'completed') return { state: 'done', note: why(r), credits, previewUrl, reply }
   if (agent === 'awaiting_input' || top === 'awaiting_input' || awaiting) {
     const tool = awaiting ? (strOf(awaiting.tool_id) ?? strOf(awaiting.tool_name)) : null
-    return { state: 'waiting', note: tool ? `Lovable wants a person to approve “${tool}”.` : (why(r) ?? 'Lovable paused for a person (a check-in in its editor).'), credits, previewUrl }
+    return {
+      state: 'waiting',
+      note: tool ? `Lovable wants a person to approve “${tool}”.` : (why(r) ?? 'Lovable paused for a person (a check-in in its editor).'),
+      credits,
+      previewUrl,
+      reply,
+      awaiting: awaiting ? { eventId: strOf(awaiting.event_id), toolId: tool, params: awaiting.params ?? null, asks: !!awaiting.input_schema } : null,
+    }
   }
   if (agent === 'stopped' || top === 'stopped') return { state: 'stopped', note: why(r) ?? strOf(s.error), credits, previewUrl }
   if (agent === 'error' || top === 'error') return { state: 'error', note: why(r) ?? strOf(s.error) ?? res.text.slice(0, 300), credits, previewUrl }
   return { state: 'working', note: null, credits, previewUrl }
+}
+
+/**
+ * Answer the action the agent paused on (lovableMcpAgentState's awaiting):
+ * only for one a person already decided on. Doesn't wait for the resumed
+ * turn; poll lovableMcpAgentState for it.
+ */
+export async function lovableMcpApprove(o: { projectId: string; messageId: string; eventId: string; threadId: string | null; decision: 'approved' | 'rejected' }): Promise<void> {
+  await lovableMcpCall(
+    'respond_to_approval',
+    { project_id: o.projectId, message_id: o.messageId, event_id: o.eventId, decision: o.decision, wait: false, ...(o.threadId ? { thread_id: o.threadId } : {}) },
+    90_000,
+  )
 }
 
 /**

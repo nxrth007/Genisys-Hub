@@ -329,7 +329,7 @@ test('Forge shows the build as it goes, and what a person does next', () => {
   const published = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app.' }))
   assert.equal(published.requests.length, 1)
   assert.equal(published.requests[0].kind, 'stuck')
-  assert.match(published.requests[0].text, /live at https:\/\/acme-roofing\.lovable\.app\. Connect their domain and GitHub in Lovable, then save the site link in Clients/)
+  assert.match(published.requests[0].text, /live at https:\/\/acme-roofing\.lovable\.app but has no domain yet\. Answer Forge’s domain question for them, or add theirs in Hell-level → Domains/)
   assert.ok(published.activity.some((x) => /Published Acme Roofing’s website at https:\/\/acme-roofing\.lovable\.app/.test(x.text)))
   assert.equal(forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), siteLive: true })).requests.length, 0, 'gone once the link is saved')
   const noPages = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app. Its /privacy page didn’t load, and the form and chat link them: look in Lovable.' }))
@@ -400,4 +400,78 @@ test('forms and chat never link the Hub’s policy pages', () => {
   assert.deepEqual(plan.firstOwnLinks([hub, site], isHub), site)
   assert.deepEqual(plan.firstOwnLinks([hub], isHub), { privacy: null, terms: null })
   assert.deepEqual(plan.firstOwnLinks([{ privacy: 'not a link', terms: '  ' }], isHub), { privacy: null, terms: null })
+})
+
+test('the domain Forge connects: one held here first, then one whose DNS is elsewhere', () => {
+  assert.deepEqual(plan.siteDomainChoice([]), null)
+  assert.deepEqual(plan.siteDomainChoice([{ name: 'acme.com', origin: 'bought', status: 'active' }]), { name: 'acme.com', managed: true })
+  assert.deepEqual(plan.siteDomainChoice([{ name: 'acme.com', origin: 'transfer', status: 'held' }]), { waiting: 'acme.com' })
+  assert.deepEqual(plan.siteDomainChoice([{ name: 'old.com', origin: 'external', status: 'active' }]), { name: 'old.com', managed: false })
+  assert.deepEqual(
+    plan.siteDomainChoice([
+      { name: 'old.com', origin: 'external', status: 'active' },
+      { name: 'acme.com', origin: 'bought', status: 'active' },
+    ]),
+    { name: 'acme.com', managed: true },
+    'one held here wins',
+  )
+  assert.deepEqual(plan.siteDomainChoice([{ name: 'acme.com', origin: 'bought', status: 'failed' }]), null)
+})
+
+test('Lovable is asked to connect the domain without buying anything, and its codes are read back', () => {
+  const m = plan.domainConnectMessage('acme.com', true)
+  assert.match(m, /Connect my custom domain acme\.com/)
+  assert.match(m, /don't buy a domain, don't move its nameservers/)
+  assert.match(m, /Porkbun/)
+  assert.doesNotMatch(plan.domainConnectMessage('acme.com', false), /Porkbun/)
+
+  const table = ['| Type | Host | Value |', '| A | @ | 185.158.133.1 |', '| TXT | _lovable | lovable_verify=abc123 |', '| TXT | _lovable.www | lovable_verify=www456 |'].join('\n')
+  assert.deepEqual(plan.lovableVerifyCodes(table), { rootTxt: 'lovable_verify=abc123', wwwTxt: 'lovable_verify=www456' })
+  assert.deepEqual(plan.lovableVerifyCodes('Add a TXT record with lovable_verify=onlyone.'), { rootTxt: 'lovable_verify=onlyone.', wwwTxt: null })
+  assert.deepEqual(plan.lovableVerifyCodes('first lovable_verify=a1 then lovable_verify=b2'), { rootTxt: 'lovable_verify=a1', wwwTxt: 'lovable_verify=b2' })
+  assert.deepEqual(plan.lovableVerifyCodes('Done! Your domain is connecting.'), { rootTxt: null, wwwTxt: null })
+
+  // Only a connect of exactly that domain is approved for the person who said Yes.
+  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'acme.com' }, 'acme.com'), true)
+  assert.equal(plan.approvesDomainConnect('buy_domain', { domain: 'acme.com' }, 'acme.com'), false)
+  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'other.com' }, 'acme.com'), false)
+  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'acme.com', nameservers: 'lovable' }, 'acme.com'), false)
+  assert.equal(plan.approvesDomainConnect('set_secret', { name: 'acme.com' }, 'acme.com'), false)
+})
+
+test('Forge asks to connect the domain once the site is live, and shows it through', () => {
+  const ask = mapping.emptyInput()
+  ask.approvals = [{ id: 'sr1', kind: 'site', clientName: 'Acme Roofing', at: ago(5), stage: 'domain', reviewLink: '/hell-level/acc1/settings?tab=domains', siteDomain: { name: 'acme.com', managed: true } }]
+  const a = mapping.deriveOffice(ask, NOW).approvals.find((x) => x.id === 'sr1')
+  assert.equal(a.stage, 'domain')
+  assert.equal(a.question, 'Connect acme.com to Acme Roofing’s website?')
+  assert.match(a.note, /sets its DNS at Porkbun/)
+  assert.match(a.note, /saves it as their site link in Clients/)
+
+  const pub = mapping.emptyInput()
+  pub.approvals = [{ id: 'sr2', kind: 'site', clientName: 'Acme Roofing', at: ago(5), stage: 'publish', reviewLink: 'https://lovable.dev/projects/p1', siteDomain: { name: 'acme.com', managed: true } }]
+  assert.match(mapping.deriveOffice(pub, NOW).approvals.find((x) => x.id === 'sr2').note, /then connects acme\.com/)
+
+  const row = (over) => ({ id: 'sr1', clientId: 'c1', accountId: 'acc1', clientName: 'Acme Roofing', status: 'connecting', detail: null, editorUrl: 'https://lovable.dev/projects/p1', siteLive: false, stepAt: ago(30), finishedAt: ago(40), updatedAt: ago(1), domain: 'acme.com', domainStepAt: ago(2), ...over })
+  const forge = (r) => {
+    const input = mapping.emptyInput()
+    input.siteRequests = [r]
+    const s = mapping.deriveOffice(input, NOW)
+    return { bot: s.bots.find((b) => b.id === 'forge'), requests: s.requests, activity: s.activity }
+  }
+  const lovable = forge(row({ domainStep: 'lovable' }))
+  assert.equal(lovable.bot.status, 'browsing')
+  assert.match(lovable.bot.task, /Connecting acme\.com to Acme Roofing’s website in Lovable/)
+  const records = forge(row({ domainStep: 'records', detail: 'Add these DNS records for acme.com where its DNS is managed: A acme.com → 185.158.133.1.' }))
+  assert.equal(records.bot.status, 'needs_you')
+  assert.equal(records.requests[0].link, '/hell-level/acc1/settings?tab=domains')
+  assert.match(records.requests[0].text, /Add these DNS records for acme\.com/)
+  const live = forge(row({ domainStep: 'live' }))
+  assert.match(live.bot.task, /Waiting for acme\.com to show Acme Roofing’s website/)
+  const connected = forge(row({ status: 'connected', domainStep: null, domainAt: ago(3), siteLive: true }))
+  assert.ok(connected.activity.some((x) => /acme\.com now shows Acme Roofing’s website/.test(x.text)))
+  assert.ok(connected.requests.some((x) => /Connect GitHub in Lovable/.test(x.text)))
+  assert.equal(forge(row({ status: 'connected', domainStep: null, domainAt: ago(3), siteLive: true, repoLinked: true })).requests.length, 0, 'nothing left once GitHub is in')
+  const failed = forge(row({ status: 'published', domainStep: null, liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(60), detail: 'Connecting acme.com didn’t finish: Lovable stopped.', readyDomain: { name: 'acme.com', managed: true } }))
+  assert.ok(failed.requests.some((x) => x.kind === 'error' && /Connecting acme\.com didn’t finish/.test(x.text)))
 })

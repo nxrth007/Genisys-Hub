@@ -5,6 +5,7 @@
 import { prisma } from '@/lib/prisma'
 import { ghlPhoneSystemLink } from '@/lib/ghl-number/queue'
 import { readChoices } from '@/lib/hl/domain-plan'
+import { bareHost, siteDomainChoice } from '@/lib/hl/site-plan'
 import { deriveOffice, emptyInput, SUBACCOUNT_OPEN_MS, type OfficeInput, type OfficeState, type RenderMonitorIn } from './mapping'
 
 const DAY = 24 * 60 * 60_000
@@ -173,9 +174,9 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       where: {
         client: { is: { archivedAt: null } },
         OR: [
-          // Questions (build it? publish it?) stay until someone answers them.
-          { status: { in: ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'built', 'publishing'] } },
-          { status: { in: ['held', 'published', 'failed'] }, updatedAt: { gte: openSince } },
+          // Questions (build it? publish it? connect their domain?) stay until someone answers them.
+          { status: { in: ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'built', 'publishing', 'published', 'connecting'] } },
+          { status: { in: ['held', 'connected', 'failed'] }, updatedAt: { gte: openSince } },
           { updatedAt: { gte: since } },
         ],
       },
@@ -192,12 +193,26 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         stepAt: true,
         finishedAt: true,
         publishedAt: true,
+        domain: true,
+        domainStep: true,
+        domainStepAt: true,
+        domainAt: true,
         updatedAt: true,
-        client: { select: { name: true, siteUrl: true } },
+        client: {
+          select: {
+            name: true,
+            siteUrl: true,
+            seoSite: { select: { repoFullName: true } },
+            hlAccount: { select: { id: true, domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true } } } },
+          },
+        },
       },
     }), [])
   for (const s of siteRequests) {
     const clientName = s.client?.name ?? 'a client'
+    const ready = siteDomainChoice(s.client?.hlAccount?.domains ?? [])
+    const siteDomain = ready && 'name' in ready ? ready : null
+    const accountId = s.client?.hlAccount?.id ?? null
     if (s.status === 'awaiting_approval') {
       input.approvals.push({ id: s.id, kind: 'site', clientName, at: s.updatedAt, stage: 'ask', detail: s.detail, reviewLink: `/sites/${s.clientId}` })
     } else if (s.status === 'built' && !s.client?.siteUrl?.trim()) {
@@ -205,7 +220,20 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       const notes = Array.isArray((s.fill as { notes?: unknown } | null)?.notes) ? ((s.fill as { notes: unknown[] }).notes.filter((n) => typeof n === 'string') as string[]) : []
       const checks = notes.length ? `Claude’s notes to check: ${notes.join(' ')}` : null
       const detail = s.detail?.startsWith('Publishing didn’t finish') ? s.detail : checks && checks.length > 320 ? `${checks.slice(0, 319).trimEnd()}…` : checks
-      input.approvals.push({ id: s.id, kind: 'site', clientName, at: s.finishedAt ?? s.updatedAt, stage: 'publish', detail, reviewLink: s.editorUrl ?? `/sites/${s.clientId}` })
+      input.approvals.push({ id: s.id, kind: 'site', clientName, at: s.finishedAt ?? s.updatedAt, stage: 'publish', detail, reviewLink: s.editorUrl ?? `/sites/${s.clientId}`, siteDomain })
+    } else if (s.status === 'published' && !s.domainStep && siteDomain && bareHost(s.client?.siteUrl) !== siteDomain.name) {
+      // Live on lovable.app and their domain is ready: Forge asks to connect it. Under it, what went wrong last time.
+      const detail = s.detail?.startsWith('Connecting') ? s.detail : null
+      input.approvals.push({
+        id: s.id,
+        kind: 'site',
+        clientName,
+        at: s.publishedAt ?? s.updatedAt,
+        stage: 'domain',
+        detail,
+        reviewLink: accountId ? `/hell-level/${accountId}/settings?tab=domains` : `/sites/${s.clientId}`,
+        siteDomain,
+      })
     }
   }
   input.siteRequests = siteRequests
@@ -219,6 +247,13 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       editorUrl: s.editorUrl,
       liveUrl: s.liveUrl,
       publishedAt: s.publishedAt,
+      accountId: s.client?.hlAccount?.id ?? null,
+      domain: s.domain,
+      domainStep: s.domainStep,
+      domainStepAt: s.domainStepAt,
+      domainAt: s.domainAt,
+      readyDomain: siteDomainChoice(s.client?.hlAccount?.domains ?? []),
+      repoLinked: !!s.client?.seoSite?.repoFullName,
       siteLive: !!s.client?.siteUrl?.trim(),
       stepAt: s.stepAt,
       finishedAt: s.finishedAt,

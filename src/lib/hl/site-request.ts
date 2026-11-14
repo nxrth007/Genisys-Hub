@@ -26,10 +26,27 @@
  *                <business-name>.lovable.app (free), then checks every minute
  *                until that address loads.
  *
- * Still by hand after that: connect the domain and GitHub in Lovable, and
- * save the live link in Clients (which sets up the sub-account's website and
- * texting verification). The site's form and chat link its own /privacy and
- * /terms wherever it's shown (./legal-links.ts builtSiteLegalLinks).
+ * Then their domain (Hell-level → Domains: bought through Forge, moved in,
+ * or one whose DNS stays elsewhere). If it was there when Publish it was
+ * pressed, it's connected straight after; else Forge asks "Connect acme.com
+ * to X's website?" once it appears. On Yes:
+ *
+ *   connecting — asking:  the copy's Lovable agent is asked, in its chat, to
+ *                         connect the domain (Lovable has no API for domains;
+ *                         one short message). The Hub approves Lovable's
+ *                         connect action only when it's exactly that domain.
+ *                lovable: the Hub waits for Lovable's reply and reads its
+ *                         verification values (lovable_verify=…).
+ *                records: a domain held here gets its DNS set at Porkbun;
+ *                         one elsewhere waits for a person to add the records
+ *                         Forge lists (also where a missing code is pasted).
+ *                live:    every few minutes, until the domain shows the site
+ *                         (Lovable's certificate can take hours).
+ *   connected  — saved as their site link in Clients (policy pages, logo,
+ *                texting verification follow).
+ *
+ * Still by hand: connecting GitHub in Lovable. The site's form and chat link
+ * its own /privacy and /terms wherever it's shown (./legal-links.ts).
  */
 import { Prisma } from '@/generated/prisma/client'
 import { embedCode } from '@/components/hell-level/embed'
@@ -41,6 +58,7 @@ import { BudgetExceededError, FatalClaudeError, RefusalError, TruncatedError } f
 import {
   LovableMcpError,
   lovableMcpAgentState,
+  lovableMcpApprove,
   lovableMcpDeploy,
   lovableMcpFindProjects,
   lovableMcpProjectRef,
@@ -50,26 +68,35 @@ import {
   lovableMcpStatus,
   type LovableProjectRef,
 } from '@/lib/seo/lovable-mcp'
+import { saveSiteLink } from '@/lib/site-link'
 import { readProfile, zoneFromAnswers } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
+import { metaOf, siteRecords } from './domain-shared'
+import { connectDomain, connectLovable, verifyExternal } from './domains'
 import { fillOneShot } from './site-fill'
 import {
+  approvesDomainConnect,
+  bareHost,
   buildOneShot,
   BUILT_SITE_PAGES,
   cleanDomain,
   DEFAULT_TEMPLATE_PROJECT,
+  domainConnectMessage,
   firstEmail,
   gbpLinkFrom,
+  lovableVerifyCodes,
   phoneParts,
   pickPhotos,
   projectNameFor,
   publishSlug,
   siteAskDecision,
+  siteDomainChoice,
   siteQuestionDetail,
   SITE_PUBLISHABLE,
   SITE_WORKING,
   socialLinksFrom,
   zoneWord,
+  type SiteDomainChoice,
   type SiteEmbeds,
   type SiteFacts,
   type SiteFill,
@@ -90,6 +117,17 @@ const COPY_GIVE_UP_MS = 40 * 60_000
 const BUILD_SLOW_MS = 4 * 60 * 60_000
 /** A publish whose address still doesn't load after this long goes back to a person. */
 const PUBLISH_GIVE_UP_MS = 30 * 60_000
+/** Lovable's answer to "connect this domain": a person looks after this long. */
+const LOVABLE_DOMAIN_GIVE_UP_MS = 60 * 60_000
+/** DNS records a person adds elsewhere: asked about this long before it goes back to a person. */
+const RECORDS_GIVE_UP_MS = 7 * 24 * 60 * 60_000
+/** The domain showing the site: a nudge after a day, back to a person after three (Lovable: certificates past 72 hours go to its support). */
+const LIVE_NUDGE_MS = 24 * 60 * 60_000
+const LIVE_GIVE_UP_MS = 72 * 60 * 60_000
+/** How often waiting on DNS and certificates is checked. */
+const DOMAIN_POLL_MS = 5 * 60_000
+/** Who the Domains page logs as having set the records. */
+const FORGE = 'Forge (website build)'
 /** Lovable or Claude not answering: tries of one step before a person is asked to look. */
 const MAX_TRIES = 6
 
@@ -348,12 +386,15 @@ export type SiteDecision = { ok: true; status: string; detail: string | null } |
 /**
  * A person's answer in the Office. To "Build X's website?": Build it (fill,
  * copy, send, watch) or Not now. To "Publish X's website?" once it's built:
- * Publish it, or Not now (it can be published later from their folder).
+ * Publish it, or Not now (it can be published later from their folder). To
+ * "Connect acme.com to X's website?" once it's published: Connect it, or Not
+ * now (also from their folder later).
  */
-export async function decideClientSite(id: string, decision: 'build' | 'publish' | 'no', by: string): Promise<SiteDecision> {
-  const r = await prisma.hlSiteRequest.findUnique({ where: { id }, select: { id: true, status: true, projectId: true } })
+export async function decideClientSite(id: string, decision: 'build' | 'publish' | 'connect' | 'no', by: string): Promise<SiteDecision> {
+  const r = await prisma.hlSiteRequest.findUnique({ where: { id }, select: { id: true, clientId: true, status: true, projectId: true } })
   if (!r) return { ok: false, reason: 'That question is gone.' }
   if (decision === 'publish' || (decision === 'no' && r.status === 'built')) return decidePublish(r, decision, by)
+  if (decision === 'connect' || (decision === 'no' && r.status === 'published')) return decideConnect(r, decision, by)
   if (r.status !== 'awaiting_approval') return { ok: false, reason: (SITE_WORKING as string[]).includes(r.status) ? 'It’s already being built.' : 'That question was already answered.' }
   if (decision === 'no') {
     await note(r.id, `${by} answered Not now.`, { status: 'declined', decidedBy: by, decidedAt: new Date(), detail: null })
@@ -373,8 +414,8 @@ export async function decideClientSite(id: string, decision: 'build' | 'publish'
   return { ok: true, status: 'filling', detail: 'Started. Claude fills the one-shot, then the Hub copies the template in Lovable and sends it. Forge shows how it’s going.' }
 }
 
-/** Forge's second question, once Lovable built the site: Publish it, or Not now. */
-async function decidePublish(r: { id: string; status: string; projectId: string | null }, decision: 'publish' | 'no', by: string): Promise<SiteDecision> {
+/** Forge's second question, once Lovable built the site: Publish it, or Not now. A domain they already have is connected straight after. */
+async function decidePublish(r: { id: string; clientId: string; status: string; projectId: string | null }, decision: 'publish' | 'no', by: string): Promise<SiteDecision> {
   if (r.status === 'publishing') return { ok: false, reason: 'It’s already being published.' }
   if (r.status === 'published') return { ok: false, reason: 'It’s already published.' }
   if (!(SITE_PUBLISHABLE as string[]).includes(r.status)) return { ok: false, reason: 'There’s no built site to publish.' }
@@ -389,14 +430,60 @@ async function decidePublish(r: { id: string; status: string; projectId: string 
   const lovable = await lovableMcpStatus()
   if (!lovable.connected) return { ok: false, reason: 'The Hub isn’t signed in to Lovable. Connect it on the SEO page (Setup card), then press Publish it again.' }
   const now = new Date()
+  // Their domain, if it's ready now, is connected as soon as the site is live (the question said so).
+  const d = await clientDomain(r.clientId)
+  const domain = d.choice && 'name' in d.choice ? d.choice.name : null
   const claimed = await prisma.hlSiteRequest.updateMany({
     where: { id: r.id, status: { in: SITE_PUBLISHABLE } },
-    data: { status: 'publishing', stepAt: now, leaseUntil: null, liveUrl: null, publishedAt: null, detail: null },
+    data: { status: 'publishing', stepAt: now, leaseUntil: null, liveUrl: null, publishedAt: null, detail: null, ...DOMAIN_RESET, domain, domainStep: domain ? 'queued' : null },
   })
   if (!claimed.count) return { ok: false, reason: 'Someone else just answered it.' }
-  await note(r.id, `${by} answered Publish it.`)
+  await note(r.id, `${by} answered Publish it${domain ? `, then connect ${domain}` : ''}.`)
   void advanceSiteBuild(r.id).catch((err) => console.error(`[hl-site] publish ${r.id}:`, err))
-  return { ok: true, status: 'publishing', detail: 'Publishing. Forge says when it’s live, usually within a few minutes.' }
+  return { ok: true, status: 'publishing', detail: `Publishing${domain ? `, then connecting ${domain}` : ''}. Forge says when it’s live, usually within a few minutes.` }
+}
+
+/** Clears a domain connection's working fields (a new try starts from Lovable's chat). */
+const DOMAIN_RESET = { domainMessageId: null, domainThreadId: null, domainTxt: null, domainWwwTxt: null, domainStepAt: null, domainAt: null }
+
+/** The client's domain as Forge would connect it now (./site-plan.ts siteDomainChoice), and its row in Hell-level → Domains. */
+async function clientDomain(clientId: string): Promise<{ choice: SiteDomainChoice; accountId: string | null; domainId: string | null }> {
+  const account = await prisma.hlAccount.findUnique({
+    where: { clientId },
+    select: { id: true, archivedAt: true, domains: { orderBy: { createdAt: 'asc' }, select: { id: true, name: true, origin: true, status: true } } },
+  })
+  if (!account || account.archivedAt) return { choice: null, accountId: null, domainId: null }
+  const choice = siteDomainChoice(account.domains)
+  const domainId = choice && 'name' in choice ? (account.domains.find((x) => x.name === choice.name)?.id ?? null) : null
+  return { choice, accountId: account.id, domainId }
+}
+
+/** Forge's third question, once the site is live: connect their domain to it, or Not now. */
+async function decideConnect(r: { id: string; clientId: string; status: string; projectId: string | null }, decision: 'connect' | 'no', by: string): Promise<SiteDecision> {
+  if (r.status === 'connecting') return { ok: false, reason: 'Their domain is already being connected.' }
+  if (r.status === 'connected') return { ok: false, reason: 'Their domain is already connected.' }
+  if (r.status !== 'published') return { ok: false, reason: 'Their site has to be published first.' }
+  if (decision === 'no') {
+    const held = await prisma.hlSiteRequest.updateMany({ where: { id: r.id, status: 'published', OR: [{ domainStep: null }, { domainStep: 'queued' }] }, data: { domainStep: 'held' } })
+    if (!held.count) return { ok: false, reason: 'That question was already answered.' }
+    await note(r.id, `${by} answered Not now to connecting their domain.`)
+    return { ok: true, status: 'published', detail: 'Not connected. Connect it from their folder in Sites when it’s ready.' }
+  }
+  if (!r.projectId) return { ok: false, reason: 'The Hub lost track of the Lovable copy. Connect the domain in Lovable instead.' }
+  const d = await clientDomain(r.clientId)
+  if (!d.choice) return { ok: false, reason: 'They have no domain yet. Buy one with Forge’s domain question, or add theirs in Hell-level → Domains.' }
+  if ('waiting' in d.choice) return { ok: false, reason: `${d.choice.waiting} is still moving in. Connect it once that’s done.` }
+  const lovable = await lovableMcpStatus()
+  if (!lovable.connected) return { ok: false, reason: 'The Hub isn’t signed in to Lovable. Connect it on the SEO page (Setup card), then press Connect it again.' }
+  const now = new Date()
+  const claimed = await prisma.hlSiteRequest.updateMany({
+    where: { id: r.id, status: 'published' },
+    data: { status: 'connecting', leaseUntil: null, detail: null, ...DOMAIN_RESET, domain: d.choice.name, domainStep: 'asking', domainStepAt: now },
+  })
+  if (!claimed.count) return { ok: false, reason: 'Someone else just answered it.' }
+  await note(r.id, `${by} answered Connect it (${d.choice.name}).`)
+  void advanceSiteBuild(r.id).catch((err) => console.error(`[hl-site] connect ${r.id}:`, err))
+  return { ok: true, status: 'connecting', detail: `Connecting ${d.choice.name}. Forge says when it shows the site; Lovable’s certificate can take a few hours.` }
 }
 
 /**
@@ -446,6 +533,7 @@ async function runStep(id: string): Promise<boolean> {
     else if (r.status === 'copying') next = await copyStep(r)
     else if (r.status === 'sending') next = await sendStep(r)
     else if (r.status === 'publishing') next = await publishStep(r)
+    else if (r.status === 'connecting') next = await connectStep(r)
     else await checkStep(r)
     tries.delete(key)
     return next
@@ -465,6 +553,19 @@ async function runStep(id: string): Promise<boolean> {
         if (back) await textSiteEvent({ key: `${r.id}:${(r.stepAt ?? r.updatedAt).getTime()}`, kind: 'publish_failed', client: r.client.name, reason: why, link: r.editorUrl ?? sitesFolder(r.clientId) })
         return false
       }
+      if (r.status === 'connecting') {
+        // The site is still live on its lovable.app address: back to Forge's question, with what went wrong.
+        const back = await move(r.id, r.status, `Connecting ${r.domain ?? 'their domain'} stopped: ${why}`, {
+          status: 'published',
+          domainStep: null,
+          detail: `Connecting ${r.domain ?? 'their domain'} didn’t finish: ${why}`,
+        }).then(
+          () => true,
+          () => false,
+        )
+        if (back) await textSiteEvent({ key: `${r.id}:${(r.domainStepAt ?? r.updatedAt).getTime()}`, kind: 'connect_failed', client: r.client.name, reason: why, link: r.editorUrl ?? sitesFolder(r.clientId) })
+        return false
+      }
       const failed = await move(r.id, r.status, `Stopped while ${r.status}: ${why}`, { status: 'failed', detail: why, finishedAt: new Date() }).then(() => true, () => false)
       if (failed) await textSiteEvent({ key: r.id, kind: 'failed', client: r.client.name, reason: why, link: r.editorUrl ?? sitesFolder(r.clientId) })
     } else {
@@ -479,7 +580,8 @@ async function runStep(id: string): Promise<boolean> {
 
 function stopReason(err: unknown, status: string): string {
   if (err instanceof LovableMcpError && err.reconnect) {
-    return `${err.message} (SEO page → Setup card), then ${status === 'publishing' ? 'press Publish it again in the Office' : 'ask again from their folder in Sites'}.`
+    const again = status === 'publishing' ? 'press Publish it again in the Office' : status === 'connecting' ? 'press Connect it again in the Office' : 'ask again from their folder in Sites'
+    return `${err.message} (SEO page → Setup card), then ${again}.`
   }
   if (err instanceof RefusalError) return `Claude declined to fill the one-shot (${err.message}).`
   if (err instanceof TruncatedError) return 'Claude’s one-shot came back cut off.'
@@ -695,15 +797,205 @@ async function publishStep(r: SiteRow): Promise<boolean> {
     (p): p is (typeof BUILT_SITE_PAGES)[keyof typeof BUILT_SITE_PAGES] => !!p,
   )
   const pagesNote = missing.length ? ` Its ${missing.join(' and ')} page${missing.length > 1 ? 's' : ''} didn’t load, and the form and chat link them: look in Lovable.` : ''
-  await move(r.id, 'publishing', `Live at ${live}.${pagesNote}`, {
-    status: 'published',
+  // The domain they had when Publish it was pressed is connected straight away (that Yes covered it).
+  const domainNext = r.domainStep === 'queued' && r.domain
+  const now = new Date()
+  await move(r.id, 'publishing', `Live at ${live}.${pagesNote}${domainNext ? ` Connecting ${r.domain} next.` : ''}`, {
+    status: domainNext ? 'connecting' : 'published',
     liveUrl: live,
-    publishedAt: new Date(),
-    detail: `Live at ${live}.${pagesNote} Next: connect their domain and GitHub in Lovable, then save the site link in Clients.`,
+    publishedAt: now,
+    ...(domainNext ? { domainStep: 'asking', domainStepAt: now } : {}),
+    detail: domainNext ? `Live at ${live}.${pagesNote} Connecting ${r.domain} now.` : `Live at ${live}.${pagesNote}`,
   })
-  await textSiteEvent({ key: `${r.id}:${live}`, kind: 'published', client: r.client.name, link: live })
+  await textSiteEvent({ key: `${r.id}:${live}`, kind: 'published', client: r.client.name, reason: domainNext ? `Connecting ${r.domain} now.` : '', link: live })
+  return !!domainNext
+}
+
+// ---------------------------------------------------------------------------
+// Connecting their domain
+// ---------------------------------------------------------------------------
+
+/** A page as fetched: where it ended up (after redirects) and its <title>. Null when it doesn't load. */
+async function page(url: string): Promise<{ url: string; title: string | null } | null> {
+  try {
+    const res = await fetch(url, { redirect: 'follow', cache: 'no-store', signal: AbortSignal.timeout(20_000), headers: { 'user-agent': 'Mozilla/5.0 (compatible; GenisysHub/1.0)' } })
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined)
+      return null
+    }
+    const html = (await res.text()).slice(0, 200_000)
+    const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() || null
+    return { url: res.url || url, title }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the domain shows the site Forge published: it loads over https at
+ * the domain (www or not), and Lovable now sends the lovable.app address
+ * there, or both pages carry the same title.
+ */
+async function showsSite(domain: string, liveUrl: string | null): Promise<boolean> {
+  const at = await page(`https://${domain}/`)
+  if (!at || bareHost(at.url) !== domain) return false
+  if (!liveUrl || bareHost(liveUrl) === domain) return true
+  const published = await page(liveUrl)
+  if (!published) return false
+  return bareHost(published.url) === domain || (!!at.title && at.title === published.title)
+}
+
+/** The records a person adds at their DNS provider, as the Office and the text say them. */
+function recordsText(domain: string, rootTxt: string | null, wwwTxt: string | null): string {
+  return siteRecords({ host: '', txt: rootTxt, wwwTxt })
+    .map((x) => `${x.type} ${x.host === '@' ? domain : `${x.host}.${domain}`} → ${x.value}`)
+    .join(' · ')
+}
+
+/** connecting: one sub-step at a time (see the top of this file). True when the next can run straight away. */
+async function connectStep(r: SiteRow): Promise<boolean> {
+  if (!r.projectId) throw new SiteStop('The Hub lost track of the Lovable copy. Connect the domain in Lovable instead.')
+  if (!r.domain) throw new SiteStop('Lost track of which domain to connect.')
+  const d = await clientDomain(r.clientId)
+  if (!d.choice || !('name' in d.choice) || d.choice.name !== r.domain) {
+    throw new SiteStop(`${r.domain} isn’t ready in their Hell-level Domains any more${d.choice && 'waiting' in d.choice ? ` (${d.choice.waiting} is moving in)` : ''}.`)
+  }
+  if (r.domainStep === 'asking') return askLovableToConnect(r, r.domain, d.choice.managed)
+  if (r.domainStep === 'lovable') return readLovableConnect(r, r.domain, d.choice.managed, d.accountId, d.domainId)
+  if (r.domainStep === 'records') return waitForRecords(r, r.domain, d.choice.managed, d.domainId)
+  if (r.domainStep === 'live') return waitForLive(r, r.domain)
+  throw new SiteStop('Lost track of where connecting the domain was.')
+}
+
+/** asking → lovable: the copy's Lovable agent is asked to connect the domain. Never asked twice. */
+async function askLovableToConnect(r: SiteRow, domain: string, managed: boolean): Promise<boolean> {
+  const projectId = r.projectId!
+  const message = domainConnectMessage(domain, managed)
+  const next = { domainStep: 'lovable', domainStepAt: new Date() }
+  const before = await findSent(projectId, message)
+  if (before) {
+    await move(r.id, 'connecting', `The “connect ${domain}” message was already in Lovable’s chat (sent before a restart).`, { ...next, domainMessageId: before, domainThreadId: r.domainThreadId ?? 'main' })
+    return false
+  }
+  let sent: Awaited<ReturnType<typeof lovableMcpSend>>
+  try {
+    sent = await lovableMcpSend(projectId, message)
+  } catch (err) {
+    // A send that timed out may still have arrived: look before trying again.
+    const arrived = await findSent(projectId, message).catch(() => null)
+    if (!arrived) throw err
+    sent = { messageId: arrived, threadId: 'main', status: null }
+  }
+  await move(r.id, 'connecting', `Asked Lovable to connect ${domain}.`, { ...next, domainMessageId: sent.messageId, domainThreadId: sent.threadId })
   return false
 }
+
+/**
+ * lovable → records or live: approve Lovable's connect action (only when it
+ * is exactly this domain), then read its verification values and set the
+ * DNS (held here) or list the records for a person (elsewhere).
+ */
+async function readLovableConnect(r: SiteRow, domain: string, managed: boolean, accountId: string | null, domainId: string | null): Promise<boolean> {
+  const projectId = r.projectId!
+  if (!r.domainMessageId) throw new SiteStop('Lost track of the message sent to Lovable about the domain.')
+  const link = r.editorUrl ?? `https://lovable.dev/projects/${projectId}`
+  const s = await lovableMcpAgentState(projectId, r.domainMessageId, r.domainThreadId)
+  if (s.state === 'waiting') {
+    const a = s.awaiting
+    if (a?.eventId && !a.asks && approvesDomainConnect(a.toolId, a.params, domain)) {
+      await note(r.id, `Lovable asked to run “${a.toolId ?? 'a tool'}” (${JSON.stringify(a.params ?? {}).slice(0, 300)}). Approved: it connects ${domain}, which a person said Yes to in the Office.`)
+      await lovableMcpApprove({ projectId, messageId: r.domainMessageId, eventId: a.eventId, threadId: r.domainThreadId, decision: 'approved' })
+      return false
+    }
+    const what = a?.toolId ? `“${a.toolId}” (${JSON.stringify(a.params ?? {}).slice(0, 200)})` : (s.note ?? 'a check-in')
+    throw new SiteStop(`Lovable stopped to ask a person about ${what} while connecting ${domain}. Answer it in Lovable: ${link}`)
+  }
+  if (s.state === 'stopped' || s.state === 'error') {
+    throw new SiteStop(`Lovable ${s.state === 'stopped' ? 'stopped' : 'hit an error'} while connecting ${domain}${s.note ? `: ${s.note.slice(0, 300)}` : ''}. Look in Lovable: ${link}`)
+  }
+  if (s.state === 'working') {
+    if (Date.now() - (r.domainStepAt ?? r.updatedAt).getTime() > LOVABLE_DOMAIN_GIVE_UP_MS) throw new SiteStop(`Lovable didn’t finish connecting ${domain} within an hour. Look in Lovable: ${link}`)
+    return false
+  }
+  const reply = s.reply ?? s.note ?? ''
+  const { rootTxt, wwwTxt } = lovableVerifyCodes(reply)
+  await note(r.id, `Lovable answered about ${domain}${s.credits !== null ? ` (${s.credits} credits)` : ''}: ${reply.replace(/\s+/g, ' ').slice(0, 600) || '(no reply text)'}`)
+  if (!rootTxt) {
+    // Lovable didn't say its code: a person copies it from Lovable onto the domain's page here, and Forge carries on.
+    const help = `Lovable didn’t give ${domain}’s verification code in its reply. In Lovable open the site → Settings → Domains, copy the code that starts with lovable_verify=, and paste it on ${domain}’s page in Hell-level → Domains (Connect to Lovable). Forge carries on from there.`
+    await move(r.id, 'connecting', `No verification code in Lovable’s reply for ${domain}; asked a person to paste it.`, { domainStep: 'records', domainStepAt: new Date(), detail: help })
+    await textSiteEvent({ key: `${r.id}:${domain}:code`, kind: 'connect_help', client: r.client.name, reason: help, link: domainsPage(accountId) ?? link })
+    return false
+  }
+  if (managed) {
+    if (!domainId) throw new SiteStop(`${domain} isn’t in their Hell-level Domains any more.`)
+    await connectLovable(domainId, { host: '', rootTxt, wwwTxt, by: FORGE })
+    await move(r.id, 'connecting', `Set ${domain}’s DNS at Porkbun for Lovable (${recordsText(domain, rootTxt, wwwTxt)}).`, {
+      domainStep: 'live',
+      domainStepAt: new Date(),
+      domainTxt: rootTxt,
+      domainWwwTxt: wwwTxt,
+      detail: `${domain}’s DNS is set at Porkbun. Waiting for Lovable to finish (its certificate can take a few hours).`,
+    })
+    return false
+  }
+  if (!accountId) throw new SiteStop('Their Hell-level sub-account is gone.')
+  await connectDomain({ accountId, name: domain, txt: rootTxt, wwwTxt, by: FORGE })
+  const help = `Add these DNS records for ${domain} where its DNS is managed: ${recordsText(domain, rootTxt, wwwTxt)}. Forge checks every few minutes and carries on once they’re in.`
+  await move(r.id, 'connecting', `Lovable gave ${domain}’s records; a person adds them at its DNS provider.`, { domainStep: 'records', domainStepAt: new Date(), domainTxt: rootTxt, domainWwwTxt: wwwTxt, detail: help })
+  await textSiteEvent({ key: `${r.id}:${domain}:records`, kind: 'connect_help', client: r.client.name, reason: help, link: domainsPage(accountId) ?? link })
+  return false
+}
+
+/** records → live: the records are in (a person added them elsewhere, or pasted Lovable's code here). */
+async function waitForRecords(r: SiteRow, domain: string, managed: boolean, domainId: string | null): Promise<boolean> {
+  if (!domainId) throw new SiteStop(`${domain} isn’t in their Hell-level Domains any more.`)
+  const row = managed ? await prisma.hlDomain.findUnique({ where: { id: domainId }, select: { meta: true } }) : await verifyExternal(domainId)
+  const root = metaOf(row?.meta).hosts?.find((h) => h.host === '')
+  // Only a code set since Forge asked counts: an older connection's code wouldn't verify this one.
+  const fresh = !!root?.txt && Date.parse(root.addedAt) >= (r.domainStepAt ?? r.updatedAt).getTime() - 5 * 60_000
+  const ready = managed ? fresh : fresh && !!root?.lastCheck?.ok
+  if (ready) {
+    await move(r.id, 'connecting', managed ? `${domain}’s Lovable code was pasted and its DNS set here.` : `${domain}’s records are in its DNS.`, {
+      domainStep: 'live',
+      domainStepAt: new Date(),
+      domainTxt: root?.txt ?? r.domainTxt,
+      domainWwwTxt: root?.wwwTxt ?? r.domainWwwTxt,
+      detail: `${domain}’s DNS is set. Waiting for Lovable to finish (its certificate can take a few hours).`,
+    })
+    return false
+  }
+  if (Date.now() - (r.domainStepAt ?? r.updatedAt).getTime() > RECORDS_GIVE_UP_MS) throw new SiteStop(`${domain}’s DNS records still aren’t in after a week.`)
+  return false
+}
+
+/** live → connected: the domain shows the site; it becomes their site link in Clients. */
+async function waitForLive(r: SiteRow, domain: string): Promise<boolean> {
+  if (await showsSite(domain, r.liveUrl)) {
+    const url = `https://${domain}`
+    await move(r.id, 'connecting', `${domain} shows the site. Saved as their site link in Clients.`, {
+      status: 'connected',
+      domainStep: null,
+      domainAt: new Date(),
+      detail: `Live at ${url}. Saved as their site link in Clients. Still by hand: connect GitHub in Lovable.`,
+    })
+    const saved = await saveSiteLink(r.clientId, url)
+    if (saved.changed) await note(r.id, `Their site link in Clients is now ${url}${saved.prior ? ` (was ${saved.prior})` : ''}.`)
+    await textSiteEvent({ key: `${r.id}:${domain}:live`, kind: 'connected', client: r.client.name, link: url })
+    return false
+  }
+  const waited = Date.now() - (r.domainStepAt ?? r.updatedAt).getTime()
+  if (waited > LIVE_GIVE_UP_MS) {
+    throw new SiteStop(`${domain} still doesn’t show the site three days after its DNS was set. In Lovable open the site → Settings → Domains and press Check again; past that, Lovable’s support issues the certificate.`)
+  }
+  if (waited > LIVE_NUDGE_MS && !r.detail?.startsWith('Still waiting')) {
+    await note(r.id, `${domain} doesn’t show the site after a day.`, { detail: `Still waiting for ${domain} after a day. In Lovable open the site → Settings → Domains and press Check again.` })
+  }
+  return false
+}
+
+/** Their Hell-level Domains page (where a code is pasted, and records are listed). */
+const domainsPage = (accountId: string | null) => (accountId ? hubLink(`/hell-level/${accountId}/settings?tab=domains`) : null)
 
 // ---------------------------------------------------------------------------
 // Scheduler
@@ -721,12 +1013,14 @@ export async function maybeSweepSiteRequests(now = Date.now()): Promise<number> 
   let moved = 0
   const working = await prisma.hlSiteRequest.findMany({
     where: { status: { in: SITE_WORKING }, OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date(now) } }] },
-    select: { id: true, status: true },
+    select: { id: true, status: true, domainStep: true },
     take: 20,
   })
   for (const w of working) {
-    const watching = w.status === 'building' || w.status === 'waiting_on_lovable' || w.status === 'publishing'
-    if (watching && now - (lastPoll.get(w.id) ?? 0) < POLL_EVERY_MS - 5_000) continue
+    const watching = w.status === 'building' || w.status === 'waiting_on_lovable' || w.status === 'publishing' || w.status === 'connecting'
+    // DNS and certificates change slowly: those waits are checked every few minutes.
+    const every = w.status === 'connecting' && (w.domainStep === 'records' || w.domainStep === 'live') ? DOMAIN_POLL_MS : POLL_EVERY_MS
+    if (watching && now - (lastPoll.get(w.id) ?? 0) < every - 5_000) continue
     lastPoll.set(w.id, now)
     // Not awaited: a fill or a copy takes minutes, and the lease keeps it to one runner.
     void advanceSiteBuild(w.id).catch((err) => console.error(`[hl-site] build ${w.id}:`, err))

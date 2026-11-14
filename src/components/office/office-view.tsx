@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useSyncExternalStore, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { Check, ExternalLink, Hammer, Loader2, Pause, Play, Radio, Rocket, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
+import { Check, ExternalLink, Globe, Hammer, Loader2, Pause, Play, Radio, Rocket, RotateCcw, Send, ShieldCheck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/avatar'
 import { DESKS } from '@/lib/office/layout'
@@ -59,7 +59,7 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy' | 'build' | 'publish'
+type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy' | 'build' | 'publish' | 'connect'
 /** Answers that leave things as they are (shown quietly). */
 const quiet = (d: Decision) => d === 'no' || d === 'hold'
 type Answer = { decision: Decision; text: string }
@@ -181,6 +181,10 @@ function ApprovalCard({
                   <button type="button" onClick={() => answer('publish')} disabled={locked} className={BTN_PRIMARY}>
                     {spin('publish') || <Rocket className="h-3.5 w-3.5" />} Publish it
                   </button>
+                ) : a.stage === 'domain' ? (
+                  <button type="button" onClick={() => answer('connect')} disabled={locked} className={BTN_PRIMARY}>
+                    {spin('connect') || <Globe className="h-3.5 w-3.5" />} Connect it
+                  </button>
                 ) : (
                   <button type="button" onClick={() => answer('build')} disabled={locked} className={BTN_PRIMARY}>
                     {spin('build') || <Hammer className="h-3.5 w-3.5" />} Build it
@@ -188,7 +192,7 @@ function ApprovalCard({
                 )}
                 {a.reviewLink && (
                   <a href={a.reviewLink} target="_blank" rel="noopener noreferrer" className={BTN_SECONDARY}>
-                    {a.stage === 'publish' ? 'Open in Lovable' : 'Their folder'} <ExternalLink className="h-3.5 w-3.5" />
+                    {a.stage === 'publish' ? 'Open in Lovable' : a.stage === 'domain' ? 'Their domains' : 'Their folder'} <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 )}
                 <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>

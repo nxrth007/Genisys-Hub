@@ -783,7 +783,8 @@ model HlSiteRequest {
   accountId   String
   /// awaiting_approval (Forge asked) | declined (Not now) | filling | copying | sending |
   /// building | waiting_on_lovable (Lovable stopped to ask a person) | built (Forge asks
-  /// to publish it) | held (Not now to publishing) | publishing | published | failed
+  /// to publish it) | held (Not now to publishing) | publishing | published (Forge asks to
+  /// connect their domain) | connecting | connected | failed
   status      String    @default("awaiting_approval")
   /// The Lovable project copied (the template) and the workspace the copy goes in.
   templateId  String?
@@ -814,6 +815,22 @@ model HlSiteRequest {
   /// Where Lovable published the copy (its lovable.app address, or the domain it redirects to).
   liveUrl     String?
   publishedAt DateTime?
+  /// The client's domain Forge connects to the published site ("acme.com"), from their
+  /// Hell-level Domains.
+  domain          String?
+  /// queued (Yes given with Publish) | held (Not now) | asking (message Lovable) |
+  /// lovable (Lovable connecting it) | records (DNS records a person adds, or Lovable's
+  /// code to paste) | live (records set; waiting until the domain shows the site)
+  domainStep      String?
+  /// Lovable's ids for the "connect this domain" chat message.
+  domainMessageId String?
+  domainThreadId  String?
+  /// Lovable's verification values (lovable_verify=…) for the domain and www.
+  domainTxt       String?
+  domainWwwTxt    String?
+  /// When the current domain step started, and when the domain showed the site.
+  domainStepAt    DateTime?
+  domainAt        DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

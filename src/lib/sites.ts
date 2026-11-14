@@ -10,7 +10,7 @@ import { publicFormUrl } from '@/lib/ghl-form/plan'
 import { cantTextYet, currentCensus, hlCantTextYet, phoneState, readCensusNumbers, type CensusNumber, type PhoneState } from '@/lib/ghl-number/census-plan'
 import { getJourney, type JourneyStage } from '@/lib/client-journey'
 import { readProfile } from '@/lib/hl/accounts'
-import { SITE_STATUS_TEXT, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
+import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { siteStatus, sortFolders, stageView, type SiteStatus } from '@/lib/site-status'
 
 export type SiteFolder = {
@@ -110,9 +110,25 @@ export type SiteDetail = {
   ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
   seo: { repo: string | null; lovableProjectId: string | null } | null
   /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
-  build: { status: string; label: string; detail: string | null; editorUrl: string | null; projectName: string | null; hasPrompt: boolean; liveUrl: string | null; updatedAt: string } | null
+  build: {
+    status: string
+    label: string
+    detail: string | null
+    editorUrl: string | null
+    projectName: string | null
+    hasPrompt: boolean
+    liveUrl: string | null
+    /** The domain being (or that was) connected, and the connect step. */
+    domain: string | null
+    domainStep: string | null
+    updatedAt: string
+  } | null
   /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
   ghlLinked: boolean
+  /** Their domain for the site, from their Hell-level Domains (src/lib/hl/site-plan.ts siteDomainChoice). */
+  siteDomain: SiteDomainChoice
+  /** Forge's "Buy a website domain for X?" question, when it was asked (src/lib/hl/domain-request.ts). */
+  domainQuestion: { status: string; detail: string | null } | null
 }
 
 export type { GhlRegistrationView }
@@ -133,6 +149,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           id: true,
           profile: true,
           numbers: { where: { status: 'active' }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] },
+          domains: { orderBy: { createdAt: 'asc' }, select: { name: true, origin: true, status: true } },
         },
       },
       hlNumberRequest: { select: { status: true, route: true, number: true, forwardTo: true, detail: true, verifyNote: true } },
@@ -151,7 +168,8 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
-      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, updatedAt: true } },
+      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, updatedAt: true } },
+      hlDomainRequest: { select: { status: true, detail: true } },
     },
   })
   if (!c) return null
@@ -226,10 +244,14 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           editorUrl: c.hlSiteRequest.editorUrl,
           projectName: c.hlSiteRequest.projectName,
           hasPrompt: !!c.hlSiteRequest.prompt,
-          liveUrl: c.hlSiteRequest.status === 'published' ? c.hlSiteRequest.liveUrl : null,
+          liveUrl: ['published', 'connecting', 'connected'].includes(c.hlSiteRequest.status) ? c.hlSiteRequest.liveUrl : null,
+          domain: c.hlSiteRequest.domain,
+          domainStep: c.hlSiteRequest.domainStep,
           updatedAt: c.hlSiteRequest.updatedAt.toISOString(),
         }
       : null,
     ghlLinked: !!c.ghlLocationId,
+    siteDomain: siteDomainChoice(c.hlAccount?.domains ?? []),
+    domainQuestion: c.hlDomainRequest ? { status: c.hlDomainRequest.status, detail: c.hlDomainRequest.detail } : null,
   }
 }

@@ -141,9 +141,10 @@ export type ApprovalIn = {
   /**
    * number: ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check.
    * registration: review = filled and stopped before Send; blocked = it stopped and needs a person.
-   * site: ask = build it?; publish = Lovable built it, publish it? (reviewLink = the copy in Lovable).
+   * site: ask = build it?; publish = Lovable built it, publish it? (reviewLink = the copy in Lovable);
+   * domain = it's live, connect their domain? (reviewLink = their Hell-level Domains).
    */
-  stage?: 'ask' | 'identity' | 'review' | 'blocked' | 'publish'
+  stage?: 'ask' | 'identity' | 'review' | 'blocked' | 'publish' | 'domain'
   /** The client's GHL Phone System, where the ID check starts; null without a linked sub-account. */
   ghlLink?: string | null
   /** What the last try said (e.g. GHL still asked for the ID check, or what stopped the registration). */
@@ -154,6 +155,8 @@ export type ApprovalIn = {
   /** domain: the three Forge suggests, and the client's Hell-level Domains page (search any name there). */
   choices?: DomainChoiceView[]
   domainsLink?: string | null
+  /** site: the client's domain Forge would connect (managed = held in the Hub's Porkbun account, so the Hub sets its DNS). */
+  siteDomain?: { name: string; managed: boolean } | null
 }
 /** A domain Forge suggests: Porkbun's all-in first-year price and the renewal, in cents. */
 export type DomainChoiceView = { name: string; costCents: number; renewalCents: number | null }
@@ -175,6 +178,17 @@ export type SiteRequestIn = {
   /** Where it was published, and when. */
   liveUrl?: string | null
   publishedAt?: Date | null
+  /** Their Hell-level sub-account (its Domains page). */
+  accountId?: string | null
+  /** The domain being (or that was) connected, the step (asking | lovable | records | live | queued | held), and when the step started / the domain showed the site. */
+  domain?: string | null
+  domainStep?: string | null
+  domainStepAt?: Date | null
+  domainAt?: Date | null
+  /** The domain Forge would connect now: one ready, one still moving in, or none (src/lib/hl/site-plan.ts siteDomainChoice). */
+  readyDomain?: { name: string; managed: boolean } | { waiting: string } | null
+  /** Their SEO site has a GitHub repo (GitHub is connected in Lovable). */
+  repoLinked?: boolean
   /** Clients: their site link is saved (the site went live). */
   siteLive: boolean
   /** When the current step started. */
@@ -260,7 +274,7 @@ export type OfficeApproval = {
   /** Where its calls would ring (E.164), when a phone is on file. */
   ringTo: string | null
   at: string
-  stage: 'ask' | 'identity' | 'review' | 'blocked' | 'publish'
+  stage: 'ask' | 'identity' | 'review' | 'blocked' | 'publish' | 'domain'
   ghlLink: string | null
   detail: string | null
   /** registration: the client's folder in Sites, showing what was filled. */
@@ -457,11 +471,11 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   // Forge's domain questions are mapped below.
   const echoAsks = input.approvals.filter((a) => a.kind !== 'domain' && a.kind !== 'site')
   /** Echo's stages: publishing is Forge's. */
-  type EchoStage = Exclude<OfficeApproval['stage'], 'publish'>
+  type EchoStage = Exclude<OfficeApproval['stage'], 'publish' | 'domain'>
   const echoApprovals = [...echoAsks]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map((a): OfficeApproval & { stage: EchoStage } => {
-      const stage: EchoStage = !a.stage || a.stage === 'publish' ? 'ask' : a.stage
+      const stage: EchoStage = !a.stage || a.stage === 'publish' || a.stage === 'domain' ? 'ask' : a.stage
       const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
       const num = a.number ? phone(a.number) : 'their number'
       const words: Record<EchoStage, { question: string; note: string }> = {
@@ -574,19 +588,42 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     }
   }
 
-  // Forge asks whether to build a new client's website, and once Lovable built it, whether to publish it (src/lib/hl/site-request.ts).
+  // Forge asks whether to build a new client's website, once Lovable built it whether to publish it,
+  // and once it's live whether to connect their domain (src/lib/hl/site-request.ts).
   const siteAsks = input.approvals.filter((a) => a.kind === 'site').sort((a, b) => a.at.getTime() - b.at.getTime())
+  const connectNote = (d: { name: string; managed: boolean }) =>
+    d.managed
+      ? `The Hub asks Lovable to connect ${d.name} (one short chat message, about a credit), sets its DNS at Porkbun, waits until it shows the site (Lovable’s certificate can take a few hours), then saves it as their site link in Clients.`
+      : `The Hub asks Lovable to connect ${d.name} (one short chat message, about a credit) and lists the DNS records to add where its DNS is managed. Once they’re in and it shows the site, it’s saved as their site link in Clients.`
   for (const a of siteAsks) {
-    const publish = a.stage === 'publish'
+    const stage = a.stage === 'publish' || a.stage === 'domain' ? a.stage : 'ask'
+    const d = a.siteDomain ?? null
+    const words = {
+      ask: {
+        question: `Build ${a.clientName}’s website?`,
+        note: 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
+        asked: `Asked whether to build ${a.clientName}’s website`,
+      },
+      publish: {
+        question: `Publish ${a.clientName}’s website?`,
+        note: d
+          ? `Lovable built it. Look it over in Lovable first. Publishing puts it live at a lovable.app address (free, no Lovable credits), then connects ${d.name}: ${connectNote(d)}`
+          : 'Lovable built it. Look it over in Lovable first. Publishing puts it live at a lovable.app address (free, no Lovable credits). They have no domain yet: Forge asks to connect one once they do.',
+        asked: `Asked whether to publish ${a.clientName}’s website`,
+      },
+      domain: {
+        question: `Connect ${d?.name ?? 'their domain'} to ${a.clientName}’s website?`,
+        note: d ? connectNote(d) : 'The Hub asks Lovable to connect it, sets its DNS, and saves it as their site link in Clients once it shows the site.',
+        asked: `Asked whether to connect ${d?.name ?? 'a domain'} to ${a.clientName}’s website`,
+      },
+    }[stage]
     approvals.push({
       id: a.id,
       kind: 'site',
       botId: 'forge',
-      stage: publish ? 'publish' : 'ask',
-      question: publish ? `Publish ${a.clientName}’s website?` : `Build ${a.clientName}’s website?`,
-      note: publish
-        ? 'Lovable built it. Look it over in Lovable first. Publishing puts it live at a lovable.app address (free, no Lovable credits); connecting their domain and GitHub comes after.'
-        : 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
+      stage,
+      question: words.question,
+      note: words.note,
       clientName: a.clientName,
       ringTo: null,
       ghlLink: null,
@@ -594,17 +631,14 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       reviewLink: a.reviewLink ?? null,
       at: a.at.toISOString(),
     })
-    feed(`sq:${a.id}:${publish ? 'publish:' : ''}${a.at.getTime()}`, a.at, 'forge', publish ? `Asked whether to publish ${a.clientName}’s website` : `Asked whether to build ${a.clientName}’s website`, 'needs_you')
+    feed(`sq:${a.id}:${stage === 'ask' ? '' : `${stage}:`}${a.at.getTime()}`, a.at, 'forge', words.asked, 'needs_you')
   }
   if (siteAsks.length) {
     const newest = siteAsks[siteAsks.length - 1]
-    const publishing = siteAsks.every((a) => a.stage === 'publish')
+    const verb = (x: ApprovalIn) => (x.stage === 'publish' ? 'publish' : x.stage === 'domain' ? `connect ${x.siteDomain?.name ?? 'a domain'} to` : 'build')
     add('forge', {
       status: 'needs_you',
-      task:
-        siteAsks.length === 1
-          ? `Asking: ${newest.stage === 'publish' ? 'publish' : 'build'} ${newest.clientName}’s website?`
-          : `${siteAsks.length} websites to ${publishing ? 'publish' : 'build or publish'}`,
+      task: siteAsks.length === 1 ? `Asking: ${verb(newest)} ${newest.clientName}’s website?` : `${siteAsks.length} website questions waiting for you`,
       icon: 'alert',
       at: newest.at,
     })
@@ -638,14 +672,51 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'published') {
       const live = r.publishedAt ?? r.updatedAt
       const where = r.liveUrl ? ` at ${r.liveUrl}` : ''
+      const domains = r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : `/sites/${r.clientId}`
       feed(`sb:${r.id}:published`, live, 'forge', `Published ${r.clientName}’s website${where}`, 'done')
       if (age(live) <= DONE_MS) add('forge', { status: 'coding', task: `Published ${r.clientName}’s website`, icon: 'check', at: live })
-      if (age(live) <= SUBACCOUNT_OPEN_MS) {
-        // Until the link is saved in Clients: the domain and GitHub are connected by hand in Lovable.
-        if (!r.siteLive) request(`sb:${r.id}:domain`, 'forge', 'stuck', `${r.clientName}’s new website is live${where}. Connect their domain and GitHub in Lovable, then save the site link in Clients.`, live, lovable)
-        if (r.detail?.includes('didn’t load')) {
-          request(`sb:${r.id}:pages`, 'forge', 'error', `${r.clientName}’s website is live, but its privacy or terms page didn’t load, and its form and chat link them. Look in Lovable.`, live, lovable)
-        }
+      const ready = r.readyDomain ?? null
+      if (r.detail?.startsWith('Connecting') && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
+        // A connect that stopped: Forge's question is back, with what went wrong.
+        request(`sb:${r.id}:connect-failed`, 'forge', 'error', `${r.clientName}: ${r.detail}`, r.updatedAt, lovable)
+      } else if (r.domainStep === 'held') {
+        feed(`sb:${r.id}:domain-held`, r.updatedAt, 'forge', `Not connecting ${r.clientName}’s domain for now`, 'thinking')
+      } else if (!r.siteLive && ready && 'waiting' in ready && age(live) <= SUBACCOUNT_OPEN_MS) {
+        request(`sb:${r.id}:domain-moving`, 'forge', 'stuck', `${r.clientName}’s website is live${where}. Their domain ${ready.waiting} is still moving in; Forge asks to connect it once it has.`, live, domains)
+      } else if (!r.siteLive && !ready && age(live) <= SUBACCOUNT_OPEN_MS) {
+        request(
+          `sb:${r.id}:no-domain`,
+          'forge',
+          'stuck',
+          `${r.clientName}’s website is live${where} but has no domain yet. Answer Forge’s domain question for them, or add theirs in Hell-level → Domains; Forge then asks to connect it.`,
+          live,
+          domains,
+        )
+      }
+      if (r.detail?.includes('didn’t load') && age(live) <= SUBACCOUNT_OPEN_MS) {
+        request(`sb:${r.id}:pages`, 'forge', 'error', `${r.clientName}’s website is live, but its privacy or terms page didn’t load, and its form and chat link them. Look in Lovable.`, live, lovable)
+      }
+    } else if (r.status === 'connecting') {
+      const name = r.domain ?? 'their domain'
+      const stepAt = r.domainStepAt ?? r.updatedAt
+      const domains = r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : lovable
+      if (r.domainStep === 'records') {
+        add('forge', { status: 'needs_you', task: clip(`Connecting ${name} to ${r.clientName}’s website needs you`), icon: 'alert', at: stepAt })
+        request(`sb:${r.id}:records`, 'forge', 'stuck', `${r.clientName}: ${r.detail ?? `${name} needs its DNS records added.`}`, stepAt, domains)
+      } else if (r.domainStep === 'live') {
+        add('forge', { status: 'thinking', task: `Waiting for ${name} to show ${r.clientName}’s website`, icon: 'dots', at: stepAt })
+        if (r.detail?.startsWith('Still waiting')) request(`sb:${r.id}:slow`, 'forge', 'stuck', `${r.clientName}: ${r.detail}`, r.updatedAt, lovable)
+      } else {
+        add('forge', { status: 'browsing', task: `Connecting ${name} to ${r.clientName}’s website in Lovable${retrying}`, icon: 'globe', at: stepAt })
+      }
+    } else if (r.status === 'connected') {
+      const done = r.domainAt ?? r.updatedAt
+      const name = r.domain ?? 'their domain'
+      feed(`sb:${r.id}:connected`, done, 'forge', `${name} now shows ${r.clientName}’s website`, 'done')
+      if (age(done) <= DONE_MS) add('forge', { status: 'coding', task: `${name} now shows ${r.clientName}’s website`, icon: 'check', at: done })
+      // GitHub is connected only in Lovable's editor; the SEO engine needs it.
+      if (!r.repoLinked && age(done) <= SUBACCOUNT_OPEN_MS) {
+        request(`sb:${r.id}:github`, 'forge', 'stuck', `${r.clientName}’s website is live on ${name}. Connect GitHub in Lovable (the site → GitHub) so the SEO engine can work on it.`, done, lovable)
       }
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''

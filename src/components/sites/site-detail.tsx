@@ -307,7 +307,9 @@ function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullabl
 }
 
 /** A build Forge is on (asked, or under way in Lovable): nobody asks again meanwhile. */
-const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing']
+const BUILD_WORKING = ['awaiting_approval', 'filling', 'copying', 'sending', 'building', 'waiting_on_lovable', 'publishing', 'connecting']
+/** Live (on lovable.app or their domain): not built again from here. */
+const BUILD_LIVE = ['published', 'connected']
 /** Built, not published: Publish it can be pressed here as well as in the Office. */
 const BUILD_PUBLISHABLE = ['built', 'held']
 
@@ -320,6 +322,10 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const b = d.build
   const working = !!b && BUILD_WORKING.includes(b.status)
   const publishable = !!b && BUILD_PUBLISHABLE.includes(b.status) && !!b.editorUrl
+  const ready = d.siteDomain && 'name' in d.siteDomain ? d.siteDomain : null
+  const moving = d.siteDomain && 'waiting' in d.siteDomain ? d.siteDomain.waiting : null
+  const connectable = !!b && b.status === 'published' && !!ready
+  const domainAsked = d.domainQuestion?.status === 'awaiting_approval' || d.domainQuestion?.status === 'buying'
 
   async function ask(overrideGhl: boolean) {
     setBusy(true)
@@ -334,13 +340,27 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
     }
   }
 
-  async function publish() {
+  async function act(action: 'publish' | 'connect') {
     setBusy(true)
     setMsg(null)
     try {
-      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'publish' }) })
+      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) })
       const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; detail?: string | null; error?: string }
-      setMsg(out.ok ? out.detail || 'Publishing.' : out.reason || out.error || 'Couldn’t publish.')
+      setMsg(out.ok ? out.detail || 'Started.' : out.reason || out.error || (action === 'publish' ? 'Couldn’t publish.' : 'Couldn’t connect it.'))
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Forge's "Buy a website domain for X?" question, by hand (three Porkbun names; nothing is bought until someone picks one). */
+  async function askDomain() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${d.client.id}/hl-domain`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask' }) })
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
+      setMsg(out.ok ? 'Asked in the Office: pick one of Forge’s names there. Nothing is bought until someone does.' : out.reason || out.error || 'Couldn’t ask.')
       router.refresh()
     } finally {
       setBusy(false)
@@ -360,6 +380,15 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
         {b ? b.label : d.ghlLinked ? 'Set up in GHL: their site is built by hand, with GHL’s form.' : 'Forge hasn’t asked about their website yet.'}
       </p>
       {b?.detail && <p className="text-[12.5px] leading-snug text-muted-foreground">{b.detail}</p>}
+      <p className="text-[12.5px] leading-snug text-muted-foreground">
+        {ready
+          ? `Domain: ${ready.name}${ready.managed ? '' : ' (its DNS is managed outside the Hub)'}${b?.status === 'connected' ? ', connected.' : '. Forge connects it once the site is published.'}`
+          : moving
+            ? `Domain: ${moving} is still moving into their Hell-level Domains. Forge connects it once it has.`
+            : domainAsked
+              ? `Domain: Forge is asking in the Office which one to buy.${d.domainQuestion?.detail ? ` ${d.domainQuestion.detail}` : ''}`
+              : 'Domain: none yet. Ask Forge for one (three names to pick from in the Office), or add theirs in Hell-level → Domains.'}
+      </p>
       {(b?.editorUrl || b?.hasPrompt || b?.liveUrl) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
           {b?.liveUrl && (
@@ -381,17 +410,37 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
       )}
       {canAct && !working && d.account && (
         <div className="flex flex-wrap items-center gap-2">
+          {!ready && !moving && !domainAsked && (
+            <button
+              type="button"
+              onClick={askDomain}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+            >
+              Ask Forge for a domain
+            </button>
+          )}
           {publishable && (
             <button
               type="button"
-              onClick={publish}
+              onClick={() => act('publish')}
               disabled={busy}
               className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Publish it
             </button>
           )}
-          {b?.status !== 'published' && (
+          {connectable && ready && (
+            <button
+              type="button"
+              onClick={() => act('connect')}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Connect {ready.name}
+            </button>
+          )}
+          {!BUILD_LIVE.includes(b?.status ?? '') && (
             <button
               type="button"
               onClick={() => ask(false)}
@@ -406,7 +455,7 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
               {busy && !publishable && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {b ? 'Ask to build it again' : 'Ask Forge to build it'}
             </button>
           )}
-          {d.ghlLinked && b?.status !== 'published' && (
+          {d.ghlLinked && !BUILD_LIVE.includes(b?.status ?? '') && (
             <button type="button" onClick={() => ask(true)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50">
               Ask anyway (Hell-level form and chat)
             </button>

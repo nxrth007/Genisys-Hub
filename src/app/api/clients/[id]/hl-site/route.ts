@@ -19,6 +19,9 @@ import { askForClientSite, decideClientSite, previewClientSite } from '@/lib/hl/
  *
  * POST { action: 'publish' } — admin only: the same as Publish it on Forge's
  * question in the Office, for a built site (also after a Not now).
+ *
+ * POST { action: 'connect' } — admin only: the same as Connect it on Forge's
+ * domain question, for a published site with a domain in Hell-level → Domains.
  */
 export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
@@ -45,6 +48,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       finishedAt: true,
       liveUrl: true,
       publishedAt: true,
+      domain: true,
+      domainStep: true,
+      domainAt: true,
       log: true,
       updatedAt: true,
     },
@@ -57,13 +63,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (denied) return denied
   const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown } | null
   const { id } = await params
-  if (body?.action === 'ask' || body?.action === 'publish') {
+  if (body?.action === 'ask' || body?.action === 'publish' || body?.action === 'connect') {
     const session = await auth()
     const by = session?.user?.name || session?.user?.email || 'an admin'
-    if (body.action === 'publish') {
+    if (body.action === 'publish' || body.action === 'connect') {
       const row = await prisma.hlSiteRequest.findUnique({ where: { clientId: id }, select: { id: true } })
       if (!row) return NextResponse.json({ ok: false, reason: 'Forge never built a site for this client.' }, { status: 409 })
-      const res = await decideClientSite(row.id, 'publish', by)
+      const res = await decideClientSite(row.id, body.action, by)
       return NextResponse.json(res, { status: res.ok ? 200 : 409 })
     }
     const res = await askForClientSite(id, 'manual', { overrideGhl: body.overrideGhl === true, by })
@@ -77,5 +83,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, { status: 409 })
     }
   }
-  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" } or { "action": "publish" }' }, { status: 400 })
+  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" }, { "action": "publish" } or { "action": "connect" }' }, { status: 400 })
 }
