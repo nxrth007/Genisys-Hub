@@ -614,19 +614,6 @@ export async function lovableMcpAgentState(projectId: string, messageId: string,
 }
 
 /**
- * Answer the action the agent paused on (lovableMcpAgentState's awaiting):
- * only for one a person already decided on. Doesn't wait for the resumed
- * turn; poll lovableMcpAgentState for it.
- */
-export async function lovableMcpApprove(o: { projectId: string; messageId: string; eventId: string; threadId: string | null; decision: 'approved' | 'rejected' }): Promise<void> {
-  await lovableMcpCall(
-    'respond_to_approval',
-    { project_id: o.projectId, message_id: o.messageId, event_id: o.eventId, decision: o.decision, wait: false, ...(o.threadId ? { thread_id: o.threadId } : {}) },
-    90_000,
-  )
-}
-
-/**
  * Publish a project to production — the same as clicking Publish in Lovable.
  * `name` asks for that lovable.app address on a first publish (Lovable picks
  * one without it). Lovable answers "pending" with the intended address:

@@ -551,15 +551,6 @@ export function siteDomainChoice(domains: SiteDomainRow[]): SiteDomainChoice {
   return elsewhere ? { name: elsewhere.name, managed: false } : null
 }
 
-/** The message that asks the copy's Lovable agent to connect the domain (Lovable has no API for domains, only its editor and its chat). */
-export function domainConnectMessage(domain: string, managed: boolean): string {
-  return [
-    `Connect my custom domain ${domain} to this project, with www.${domain} going to it too.`,
-    `I already own ${domain} and ${managed ? 'manage its DNS myself at Porkbun' : 'manage its DNS myself'}, so don't buy a domain, don't move its nameservers, and don't change any code or content.`,
-    'Once it is connected, reply with the exact DNS records to add: type, host and value for each, including the full TXT verification values (they start with lovable_verify=).',
-  ].join(' ')
-}
-
 /** lovable_verify=…: dots only inside the value, so a sentence's full stop isn't taken as part of it. */
 const VERIFY = /lovable_verify=[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/g
 
@@ -585,16 +576,4 @@ export function lovableVerifyCodes(text: string): { rootTxt: string | null; wwwT
     else if (!wwwTxt) wwwTxt = code
   }
   return { rootTxt, wwwTxt }
-}
-
-/**
- * Whether the action Lovable paused on is connecting exactly this domain,
- * and nothing that buys, registers or moves anything. Only then does the
- * Hub approve it for the person who said Yes in the Office; anything else
- * waits for a person in Lovable.
- */
-export function approvesDomainConnect(toolId: string | null, params: unknown, domain: string): boolean {
-  const text = `${toolId ?? ''} ${JSON.stringify(params ?? {})}`.toLowerCase()
-  if (/buy|purchase|regist|checkout|payment|billing|transfer|nameserver|delete|remove|disconnect/.test(text)) return false
-  return /domain/.test(text) && text.includes(domain.toLowerCase())
 }

@@ -118,9 +118,10 @@ export type SiteDetail = {
     projectName: string | null
     hasPrompt: boolean
     liveUrl: string | null
-    /** The domain being (or that was) connected, and the connect step. */
+    /** The domain being (or that was) connected, the connect step, and whether Lovable's code is in. */
     domain: string | null
     domainStep: string | null
+    hasCode: boolean
     updatedAt: string
   } | null
   /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
@@ -168,7 +169,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         },
       },
       seoSite: { select: { repoFullName: true, lovableProjectId: true } },
-      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, updatedAt: true } },
+      hlSiteRequest: { select: { status: true, detail: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, updatedAt: true } },
       hlDomainRequest: { select: { status: true, detail: true } },
     },
   })
@@ -247,6 +248,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           liveUrl: ['published', 'connecting', 'connected'].includes(c.hlSiteRequest.status) ? c.hlSiteRequest.liveUrl : null,
           domain: c.hlSiteRequest.domain,
           domainStep: c.hlSiteRequest.domainStep,
+          hasCode: !!c.hlSiteRequest.domainTxt,
           updatedAt: c.hlSiteRequest.updatedAt.toISOString(),
         }
       : null,

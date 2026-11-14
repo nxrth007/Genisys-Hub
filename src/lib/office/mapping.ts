@@ -593,8 +593,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
   const siteAsks = input.approvals.filter((a) => a.kind === 'site').sort((a, b) => a.at.getTime() - b.at.getTime())
   const connectNote = (d: { name: string; managed: boolean }) =>
     d.managed
-      ? `The Hub asks Lovable to connect ${d.name} (one short chat message, about a credit), sets its DNS at Porkbun, waits until it shows the site (Lovable’s certificate can take a few hours), then saves it as their site link in Clients.`
-      : `The Hub asks Lovable to connect ${d.name} (one short chat message, about a credit) and lists the DNS records to add where its DNS is managed. Once they’re in and it shows the site, it’s saved as their site link in Clients.`
+      ? `Someone adds ${d.name} in Lovable (the site → Settings → Domains, about a minute) and pastes Lovable’s code in their Sites folder. The Hub then sets its DNS at Porkbun, waits until it shows the site (Lovable’s certificate can take a few hours), and saves it as their site link in Clients.`
+      : `Someone adds ${d.name} in Lovable (the site → Settings → Domains) and pastes Lovable’s code in their Sites folder; the records Forge then lists get added where its DNS is managed. Once it shows the site, it’s saved as their site link in Clients.`
   for (const a of siteAsks) {
     const stage = a.stage === 'publish' || a.stage === 'domain' ? a.stage : 'ask'
     const d = a.siteDomain ?? null
@@ -699,15 +699,15 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'connecting') {
       const name = r.domain ?? 'their domain'
       const stepAt = r.domainStepAt ?? r.updatedAt
-      const domains = r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : lovable
-      if (r.domainStep === 'records') {
+      if (r.domainStep === 'records' || r.domainStep === 'asking' || r.domainStep === 'lovable') {
+        // A person: Lovable's code into their Sites folder (or, for a domain elsewhere, its DNS records).
         add('forge', { status: 'needs_you', task: clip(`Connecting ${name} to ${r.clientName}’s website needs you`), icon: 'alert', at: stepAt })
-        request(`sb:${r.id}:records`, 'forge', 'stuck', `${r.clientName}: ${r.detail ?? `${name} needs its DNS records added.`}`, stepAt, domains)
+        request(`sb:${r.id}:records`, 'forge', 'stuck', `${r.clientName}: ${r.detail ?? `${name} needs Lovable’s code pasted in their Sites folder.`}`, stepAt, `/sites/${r.clientId}`)
       } else if (r.domainStep === 'live') {
         add('forge', { status: 'thinking', task: `Waiting for ${name} to show ${r.clientName}’s website`, icon: 'dots', at: stepAt })
         if (r.detail?.startsWith('Still waiting')) request(`sb:${r.id}:slow`, 'forge', 'stuck', `${r.clientName}: ${r.detail}`, r.updatedAt, lovable)
       } else {
-        add('forge', { status: 'browsing', task: `Connecting ${name} to ${r.clientName}’s website in Lovable${retrying}`, icon: 'globe', at: stepAt })
+        add('forge', { status: 'browsing', task: `Connecting ${name} to ${r.clientName}’s website${retrying}`, icon: 'globe', at: stepAt })
       }
     } else if (r.status === 'connected') {
       const done = r.domainAt ?? r.updatedAt

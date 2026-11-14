@@ -418,26 +418,13 @@ test('the domain Forge connects: one held here first, then one whose DNS is else
   assert.deepEqual(plan.siteDomainChoice([{ name: 'acme.com', origin: 'bought', status: 'failed' }]), null)
 })
 
-test('Lovable is asked to connect the domain without buying anything, and its codes are read back', () => {
-  const m = plan.domainConnectMessage('acme.com', true)
-  assert.match(m, /Connect my custom domain acme\.com/)
-  assert.match(m, /don't buy a domain, don't move its nameservers/)
-  assert.match(m, /Porkbun/)
-  assert.doesNotMatch(plan.domainConnectMessage('acme.com', false), /Porkbun/)
-
+test('Lovable’s codes are read from what a person pastes', () => {
   const table = ['| Type | Host | Value |', '| A | @ | 185.158.133.1 |', '| TXT | _lovable | lovable_verify=abc123 |', '| TXT | _lovable.www | lovable_verify=www456 |'].join('\n')
   assert.deepEqual(plan.lovableVerifyCodes(table), { rootTxt: 'lovable_verify=abc123', wwwTxt: 'lovable_verify=www456' })
   assert.deepEqual(plan.lovableVerifyCodes('Add a TXT record with lovable_verify=onlyone.'), { rootTxt: 'lovable_verify=onlyone', wwwTxt: null }, 'a full stop isn’t part of the code')
   assert.deepEqual(plan.lovableVerifyCodes('| TXT | _lovable | lovable_verify=a1.b2 |'), { rootTxt: 'lovable_verify=a1.b2', wwwTxt: null })
   assert.deepEqual(plan.lovableVerifyCodes('first lovable_verify=a1 then lovable_verify=b2'), { rootTxt: 'lovable_verify=a1', wwwTxt: 'lovable_verify=b2' })
   assert.deepEqual(plan.lovableVerifyCodes('Done! Your domain is connecting.'), { rootTxt: null, wwwTxt: null })
-
-  // Only a connect of exactly that domain is approved for the person who said Yes.
-  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'acme.com' }, 'acme.com'), true)
-  assert.equal(plan.approvesDomainConnect('buy_domain', { domain: 'acme.com' }, 'acme.com'), false)
-  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'other.com' }, 'acme.com'), false)
-  assert.equal(plan.approvesDomainConnect('connect_custom_domain', { domain: 'acme.com', nameservers: 'lovable' }, 'acme.com'), false)
-  assert.equal(plan.approvesDomainConnect('set_secret', { name: 'acme.com' }, 'acme.com'), false)
 })
 
 test('Forge asks to connect the domain once the site is live, and shows it through', () => {
@@ -446,6 +433,7 @@ test('Forge asks to connect the domain once the site is live, and shows it throu
   const a = mapping.deriveOffice(ask, NOW).approvals.find((x) => x.id === 'sr1')
   assert.equal(a.stage, 'domain')
   assert.equal(a.question, 'Connect acme.com to Acme Roofing’s website?')
+  assert.match(a.note, /pastes Lovable’s code in their Sites folder/)
   assert.match(a.note, /sets its DNS at Porkbun/)
   assert.match(a.note, /saves it as their site link in Clients/)
 
@@ -460,12 +448,11 @@ test('Forge asks to connect the domain once the site is live, and shows it throu
     const s = mapping.deriveOffice(input, NOW)
     return { bot: s.bots.find((b) => b.id === 'forge'), requests: s.requests, activity: s.activity }
   }
-  const lovable = forge(row({ domainStep: 'lovable' }))
-  assert.equal(lovable.bot.status, 'browsing')
-  assert.match(lovable.bot.task, /Connecting acme\.com to Acme Roofing’s website in Lovable/)
+  const code = forge(row({ domainStep: 'records', detail: 'In Lovable, open the site → Settings → Domains → Connect domain → acme.com → manual setup, and copy the code that starts with lovable_verify=.' }))
+  assert.equal(code.bot.status, 'needs_you')
+  assert.equal(code.requests[0].link, '/sites/c1', 'the paste box is in their Sites folder')
+  assert.match(code.requests[0].text, /copy the code that starts with lovable_verify=/)
   const records = forge(row({ domainStep: 'records', detail: 'Add these DNS records for acme.com where its DNS is managed: A acme.com → 185.158.133.1.' }))
-  assert.equal(records.bot.status, 'needs_you')
-  assert.equal(records.requests[0].link, '/hell-level/acc1/settings?tab=domains')
   assert.match(records.requests[0].text, /Add these DNS records for acme\.com/)
   const live = forge(row({ domainStep: 'live' }))
   assert.match(live.bot.task, /Waiting for acme\.com to show Acme Roofing’s website/)

@@ -326,6 +326,9 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const moving = d.siteDomain && 'waiting' in d.siteDomain ? d.siteDomain.waiting : null
   const connectable = !!b && b.status === 'published' && !!ready
   const domainAsked = d.domainQuestion?.status === 'awaiting_approval' || d.domainQuestion?.status === 'buying'
+  // Connecting their domain waits for what Lovable shows for it (Settings → Domains → Connect domain → manual).
+  const wantsCode = !!b && b.status === 'connecting' && ['records', 'asking', 'lovable'].includes(b.domainStep ?? '') && !b.hasCode
+  const [code, setCode] = useState('')
 
   async function ask(overrideGhl: boolean) {
     setBusy(true)
@@ -361,6 +364,21 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
       const res = await fetch(`/api/clients/${d.client.id}/hl-domain`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'ask' }) })
       const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; error?: string }
       setMsg(out.ok ? 'Asked in the Office: pick one of Forge’s names there. Nothing is bought until someone does.' : out.reason || out.error || 'Couldn’t ask.')
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** What Lovable showed for the domain: the Hub sets its DNS (held here) or lists the records to add. */
+  async function pasteCode() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/clients/${d.client.id}/hl-site`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'code', text: code }) })
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string; detail?: string | null; error?: string }
+      setMsg(out.ok ? out.detail || 'Done.' : out.reason || out.error || 'Couldn’t use that code.')
+      if (out.ok) setCode('')
       router.refresh()
     } finally {
       setBusy(false)
@@ -406,6 +424,31 @@ function SiteBuildCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
               {prompt ? 'Hide the one-shot' : 'See the one-shot'}
             </button>
           )}
+        </div>
+      )}
+      {wantsCode && (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="lovable-code" className="text-[12.5px] text-foreground/90">
+            Paste Lovable’s code for {b?.domain ?? 'their domain'} (it starts with lovable_verify=; both codes if it shows two)
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="lovable-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="lovable_verify=…"
+              spellCheck={false}
+              className="min-w-[260px] flex-1 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-[12.5px] text-foreground outline-none focus:border-foreground/40"
+            />
+            <button
+              type="button"
+              onClick={pasteCode}
+              disabled={busy || !code.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Connect it
+            </button>
+          </div>
         </div>
       )}
       {canAct && !working && d.account && (

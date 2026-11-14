@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAdmin, requireStaff } from '@/lib/auth-helpers'
 import { prisma } from '@/lib/prisma'
-import { askForClientSite, decideClientSite, previewClientSite } from '@/lib/hl/site-request'
+import { askForClientSite, decideClientSite, pasteDomainCode, previewClientSite } from '@/lib/hl/site-request'
 
 /**
  * GET /api/clients/:id/hl-site — this client's website build: where it
@@ -22,6 +22,10 @@ import { askForClientSite, decideClientSite, previewClientSite } from '@/lib/hl/
  *
  * POST { action: 'connect' } — admin only: the same as Connect it on Forge's
  * domain question, for a published site with a domain in Hell-level → Domains.
+ *
+ * POST { action: 'code', text } — staff: while Forge connects their domain,
+ * what Lovable showed for it (its lovable_verify= code, or both codes). A
+ * domain held here gets its DNS set at Porkbun.
  */
 export const dynamic = 'force-dynamic'
 // A preview is one Claude call that looks at the client's photos: a few minutes at most.
@@ -59,10 +63,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown; text?: unknown } | null
+  const { id } = await params
+  // Pasting Lovable's code is the step Ethan (staff) does in Lovable, so it isn't admin only.
+  if (body?.action === 'code') {
+    const staffDenied = await requireStaff()
+    if (staffDenied) return staffDenied
+    const session = await auth()
+    const by = session?.user?.name || session?.user?.email || 'staff'
+    const res = await pasteDomainCode(id, typeof body.text === 'string' ? body.text : '', by)
+    return NextResponse.json(res, { status: res.ok ? 200 : 409 })
+  }
   const denied = await requireAdmin()
   if (denied) return denied
-  const body = (await req.json().catch(() => null)) as { action?: unknown; overrideGhl?: unknown } | null
-  const { id } = await params
   if (body?.action === 'ask' || body?.action === 'publish' || body?.action === 'connect') {
     const session = await auth()
     const by = session?.user?.name || session?.user?.email || 'an admin'
@@ -83,5 +96,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, reason: err instanceof Error ? err.message : String(err) }, { status: 409 })
     }
   }
-  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" }, { "action": "publish" } or { "action": "connect" }' }, { status: 400 })
+  return NextResponse.json({ error: 'send { "action": "ask" }, { "action": "preview" }, { "action": "publish" }, { "action": "connect" } or { "action": "code", "text": "lovable_verify=…" }' }, { status: 400 })
 }
