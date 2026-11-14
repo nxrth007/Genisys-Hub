@@ -7,6 +7,7 @@ import { launchpad } from '@/lib/hl/launchpad'
 import { findSiteBrand } from '@/lib/hl/logo'
 import { keepLogo } from '@/lib/hl/media'
 import { setDefaultAccount } from '@/lib/hl/ghl-import'
+import { retryBlockedFiling } from '@/lib/hl/number-request'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -73,6 +74,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     data.profile = profile as Prisma.InputJsonValue
     if (typeof body.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null
     const updated = await prisma.hlAccount.update({ where: { id }, data })
+    // A toll-free filing waiting on these details is tried again now (not awaited: the save stays quick).
+    if (account.clientId && (body.profile || body.refillProfile === true)) void retryBlockedFiling(account.clientId)
     return NextResponse.json({ account: { ...updated, profile: readProfile(updated.profile) } })
   } catch (err) {
     return hlError(err, 'update sub-account')

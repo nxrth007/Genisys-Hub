@@ -267,6 +267,16 @@ export async function fileNumberVerification(clientId: string): Promise<string |
   }
 }
 
+/**
+ * A filing that stopped on the client's details (a phone, the address, their site's policy pages) is
+ * tried again as soon as someone edits their Business Profile, not hours later at the sweep's retry.
+ */
+export async function retryBlockedFiling(clientId: string): Promise<void> {
+  const r = await prisma.hlNumberRequest.findUnique({ where: { clientId }, select: { status: true, verifyNote: true } })
+  if (r?.status !== 'bought' || !r.verifyNote) return
+  await fileNumberVerification(clientId).catch((err) => console.warn('[hell-level] filing again after a profile edit:', describe(err)))
+}
+
 let lastSweep = 0
 
 /**
