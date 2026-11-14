@@ -115,7 +115,7 @@ test('domainStage: "Domain purchased" from Hell-level Domains, Forge’s questio
   assert.deepEqual(s.domainStage({ ...none, domains: [{ name: 'x.com', origin: 'bought', status: 'failed', createdAt: at }], question: { status: 'failed', name: 'x.com', detail: 'Porkbun said no' } }), { status: 'blocked', note: 'Porkbun said no' })
   assert.deepEqual(s.domainStage({ ...none, question: { status: 'buying', name: 'acme.com', detail: null } }), { status: 'in_progress', note: 'Buying acme.com' })
   assert.equal(s.domainStage({ ...none, question: { status: 'awaiting_approval', name: null, detail: null } }).status, 'pending')
-  assert.deepEqual(s.domainStage({ ...none, siteHost: 'concretemasonryllc.org' }), { status: 'done', note: 'concretemasonryllc.org, registered outside the Hub' })
+  assert.deepEqual(s.domainStage({ ...none, siteHost: 'concretemasonryllc.org' }), { status: 'done', note: 'concretemasonryllc.org, their site’s domain' })
 })
 
 test('tollFreeStage: "Toll-Free Number Purchased & Verified" from the number, GHL’s, or Echo’s question', () => {

@@ -141,7 +141,8 @@ export function domainStage(f: {
   const q = f.question?.status
   if (q === 'buying') return { status: 'in_progress', note: `Buying ${f.question?.name ?? 'their domain'}` }
   if (q === 'failed') return { status: 'blocked', note: f.question?.detail ?? 'The purchase didn’t go through' }
-  if (f.siteHost) return { status: 'done', note: `${f.siteHost}, registered outside the Hub` }
+  // Not in their Hell-level Domains, so where it's registered isn't known here (often Genisys's Porkbun).
+  if (f.siteHost) return { status: 'done', note: `${f.siteHost}, their site’s domain` }
   if (q === 'awaiting_approval') return { status: 'pending', note: 'Waiting on a pick in the Office or “Domain for the site” below' }
   if (q === 'declined') return { status: 'pending', note: 'None of the suggestions was picked' }
   return { status: 'pending', note: null }
