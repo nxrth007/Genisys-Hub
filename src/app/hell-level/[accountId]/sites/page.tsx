@@ -112,7 +112,7 @@ function ClientWebsite({ accountId }: { accountId: string }) {
             <div className="flex min-w-0 flex-1 flex-col gap-2.5">
               <div className="flex flex-wrap items-center gap-2.5">
                 <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate text-[18px] font-semibold text-foreground">{s.host ?? 'Not on the web yet'}</span>
+                <span className="min-w-0 break-all text-[18px] font-semibold text-foreground">{s.host ?? 'Not on the web yet'}</span>
                 <Badge color={s.live ? 'green' : s.status === 'failed' ? 'red' : 'amber'} dot>
                   {s.live && (s.status === 'connected' || s.status === 'live') ? 'Live' : s.label}
                 </Badge>
