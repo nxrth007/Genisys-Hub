@@ -113,7 +113,7 @@ Clients rush this form. They put the address in the business-name box and the na
 - ein: 9 digits as 12-3456789; "" if none or not 9 digits. A Social Security number (123-45-6789) is not an EIN.
 - areaCode: the 3-digit area code they want; "" if none.
 - notes: each change worth telling the team about, one short plain-English sentence each ("The business name and address boxes were swapped."). Leave out formatting-only changes.
-- doubts: what a person should check or ask the client, one short sentence each. [] when everything is clear.`
+- doubts: what a person should check or ask the client, one short sentence each. [] when everything is clear. Leave out a missing city, state or ZIP: the Hub looks the street up on the address map and asks about it itself when it can't place it.`
 
 const clean = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '')
 /** "N/A", "none", "-": a skipped answer. */
@@ -444,6 +444,8 @@ export function applyTidy(original: TidyAnswers, ai: AiTidy | null, found: Found
     if (!addressWhole) doubts.push(street ? 'Their business address has no city, state or ZIP the address map could confirm: ask the client for the full address.' : 'They gave no street address for the business: ask the client for it (a PO box won’t do for a texting registration).')
   }
 
+  // A doubt about the town or ZIP is settled once the address is whole (the map found it).
+  const open = addressWhole ? doubts.filter((d) => !/\b(zip|city,? (and )?state)\b/i.test(d) || !/address|street|\d/i.test(d)) : doubts
   const updates: Partial<Record<TidyField, string>> = {}
   const changes: TidyChange[] = []
   for (const f of TIDY_FIELDS) {
@@ -452,7 +454,7 @@ export function applyTidy(original: TidyAnswers, ai: AiTidy | null, found: Found
       changes.push({ field: f, from: o(f), to: next[f] })
     }
   }
-  return { updates, changes, notes: [...new Set(notes)], doubts: [...new Set(doubts)], addressWhole }
+  return { updates, changes, notes: [...new Set(notes)], doubts: [...new Set(open)], addressWhole }
 }
 
 /** One Slack line for the team: what changed that matters, and what a person should check. Null when there's nothing to say. */

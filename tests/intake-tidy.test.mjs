@@ -149,6 +149,8 @@ test('Concrete masonry: the street the map placed becomes the whole address, and
       serviceCities: ['Cuyahoga County OH', 'Lorain County OH', 'Medina County OH'],
       timeZone: 'Eastern',
       ein: '93-1876544',
+      // Claude can't know the map will place the street: once it has, this question is settled.
+      doubts: ['Ask for the city, state and ZIP of 13982 Sheldon Rd.'],
     }),
     { street: '13982 Sheldon Rd', city: 'Brook Park', state: 'OH', zip: '44142', how: 'the US Census address map finds that address only in Brook Park, OH' },
   )
