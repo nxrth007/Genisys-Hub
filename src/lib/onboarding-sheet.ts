@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { getSheetsClient, getWriterAccountEmail } from '@/lib/drive'
-import { ingestIntake, str } from '@/lib/client-intake-ingest'
+import { ingestIntake, str, submittedAs } from '@/lib/client-intake-ingest'
 
 /**
  * The onboarding form's Google Sheet, read by the Hub itself.
@@ -191,7 +191,12 @@ export async function reconcileOnboardingSheet(): Promise<SheetSyncStatus> {
     const submissions = rows.filter((r) => str(r.answers.businessName) || str(r.answers.fullName) || str(r.answers.leadEmail))
     status.sheetRows = submissions.length
 
-    const existing = await prisma.clientIntake.findMany({ select: { receivedAt: true, businessName: true, leadEmail: true } })
+    // Each stored submission's names and emails as it came in as well as now: the tidy (src/lib/intake-tidy.ts)
+    // rewrites the columns, and a sheet row still has the client's own words.
+    const existing = (await prisma.clientIntake.findMany({ select: { receivedAt: true, businessName: true, leadEmail: true, fullName: true, raw: true } })).map((e) => {
+      const was = submittedAs(e)
+      return { receivedAt: e.receivedAt, businessNames: was.businessNames, leadEmails: was.leadEmails }
+    })
     const now = Date.now()
     for (const row of submissions) {
       if (row.at && now - row.at.getTime() < SETTLE_MS) continue
@@ -201,7 +206,7 @@ export async function reconcileOnboardingSheet(): Promise<SheetSyncStatus> {
         const dt = row.at ? Math.abs(e.receivedAt.getTime() - row.at.getTime()) : null
         // Timestamps can be re-formatted by the sheet; the same business
         // (or lead email) within a day and a half is the same submission.
-        const sameWho = (business && norm(e.businessName) === business) || (email && norm(e.leadEmail) === email)
+        const sameWho = (business && e.businessNames.some((n) => norm(n) === business)) || (email && e.leadEmails.some((m) => norm(m) === email))
         if (sameWho) return dt === null || dt <= 36 * 3_600_000
         // Time alone only decides when the row has nothing else to go on —
         // two clients can submit within the same minute.
@@ -222,7 +227,7 @@ export async function reconcileOnboardingSheet(): Promise<SheetSyncStatus> {
       )
       if (!result.duplicate) {
         status.imported.push({ businessName: str(row.answers.businessName), at: row.at?.toISOString() ?? null })
-        existing.push({ receivedAt: row.at ?? new Date(), businessName: row.answers.businessName ?? null, leadEmail: row.answers.leadEmail ?? null })
+        existing.push({ receivedAt: row.at ?? new Date(), businessNames: [row.answers.businessName ?? ''], leadEmails: [row.answers.leadEmail ?? ''] })
       }
     }
     status.recoveredTotal += status.imported.length

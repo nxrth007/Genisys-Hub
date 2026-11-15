@@ -1,5 +1,8 @@
+import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { parseUsAddress } from '@/lib/address-parse'
+import { GEO_RESET } from '@/lib/geocode'
+import { completeBusinessAddress } from '@/lib/intake-tidy'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { renderTemplate } from './merge'
@@ -171,8 +174,19 @@ export async function tollFreeFiling(accountId: string) {
     throw new HlInputError(
       `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms on their site (Clients → the site: its repo, else the live site), so this clears once the site is live there. If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
     )
-  // Twilio makes the client's own profile from the filing, so the address has to be whole.
-  const addr = parseUsAddress(p.address)
+  // Twilio makes the client's own profile from the filing, so the address has to be whole. A street with no
+  // town or ZIP (Concrete masonry's “13982 Sheldon rd”, 2026-11-14) is looked up on the address map where
+  // the business works and saved to the profile first (src/lib/intake-tidy.ts); a person is asked only when
+  // nothing confirms it.
+  let addr = parseUsAddress(p.address)
+  if (!(addr.street && addr.city && addr.state && addr.zip) && clientId) {
+    const whole = await completeBusinessAddress(clientId, p.address)
+    if (whole) {
+      await saveCompletedAddress(accountId, clientId, p.address ?? '', whole.address)
+      console.log(`[hell-level] completed ${p.businessName}’s address for its toll-free filing: ${whole.address} (${whole.how})`)
+      addr = parseUsAddress(whole.address)
+    }
+  }
   if (!(addr.street && addr.city && addr.state && addr.zip))
     throw new HlInputError(
       `Add ${p.businessName}’s full business address in Settings → Business Profile: street, city, state and ZIP${p.address?.trim() ? ` (it says “${p.address.trim()}”)` : ''}. Twilio makes the client’s own profile from it.`,
@@ -217,6 +231,18 @@ export async function tollFreeFiling(accountId: string) {
       externalReferenceId: accountId,
       ageGatedContent: false,
   }
+}
+
+/**
+ * The whole address goes into the Business Profile (and the client record's copy, while it still reads as
+ * before), unless someone changed the profile's address meanwhile.
+ */
+async function saveCompletedAddress(accountId: string, clientId: string, was: string, address: string): Promise<void> {
+  const row = await prisma.hlAccount.findUnique({ where: { id: accountId }, select: { profile: true } })
+  const profile = readProfile(row?.profile)
+  if ((profile.address ?? '').trim() !== was.trim()) return
+  await prisma.hlAccount.update({ where: { id: accountId }, data: { profile: { ...profile, address } as Prisma.InputJsonValue } })
+  await prisma.client.updateMany({ where: { id: clientId, OR: [{ address: was }, { address: null }] }, data: { address, ...GEO_RESET } })
 }
 
 export type TollFreeFiling = Awaited<ReturnType<typeof tollFreeFiling>>

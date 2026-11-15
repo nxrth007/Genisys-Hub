@@ -16,6 +16,7 @@ import { fillBrandFromSite } from '@/lib/hl/logo'
 import { askForClientNumber } from '@/lib/hl/number-request'
 import { askForClientDomain } from '@/lib/hl/domain-request'
 import { askForClientSite } from '@/lib/hl/site-request'
+import { tidyNewIntake } from '@/lib/intake-tidy'
 
 /**
  * Storing an onboarding submission, however it reached the Hub.
@@ -108,6 +109,40 @@ export function intakeDataFromBody(body: Record<string, unknown>) {
   }
 }
 
+/**
+ * Who a stored submission was from, as it came in: its raw answers, since the tidy (src/lib/intake-tidy.ts)
+ * rewrites the columns afterwards ("13982 Sheldon rd" in the name box becomes the business's name). The
+ * same submission arriving again (the webhook, then the sheet) still reads as the same.
+ */
+export function submittedAs(row: { raw: unknown; businessName: string | null; leadEmail: string | null; fullName: string | null }): {
+  businessNames: string[]
+  leadEmails: string[]
+  fullNames: string[]
+} {
+  const body = isRecord(row.raw) ? row.raw : null
+  const a = body ? (isRecord(body.answers) ? body.answers : body) : null
+  const both = (raw: string | null, now: string | null) => [raw, now].filter((v): v is string => !!v?.trim())
+  return {
+    businessNames: both(a ? str(a.businessName) : null, row.businessName),
+    leadEmails: both(a ? str(a.leadEmail) : null, row.leadEmail),
+    fullNames: both(a ? str(a.fullName) : null, row.fullName),
+  }
+}
+
+const same = (list: string[], v: string) => list.some((x) => x.trim().toLowerCase() === v.trim().toLowerCase())
+
+/** The same submitter: by business name; else (no name) by email; else (neither) by full name; else time alone. */
+function sameSubmitter(
+  data: { businessName: string | null; leadEmail: string | null; fullName: string | null },
+  row: { raw: unknown; businessName: string | null; leadEmail: string | null; fullName: string | null },
+): boolean {
+  const was = submittedAs(row)
+  if (data.businessName) return same(was.businessNames, data.businessName)
+  if (data.leadEmail) return !was.businessNames.length && same(was.leadEmails, data.leadEmail)
+  if (data.fullName) return !was.businessNames.length && !was.leadEmails.length && same(was.fullNames, data.fullName)
+  return true
+}
+
 export type IngestResult = {
   id: string
   clientId: string | null
@@ -128,21 +163,13 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
 
   if (data.receivedAt) {
     // Who it's from, as well as when: two clients can submit in the same second.
-    const who = data.businessName
-      ? { businessName: { equals: data.businessName, mode: 'insensitive' as const } }
-      : data.leadEmail
-        ? { businessName: null, leadEmail: { equals: data.leadEmail, mode: 'insensitive' as const } }
-        : data.fullName
-          ? { businessName: null, leadEmail: null, fullName: { equals: data.fullName, mode: 'insensitive' as const } }
-          : {}
-    const near = await prisma.clientIntake.findFirst({
-      where: {
-        receivedAt: { gte: new Date(data.receivedAt.getTime() - 2000), lte: new Date(data.receivedAt.getTime() + 2000) },
-        ...who,
-      },
-      select: { id: true, clientId: true },
+    const near = await prisma.clientIntake.findMany({
+      where: { receivedAt: { gte: new Date(data.receivedAt.getTime() - 2000), lte: new Date(data.receivedAt.getTime() + 2000) } },
+      select: { id: true, clientId: true, businessName: true, leadEmail: true, fullName: true, raw: true },
+      take: 20,
     })
-    if (near) return { id: near.id, clientId: near.clientId, created: false, duplicate: true }
+    const dup = near.find((n) => sameSubmitter(data, n))
+    if (dup) return { id: dup.id, clientId: dup.clientId, created: false, duplicate: true }
   }
 
   const intake = await prisma.clientIntake.create({
@@ -174,6 +201,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     await hubAlert(
       `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : matched ? ` — linked to *${matched.name}* already on file (${matched.why}). If they're really two businesses, say so and we'll split them` : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
     )
+    // Claude tidies the answers first (src/lib/intake-tidy.ts): swapped name and address boxes, a street
+    // with no town or ZIP, phones, the EIN. What reads the answers below (SEO, the map, the Hell-level
+    // sub-account and its profile, GHL) waits for it, up to two minutes. Never rejects.
+    const tidied = tidyNewIntake(intake.id, { clientId, created, name: who })
     // Text Alex and Ethan (src/lib/team-sms.ts). Fire-and-forget: a failed text must not hold up the rest.
     void textTeam(
       onboardingText({ business: who, owner: data.fullName?.trim() || null, city: city || null, created, link: hubLink(`/clients?focus=${clientId}`) }),
@@ -195,7 +226,8 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // Give them a seat in SEO now (audit mode; it waits for a live URL).
     // An existing site's business facts pick up what the client just told us.
     const gbpFor = clientId
-    void ensureSeoSiteForClient(clientId)
+    void tidied
+      .then(() => ensureSeoSiteForClient(gbpFor))
       .then((siteId) => (siteId ? syncClientFacts(siteId, { announce: !created }) : null))
       .catch((err) => console.warn(`[client-onboarding] seo site for ${clientId}:`, err))
       // "No Google Business Profile" on the form: look for a listing Google made on its own and post the setup kit (src/lib/gbp-setup.ts).
@@ -205,14 +237,15 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     // page load. A new submission may carry the address an earlier one
     // lacked, so an unplaced client's backoff is lifted first.
     const id = clientId
-    void prisma.client
-      .updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } })
+    void tidied
+      .then(() => prisma.client.updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } }))
       .then(() => ensureClientGeo(id))
       .catch((err) => console.warn(`[client-onboarding] geocode failed for ${id}:`, err))
     // Hell-level sub-account (src/lib/hl): free (Hub rows, not a GHL plan feature),
     // so every new client gets one with the starter pipeline, forms and automations.
-    // Nothing texts until someone buys the client a number.
-    void createAccountForClient(id)
+    // Nothing texts until someone buys the client a number. Its business profile is filled from the tidied answers.
+    void tidied
+      .then(() => createAccountForClient(id))
       .then(async (a) => {
         // Echo asks in the Office whether to buy them a Hell-level toll-free number (src/lib/hl/number-request.ts).
         if (a.created) void askForClientNumber(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] toll-free number question for ${id}:`, err))
@@ -232,12 +265,12 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       const timeKnown = !!data.receivedAt || source === 'webhook'
       // The browser worker replaces the API create, which Agency Unlimited refuses.
       if (workerEnabled()) {
-        void enqueueGhlSubaccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
+        void tidied.then(() => enqueueGhlSubaccountForNewClient(id, intake.receivedAt, { timeKnown })).then((r) => {
           if (!r.ok) console.log(`[client-onboarding] GHL browser job for ${id} skipped: ${r.reason}`)
           else console.log(`[client-onboarding] GHL browser job for ${id} ${r.status} as "${r.name}"`)
         })
       } else {
-        void provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown }).then((r) => {
+        void tidied.then(() => provisionGhlSubAccountForNewClient(id, intake.receivedAt, { timeKnown })).then((r) => {
           if (!r.ok) console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}: ${r.reason}`)
           else console.log(`[client-onboarding] GHL sub-account for ${id} ${r.status}`)
         })
