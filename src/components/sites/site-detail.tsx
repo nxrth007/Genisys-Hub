@@ -12,6 +12,7 @@ import { StatusBadge } from './sites-grid'
 import { BuilderWindow, DomainCodeBox } from './builder-window'
 import { ConfirmDialog, postAction } from './confirm-dialog'
 import { DomainCard } from './domain-card'
+import { ClientReportCard } from './client-report-card'
 
 /** "+18556762067" → "(855) 676-2067". */
 function pretty(n: string | null | undefined): string {
@@ -839,6 +840,8 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
           </ul>
         </Card>
       </div>
+
+      <ClientReportCard clientId={d.client.id} canAct={canAsk} />
 
       {d.ghlRegistration && <GhlRegistrationCard clientId={d.client.id} r={d.ghlRegistration} canAct={canAsk} />}
 

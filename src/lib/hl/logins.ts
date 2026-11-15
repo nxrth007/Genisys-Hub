@@ -67,7 +67,14 @@ export async function loginsOf(accountId: string): Promise<LoginRow[]> {
  * stops working). `email` fills in or corrects their staff record's email
  * first. Returns the link too, to pass on by hand.
  */
-export async function inviteLogin(o: { accountId: string; staffId: string; email?: string | null; by: string }): Promise<{ link: string; sent: string[] }> {
+export async function inviteLogin(o: {
+  accountId: string
+  staffId: string
+  email?: string | null
+  by: string
+  /** Make the login and its link but send nothing: the caller sends the link (the client report). */
+  quiet?: boolean
+}): Promise<{ link: string; sent: string[] }> {
   const staff = await prisma.hlRecord.findUnique({ where: { id: o.staffId } })
   if (!staff || staff.accountId !== o.accountId || staff.kind !== 'user') throw new HlInputError('That person isn’t on this sub-account’s staff.')
   const data = staffData(staff.data)
@@ -91,6 +98,10 @@ export async function inviteLogin(o: { accountId: string; staffId: string; email
   })
 
   const link = await passwordLink(user.id, INVITE_TTL)
+  if (o.quiet) {
+    console.log(`[hell-level] ${o.by} gave ${email} a login to ${o.accountId} (link handed to the caller)`)
+    return { link, sent: [] }
+  }
   const account = await prisma.hlAccount.findUniqueOrThrow({ where: { id: o.accountId }, select: { name: true, profile: true } })
   const business = readProfile(account.profile).businessName || account.name
   const first = staff.name.split(/\s+/)[0] || 'there'

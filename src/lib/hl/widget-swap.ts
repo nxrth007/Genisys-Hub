@@ -346,9 +346,10 @@ async function fetchText(url: string, max = 3_000_000): Promise<{ url: string; b
 
 /**
  * The live site's own code: its home page, the scripts it loads from its own address, and a few
- * contact or quote page chunks those name. Null when the page doesn't load.
+ * contact or quote page chunks those name. Null when the page doesn't load. The client report's
+ * ready check reads it too (./client-report.ts).
  */
-async function liveCode(siteUrl: string): Promise<{ code: string; lovableId: string | null } | null> {
+export async function liveCode(siteUrl: string): Promise<{ code: string; lovableId: string | null } | null> {
   const bust = `${siteUrl.replace(/\/+$/, '')}/?hlcheck=${Date.now()}`
   const home = await fetchText(bust)
   if (!home) return null
