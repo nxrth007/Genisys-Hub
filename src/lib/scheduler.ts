@@ -60,6 +60,7 @@ import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
 import { maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
 import { maybeRenameSavedNotes } from './hl/rename-notes'
+import { maybeFixReviewWorkflows } from './hl/review-fixes'
 import { maybeSyncLegalLinks } from './hl/legal-links'
 import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
 import { maybeSyncGoogleCalendars } from './hl/google-sync'
@@ -543,6 +544,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] genisys-os: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] genisys-os client kit upgrade failed:', err))
+    // Once: existing review workflows get the 2026-11-16 fixes (Job Completed starts the request, no gift-card draw, promotions marked).
+    void maybeFixReviewWorkflows()
+      .then((n) => {
+        if (n) console.log(`[scheduler] genisys-os: ${n} review workflow(s) updated`)
+      })
+      .catch((err) => console.error('[scheduler] genisys-os review workflow update failed:', err))
     // Once: notes saved under the old name (Hell-level) read Genisys OS, and hidden Office items stay hidden.
     void maybeRenameSavedNotes()
       .then((n) => {

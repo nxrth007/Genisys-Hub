@@ -103,7 +103,7 @@ export async function launchpad(accountId: string): Promise<{ items: LaunchItem[
     {
       key: 'reviews',
       title: 'Turn on Google review requests',
-      detail: p.reviewLink ? 'Texts a review link when a job moves to “Job Complete”.' : 'Add the Google review link to the profile, then switch the review workflow on.',
+      detail: p.reviewLink ? 'Texts a review link after a job moves to the completed stage.' : 'Add the Google review link to the profile, then switch the review workflow on.',
       done: !!p.reviewLink && live('review_request'),
       href: p.reviewLink ? 'automation' : 'settings',
       cta: p.reviewLink ? 'Switch it on' : 'Add review link',

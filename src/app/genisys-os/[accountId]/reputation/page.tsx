@@ -18,7 +18,7 @@ const NOT_YET: Record<string, { title: string; what: string }> = {
   reviews: { title: 'Reviews', what: 'Reading and replying to Google and Facebook reviews from one place. GHL’s API doesn’t export reviews; they stay on Google.' },
   widgets: { title: 'Widgets', what: 'Review badges and carousels for the website.' },
   listings: { title: 'Listings', what: 'Keeping the business’s name, address and phone the same across directories.' },
-  settings: { title: 'Reputation Settings', what: 'Review request wording, timing and channels. Edit the “Google Review Request” workflow under Automation for now.' },
+  settings: { title: 'Reputation Settings', what: 'Review request wording, timing and channels. Edit the review request workflow under Automation for now.' },
 }
 
 export default function ReputationPage() {
@@ -49,7 +49,7 @@ function Reputation() {
             </div>
           ) : !runs.length ? (
             <Empty icon={<Star className="h-5 w-5" />} title="No review requests yet">
-              Moving a job to “Job Complete” on the pipeline sends one when the review workflow is on.
+              Moving a job to the completed stage on the pipeline starts one when the review workflow is on. So does the owner’s 5 Star Review Request Form.
             </Empty>
           ) : (
             <Table head={['Contact', 'Requested', 'Status']}>

@@ -82,8 +82,13 @@ function Board() {
   const pipeline = q.data?.pipelines.find((p) => p.id === pipelineId) ?? busiest
   const shown = useMemo(() => (pipeline?.opportunities ?? []).filter((o) => status === 'all' || o.status === status), [pipeline, status])
 
+  // After a job lands in Job Completed and the review campaign started: when the text goes, and how to stop it.
+  const [notice, setNotice] = useState<string | null>(null)
   const move = useMutation({
-    mutationFn: (v: { id: string; stageId: string }) => hlFetch(`/api/hl/accounts/${accountId}/opportunities/${v.id}`, { method: 'PATCH', json: { stageId: v.stageId, position: Date.now() / 1000 } }),
+    mutationFn: (v: { id: string; stageId: string; name: string }) =>
+      hlFetch<{ started?: number }>(`/api/hl/accounts/${accountId}/opportunities/${v.id}`, { method: 'PATCH', json: { stageId: v.stageId, position: Date.now() / 1000 } }),
+    onSuccess: (r, v) =>
+      setNotice(v.stageId === 'job_completed' && (r.started ?? 0) > 0 ? `${v.name} gets a review request in 20 minutes. Move the job back out of Job Completed before then to stop it.` : null),
     onMutate: async (v) => {
       await qc.cancelQueries({ queryKey: ['hl', 'pipelines', accountId] })
       const prev = qc.getQueryData<{ pipelines: Pipeline[] }>(['hl', 'pipelines', accountId])
@@ -99,14 +104,14 @@ function Board() {
   function onDragEnd(e: DragEndEvent) {
     const stageId = e.over?.id ? String(e.over.id) : null
     const opp = shown.find((o) => o.id === e.active.id)
-    if (stageId && opp && opp.stageId !== stageId) move.mutate({ id: opp.id, stageId })
+    if (stageId && opp && opp.stageId !== stageId) move.mutate({ id: opp.id, stageId, name: opp.name })
   }
 
   const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 px-6 py-7">
-      <PageHeader title="Opportunities" description="Drag a lead to the next stage as the job moves. Moving one to “Job Complete” sends the review request (when it’s switched on)." />
+      <PageHeader title="Opportunities" description="Drag a lead to the next stage as the job moves. Moving one to the completed stage starts the review request (when the review workflow is on)." />
       {/* GHL's toolbar: the pipeline and how many are in it on the left, the rest on the right. */}
       <div className="flex flex-wrap items-center gap-3">
         {(q.data?.pipelines.length ?? 0) > 1 && (
@@ -175,6 +180,14 @@ function Board() {
         </DndContext>
       )}
       <ErrorNote error={move.error} />
+      {notice && (
+        <p className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground/90" role="status">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+            Dismiss
+          </button>
+        </p>
+      )}
       {editing && pipeline && <EditOpp accountId={accountId} opp={editing} stages={pipeline.stages} onClose={() => setEditing(null)} />}
       {adding !== null && pipeline && <AddOpp accountId={accountId} pipeline={pipeline} stageId={adding} onClose={() => setAdding(null)} />}
     </div>

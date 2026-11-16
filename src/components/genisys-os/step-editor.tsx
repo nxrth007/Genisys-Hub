@@ -65,6 +65,7 @@ export function conditionText(c: HlCondition, triggerName?: (id: string) => stri
   if (c.type === 'contact_reply' && c.subType === 'contact_replied') return v === 'false' ? 'Contact hasn’t replied' : 'Contact replied'
   if (c.type === 'contact_detail' && c.subType === 'tags') return `${c.operator === 'index-of-false' ? 'Doesn’t have' : 'Has'} tag “${v}”`
   if (c.type === 'contact_reply' && c.subType === 'matches_intent') return `Reply means “${v}” (AI intent)`
+  if (c.type === 'opportunities' && c.subType === 'triggerStage') return `The job that started this ${c.operator === '!=' ? 'has left' : 'is still in'} “${v.replace(/_/g, ' ')}”`
   if (c.type === 'trigger') return `Workflow trigger ${c.operator === '!=' ? 'isn’t' : 'is'} “${triggerName?.(v) ?? 'a particular trigger'}”`
   if (c.type === 'inboundWebhookRequest' || c.type === 'webhook') return `Webhook field “${(c.subType ?? '').replace(/^\{\{\s*|\s*\}\}$/g, '').replace(/^(inboundWebhookRequest|webhook)\.?/i, '') || 'request'}” ${c.operator} “${v}”`
   return `${c.type}${c.subType ? ` · ${c.subType}` : ''} ${c.operator} ${v}`.trim()
@@ -76,7 +77,7 @@ export function stepSummary(s: HlStep, stages: HlStage[]): string {
   switch (s.type) {
     case 'send_sms':
     case 'internal_sms':
-      return (c.body ?? '').replace(/\s+/g, ' ').slice(0, 70) || 'No message yet'
+      return `${c.marketing ? 'Promotion · ' : ''}${(c.body ?? '').replace(/\s+/g, ' ').slice(0, 70) || 'No message yet'}`
     case 'internal_email':
     case 'send_email':
       return c.subject || plain(c.body).slice(0, 70) || 'No subject'
@@ -265,15 +266,24 @@ export function StepEditor({
       </Field>
 
       {s.type === 'send_sms' && (
-        <MessageField
-          label="Message to the contact"
-          value={s.config.body ?? ''}
-          onChange={(body) => set({ body })}
-          profile={profile}
-          groups={fieldGroups}
-          sample={sample}
-          hint="Sent from the sub-account’s number. Only goes to contacts who agreed to texts or called/texted first. A contact’s first text gets “Reply STOP to opt out.” added."
-        />
+        <>
+          <MessageField
+            label="Message to the contact"
+            value={s.config.body ?? ''}
+            onChange={(body) => set({ body })}
+            profile={profile}
+            groups={fieldGroups}
+            sample={sample}
+            hint="Sent from the sub-account’s number. Only goes to contacts who agreed to texts or called/texted first. A contact’s first text gets “Reply STOP to opt out.” added."
+          />
+          <label className="flex items-start gap-2 text-[13px] text-foreground/90">
+            <input type="checkbox" className="mt-0.5" checked={s.config.marketing === true} onChange={(e) => set({ marketing: e.target.checked || undefined })} />
+            <span>
+              This is a promotion (an offer, discount or special)
+              <span className="block text-[12px] text-muted-foreground">Then it only goes to contacts who ticked the promotions box on a form. Texts about their own job don’t need it.</span>
+            </span>
+          </label>
+        </>
       )}
       {s.type === 'internal_sms' && (
         <>

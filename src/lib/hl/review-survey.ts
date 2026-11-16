@@ -7,12 +7,18 @@ import { readLinkToken } from './links'
 import type { HlProfile } from './types'
 
 /**
- * The review survey GHL's client snapshot sends review-request texts to: "Rate
- * Us" from five stars down to one. Four or five go straight on to Google to
- * leave a review; three or fewer are asked what went wrong, and that feedback
- * starts "Negative Feedback Received" (a form_submitted trigger on this form).
- * The tracked review link ({{trigger_link.review}}) opens it with the contact
- * already known.
+ * The review survey review-request texts lead to: "Rate Us" from five stars
+ * down to one, then the customer chooses, whatever they rated: leave a review
+ * on Google, or tell the business privately.
+ *
+ * Everyone is offered the Google review (since 2026-11-16). GHL's snapshot
+ * sent only four and five stars there and kept the rest to a feedback form,
+ * which is "review gating": Google's review policy bars asking only happy
+ * customers for reviews. A low rating still sees the feedback box first, and
+ * its feedback starts "Negative Feedback Received" (a form_submitted trigger
+ * on this form); a happy customer's private note is kept on their
+ * conversation without that alert. The tracked review link
+ * ({{trigger_link.review}}) opens the survey with the contact already known.
  */
 
 /** GHL's options, best first. */
@@ -47,13 +53,23 @@ export async function publicSurvey(formId: string): Promise<(PublicSurvey & { ac
   }
 }
 
-export type SurveyInput = { rating: number; name?: string; email?: string; feedback?: string; token?: string }
+export type SurveyInput = { rating: number; action?: string; name?: string; email?: string; feedback?: string; token?: string }
 export type SurveyOutcome =
   | { ok: true; redirect: string; contactId: string | null }
-  | { ok: true; thankYou: string; contactId: string; accountId: string; answers: Record<string, string> }
+  | { ok: true; thankYou: string; contactId: string; accountId: string; answers: Record<string, string>; automations: boolean }
   | { ok: false; error: string; field?: string }
 
-/** A rating (and, for a low one, the feedback). The caller fires the form trigger for low ones. */
+/**
+ * What the customer chose after rating: on to Google, or private feedback. A
+ * page opened before this choice existed sends neither word: feedback text
+ * means feedback, a bare rating means Google.
+ */
+export function surveyAction(input: { action?: string; feedback?: string }): 'google' | 'feedback' {
+  if (input.action === 'google' || input.action === 'feedback') return input.action
+  return (input.feedback ?? '').trim() ? 'feedback' : 'google'
+}
+
+/** A rating and the customer's choice. The caller fires the form trigger when `automations` (a low rating's feedback). */
 export async function submitSurvey(formId: string, input: SurveyInput, meta: { ip: string | null; pageUrl: string | null }): Promise<SurveyOutcome> {
   const survey = await publicSurvey(formId)
   if (!survey) return { ok: false, error: 'This survey is no longer available.' }
@@ -73,16 +89,18 @@ export async function submitSurvey(formId: string, input: SurveyInput, meta: { i
     await prisma.hlContact.update({ where: { id }, data: { fields: { ...((c?.fields as Record<string, unknown>) ?? {}), ...fields } as Prisma.InputJsonValue } })
   }
 
-  if (stars >= survey.threshold) {
+  const low = stars < survey.threshold
+  // Any rating may go on to Google: the choice is the customer's.
+  if (surveyAction(input) === 'google') {
     if (contactId) {
       await keep(contactId, { rate_us: label })
-      await logActivity(survey.accountId, contactId, `Review survey: ${label}. Sent on to leave a Google review.`, { formId, rating: stars }, false)
+      await logActivity(survey.accountId, contactId, `Review survey: ${label}. Went on to leave a Google review.`, { formId, rating: stars }, low)
     }
     return { ok: true, redirect: survey.destination, contactId }
   }
 
   const feedback = (input.feedback ?? '').trim().slice(0, 4000)
-  if (!feedback) return { ok: false, error: 'Please tell us what we could do better.', field: 'your_feedback' }
+  if (!feedback) return { ok: false, error: low ? 'Please tell us what we could do better.' : 'Please write your note first.', field: 'your_feedback' }
   const email = (input.email ?? '').trim().slice(0, 200)
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Please enter a valid email address.', field: 'email' }
   const name = (input.name ?? '').trim().slice(0, 120)
@@ -92,9 +110,12 @@ export async function submitSurvey(formId: string, input: SurveyInput, meta: { i
   }
   const answers = { rate_us: label, your_feedback: feedback, ...(name ? { full_name: name } : {}), ...(email ? { email } : {}) }
   await keep(contactId, { rate_us: label, your_feedback: feedback })
-  await prisma.hlFormSubmission.create({
-    data: { formId, accountId: survey.accountId, contactId, data: answers as Prisma.InputJsonValue, pageUrl: meta.pageUrl, ip: meta.ip },
-  })
+  // A happy customer's private note isn't "negative feedback": it's kept on their conversation, with no submission to start that alert.
+  if (low) {
+    await prisma.hlFormSubmission.create({
+      data: { formId, accountId: survey.accountId, contactId, data: answers as Prisma.InputJsonValue, pageUrl: meta.pageUrl, ip: meta.ip },
+    })
+  }
   await logActivity(survey.accountId, contactId, `Review survey: ${label}\n${feedback}`, { formId, rating: stars })
-  return { ok: true, thankYou: survey.thankYou, contactId, accountId: survey.accountId, answers }
+  return { ok: true, thankYou: survey.thankYou, contactId, accountId: survey.accountId, answers, automations: low }
 }

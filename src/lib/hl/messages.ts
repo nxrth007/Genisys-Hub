@@ -12,7 +12,7 @@ import { sendTwilioSms } from './twilio'
  * profile's notification phone/email and aren't part of any conversation.
  */
 
-export type SendResult = { ok: boolean; detail: string; messageId?: string }
+export type SendResult = { ok: boolean; detail: string; messageId?: string; /** Why nothing was tried: a promotion for someone who didn't agree to promotions. */ refused?: 'promotion' }
 
 /** The number a sub-account texts from: its default active number, else any active one. */
 export async function sendingNumber(accountId: string): Promise<HlPhoneNumber | null> {
@@ -53,10 +53,11 @@ async function touch(contactId: string, preview: string, unread = false) {
 /**
  * Text a contact from the sub-account's number. Refuses when they opted out,
  * have no number, or never agreed to texts (automations) / never wrote or
- * called (staff sends without recorded consent). The first text a contact
- * ever gets carries the opt-out line carriers expect.
+ * called (staff sends without recorded consent). A promotion (`marketing`)
+ * also needs their yes to promotions. The first text a contact ever gets
+ * carries the opt-out line carriers expect.
  */
-export async function sendSmsToContact(o: { accountId: string; contactId: string; body: string; by: string; runId?: string }): Promise<SendResult> {
+export async function sendSmsToContact(o: { accountId: string; contactId: string; body: string; by: string; runId?: string; marketing?: boolean }): Promise<SendResult> {
   const contact = await prisma.hlContact.findUnique({ where: { id: o.contactId } })
   if (!contact || contact.accountId !== o.accountId) return { ok: false, detail: 'Contact not found' }
   if (!contact.phone) return { ok: false, detail: 'The contact has no phone number' }
@@ -69,6 +70,9 @@ export async function sendSmsToContact(o: { accountId: string; contactId: string
         : 'No texting consent recorded. If they agreed to texts, tick “Agreed to texts” on the contact first',
     }
   }
+  // A promotion (an offer or discount) needs its own yes: the separate promotions box on the form. It's what the
+  // consent wording promises, and what the number's texting registration tells the carriers.
+  if (o.marketing && !contact.marketingConsent) return { ok: false, detail: 'Not sent: this is a promotion, and they didn’t tick the promotions box (texts about their own job still go)', refused: 'promotion' }
   const body = o.body.trim()
   if (!body) return { ok: false, detail: 'Empty message' }
   const number = await sendingNumber(o.accountId)

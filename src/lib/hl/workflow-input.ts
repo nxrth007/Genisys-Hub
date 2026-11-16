@@ -130,7 +130,7 @@ export function cleanSteps(raw: unknown): HlStep[] {
       case 'send_sms':
       case 'internal_sms':
         if (!s(c.body)) throw new HlInputError(`Step ${i + 1}: write the message.`)
-        return out({ body: s(c.body), ...(type === 'internal_sms' && s(c.to, 200) ? { to: s(c.to, 200) } : {}) })
+        return out({ body: s(c.body), ...(type === 'internal_sms' && s(c.to, 200) ? { to: s(c.to, 200) } : {}), ...(type === 'send_sms' && c.marketing === true ? { marketing: true } : {}) })
       case 'internal_email':
         if (!s(c.body, 8000)) throw new HlInputError(`Step ${i + 1}: write the email.`)
         return out({ subject: s(c.subject, 200) ?? '', body: s(c.body, 8000), ...(s(c.to, 300) ? { to: s(c.to, 300) } : {}) })

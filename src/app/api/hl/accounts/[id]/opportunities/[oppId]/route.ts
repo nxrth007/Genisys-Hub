@@ -34,8 +34,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const name = str(body.name)
     if (name) data.name = name
     const updated = await prisma.hlOpportunity.update({ where: { id: oppId }, data })
-    if (movedTo) await fireTrigger(id, opp.contactId, { type: 'opportunity_stage', stageId: movedTo, pipelineId: opp.pipelineId })
-    return NextResponse.json({ opportunity: updated })
+    // How many workflows the move started (the board says so when a review request is on its way).
+    const started = movedTo ? await fireTrigger(id, opp.contactId, { type: 'opportunity_stage', stageId: movedTo, pipelineId: opp.pipelineId, context: { opportunityId: opp.id } }) : 0
+    return NextResponse.json({ opportunity: updated, started })
   } catch (err) {
     return hlError(err, 'update opportunity')
   }

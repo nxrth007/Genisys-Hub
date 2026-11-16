@@ -239,6 +239,8 @@ export type HlStep = {
   config: {
     body?: string
     subject?: string
+    /** send_sms: a promotion (an offer or discount): only to contacts who ticked the promotions box. */
+    marketing?: boolean
     /** internal_sms / internal_email: override the profile's notification phone/email. */
     to?: string
     amount?: number

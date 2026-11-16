@@ -6,9 +6,10 @@ import { submitSurvey } from '@/lib/hl/review-survey'
 type Ctx = { params: Promise<{ formId: string }> }
 
 /**
- * The review survey's answers (src/lib/hl/review-survey.ts). A high rating
- * comes back with where to go to leave a Google review; a low one with its
- * feedback starts the survey's "form submitted" automations.
+ * The review survey's answers (src/lib/hl/review-survey.ts). "google" (any
+ * rating) comes back with where to leave the Google review; "feedback" is
+ * kept, and a low rating's feedback starts the survey's "form submitted"
+ * automations.
  */
 export async function POST(req: Request, { params }: Ctx) {
   const { formId } = await params
@@ -25,14 +26,16 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     const r = await submitSurvey(
       formId,
-      { rating: Number(body.rating), name: str(body.full_name), email: str(body.email), feedback: str(body.your_feedback), token: str(body.c) },
+      { rating: Number(body.rating), action: str(body.action), name: str(body.full_name), email: str(body.email), feedback: str(body.your_feedback), token: str(body.c) },
       { ip: ip ?? null, pageUrl: req.headers.get('referer') },
     )
     if (!r.ok) return NextResponse.json({ error: r.error, field: r.field }, { status: 400 })
     if ('redirect' in r) return NextResponse.json({ ok: true, redirect: r.redirect })
-    after(() =>
-      fireTrigger(r.accountId, r.contactId, { type: 'form_submitted', formId, context: { form: r.answers, formId } }).catch((err) => console.error('[genisys-os] survey automations failed:', err)),
-    )
+    if (r.automations) {
+      after(() =>
+        fireTrigger(r.accountId, r.contactId, { type: 'form_submitted', formId, context: { form: r.answers, formId } }).catch((err) => console.error('[genisys-os] survey automations failed:', err)),
+      )
+    }
     return NextResponse.json({ ok: true, thankYou: r.thankYou })
   } catch (err) {
     console.error('[genisys-os] survey submit failed:', err)

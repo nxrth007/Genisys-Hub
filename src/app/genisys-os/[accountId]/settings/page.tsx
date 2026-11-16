@@ -179,7 +179,7 @@ function SettingsContent({ page, accountId, numbers }: { page: string; accountId
     case 'whatsapp':
       return <NotYet title="WhatsApp" what="WhatsApp Business messaging in Conversations." />
     case 'reputation':
-      return <NotYet title="Reputation Management" what="Review request and review reply settings. Review requests already run as the “Google Review Request” workflow." />
+      return <NotYet title="Reputation Management" what="Review request and review reply settings. Review requests already run as the review request workflow under Automation." />
     case 'scoring':
       return <NotYet title="Manage Scoring" what="Lead scoring rules that add points for opens, replies and visits." />
     case 'conversation-providers':

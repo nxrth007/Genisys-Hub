@@ -133,6 +133,9 @@ export async function fireTrigger(accountId: string, contactId: string, e: Trigg
     })
     if (earlier && Date.now() - earlier.createdAt.getTime() < DUPLICATE_MS) continue
     if (earlier && !w.allowReentry) continue
+    // One run per contact at a time (the review campaign: its form and a job moved to Job Completed both start it,
+    // and its own opportunity step moves the job there): a second way in while they're still in it is ignored.
+    if (rec(w.meta).oneAtATime === true && (await prisma.hlWorkflowRun.count({ where: { workflowId: w.id, contactId, status: { in: ['running', 'waiting'] } } })) > 0) continue
     const run = await prisma.hlWorkflowRun.create({
       data: {
         workflowId: w.id,
@@ -341,6 +344,18 @@ async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null
       .replace(/^custom_webhook\./i, '')
     return textHolds(renderTemplate(`{{custom_webhook.${path}}}`, c.merge).trim().toLowerCase(), op, cond.value)
   }
+  // The job a stage trigger was about: is it still in one of these stages? Whatever its status (a finished job is
+  // often marked won). Without that job on the run, any open or won job of the contact's counts.
+  if (cond.type === 'opportunities' && cond.subType === 'triggerStage') {
+    const want = asList(cond.value)
+    if (!want.length) return null
+    const id = typeof c.context.opportunityId === 'string' ? c.context.opportunityId : null
+    const jobs = id
+      ? await prisma.hlOpportunity.findMany({ where: { id, accountId: c.accountId }, select: { stageId: true } })
+      : await prisma.hlOpportunity.findMany({ where: { contactId: c.contact.id, status: { in: ['open', 'won'] } }, select: { stageId: true } })
+    const inStage = jobs.some((o) => want.includes(o.stageId.toLowerCase()))
+    return op === '!=' ? !inStage : inStage
+  }
   // GHL's "Opportunity" conditions: the stage of the contact's open opportunity.
   if (cond.type === 'opportunities' && cond.subType === 'pipelineStageId') {
     const want = asList(cond.value)
@@ -389,7 +404,9 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
         if (c.appointment && morning.getTime() >= c.appointment.start.getTime()) return { ok: true, detail: 'Skipped: quiet hours last until after the appointment' }
         return { ok: true, detail: 'Quiet hours: waiting until 9 AM', waitUntil: morning, retryStep: true }
       }
-      const r = await sendSmsToContact({ accountId: c.accountId, contactId: c.contact.id, body: render(cfg.body), by: 'automation', runId: c.runId })
+      const r = await sendSmsToContact({ accountId: c.accountId, contactId: c.contact.id, body: render(cfg.body), by: 'automation', runId: c.runId, marketing: cfg.marketing === true })
+      // An offer that couldn't go to them ends the run: its later steps answer replies to the offer.
+      if (r.refused === 'promotion') return { ok: false, detail: `${r.detail}: stopped here`, stop: true }
       return { ok: r.ok, detail: r.detail }
     }
     case 'send_email': {
@@ -466,7 +483,7 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       if (open) {
         if (!cfg.stageId || open.stageId === stage.id) return { ok: true, detail: 'Already has an open opportunity in this pipeline' }
         await prisma.hlOpportunity.update({ where: { id: open.id }, data: { stageId: stage.id } })
-        await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: pipeline.id }, c.depth + 1)
+        await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: pipeline.id, context: { opportunityId: open.id } }, c.depth + 1)
         return { ok: true, detail: `Moved the open opportunity to ${stage.name}` }
       }
       const last = await prisma.hlOpportunity.findFirst({ where: { pipelineId: pipeline.id, stageId: stage.id }, orderBy: { position: 'desc' }, select: { position: true } })
@@ -496,7 +513,7 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       if (!stage) return { ok: false, detail: 'That stage no longer exists' }
       if (opp.stageId === stage.id) return { ok: true, detail: `Already in ${stage.name}` }
       await prisma.hlOpportunity.update({ where: { id: opp.id }, data: { stageId: stage.id } })
-      await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: opp.pipelineId }, c.depth + 1)
+      await fireTrigger(c.accountId, c.contact.id, { type: 'opportunity_stage', stageId: stage.id, pipelineId: opp.pipelineId, context: { opportunityId: opp.id } }, c.depth + 1)
       return { ok: true, detail: `Moved to ${stage.name}` }
     }
     case 'remove_opportunity': {

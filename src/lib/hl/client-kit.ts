@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
+import { REACTIVATION_COPY, REVIEW_FORM_TRIGGER_ID, REVIEW_GATE_STEPS, reviewStageTrigger } from './review-kit'
 import { CHAT_FIELDS, CHAT_SETTINGS, QUOTE_FORM_FIELDS, QUOTE_FORM_SETTINGS } from './templates'
 import type { HlField, HlFormSettings, HlStage, HlStep, HlTrigger } from './types'
 
@@ -70,7 +71,17 @@ export const REVIEW_SURVEY_SETTINGS: HlFormSettings = {
 }
 
 export type KitIds = { quote: string; chat: string; reviewRequest: string; survey: string; pipeline: string }
-export type KitWorkflow = { key: string; name: string; folder: string; allowReentry: boolean; stopOnResponse: boolean; triggers: HlTrigger[]; steps: HlStep[] }
+export type KitWorkflow = {
+  key: string
+  name: string
+  folder: string
+  allowReentry: boolean
+  stopOnResponse: boolean
+  /** A contact already in it isn't started again until that run ends (the engine's oneAtATime). */
+  oneAtATime?: boolean
+  triggers: HlTrigger[]
+  steps: HlStep[]
+}
 
 // Straight apostrophes on purpose: a curly one makes a text Unicode and halves the characters per segment.
 const STAFF_TEXT = "New lead from website!\n\nInfo:\n- Name: {{contact.full_name}}\n- Email: {{contact.email}}\n- Phone: {{contact.phone}}\n\nWe've let them know you'll be in touch soon!"
@@ -289,7 +300,9 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           id: 'react_offer',
           type: 'send_sms',
           name: '$100 Off Offer',
+          // A promotion: only to people who ticked the promotions box (as the texting registration says).
           config: {
+            marketing: true,
             body: "Hi {{contact.first_name}}, just wanted to reach out to let you know about the $100 Discount we're currently offering on all of our services!   Do you have any projects that you'd like completed this year that we can put this $100 toward?",
           },
           next: 'react_wait',
@@ -328,7 +341,7 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           id: 'react_second',
           type: 'send_sms',
           name: '2nd Attempt',
-          config: { body: "Hey {{contact.first_name}}, just checking back to see if you'd be interested in saving $100 the next time we come out. Should I put one of the discount vouchers aside for you?" },
+          config: { marketing: true, body: "Hey {{contact.first_name}}, just checking back to see if you'd be interested in saving $100 the next time we come out. Should I put one of the discount vouchers aside for you?" },
           next: 'react_wait_again',
         },
         { id: 'react_wait_again', type: 'wait_reply', name: 'Wait for reply', config: { amount: 0, unit: 'minutes' }, next: 'react_positive_again' },
@@ -383,9 +396,12 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
       folder: KIT_FOLDERS.reviews,
       allowReentry: true,
       stopOnResponse: true,
-      triggers: [{ id: 'kit_review_form', name: '5 Star Review Request Form Submitted', type: 'form_submitted', formIds: [ids.reviewRequest] }],
+      oneAtATime: true,
+      // The owner's form, or the job dragged to Job Completed (which a contractor's login can do).
+      triggers: [{ id: REVIEW_FORM_TRIGGER_ID, name: '5 Star Review Request Form Submitted', type: 'form_submitted', formIds: [ids.reviewRequest] }, reviewStageTrigger(P)],
       steps: [
-        { id: 'rr_wait', type: 'wait', name: 'Wait 20min', config: { amount: 20, unit: 'minutes' }, next: 'rr_opp' },
+        { id: 'rr_wait', type: 'wait', name: 'Wait 20min', config: { amount: 20, unit: 'minutes' }, next: 'rr_how' },
+        ...REVIEW_GATE_STEPS,
         { id: 'rr_opp', type: 'create_opportunity', name: 'Create or update opportunity', config: { pipelineId: P, stageId: 'job_completed', oppName: 'Job Completed' }, next: 'rr_sms1' },
         {
           id: 'rr_sms1',
@@ -469,7 +485,7 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           type: 'send_sms',
           name: 'SMS 1',
           config: {
-            body: '{{contact.first_name}}, we could use your help! All of us at {{account.business_name}} appreciate your business. We would love to hear your feedback about our company and earn a few reviews on social media.\n\nEach person that leaves a 5-star review with a message within the next 7 days, will be entered to win a 100 dollar gift card! Thank you!\n\nGoogle Link: {{trigger_link.review}}',
+            body: REACTIVATION_COPY.rra_sms.body,
           },
           next: 'rra_email1',
         },
@@ -478,8 +494,8 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           type: 'send_email',
           name: 'Email',
           config: {
-            subject: "{{contact.first_name}} we've never done anything like this",
-            body: '{{contact.first_name}}, we could use your help! \nAll of us at {{account.business_name}} appreciate your business. We would love to earn a few reviews on social media.\nEach person that leaves a 5-star review with a message (even one sentence) within the next 7 days, will be entered to win a $100 gift card! \nWe will choose 1 winner at random in a week from now and send them the gift card, let us know if you have any questions! 🎁 Thank you!\nGoogle Link: {{trigger_link.review}}',
+            subject: REACTIVATION_COPY.rra_email1.subject,
+            body: REACTIVATION_COPY.rra_email1.body,
           },
           next: 'rra_wait1',
         },
@@ -489,8 +505,8 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           type: 'send_email',
           name: 'Email',
           config: {
-            subject: "RE: We've never done anything like this",
-            body: "Hi {{contact.first_name}},\nDid you get our email from yesterday?\nThere's only a few days left, so we wanted to send the email again, here it is from yesterday:\nAll of us at {{account.business_name}} appreciate your business. We would love to hear your feedback about our company and earn a few reviews on social media.\nIt only takes 2 minutes to leave a quick review!\nEach person that leaves a 5-star review with a message (even one sentence) will be entered to win a $100 gift card!\nWe will choose 1 winner at random in a week from now and send them the gift card, let us know if you have any questions! 🎁 Thank you!\nGoogle Link: {{trigger_link.review}}",
+            subject: REACTIVATION_COPY.rra_email2.subject,
+            body: REACTIVATION_COPY.rra_email2.body,
           },
           next: 'rra_wait2',
         },
@@ -500,8 +516,8 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
           type: 'send_email',
           name: 'Email',
           config: {
-            subject: 'Uh-Oh...',
-            body: "Hi {{contact.first_name}},\nWe're still a few reviews away from reaching our goal!\nIf you haven't had a chance yet would you mind leaving us a super quick review on Google & Facebook to be entered twice on our $100 gift card contest?\nEven one short sentence would help us out so much!\nGoogle Link: {{trigger_link.review}}\nThanks!",
+            subject: REACTIVATION_COPY.rra_email3.subject,
+            body: REACTIVATION_COPY.rra_email3.body,
           },
           next: null,
         },
@@ -574,10 +590,10 @@ export async function applyClientKit(accountId: string, o: { force?: boolean } =
     }
     const have = existing.find((w) => w.template === k.key)
     if (!have) {
-      await prisma.hlWorkflow.create({ data: { ...data, accountId, template: k.key, publishedAt: new Date(), meta: json({ kit: KIT_VERSION, stopOnResponse: k.stopOnResponse }) } })
+      await prisma.hlWorkflow.create({ data: { ...data, accountId, template: k.key, publishedAt: new Date(), meta: json({ kit: KIT_VERSION, stopOnResponse: k.stopOnResponse, ...(k.oneAtATime ? { oneAtATime: true } : {}) }) } })
       result.created.push(k.name)
     } else if (o.force || have._count.runs === 0) {
-      const meta = { ...((have.meta as Record<string, unknown>) ?? {}), kit: KIT_VERSION, stopOnResponse: k.stopOnResponse }
+      const meta = { ...((have.meta as Record<string, unknown>) ?? {}), kit: KIT_VERSION, stopOnResponse: k.stopOnResponse, ...(k.oneAtATime ? { oneAtATime: true } : {}) }
       await prisma.hlWorkflow.update({ where: { id: have.id }, data: { ...data, publishedAt: new Date(), meta: json(meta) } })
       result.updated.push(k.name)
     } else {
