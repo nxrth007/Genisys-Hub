@@ -58,7 +58,7 @@ import { maybeSweepWidgetSwaps } from './hl/widget-swap'
 import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
-import { maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
+import { maybeFillGoogleProfileLinks, maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
 import { maybeRenameSavedNotes } from './hl/rename-notes'
 import { maybeFixReviewWorkflows } from './hl/review-fixes'
 import { maybeSyncLegalLinks } from './hl/legal-links'
@@ -544,6 +544,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] genisys-os: ${n} client sub-account(s) brought up to the client kit`)
       })
       .catch((err) => console.error('[scheduler] genisys-os client kit upgrade failed:', err))
+    // Once: each sub-account's Business Profile gets the Google Business Profile link the Hub already knows.
+    void maybeFillGoogleProfileLinks()
+      .then((n) => {
+        if (n) console.log(`[scheduler] genisys-os: ${n} sub-account(s) given their Google Business Profile link`)
+      })
+      .catch((err) => console.error('[scheduler] genisys-os Google profile links failed:', err))
     // Once: existing review workflows get the 2026-11-16 fixes (Job Completed starts the request, no gift-card draw, promotions marked).
     void maybeFixReviewWorkflows()
       .then((n) => {

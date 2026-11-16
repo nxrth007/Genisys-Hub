@@ -68,6 +68,7 @@ const FULL = {
     notifyPhone: '+16035551234',
     notifyEmail: 'rick@acmeroofing.com',
     reviewLink: 'https://g.page/r/acme/review',
+    googleProfileUrl: 'https://maps.app.goo.gl/AcmeRoofing',
     address: '1 Main St, Tampa, FL 33601',
     serviceArea: 'Tampa, Clearwater and St. Petersburg, FL',
     ein: '12-3456789',

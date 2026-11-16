@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
+import { recordProfileLink } from '@/lib/gbp-setup'
 import { mergeProfile, profileForClient, readProfile } from '@/lib/hl/accounts'
+import { checkGoogleProfileLink } from '@/lib/hl/google-profile-link'
 import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
 import { launchpad } from '@/lib/hl/launchpad'
 import { findSiteBrand } from '@/lib/hl/logo'
@@ -62,7 +64,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     let profile = readProfile(account.profile)
     const logoBefore = profile.logoUrl ?? ''
-    if (body.profile && typeof body.profile === 'object') profile = mergeProfile(profile, body.profile as Record<string, unknown>)
+    const googleBefore = profile.googleProfileUrl ?? ''
+    if (body.profile && typeof body.profile === 'object') {
+      const patch = { ...(body.profile as Record<string, unknown>) }
+      // A new Google Business Profile link has to be one (the review link has its own box). One already saved
+      // is left alone, so a save of other boxes never trips on it.
+      if (typeof patch.googleProfileUrl === 'string' && patch.googleProfileUrl.trim() !== googleBefore) {
+        const link = checkGoogleProfileLink(patch.googleProfileUrl)
+        if (!link.ok) throw new HlInputError(link.error)
+        patch.googleProfileUrl = link.url
+      }
+      profile = mergeProfile(profile, patch)
+    }
     // A pasted logo link from somewhere else (Peakfinity Studio, ChatGPT…) expires: keep a copy here instead.
     if (profile.logoUrl && profile.logoUrl !== logoBefore) profile = { ...profile, logoUrl: await keepLogo({ accountId: id, url: profile.logoUrl, website: profile.website, by: guard.email }) }
     if (body.refillProfile === true && account.clientId) {
@@ -76,6 +89,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const updated = await prisma.hlAccount.update({ where: { id }, data })
     // A toll-free filing waiting on these details is tried again now (not awaited: the save stays quick).
     if (account.clientId && (body.profile || body.refillProfile === true)) void retryBlockedFiling(account.clientId)
+    // Their Google Profiles board keeps the same profile link (a blank here leaves the board's alone).
+    const googleNow = profile.googleProfileUrl ?? ''
+    if (account.clientId && googleNow && googleNow !== googleBefore) {
+      void recordProfileLink(account.clientId, googleNow, guard.email).catch((err) => console.warn('[genisys-os] Google profile link to the board:', err))
+    }
     return NextResponse.json({ account: { ...updated, profile: readProfile(updated.profile) } })
   } catch (err) {
     return hlError(err, 'update sub-account')

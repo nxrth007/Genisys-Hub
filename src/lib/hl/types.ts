@@ -18,6 +18,8 @@ export type HlProfile = {
   notifyEmail?: string
   /** Google review link for review requests. */
   reviewLink?: string
+  /** Their Google Business Profile: the Share link on the profile, or its Google Maps page. Their Google Profiles board keeps the same one. */
+  googleProfileUrl?: string
   address?: string
   /**
    * Where they work: the towns, cities or counties ("Tampa, Clearwater and St.
@@ -47,6 +49,7 @@ export const PROFILE_FIELDS: { key: keyof HlProfile; label: string; merge: strin
   { key: 'notifyPhone', label: 'Notification phone', merge: 'account.notify_phone', hint: 'Owner texts go here. Separate several with commas' },
   { key: 'notifyEmail', label: 'Notification email', merge: 'account.notify_email', hint: 'Owner emails go here. Separate several with commas' },
   { key: 'reviewLink', label: 'Google review link', merge: 'account.review_link' },
+  { key: 'googleProfileUrl', label: 'Google Business Profile link', merge: 'account.google_profile_url', hint: 'Their profile on Google: press Share on it and paste the link. Their Google Profiles board keeps the same one' },
   { key: 'address', label: 'Business address', merge: 'account.address' },
   { key: 'serviceArea', label: 'Service area', merge: 'account.service_area', hint: 'Towns, cities or counties they work in. Their website is built from it. Blank: their onboarding answer' },
   { key: 'legalName', label: 'Legal business name', merge: 'account.legal_name', hint: 'As registered, for texting verification' },

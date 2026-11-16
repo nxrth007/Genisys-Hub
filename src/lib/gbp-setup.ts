@@ -2,7 +2,7 @@ import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
 import { setClientCustomValue } from '@/lib/ghl-automation-values'
-import { setHlReviewLink } from '@/lib/hl/accounts'
+import { setHlGoogleProfile, setHlReviewLink } from '@/lib/hl/accounts'
 import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { PLACES_KEY_ENTRY, placesApiKey } from '@/lib/places-key'
 import { markTeamEdits, readMeta } from '@/lib/seo/client-facts'
@@ -371,6 +371,11 @@ export async function markVerified(
   } else if (profileUrl) {
     results.push('No SEO site with business facts for this client; the profile link is kept here only')
   }
+  if (profileUrl) {
+    // Their sub-account's Business Profile keeps the same link.
+    const hl = await setHlGoogleProfile(id, profileUrl).catch(() => false)
+    if (hl) results.push('Genisys OS: Google Business Profile link set')
+  }
   if (reviewUrl) {
     const r = await setClientCustomValue(id, 'Review Google URL', reviewUrl).catch((err) => ({ ok: false, detail: err instanceof Error ? err.message : String(err) }))
     results.push(r.ok ? `GHL: ${r.detail}` : `GHL review link not set: ${r.detail}`)
@@ -382,6 +387,19 @@ export async function markVerified(
   await save(id, state)
   await hubAlert(`:white_check_mark: *Google Business Profile verified* — ${client?.name ?? 'a client'}${profileUrl ? ` · <${profileUrl}|profile>` : ''}. <${hubLink(`/clients/${id}/gbp`)}|Open in Hub>`).catch(() => {})
   return { state, results }
+}
+
+/**
+ * The profile link typed into the client's Genisys OS Business Profile, kept here too (the two stay in
+ * step). Nothing else changes: not the status, and not the SEO facts, which wait for "verified".
+ */
+export async function recordProfileLink(id: string, url: string, by: string | null): Promise<boolean> {
+  const state = await load(id)
+  if (state.profileUrl === url) return false
+  state.profileUrl = url
+  state.history.push({ at: now(), by, what: `Profile link set from their Genisys OS Business Profile: ${url}` })
+  await save(id, state)
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -632,6 +650,8 @@ export async function publicSetupDone(token: string, profileUrl: unknown): Promi
   if (state.status !== 'verified') state.status = 'created'
   state.history.push({ at: now(), by: 'client (setup page)', what: `Client finished the setup page and sent their profile link: ${url}` })
   await save(id, state)
+  // Their sub-account's Business Profile keeps the same link.
+  await setHlGoogleProfile(id, url).catch(() => false)
   const client = await prisma.client.findUnique({ where: { id }, select: { name: true } })
   const name = client?.name ?? 'A client'
   await hubAlert(`:round_pushpin: *${name}* created their Google Business Profile from the setup page. <${url}|Profile> · <${hubLink(`/clients/${id}/gbp`)}|Open in Hub> (check it's verified, then mark it verified there).`).catch(() => {})

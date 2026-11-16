@@ -438,7 +438,7 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
         <Step
           n={4}
           title="Record it once verified"
-          hint="The profile link goes into the SEO engine’s business facts (the site’s schema). The review link fills the GHL sub-account’s “Review Google URL”, which the review workflows send to customers."
+          hint="The profile link goes into the SEO engine’s business facts (the site’s schema). The review link fills the GHL sub-account’s “Review Google URL”, which the review workflows send to customers. Both are kept on their Genisys OS Business Profile too; a profile link typed there shows up here."
         >
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex flex-col gap-1">

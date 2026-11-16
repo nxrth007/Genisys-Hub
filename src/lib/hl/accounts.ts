@@ -6,6 +6,7 @@ import { applyClientKit, KIT_VERSION } from './client-kit'
 import { boardProfileChanges, type ProfileKey } from './board-sync'
 import { HlInputError } from './http'
 import { firstPhone } from './phone'
+import { knownGoogleProfileLink } from './google-profile-link'
 import type { HlProfile } from './types'
 
 /**
@@ -32,7 +33,7 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
         address: true,
         ein: true,
         contactEmail: true,
-        intakes: { orderBy: { receivedAt: 'desc' }, take: 6, select: { customerPhone: true, businessContact: true, businessAddress: true, ein: true, businessName: true, leadEmail: true } },
+        intakes: { orderBy: { receivedAt: 'desc' }, take: 6, select: { customerPhone: true, businessContact: true, businessAddress: true, ein: true, businessName: true, leadEmail: true, googleProfileLink: true } },
       },
     }),
     boardInputs(clientId).catch(() => null),
@@ -41,8 +42,11 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
   if (!client) throw new HlInputError('That client no longer exists.')
   const intake = bestIntake(client.intakes)
   let reviewLink = ''
+  let boardProfile = ''
   try {
-    reviewLink = clean((JSON.parse(gbp?.value ?? '{}') as { reviewUrl?: string }).reviewUrl)
+    const board = JSON.parse(gbp?.value ?? '{}') as { reviewUrl?: string; profileUrl?: string }
+    reviewLink = clean(board.reviewUrl)
+    boardProfile = clean(board.profileUrl)
   } catch {
     // no Google profile board yet
   }
@@ -62,6 +66,8 @@ export async function profileForClient(clientId: string): Promise<HlProfile> {
     notifyPhone: ownerPhone ?? '',
     notifyEmail: emailOrBlank(inputs?.notifyEmail) || emailOrBlank(intake?.leadEmail) || emailOrBlank(client.contactEmail),
     reviewLink,
+    // The board's link, else their own latest onboarding answer when it's a Google link.
+    googleProfileUrl: knownGoogleProfileLink({ board: boardProfile, intake: client.intakes.find((i) => i.googleProfileLink)?.googleProfileLink }),
     address: clean(answeredAddress || client.address),
     legalName: (notABusinessName(intake?.businessName) ? '' : clean(intake?.businessName)) || clean(client.name),
     ein: ein.replace(/\D/g, '').length === 9 ? ein : '',
@@ -161,7 +167,7 @@ export async function repairClientProfile(accountId: string): Promise<string[]> 
   take('businessName', notABusinessName(now.businessName))
   take('legalName', notABusinessName(now.legalName))
   take('notifyEmail', !emailOrBlank(now.notifyEmail))
-  for (const key of ['ownerFirstName', 'ownerName', 'businessPhone', 'website', 'notifyPhone', 'reviewLink', 'address', 'ein']) take(key, !now[key]?.trim())
+  for (const key of ['ownerFirstName', 'ownerName', 'businessPhone', 'website', 'notifyPhone', 'reviewLink', 'googleProfileUrl', 'address', 'ein']) take(key, !now[key]?.trim())
   const data: Prisma.HlAccountUpdateInput = {}
   if (fixed.length) data.profile = next as Prisma.InputJsonValue
   if (notABusinessName(a.name) && next.businessName) {
@@ -260,6 +266,62 @@ export async function setHlReviewLink(clientId: string, url: string, o: { onlyIf
   if ((o.onlyIfBlank && p.reviewLink?.trim()) || p.reviewLink === link) return false
   await prisma.hlAccount.update({ where: { id: account.id }, data: { profile: { ...p, reviewLink: link } as Prisma.InputJsonValue } })
   return true
+}
+
+/**
+ * The client's Google Business Profile link on their Genisys OS sub-account, as their Google Profiles
+ * board has it (the two keep the same link). True when it changed.
+ */
+export async function setHlGoogleProfile(clientId: string, url: string, o: { onlyIfBlank?: boolean } = {}): Promise<boolean> {
+  const link = clean(url)
+  if (!/^https?:\/\/\S+$/i.test(link)) return false
+  const account = await prisma.hlAccount.findUnique({ where: { clientId }, select: { id: true, profile: true } })
+  if (!account) return false
+  const p = readProfile(account.profile)
+  if ((o.onlyIfBlank && p.googleProfileUrl?.trim()) || p.googleProfileUrl === link) return false
+  await prisma.hlAccount.update({ where: { id: account.id }, data: { profile: { ...p, googleProfileUrl: link } as Prisma.InputJsonValue } })
+  return true
+}
+
+/**
+ * Once: each client sub-account's Business Profile gets the Google Business Profile link the Hub
+ * already knows (the Google Profiles board's, else their onboarding answer when it's a Google link).
+ * Only where the box is blank.
+ */
+let profileLinksDone = false
+export async function maybeFillGoogleProfileLinks(): Promise<number> {
+  if (profileLinksDone) return 0
+  const key = 'hl.googleProfileLinks.v1'
+  if (await prisma.appSetting.findUnique({ where: { key }, select: { id: true } })) {
+    profileLinksDone = true
+    return 0
+  }
+  try {
+    await prisma.appSetting.create({ data: { key, value: 'running' } })
+  } catch {
+    return 0 // another container got there first
+  }
+  profileLinksDone = true
+  const accounts = await prisma.hlAccount.findMany({ where: { archivedAt: null, clientId: { not: null } }, select: { id: true, clientId: true, profile: true } })
+  const boards = new Map((await prisma.appSetting.findMany({ where: { key: { startsWith: 'gbp.client.' } }, select: { key: true, value: true } })).map((r) => [r.key.slice('gbp.client.'.length), r.value]))
+  let filled = 0
+  for (const a of accounts) {
+    const p = readProfile(a.profile)
+    if (!a.clientId || p.googleProfileUrl?.trim()) continue
+    let board = ''
+    try {
+      board = clean((JSON.parse(boards.get(a.clientId) ?? '{}') as { profileUrl?: string }).profileUrl)
+    } catch {
+      // an unreadable board has no link
+    }
+    const intake = await prisma.clientIntake.findFirst({ where: { clientId: a.clientId, googleProfileLink: { not: null } }, orderBy: { receivedAt: 'desc' }, select: { googleProfileLink: true } })
+    const url = knownGoogleProfileLink({ board, intake: intake?.googleProfileLink })
+    if (!url) continue
+    await prisma.hlAccount.update({ where: { id: a.id }, data: { profile: { ...p, googleProfileUrl: url } as Prisma.InputJsonValue } })
+    filled++
+  }
+  await prisma.appSetting.update({ where: { key }, data: { value: `done ${new Date().toISOString()}: ${filled} of ${accounts.length} sub-accounts given their Google Business Profile link` } })
+  return filled
 }
 
 /**

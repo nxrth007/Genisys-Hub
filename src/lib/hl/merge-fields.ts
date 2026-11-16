@@ -93,6 +93,12 @@ const PROFILE_DOCS: Record<keyof HlProfile, ProfileDoc> = {
     ghl: [],
     ghlNote: 'GHL’s review texts sent a trigger link instead: {{trigger_link.review}} here.',
   },
+  googleProfileUrl: {
+    fills: 'The client’s Google Business Profile link (the Share link on the profile, or its Google Maps page).',
+    from: 'Typed in Business Profile, or on their Google Profiles board in the Hub (each keeps the other’s). A new sub-account starts with the board’s link, else the onboarding form’s when it’s a Google link.',
+    blank: 'Nothing.',
+    ghl: [],
+  },
   address: {
     fills: 'The business address, as it’s typed in Business Profile.',
     from: 'The onboarding form’s business address (crossed name/address answers are fixed), else the client’s address in the Hub.',
