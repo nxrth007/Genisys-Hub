@@ -202,7 +202,7 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       `:tada: *New client onboarded* — *${who}*${city ? ` (${city})` : ''}${created ? '' : matched ? ` — linked to *${matched.name}* already on file (${matched.why}). If they're really two businesses, say so and we'll split them` : ' — linked to the client already on file'}${via}. <${hubLink(`/clients?focus=${clientId}`)}|Open in Hub>`,
     )
     // Claude tidies the answers first (src/lib/intake-tidy.ts): swapped name and address boxes, a street
-    // with no town or ZIP, phones, the EIN. What reads the answers below (SEO, the map, the Hell-level
+    // with no town or ZIP, phones, the EIN. What reads the answers below (SEO, the map, the Genisys OS
     // sub-account and its profile, GHL) waits for it, up to two minutes. Never rejects.
     const tidied = tidyNewIntake(intake.id, { clientId, created, name: who })
     // Text Alex and Ethan (src/lib/team-sms.ts). Fire-and-forget: a failed text must not hold up the rest.
@@ -241,13 +241,13 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
       .then(() => prisma.client.updateMany({ where: { id, geoLat: null }, data: { geoRetryAt: null } }))
       .then(() => ensureClientGeo(id))
       .catch((err) => console.warn(`[client-onboarding] geocode failed for ${id}:`, err))
-    // Hell-level sub-account (src/lib/hl): free (Hub rows, not a GHL plan feature),
+    // Genisys OS sub-account (src/lib/hl): free (Hub rows, not a GHL plan feature),
     // so every new client gets one with the starter pipeline, forms and automations.
     // Nothing texts until someone buys the client a number. Its business profile is filled from the tidied answers.
     void tidied
       .then(() => createAccountForClient(id))
       .then(async (a) => {
-        // Echo asks in the Office whether to buy them a Hell-level toll-free number (src/lib/hl/number-request.ts).
+        // Echo asks in the Office whether to buy them a Genisys OS toll-free number (src/lib/hl/number-request.ts).
         if (a.created) void askForClientNumber(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] toll-free number question for ${id}:`, err))
         // Forge suggests three domains to buy on Porkbun, unless they're bringing their own (src/lib/hl/domain-request.ts).
         if (a.created) void askForClientDomain(id, 'onboarding').catch((err) => console.warn(`[client-onboarding] domain question for ${id}:`, err))
@@ -256,7 +256,7 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
         // A client who already has a website gets its logo and colour straight away; others when their site goes live.
         await fillBrandFromSite(a.id)
       })
-      .catch((err) => console.warn(`[client-onboarding] hell-level sub-account for ${id}:`, err))
+      .catch((err) => console.warn(`[client-onboarding] genisys-os sub-account for ${id}:`, err))
     // Only a client this submission created gets a sub-account; one that
     // linked to a client on file already has (or deliberately lacks) one.
     if (created && !AUTO_CREATE_FOR_NEW_CLIENTS) {

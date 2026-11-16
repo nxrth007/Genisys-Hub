@@ -1,6 +1,6 @@
 /**
- * Swapping a client's website from GoHighLevel's quote form and chat bubble to Hell-level's (Alex,
- * 2026-11-14: clients that aren't A2P or toll-free verified on GoHighLevel move to Hell-level). Pure
+ * Swapping a client's website from GoHighLevel's quote form and chat bubble to Genisys OS's (Alex,
+ * 2026-11-14: clients that aren't A2P or toll-free verified on GoHighLevel move to Genisys OS). Pure
  * (tests load it): who is never swapped, what Lovable is asked, and how the site's code and the live
  * site show it's done. ./widget-swap.ts runs it.
  */
@@ -107,7 +107,7 @@ export function ghlInCode(hits: CodeHit[]): { form: CodeHit[]; chat: CodeHit[] }
   return { form, chat }
 }
 
-/** Whether the code holds Hell-level's form and chat: its form id, and the widget script with its chat id. */
+/** Whether the code holds Genisys OS's form and chat: its form id, and the widget script with its chat id. */
 export function hlInCode(o: { formHits: CodeHit[]; widgetHits: CodeHit[]; chatHits: CodeHit[] }): { form: boolean; chat: boolean } {
   const code = (hs: CodeHit[]) => hs.some((h) => !notCode(h.path))
   return { form: code(o.formHits), chat: code(o.widgetHits) && code(o.chatHits) }
@@ -147,7 +147,7 @@ export function liveState(code: string, ids: SwapIds): LiveState {
 }
 
 /**
- * The live site shows the swap: Hell-level's chat (in the root layout, so on the home page) and no
+ * The live site shows the swap: Genisys OS's chat (in the root layout, so on the home page) and no
  * GoHighLevel form or chat. The form can sit on a page the home page doesn't load, so it's proven by
  * the code check before publishing; on the live site it only must not be GoHighLevel's.
  */
@@ -156,7 +156,7 @@ export const liveSwapped = (s: LiveState): boolean => s.hlChat && !s.ghlChat && 
 /** What's wrong on the live site, in a sentence; null when it's swapped. */
 export function liveGaps(s: LiveState): string | null {
   const gaps = [
-    !s.hlChat && 'Hell-level’s chat bubble isn’t on it',
+    !s.hlChat && 'Genisys OS’s chat bubble isn’t on it',
     s.ghlForm && 'GoHighLevel’s form is still on it',
     s.ghlChat && 'GoHighLevel’s chat is still on it',
   ].filter((x): x is string => !!x)

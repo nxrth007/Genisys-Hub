@@ -55,7 +55,7 @@ export async function replyIntent(reply: string, offer: string): Promise<ReplyIn
     const intent = (JSON.parse(out.text) as { intent?: string }).intent
     return intent === 'positive' || intent === 'negative' || intent === 'unclear' ? intent : null
   } catch (err) {
-    console.error('[hell-level] reply intent check failed:', err)
+    console.error('[genisys-os] reply intent check failed:', err)
     return null
   }
 }

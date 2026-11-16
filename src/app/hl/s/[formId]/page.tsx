@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { publicSurvey } from '@/lib/hl/review-survey'
-import { ReviewSurvey } from '@/components/hell-level/review-survey'
+import { ReviewSurvey } from '@/components/genisys-os/review-survey'
 
 export const dynamic = 'force-dynamic'
 

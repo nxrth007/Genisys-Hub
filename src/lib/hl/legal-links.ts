@@ -77,7 +77,7 @@ export async function builtSiteLegalLinks(accountId: string, shownOn: string | n
       published: built.status === 'published' && built.liveUrl ? builtSiteLegal(built.liveUrl, own, hubs) : null,
     }
   } catch (err) {
-    console.warn(`[hell-level] site policy links for ${accountId}:`, err instanceof Error ? err.message : err)
+    console.warn(`[genisys-os] site policy links for ${accountId}:`, err instanceof Error ? err.message : err)
     return none
   }
 }
@@ -159,7 +159,7 @@ async function siteRoutes(clientId: string): Promise<{ origin: string; paths: Se
       for (const m of app?.matchAll(/path=["'`](\/[^"'`]*)["'`]/g) ?? []) paths.add(m[1])
     }
   } catch (err) {
-    console.warn(`[hell-level] reading ${site.repoFullName} for the site's pages:`, err instanceof Error ? err.message : err)
+    console.warn(`[genisys-os] reading ${site.repoFullName} for the site's pages:`, err instanceof Error ? err.message : err)
   }
   // The linked repo may not be this site's at all: a site Forge built in a new Lovable copy keeps the
   // SEO seat's old repo until GitHub is connected to the copy (Cnc, AHI, 2026-11-14). Without policy
@@ -236,7 +236,7 @@ export async function fillLegalLinksFromSite(accountId: string, force = false): 
     await prisma.hlAccount.update({ where: { id: accountId }, data: { profile: next as Prisma.InputJsonValue } })
     return { privacyUrl: next.privacyUrl || null, termsUrl: next.termsUrl || null }
   } catch (err) {
-    console.warn(`[hell-level] legal links for ${accountId}:`, err instanceof Error ? err.message : err)
+    console.warn(`[genisys-os] legal links for ${accountId}:`, err instanceof Error ? err.message : err)
     return null
   }
 }

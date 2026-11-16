@@ -65,7 +65,7 @@ export type StageFacts = {
   siteLive: boolean
   /** A GHL sub-account is linked to the client. */
   ghlLinked: boolean
-  /** Their Hell-level sub-account: when it was made, and whether it's archived. Null without one. */
+  /** Their Genisys OS sub-account: when it was made, and whether it's archived. Null without one. */
   hellLevel?: { createdAt: string; archived: boolean } | null
   /** An onboarding form came in for the client. */
   hasIntake: boolean
@@ -88,10 +88,10 @@ export function stageView(stage: string, row: { status: string; note: string | n
     return { status: 'in_progress', note: 'Toll-free texting verification is with Twilio' }
   }
   if (stage === 'subaccount' && f.ghlLinked && row.status !== 'done') return { status: 'done', note: 'GHL sub-account linked' }
-  // Hell-level only (new clients since 2026-11-13): no GHL sub-account is made for them, so
+  // Genisys OS only (new clients since 2026-11-13): no GHL sub-account is made for them, so
   // the GHL row isn't waiting on anyone, whatever its old "create it in GHL" note says.
   if (stage === 'subaccount' && !f.ghlLinked && f.hellLevel && !f.hellLevel.archived && row.status !== 'done') {
-    return { status: 'not_needed', note: 'Hell-level only: no GHL sub-account' }
+    return { status: 'not_needed', note: 'Genisys OS only: no GHL sub-account' }
   }
   if (stage === 'intake' && f.hasIntake && row.status !== 'done') return { status: 'done', note: 'Onboarding form received' }
   if (!row.updatedAt && row.status === 'pending') return { status: 'none', note: null }
@@ -99,12 +99,12 @@ export function stageView(stage: string, row: { status: string; note: string | n
 }
 
 /**
- * The Hell-level sub-account as a Status row, listed just before the GHL one. It isn't a
+ * The Genisys OS sub-account as a Status row, listed just before the GHL one. It isn't a
  * journey stage: the Hub knows it from the sub-account itself (made at onboarding).
  */
 export function hellLevelStage(hl: StageFacts['hellLevel']): { status: string; note: string | null } {
   if (!hl) return { status: 'none', note: null }
-  if (hl.archived) return { status: 'none', note: 'Archived in Hell-level' }
+  if (hl.archived) return { status: 'none', note: 'Archived in Genisys OS' }
   const made = new Date(hl.createdAt)
   const day = Number.isNaN(made.getTime()) ? '' : made.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })
   return { status: 'done', note: day ? `Set up ${day}` : 'Set up' }
@@ -121,7 +121,7 @@ const statusPhone = (n: string): string => {
 }
 
 /**
- * "Domain purchased" as a Status row (Alex, 2026-11-14): a domain in their Hell-level Domains (bought
+ * "Domain purchased" as a Status row (Alex, 2026-11-14): a domain in their Genisys OS Domains (bought
  * through the Hub, transferred in, already in Genisys's Porkbun, or registered elsewhere), Forge's
  * domain question, or failing those the site link's own domain.
  */
@@ -141,7 +141,7 @@ export function domainStage(f: {
   const q = f.question?.status
   if (q === 'buying') return { status: 'in_progress', note: `Buying ${f.question?.name ?? 'their domain'}` }
   if (q === 'failed') return { status: 'blocked', note: f.question?.detail ?? 'The purchase didn’t go through' }
-  // Not in their Hell-level Domains, so where it's registered isn't known here (often Genisys's Porkbun).
+  // Not in their Genisys OS Domains, so where it's registered isn't known here (often Genisys's Porkbun).
   if (f.siteHost) return { status: 'done', note: `${f.siteHost}, their site’s domain` }
   if (q === 'awaiting_approval') return { status: 'pending', note: 'Waiting on a pick in the Office or “Domain for the site” below' }
   if (q === 'declined') return { status: 'pending', note: 'None of the suggestions was picked' }
@@ -160,7 +160,7 @@ const GHL_REGISTRATION: Record<string, string> = {
 }
 
 /**
- * "Toll-Free Number Purchased & Verified" as a Status row (Alex, 2026-11-14): their Hell-level
+ * "Toll-Free Number Purchased & Verified" as a Status row (Alex, 2026-11-14): their Genisys OS
  * toll-free number and its texting verification, or a number bought in their GHL sub-account and GHL's
  * registration, or where Echo's number question stands.
  */
@@ -193,7 +193,7 @@ export function tollFreeStage(f: {
   if (r === 'failed') return { status: 'blocked', note: f.request?.detail ?? 'The purchase didn’t go through' }
   if (r === 'declined') return { status: 'pending', note: 'Echo’s question was answered No' }
   if (f.ghlLinked && f.ghlCantText) return { status: 'pending', note: 'Their GHL number can’t text (Verification Required): Purchase and verify is in the toll-free card' }
-  if (f.ghlLinked) return { status: 'none', note: 'None in Hell-level; they may text from their GHL sub-account' }
+  if (f.ghlLinked) return { status: 'none', note: 'None in Genisys OS; they may text from their GHL sub-account' }
   return { status: 'pending', note: null }
 }
 
@@ -206,7 +206,7 @@ export function textingLine(o: { verificationStatus: string | null; verification
     case 'in_review':
       return 'Texting verification filed; Twilio is reviewing it (about 3 business days).'
     case 'rejected':
-      return `Texting verification rejected${o.verificationNote ? `: ${o.verificationNote}` : ''}. Fix it and file again in Hell-level.`
+      return `Texting verification rejected${o.verificationNote ? `: ${o.verificationNote}` : ''}. Fix it and file again in Genisys OS.`
     case 'ghl':
       return 'This number is in GHL: texts and calls land in GHL, and its toll-free registration goes through GHL’s own form once the site is live.'
     default:

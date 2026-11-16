@@ -14,9 +14,9 @@ export async function POST(req: Request) {
       token: req.headers.get('x-goog-channel-token'),
       state: req.headers.get('x-goog-resource-state'),
     })
-    if (work) after(() => work().catch((err) => console.error('[hell-level] google calendar sync failed:', err)))
+    if (work) after(() => work().catch((err) => console.error('[genisys-os] google calendar sync failed:', err)))
   } catch (err) {
-    console.error('[hell-level] google notification failed:', err)
+    console.error('[genisys-os] google notification failed:', err)
   }
   return new NextResponse(null, { status: 200 })
 }

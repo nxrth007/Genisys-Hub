@@ -29,7 +29,7 @@ import { buildSiteNow, sitePreflight } from '@/lib/hl/folder-actions'
  * question in the Office, for a built site (also after a Not now).
  *
  * POST { action: 'connect' } — admin only: the same as Connect it on Forge's
- * domain question, for a published site with a domain in Hell-level → Domains.
+ * domain question, for a published site with a domain in Genisys OS → Domains.
  *
  * POST { action: 'code', text } — staff: while Forge connects their domain,
  * what Lovable showed for it (its lovable_verify= code, or both codes). A

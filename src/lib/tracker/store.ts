@@ -1,7 +1,7 @@
 /**
  * DB client tracker: read/write ClientTracker rows (one per client) with
  * every step change audited in ClientJourneyEvent as stage "tracker.<step>".
- * Provider-neutral: nothing here talks to GHL / Hell-level.
+ * Provider-neutral: nothing here talks to GHL / Genisys OS.
  */
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'

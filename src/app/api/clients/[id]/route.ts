@@ -171,7 +171,7 @@ export async function PATCH(
       },
     })
 
-    // The site we built moved or went live: the SEO site, the Hell-level sub-account and the GHL workflows follow.
+    // The site we built moved or went live: the SEO site, the Genisys OS sub-account and the GHL workflows follow.
     if ('siteUrl' in parsed.data && parsed.data.siteUrl && parsed.data.siteUrl !== priorSiteUrl) {
       afterSiteLinkChange(id, parsed.data.siteUrl, priorSiteUrl)
     }

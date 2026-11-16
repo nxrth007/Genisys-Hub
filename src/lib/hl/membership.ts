@@ -1,5 +1,5 @@
 /**
- * A sub-account's membership card (Hell-level → Memberships): the records the Hub keeps about the
+ * A sub-account's membership card (Genisys OS → Memberships): the records the Hub keeps about the
  * client, read into ./membership-plan.ts. For a sub-account copied from GoHighLevel, GoHighLevel's
  * own date for it is asked once and kept (AppSetting hl.ghlAdded:<locationId>); a read-only call.
  */

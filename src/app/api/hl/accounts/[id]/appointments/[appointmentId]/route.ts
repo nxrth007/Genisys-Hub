@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
         if (!moved && !statusChanged) await syncAppointmentToGoogle(appointmentId)
         for (const x of alsoCancelled) await syncAppointmentToGoogle(x)
       } catch (err) {
-        console.error('[hell-level] appointment automations failed:', err)
+        console.error('[genisys-os] appointment automations failed:', err)
       }
     })
     const updated = await prisma.hlAppointment.findUniqueOrThrow({ where: { id: appointmentId } })

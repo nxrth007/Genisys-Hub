@@ -1,13 +1,13 @@
 /**
- * A client's Hell-level toll-free number, asked for in the Office.
+ * A client's Genisys OS toll-free number, asked for in the Office.
  *
- * Right after onboarding makes the client's Hell-level sub-account, Echo asks:
- * "Buy a toll-free number for <client> in Hell-level?" (status
+ * Right after onboarding makes the client's Genisys OS sub-account, Echo asks:
+ * "Buy a toll-free number for <client> in Genisys OS?" (status
  * awaiting_approval, plus a text). Yes buys one on Genisys's Twilio right away,
  * with no ID check, and rings the client's business phone; once their site
  * link is in, its texting verification is filed (free; Twilio reviews it in
  * about 3 business days). No drops it. Buying costs money, so it never happens
- * without an answer. New clients have been Hell-level only since 2026-11-13.
+ * without an answer. New clients have been Genisys OS only since 2026-11-13.
  * An older client whose GHL sub-account is linked can still take the GHL route
  * (an ID check there, then the browser worker takes the number:
  * src/lib/ghl-number), and one whose GHL sub-account already has a number is
@@ -36,7 +36,7 @@ const STUCK_BUYING_MS = 10 * 60_000
 
 const describe = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const logged = (prev: unknown, msg: string): Prisma.InputJsonValue => [...(Array.isArray(prev) ? prev : []), jobLogEntry(msg)].slice(-60) as Prisma.InputJsonValue
-const numbersPage = (accountId: string) => hubLink(`/hell-level/${accountId}/settings?tab=phone-numbers`)
+const numbersPage = (accountId: string) => hubLink(`/genisys-os/${accountId}/settings?tab=phone-numbers`)
 
 /** When asking started: only sub-accounts made after it are asked about by themselves. */
 export async function numberSince(now = new Date()): Promise<Date> {
@@ -111,7 +111,7 @@ export type NumberDecisionResult = { ok: true; status: string; number?: string |
 
 /**
  * An answer to an Office number question (see nextNumberState):
- * - hl (or yes): buy a Hell-level number now;
+ * - hl (or yes): buy a Genisys OS number now;
  * - ghl: wait while a person passes GHL's ID check for the client's sub-account;
  * - identified: hand the GHL route to the browser worker (src/lib/ghl-number);
  * - no: decline.
@@ -127,10 +127,10 @@ export async function decideClientNumber(id: string, decision: 'yes' | NumberCho
   if (!next) return { ok: false, reason: `It was already answered (${r.status.replace(/_/g, ' ')}).` }
   const location = r.client.ghlLocationId
   if ((choice === 'ghl' || choice === 'identified') && !location) {
-    return { ok: false, reason: `${r.client.name} has no GHL sub-account linked, so the GHL route isn't open. Buy it in Hell-level, or link the sub-account first.` }
+    return { ok: false, reason: `${r.client.name} has no GHL sub-account linked, so the GHL route isn't open. Buy it in Genisys OS, or link the sub-account first.` }
   }
   const said: Record<NumberChoice, string> = {
-    hl: `Hell-level chosen by ${by}.`,
+    hl: `Genisys OS chosen by ${by}.`,
     ghl: `GHL chosen by ${by}: waiting for GHL's ID check.`,
     identified: `Identification complete, said ${by}.`,
     no: `Declined by ${by}.`,
@@ -185,7 +185,7 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
       where: { id: r.accountId },
       select: { id: true, name: true, profile: true, numbers: { where: { status: 'active', kind: 'toll_free' }, orderBy: { createdAt: 'asc' } } },
     })
-    if (!found) return await fail("The client's Hell-level sub-account is gone, so nothing was bought.")
+    if (!found) return await fail("The client's Genisys OS sub-account is gone, so nothing was bought.")
     account = found
     num = found.numbers[0] ?? null
     if (num) {
@@ -195,13 +195,13 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
       if (!pick) return await fail('Twilio offered no toll-free numbers just now, so nothing was bought. Ask again in a while.')
       purchasing = true
       num = await buyNumber(found.id, pick.number, 'toll_free')
-      console.log(`[hell-level] bought ${num.number} (toll_free) for ${found.name} after an Office Yes`)
+      console.log(`[genisys-os] bought ${num.number} (toll_free) for ${found.name} after an Office Yes`)
     }
   } catch (err) {
     const msg = describe(err)
     if (err instanceof HlInputError) return fail(msg)
     // Twilio may have sold the number even though saving it failed: say where to look before anyone asks again.
-    return fail(purchasing ? `Buying the number failed: ${msg} Check Twilio for a toll-free number that isn't in Hell-level before asking again.` : `Buying the number failed: ${msg}`)
+    return fail(purchasing ? `Buying the number failed: ${msg} Check Twilio for a toll-free number that isn't in Genisys OS before asking again.` : `Buying the number failed: ${msg}`)
   }
   // From here the number is the client's: a later hiccup never marks the request failed (a retry would just find the number).
   const profile = readProfile(account.profile)
@@ -210,7 +210,7 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
   const texts = textsTo(profile)
   if (texts && !num.forwardTextsTo) {
     await prisma.hlPhoneNumber.update({ where: { id: num.id }, data: { forwardTextsTo: texts } }).catch((err) => {
-      console.warn('[hell-level] setting where a new number forwards its texts:', describe(err))
+      console.warn('[genisys-os] setting where a new number forwards its texts:', describe(err))
     })
   }
   let unpointed = false
@@ -218,14 +218,14 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
     // Calls ring the business phone (press any key to connect); with none on file every call is a missed call.
     await prisma.hlPhoneNumber.update({ where: { id: num.id }, data: { forwardTo: ring, whisper: true } }).catch((err) => {
       unpointed = true
-      console.warn('[hell-level] pointing a new toll-free number at the business phone:', describe(err))
+      console.warn('[genisys-os] pointing a new toll-free number at the business phone:', describe(err))
     })
   }
   const rings = unpointed ? num.forwardTo : (num.forwardTo ?? ring)
   const detail = [
     `${prettyPhone(num.number)} is ${r.client.name}'s toll-free number.`,
     unpointed
-      ? `Calls aren't pointed at ${prettyPhone(ring)} yet; set it in Hell-level → Settings → Phone Numbers.`
+      ? `Calls aren't pointed at ${prettyPhone(ring)} yet; set it in Genisys OS → Settings → Phone Numbers.`
       : rings
         ? `Calls ring ${prettyPhone(rings)}.`
         : 'No business phone is on file, so every call to it counts as missed and gets the text-back.',
@@ -234,7 +234,7 @@ async function buyForRequest(id: string): Promise<NumberDecisionResult> {
     .filter(Boolean)
     .join(' ')
   await note(id, purchasing ? `Bought ${prettyPhone(num.number)} on Genisys's Twilio. ${detail}` : detail, { status: 'bought', numberId: num.id, number: num.number, forwardTo: rings, detail }).catch(
-    (err) => console.warn('[hell-level] saving a bought number on its request:', describe(err)),
+    (err) => console.warn('[genisys-os] saving a bought number on its request:', describe(err)),
   )
   const filed = await fileNumberVerification(r.clientId).catch(() => null)
   return { ok: true, status: 'bought', number: num.number, detail: filed ? `${detail} ${filed}` : detail }
@@ -274,7 +274,7 @@ export async function fileNumberVerification(clientId: string): Promise<string |
 export async function retryBlockedFiling(clientId: string): Promise<void> {
   const r = await prisma.hlNumberRequest.findUnique({ where: { clientId }, select: { status: true, verifyNote: true } })
   if (r?.status !== 'bought' || !r.verifyNote) return
-  await fileNumberVerification(clientId).catch((err) => console.warn('[hell-level] filing again after a profile edit:', describe(err)))
+  await fileNumberVerification(clientId).catch((err) => console.warn('[genisys-os] filing again after a profile edit:', describe(err)))
 }
 
 let lastSweep = 0

@@ -4,9 +4,9 @@
  * Ethan remixes Robert Taylor's Lovable site and sends the copy this prompt,
  * filled from the client's onboarding answers. His template ("With
  * Variables.txt", 2026-11-13) is kept word for word except:
- *   - sections 4, 5 and 8 put the client's Hell-level quote form and chat
+ *   - sections 4, 5 and 8 put the client's Genisys OS quote form and chat
  *     widget on the site instead of GHL's (wording from
- *     src/components/hell-level/embed.ts), and the GHL form-height rule is
+ *     src/components/genisys-os/embed.ts), and the GHL form-height rule is
  *     gone: the iframe sizes itself;
  *   - "his photos" reads "the client's photos" (owners aren't all men);
  *   - an optional line for other facts the owner supplied (financing, free
@@ -389,10 +389,10 @@ const VARIABLE_WORDS: Partial<Record<OneShotVariable, string>> = {
   WHY_CHOOSE_US: 'why customers choose them',
   SERVICES_LIST: 'services',
   TRADE: 'trade',
-  FORM_EMBED: 'Hell-level quote form',
-  FORM_ID: 'Hell-level quote form',
-  CHAT_WIDGET_CODE: 'Hell-level chat widget',
-  WIDGET_ID: 'Hell-level chat widget',
+  FORM_EMBED: 'Genisys OS quote form',
+  FORM_ID: 'Genisys OS quote form',
+  CHAT_WIDGET_CODE: 'Genisys OS chat widget',
+  WIDGET_ID: 'Genisys OS chat widget',
 }
 
 /** The missing variables in plain words, once each ("city and state, service area"); the rest by name. */

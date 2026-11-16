@@ -57,7 +57,7 @@ export async function POST(req: Request, { params }: Ctx) {
       const blocking = checks.filter((c) => c.level === 'error')
       if (blocking.length) throw new HlInputError(`Fix these first: ${blocking.map((c) => c.detail).join(' ')}`)
       const a2p = await fileA2p(id, body.details, guard.email)
-      console.log(`[hell-level] ${guard.email} filed A2P (${a2p.path}) for ${account.name}: ${a2p.stage}`)
+      console.log(`[genisys-os] ${guard.email} filed A2P (${a2p.path}) for ${account.name}: ${a2p.stage}`)
       return NextResponse.json({ a2p })
     }
     if (body.action === 'resend') {

@@ -12,10 +12,10 @@ import { ensureHookIds } from './webhooks'
  * only lists workflow names, so the definitions come from GHL's own app: in
  * a browser signed in to the sub-account, a copy script reads them with that
  * session and posts them here with a one-time key (createExportKey). They're
- * kept as sent, so the import can be run again (reimportSaved) as Hell-level
- * learns more of GHL's actions, then turned into Hell-level workflows: the
+ * kept as sent, so the import can be run again (reimportSaved) as Genisys OS
+ * learns more of GHL's actions, then turned into Genisys OS workflows: the
  * same folders, names and on/off status, linked steps, and a "GoHighLevel
- * action" step (shown as it was, a run stops there) for what Hell-level
+ * action" step (shown as it was, a run stops there) for what Genisys OS
  * can't run yet.
  */
 
@@ -37,7 +37,7 @@ export type GhlWorkflowImport = {
   workflows: number
   published: number
   steps: number
-  /** GHL actions Hell-level shows but can't run yet, by GHL type. */
+  /** GHL actions Genisys OS shows but can't run yet, by GHL type. */
   unsupported: Record<string, number>
   /** GHL triggers that never fire here (no equivalent), by GHL type. */
   idleTriggers: Record<string, number>
@@ -77,8 +77,8 @@ export async function receiveExport(key: string, body: unknown): Promise<{ accou
   } catch {
     // no key
   }
-  if (!saved.key || !saved.accountId || !key || !sameKey(key, saved.key)) throw new HlInputError('That copy key isn’t valid. Make a new one in Hell-level.')
-  if (!saved.expiresAt || new Date(saved.expiresAt).getTime() < Date.now()) throw new HlInputError('That copy key has expired. Make a new one in Hell-level.')
+  if (!saved.key || !saved.accountId || !key || !sameKey(key, saved.key)) throw new HlInputError('That copy key isn’t valid. Make a new one in Genisys OS.')
+  if (!saved.expiresAt || new Date(saved.expiresAt).getTime() < Date.now()) throw new HlInputError('That copy key has expired. Make a new one in Genisys OS.')
   await prisma.appSetting.delete({ where: { key: KEY_SETTING } })
   const x = readExport(body)
   const raw = JSON.stringify(x)
@@ -86,7 +86,7 @@ export async function receiveExport(key: string, body: unknown): Promise<{ accou
   return { accountId: saved.accountId, result: await importGhlWorkflows(saved.accountId, x) }
 }
 
-/** Run the import again from the export already here (after Hell-level learns more of GHL's actions). */
+/** Run the import again from the export already here (after Genisys OS learns more of GHL's actions). */
 export async function reimportSaved(accountId: string): Promise<GhlWorkflowImport> {
   const row = await prisma.appSetting.findUnique({ where: { key: RAW_SETTING(accountId) } })
   if (!row) throw new HlInputError('Nothing copied from GoHighLevel for this sub-account yet.')
@@ -105,7 +105,7 @@ function readExport(body: unknown): GhlExport {
 }
 
 // ---------------------------------------------------------------------------
-// Turning GHL's definitions into Hell-level's
+// Turning GHL's definitions into Genisys OS's
 // ---------------------------------------------------------------------------
 
 type Refs = {
@@ -156,7 +156,7 @@ const plainText = (html: string) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
-/** GHL's linked templates → Hell-level steps (same ids, same links). */
+/** GHL's linked templates → Genisys OS steps (same ids, same links). */
 export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; unsupported: string[] } {
   const byId = new Map(templates.map((t) => [String(t.id), t]))
   const isBranchNode = (t: Rec) =>
@@ -214,7 +214,7 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
       }
       case 'wait': {
         const after = rec(a.startAfter)
-        // GHL can count in seconds; Hell-level's smallest unit is minutes.
+        // GHL can count in seconds; Genisys OS's smallest unit is minutes.
         const seconds = /^sec/i.test(str(after.type) ?? '')
         const amount = seconds ? Math.round(((num(after.value) ?? 0) / 60) * 100) / 100 : (num(after.value) ?? 0)
         const unit = seconds ? 'minutes' : (UNIT[str(after.type) ?? ''] ?? 'minutes')
@@ -248,7 +248,7 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
         }
         break
       case 'remove_opportunity': {
-        // Only with a pipeline Hell-level has; it must never fall back to "any pipeline".
+        // Only with a pipeline Genisys OS has; it must never fall back to "any pipeline".
         const pipelineId = refs.pipelines.get(str(a.pipeline_id) ?? '')
         step = pipelineId ? { ...base, type: 'remove_opportunity', config: { pipelineId }, ghl } : { ...base, type: 'ghl', config: {}, ghl: { type: 'remove_opportunity', attributes: a } }
         if (!pipelineId) unsupported.push('remove_opportunity')
@@ -362,13 +362,13 @@ export function convertSteps(templates: Rec[], refs: Refs): { steps: HlStep[]; u
     }
     steps.push(step)
   }
-  // The start goes first: Hell-level runs from the top of the list.
+  // The start goes first: Genisys OS runs from the top of the list.
   const first = start ? steps.findIndex((s) => s.id === String(start.id)) : -1
   if (first > 0) steps.unshift(...steps.splice(first, 1))
   return { steps, unsupported }
 }
 
-/** GHL's triggers → Hell-level's (kept as they were under `ghl`; the ones with no equivalent never fire). */
+/** GHL's triggers → Genisys OS's (kept as they were under `ghl`; the ones with no equivalent never fire). */
 export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
   return arr(list)
     .map(rec)
@@ -379,7 +379,7 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
       const base = { id: str(t.id) ?? undefined, name: str(t.name) ?? undefined, active: t.active !== false, ghl: { type: String(t.type), conditions: conds } }
       switch (t.type) {
         case 'customer_reply': {
-          // The reply channel: 2 = SMS, 5 = the chat widget; others (email, Facebook…) aren't Hell-level's.
+          // The reply channel: 2 = SMS, 5 = the chat widget; others (email, Facebook…) aren't Genisys OS's.
           const channel = num(pick('message.type')?.value)
           if (channel === 5) {
             const widget = str(pick('message.chatWidgetId')?.value)
@@ -413,7 +413,7 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
         case 'form_submission': {
           const forms = (arr(pick('form.id')?.value).length ? arr(pick('form.id')?.value) : [pick('form.id')?.value]).map(str).filter((x): x is string => !!x)
           const mapped = forms.map((f) => refs.forms.get(f)).filter((x): x is string => !!x)
-          // Forms Hell-level doesn't have: a trigger with no forms left would fire on every form.
+          // Forms Genisys OS doesn't have: a trigger with no forms left would fire on every form.
           return forms.length && !mapped.length ? { ...base, type: 'ghl' } : { ...base, type: 'form_submitted', ...(mapped.length ? { formIds: mapped } : {}) }
         }
         case 'pipeline_stage_updated':
@@ -423,7 +423,7 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
           return { ...base, type: 'opportunity_created', pipelineId: refs.pipelines.get(str(pick('opportunity.pipelineId')?.value) ?? '') ?? undefined, stageId: str(pick('opportunity.pipelineStageId')?.value) ?? undefined }
         case 'customer_appointment':
         case 'appointment': {
-          // A calendar Hell-level doesn't have: unfiltered, the trigger would fire for every calendar.
+          // A calendar Genisys OS doesn't have: unfiltered, the trigger would fire for every calendar.
           const ghlCalendar = str(arr(pick('calendar.id')?.value)[0] ?? pick('calendar.id')?.value)
           const calendarId = ghlCalendar ? refs.calendars.get(ghlCalendar) : undefined
           if (ghlCalendar && !calendarId) return { ...base, type: 'ghl' }
@@ -434,7 +434,7 @@ export function convertTriggers(list: unknown, refs: Refs): HlTrigger[] {
         case 'validation_error':
           return { ...base, type: 'sms_error' }
         case 'inbound_webhook':
-          // Its URL is Hell-level's own, given (or kept) when the workflow is saved.
+          // Its URL is Genisys OS's own, given (or kept) when the workflow is saved.
           return { ...base, type: 'inbound_webhook' }
         default:
           return { ...base, type: 'ghl' }

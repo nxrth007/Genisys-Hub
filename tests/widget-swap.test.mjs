@@ -96,7 +96,7 @@ test('without a code search: the site’s own source and HTML are read, line by 
   assert.equal(plan.ghlInCode(plan.findInFiles(files, 'leadconnectorhq')).chat.length, 1)
 })
 
-test('Hell-level in the code: the form id, and the widget script with the chat id', () => {
+test('Genisys OS in the code: the form id, and the widget script with the chat id', () => {
   const f = [hit('src/components/QuoteForm.tsx', 'const FORM = "form123"')]
   const w = [hit('index.html', '<script src="https://hub/hl/widget.js" data-form="chat456" async></script>')]
   assert.deepEqual(plan.hlInCode({ formHits: f, widgetHits: w, chatHits: w }), { form: true, chat: true })
@@ -133,7 +133,7 @@ test('the live site: swapped when our chat is on it and GoHighLevel’s form and
   )
   assert.deepEqual(old, { ghlForm: true, ghlChat: true, hlForm: false, hlChat: false })
   assert.equal(plan.liveSwapped(old), false)
-  assert.equal(plan.liveGaps(old), 'Hell-level’s chat bubble isn’t on it; GoHighLevel’s form is still on it; GoHighLevel’s chat is still on it.')
+  assert.equal(plan.liveGaps(old), 'Genisys OS’s chat bubble isn’t on it; GoHighLevel’s form is still on it; GoHighLevel’s chat is still on it.')
   // A GoHighLevel booking calendar on the live site isn't a form.
   assert.equal(plan.liveState('src="https://api.leadconnectorhq.com/widget/booking/cal1"', ids).ghlForm, false)
 })

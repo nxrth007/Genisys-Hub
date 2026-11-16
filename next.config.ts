@@ -8,6 +8,14 @@ const nextConfig: NextConfig = {
   // (Next.js 16 warns that standalone requires `node .next/standalone/server.js`
   // instead, which complicates env var passthrough). Standard mode works fine
   // on Render's Node runtime.
+  // Hell-level became Genisys OS on 2026-11-16 (/hell-level → /genisys-os): old links, bookmarks and
+  // texts already sent still open, query strings and all.
+  async redirects() {
+    return [
+      { source: '/hell-level', destination: '/genisys-os', permanent: false },
+      { source: '/hell-level/:path*', destination: '/genisys-os/:path*', permanent: false },
+    ]
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: Ctx) {
       if (!src || src.accountId !== id) throw new HlInputError('Calendar not found.')
       const name = (str(body.name) ?? `${src.name.trim()} (copy)`).slice(0, 120)
       const settings = asCalendarSettings(src.settings)
-      // A copy is Hell-level's own: no GHL ids or slugs carried over.
+      // A copy is Genisys OS's own: no GHL ids or slugs carried over.
       for (const k of ['id', 'locationId', 'slug', 'widgetSlug'] as const) delete (settings as Record<string, unknown>)[k]
       const calendar = await prisma.hlCalendar.create({ data: { accountId: id, name, description: src.description, kind: src.kind, isActive: false, settings: settings as Prisma.InputJsonValue } })
       return NextResponse.json({ calendar })

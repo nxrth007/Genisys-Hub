@@ -3,7 +3,7 @@ import { hlGuard } from '@/lib/hl/http'
 import { readMembership } from '@/lib/hl/membership'
 
 /**
- * GET /api/hl/accounts/:id/membership — the client's membership with Genisys, for Hell-level →
+ * GET /api/hl/accounts/:id/membership — the client's membership with Genisys, for Genisys OS →
  * Memberships (Alex, 2026-11-14): when they registered, when they got their sub-account, and what
  * has happened since. Read-only, and Genisys only (a sub-account's own login has no Memberships).
  */

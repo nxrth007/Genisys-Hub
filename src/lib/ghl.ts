@@ -182,7 +182,7 @@ async function resolveToken(vaultEntryName: string): Promise<TokenInfo> {
   return info
 }
 
-/** A Vault entry's GHL token and the location it's for (the Hell-level importer calls the API itself). */
+/** A Vault entry's GHL token and the location it's for (the Genisys OS importer calls the API itself). */
 export async function resolveGhlToken(vaultEntryName: string): Promise<{ token: string; locationId: string }> {
   const { token, locationId } = await resolveToken(vaultEntryName)
   return { token, locationId }

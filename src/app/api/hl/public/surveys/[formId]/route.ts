@@ -31,11 +31,11 @@ export async function POST(req: Request, { params }: Ctx) {
     if (!r.ok) return NextResponse.json({ error: r.error, field: r.field }, { status: 400 })
     if ('redirect' in r) return NextResponse.json({ ok: true, redirect: r.redirect })
     after(() =>
-      fireTrigger(r.accountId, r.contactId, { type: 'form_submitted', formId, context: { form: r.answers, formId } }).catch((err) => console.error('[hell-level] survey automations failed:', err)),
+      fireTrigger(r.accountId, r.contactId, { type: 'form_submitted', formId, context: { form: r.answers, formId } }).catch((err) => console.error('[genisys-os] survey automations failed:', err)),
     )
     return NextResponse.json({ ok: true, thankYou: r.thankYou })
   } catch (err) {
-    console.error('[hell-level] survey submit failed:', err)
+    console.error('[genisys-os] survey submit failed:', err)
     return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 })
   }
 }

@@ -1,6 +1,6 @@
 /**
  * The buttons in a client's Sites folder (Alex, 2026-11-14): pick a domain from Porkbun's
- * suggestions, buy their Hell-level toll-free number, build their website. Each press is the
+ * suggestions, buy their Genisys OS toll-free number, build their website. Each press is the
  * person's Yes to what the Office asks, so it goes through the Office's own functions: the same
  * prices, the same "only one press buys" claims, logs and texts. A question already open in the
  * Office is answered, never asked twice. ./folder-plan.ts says which buttons apply; it is checked
@@ -24,7 +24,7 @@ const sentence = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}${/[.!
 /** What a build would use (photos, domain, phone) and what stops it, before anyone spends anything. */
 export async function sitePreflight(clientId: string): Promise<{ text: string; missing: string[] }> {
   const g = await gatherSite(clientId)
-  if (!g) return { text: 'They have no Hell-level sub-account, which the site’s form and chat need.', missing: ['Hell-level sub-account'] }
+  if (!g) return { text: 'They have no Genisys OS sub-account, which the site’s form and chat need.', missing: ['Genisys OS sub-account'] }
   const text = siteQuestionDetail(
     { photos: g.facts.photos.length, skipped: g.facts.skipped.length, domain: g.facts.domain, phoneSource: g.facts.phoneSource, numberAsked: g.numberAsked, domainAsked: g.domainAsked, missing: g.missing },
     'folder',
@@ -34,7 +34,7 @@ export async function sitePreflight(clientId: string): Promise<{ text: string; m
 
 /**
  * Build their website now. `overrideGhl` is the person agreeing, for a client set up in GHL, that
- * the site gets Hell-level's form and chat.
+ * the site gets Genisys OS's form and chat.
  */
 export async function buildSiteNow(clientId: string, by: string, overrideGhl: boolean): Promise<FolderResult> {
   const c = await prisma.client.findUnique({
@@ -44,7 +44,7 @@ export async function buildSiteNow(clientId: string, by: string, overrideGhl: bo
   if (!c || c.archivedAt) return { ok: false, reason: 'This client is archived or gone.' }
   const plan = folderBuild({ hasAccount: !!c.hlAccount && !c.hlAccount.archivedAt, ghlLinked: !!c.ghlLocationId, status: c.hlSiteRequest?.status ?? null })
   if (plan.kind === 'none') return { ok: false, reason: plan.reason }
-  if (plan.overrideGhl && !overrideGhl) return { ok: false, reason: 'They’re set up in GHL: confirm building with Hell-level’s form and chat.' }
+  if (plan.overrideGhl && !overrideGhl) return { ok: false, reason: 'They’re set up in GHL: confirm building with Genisys OS’s form and chat.' }
   // Before anything is asked or spent.
   const lovable = await lovableMcpStatus()
   if (!lovable.connected) return { ok: false, reason: 'The Hub isn’t signed in to Lovable. Connect it on the SEO page (Setup card), then press Build site again.' }
@@ -59,7 +59,7 @@ export async function buildSiteNow(clientId: string, by: string, overrideGhl: bo
   return decideClientSite(id, 'build', by)
 }
 
-/** Buy their Hell-level toll-free number now, on Genisys's Twilio. */
+/** Buy their Genisys OS toll-free number now, on Genisys's Twilio. */
 export async function buyNumberNow(clientId: string, by: string): Promise<FolderResult> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },

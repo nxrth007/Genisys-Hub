@@ -30,18 +30,18 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     if (body.action === 'reschedule') {
       const r = await rescheduleByToken(token, typeof body.start === 'string' ? body.start : '')
-      after(() => fireStatusTrigger(r.appointmentId, 'rescheduled').catch((err) => console.error('[hell-level] reschedule automations failed:', err)))
+      after(() => fireStatusTrigger(r.appointmentId, 'rescheduled').catch((err) => console.error('[genisys-os] reschedule automations failed:', err)))
       return NextResponse.json({ ok: true, start: r.start.toISOString(), end: r.end.toISOString() })
     }
     if (body.action === 'cancel') {
       const r = await cancelByToken(token)
-      after(() => fireStatusTrigger(r.appointmentId, 'cancelled').catch((err) => console.error('[hell-level] cancel automations failed:', err)))
+      after(() => fireStatusTrigger(r.appointmentId, 'cancelled').catch((err) => console.error('[genisys-os] cancel automations failed:', err)))
       return NextResponse.json({ ok: true })
     }
     return NextResponse.json({ error: 'Unknown action.' }, { status: 400 })
   } catch (err) {
     if (err instanceof BookingError) return NextResponse.json({ error: err.message, field: err.field }, { status: 400 })
-    console.error('[hell-level] appointment change failed:', err)
+    console.error('[genisys-os] appointment change failed:', err)
     return NextResponse.json({ error: 'Something went wrong. Please call us.' }, { status: 500 })
   }
 }

@@ -2,7 +2,7 @@ import { getSecretByName } from '@/lib/vault-service'
 import { HlInputError } from './http'
 
 /**
- * Porkbun, the registrar Hell-level buys and holds client domains with (API
+ * Porkbun, the registrar Genisys OS buys and holds client domains with (API
  * v3, porkbun.com/api/json/v3/documentation). The keys are Vault entries
  * "Porkbun API Key" and "Porkbun Secret API Key". Sandbox keys (pk1_sb_…)
  * run the same calls against fake credit, so the whole flow can be tried

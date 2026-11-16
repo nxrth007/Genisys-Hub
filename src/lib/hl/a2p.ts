@@ -442,7 +442,7 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
     Promise.all(d.screenshots.map((s) => isImage(s.url))),
   ])
   const hlOnSite = !!site?.ok && /\/hl\/(widget\.js|f\/|c\/)/.test(site.html)
-  // People sign up somewhere other than a Hell-level form (a booking page, another site's form), shown in screenshots.
+  // People sign up somewhere other than a Genisys OS form (a booking page, another site's form), shown in screenshots.
   const outside = d.screenshots.length > 0 && !hlOnSite
   const linked = d.messageFlow.includes(ctx.optInUrl)
 
@@ -463,7 +463,7 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
     if (site.ok && visibleText(site.html).length >= 300 && !hlOnSite) {
       if (outside && linked) checks.push({ key: 'site-form', level: 'ok', label: 'Where people opt in', detail: 'Not on the site’s own pages, so the opt-in page shows reviewers each step in screenshots.' })
       else
-        checks.push({ key: 'site-form', level: 'warning', label: 'Form on the website', detail: 'The website doesn’t show the Hell-level form or chat yet. Reviewers look for the consent boxes on the site, so put the form there first, or make sure the site’s own form has the same two boxes. If people sign up somewhere a reviewer can’t see at a glance (a booking page, another site), add screenshots of each step.' })
+        checks.push({ key: 'site-form', level: 'warning', label: 'Form on the website', detail: 'The website doesn’t show the Genisys OS form or chat yet. Reviewers look for the consent boxes on the site, so put the form there first, or make sure the site’s own form has the same two boxes. If people sign up somewhere a reviewer can’t see at a glance (a booking page, another site), add screenshots of each step.' })
     }
   }
   if (d.screenshots.length) {
@@ -492,16 +492,16 @@ export async function a2pPreflight(accountId: string, raw: unknown): Promise<A2p
   // A client's registration points only at the client's own site: reviewers reject a Hub (or Render) address.
   if (account?.clientId) {
     if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
-      checks.push({ key: 'client-pages', level: 'error', label: 'The client’s own pages', detail: 'The privacy policy and terms have to be pages on the client’s own website; the Hub’s won’t pass review. Hell-level finds /privacy and /terms in the site’s repo (Clients → the site), or put the links in above.' })
+      checks.push({ key: 'client-pages', level: 'error', label: 'The client’s own pages', detail: 'The privacy policy and terms have to be pages on the client’s own website; the Hub’s won’t pass review. Genisys OS finds /privacy and /terms in the site’s repo (Clients → the site), or put the links in above.' })
     if ([...d.messageFlow.matchAll(/https?:\/\/[^\s"')]+/g)].some((m) => isHubUrl(m[0])))
       checks.push({ key: 'client-flow', level: 'error', label: 'Opt-in links', detail: '“How people opt in” links a Hub page. Point it at the quote form on the client’s own website.' })
   }
   const quote = account?.forms[0]
   const boxes = quote ? consentsOf(asSettings(quote.settings)) : []
   const smsBox = boxes.find((b) => b.kind === 'sms')
-  // A sign-up outside Hell-level has its own boxes, which the screenshots show; the Hell-level form isn't what reviewers see.
-  if (outside) checks.push({ key: 'form', level: 'ok', label: 'Opt-in form', detail: 'People sign up on a form outside Hell-level. Make sure “How people opt in” quotes its consent boxes word for word, as the screenshots show them.' })
-  else if (!quote || !smsBox) checks.push({ key: 'form', level: 'warning', label: 'Opt-in form', detail: 'No Hell-level form with a texting consent box. Make sure the form on the website has one (two optional, unchecked boxes).' })
+  // A sign-up outside Genisys OS has its own boxes, which the screenshots show; the Genisys OS form isn't what reviewers see.
+  if (outside) checks.push({ key: 'form', level: 'ok', label: 'Opt-in form', detail: 'People sign up on a form outside Genisys OS. Make sure “How people opt in” quotes its consent boxes word for word, as the screenshots show them.' })
+  else if (!quote || !smsBox) checks.push({ key: 'form', level: 'warning', label: 'Opt-in form', detail: 'No Genisys OS form with a texting consent box. Make sure the form on the website has one (two optional, unchecked boxes).' })
   else if (smsBox.required) checks.push({ key: 'form', level: 'error', label: 'Opt-in form', detail: `Turn off “Required” on the texting consent box in “${quote.name}”: consent can’t be a condition, and a required box gets rejected.` })
   else checks.push({ key: 'form', level: 'ok', label: 'Opt-in form', detail: `“${quote.name}” has an optional, unchecked texting box.` })
   if (!outside && d.marketing && !boxes.some((b) => b.kind === 'marketing'))
@@ -760,6 +760,7 @@ async function fileCampaign(client: TwilioClient, row: HlA2p, d: A2pDetails, met
   const legal = resolveLegalLinks(row.accountId, readProfile(account?.profile))
   let ms = row.messagingServiceSid
   if (!ms) {
+    // The old name stays in this Twilio label: the service made before the rename to Genisys OS is found by it.
     const friendlyName = `Hell-level A2P · ${(account?.name ?? '').slice(0, 30)} · ${row.accountId.slice(-6)}`
     // Inbound texts keep going to the number's own webhook (the Hub), not the service's.
     ms = (await m.services.list({ limit: 1000 })).find((s) => s.friendlyName === friendlyName)?.sid ?? (await m.services.create({ friendlyName, useInboundWebhookOnNumber: true })).sid
@@ -837,7 +838,7 @@ function afterResubmit(status: string, sid: string): Prisma.HlA2pUpdateInput {
   return {
     stage: 'failed',
     campaignStatus: 'FAILED',
-    note: `Twilio saved the fix but didn’t send the campaign back for review: it only does that from its Console for this account (editing campaigns through its API is a private beta). In the Twilio Console, open Messaging → Regulatory compliance → Campaigns, click campaign ${sid}, then Edit Campaign → Update. Hell-level notices the new review by itself.`,
+    note: `Twilio saved the fix but didn’t send the campaign back for review: it only does that from its Console for this account (editing campaigns through its API is a private beta). In the Twilio Console, open Messaging → Regulatory compliance → Campaigns, click campaign ${sid}, then Edit Campaign → Update. Genisys OS notices the new review by itself.`,
   }
 }
 
@@ -959,7 +960,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   let row = await prisma.hlA2p.upsert({ where: { accountId }, create: { accountId, path: d.path, details: asJson(d) }, update: {} })
   if (row.stage === 'approved') throw new HlInputError('This sub-account’s A2P registration is already approved.')
   if ((ACTIVE_STAGES as string[]).includes(row.stage)) throw new HlInputError('The registration is already with Twilio. Use “Check status”.')
-  if (!(await claim(row.id, now))) throw new HlInputError('Hell-level is already working on this registration. Try again in a minute.')
+  if (!(await claim(row.id, now))) throw new HlInputError('Genisys OS is already working on this registration. Try again in a minute.')
 
   let meta = readMeta(row.meta)
   delete meta.rejectedAt
@@ -1008,7 +1009,7 @@ export async function fileA2p(accountId: string, raw: unknown, by: string, deps:
   } catch (err) {
     meta.failedStep = err instanceof StepError ? err.step : (meta.failedStep ?? 'profile')
     row = await prisma.hlA2p.update({ where: { id: row.id }, data: { stage: 'failed', note: problem(err), meta: asJson(meta), checkedAt: now, lockedUntil: null } })
-    console.warn(`[hell-level] A2P filing for ${accountId} stopped: ${row.note}`)
+    console.warn(`[genisys-os] A2P filing for ${accountId} stopped: ${row.note}`)
   }
   await mirrorNumbers(row)
   return (await a2pView(accountId))!
@@ -1031,7 +1032,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
       if (!row.nextAt || row.nextAt <= now) {
         const brand = await registerBrand(client, row, d)
         Object.assign(data, { stage: 'brand', brandSid: brand.sid, brandStatus: brand.status, identityStatus: brand.identityStatus ?? null })
-        console.log(`[hell-level] A2P brand ${brand.sid} registered for ${accountId}`)
+        console.log(`[genisys-os] A2P brand ${brand.sid} registered for ${accountId}`)
       }
     } else if (row.stage === 'brand' || row.stage === 'otp') {
       const brand = await client.messaging.v1.brandRegistrations(row.brandSid!).fetch()
@@ -1047,7 +1048,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
         } else {
           const campaign = await fileCampaign(client, { ...row, brandStatus: brand.status }, d, meta)
           Object.assign(data, { stage: 'campaign', campaignSid: campaign.sid, campaignStatus: campaign.status })
-          console.log(`[hell-level] A2P campaign ${campaign.sid} filed for ${accountId}`)
+          console.log(`[genisys-os] A2P campaign ${campaign.sid} filed for ${accountId}`)
         }
       } else {
         // Still with the registry; a business profile Twilio turned down won't get further.
@@ -1059,7 +1060,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
         }
       }
     } else if (row.stage === 'failed') {
-      // Resubmitted outside Hell-level: back in review, or through.
+      // Resubmitted outside Genisys OS: back in review, or through.
       const campaign = await client.messaging.v1.services(row.messagingServiceSid!).usAppToPerson(row.campaignSid!).fetch()
       if (campaign.campaignStatus !== 'FAILED' && campaign.campaignStatus !== 'SUSPENDED') {
         delete meta.failedStep
@@ -1089,7 +1090,7 @@ export async function advanceA2p(accountId: string, deps: Deps = {}): Promise<A2
     } else {
       Object.assign(data, { note: `Couldn’t reach Twilio (${problem(err)}); trying again shortly.` })
     }
-    console.warn(`[hell-level] A2P step for ${accountId}: ${problem(err)}`)
+    console.warn(`[genisys-os] A2P step for ${accountId}: ${problem(err)}`)
   }
   row = await prisma.hlA2p.update({ where: { id: row.id }, data: { ...data, meta: asJson(meta), lockedUntil: null } })
   await mirrorNumbers(row)
@@ -1114,7 +1115,7 @@ export async function syncA2pNumbers(accountId: string, deps: Deps = {}): Promis
       await attachNumbers(deps.client ?? (await twilioClient()), row, meta)
       return mirrorNumbers(await prisma.hlA2p.update({ where: { id: row.id }, data: { meta: asJson(meta) } }))
     } catch (err) {
-      console.warn(`[hell-level] A2P: couldn’t add the new number for ${accountId}: ${problem(err)}`)
+      console.warn(`[genisys-os] A2P: couldn’t add the new number for ${accountId}: ${problem(err)}`)
     }
   }
   await mirrorNumbers(row)
@@ -1141,7 +1142,7 @@ export async function maybeAdvanceA2p(deps: Deps = {}): Promise<number> {
       const v = await advanceA2p(r.accountId, deps)
       if (v && v.stage !== r.stage) moved++
     } catch (err) {
-      console.warn(`[hell-level] A2P sweep ${r.accountId}:`, err instanceof Error ? err.message : err)
+      console.warn(`[genisys-os] A2P sweep ${r.accountId}:`, err instanceof Error ? err.message : err)
     }
   }
   return moved

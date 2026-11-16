@@ -46,11 +46,11 @@ export function workerPaused(env: NodeJS.ProcessEnv = process.env): boolean {
 /**
  * Whether a new client gets a GHL sub-account made by itself (from the
  * onboarding form, the sweep, or the worker webhook). Off since 2026-11-13:
- * Alex and Ethan moved new clients to Hell-level only. Every new client still
- * gets a Hell-level sub-account; Settings can still make a GHL one by hand.
+ * Alex and Ethan moved new clients to Genisys OS only. Every new client still
+ * gets a Genisys OS sub-account; Settings can still make a GHL one by hand.
  */
 export const AUTO_CREATE_FOR_NEW_CLIENTS: boolean = false
-export const NO_AUTO_CREATE_REASON = 'new clients get a Hell-level sub-account only (GHL sub-accounts are made by hand now)'
+export const NO_AUTO_CREATE_REASON = 'new clients get a Genisys OS sub-account only (GHL sub-accounts are made by hand now)'
 
 /** The one intake boot may split off an existing client. Empty env means this id only. */
 export const DEFAULT_BACKFILL_INTAKE_ID = 'cmwd3jnao001m3hsct1totiqp'

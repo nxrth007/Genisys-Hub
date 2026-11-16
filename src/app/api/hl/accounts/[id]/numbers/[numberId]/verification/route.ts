@@ -33,7 +33,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   if (!(await owned(id, numberId))) return NextResponse.json({ error: 'Number not found' }, { status: 404 })
   try {
     const r = await submitVerification(numberId)
-    console.log(`[hell-level] ${guard.email} filed toll-free verification ${r.sid} for number ${numberId}`)
+    console.log(`[genisys-os] ${guard.email} filed toll-free verification ${r.sid} for number ${numberId}`)
     return NextResponse.json(r)
   } catch (err) {
     return hlError(err, 'file verification')

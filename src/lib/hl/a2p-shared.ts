@@ -78,7 +78,7 @@ export type A2pView = {
   numbers: string[]
   /** Genisys's own business: registered on its primary business profile, as Twilio wants an agency's own brand. */
   own: boolean
-  /** When Hell-level saw the registry's or the carriers' rejection (a failed registration only). */
+  /** When Genisys OS saw the registry's or the carriers' rejection (a failed registration only). */
   rejectedAt: string | null
 }
 
@@ -181,7 +181,7 @@ export function stageText(v: Pick<A2pView, 'stage' | 'path' | 'brandStatus' | 'c
     case 'otp':
       return 'Waiting for the owner: the registry texted their cell from (915) 278-2000. They reply YES (within 24 hours).'
     case 'campaign':
-      return 'Campaign filed. Carriers review it, usually within a few days, sometimes two to three weeks. Hell-level checks every 30 minutes.'
+      return 'Campaign filed. Carriers review it, usually within a few days, sometimes two to three weeks. Genisys OS checks every 30 minutes.'
     case 'approved':
       return 'Approved. Texts go out from this number.'
     case 'failed':

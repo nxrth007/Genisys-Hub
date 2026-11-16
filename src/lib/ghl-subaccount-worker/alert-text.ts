@@ -45,14 +45,14 @@ export function workerAlertText(kind: WorkerAlertKind, client: string, reason: s
   }
 }
 
-/** A client's Hell-level toll-free number (src/lib/hl/number-request.ts). */
+/** A client's Genisys OS toll-free number (src/lib/hl/number-request.ts). */
 export type NumberAlertKind = 'approve' | 'failed' | 'verify' | 'rejected'
 
 export function numberAlertText(kind: NumberAlertKind, client: string, reason: string, link: string): string {
   const why = reason.trim() ? ` ${shortReason(reason)}` : ''
   switch (kind) {
     case 'approve':
-      return `Genisys Hub: ${client} just onboarded. Approve their Hell-level toll-free number (about $2.15/mo, no ID check) in the Office: ${link}`
+      return `Genisys Hub: ${client} just onboarded. Approve their Genisys OS toll-free number (about $2.15/mo, no ID check) in the Office: ${link}`
     case 'failed':
       return `Genisys Hub: buying ${client}'s toll-free number failed.${why} Open: ${link}`
     case 'rejected':

@@ -265,6 +265,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     return NextResponse.json({ error: 'A purchase or transfer is in progress; wait for it to finish.' }, { status: 400 })
   }
   await prisma.hlDomain.delete({ where: { id: domainId } })
-  console.log(`[hell-level] ${guard.email} unlinked ${domain.name} from account ${id}`)
+  console.log(`[genisys-os] ${guard.email} unlinked ${domain.name} from account ${id}`)
   return NextResponse.json({ ok: true, name: normalizeDomain(domain.name) })
 }

@@ -1,5 +1,5 @@
 /**
- * A client's membership with Genisys, for Hell-level → Memberships (Alex, 2026-11-14: "record when
+ * A client's membership with Genisys, for Genisys OS → Memberships (Alex, 2026-11-14: "record when
  * the client registered and received their sub-account"). Pure (tests load it): the dates come from
  * records the Hub keeps anyway, read by src/app/api/hl/accounts/[id]/membership/route.ts.
  */
@@ -19,11 +19,11 @@ export type MembershipFacts = {
   ghlProvision: { status: string | null; at: Date | null }
   /** GoHighLevel's own date for the sub-account (its location record), when it gives one. */
   ghlLocationAddedAt: Date | null
-  /** This Hell-level sub-account. */
+  /** This Genisys OS sub-account. */
   accountCreatedAt: Date
-  /** Their GoHighLevel sub-account (Clients' link, or the one this was copied from); null: Hell-level only. */
+  /** Their GoHighLevel sub-account (Clients' link, or the one this was copied from); null: Genisys OS only. */
   ghlLocationId: string | null
-  /** This Hell-level sub-account is a copy of their GoHighLevel one (the import), not one Genisys made fresh. */
+  /** This Genisys OS sub-account is a copy of their GoHighLevel one (the import), not one Genisys made fresh. */
   copiedFromGhl: boolean
   siteLiveAt: Date | null
   siteUrl: string | null
@@ -40,9 +40,9 @@ export type Dated = { at: string; label: string }
 export type Membership = {
   /** When they signed up with Genisys, and which record says so. */
   registered: { at: string; how: string } | null
-  /** When they got their sub-account (GoHighLevel's for a client from before Hell-level). */
+  /** When they got their sub-account (GoHighLevel's for a client from before Genisys OS). */
   subAccount: { at: string | null; how: string }
-  /** For a client from GoHighLevel: when their Hell-level sub-account was made or copied in. */
+  /** For a client from GoHighLevel: when their Genisys OS sub-account was made or copied in. */
   hellLevel: { at: string; how: string } | null
   daysAsClient: number | null
   /** What happened, oldest first. */
@@ -103,11 +103,11 @@ export function registeredFrom(f: MembershipFacts): { at: Date; how: string } | 
 }
 
 /**
- * When they got their sub-account, and how the Hub knows. A client from before Hell-level got theirs
- * in GoHighLevel; their Hell-level one came later (made by Genisys, or copied in), so it's a second date.
+ * When they got their sub-account, and how the Hub knows. A client from before Genisys OS got theirs
+ * in GoHighLevel; their Genisys OS one came later (made by Genisys, or copied in), so it's a second date.
  */
 export function subAccountFrom(f: MembershipFacts): { at: Date | null; how: string; hellLevel: { at: Date; how: string } | null } {
-  if (!f.ghlLocationId) return { at: f.accountCreatedAt, how: 'Hell-level sub-account made', hellLevel: null }
+  if (!f.ghlLocationId) return { at: f.accountCreatedAt, how: 'Genisys OS sub-account made', hellLevel: null }
   const made =
     f.ghlLocationAddedAt ??
     (f.ghlProvision.status === 'created' ? f.ghlProvision.at : null) ??
@@ -115,7 +115,7 @@ export function subAccountFrom(f: MembershipFacts): { at: Date | null; how: stri
   return {
     at: made,
     how: made ? 'GoHighLevel sub-account made' : 'Made in GoHighLevel (GoHighLevel doesn’t give the date)',
-    hellLevel: { at: f.accountCreatedAt, how: f.copiedFromGhl ? 'Copied into Hell-level' : 'Hell-level sub-account made' },
+    hellLevel: { at: f.accountCreatedAt, how: f.copiedFromGhl ? 'Copied into Genisys OS' : 'Genisys OS sub-account made' },
   }
 }
 
@@ -136,9 +136,9 @@ export function membershipOf(f: MembershipFacts, now = new Date()): Membership {
   if (fromWhop(f.signupStep?.note)) add(f.signupStep?.completedAt, 'Signed up on Whop')
   add(f.firstIntakeAt, 'Sent the onboarding form')
   if (!f.firstIntakeAt && !fromWhop(f.signupStep?.note) && reg) add(reg.at, reg.how)
-  add(sub.at, f.ghlLocationId ? 'Got their GoHighLevel sub-account' : 'Got their Hell-level sub-account')
-  if (sub.hellLevel) add(sub.hellLevel.at, f.copiedFromGhl ? 'Copied into Hell-level from GoHighLevel' : 'Hell-level sub-account made')
-  for (const l of f.logins) add(l.invitedAt, `Hell-level login sent to ${l.who}`)
+  add(sub.at, f.ghlLocationId ? 'Got their GoHighLevel sub-account' : 'Got their Genisys OS sub-account')
+  if (sub.hellLevel) add(sub.hellLevel.at, f.copiedFromGhl ? 'Copied into Genisys OS from GoHighLevel' : 'Genisys OS sub-account made')
+  for (const l of f.logins) add(l.invitedAt, `Genisys OS login sent to ${l.who}`)
   add(f.siteLiveAt, `Website live${f.siteUrl ? ` at ${host(f.siteUrl)}` : ''}`)
   for (const d of f.domains) add(d.createdAt, `Domain ${d.name} added`)
   for (const n of f.numbers) {
@@ -149,7 +149,7 @@ export function membershipOf(f: MembershipFacts, now = new Date()): Membership {
 
   const next: string[] = []
   if (!f.siteLiveAt && !f.siteUrl) next.push('Website live')
-  // A client from GoHighLevel may still text from GoHighLevel's number: only a Hell-level one is asked for here.
+  // A client from GoHighLevel may still text from GoHighLevel's number: only a Genisys OS one is asked for here.
   if (!f.numbers.length) {
     if (!f.ghlLocationId) next.push('A phone number')
   } else if (!f.numbers.some((n) => n.verificationStatus === 'approved')) next.push('Texting approved (carrier verification)')

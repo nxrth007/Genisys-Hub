@@ -11,11 +11,11 @@ export async function POST(req: Request) {
     const r = await dialFinished(messageId, p)
     if (r.after) {
       const work = r.after
-      after(() => work().catch((err) => console.error('[hell-level] missed call automations failed:', err)))
+      after(() => work().catch((err) => console.error('[genisys-os] missed call automations failed:', err)))
     }
     return twiml(r.twiml)
   } catch (err) {
-    console.error('[hell-level] dial webhook failed:', err)
+    console.error('[genisys-os] dial webhook failed:', err)
     return twiml('<Hangup/>')
   }
 }

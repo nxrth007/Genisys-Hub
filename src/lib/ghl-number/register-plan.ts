@@ -1,6 +1,6 @@
 /**
  * GHL's toll-free registration form, filled from the client's filing (the
- * same one Hell-level files with Twilio: src/lib/hl/verification.ts,
+ * same one Genisys OS files with Twilio: src/lib/hl/verification.ts,
  * tollFreeFiling). Pure so it is unit-tested; browser.ts (runGhlRegistration)
  * drives the form and queue.ts runs it.
  *

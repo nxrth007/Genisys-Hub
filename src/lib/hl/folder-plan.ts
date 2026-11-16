@@ -1,6 +1,6 @@
 /**
  * What a client's folder in Sites offers, the Office's questions answered from the folder (Alex,
- * 2026-11-14): pick a domain from Porkbun's suggestions, buy their Hell-level toll-free number,
+ * 2026-11-14): pick a domain from Porkbun's suggestions, buy their Genisys OS toll-free number,
  * build their website. Each press is the person's Yes (it spends money), so the folder confirms
  * the price first; the Office keeps asking the same questions for clients nobody opened.
  *
@@ -16,7 +16,7 @@ const BUILD_LIVE = ['published', 'connected']
 export type FolderBuild =
   | {
       kind: 'build'
-      /** Their GHL sub-account is linked: the site gets Hell-level's form and chat anyway. */
+      /** Their GHL sub-account is linked: the site gets Genisys OS's form and chat anyway. */
       overrideGhl: boolean
       /** A copy exists (built, Not now, failed): a new one is made; the earlier stays in Lovable. */
       again: boolean
@@ -26,7 +26,7 @@ export type FolderBuild =
   | { kind: 'none'; reason: string }
 
 export function folderBuild(f: { hasAccount: boolean; ghlLinked: boolean; status: string | null }): FolderBuild {
-  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Hell-level sub-account, which the site’s form and chat need.' }
+  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Genisys OS sub-account, which the site’s form and chat need.' }
   const s = f.status
   if (s && BUILD_BUSY.includes(s)) return { kind: 'none', reason: 'Forge is working on it.' }
   if (s && BUILD_LIVE.includes(s)) return { kind: 'none', reason: 'Their site is live. Change it in Lovable’s builder.' }
@@ -37,16 +37,16 @@ export type FolderNumber =
   | {
       kind: 'buy'
       answersOffice: boolean
-      /** Their GHL sub-account has a number that can't text yet: "Purchase and verify" buys one in Hell-level instead. */
+      /** Their GHL sub-account has a number that can't text yet: "Purchase and verify" buys one in Genisys OS instead. */
       overGhl: boolean
     }
   | { kind: 'none'; reason: string }
 
 /**
- * A Hell-level toll-free number, bought on Genisys's Twilio. Not for a client who has one, nor while
+ * A Genisys OS toll-free number, bought on Genisys's Twilio. Not for a client who has one, nor while
  * GHL's route (an ID check, then the browser worker) is under way. A client whose GHL sub-account has
  * a number is set up in GHL (Alex's rule), unless every number there shows GHL's "Verification
- * Required" (Alex, 2026-11-14: "Purchase and verify" buys one in Hell-level and files its
+ * Required" (Alex, 2026-11-14: "Purchase and verify" buys one in Genisys OS and files its
  * verification), and never for the clients that stay on GHL, verified there.
  */
 export function folderNumber(f: {
@@ -59,7 +59,7 @@ export function folderNumber(f: {
   staysOnGhl?: boolean
   status: string | null
 }): FolderNumber {
-  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Hell-level sub-account to put a number on.' }
+  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Genisys OS sub-account to put a number on.' }
   if (f.hasTollFree) return { kind: 'none', reason: 'They have their toll-free number.' }
   if (f.ghlHasNumber && f.staysOnGhl) return { kind: 'none', reason: 'They’re verified on GHL and stay there, so their number stays in GHL.' }
   if (f.ghlHasNumber && !f.ghlCantText) return { kind: 'none', reason: 'Their GHL sub-account already has a number, so it’s set up in GHL.' }
@@ -79,8 +79,8 @@ export type FolderDomain =
   | { kind: 'none'; reason: string }
 
 export function folderDomain(f: { hasAccount: boolean; hasDomain: boolean; status: string | null; choices: DomainChoice[]; buying: string | null }): FolderDomain {
-  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Hell-level sub-account to hold a domain.' }
-  if (f.hasDomain) return { kind: 'none', reason: 'Their domain is in Hell-level → Domains.' }
+  if (!f.hasAccount) return { kind: 'none', reason: 'They have no Genisys OS sub-account to hold a domain.' }
+  if (f.hasDomain) return { kind: 'none', reason: 'Their domain is in Genisys OS → Domains.' }
   if (f.status === 'buying') return { kind: 'none', reason: `Buying ${f.buying ?? 'it'} now.` }
   if (f.status === 'awaiting_approval' && f.choices.length) return { kind: 'choose', choices: f.choices }
   return { kind: 'find' }

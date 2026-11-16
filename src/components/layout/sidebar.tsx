@@ -180,13 +180,13 @@ export function Sidebar() {
   // whichever base nav the viewer sees, SEO just before Payments.
   const nav: NavItem[] = [
     ...baseNav,
-    // Hell-level: the agency's own GoHighLevel (same allowlist as Payments).
-    // Opens on its entrance screen (src/components/hell-level/enter-splash.tsx).
+    // Genisys OS: the agency's own GoHighLevel (same allowlist as Payments).
+    // Opens on its entrance screen (src/components/genisys-os/enter-splash.tsx).
     // Sites: every client's website as a folder (staff only).
     ...(role === 'admin' || role === 'member' ? [{ href: '/sites', label: 'Sites', icon: AppWindow }] : []),
     // Office: live isometric view of the pipeline bots (staff only).
     ...(role === 'admin' || role === 'member' ? [{ href: '/office', label: 'Office', icon: Bot }] : []),
-    ...(canAccessHellLevel(email) ? [{ href: '/hell-level?enter=1', match: '/hell-level', label: 'Hell-level', icon: Flame }] : []),
+    ...(canAccessHellLevel(email) ? [{ href: '/genisys-os?enter=1', match: '/genisys-os', label: 'Genisys OS', icon: Flame }] : []),
     ...(canAccessSeo(email) ? [{ href: '/seo', label: 'SEO', icon: TrendingUp }] : []),
     ...(canAccessPayments(email) ? [{ href: '/payments', label: 'Payments', icon: Wallet }] : []),
   ]

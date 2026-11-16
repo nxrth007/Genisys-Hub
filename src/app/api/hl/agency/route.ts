@@ -69,8 +69,8 @@ export async function GET() {
       { key: 'twilio', label: 'Connect Twilio', done: twilio.ok, detail: twilio.ok ? `Connected${twilio.accountName ? `: ${twilio.accountName}` : ''}` : (twilio.error ?? 'Add the Twilio keys to the Vault'), href: null },
       { key: 'trusthub', label: 'Twilio business profile approved', done: approved, detail: approved ? 'Toll-free verification can be filed for clients' : 'Needed before texting can be verified', href: null },
       { key: 'porkbun', label: 'Connect Porkbun (domains)', done: porkbun.connected, detail: porkbun.connected ? `Connected: ${porkbun.account ?? 'account'}${porkbun.sandbox ? ' (sandbox)' : ''}` : 'Add the Porkbun keys to the Vault', href: null },
-      { key: 'import', label: 'Import Lead Genisys from GoHighLevel', done: imported?.status === 'done', detail: imported ? `Import ${imported.status}` : 'Not run yet', href: homeId ? `/hell-level/${homeId}/settings?tab=import` : '/hell-level' },
-      { key: 'accounts', label: 'Give every client a sub-account', done: clientsWithout === 0, detail: clientsWithout ? `${clientsWithout} client(s) without one` : 'Every client has one', href: '/hell-level' },
+      { key: 'import', label: 'Import Lead Genisys from GoHighLevel', done: imported?.status === 'done', detail: imported ? `Import ${imported.status}` : 'Not run yet', href: homeId ? `/genisys-os/${homeId}/settings?tab=import` : '/genisys-os' },
+      { key: 'accounts', label: 'Give every client a sub-account', done: clientsWithout === 0, detail: clientsWithout ? `${clientsWithout} client(s) without one` : 'Every client has one', href: '/genisys-os' },
       { key: 'numbers', label: 'Get a client texting', done: rows.some((r) => r.texting === 'live'), detail: `${rows.filter((r) => r.texting === 'live').length} sub-account(s) texting`, href: null },
     ],
   })

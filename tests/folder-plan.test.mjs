@@ -28,7 +28,7 @@ function loadTs(absPath) {
 const folder = loadTs(join(root, 'src/lib/hl/folder-plan.ts'))
 const site = loadTs(join(root, 'src/lib/hl/site-plan.ts'))
 
-test('Build site: offered with a Hell-level sub-account, never while Forge works or once the site is live', () => {
+test('Build site: offered with a Genisys OS sub-account, never while Forge works or once the site is live', () => {
   const base = { hasAccount: true, ghlLinked: false, status: null }
   assert.deepEqual(folder.folderBuild(base), { kind: 'build', overrideGhl: false, again: false, answersOffice: false })
   assert.equal(folder.folderBuild({ ...base, hasAccount: false }).kind, 'none')
@@ -41,11 +41,11 @@ test('Build site: offered with a Hell-level sub-account, never while Forge works
   // A copy that exists (built, Not now on publishing, failed) is made again; Not now on building isn't "again".
   for (const status of ['built', 'held', 'failed']) assert.equal(folder.folderBuild({ ...base, status }).again, true, status)
   assert.equal(folder.folderBuild({ ...base, status: 'declined' }).again, false)
-  // Set up in GHL: the site gets Hell-level's form and chat, which the person agrees to.
+  // Set up in GHL: the site gets Genisys OS's form and chat, which the person agrees to.
   assert.equal(folder.folderBuild({ ...base, ghlLinked: true }).overrideGhl, true)
 })
 
-test('Buy toll-free number: Hell-level only, never over a number they have or one GHL has', () => {
+test('Buy toll-free number: Genisys OS only, never over a number they have or one GHL has', () => {
   const base = { hasAccount: true, hasTollFree: false, ghlHasNumber: false, status: null }
   assert.deepEqual(folder.folderNumber(base), { kind: 'buy', answersOffice: false, overGhl: false })
   assert.deepEqual(folder.folderNumber({ ...base, status: 'awaiting_approval' }), { kind: 'buy', answersOffice: true, overGhl: false })
@@ -61,7 +61,7 @@ test('Purchase and verify: over a GHL number only when none there can text, and 
   assert.equal(folder.folderNumber({ ...ghl, ghlCantText: false }).kind, 'none', 'a GHL number that texts stays the number')
   assert.deepEqual(folder.folderNumber({ ...ghl, ghlCantText: true }), { kind: 'buy', answersOffice: false, overGhl: true })
   assert.match(folder.folderNumber({ ...ghl, ghlCantText: true, staysOnGhl: true }).reason, /stay there/)
-  // Still never twice, nor over their own Hell-level number or while buying.
+  // Still never twice, nor over their own Genisys OS number or while buying.
   assert.equal(folder.folderNumber({ ...ghl, ghlCantText: true, hasTollFree: true }).kind, 'none')
   assert.equal(folder.folderNumber({ ...ghl, ghlCantText: true, status: 'buying' }).kind, 'none')
 })

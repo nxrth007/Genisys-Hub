@@ -4,7 +4,7 @@ import { getSecretByName } from '@/lib/vault-service'
 import { HlInputError } from './http'
 
 /**
- * Twilio for Hell-level: the Hub's own Twilio account (Vault "Twilio Account
+ * Twilio for Genisys OS: the Hub's own Twilio account (Vault "Twilio Account
  * SID" + "Twilio Auth Token", the same ones src/lib/twilio.ts uses). Numbers
  * are bought into it per sub-account and pointed at the Hub's webhooks, so
  * texts and calls to a client's number land in that client's sub-account.
@@ -82,7 +82,7 @@ export async function searchNumbers(o: { kind: 'toll_free' | 'local'; areaCode?:
   return list.map((n) => ({ number: n.phoneNumber, friendly: n.friendlyName, locality: n.locality || null, region: n.region || null }))
 }
 
-/** Buy a number into the Hub's Twilio account and point it at Hell-level's webhooks. */
+/** Buy a number into the Hub's Twilio account and point it at Genisys OS's webhooks. */
 export async function buyNumber(accountId: string, number: string, kind: 'toll_free' | 'local') {
   const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, select: { name: true } })
   if (!account) throw new HlInputError('Sub-account not found.')
@@ -90,6 +90,7 @@ export async function buyNumber(accountId: string, number: string, kind: 'toll_f
   const client = await twilioClient()
   const bought = await client.incomingPhoneNumbers.create({
     phoneNumber: number,
+    // Twilio's own label for the number, as every number bought before the rename to Genisys OS has it.
     friendlyName: `Hell-level: ${account.name}`.slice(0, 64),
     smsUrl: hookUrl(HOOKS.sms),
     smsMethod: 'POST',

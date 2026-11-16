@@ -2,9 +2,9 @@ import { WEBHOOK_METHODS, type HlStep } from './types'
 
 /**
  * GHL's Webhook (the contact's details plus custom data) and Custom Webhook
- * (a request built in the step) as a Hell-level Webhook step's settings.
- * Shared by the import and the builder's "Run it in Hell-level" button for
- * steps imported before Hell-level could run them. null = one Hell-level
+ * (a request built in the step) as a Genisys OS Webhook step's settings.
+ * Shared by the import and the builder's "Run it in Genisys OS" button for
+ * steps imported before Genisys OS could run them. null = one Genisys OS
  * can't run: OAuth2, whose token lives in GHL's own connection.
  */
 

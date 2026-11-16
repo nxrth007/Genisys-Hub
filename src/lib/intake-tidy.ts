@@ -245,7 +245,7 @@ export async function readTidyLog(intakeId: string): Promise<{ at: string; ai: b
 }
 
 /**
- * The tidy for a new submission, inside a time limit so the rest of onboarding (the Hell-level
+ * The tidy for a new submission, inside a time limit so the rest of onboarding (the Genisys OS
  * sub-account, SEO, the map) never waits long on Claude. Never rejects. Posts the Slack line.
  */
 export async function tidyNewIntake(intakeId: string, o: { clientId: string | null; created: boolean; name: string }, ms = 120_000): Promise<TidyOutcome | null> {

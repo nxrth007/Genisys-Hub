@@ -1,7 +1,7 @@
 /**
  * The GHL route of a client's toll-free number: the browser worker's job.
  *
- * In the Office, Echo asks whether to buy the client's number in Hell-level
+ * In the Office, Echo asks whether to buy the client's number in Genisys OS
  * or in GHL. For GHL, a person passes GHL's ID check for the client's
  * sub-account (it starts when you go to buy a number there) and presses
  * "Identification complete" (src/lib/hl/number-request.ts), which queues this
@@ -10,7 +10,7 @@
  * request: bought, back to the ID check (GHL still asks for it), or failed.
  *
  * Then, once the client's site link is in, the same job fills GHL's toll-free
- * registration form from the client's filing (the one Hell-level files with
+ * registration form from the client's filing (the one Genisys OS files with
  * Twilio) and stops before sending: Echo asks in the Office, and "Send it"
  * runs it again and presses Send Information for Verification.
  *

@@ -16,8 +16,8 @@ const secondary = 'inline-flex items-center gap-1.5 rounded-lg border border-bor
 
 /**
  * Their website's domain, Forge's Office question answered from the folder: three available names
- * from Porkbun with the all-in first-year price, bought into their Hell-level → Domains on a press
- * (after the price is confirmed). Any other name: their Hell-level Domains page searches it.
+ * from Porkbun with the all-in first-year price, bought into their Genisys OS → Domains on a press
+ * (after the price is confirmed). Any other name: their Genisys OS Domains page searches it.
  */
 export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const router = useRouter()
@@ -28,7 +28,7 @@ export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
   const [pick, setPick] = useState<DomainChoice | null>(null)
   const ready = d.siteDomain && 'name' in d.siteDomain ? d.siteDomain : null
   const moving = d.siteDomain && 'waiting' in d.siteDomain ? d.siteDomain.waiting : null
-  const domainsPage = d.account ? `/hell-level/${d.account.id}/settings?tab=domains` : null
+  const domainsPage = d.account ? `/genisys-os/${d.account.id}/settings?tab=domains` : null
   const business = d.account?.businessName || d.client.name
 
   async function run(kind: 'find' | 'none') {
@@ -67,7 +67,7 @@ export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
         <>
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-[18px] font-semibold tracking-tight text-foreground">{ready.name}</span>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{ready.managed ? 'In Hell-level' : 'DNS managed elsewhere'}</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{ready.managed ? 'In Genisys OS' : 'DNS managed elsewhere'}</span>
           </div>
           <p className="text-[12.5px] text-muted-foreground">
             {d.build?.status === 'connected'
@@ -85,11 +85,11 @@ export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
           )}
         </>
       ) : moving ? (
-        <p className="text-[12.5px] text-foreground/90">{moving} is still moving into their Hell-level Domains. Forge uses it once it’s in.</p>
+        <p className="text-[12.5px] text-foreground/90">{moving} is still moving into their Genisys OS Domains. Forge uses it once it’s in.</p>
       ) : a.kind === 'choose' ? (
         <>
           <p className="text-[12.5px] text-foreground/90">
-            Forge’s picks from Porkbun for {business}: available now, with Porkbun’s all-in first-year price. Pick one to buy it into their Hell-level → Domains.
+            Forge’s picks from Porkbun for {business}: available now, with Porkbun’s all-in first-year price. Pick one to buy it into their Genisys OS → Domains.
           </p>
           <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
             {a.choices.map((c) => (
@@ -158,7 +158,7 @@ export function DomainCard({ d, canAct }: { d: SiteDetail; canAct: boolean }) {
             <p>
               {usd(pick.costCents)} for the first year on Porkbun, paid from Genisys’s Porkbun account credit{pick.renewalCents ? `; it renews at ${usd(pick.renewalCents)} a year` : ''}.
             </p>
-            <p>It goes into {d.client.name}’s Hell-level → Domains. Forge puts it in their website when it builds it, and connects it once the site is published.</p>
+            <p>It goes into {d.client.name}’s Genisys OS → Domains. Forge puts it in their website when it builds it, and connects it once the site is published.</p>
             <p className="text-muted-foreground">Porkbun’s price is checked again as it buys: that price or nothing, and never twice.</p>
           </>
         )}

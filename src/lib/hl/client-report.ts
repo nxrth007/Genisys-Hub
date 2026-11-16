@@ -61,7 +61,7 @@ async function gather(clientId: string) {
 
 type Client = NonNullable<Awaited<ReturnType<typeof gather>>>
 
-/** Their site embeds their Hell-level form and chat: Forge built it, the swap finished, or the live site shows it. */
+/** Their site embeds their Genisys OS form and chat: Forge built it, the swap finished, or the live site shows it. */
 async function siteOnHellLevel(c: Client): Promise<boolean> {
   if (c.hlSiteRequest && ['published', 'connected'].includes(c.hlSiteRequest.status)) return true
   const swap = await prisma.appSetting.findUnique({ where: { key: `hlWidgetSwap:${c.id}` } }).catch(() => null)

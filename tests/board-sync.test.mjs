@@ -20,7 +20,7 @@ function loadTs(absPath) {
 const sync = loadTs(join(root, 'src/lib/hl/board-sync.ts'))
 const board = { businessName: 'All Pro Painting', ownerFirstName: 'Torrence', ownerFullName: 'Torrence Surles', quoteLink: 'https://allpro.example', phone: '(334) 322-7792', notifyEmail: 'owner@allpro.example' }
 
-test('board → Hell-level: only what the save changed', () => {
+test('board → Genisys OS: only what the save changed', () => {
   assert.deepEqual(sync.boardProfileChanges(board, board), {})
   assert.deepEqual(sync.boardProfileChanges(board, { ...board, phone: '(334) 555-0100' }), { businessPhone: '(334) 555-0100' })
   assert.deepEqual(sync.boardProfileChanges(board, { ...board, ownerFirstName: 'Terry', ownerFullName: 'Terry Surles' }), { ownerFirstName: 'Terry', ownerName: 'Terry Surles' })
@@ -29,7 +29,7 @@ test('board → Hell-level: only what the save changed', () => {
   assert.deepEqual(sync.boardProfileChanges(board, { ...board, businessName: '  All Pro  Painting ' }), {})
 })
 
-test('board → Hell-level: a cleared detail or one turned down leaves Hell-level alone', () => {
+test('board → Genisys OS: a cleared detail or one turned down leaves Genisys OS alone', () => {
   assert.deepEqual(sync.boardProfileChanges(board, { ...board, phone: '' }), {})
   assert.deepEqual(sync.boardProfileChanges(board, { ...board, phone: undefined }), {})
   const ok = (key, value) => key !== 'notifyEmail' || value.includes('@')

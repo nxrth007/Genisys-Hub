@@ -5,7 +5,7 @@ import { fireFormTriggers, publicForm, submitForm } from '@/lib/hl/forms'
 type Ctx = { params: Promise<{ formId: string }> }
 
 /**
- * The public side of a Hell-level form. Open to any website (CORS *) so a
+ * The public side of a Genisys OS form. Open to any website (CORS *) so a
  * client's Lovable site can post its own form here as well as embed ours.
  *   GET:  the form's fields and wording.
  *   POST: a submission (JSON or form-encoded). Rate-limited per IP.
@@ -49,10 +49,10 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     const r = await submitForm(formId, raw, { ip: ip ?? null, pageUrl })
     if (!r.ok) return NextResponse.json({ error: r.error, field: r.field }, { status: 400, headers: CORS })
-    after(() => fireFormTriggers(formId, r).catch((err) => console.error('[hell-level] form automations failed:', err)))
+    after(() => fireFormTriggers(formId, r).catch((err) => console.error('[genisys-os] form automations failed:', err)))
     return NextResponse.json({ ok: true, thankYou: r.thankYou }, { headers: CORS })
   } catch (err) {
-    console.error('[hell-level] form submit failed:', err)
+    console.error('[genisys-os] form submit failed:', err)
     return NextResponse.json({ error: 'Something went wrong. Please call us instead.' }, { status: 500, headers: CORS })
   }
 }

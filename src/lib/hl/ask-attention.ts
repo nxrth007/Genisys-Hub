@@ -54,7 +54,7 @@ export async function accountAttention(accountId: string): Promise<Attention> {
     prisma.hlContact.count({ where: { accountId, unread: { gt: 0 } } }),
     prisma.hlTask.count({ where: { accountId, completed: false, dueDate: { lt: today(tz).lt } } }),
   ])
-  const base = `/hell-level/${accountId}`
+  const base = `/genisys-os/${accountId}`
   const gaps = lp.items.filter((i) => !i.done)
   return {
     today: [
@@ -167,7 +167,7 @@ export async function agencyAttention(): Promise<Attention> {
     today: [
       { label: 'New leads (24 h)', value: leads24, link: null },
       { label: 'Appointments today', value: appts, link: null },
-      { label: 'Sub-accounts', value: accounts.length, link: '/hell-level' },
+      { label: 'Sub-accounts', value: accounts.length, link: '/genisys-os' },
     ],
     sections: [
       {

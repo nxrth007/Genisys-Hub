@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     const body = (await jsonBody(req)) as unknown as StaffAppointmentInput
     const made = await createAppointment(id, body, guard.email)
-    after(() => fireMadeTriggers(id, made).catch((err) => console.error('[hell-level] appointment automations failed:', err)))
+    after(() => fireMadeTriggers(id, made).catch((err) => console.error('[genisys-os] appointment automations failed:', err)))
     return NextResponse.json(made)
   } catch (err) {
     return hlError(err, 'new appointment')

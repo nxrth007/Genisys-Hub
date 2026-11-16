@@ -6,7 +6,7 @@ import { lovableProjectPublic } from '@/lib/seo/lovable-mcp'
 import { siteHref } from '@/lib/site-status'
 
 /**
- * GET /api/hl/accounts/:id/website — the client's own website, for Hell-level → Sites → Websites
+ * GET /api/hl/accounts/:id/website — the client's own website, for Genisys OS → Sites → Websites
  * (Alex, 2026-11-14: "can we have the client's sites show up here"). It's the site Forge built in
  * Lovable (where it stands, where it's live), else the site link in Clients, with a picture of the
  * latest build from Lovable. Genisys staff also get the Hub's folder, its builder window and the

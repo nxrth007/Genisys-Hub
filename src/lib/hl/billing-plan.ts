@@ -1,5 +1,5 @@
 /**
- * A client's Whop billing on Hell-level → Memberships (Alex, 2026-11-14: "add Whop billing but make
+ * A client's Whop billing on Genisys OS → Memberships (Alex, 2026-11-14: "add Whop billing but make
  * it read only"). Pure (tests load it): which Whop membership is theirs, and what it says. Nothing
  * here or in ./billing.ts changes anything on Whop.
  */

@@ -171,7 +171,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Mary's Team #1 (and future Team #N) — approved members can
           // session and reach /team/*. Pending/denied are bounced below.
           'team_member',
-          // A contractor (or their staff) on their own Hell-level
+          // A contractor (or their staff) on their own Genisys OS
           // sub-account, invited from Settings → My Staff and signing
           // in at /login (src/lib/hl/logins.ts). Middleware keeps them
           // to their sub-account's day-to-day screens.

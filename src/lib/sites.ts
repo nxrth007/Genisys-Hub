@@ -1,5 +1,5 @@
 /**
- * The Sites page: one folder per client on the roster (a Hell-level
+ * The Sites page: one folder per client on the roster (a Genisys OS
  * sub-account that isn't archived, a client that isn't archived, churned or
  * denied), with whether their website is live, and for one client the
  * status, links and toll-free number the site build needs.
@@ -70,7 +70,7 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
         status: siteStatus({ siteUrl: c.siteUrl, websiteStage: c.journeyStages[0]?.status }),
         logoUrl: readProfile(c.hlAccount?.profile).logoUrl || null,
         phone,
-        // GHL's "Verification Required", or a Hell-level toll-free number Twilio hasn't approved yet.
+        // GHL's "Verification Required", or a Genisys OS toll-free number Twilio hasn't approved yet.
         cantText: (phone === 'ghl' && cantTextYet(readCensusNumbers(census?.numbers)).length > 0) || (phone === 'hell_level' && hlCantTextYet(hlNumbers)),
       }
     }),
@@ -89,7 +89,7 @@ const STAGE_LABEL: Record<JourneyStage, string> = {
 export type SiteDetail = {
   client: { id: string; name: string; person: string | null; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string }
   status: SiteStatus
-  /** The Status card's rows: the journey stages, plus their Hell-level sub-account (`href` opens it). */
+  /** The Status card's rows: the journey stages, plus their Genisys OS sub-account (`href` opens it). */
   journey: { stage: string; label: string; status: string; note: string | null; updatedAt: string | null; href?: string | null }[]
   account: {
     id: string
@@ -102,7 +102,7 @@ export type SiteDetail = {
   } | null
   number: {
     number: string
-    /** hl = a Hell-level number on Genisys's Twilio; ghl = in the client's GHL sub-account. */
+    /** hl = a Genisys OS number on Genisys's Twilio; ghl = in the client's GHL sub-account. */
     where: 'hl' | 'ghl'
     forwardTo: string | null
     forwardTextsTo: string | null
@@ -138,16 +138,16 @@ export type SiteDetail = {
   } | null
   /** A GHL sub-account is linked: set up in GHL, so the website question needs "ask anyway". */
   ghlLinked: boolean
-  /** Their domain for the site, from their Hell-level Domains (src/lib/hl/site-plan.ts siteDomainChoice). */
+  /** Their domain for the site, from their Genisys OS Domains (src/lib/hl/site-plan.ts siteDomainChoice). */
   siteDomain: SiteDomainChoice
   /** Forge's "Buy a website domain for X?" question, when it was asked (src/lib/hl/domain-request.ts). */
   domainQuestion: { status: string; detail: string | null; name: string | null } | null
   /**
    * The folder's buttons, the Office's questions answered here (src/lib/hl/folder-plan.ts): pick a
-   * domain from Porkbun's suggestions, buy their Hell-level toll-free number, build the site.
+   * domain from Porkbun's suggestions, buy their Genisys OS toll-free number, build the site.
    */
   actions: { domain: FolderDomain; number: FolderNumber; build: FolderBuild }
-  /** Where a Hell-level number bought now would ring and forward texts (src/lib/hl/number-plan.ts). */
+  /** Where a Genisys OS number bought now would ring and forward texts (src/lib/hl/number-plan.ts). */
   numberTo: { ring: string | null; texts: string | null }
   /**
    * Their site in Lovable, for the folder's builder window: Forge's copy, else the SEO seat's
@@ -279,10 +279,10 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       if (s.stage === 'website') return [domainRow, row]
       if (s.stage === 'a2p') return [tollFreeRow, row]
       if (s.stage !== 'subaccount') return [row]
-      // Their Hell-level sub-account, just before the GHL one.
+      // Their Genisys OS sub-account, just before the GHL one.
       const hl = hellLevelStage(hellLevel)
-      const href = c.hlAccount && !c.hlAccount.archivedAt ? `/hell-level/${c.hlAccount.id}` : null
-      return [{ stage: 'hell_level', label: 'Hell-level sub-account', ...hl, updatedAt: hellLevel?.createdAt ?? null, href }, row]
+      const href = c.hlAccount && !c.hlAccount.archivedAt ? `/genisys-os/${c.hlAccount.id}` : null
+      return [{ stage: 'hell_level', label: 'Genisys OS sub-account', ...hl, updatedAt: hellLevel?.createdAt ?? null, href }, row]
     }),
     account:
       c.hlAccount && p

@@ -247,7 +247,7 @@ export async function maybeHideQuoteFormLegalLinks(): Promise<number> {
 }
 
 /**
- * The client's Google review link on their Hell-level sub-account: where the
+ * The client's Google review link on their Genisys OS sub-account: where the
  * review survey sends a happy customer (blank: a Google search for the
  * business). True when it changed.
  */
@@ -264,7 +264,7 @@ export async function setHlReviewLink(clientId: string, url: string, o: { onlyIf
 
 /**
  * A save on the client's Automation Copy board carries what it changed into
- * their Hell-level Business Profile (./board-sync.ts). Returns the profile
+ * their Genisys OS Business Profile (./board-sync.ts). Returns the profile
  * fields that changed; none without a sub-account.
  */
 export async function syncProfileFromBoard(clientId: string, before: AutomationInputs | null, after: AutomationInputs | null): Promise<string[]> {

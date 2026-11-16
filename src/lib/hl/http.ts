@@ -13,7 +13,7 @@ export class HlInputError extends Error {
 }
 
 /**
- * Signed in and on the Hell-level allowlist (Genisys), or the response to
+ * Signed in and on the Genisys OS allowlist (Genisys), or the response to
  * send instead. Sub-account logins (contractors, role "hl_user") are refused
  * here: a route they may use calls hlAccountGuard instead, so everything
  * else stays Genisys-only by default.
@@ -72,7 +72,7 @@ export async function hlAccountOr404(id: string) {
 
 export function hlError(err: unknown, where: string): NextResponse {
   if (err instanceof HlInputError) return NextResponse.json({ error: err.message }, { status: 400 })
-  console.error(`[hell-level] ${where} failed:`, err)
+  console.error(`[genisys-os] ${where} failed:`, err)
   return NextResponse.json({ error: err instanceof Error ? err.message : 'Something went wrong.' }, { status: 500 })
 }
 

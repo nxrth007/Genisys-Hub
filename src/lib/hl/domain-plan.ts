@@ -97,7 +97,7 @@ export type DomainAskCandidate = {
   accountId: string | null
   /** The onboarding form said they're bringing a domain they already have. */
   bringingOwnDomain: boolean
-  /** Their Hell-level sub-account already holds a domain. */
+  /** Their Genisys OS sub-account already holds a domain. */
   hasDomain: boolean
   /** Their site is already live (Clients: the site we built). */
   siteLive: boolean
@@ -116,7 +116,7 @@ export type DomainAskCandidate = {
  */
 export function domainAskDecision(c: DomainAskCandidate): { ask: boolean; reason: string } {
   if (c.archived) return { ask: false, reason: 'the client is archived' }
-  if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
+  if (!c.accountId) return { ask: false, reason: 'no Genisys OS sub-account yet' }
   if (c.hasDomain) return { ask: false, reason: 'its sub-account already has a domain' }
   const r = c.request?.status
   if (r === 'buying') return { ask: false, reason: 'it’s buying one now' }

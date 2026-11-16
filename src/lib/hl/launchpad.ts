@@ -58,7 +58,7 @@ export async function launchpad(accountId: string): Promise<{ items: LaunchItem[
       key: 'texting',
       title: 'Get texting approved',
       detail: !number
-        ? 'Comes after the number: Hell-level files the texting registration with Twilio for you (no code from the client).'
+        ? 'Comes after the number: Genisys OS files the texting registration with Twilio for you (no code from the client).'
         : number.verificationStatus === 'approved'
           ? 'Approved: this number texts.'
           : number.verificationStatus === 'rejected'

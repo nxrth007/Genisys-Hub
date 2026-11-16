@@ -7,7 +7,7 @@ import { forwardTextBody, ownerPhones } from '@/lib/hl/number-plan'
 import { isFromTwilio, sendTwilioSms, twilioParams, twiml } from '@/lib/hl/twilio'
 
 /**
- * POST /api/hl/twilio/sms: a text to a Hell-level number (Twilio's
+ * POST /api/hl/twilio/sms: a text to a Genisys OS number (Twilio's
  * messaging webhook). Public, so the Twilio signature is the access check.
  * Answers empty TwiML (no auto-reply); automations run after the response.
  *
@@ -31,10 +31,10 @@ export async function POST(req: Request) {
     const hub = process.env.TWILIO_FROM_NUMBER
     const to = number.forwardTextsTo
     after(async () => {
-      if (!hub) return console.warn('[hell-level] text forward skipped: TWILIO_FROM_NUMBER is not set')
+      if (!hub) return console.warn('[genisys-os] text forward skipped: TWILIO_FROM_NUMBER is not set')
       const name = [r.contact.firstName, r.contact.lastName].filter(Boolean).join(' ')
       const body = forwardTextBody({ business: profile.businessName || account?.name || 'Your business', from: p.From, name, body: p.Body ?? '', media: media.length })
-      await sendTwilioSms({ from: hub, to, body }).catch((err) => console.warn('[hell-level] text forward failed:', err instanceof Error ? err.message : err))
+      await sendTwilioSms({ from: hub, to, body }).catch((err) => console.warn('[genisys-os] text forward failed:', err instanceof Error ? err.message : err))
     })
   }
   if (!r.duplicate && !r.stop && !fromOwner) {
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         await fireTrigger(number.accountId, r.contact.id, { type: 'inbound_sms', text: p.Body ?? '', context: { message: p.Body ?? '' } })
         await contactReplied(number.accountId, r.contact.id, at)
       } catch (err) {
-        console.error('[hell-level] inbound sms automations failed:', err)
+        console.error('[genisys-os] inbound sms automations failed:', err)
       }
     })
   }

@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/auth-helpers'
 import { queueWidgetSwaps, readSwaps, resumeWidgetSwaps, unqueueWidgetSwaps } from '@/lib/hl/widget-swap'
 
 /**
- * Client sites moving from GoHighLevel's quote form and chat bubble to Hell-level's
+ * Client sites moving from GoHighLevel's quote form and chat bubble to Genisys OS's
  * (src/lib/hl/widget-swap.ts). Admin only.
  * GET: every swap, with where it is and its log.
  * POST { clientIds, again? }: queue them (the scheduler runs two at a time). The 13 clients verified

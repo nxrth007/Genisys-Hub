@@ -1,5 +1,5 @@
 /**
- * What a sub-account's own login sees of Hell-level (role "hl_user": the
+ * What a sub-account's own login sees of Genisys OS (role "hl_user": the
  * contractor and their staff, src/lib/hl/logins.ts): these sections and
  * tabs of their own sub-accounts, nothing under them. Settings, automations,
  * numbers, domains and billing stay with Genisys. src/middleware.ts holds
@@ -23,19 +23,19 @@ export const MEMBER_SECTIONS: Record<string, string[]> = {
 export const MEMBER_HOME_SECTION = 'dashboard'
 
 /**
- * Where a sub-account login may go under /hell-level, or where to send them
- * instead: /hell-level itself (it opens their sub-account) and
- * /hell-level/<id>/<section>[?tab=] for the sections above.
+ * Where a sub-account login may go under /genisys-os, or where to send them
+ * instead: /genisys-os itself (it opens their sub-account) and
+ * /genisys-os/<id>/<section>[?tab=] for the sections above.
  */
 export function memberPagePath(pathname: string, tab: string | null): { ok: true } | { ok: false; to: string } {
-  const parts = pathname.split('/').filter(Boolean) // ['hell-level', id?, section?, ...]
-  if (parts[0] !== 'hell-level') return { ok: false, to: '/hell-level' }
+  const parts = pathname.split('/').filter(Boolean) // ['genisys-os', id?, section?, ...]
+  if (parts[0] !== 'genisys-os') return { ok: false, to: '/genisys-os' }
   if (parts.length === 1) return { ok: true }
   const [, accountId, section] = parts
-  if (accountId === 'agency') return { ok: false, to: '/hell-level' }
-  const home = `/hell-level/${accountId}/${MEMBER_HOME_SECTION}`
+  if (accountId === 'agency') return { ok: false, to: '/genisys-os' }
+  const home = `/genisys-os/${accountId}/${MEMBER_HOME_SECTION}`
   if (!section || parts.length > 3 || !(section in MEMBER_SECTIONS)) return { ok: false, to: home }
   const tabs = MEMBER_SECTIONS[section]
-  if (tab && !tabs.includes(tab)) return { ok: false, to: `/hell-level/${accountId}/${section}` }
+  if (tab && !tabs.includes(tab)) return { ok: false, to: `/genisys-os/${accountId}/${section}` }
   return { ok: true }
 }

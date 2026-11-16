@@ -139,10 +139,10 @@ export type ApprovalIn = {
   ringTo?: string | null
   at: Date
   /**
-   * number: ask = Hell-level or GHL?; identity = waiting while a person passes GHL's ID check.
+   * number: ask = Genisys OS or GHL?; identity = waiting while a person passes GHL's ID check.
    * registration: review = filled and stopped before Send; blocked = it stopped and needs a person.
    * site: ask = build it?; publish = Lovable built it, publish it? (reviewLink = the copy in Lovable);
-   * domain = it's live, connect their domain? (reviewLink = their Hell-level Domains).
+   * domain = it's live, connect their domain? (reviewLink = their Genisys OS Domains).
    */
   stage?: 'ask' | 'identity' | 'review' | 'blocked' | 'publish' | 'domain'
   /** The client's GHL Phone System, where the ID check starts; null without a linked sub-account. */
@@ -152,7 +152,7 @@ export type ApprovalIn = {
   /** registration: the number (E.164), and where a person sees what was filled (the client's folder in Sites). site: the client's folder in Sites. */
   number?: string | null
   reviewLink?: string | null
-  /** domain: the three Forge suggests, and the client's Hell-level Domains page (search any name there). */
+  /** domain: the three Forge suggests, and the client's Genisys OS Domains page (search any name there). */
   choices?: DomainChoiceView[]
   domainsLink?: string | null
   /** site: the client's domain Forge would connect (managed = held in the Hub's Porkbun account, so the Hub sets its DNS). */
@@ -178,7 +178,7 @@ export type SiteRequestIn = {
   /** Where it was published, and when. */
   liveUrl?: string | null
   publishedAt?: Date | null
-  /** Their Hell-level sub-account (its Domains page). */
+  /** Their Genisys OS sub-account (its Domains page). */
   accountId?: string | null
   /** The domain being (or that was) connected, the step (asking | lovable | records | live | queued | held), and when the step started / the domain showed the site. */
   domain?: string | null
@@ -198,14 +198,14 @@ export type SiteRequestIn = {
   finishedAt: Date | null
   updatedAt: Date
 }
-/** A client's Hell-level toll-free number request once answered (src/lib/hl/number-request.ts). */
+/** A client's Genisys OS toll-free number request once answered (src/lib/hl/number-request.ts). */
 export type NumberRequestIn = {
   id: string
   clientId?: string
   clientName: string
   /** buying | ghl_working | bought | declined | failed */
   status: string
-  /** hl = Hell-level number; ghl = a number in the client's GHL sub-account. */
+  /** hl = Genisys OS number; ghl = a number in the client's GHL sub-account. */
   route?: string
   number: string | null
   detail: string | null
@@ -269,7 +269,7 @@ export type OfficeApproval = {
   id: string
   kind: 'number' | 'registration' | 'domain' | 'site'
   botId: BotId
-  /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Hell-level?" */
+  /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Genisys OS?" */
   question: string
   note: string
   clientName: string
@@ -281,7 +281,7 @@ export type OfficeApproval = {
   detail: string | null
   /** registration: the client's folder in Sites, showing what was filled. */
   reviewLink: string | null
-  /** domain: the suggestions to buy one of, and the client's Hell-level Domains page. */
+  /** domain: the suggestions to buy one of, and the client's Genisys OS Domains page. */
   choices?: DomainChoiceView[]
   domainsLink?: string | null
 }
@@ -481,9 +481,9 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       const ring = a.ringTo ? `Calls ring ${phone(a.ringTo)}.` : 'No business phone is on file, so every call counts as missed and gets the text-back.'
       const num = a.number ? phone(a.number) : 'their number'
       const words: Record<EchoStage, { question: string; note: string }> = {
-        // Hell-level only since 2026-11-13: clients set up in GHL keep their numbers and aren't asked.
+        // Genisys OS only since 2026-11-13: clients set up in GHL keep their numbers and aren't asked.
         ask: {
-          question: `Buy a toll-free number for ${a.clientName} in Hell-level?`,
+          question: `Buy a toll-free number for ${a.clientName} in Genisys OS?`,
           note: `About $2.15/month on Genisys’s Twilio, no ID check. ${ring} Texting verification is filed once their site link is in.`,
         },
         identity: {
@@ -550,8 +550,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
       stage: 'ask',
       question: choices.length ? `Buy a website domain for ${a.clientName}?` : `No domain to suggest for ${a.clientName}.`,
       note: choices.length
-        ? 'Available on Porkbun right now. Each price is the first year, all in. The one you press is bought at once into their Hell-level sub-account, which keeps it renewing.'
-        : 'Search any name in their Hell-level → Settings → Domains, or answer No.',
+        ? 'Available on Porkbun right now. Each price is the first year, all in. The one you press is bought at once into their Genisys OS sub-account, which keeps it renewing.'
+        : 'Search any name in their Genisys OS → Settings → Domains, or answer No.',
       clientName: a.clientName,
       ringTo: null,
       ghlLink: null,
@@ -583,7 +583,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'failed' && age(r.updatedAt) <= SUBACCOUNT_OPEN_MS) {
       const why = r.detail ? `: ${clip(r.detail, 80)}` : ''
       add('forge', { status: 'error', task: clip(`Buying ${r.clientName}'s domain didn't finish${why}`), icon: 'error', at: r.updatedAt })
-      request(`dr:${r.id}:failed`, 'forge', 'error', `Buying ${r.clientName}'s domain didn't finish${r.detail ? `: ${r.detail}` : ''}`, r.updatedAt, r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : null)
+      request(`dr:${r.id}:failed`, 'forge', 'error', `Buying ${r.clientName}'s domain didn't finish${r.detail ? `: ${r.detail}` : ''}`, r.updatedAt, r.accountId ? `/genisys-os/${r.accountId}/settings?tab=domains` : null)
       feed(`dr:${r.id}:failed:${r.updatedAt.getTime()}`, r.updatedAt, 'forge', clip(`Buying ${r.clientName}'s domain didn't finish${why}`, 140), 'error')
     } else if (r.status === 'declined') {
       feed(`dr:${r.id}:declined`, at, 'forge', `No suggested domain for ${r.clientName} (None of these)`, 'thinking')
@@ -603,7 +603,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     const words = {
       ask: {
         question: `Build ${a.clientName}’s website?`,
-        note: 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Hell-level quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
+        note: 'Claude fills Ethan’s one-shot from their onboarding answers and photos (about $0.50), with their Genisys OS quote form and chat widget. Then the Hub copies Robert Taylor’s site in Lovable (free) and sends it the one-shot (Lovable credits). Nothing is published.',
         asked: `Asked whether to build ${a.clientName}’s website`,
       },
       publish: {
@@ -675,7 +675,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'published') {
       const live = r.publishedAt ?? r.updatedAt
       const where = r.liveUrl ? ` at ${r.liveUrl}` : ''
-      const domains = r.accountId ? `/hell-level/${r.accountId}/settings?tab=domains` : `/sites/${r.clientId}`
+      const domains = r.accountId ? `/genisys-os/${r.accountId}/settings?tab=domains` : `/sites/${r.clientId}`
       feed(`sb:${r.id}:published`, live, 'forge', `Published ${r.clientName}’s website${where}`, 'done')
       if (age(live) <= DONE_MS) add('forge', { status: 'coding', task: `Published ${r.clientName}’s website`, icon: 'check', at: live })
       const ready = r.readyDomain ?? null
@@ -691,7 +691,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
           `sb:${r.id}:no-domain`,
           'forge',
           'stuck',
-          `${r.clientName}’s website is live${where} but has no domain yet. Answer Forge’s domain question for them, or add theirs in Hell-level → Domains; Forge then asks to connect it.`,
+          `${r.clientName}’s website is live${where} but has no domain yet. Answer Forge’s domain question for them, or add theirs in Genisys OS → Domains; Forge then asks to connect it.`,
           live,
           domains,
         )
@@ -875,7 +875,7 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     if (age(a.updatedAt) <= ACTIVE_MS) add('echo', { status: 'terminal', task: `A2P ${a.stage}: ${a.accountName}`, icon: 'terminal', at: a.updatedAt })
   }
 
-  // Hell-level toll-free numbers after the Office answer: buying, bought, a blocked texting verification, failed.
+  // Genisys OS toll-free numbers after the Office answer: buying, bought, a blocked texting verification, failed.
   for (const r of input.numberRequests) {
     const at = r.decidedAt ?? r.updatedAt
     if (r.status === 'buying') {

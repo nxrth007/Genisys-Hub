@@ -2,8 +2,8 @@ import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { publicForm } from '@/lib/hl/forms'
 import { formBackground } from '@/lib/hl/form-style'
-import { LegalFooter, PublicForm } from '@/components/hell-level/public-form'
-import { FrameHeight } from '@/components/hell-level/frame-height'
+import { LegalFooter, PublicForm } from '@/components/genisys-os/public-form'
+import { FrameHeight } from '@/components/genisys-os/frame-height'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props) {
 }
 
 /**
- * A Hell-level form as embedded on a client's website (iframe), or opened on
+ * A Genisys OS form as embedded on a client's website (iframe), or opened on
  * its own. The browser names the site the frame is on (Referer, its origin):
  * on the site Forge built, the privacy and terms links open that site's pages.
  */

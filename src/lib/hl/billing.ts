@@ -1,5 +1,5 @@
 /**
- * A sub-account's Whop billing for Hell-level → Memberships: read only (Alex, 2026-11-14). Whop's
+ * A sub-account's Whop billing for Genisys OS → Memberships: read only (Alex, 2026-11-14). Whop's
  * memberships and payments are read with the Vault key (src/lib/whop.ts, which never writes) and kept
  * five minutes, so opening a few sub-accounts in a row asks Whop once. ./billing-plan.ts picks theirs.
  */

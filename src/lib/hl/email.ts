@@ -11,11 +11,11 @@ import { publicBase } from './twilio'
 
 /**
  * A sub-account's email (Settings → Email Services), plug-and-play as in
- * GoHighLevel: give it the client's domain and Hell-level does the rest.
+ * GoHighLevel: give it the client's domain and Genisys OS does the rest.
  *
  * - Mailgun gets a subdomain of it ("mail.forte.com"). Nothing touches the
  *   client's own mailbox, or GoHighLevel's email on the main domain.
- * - When the domain's DNS is Porkbun's (a domain held here), Hell-level writes
+ * - When the domain's DNS is Porkbun's (a domain held here), Genisys OS writes
  *   the records itself and Mailgun passes them within minutes. Anywhere else,
  *   the records are listed to add, and checked until they're there.
  * - Email goes out from the client's own address (hello@forte.com), with
@@ -68,7 +68,7 @@ async function inUse(name: string): Promise<boolean> {
 
 export type EmailChoice = { name: string; held: boolean }
 
-/** The domains this sub-account could send from: those in Hell-level, and its website's. */
+/** The domains this sub-account could send from: those in Genisys OS, and its website's. */
 export async function emailDomainChoices(accountId: string): Promise<EmailChoice[]> {
   const [domains, account] = await Promise.all([
     prisma.hlDomain.findMany({ where: { accountId, status: 'active' }, select: { name: true, origin: true }, orderBy: { createdAt: 'asc' } }),
@@ -164,8 +164,8 @@ export async function setUpEmail(o: { accountId: string; domain: string; by: str
   const problems = porkbun ? await writeRecords(root, records) : []
   if (problems.length) await prisma.hlEmailDomain.update({ where: { accountId: o.accountId }, data: { lastError: `Couldn’t add every record to the DNS: ${problems.join('; ')}` } })
   // Delivery news for every domain comes to one webhook; once is enough, but it's harmless again.
-  await ensureEventWebhook(eventsUrl()).catch((err) => console.warn('[hell-level] Mailgun event webhook:', errText(err)))
-  console.log(`[hell-level] ${o.by} set up email on ${made.name} (${porkbun ? 'records written to Porkbun' : 'records to add at ' + (provider ?? 'their DNS host')})`)
+  await ensureEventWebhook(eventsUrl()).catch((err) => console.warn('[genisys-os] Mailgun event webhook:', errText(err)))
+  console.log(`[genisys-os] ${o.by} set up email on ${made.name} (${porkbun ? 'records written to Porkbun' : 'records to add at ' + (provider ?? 'their DNS host')})`)
   return checkEmail(o.accountId)
 }
 
@@ -221,12 +221,12 @@ export async function updateEmailSettings(accountId: string, o: { fromName?: str
   return prisma.hlEmailDomain.update({ where: { accountId }, data })
 }
 
-/** Take email off the sub-account: Mailgun's domain and route go, and the records Hell-level wrote. */
+/** Take email off the sub-account: Mailgun's domain and route go, and the records Genisys OS wrote. */
 export async function removeEmail(accountId: string, by: string): Promise<void> {
   const row = await prisma.hlEmailDomain.findUnique({ where: { accountId } })
   if (!row) return
-  if (row.routeId) await deleteRoute(row.routeId).catch((err) => console.warn('[hell-level] Mailgun route:', errText(err)))
-  await deleteDomain(row.domain).catch((err) => console.warn('[hell-level] Mailgun domain:', errText(err)))
+  if (row.routeId) await deleteRoute(row.routeId).catch((err) => console.warn('[genisys-os] Mailgun route:', errText(err)))
+  await deleteDomain(row.domain).catch((err) => console.warn('[genisys-os] Mailgun domain:', errText(err)))
   if (row.dnsMode === 'porkbun') {
     const ours = recordsOf(row)
     const live = await dnsRecords(row.rootDomain).catch(() => [])
@@ -235,14 +235,14 @@ export async function removeEmail(accountId: string, by: string): Promise<void> 
     }
   }
   await prisma.hlEmailDomain.delete({ where: { accountId } })
-  console.log(`[hell-level] ${by} removed email from ${row.domain}`)
+  console.log(`[genisys-os] ${by} removed email from ${row.domain}`)
 }
 
 /** A domain just became the sub-account's (bought, transferred in, linked): set email up on it, if Mailgun is connected and there's none yet. */
 export async function maybeSetUpEmail(accountId: string, domain: string, by: string): Promise<void> {
   if (await prisma.hlEmailDomain.findUnique({ where: { accountId }, select: { id: true } })) return
   if (!(await mailgunStatus()).connected) return
-  await setUpEmail({ accountId, domain, by }).catch((err) => console.warn(`[hell-level] email on ${domain}:`, errText(err)))
+  await setUpEmail({ accountId, domain, by }).catch((err) => console.warn(`[genisys-os] email on ${domain}:`, errText(err)))
 }
 
 /** Every few minutes: domains still waiting on their records get checked again. */
@@ -251,7 +251,7 @@ export async function checkPendingEmail(): Promise<void> {
   if (Date.now() - lastSweep < 5 * 60_000) return
   lastSweep = Date.now()
   const rows = await prisma.hlEmailDomain.findMany({ where: { status: 'verifying' }, select: { accountId: true } })
-  for (const r of rows) await checkEmail(r.accountId).catch((err) => console.warn('[hell-level] email check:', errText(err)))
+  for (const r of rows) await checkEmail(r.accountId).catch((err) => console.warn('[genisys-os] email check:', errText(err)))
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +363,7 @@ export async function sendTestEmail(accountId: string, to: string): Promise<stri
     from: `${quoteName(business)} <${setup.fromLocal}@${setup.rootDomain}>`,
     to: address,
     subject: `Test email from ${business}`,
-    text: `This is a test from ${setup.fromLocal}@${setup.rootDomain}, sent through Hell-level.\n\nReply to it, and the reply shows up in Conversations.`,
+    text: `This is a test from ${setup.fromLocal}@${setup.rootDomain}, sent through Genisys OS.\n\nReply to it, and the reply shows up in Conversations.`,
     replyTo: `${quoteName(business)} <${setup.fromLocal}@${setup.domain}>`,
     tag: 'test',
   })
@@ -440,8 +440,8 @@ export async function recordInboundEmail(m: InboundEmail): Promise<{ ok: boolean
   if (automatic) return { ok: true, detail: 'Automatic reply: recorded only' }
   void import('./automation')
     .then((a) => a.fireTrigger(setup.accountId, contact.id, { type: 'inbound_email', text: body }))
-    .catch((err) => console.error('[hell-level] inbound_email trigger failed:', err))
-  if (setup.forwardReplies) await forwardToOwner(setup, { name: from.name, email }, subject, body).catch((err) => console.warn('[hell-level] reply copy to owner:', errText(err)))
+    .catch((err) => console.error('[genisys-os] inbound_email trigger failed:', err))
+  if (setup.forwardReplies) await forwardToOwner(setup, { name: from.name, email }, subject, body).catch((err) => console.warn('[genisys-os] reply copy to owner:', errText(err)))
   return { ok: true, detail: `Recorded on ${email}` }
 }
 

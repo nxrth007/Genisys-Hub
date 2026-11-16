@@ -3,7 +3,7 @@ import { getSecretByName } from '@/lib/vault-service'
 import { HlInputError } from './http'
 
 /**
- * Mailgun, the email service Hell-level sends and receives client email
+ * Mailgun, the email service Genisys OS sends and receives client email
  * through (GoHighLevel's LC Email runs on it too). One Vault entry, "Mailgun
  * API Key", is all it needs: the region (US or EU) is found by trying the key,
  * and the webhook signing key is read from the account.
@@ -157,7 +157,7 @@ export async function deleteDomain(name: string): Promise<void> {
 export async function createRoute(domain: string, url: string): Promise<string> {
   const body = new URLSearchParams()
   body.append('priority', '10')
-  body.append('description', `Hell-level replies for ${domain}`)
+  body.append('description', `Genisys OS replies for ${domain}`)
   body.append('expression', `match_recipient(".*@${domain}")`)
   body.append('action', `forward("${url}")`)
   body.append('action', 'stop()')
@@ -176,7 +176,7 @@ export async function deleteRoute(id: string): Promise<void> {
 
 /** One account-wide webhook for delivery news on every domain. A second call for the same address is harmless. */
 export async function ensureEventWebhook(url: string): Promise<void> {
-  const fields: [string, string][] = [['url', url], ['description', 'Hell-level: delivered, bounced, spam reports, unsubscribes']]
+  const fields: [string, string][] = [['url', url], ['description', 'Genisys OS: delivered, bounced, spam reports, unsubscribes']]
   for (const e of ['delivered', 'permanent_fail', 'temporary_fail', 'complained', 'unsubscribed']) fields.push(['event_types', e])
   try {
     await call('POST', '/v1/webhooks', form(fields))

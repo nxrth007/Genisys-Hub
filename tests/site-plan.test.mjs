@@ -27,7 +27,7 @@ function loadTs(absPath) {
 
 const plan = loadTs(join(root, 'src/lib/hl/site-plan.ts'))
 const template = loadTs(join(root, 'src/lib/hl/site-template.ts'))
-const embed = loadTs(join(root, 'src/components/hell-level/embed.ts'))
+const embed = loadTs(join(root, 'src/components/genisys-os/embed.ts'))
 const mapping = loadTs(join(root, 'src/lib/office/mapping.ts'))
 
 const ORIGIN = 'https://genisys-hub.onrender.com'
@@ -108,7 +108,7 @@ function fill(over = {}) {
   }
 }
 
-test('the filled one-shot carries the Hell-level form and chat exactly, and no GHL embed', () => {
+test('the filled one-shot carries the Genisys OS form and chat exactly, and no GHL embed', () => {
   const out = plan.buildOneShot(facts(), fill(), embeds, { shown: [0, 1, 2] })
   assert.ok(out.startsWith('# LOVABLE ONE-SHOT — Panacea Homes LLC\n'))
   assert.ok(out.includes(embeds.formEmbed), 'the quote form embed, verbatim')
@@ -329,7 +329,7 @@ test('Forge shows the build as it goes, and what a person does next', () => {
   const published = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app.' }))
   assert.equal(published.requests.length, 1)
   assert.equal(published.requests[0].kind, 'stuck')
-  assert.match(published.requests[0].text, /live at https:\/\/acme-roofing\.lovable\.app but has no domain yet\. Answer Forge’s domain question for them, or add theirs in Hell-level → Domains/)
+  assert.match(published.requests[0].text, /live at https:\/\/acme-roofing\.lovable\.app but has no domain yet\. Answer Forge’s domain question for them, or add theirs in Genisys OS → Domains/)
   assert.ok(published.activity.some((x) => /Published Acme Roofing’s website at https:\/\/acme-roofing\.lovable\.app/.test(x.text)))
   assert.equal(forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), siteLive: true })).requests.length, 0, 'gone once the link is saved')
   const noPages = forge(row({ status: 'published', liveUrl: 'https://acme-roofing.lovable.app', publishedAt: ago(2), detail: 'Live at https://acme-roofing.lovable.app. Its /privacy page didn’t load, and the form and chat link them: look in Lovable.' }))
@@ -429,7 +429,7 @@ test('Lovable’s codes are read from what a person pastes', () => {
 
 test('Forge asks to connect the domain once the site is live, and shows it through', () => {
   const ask = mapping.emptyInput()
-  ask.approvals = [{ id: 'sr1', kind: 'site', clientName: 'Acme Roofing', at: ago(5), stage: 'domain', reviewLink: '/hell-level/acc1/settings?tab=domains', siteDomain: { name: 'acme.com', managed: true } }]
+  ask.approvals = [{ id: 'sr1', kind: 'site', clientName: 'Acme Roofing', at: ago(5), stage: 'domain', reviewLink: '/genisys-os/acc1/settings?tab=domains', siteDomain: { name: 'acme.com', managed: true } }]
   const a = mapping.deriveOffice(ask, NOW).approvals.find((x) => x.id === 'sr1')
   assert.equal(a.stage, 'domain')
   assert.equal(a.question, 'Connect acme.com to Acme Roofing’s website?')

@@ -2,13 +2,13 @@
  * A new client's website domain, asked for in the Office (Alex, 2026-11-13:
  * "suggest 3 it can purchase for a client inside of the office").
  *
- * Right after onboarding makes the client's Hell-level sub-account, Forge
+ * Right after onboarding makes the client's Genisys OS sub-account, Forge
  * (the website-build bot) checks Porkbun for domains from the business name
  * (./domain-plan.ts) and asks: buy one of these three? Each shows Porkbun's
  * all-in first-year price. The one a person presses is bought right away into
  * the client's sub-account (./domains.ts buyDomain: re-quoted, the exact
  * price or nothing, never twice). "None of these" drops the question; their
- * Hell-level Settings → Domains searches any name. Buying costs money, so it
+ * Genisys OS Settings → Domains searches any name. Buying costs money, so it
  * never happens without that press. A client bringing their own domain (the
  * onboarding form says so) isn't asked.
  */
@@ -28,7 +28,7 @@ const STUCK_BUYING_MS = 10 * 60_000
 
 type LogEntry = { at: string; what: string }
 const describe = (err: unknown) => (err instanceof Error ? err.message : String(err))
-const domainsPage = (accountId: string) => hubLink(`/hell-level/${accountId}/settings?tab=domains`)
+const domainsPage = (accountId: string) => hubLink(`/genisys-os/${accountId}/settings?tab=domains`)
 
 /** When the domain question started: the sweep only asks sub-accounts made since. */
 async function domainSince(now = new Date()): Promise<Date> {
@@ -124,7 +124,7 @@ export async function askForClientDomain(clientId: string, trigger: 'onboarding'
   }
   const detail = found.choices.length
     ? found.warning
-    : `No available domain under ${yearly(2500)} from “${business}”${found.warning ? ` (${found.warning})` : ''}. Search any name in their Hell-level → Settings → Domains.`
+    : `No available domain under ${yearly(2500)} from “${business}”${found.warning ? ` (${found.warning})` : ''}. Search any name in their Genisys OS → Settings → Domains.`
   const how = trigger !== 'manual' ? 'the client just onboarded' : c.hlDomainRequest?.status === 'awaiting_approval' ? 'fresh suggestions, by hand' : 'by hand'
   const what = `Asked in the Office (${how}): ${found.choices.map((x) => `${x.name} ${yearly(x.costCents)}`).join(', ') || 'no suggestions'}.`
   const data = {
@@ -162,7 +162,7 @@ export async function decideClientDomain(id: string, decision: 'buy' | 'no', nam
   if (r.status !== 'awaiting_approval') return { ok: false, reason: r.status === 'buying' ? 'It’s already buying one.' : 'That question was already answered.' }
   if (decision === 'no') {
     await note(r.id, `${by} answered None of these.`, { status: 'declined', decidedBy: by, decidedAt: new Date(), detail: null })
-    return { ok: true, status: 'declined', detail: 'No domain bought. Search any name in their Hell-level → Settings → Domains.' }
+    return { ok: true, status: 'declined', detail: 'No domain bought. Search any name in their Genisys OS → Settings → Domains.' }
   }
   const choice = readChoices(r.suggestions).find((x) => x.name === name)
   if (!choice) return { ok: false, reason: 'Pick one of the suggested domains.' }
@@ -171,7 +171,7 @@ export async function decideClientDomain(id: string, decision: 'buy' | 'no', nam
   if (!claimed.count) return { ok: false, reason: 'Someone else just answered it.' }
   try {
     const d = await buyDomain({ accountId: r.accountId, name: choice.name, costCents: choice.costCents, by })
-    const detail = `Bought ${d.name} for $${((d.costCents ?? choice.costCents) / 100).toFixed(2)} on Porkbun. It’s in their Hell-level → Settings → Domains.`
+    const detail = `Bought ${d.name} for $${((d.costCents ?? choice.costCents) / 100).toFixed(2)} on Porkbun. It’s in their Genisys OS → Settings → Domains.`
     await note(r.id, `${by} picked ${d.name}. ${detail}`, { status: 'bought', domainId: d.id, costCents: d.costCents ?? choice.costCents, detail })
     return { ok: true, status: 'bought', detail }
   } catch (err) {
@@ -185,8 +185,8 @@ export async function decideClientDomain(id: string, decision: 'buy' | 'no', nam
       await note(r.id, `${by} picked ${choice.name}; not bought: ${why}`, { status: 'awaiting_approval', name: null, decidedBy: null, decidedAt: null, detail: why, suggestions: suggestions as unknown as Prisma.InputJsonValue })
       return { ok: false, reason: why }
     }
-    // No answer from Porkbun: it may have gone through. The domain's own row (Hell-level → Domains) checks again without buying twice.
-    const detail = `Porkbun didn’t answer while buying ${choice.name}. Check it in their Hell-level → Settings → Domains (“Check again” never buys twice).`
+    // No answer from Porkbun: it may have gone through. The domain's own row (Genisys OS → Domains) checks again without buying twice.
+    const detail = `Porkbun didn’t answer while buying ${choice.name}. Check it in their Genisys OS → Settings → Domains (“Check again” never buys twice).`
     await note(r.id, `${by} picked ${choice.name}. ${detail}`, { status: 'failed', detail })
     await textDomainEvent({ key: r.id, kind: 'failed', client: r.client.name, reason: detail, link: domainsPage(r.accountId) })
     return { ok: false, reason: detail }
@@ -217,9 +217,9 @@ export async function maybeSweepDomainRequests(now = Date.now()): Promise<number
   for (const s of stuck) {
     const d = s.name ? await prisma.hlDomain.findUnique({ where: { name: s.name }, select: { id: true, status: true, costCents: true } }) : null
     if (d?.status === 'active') {
-      await note(s.id, `${s.name} is on the sub-account (the purchase was interrupted, then found).`, { status: 'bought', domainId: d.id, costCents: d.costCents, detail: `Bought ${s.name}. It’s in their Hell-level → Settings → Domains.` })
+      await note(s.id, `${s.name} is on the sub-account (the purchase was interrupted, then found).`, { status: 'bought', domainId: d.id, costCents: d.costCents, detail: `Bought ${s.name}. It’s in their Genisys OS → Settings → Domains.` })
     } else {
-      await note(s.id, 'The purchase was interrupted.', { status: 'failed', detail: `The purchase of ${s.name ?? 'the domain'} was interrupted. Check their Hell-level → Settings → Domains before asking again.` })
+      await note(s.id, 'The purchase was interrupted.', { status: 'failed', detail: `The purchase of ${s.name ?? 'the domain'} was interrupted. Check their Genisys OS → Settings → Domains before asking again.` })
     }
     changed += 1
   }

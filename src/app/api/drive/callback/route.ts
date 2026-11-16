@@ -12,7 +12,7 @@ import { GSC_OAUTH_SCOPES, GSC_OAUTH_STATE, setGscConnectedAccount } from '@/lib
  *
  * Shared by SEO's "Connect Search Console" (state = seo-gsc): same Google
  * sign-in and registered redirect, with the Search Console scopes added;
- * that flow returns to /seo instead of /settings. And by Hell-level's
+ * that flow returns to /seo instead of /settings. And by Genisys OS's
  * Google Calendar connections (state = hl-cal.<signed>), which return to the
  * sub-account's Settings → Calendars → Connections, or to /hl/connect/done
  * for a team member who came from their connect link (no Hub account: the
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** A calendar sign-in through the Hub's own Google app (Hell-level's own app returns to /api/hl/public/google-calendar/callback). */
+/** A calendar sign-in through the Hub's own Google app (Genisys OS's own app returns to /api/hl/public/google-calendar/callback). */
 async function calendarCallback(origin: string, code: string | null, state: string, denied: string | null) {
   return NextResponse.redirect(await calendarCallbackRedirect(origin, 'hub', code, state, denied))
 }

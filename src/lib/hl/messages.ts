@@ -112,7 +112,7 @@ export async function sendSmsToContact(o: { accountId: string; contactId: string
     // Twilio refused the number outright (invalid, or not a mobile): GHL's "Twilio validation error" trigger.
     const code = (err as { code?: number }).code
     if (code === 21211 || code === 21614) {
-      void import('./automation').then((m) => m.fireTrigger(o.accountId, contact.id, { type: 'sms_error' })).catch((e) => console.error('[hell-level] sms_error trigger failed:', e))
+      void import('./automation').then((m) => m.fireTrigger(o.accountId, contact.id, { type: 'sms_error' })).catch((e) => console.error('[genisys-os] sms_error trigger failed:', e))
     }
     return { ok: false, detail, messageId: msg.id }
   }

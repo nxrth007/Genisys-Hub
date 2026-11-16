@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const ip = clientIp(req)
   if (!checkRateLimit(`hl-forgot-ip:${ip}`, 5, 15 * 60_000).ok) return NextResponse.json({ error: 'Too many tries. Wait a few minutes and try again.' }, { status: 429 })
   if (email && checkRateLimit(`hl-forgot-email:${email}`, 3, 60 * 60_000).ok) {
-    void requestPasswordReset(email).catch((err) => console.error('[hell-level] password reset failed:', err))
+    void requestPasswordReset(email).catch((err) => console.error('[genisys-os] password reset failed:', err))
   }
   return NextResponse.json({ ok: true })
 }

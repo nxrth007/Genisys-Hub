@@ -1,5 +1,5 @@
 /**
- * Client websites move from GoHighLevel's quote form and chat bubble to Hell-level's (Alex,
+ * Client websites move from GoHighLevel's quote form and chat bubble to Genisys OS's (Alex,
  * 2026-11-14, for the clients that aren't A2P or toll-free verified on GoHighLevel). A person queues
  * clients (POST /api/admin/widget-swap); the scheduler carries each one on, two at a time at most:
  *
@@ -19,7 +19,7 @@
  * State is one AppSetting row per client (hlWidgetSwap:<clientId>) with its log. The rules are pure,
  * in ./widget-swap-plan.ts.
  */
-import { embedCode } from '@/components/hell-level/embed'
+import { embedCode } from '@/components/genisys-os/embed'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import {
@@ -371,7 +371,7 @@ export async function liveCode(siteUrl: string): Promise<{ code: string; lovable
 }
 
 const said = (s: LiveState) =>
-  [s.ghlForm && 'GoHighLevel’s form', s.ghlChat && 'GoHighLevel’s chat', s.hlForm && 'Hell-level’s form', s.hlChat && 'Hell-level’s chat'].filter(Boolean).join(', ') || 'neither form nor chat on its home page'
+  [s.ghlForm && 'GoHighLevel’s form', s.ghlChat && 'GoHighLevel’s chat', s.hlForm && 'Genisys OS’s form', s.hlChat && 'Genisys OS’s chat'].filter(Boolean).join(', ') || 'neither form nor chat on its home page'
 
 // ---------------------------------------------------------------------------
 // The steps
@@ -408,11 +408,11 @@ async function prepare(s: WidgetSwap): Promise<boolean> {
   if (projectId === template || projectId === DEFAULT_TEMPLATE_PROJECT) {
     throw new SwapStop(`Their Lovable project is Forge’s template (every new site is copied from it), so a swap never edits it. Swap it by hand in Lovable if wanted (${editorLink(projectId)}).`)
   }
-  if (!c.hlAccount || c.hlAccount.archivedAt) throw new SwapStop('No Hell-level sub-account.')
+  if (!c.hlAccount || c.hlAccount.archivedAt) throw new SwapStop('No Genisys OS sub-account.')
   const native = c.hlAccount.forms.filter((f) => !f.ghlId)
   const quote = native.find((f) => f.kind === 'form' && f.name === 'Website Quote Form') ?? native.find((f) => f.kind === 'form' && f.name !== REVIEW_REQUEST_FORM)
   const chat = native.find((f) => f.kind === 'chat')
-  if (!quote || !chat) throw new SwapStop(`Their Hell-level sub-account has no ${!quote ? 'quote form' : 'chat widget'}.`)
+  if (!quote || !chat) throw new SwapStop(`Their Genisys OS sub-account has no ${!quote ? 'quote form' : 'chat widget'}.`)
   const pub = await lovableProjectPublic(projectId)
   if (pub.isPublished === false) throw new SwapStop(`Their Lovable project (${editorLink(projectId)}) isn’t published, so it isn’t what ${siteUrl} shows.`)
   const live = await liveCode(siteUrl)
@@ -425,7 +425,7 @@ async function prepare(s: WidgetSwap): Promise<boolean> {
   const before = liveState(live.code, ids)
   Object.assign(s, { siteUrl, projectId, formId: quote.id, formName: quote.name, chatId: chat.id, before })
   if (liveSwapped(before) && before.hlForm) {
-    await move(s, 'done', `${siteUrl} already has Hell-level’s form and chat and no GoHighLevel form or chat: nothing sent.`, 'Already on Hell-level’s form and chat.')
+    await move(s, 'done', `${siteUrl} already has Genisys OS’s form and chat and no GoHighLevel form or chat: nothing sent.`, 'Already on Genisys OS’s form and chat.')
     return false
   }
   const match = publicId && live.lovableId ? `its page carries the project’s id ${publicId}` : 'its page doesn’t carry a project id, so the Hub’s record of the project is trusted'
@@ -573,7 +573,7 @@ async function checkLive(s: WidgetSwap): Promise<boolean> {
     const st = liveState(live.code, { formId: s.formId, chatId: s.chatId })
     s.after = st
     if (liveSwapped(st)) {
-      const form = st.hlForm ? 'Hell-level’s form and chat' : 'Hell-level’s chat (the form is on a page the home page doesn’t load; Lovable’s code has it)'
+      const form = st.hlForm ? 'Genisys OS’s form and chat' : 'Genisys OS’s chat (the form is on a page the home page doesn’t load; Lovable’s code has it)'
       const credits = s.credits !== null ? ` Lovable credits used: ${s.credits}.` : ''
       await move(s, 'done', `Live at ${s.siteUrl}: ${form}, and no GoHighLevel form or chat.${credits}`, `Swapped: live at ${s.siteUrl}.${credits}`)
       return false

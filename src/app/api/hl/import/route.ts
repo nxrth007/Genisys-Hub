@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   try {
     const body = await jsonBody(req).catch(() => ({}) as Record<string, unknown>)
     const state = await startGhlImport({ vaultName: str(body.vaultName) ?? undefined, accountId: str(body.accountId) ?? undefined, by: guard.email })
-    console.log(`[hell-level import] started by ${guard.email} for ${state.accountId} (${state.vaultName})`)
+    console.log(`[genisys-os import] started by ${guard.email} for ${state.accountId} (${state.vaultName})`)
     return NextResponse.json({ state, phases: IMPORT_PHASES })
   } catch (err) {
     return hlError(err, 'start import')

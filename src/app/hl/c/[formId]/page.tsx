@@ -1,7 +1,7 @@
 import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { publicForm } from '@/lib/hl/forms'
-import { ChatPanel } from '@/components/hell-level/chat-panel'
+import { ChatPanel } from '@/components/genisys-os/chat-panel'
 
 export const dynamic = 'force-dynamic'
 

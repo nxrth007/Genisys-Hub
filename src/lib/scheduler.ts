@@ -59,6 +59,7 @@ import { maybeAdvanceA2p } from './hl/a2p'
 import { maybeSendCalendarReminders } from './hl/calendar-notify'
 import { maybeResumeImports } from './hl/ghl-import'
 import { maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
+import { maybeRenameSavedNotes } from './hl/rename-notes'
 import { maybeSyncLegalLinks } from './hl/legal-links'
 import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
 import { maybeSyncGoogleCalendars } from './hl/google-sync'
@@ -523,104 +524,110 @@ export function initScheduler() {
         if (r?.problems.length) console.log(`[scheduler] render monitor: ${r.problems.length} problem(s), ${r.sent} text(s) sent`)
       })
       .catch((err) => console.error('[scheduler] render monitor failed:', err instanceof Error ? err.message : String(err)))
-    // Hell-level: resume automation runs whose wait is over, and check
+    // Genisys OS: resume automation runs whose wait is over, and check
     // toll-free verifications Twilio is still reviewing (every 30 min).
     void recoverStuckRuns()
       .then(() => resumeDueRuns())
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} automation run(s) resumed`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} automation run(s) resumed`)
       })
-      .catch((err) => console.error('[scheduler] hell-level runs failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os runs failed:', err))
     void maybeResumeImports()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: resumed ${n} GoHighLevel import(s)`)
+        if (n) console.log(`[scheduler] genisys-os: resumed ${n} GoHighLevel import(s)`)
       })
-      .catch((err) => console.error('[scheduler] hell-level import resume failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os import resume failed:', err))
     // Client sub-accounts brought up to the client kit, once per kit version.
     void maybeUpgradeClientAccounts()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} client sub-account(s) brought up to the client kit`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} client sub-account(s) brought up to the client kit`)
       })
-      .catch((err) => console.error('[scheduler] hell-level client kit upgrade failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os client kit upgrade failed:', err))
+    // Once: notes saved under the old name (Hell-level) read Genisys OS, and hidden Office items stay hidden.
+    void maybeRenameSavedNotes()
+      .then((n) => {
+        if (n) console.log(`[scheduler] genisys-os: ${n} saved note(s) renamed from the old name`)
+      })
+      .catch((err) => console.error('[scheduler] genisys-os saved notes rename failed:', err))
     // Once: client quote forms drop the "Privacy policy · Texting terms" line under the form (now off by default).
     void maybeHideQuoteFormLegalLinks()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} quote form(s) no longer show the links under the form`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} quote form(s) no longer show the links under the form`)
       })
-      .catch((err) => console.error('[scheduler] hell-level quote form links failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os quote form links failed:', err))
     // Twice a day: privacy and terms links follow the site set for the client in Clients.
     void maybeSyncLegalLinks()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} sub-account(s) now link their site's privacy and terms pages`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} sub-account(s) now link their site's privacy and terms pages`)
       })
-      .catch((err) => console.error('[scheduler] hell-level legal links failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os legal links failed:', err))
     // Google Calendar changes (moves, deletions, new busy time), read every 10 minutes in case a push went missing.
     void maybeSyncGoogleCalendars()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} Google Calendar change(s) read`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} Google Calendar change(s) read`)
       })
-      .catch((err) => console.error('[scheduler] hell-level google calendar sync failed:', err))
-    // GHL webhook triggers imported before Hell-level had them get URLs of their own, once.
+      .catch((err) => console.error('[scheduler] genisys-os google calendar sync failed:', err))
+    // GHL webhook triggers imported before Genisys OS had them get URLs of their own, once.
     void maybeUpgradeWebhookTriggers()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} workflow(s) given inbound webhook URLs`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} workflow(s) given inbound webhook URLs`)
       })
-      .catch((err) => console.error('[scheduler] hell-level webhook trigger upgrade failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os webhook trigger upgrade failed:', err))
     // Email set up on a domain whose records aren't through yet: checked every 5 minutes.
-    void checkPendingEmail().catch((err) => console.error('[scheduler] hell-level email check failed:', err))
+    void checkPendingEmail().catch((err) => console.error('[scheduler] genisys-os email check failed:', err))
     // Sub-accounts with a website and no logo get their site's (twice a day).
     void maybeFillLogos()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: found ${n} logo(s) on client websites`)
+        if (n) console.log(`[scheduler] genisys-os: found ${n} logo(s) on client websites`)
       })
-      .catch((err) => console.error('[scheduler] hell-level logos failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os logos failed:', err))
     void maybeRefreshVerifications()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} toll-free verification(s) changed status`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} toll-free verification(s) changed status`)
       })
-      .catch((err) => console.error('[scheduler] hell-level verification check failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os verification check failed:', err))
     // Toll-free number questions for new clients, interrupted purchases, and texting verification once a site is in.
     void maybeSweepNumberRequests()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} toll-free number request(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} toll-free number request(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level number requests failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os number requests failed:', err))
     // Domain questions for new clients the onboarding hook missed, and purchases a restart interrupted.
     void maybeSweepDomainRequests()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} domain question(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} domain question(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level domain requests failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os domain requests failed:', err))
     // Website builds: carry each on (a step a restart cut off, Lovable to check on), and ask about new sub-accounts the onboarding hook missed.
     void maybeSweepSiteRequests()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} website build(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} website build(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level website builds failed:', err))
-    // Client sites moving from GoHighLevel's form and chat to Hell-level's: only the ones a person queued.
+      .catch((err) => console.error('[scheduler] genisys-os website builds failed:', err))
+    // Client sites moving from GoHighLevel's form and chat to Genisys OS's: only the ones a person queued.
     void maybeSweepWidgetSwaps()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} site form-and-chat swap(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} site form-and-chat swap(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level form-and-chat swaps failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os form-and-chat swaps failed:', err))
     // Calendar notifications: reminders before appointments and follow-ups after.
     void maybeSendCalendarReminders()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} calendar reminder(s) sent`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} calendar reminder(s) sent`)
       })
-      .catch((err) => console.error('[scheduler] hell-level calendar reminders failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os calendar reminders failed:', err))
     // A2P registrations for local numbers: brand next, then the campaign, then the carriers' answer.
     void maybeAdvanceA2p()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} A2P registration(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} A2P registration(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level A2P check failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os A2P check failed:', err))
     // Domain transfers in progress (every 30 min) and expiry dates (twice a day).
     void maybeRefreshDomains()
       .then((n) => {
-        if (n) console.log(`[scheduler] hell-level: ${n} domain transfer(s) moved on`)
+        if (n) console.log(`[scheduler] genisys-os: ${n} domain transfer(s) moved on`)
       })
-      .catch((err) => console.error('[scheduler] hell-level domain check failed:', err))
+      .catch((err) => console.error('[scheduler] genisys-os domain check failed:', err))
     void maybeCheckStalePublishes()
       .then((n) => {
         if (n) console.log(`[scheduler] seo: ${n} merged run(s) still not live after a day`)

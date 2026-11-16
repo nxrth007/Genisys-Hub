@@ -17,7 +17,7 @@ import { askForClientDomain } from '@/lib/hl/domain-request'
  *   too; an open one gets fresh suggestions.
  * - POST { action: 'buy', name } — buys that suggestion on Porkbun at the
  *   price shown (re-quoted: that price or nothing, never twice), into their
- *   Hell-level → Domains.
+ *   Genisys OS → Domains.
  * - POST { action: 'none' } — None of these.
  *
  * POST { action: 'ask' } — admin only: put Forge's question (three domains

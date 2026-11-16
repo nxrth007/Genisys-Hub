@@ -4,8 +4,8 @@ import { publicCalendar, type PublicCalendar } from '@/lib/hl/booking'
 import { listGroups } from '@/lib/hl/calendar-records'
 import { readProfile } from '@/lib/hl/accounts'
 import { asCalendarSettings } from '@/lib/hl/calendar-shared'
-import { BookingFrame, lengthText } from '@/components/hell-level/booking-frame'
-import { FrameHeight } from '@/components/hell-level/frame-height'
+import { BookingFrame, lengthText } from '@/components/genisys-os/booking-frame'
+import { FrameHeight } from '@/components/genisys-os/frame-height'
 
 export const dynamic = 'force-dynamic'
 

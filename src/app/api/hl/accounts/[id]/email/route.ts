@@ -74,7 +74,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 }
 
-/** DELETE: take email off the sub-account (Mailgun's domain and route, and the records Hell-level wrote). */
+/** DELETE: take email off the sub-account (Mailgun's domain and route, and the records Genisys OS wrote). */
 export async function DELETE(_req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard

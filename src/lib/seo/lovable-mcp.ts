@@ -492,7 +492,7 @@ export async function lovableProjectPublic(projectId: string): Promise<{ isPubli
   return {
     isPublished: typeof data.is_published === 'boolean' ? data.is_published : null,
     publicId: /lovp_[a-z0-9]{8,}/i.exec(shot)?.[0] ?? null,
-    // A picture of the latest build, public (Hell-level → Sites → Websites shows it).
+    // A picture of the latest build, public (Genisys OS → Sites → Websites shows it).
     screenshotUrl: /^https:\/\//i.test(shot) ? shot : null,
   }
 }

@@ -9,12 +9,12 @@ import { syncSeoSiteLiveUrl } from '@/lib/seo/link-client'
  * Forge did once their domain showed the site.
  */
 
-/** What follows a new site link: the SEO site, their Hell-level sub-account (policy pages, logo, texting verification), their GHL lead workflows. Never throws. */
+/** What follows a new site link: the SEO site, their Genisys OS sub-account (policy pages, logo, texting verification), their GHL lead workflows. Never throws. */
 export function afterSiteLinkChange(clientId: string, siteUrl: string, priorSiteUrl: string | null): void {
   // The SEO site audits the new address.
   void syncSeoSiteLiveUrl(clientId, siteUrl).catch((err) => console.warn('[clients] seo site url sync failed:', err))
-  // Their Hell-level sub-account takes the site as its website, with its policy pages and logo.
-  void syncClientSite(clientId, siteUrl, priorSiteUrl).catch((err) => console.warn('[clients] hell-level site sync failed:', err))
+  // Their Genisys OS sub-account takes the site as its website, with its policy pages and logo.
+  void syncClientSite(clientId, siteUrl, priorSiteUrl).catch((err) => console.warn('[clients] genisys-os site sync failed:', err))
   // Their GHL lead workflows get the copy with this link (when automatic customizing is on).
   void queueCustomizeForSite(clientId)
 }

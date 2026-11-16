@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { appointmentByToken } from '@/lib/hl/booking'
-import { BookingFrame } from '@/components/hell-level/booking-frame'
-import { ManageAppointment } from '@/components/hell-level/manage-appointment'
+import { BookingFrame } from '@/components/genisys-os/booking-frame'
+import { ManageAppointment } from '@/components/genisys-os/manage-appointment'
 
 export const dynamic = 'force-dynamic'
 

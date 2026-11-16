@@ -8,7 +8,7 @@ import { queueGhlRegistration } from '@/lib/ghl-number/queue'
 
 /**
  * The site we built for a client went live (or moved to a new address): its
- * Hell-level sub-account follows. A sub-account is made the moment the client
+ * Genisys OS sub-account follows. A sub-account is made the moment the client
  * onboards, usually before their site exists, so its website starts blank
  * (or as the domain they named). Now it takes the new site, reads the site's
  * privacy and terms pages for the forms and texting registration, and finds
@@ -37,7 +37,7 @@ export async function syncClientSite(clientId: string, siteUrl: string, priorSit
   const logoFromOldSite = !!p.logoUrl && !!priorSiteUrl && host(p.logoUrl) === host(priorSiteUrl)
   await fillBrandFromSite(account.id, logoFromOldSite)
   // A toll-free number bought after an Office Yes gets its texting verification filed now that the site is in.
-  await fileNumberVerification(clientId).catch((err) => console.warn('[hell-level] toll-free verification after the site link:', err))
+  await fileNumberVerification(clientId).catch((err) => console.warn('[genisys-os] toll-free verification after the site link:', err))
   // A number in their GHL sub-account gets GHL's toll-free form filled (and held for an OK in the Office).
   await queueGhlRegistration(clientId).catch((err) => console.warn('[ghl-number] registration after the site link:', err))
 }

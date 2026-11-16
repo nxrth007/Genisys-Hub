@@ -9,8 +9,8 @@
  *   Any other route bounces to /agent.
  * - role=agent_pending or agent_denied: bounced to /signin/agent/pending or
  *   /signin/agent/denied respectively. No authenticated access anywhere.
- * - role=hl_user: a contractor on their own Hell-level sub-account
- *   (src/lib/hl/member-access.ts): /hell-level's day-to-day screens and the
+ * - role=hl_user: a contractor on their own Genisys OS sub-account
+ *   (src/lib/hl/member-access.ts): /genisys-os's day-to-day screens and the
  *   /api/hl routes that let them in (hlAccountGuard), nothing else.
  * - role=member or admin: full Hub access. /agent/* still loads (staff can
  *   preview the agent UI for QA) but all non-admin routes under /admin/* are
@@ -25,7 +25,7 @@ import { HL_MEMBER_ROLE, memberPagePath } from '@/lib/hl/member-access'
 
 const PUBLIC_PATHS = [
   '/signin',
-  // Contractors' sign-in (Hell-level sub-account logins), its "choose your
+  // Contractors' sign-in (Genisys OS sub-account logins), its "choose your
   // password" page, and their forgot/set-password posts under /api/hl/public.
   '/login',
   '/api/auth', // NextAuth's own routes
@@ -78,10 +78,10 @@ const PUBLIC_PATHS = [
   '/api/webhooks/whop',
   // Client sub-account workflows post form / chat leads here (?secret=).
   '/api/webhooks/ghl-lead',
-  // Hell-level (src/lib/hl): what the public and Twilio reach. /hl serves the
+  // Genisys OS (src/lib/hl): what the public and Twilio reach. /hl serves the
   // forms, chat widget and legal pages embedded on client websites; the
   // Twilio webhooks check Twilio's signature themselves; form posts are
-  // rate-limited per IP. The staff app is /hell-level and /api/hl/*, gated.
+  // rate-limited per IP. The staff app is /genisys-os and /api/hl/*, gated.
   '/hl',
   '/api/hl/twilio',
   '/api/hl/public',
@@ -144,10 +144,10 @@ const AGENT_ALLOWED_PREFIXES = [
   '/api/team/manage',
 ]
 
-// Routes a Hell-level sub-account login may hit. Every /api/hl handler checks
+// Routes a Genisys OS sub-account login may hit. Every /api/hl handler checks
 // for itself (hlGuard: Genisys only; hlAccountGuard: their own sub-account).
 const HL_MEMBER_ALLOWED_PREFIXES = [
-  '/hell-level',
+  '/genisys-os',
   '/api/hl',
   '/api/auth',
 ]
@@ -173,7 +173,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl
 
   if (isPublic(pathname)) return NextResponse.next()
-  // Hell-level's Google Calendar connections come back through the Hub's one
+  // Genisys OS's Google Calendar connections come back through the Hub's one
   // registered Google return address, and a team member connecting from the
   // link they were sent has no Hub account: the signed state is the access
   // there (src/lib/hl/google-calendar.ts). Every other use stays gated.
@@ -189,9 +189,9 @@ export default auth((req) => {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
     // Pages → redirect to signin, preserving where the user was trying to go.
-    // Hell-level goes to /login, where contractors sign in (Genisys has the
+    // Genisys OS goes to /login, where contractors sign in (Genisys has the
     // Google button there too).
-    const signInUrl = new URL(matchesPrefix(pathname, ['/hell-level']) ? '/login' : '/signin', req.nextUrl.origin)
+    const signInUrl = new URL(matchesPrefix(pathname, ['/genisys-os']) ? '/login' : '/signin', req.nextUrl.origin)
     signInUrl.searchParams.set('callbackUrl', req.nextUrl.href)
     return NextResponse.redirect(signInUrl)
   }
@@ -229,7 +229,7 @@ export default auth((req) => {
     return NextResponse.redirect(new URL('/team', req.nextUrl.origin))
   }
 
-  // Hell-level sub-account logins: their sub-account's day-to-day screens.
+  // Genisys OS sub-account logins: their sub-account's day-to-day screens.
   if (role === HL_MEMBER_ROLE) {
     if (matchesPrefix(pathname, HL_MEMBER_ALLOWED_PREFIXES)) {
       if (pathname.startsWith('/api/')) return NextResponse.next()
@@ -240,7 +240,7 @@ export default auth((req) => {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
-    return NextResponse.redirect(new URL('/hell-level', req.nextUrl.origin))
+    return NextResponse.redirect(new URL('/genisys-os', req.nextUrl.origin))
   }
 
   // Approved agents: /agent/* only (plus NextAuth endpoints).

@@ -11,7 +11,7 @@ import { decideClientSite } from '@/lib/hl/site-request'
  * in the Office. Admin only, since it spends money or files for a client.
  *
  * Echo asking about a new client's toll-free number (kind "number", the
- * default): 'hl' (or 'yes') buys a Hell-level number right away; 'ghl' waits
+ * default): 'hl' (or 'yes') buys a Genisys OS number right away; 'ghl' waits
  * while a person passes GHL's ID check (and answers with the link);
  * 'identified' hands the GHL route to the browser worker; 'no' declines.
  *

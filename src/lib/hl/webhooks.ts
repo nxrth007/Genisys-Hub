@@ -217,7 +217,7 @@ export async function hookRequests(accountId: string, hookId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// GHL's webhook triggers, imported before Hell-level had them
+// GHL's webhook triggers, imported before Genisys OS had them
 // ---------------------------------------------------------------------------
 
 let upgraded = false

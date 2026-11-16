@@ -7,7 +7,7 @@ import { isPoBox, parseUsAddress } from './address-parse'
  *
  * Toll-free verification is free and needs no EIN, where A2P has brand,
  * vetting and monthly campaign fees. GHL files it with Twilio, so the
- * wording follows what Twilio took for Forte's number through Hell-level
+ * wording follows what Twilio took for Forte's number through Genisys OS
  * (src/lib/hl/verification.ts) and GHL's own guide. Blanks work as on the
  * A2P board: {{LABEL}} until filled in, copied as [LABEL].
  */

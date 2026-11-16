@@ -54,7 +54,7 @@ test('prettyPhone: (855) 676-2067 from any US form, anything else unchanged', ()
 test('askDecision: Echo asks once, right after onboarding made the sub-account', () => {
   assert.deepEqual(plan.askDecision(base), { ask: true, reason: 'its sub-account is ready' })
   assert.equal(plan.askDecision({ ...base, archived: true }).ask, false)
-  assert.equal(plan.askDecision({ ...base, accountId: null }).reason, 'no Hell-level sub-account yet')
+  assert.equal(plan.askDecision({ ...base, accountId: null }).reason, 'no Genisys OS sub-account yet')
   assert.equal(plan.askDecision({ ...base, hasTollFree: true }).reason, 'its sub-account already has a toll-free number')
   // The sweep skips sub-accounts from before the question existed (the 31 already on file): those are asked about by hand.
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep' }).ask, true)
@@ -81,7 +81,7 @@ test("askDecision: a GHL sub-account that already has a number is never asked ab
   for (const trigger of ['onboarding', 'sweep', 'manual']) {
     assert.equal(plan.askDecision({ ...base, trigger, ghlNumbers: 'has' }).reason, 'its GHL sub-account already has a number', trigger)
   }
-  // None in GHL, or no phone system there (a Hell-level number works without it): asked as before.
+  // None in GHL, or no phone system there (a Genisys OS number works without it): asked as before.
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'none' }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'unavailable' }).ask, true)
@@ -91,13 +91,13 @@ test("askDecision: a GHL sub-account that already has a number is never asked ab
   // The sweep (a sub-account linked rather than made by the worker) waits for GHL's numbers too.
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'unchecked' }).reason, plan.UNREAD_GHL)
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'none' }).ask, true)
-  // No linked GHL sub-account: only Hell-level applies, as before.
+  // No linked GHL sub-account: only Genisys OS applies, as before.
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: null }).ask, true)
   // A person can override it by hand (Panacea's test, or moving a client off GHL); never by itself.
   assert.equal(plan.askDecision({ ...base, trigger: 'manual', ghlNumbers: 'has', overrideGhl: true }).ask, true)
   assert.equal(plan.askDecision({ ...base, trigger: 'sweep', ghlNumbers: 'has', overrideGhl: true }).ask, false)
   assert.equal(plan.askDecision({ ...base, ghlNumbers: 'has', overrideGhl: true }).ask, false)
-  // Forte: its Hell-level number answers first.
+  // Forte: its Genisys OS number answers first.
   assert.equal(plan.askDecision({ ...base, hasTollFree: true, ghlNumbers: 'unavailable' }).reason, 'its sub-account already has a toll-free number')
 })
 
@@ -112,7 +112,7 @@ test('ringTo: the business phone, else the owner’s, else a missed-call catcher
   assert.equal(plan.textsTo({ businessPhone: '571-276-7875 or 301-928-2611', notifyPhone: '' }), '+15712767875')
 })
 
-test('nextNumberState: Hell-level, GHL, Identification complete or No, each only where it fits', () => {
+test('nextNumberState: Genisys OS, GHL, Identification complete or No, each only where it fits', () => {
   assert.equal(plan.nextNumberState('awaiting_approval', 'hl'), 'buying')
   assert.equal(plan.nextNumberState('awaiting_approval', 'ghl'), 'awaiting_identity')
   assert.equal(plan.nextNumberState('awaiting_approval', 'no'), 'declined')
@@ -171,7 +171,7 @@ test('readyToFile: texting verification waits for the site link and files once',
 test('reconcileVerify: a rejection becomes the note once; a re-filing clears it; a blocked filing stays', () => {
   const rejected = plan.reconcileVerify({ verificationStatus: 'rejected', verificationNote: '30509: opt-in link not public', currentNote: null })
   assert.deepEqual(rejected, { note: plan.rejectionNote('30509: opt-in link not public'), text: true })
-  assert.match(rejected.note, /^Twilio rejected the texting verification: 30509: opt-in link not public\. Fix it and file it again in Hell-level/)
+  assert.match(rejected.note, /^Twilio rejected the texting verification: 30509: opt-in link not public\. Fix it and file it again in Genisys OS/)
   // Already noted: nothing to do (no second text).
   assert.equal(plan.reconcileVerify({ verificationStatus: 'rejected', verificationNote: '30509: opt-in link not public', currentNote: rejected.note }), null)
   for (const s of ['pending', 'in_review', 'approved']) {
@@ -192,7 +192,7 @@ test('number texts: plain, short, and each links to where to act', () => {
     assert.ok(t.endsWith(link), k)
     assert.ok(t.length <= 320, `${k} is ${t.length} chars`)
   }
-  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /Acme Roofing just onboarded\. Approve their Hell-level toll-free number \(about \$2\.15\/mo, no ID check\) in the Office/)
+  assert.match(alertText.numberAlertText('approve', 'Acme Roofing', '', link), /Acme Roofing just onboarded\. Approve their Genisys OS toll-free number \(about \$2\.15\/mo, no ID check\) in the Office/)
   assert.match(alertText.numberAlertText('failed', 'Acme Roofing', 'Twilio said no.', link), /buying Acme Roofing's toll-free number failed\. Twilio said no\./)
   assert.match(alertText.numberAlertText('verify', 'Acme Roofing', 'Add the address.', link), /texting verification can't be filed yet\. Add the address\./)
   assert.match(alertText.numberAlertText('rejected', 'Acme Roofing', '30509: opt-in link not public', link), /Twilio rejected Acme Roofing's toll-free texting verification\. 30509/)

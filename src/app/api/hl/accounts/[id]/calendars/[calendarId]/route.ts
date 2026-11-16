@@ -74,7 +74,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!calendar) return NextResponse.json({ error: 'Calendar not found' }, { status: 404 })
   try {
     await prisma.hlCalendar.delete({ where: { id: calendarId } })
-    console.log(`[hell-level] ${guard.email} deleted calendar ${calendar.name.trim()} (${calendarId})`)
+    console.log(`[genisys-os] ${guard.email} deleted calendar ${calendar.name.trim()} (${calendarId})`)
     return NextResponse.json({ ok: true })
   } catch (err) {
     return hlError(err, 'delete calendar')

@@ -85,7 +85,7 @@ test("what Echo's question goes by: only a read of the linked sub-account counts
   assert.equal(plan.askView({ locationId: 'L1', state: 'none', version: 1 }, 'L1'), 'unchecked')
 })
 
-test("a client's phone, for Sites: Hell-level first (Forte), then a number in GHL, a question under way, none, no phone system", () => {
+test("a client's phone, for Sites: Genisys OS first (Forte), then a number in GHL, a question under way, none, no phone system", () => {
   const p = (o) => plan.phoneState({ hlNumber: false, request: null, census: null, ...o })
   assert.equal(p({ hlNumber: true, census: 'none' }), 'hell_level')
   assert.equal(p({ request: { status: 'bought', route: 'ghl' } }), 'ghl')
@@ -99,7 +99,7 @@ test("a client's phone, for Sites: Hell-level first (Forte), then a number in GH
   assert.equal(p({ census: 'unavailable' }), 'no_phone_system')
   assert.equal(p({ census: 'error' }), 'unchecked')
   assert.equal(p({}), 'unchecked')
-  // New clients are Hell-level only: no GHL sub-account and no Hell-level number means it needs one.
+  // New clients are Genisys OS only: no GHL sub-account and no Genisys OS number means it needs one.
   assert.equal(p({ ghlLinked: false }), 'needs')
   assert.equal(p({ ghlLinked: false, request: { status: 'declined', route: 'hl' } }), 'needs')
   assert.equal(p({ ghlLinked: false, request: { status: 'awaiting_approval', route: 'hl' } }), 'asked')
@@ -107,7 +107,7 @@ test("a client's phone, for Sites: Hell-level first (Forte), then a number in GH
   assert.equal(p({ ghlLinked: true }), 'unchecked')
 })
 
-test("Hell-level toll-free numbers can't text until Twilio approves one", () => {
+test("Genisys OS toll-free numbers can't text until Twilio approves one", () => {
   assert.equal(plan.hlCantTextYet([]), false)
   assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'none' }]), true)
   assert.equal(plan.hlCantTextYet([{ kind: 'toll_free', verificationStatus: 'in_review' }]), true)

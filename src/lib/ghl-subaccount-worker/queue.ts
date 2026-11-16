@@ -235,7 +235,7 @@ export async function enqueueClient(
     return { ok: false, status: 'skipped', reason: 'client already has a sub-account' }
   }
   const facts = clientFacts(client, opts)
-  // Made by hand only (Settings: force) since new clients went to Hell-level.
+  // Made by hand only (Settings: force) since new clients went to Genisys OS.
   if (!opts.force && !AUTO_CREATE_FOR_NEW_CLIENTS) return { ok: false, status: 'skipped', reason: NO_AUTO_CREATE_REASON }
   if (!opts.force) {
     const since = await workerCutoff()
@@ -797,7 +797,7 @@ async function executeClaimed(id: string, claimedLease: Date): Promise<string> {
     }
     await saveJob(id, lease, { status: 'succeeded', leaseUntil: null, locationId, detail, lastError: null, finishedAt: new Date() })
     // Sub-account made and its snapshot loaded: now Echo asks about their toll-free number
-    // (Hell-level, or GHL after an ID check). Alex's order, 2026-11-13. One that was linked
+    // (Genisys OS, or GHL after an ID check). Alex's order, 2026-11-13. One that was linked
     // instead may have numbers already: the number sweep asks once GHL has been read.
     if (created && workerMode() === 'create') {
       void askForClientNumber(job.clientId, 'onboarding').catch((err) => console.warn('[ghl-subaccount-worker] toll-free number question:', describe(err)))

@@ -277,7 +277,7 @@ export async function loadSnapshotIntoLocation(ctx: AgencyContext, locationId: s
 
 /**
  * One sub-account by id; null when GHL has no such location or it isn't this agency's. `dateAdded`
- * is when GHL made it, when its answer carries one (Hell-level → Memberships shows it).
+ * is when GHL made it, when its answer carries one (Genisys OS → Memberships shows it).
  */
 export async function getLocation(ctx: AgencyContext, locationId: string): Promise<(AgencyLocation & { companyId: string | null; dateAdded: string | null }) | null> {
   let res: { location?: Record<string, unknown> }

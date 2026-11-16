@@ -131,7 +131,7 @@ function summaryOf(name: string, promos: boolean): string {
 /**
  * What a client's toll-free verification says, from their sub-account's
  * business profile and their own site: the same filing whether it goes to
- * Twilio (a Hell-level number, verificationDraft) or into GHL's own form (a
+ * Twilio (a Genisys OS number, verificationDraft) or into GHL's own form (a
  * number in their GHL sub-account, src/lib/ghl-number/register.ts). Throws
  * with what's missing.
  */
@@ -142,7 +142,7 @@ function firstPerson(raw: string | null | undefined): string {
 
 export async function tollFreeFiling(accountId: string) {
   const account = await prisma.hlAccount.findUnique({ where: { id: accountId }, include: { forms: { where: { archivedAt: null } } } })
-  if (!account) throw new HlInputError('The client’s Hell-level sub-account is gone.')
+  if (!account) throw new HlInputError('The client’s Genisys OS sub-account is gone.')
   // A client's own privacy and terms pages (found in the site's repo, hooked up under Clients) fill blank links.
   const clientId = account.clientId
   if (clientId) await fillLegalLinksFromSite(accountId)
@@ -164,7 +164,7 @@ export async function tollFreeFiling(accountId: string) {
   if (!contactPhone) throw new HlInputError(`Add a phone number for ${p.businessName} in Settings → Business Profile: Twilio needs a contact phone for the business.`)
   const helpPhone = firstPhone(p.businessPhone) ?? contactPhone
   const website = /^https?:\/\//i.test(siteLink) ? siteLink : `https://${siteLink}`
-  // Hell-level's own forms (an imported GHL form isn't served from here).
+  // Genisys OS's own forms (an imported GHL form isn't served from here).
   const own = account.forms.filter((f) => !f.ghlId)
   // A form with the separate promotional box means some texts are marketing, and the filing has to say so.
   const promos = own.some((f) => consentsOf(asSettings(f.settings)).some((c) => c.kind === 'marketing'))
@@ -172,7 +172,7 @@ export async function tollFreeFiling(accountId: string) {
   // Reviewers check the business's own site: the Hub's pages (its domain or Render's) get a registration rejected.
   if (isHubUrl(legal.privacy) || isHubUrl(legal.terms))
     throw new HlInputError(
-      `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Hell-level looks for /privacy and /terms on their site (Clients → the site: its repo, else the live site), so this clears once the site is live there. If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
+      `Twilio needs ${p.businessName}’s own privacy policy and terms pages, on its website; the Hub’s pages won’t pass review. ${clientId ? 'Genisys OS looks for /privacy and /terms on their site (Clients → the site: its repo, else the live site), so this clears once the site is live there. If the site has them at other addresses, put the links in Settings → Business Profile.' : 'Put their links in Settings → Business Profile.'}`,
     )
   // Twilio makes the client's own profile from the filing, so the address has to be whole. A street with no
   // town or ZIP (Concrete masonry's “13982 Sheldon rd”, 2026-11-14) is looked up on the address map where
@@ -183,7 +183,7 @@ export async function tollFreeFiling(accountId: string) {
     const whole = await completeBusinessAddress(clientId, p.address)
     if (whole) {
       await saveCompletedAddress(accountId, clientId, p.address ?? '', whole.address)
-      console.log(`[hell-level] completed ${p.businessName}’s address for its toll-free filing: ${whole.address} (${whole.how})`)
+      console.log(`[genisys-os] completed ${p.businessName}’s address for its toll-free filing: ${whole.address} (${whole.how})`)
       addr = parseUsAddress(whole.address)
     }
   }
@@ -247,12 +247,12 @@ async function saveCompletedAddress(accountId: string, clientId: string, was: st
 
 export type TollFreeFiling = Awaited<ReturnType<typeof tollFreeFiling>>
 
-/** What would be filed for a Hell-level number, for the review screen and the request itself. Throws with what's missing. */
+/** What would be filed for a Genisys OS number, for the review screen and the request itself. Throws with what's missing. */
 export async function verificationDraft(numberId: string) {
   const number = await prisma.hlPhoneNumber.findUnique({ where: { id: numberId } })
   if (!number || number.status !== 'active') throw new HlInputError('That number isn’t active.')
   if (number.kind !== 'toll_free') throw new HlInputError('Only toll-free numbers are verified this way. Local numbers are registered for A2P instead (the Texting panel on the number).')
-  if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Hell-level.')
+  if (!number.providerSid) throw new HlInputError('The number has no Twilio id; buy it through Genisys OS.')
   return { number, request: { tollfreePhoneNumberSid: number.providerSid, ...(await tollFreeFiling(number.accountId)) } }
 }
 
@@ -315,7 +315,7 @@ export async function maybeRefreshVerifications(): Promise<number> {
       const r = await refreshVerification(n.id)
       if (r.status !== before?.verificationStatus) changed++
     } catch (err) {
-      console.warn(`[hell-level] verification refresh ${n.id}:`, err instanceof Error ? err.message : err)
+      console.warn(`[genisys-os] verification refresh ${n.id}:`, err instanceof Error ? err.message : err)
     }
   }
   return changed

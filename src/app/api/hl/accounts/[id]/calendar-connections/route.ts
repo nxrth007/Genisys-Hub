@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
-  // Which Google app new connections sign in through: Hell-level's own (open to anyone's account once Google verifies it), the Hub's, or none.
+  // Which Google app new connections sign in through: Genisys OS's own (open to anyone's account once Google verifies it), the Hub's, or none.
   return NextResponse.json({ connections: await listConnections(id), googleApp: (await connectApp())?.kind ?? null, googleAppNote: await hlAppNote() })
 }
 

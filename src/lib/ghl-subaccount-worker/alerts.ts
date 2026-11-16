@@ -41,7 +41,7 @@ export async function textWorkerProblem(opts: Problem & { kind: WorkerAlertKind 
   await textOnce(`ghlWorker.texted.${opts.kind}.${opts.key}`, opts, workerAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'GHL sub-account')
 }
 
-/** One Hell-level toll-free number event (a question to answer, a failed purchase, a blocked filing), keyed by a request id. */
+/** One Genisys OS toll-free number event (a question to answer, a failed purchase, a blocked filing), keyed by a request id. */
 export async function textNumberEvent(opts: Problem & { kind: NumberAlertKind }): Promise<void> {
   await textOnce(`hlNumber.texted.${opts.kind}.${opts.key}`, opts, numberAlertText(opts.kind, opts.client, opts.reason ?? '', opts.link), 'Toll-free number')
 }

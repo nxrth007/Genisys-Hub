@@ -118,7 +118,7 @@ export async function fillBrandFromSite(accountId: string, force = false): Promi
   const site = httpUrl(p.website) ?? httpUrl(account.client?.siteUrl) ?? p.website ?? account.client?.siteUrl ?? ''
   if (!site.trim()) return had
   const found = await findSiteBrand(site).catch((err) => {
-    console.warn(`[hell-level] brand for ${accountId}:`, err instanceof Error ? err.message : err)
+    console.warn(`[genisys-os] brand for ${accountId}:`, err instanceof Error ? err.message : err)
     return { logo: null, color: null }
   })
   const logo = (force ? found.logo : had.logo) ?? had.logo ?? found.logo

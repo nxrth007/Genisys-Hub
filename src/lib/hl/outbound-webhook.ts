@@ -123,7 +123,7 @@ export function buildRequest(cfg: HlStep['config'], render: (s: string) => strin
     throw new WebhookError(`“${target.slice(0, 80) || '(blank)'}” isn’t a full web address (it needs https://…)`)
   }
   for (const [k, v] of pairs(cfg.params, render)) url.searchParams.append(k, v)
-  const headers: Record<string, string> = { 'user-agent': 'Hell-level webhook (Genisys Hub)' }
+  const headers: Record<string, string> = { 'user-agent': 'Genisys OS webhook (Genisys Hub)' }
   for (const [k, v] of pairs(cfg.headers, render)) headers[k.toLowerCase()] = v
   const auth = cfg.auth
   if (auth?.type === 'basic') headers.authorization = `Basic ${Buffer.from(`${render(auth.username ?? '')}:${render(auth.password ?? '')}`).toString('base64')}`

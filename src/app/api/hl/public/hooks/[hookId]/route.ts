@@ -38,11 +38,11 @@ async function receive(req: Request, { params }: Ctx) {
     const r = await receiveWebhook(hookId, read.payload, { ip: ip ?? null, contentType: read.contentType, bytes: read.bytes })
     if (r.later) {
       const work = r.later
-      after(() => work().catch((err) => console.error(`[hell-level] webhook ${hookId.slice(0, 6)}… run failed:`, err)))
+      after(() => work().catch((err) => console.error(`[genisys-os] webhook ${hookId.slice(0, 6)}… run failed:`, err)))
     }
     return NextResponse.json(r.body, { status: r.status, headers: CORS })
   } catch (err) {
-    console.error('[hell-level] webhook failed:', err)
+    console.error('[genisys-os] webhook failed:', err)
     return NextResponse.json({ error: 'Something went wrong. Try again.' }, { status: 500, headers: CORS })
   }
 }

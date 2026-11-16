@@ -39,9 +39,9 @@ export async function POST(req: Request, { params }: Ctx) {
     if (!number) throw new HlInputError('Pick a number.')
     const kind = body.kind === 'local' ? 'local' : 'toll_free'
     const row = await buyNumber(id, number, kind)
-    console.log(`[hell-level] ${guard.email} bought ${row.number} (${kind}) for ${account.name}`)
+    console.log(`[genisys-os] ${guard.email} bought ${row.number} (${kind}) for ${account.name}`)
     // A local number joins the sub-account's A2P campaign when there is one.
-    if (kind === 'local') await syncA2pNumbers(id).catch((err) => console.warn('[hell-level] A2P sync after purchase:', err))
+    if (kind === 'local') await syncA2pNumbers(id).catch((err) => console.warn('[genisys-os] A2P sync after purchase:', err))
     return NextResponse.json({ number: row })
   } catch (err) {
     return hlError(err, 'buy number')

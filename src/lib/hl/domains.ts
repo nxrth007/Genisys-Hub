@@ -29,7 +29,7 @@ import {
 } from './porkbun'
 
 /**
- * Client domains in Hell-level (GHL's Settings → Domains & URL Redirects),
+ * Client domains in Genisys OS (GHL's Settings → Domains & URL Redirects),
  * held in the Hub's Porkbun account. Three ways in:
  *
  * - Buy: quote (a dry run gives the all-in price), the person confirms that
@@ -119,7 +119,7 @@ export async function buyDomain(o: { accountId: string; name: string; costCents:
   const domain = normalizeDomain(o.name)
   if (!domain) throw new HlInputError('That isn’t a domain name.')
   if (!Number.isInteger(o.costCents) || o.costCents <= 0) throw new HlInputError('Missing the price you agreed to.')
-  if (await prisma.hlDomain.findUnique({ where: { name: domain } })) throw new HlInputError(`${domain} is already in Hell-level.`)
+  if (await prisma.hlDomain.findUnique({ where: { name: domain } })) throw new HlInputError(`${domain} is already in Genisys OS.`)
   // Re-quote: what's charged is what the person saw, or nothing.
   const quote = await quoteRegistration(domain)
   if (!quote.wouldSucceed) throw new HlInputError(quote.reason ?? `Porkbun won’t register ${domain} right now.`)
@@ -140,7 +140,7 @@ export async function buyDomain(o: { accountId: string; name: string; costCents:
     throw err
   }
   await refreshFromRegistrar([row.id]).catch(() => {})
-  console.log(`[hell-level] ${o.by} bought ${domain} for ${money(o.costCents)} (account ${o.accountId})`)
+  console.log(`[genisys-os] ${o.by} bought ${domain} for ${money(o.costCents)} (account ${o.accountId})`)
   void maybeSetUpEmail(o.accountId, domain, o.by)
   return prisma.hlDomain.findUniqueOrThrow({ where: { id: row.id } })
 }
@@ -271,7 +271,7 @@ export async function startTransferIn(o: { accountId: string; name: string; auth
   if (!domain) throw new HlInputError('That isn’t a domain name.')
   if (!authCode) throw new HlInputError('Paste the transfer (EPP) code from GoHighLevel.')
   if (!Number.isInteger(o.costCents) || o.costCents <= 0) throw new HlInputError('Missing the price you agreed to.')
-  if (await prisma.hlDomain.findUnique({ where: { name: domain } })) throw new HlInputError(`${domain} is already in Hell-level.`)
+  if (await prisma.hlDomain.findUnique({ where: { name: domain } })) throw new HlInputError(`${domain} is already in Genisys OS.`)
   const quote = await quoteTransfer(domain, authCode)
   if (!quote.wouldSucceed) throw new HlInputError(quote.reason ?? `Porkbun won’t take ${domain} in right now.`)
   if (quote.costCents !== o.costCents) throw new HlInputError(`The transfer is now ${money(quote.costCents)} (it was ${money(o.costCents)}). Check it and start again.`)
@@ -287,7 +287,7 @@ export async function startTransferIn(o: { accountId: string; name: string; auth
     await addLog(row.id, o.by, `Transfer payment didn’t get an answer: ${errText(err)}`, { status: 'failed', lastError: 'Porkbun didn’t answer. Check the Porkbun account’s transfers before trying again.' })
     throw err
   }
-  console.log(`[hell-level] ${o.by} started a transfer of ${domain} for ${money(o.costCents)} (account ${o.accountId})`)
+  console.log(`[genisys-os] ${o.by} started a transfer of ${domain} for ${money(o.costCents)} (account ${o.accountId})`)
   await copyDnsForTransfer(row.id, o.by)
   return prisma.hlDomain.findUniqueOrThrow({ where: { id: row.id } })
 }
@@ -353,7 +353,7 @@ export async function releaseHeldTransfer(id: string, by: string) {
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
 /** Where a transfer stands; finishes it off when the registry is done. */
-export async function refreshTransfer(id: string, by = 'hell-level') {
+export async function refreshTransfer(id: string, by = 'genisys-os') {
   const row = await prisma.hlDomain.findUniqueOrThrow({ where: { id } })
   if (row.status !== 'transferring' && row.status !== 'held') return row
   const t = await transferInfo(row.name)
@@ -418,19 +418,19 @@ export async function maybeRefreshDomains(): Promise<number> {
         const after = await refreshTransfer(m.id)
         if (after.transferStatus !== m.transferStatus) changed++
       } catch (err) {
-        console.warn(`[hell-level] domain transfer check ${m.id}:`, errText(err))
+        console.warn(`[genisys-os] domain transfer check ${m.id}:`, errText(err))
       }
     }
     // Connections waiting on someone to add records at another DNS provider.
     const external = await prisma.hlDomain.findMany({ where: { origin: 'external', status: 'active' }, select: { id: true, meta: true } })
     for (const e of external) {
       if (!(metaOf(e.meta).hosts ?? []).some((h) => !h.verifiedAt)) continue
-      await verifyExternal(e.id).catch((err) => console.warn(`[hell-level] external domain check ${e.id}:`, errText(err)))
+      await verifyExternal(e.id).catch((err) => console.warn(`[genisys-os] external domain check ${e.id}:`, errText(err)))
     }
   }
   if (Date.now() - lastRegistrarSweep >= 12 * 3600_000) {
     lastRegistrarSweep = Date.now()
-    if (await prisma.hlDomain.count({ where: { status: 'active', origin: { not: 'external' } } })) await refreshFromRegistrar().catch((err) => console.warn('[hell-level] domain expiry refresh:', errText(err)))
+    if (await prisma.hlDomain.count({ where: { status: 'active', origin: { not: 'external' } } })) await refreshFromRegistrar().catch((err) => console.warn('[genisys-os] domain expiry refresh:', errText(err)))
   }
   return changed
 }

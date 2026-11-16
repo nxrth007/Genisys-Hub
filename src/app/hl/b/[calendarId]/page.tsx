@@ -1,9 +1,9 @@
 import Script from 'next/script'
 import { notFound } from 'next/navigation'
 import { publicCalendar } from '@/lib/hl/booking'
-import { BookingWidget } from '@/components/hell-level/booking-widget'
-import { BookingFrame, lengthText, type FrameFact } from '@/components/hell-level/booking-frame'
-import { FrameHeight } from '@/components/hell-level/frame-height'
+import { BookingWidget } from '@/components/genisys-os/booking-widget'
+import { BookingFrame, lengthText, type FrameFact } from '@/components/genisys-os/booking-frame'
+import { FrameHeight } from '@/components/genisys-os/frame-height'
 
 export const dynamic = 'force-dynamic'
 

@@ -6,11 +6,11 @@ import { buyNumberNow } from '@/lib/hl/folder-actions'
 import { askForClientNumber } from '@/lib/hl/number-request'
 
 /**
- * GET /api/clients/:id/hl-number — this client's Hell-level toll-free number
+ * GET /api/clients/:id/hl-number — this client's Genisys OS toll-free number
  * request (status, number, where calls ring, why verification is blocked).
  *
  * POST { action: 'buy' } — admin only: their Sites folder's Buy toll-free
- * number, the same as Yes (Hell-level) on Echo's question in the Office:
+ * number, the same as Yes (Genisys OS) on Echo's question in the Office:
  * bought now on Genisys's Twilio (about $2.15/month), calls pointed at their
  * business phone. Echo's open question is answered; otherwise it's asked and
  * answered at once. Not for a client whose GHL sub-account has a number.

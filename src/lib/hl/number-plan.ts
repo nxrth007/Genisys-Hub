@@ -1,5 +1,5 @@
 /**
- * The decisions behind a client's Hell-level toll-free number, pure so they
+ * The decisions behind a client's Genisys OS toll-free number, pure so they
  * are unit-tested: whether Echo asks in the Office, where the number's calls
  * ring, and whether its texting verification can be filed yet. The work
  * itself is in ./number-request.ts.
@@ -14,7 +14,7 @@ export function prettyPhone(n: string | null | undefined): string {
 
 export type AskCandidate = {
   archived: boolean
-  /** The client's Hell-level sub-account. */
+  /** The client's Genisys OS sub-account. */
   accountId: string | null
   accountCreatedAt: Date | null
   /** That sub-account already has an active toll-free number. */
@@ -47,7 +47,7 @@ export const UNREAD_GHL = 'the Hub hasn’t read its GHL sub-account’s numbers
 
 export function askDecision(c: AskCandidate): AskDecision {
   if (c.archived) return { ask: false, reason: 'the client is archived' }
-  if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
+  if (!c.accountId) return { ask: false, reason: 'no Genisys OS sub-account yet' }
   if (c.hasTollFree) return { ask: false, reason: 'its sub-account already has a toll-free number' }
   // Alex's rule (2026-11-13): a GHL sub-account that has a number is set up already.
   if (c.ghlNumbers === 'has' && !(c.trigger === 'manual' && c.overrideGhl)) return { ask: false, reason: 'its GHL sub-account already has a number' }
@@ -64,19 +64,19 @@ export function askDecision(c: AskCandidate): AskDecision {
   }
   // A new client has no GHL sub-account (null here). The sweep waits for GHL to be read: a linked GHL
   // sub-account may have its number there already. By hand (Sites → Ask in the Office) a person decides,
-  // since the daily GHL read is paused and an older client moving to Hell-level could never be asked.
+  // since the daily GHL read is paused and an older client moving to Genisys OS could never be asked.
   if (c.trigger === 'sweep' && c.ghlNumbers === 'unchecked') return { ask: false, reason: UNREAD_GHL }
   return { ask: true, reason: 'its sub-account is ready' }
 }
 
-/** The answers an Office number question takes: Hell-level, GHL, Identification complete, or No. */
+/** The answers an Office number question takes: Genisys OS, GHL, Identification complete, or No. */
 export type NumberChoice = 'hl' | 'ghl' | 'identified' | 'no'
 
 /**
  * Where an answer leads, or null when it doesn't fit the question's state.
- * Asked: Hell-level buys now, GHL waits for the ID check, No declines.
+ * Asked: Genisys OS buys now, GHL waits for the ID check, No declines.
  * Waiting on the ID check: Identification complete hands it to the browser
- * worker; Hell-level and No still work (a change of mind).
+ * worker; Genisys OS and No still work (a change of mind).
  */
 export function nextNumberState(status: string, choice: NumberChoice): string | null {
   if (status === 'awaiting_approval') return choice === 'hl' ? 'buying' : choice === 'ghl' ? 'awaiting_identity' : choice === 'no' ? 'declined' : null
@@ -137,7 +137,7 @@ export type FileCandidate = {
 /**
  * Texting verification goes in once the client's site link is in: Twilio's
  * reviewers check the site's opt-in form and its privacy and terms pages.
- * A rejected one is left for a person to fix and re-file in Hell-level.
+ * A rejected one is left for a person to fix and re-file in Genisys OS.
  */
 export function readyToFile(c: FileCandidate): { file: boolean; reason: string } {
   if (!c.numberActive) return { file: false, reason: 'no active number' }
@@ -153,7 +153,7 @@ export const FILE_RETRY_MS = 6 * 60 * 60_000
 /** What a bought number's request should say once Twilio has answered its texting verification. */
 export function rejectionNote(verificationNote: string | null | undefined): string {
   const why = (verificationNote ?? '').trim()
-  return `Twilio rejected the texting verification${why ? `: ${why}` : ''}. Fix it and file it again in Hell-level → Settings → Phone Numbers.`
+  return `Twilio rejected the texting verification${why ? `: ${why}` : ''}. Fix it and file it again in Genisys OS → Settings → Phone Numbers.`
 }
 
 /**

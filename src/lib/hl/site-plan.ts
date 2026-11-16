@@ -2,7 +2,7 @@
  * Forge's website build for a new client (pure; the database, Claude and
  * Lovable are in ./site-request.ts and ./site-fill.ts).
  *
- * Right after onboarding makes a Hell-level sub-account, Forge asks in the
+ * Right after onboarding makes a Genisys OS sub-account, Forge asks in the
  * Office: build their website? On a Yes, Claude fills Ethan's one-shot
  * (./site-template.ts) from the onboarding answers, the Hub copies the
  * template project in Lovable and sends the copy the one-shot, and Forge
@@ -61,14 +61,14 @@ export type SiteAskCandidate = {
 }
 
 /**
- * Forge asks once per new Hell-level client, right after onboarding made
+ * Forge asks once per new Genisys OS client, right after onboarding made
  * their sub-account. By hand a person can ask for any client with a
  * sub-account, again after a Not now, a failure or a finished build (a new
  * copy each time); a client set up in GHL only with overrideGhl.
  */
 export function siteAskDecision(c: SiteAskCandidate): { ask: boolean; reason: string } {
   if (c.archived) return { ask: false, reason: 'the client is archived' }
-  if (!c.accountId) return { ask: false, reason: 'no Hell-level sub-account yet' }
+  if (!c.accountId) return { ask: false, reason: 'no Genisys OS sub-account yet' }
   const r = c.request?.status
   if (r === 'awaiting_approval') return { ask: false, reason: 'already asked' }
   if (r && (SITE_WORKING as string[]).includes(r)) return { ask: false, reason: 'its site is being built' }
@@ -333,7 +333,7 @@ export function keptPhotos(photos: SitePhoto[], fill: Pick<SiteFill, 'photos'> |
   return out
 }
 
-/** The template's variables from the facts, Claude's answers and the Hell-level embeds. Throws when something the site can't go without is missing. */
+/** The template's variables from the facts, Claude's answers and the Genisys OS embeds. Throws when something the site can't go without is missing. */
 export function oneShotVars(facts: SiteFacts, fill: SiteFill, embeds: SiteEmbeds, opts: { shown: number[] }): OneShotVars {
   if (!facts.phone) throw new Error('No phone number on file for the site.')
   if (!facts.email) throw new Error('No email address on file for the site.')
@@ -421,7 +421,7 @@ export function siteQuestionDetail(
   },
   from: 'office' | 'folder' = 'office',
 ): string {
-  if (f.missing.length) return `Can’t build yet: no ${f.missing.join(' or ')} on file. Add it in their Hell-level → Settings → Business Profile.`
+  if (f.missing.length) return `Can’t build yet: no ${f.missing.join(' or ')} on file. Add it in their Genisys OS → Settings → Business Profile.`
   const folder = from === 'folder'
   const parts = [
     f.photos ? `${f.photos} photo${f.photos === 1 ? '' : 's'} from onboarding${f.skipped ? ` (${f.skipped} other upload${f.skipped === 1 ? '' : 's'} left out)` : ''}` : 'No photos: Lovable makes them all',
@@ -505,7 +505,7 @@ export function lovablePublicId(text: string | null | undefined): string | null 
 
 /**
  * Where a site Forge built could be live after a person published it in Lovable by hand: the domain
- * Forge was to connect, their domain in Hell-level → Domains, and the link in Clients. Never a
+ * Forge was to connect, their domain in Genisys OS → Domains, and the link in Clients. Never a
  * lovable.app address (not theirs) or the Hub's own.
  */
 export function outsideHosts(o: { domains: (string | null | undefined)[]; siteUrl: string | null | undefined; isHub: (host: string) => boolean }): string[] {
@@ -565,13 +565,13 @@ export function builtSiteLegal(shownOn: string | null | undefined, ownHosts: str
 // Connecting the client's domain to the published site
 // ---------------------------------------------------------------------------
 
-/** A domain on the client's Hell-level sub-account, as the Domains page holds it. */
+/** A domain on the client's Genisys OS sub-account, as the Domains page holds it. */
 export type SiteDomainRow = { name: string; origin: string; status: string }
 
 /**
  * The domain Forge connects. managed: held in the Hub's Porkbun account
  * (bought, moved in or linked), so the Hub sets its DNS. Not managed: added
- * in Hell-level → Domains as one whose DNS stays elsewhere, so a person adds
+ * in Genisys OS → Domains as one whose DNS stays elsewhere, so a person adds
  * the records Forge lists. waiting: one still moving in. Null: none yet.
  */
 export type SiteDomainChoice = { name: string; managed: boolean } | { waiting: string } | null

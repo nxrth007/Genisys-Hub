@@ -73,7 +73,7 @@ const HIDE_BTN = 'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0
 
 /**
  * A bot's question waiting for an answer. Echo asking where to get a new
- * client's toll-free number: Buy in Hell-level (right away, no ID check) or
+ * client's toll-free number: Buy in Genisys OS (right away, no ID check) or
  * Verify identity in GHL (opens the client's GHL Phone System and waits);
  * then Identification complete hands the GHL route to the browser worker.
  * Echo asking about GHL's toll-free registration it filled: Send it, See
@@ -258,7 +258,7 @@ function ApprovalCard({
                   {spin('identified') || <ShieldCheck className="h-3.5 w-3.5" />} Identification complete
                 </button>
                 <button type="button" onClick={() => answer('hl')} disabled={locked} className={BTN_GHOST}>
-                  {spin('hl')} Buy in Hell-level instead
+                  {spin('hl')} Buy in Genisys OS instead
                 </button>
                 <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
                   {spin('no') || <X className="h-3.5 w-3.5" />} No
@@ -267,7 +267,7 @@ function ApprovalCard({
             ) : (
               <>
                 <button type="button" onClick={() => answer('hl')} disabled={locked} className={BTN_PRIMARY}>
-                  {spin('hl') || <Check className="h-3.5 w-3.5" />} Buy in Hell-level
+                  {spin('hl') || <Check className="h-3.5 w-3.5" />} Buy in Genisys OS
                 </button>
                 <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
                   {spin('no') || <X className="h-3.5 w-3.5" />} No

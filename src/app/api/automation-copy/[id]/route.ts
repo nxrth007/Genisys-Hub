@@ -10,7 +10,7 @@ import { syncProfileFromBoard } from '@/lib/hl/accounts'
  * GET /api/automation-copy/:id — a client's Automation Copy board: what the
  * onboarding answers fill in, plus what staff typed or ticked.
  * PUT saves the board ({ values, done }), and carries the details it changed
- * into the client's Hell-level Business Profile (answers hellLevel: the
+ * into the client's Genisys OS Business Profile (answers hellLevel: the
  * profile fields updated).
  */
 
@@ -64,9 +64,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const saved = cleanSavedCopy({ ...body, updatedAt: new Date().toISOString() })
   const value = JSON.stringify(saved)
   await prisma.appSetting.upsert({ where: { key: keyFor(id) }, create: { key: keyFor(id), value }, update: { value } })
-  // What this save changed also goes into their Hell-level Business Profile, which the texts read.
+  // What this save changed also goes into their Genisys OS Business Profile, which the texts read.
   const hellLevel = await syncProfileFromBoard(id, before, await boardInputs(id)).catch((err) => {
-    console.warn(`[automation-copy] hell-level profile for ${id}:`, err instanceof Error ? err.message : err)
+    console.warn(`[automation-copy] genisys-os profile for ${id}:`, err instanceof Error ? err.message : err)
     return [] as string[]
   })
   return NextResponse.json({ saved, hellLevel })

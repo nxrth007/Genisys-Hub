@@ -7,7 +7,7 @@
  * Alex's rule (2026-11-13): a GHL sub-account that already has a number (and
  * its A2P or toll-free setup) is set up and is never asked about one. One with
  * no number needs one at some point, except Forte, whose number is in
- * Hell-level.
+ * Genisys OS.
  *
  * What the page shows, seen 2026-11-13:
  * - a row per number, e.g. "+1 855-389-5833 Default Number Verification
@@ -105,10 +105,10 @@ export function askView(row: { locationId: string; state: string; version: numbe
 
 /**
  * Where a client's phone number stands, for Sites: hell_level = a number in
- * Hell-level (Forte's toll-free one); ghl = a number in their GHL sub-account
+ * Genisys OS (Forte's toll-free one); ghl = a number in their GHL sub-account
  * (bought through the Office, or there already); asked = Echo's question or
  * the purchase is under way; needs = GHL shows no number, or (new clients,
- * Hell-level only) no GHL sub-account and none in Hell-level; no_phone_system
+ * Genisys OS only) no GHL sub-account and none in Genisys OS; no_phone_system
  * = GHL says the phone system needs configuration; unchecked = a linked GHL
  * sub-account not read yet.
  */
@@ -122,13 +122,13 @@ export function phoneState(o: { hlNumber: boolean; request: { status: string; ro
   if (o.census === 'has') return 'ghl'
   if (o.request && UNDER_WAY.has(o.request.status)) return 'asked'
   if (o.census === 'none') return 'needs'
-  // No GHL sub-account to hold one: a client with no Hell-level number needs one.
+  // No GHL sub-account to hold one: a client with no Genisys OS number needs one.
   if (o.ghlLinked === false) return 'needs'
   if (o.census === 'unavailable') return 'no_phone_system'
   return 'unchecked'
 }
 
-/** A Hell-level toll-free number Twilio hasn't approved for texting yet (nothing approved among them). */
+/** A Genisys OS toll-free number Twilio hasn't approved for texting yet (nothing approved among them). */
 export function hlCantTextYet(numbers: { kind: string; verificationStatus: string }[]): boolean {
   const tollFree = numbers.filter((n) => n.kind === 'toll_free')
   return tollFree.length > 0 && !tollFree.some((n) => n.verificationStatus === 'approved')

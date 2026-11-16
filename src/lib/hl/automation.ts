@@ -20,9 +20,9 @@ import { callWebhook, contactPayload, keptResponse } from './outbound-webhook'
  * workflow's steps until a Wait, which parks it with nextRunAt. The scheduler
  * resumes parked runs every minute (resumeDueRuns).
  *
- * Workflows built in Hell-level run their steps in list order. Ones brought
+ * Workflows built in Genisys OS run their steps in list order. Ones brought
  * over from GoHighLevel link each step to the next (`next`), with if/else
- * branches, go-tos and splits, the way GHL runs them; a GHL action Hell-level
+ * branches, go-tos and splits, the way GHL runs them; a GHL action Genisys OS
  * can't run yet stops the run there with a note in its log.
  *
  * Runs are claimed with a conditional update before they move, so the
@@ -90,7 +90,7 @@ export function replyMatches(text: string, phrases: string[], match: 'contains' 
 }
 
 function triggerMatches(t: HlTrigger, e: TriggerEvent): boolean {
-  // Switched off in GHL, or a GHL trigger with no Hell-level equivalent: never fires.
+  // Switched off in GHL, or a GHL trigger with no Genisys OS equivalent: never fires.
   if (t.active === false || t.type === 'ghl' || t.type !== e.type) return false
   if (t.type === 'form_submitted' || t.type === 'chat_submitted') {
     if (t.formId && t.formId !== e.formId) return false
@@ -143,7 +143,7 @@ export async function fireTrigger(accountId: string, contactId: string, e: Trigg
       select: { id: true },
     })
     started++
-    await advanceRun(run.id, depth).catch((err) => console.error(`[hell-level] run ${run.id} failed:`, err))
+    await advanceRun(run.id, depth).catch((err) => console.error(`[genisys-os] run ${run.id} failed:`, err))
   }
   return started
 }
@@ -276,7 +276,7 @@ async function latestReply(c: Ctx): Promise<string | null> {
 
 const asList = (v: unknown) => (Array.isArray(v) ? v : [v]).map((x) => String(x ?? '').trim().toLowerCase()).filter(Boolean)
 
-/** A text value (lower case) against a condition's values, with GHL's operators. null = an operator Hell-level doesn't know. */
+/** A text value (lower case) against a condition's values, with GHL's operators. null = an operator Genisys OS doesn't know. */
 function textHolds(value: string, op: string, wanted: unknown): boolean | null {
   const want = asList(wanted)
   if (op === '==') return want.includes(value)
@@ -288,7 +288,7 @@ function textHolds(value: string, op: string, wanted: unknown): boolean | null {
   return null
 }
 
-/** One GHL if/else condition. null = a kind Hell-level can't check yet (counts as not met). */
+/** One GHL if/else condition. null = a kind Genisys OS can't check yet (counts as not met). */
 async function conditionHolds(cond: HlCondition, c: Ctx): Promise<boolean | null> {
   const op = cond.operator
   if (cond.type === 'contact_reply') {
@@ -576,7 +576,7 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
           select: { id: true },
         })
         names.push(w.name)
-        await advanceRun(run.id, c.depth + 1).catch((err) => console.error(`[hell-level] run ${run.id} failed:`, err))
+        await advanceRun(run.id, c.depth + 1).catch((err) => console.error(`[genisys-os] run ${run.id} failed:`, err))
       }
       return names.length ? { ok: true, detail: `Added to ${names.map((n) => `“${n}”`).join(', ')}` } : { ok: false, detail: 'That workflow isn’t here' }
     }
@@ -632,13 +632,13 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
       return { ok: r.ok, detail: r.ok ? `${r.detail} (${(r.ms / 1000).toFixed(1)} s)` : `${r.detail}${attempt ? ` (tried ${attempt + 1} times)` : ''}: carried on` }
     }
     case 'ghl':
-      return { ok: false, detail: `“${step.name || step.ghl?.type || 'GoHighLevel action'}” is a GoHighLevel action Hell-level can’t run yet (${step.ghl?.type ?? 'unknown'}): stopped here`, stop: true }
+      return { ok: false, detail: `“${step.name || step.ghl?.type || 'GoHighLevel action'}” is a GoHighLevel action Genisys OS can’t run yet (${step.ghl?.type ?? 'unknown'}): stopped here`, stop: true }
     default:
       return { ok: false, detail: `Unknown step “${(step as HlStep).type}”` }
   }
 }
 
-/** Linked workflows (from GHL) say which step comes next; Hell-level's own go down the list. */
+/** Linked workflows (from GHL) say which step comes next; Genisys OS's own go down the list. */
 const isLinked = (steps: HlStep[]) => steps.some((s) => s.next !== undefined || s.type === 'if_else' || s.type === 'goto' || s.type === 'split')
 
 /** Move a run forward from its current step until it waits, stops or finishes. */
@@ -755,7 +755,7 @@ export async function contactReplied(accountId: string, contactId: string, at: D
   for (const r of runs) {
     if (rec(r.context).replyWait) {
       await prisma.hlWorkflowRun.updateMany({ where: { id: r.id, status: 'waiting' }, data: { nextRunAt: new Date() } })
-      await advanceRun(r.id).catch((err) => console.error(`[hell-level] resume ${r.id} after reply failed:`, err))
+      await advanceRun(r.id).catch((err) => console.error(`[genisys-os] resume ${r.id} after reply failed:`, err))
     } else if (rec(r.workflow.meta).stopOnResponse === true) {
       const log = [...((Array.isArray(r.log) ? r.log : []) as LogLine[]), { at: new Date().toISOString(), step: r.step, type: 'stop', ok: true, detail: 'The contact replied: stopped (Stop on response)' }]
       await prisma.hlWorkflowRun.updateMany({
@@ -774,7 +774,7 @@ export async function resumeDueRuns(limit = 50): Promise<number> {
     take: limit,
     select: { id: true },
   })
-  for (const r of due) await advanceRun(r.id).catch((err) => console.error(`[hell-level] resume ${r.id} failed:`, err))
+  for (const r of due) await advanceRun(r.id).catch((err) => console.error(`[genisys-os] resume ${r.id} failed:`, err))
   return due.length
 }
 

@@ -20,7 +20,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 function matches(f: SiteFolder, filter: Filter): boolean {
   if (filter === 'all') return true
-  // GHL shows no number on their sub-account (the Hub reads it daily); Forte's is in Hell-level.
+  // GHL shows no number on their sub-account (the Hub reads it daily); Forte's is in Genisys OS.
   if (filter === 'number') return f.phone === 'needs'
   // Their GHL number shows "Verification Required": no texts go out, replies included.
   if (filter === 'texting') return f.cantText

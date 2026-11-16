@@ -70,12 +70,13 @@ const base = {
 
 test('the email: their numbers and setup, the business name escaped, no internal names', () => {
   const e = plan.reportEmail(base)
-  assert.equal(e.subject, 'Acme Roofing & Gutters: your last 30 days with Genisys')
+  assert.equal(e.subject, 'Acme Roofing & Gutters: your last 30 days with Genisys OS')
   assert.ok(e.html.startsWith('<!DOCTYPE html>'), 'sent as HTML, not markdown')
   assert.ok(e.html.includes('Acme Roofing &amp; Gutters'))
   assert.ok(e.html.includes('Hi Dana,'))
   for (const v of ['>12<', '>41<', '>4<', '(855) 609-0482', 'acmeroofing.com']) assert.ok(e.html.includes(v), v)
-  assert.ok(!/hell-?level|gohighlevel|\bGHL\b/i.test(e.html), 'the client never sees internal names')
+  assert.ok(!/hell[- ]?level|gohighlevel|\bGHL\b/i.test(e.html), 'the client never sees the old name or GoHighLevel')
+  assert.ok(e.html.includes('Genisys OS did for Acme Roofing &amp; Gutters'))
   assert.ok(!e.html.includes('Choose my password'), 'no login block unless asked')
 })
 

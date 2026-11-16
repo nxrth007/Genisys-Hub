@@ -13,11 +13,11 @@ import type { Busy } from './slots'
 import { publicBase } from './twilio'
 
 /**
- * Google Calendar for Hell-level team members (GHL's Connections →
+ * Google Calendar for Genisys OS team members (GHL's Connections →
  * Calendars → Google, and Video conferencing → Google Meet). A team member
  * connects their own Google account; then
  *   - busy times on their Google Calendar block their slots (events
- *     Hell-level put there itself don't count twice), and
+ *     Genisys OS put there itself don't count twice), and
  *   - their appointments are written into it, moved when they move, and
  *     removed when cancelled, with a Google Meet link when the calendar (or
  *     the member's GHL settings) says Meet.
@@ -60,7 +60,7 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 // ---------------------------------------------------------------------------
 
 /**
- * Calendar connections sign in through Hell-level's own Google app once it's
+ * Calendar connections sign in through Genisys OS's own Google app once it's
  * set up: the Vault's "Hell Level Calendar" (its client ID) and "Hell Level
  * Calendar Secret", or env HL_GOOGLE_CLIENT_ID / HL_GOOGLE_CLIENT_SECRET. It
  * asks for calendar access only, so Google can verify it for anyone's account.
@@ -72,11 +72,11 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 export type GoogleAppKind = 'hl' | 'hub'
 type GoogleApp = { kind: GoogleAppKind; id: string; secret: string }
 
-/** Hell-level's app's return address (register it in that app's OAuth client). */
+/** Genisys OS's app's return address (register it in that app's OAuth client). */
 export const HL_GOOGLE_CALLBACK = '/api/hl/public/google-calendar/callback'
 
 /**
- * The address Hell-level's app's sign-in comes back to, once it's set (env
+ * The address Genisys OS's app's sign-in comes back to, once it's set (env
  * HL_GOOGLE_ORIGIN, e.g. https://hub.leadgenisys.com, this same Hub on a
  * domain Lead Genisys owns): Google's review wants the app's home page,
  * privacy policy and return address on the developer's own domain, not a
@@ -87,7 +87,8 @@ export function hlGoogleOrigin(): string | null {
   const v = (process.env.HL_GOOGLE_ORIGIN ?? '').trim().replace(/\/+$/, '').toLowerCase()
   return /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v) ? v : null
 }
-/** Where in the Vault Hell-level's app is, ID then secret: the names it was saved under, then the first ones suggested. Any case. */
+/** Where in the Vault Genisys OS's app is, ID then secret: the names it was saved under, then the first ones suggested. Any case. */
+// The Vault entries keep the names they were saved under, from before the rename to Genisys OS.
 const VAULT_NAMES: [string, string][] = [
   ['Hell Level Calendar', 'Hell Level Calendar Secret'],
   ['Hell-level Google Client ID', 'Hell-level Google Client Secret'],
@@ -108,7 +109,7 @@ async function vaultValue(name: string): Promise<string> {
   return entry ? getSecretByName(entry.name).then((v) => v.trim(), () => '') : ''
 }
 
-/** Hell-level's own app: the environment, else the Vault (read again every few minutes). */
+/** Genisys OS's own app: the environment, else the Vault (read again every few minutes). */
 export async function loadHlApp(): Promise<GoogleApp | null> {
   const env = envApp('hl')
   if (env) return env
@@ -137,7 +138,7 @@ export function forgetHlApp(): void {
   vaultApp = null
 }
 
-/** Something wrong with Hell-level's app in the Vault, said on the Connections page. */
+/** Something wrong with Genisys OS's app in the Vault, said on the Connections page. */
 export async function hlAppNote(): Promise<string | null> {
   if (envApp('hl')) return null
   await loadHlApp()
@@ -147,7 +148,7 @@ export async function hlAppNote(): Promise<string | null> {
 /** An app as last read, for code that mustn't touch the database (busy times inside a booking's transaction). */
 const knownApp = (kind: GoogleAppKind): GoogleApp | null => (kind === 'hub' ? envApp('hub') : (envApp('hl') ?? vaultApp?.app ?? null))
 
-/** The app new connections sign in through: Hell-level's when it's set up, else the Hub's. */
+/** The app new connections sign in through: Genisys OS's when it's set up, else the Hub's. */
 export async function connectApp(): Promise<GoogleApp | null> {
   return (await loadHlApp()) ?? envApp('hub')
 }
@@ -178,7 +179,7 @@ function verify(body: string | undefined, sig: string | undefined, salt: string)
   }
 }
 
-/** `from`: the Hub address a sign-in from Settings started on, when it comes back to Hell-level's app's own (hlGoogleOrigin), so Settings opens where they're signed in. */
+/** `from`: the Hub address a sign-in from Settings started on, when it comes back to Genisys OS's app's own (hlGoogleOrigin), so Settings opens where they're signed in. */
 export type ConnectState = { accountId: string; staffKey: string; back: 'hub' | 'page'; from?: string }
 
 /** A signed, hour-long state for Google's sign-in: which sub-account, which team member, where to come back to. */
@@ -200,7 +201,7 @@ export function readConnectState(state: string | null | undefined): ConnectState
 /**
  * Google's consent screen for the calendar scopes, through the app connections
  * use now. `origin` = the host the sign-in started on; it comes back there too,
- * unless Hell-level's app has its own address (hlGoogleOrigin).
+ * unless Genisys OS's app has its own address (hlGoogleOrigin).
  */
 export async function googleConsentUrl(origin: string, s: ConnectState): Promise<string> {
   const app = await connectApp()
@@ -224,20 +225,20 @@ export async function calendarCallbackRedirect(origin: string, kind: GoogleAppKi
   const back = (ok: string | null, error?: string) =>
     s.back === 'page'
       ? page(ok ? 'connected=1' : `error=${encodeURIComponent(error ?? '')}`)
-      : `${hub}/hell-level/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`
+      : `${hub}/genisys-os/${s.accountId}/settings?tab=calendars&section=connections&${ok ? `gcal_connected=${encodeURIComponent(ok)}` : `gcal_error=${encodeURIComponent(error ?? '')}`}`
   if (!code) return back(null, denied ? 'Google sign-in was cancelled.' : 'Google sent no sign-in code.')
   try {
     const { email, id } = await finishGoogleConnect(code, origin, s, kind)
     // Live updates from Google, and their upcoming appointments put on the calendar (they may have missed some while disconnected).
-    void import('./google-sync').then((m) => m.afterGoogleConnect(id)).catch((err) => console.error('[hell-level] google calendar after-connect failed:', err))
+    void import('./google-sync').then((m) => m.afterGoogleConnect(id)).catch((err) => console.error('[genisys-os] google calendar after-connect failed:', err))
     return back(email)
   } catch (err) {
-    console.error('[hell-level] calendar connect failed:', err)
+    console.error('[genisys-os] calendar connect failed:', err)
     return back(null, err instanceof Error ? err.message : 'Google sign-in failed.')
   }
 }
 
-/** A week-long link to send a team member (a client's staff), so they connect their own Google Calendar without a Hub login. On Hell-level's app's own address when it has one. */
+/** A week-long link to send a team member (a client's staff), so they connect their own Google Calendar without a Hub login. On Genisys OS's app's own address when it has one. */
 export async function shareableConnectLink(accountId: string, staffKey: string): Promise<string> {
   const body = Buffer.from(JSON.stringify({ a: accountId, s: staffKey, t: Date.now() })).toString('base64url')
   const base = ((await connectApp())?.kind === 'hl' && hlGoogleOrigin()) || publicBase()
@@ -442,7 +443,7 @@ export function calendarFor(row: Row | undefined): calendar_v3.Calendar | null {
   const hit = clients.get(row.id)
   if (hit && Date.now() - hit.at < CLIENT_TTL) return hit.cal
   const token = refreshOf(row)
-  // The app that made the sign-in (Hell-level's is read from the Vault outside bookings; see loadHlApp).
+  // The app that made the sign-in (Genisys OS's is read from the Vault outside bookings; see loadHlApp).
   const app = knownApp(appOf(row))
   if (!token || !app) return null
   const auth = oauthFor(app)
@@ -499,7 +500,7 @@ export async function googleCalendars(accountId: string, id: string): Promise<{ 
 
 /**
  * The busy times on a connection's calendars: the one bookings go into is
- * read event by event (so Hell-level's own appointments are left out);
+ * read event by event (so Genisys OS's own appointments are left out);
  * any other calendar is asked for its free/busy only.
  */
 async function busyOf(row: Row, c: CalendarConnection, lo: number, hi: number, db: Db): Promise<{ start: number; end: number }[] | null> {
@@ -517,7 +518,7 @@ async function busyOf(row: Row, c: CalendarConnection, lo: number, hi: number, d
       for (let page = 0; page < 10; page++) {
         const r = await cal.events.list({ calendarId: c.calendarId, timeMin, timeMax, singleEvents: true, maxResults: 2500, pageToken }, { timeout: GOOGLE_TIMEOUT })
         for (const e of r.data.items ?? []) {
-          // Free time, declined invitations and Hell-level's own appointments (already counted) don't block.
+          // Free time, declined invitations and Genisys OS's own appointments (already counted) don't block.
           if (e.status === 'cancelled' || e.transparency === 'transparent') continue
           if (e.extendedProperties?.private?.hlAppointmentId) continue
           if (e.attendees?.some((x) => x.self && x.responseStatus === 'declined')) continue
@@ -541,7 +542,7 @@ async function busyOf(row: Row, c: CalendarConnection, lo: number, hi: number, d
     await clearError(c, db)
     return busy
   } catch (err) {
-    console.warn(`[hell-level] google calendar ${c.email}:`, err instanceof Error ? err.message : err)
+    console.warn(`[genisys-os] google calendar ${c.email}:`, err instanceof Error ? err.message : err)
     await noteError(c.id, err, db)
     return null
   }
@@ -549,12 +550,12 @@ async function busyOf(row: Row, c: CalendarConnection, lo: number, hi: number, d
 
 /**
  * Busy times on the team members' Google Calendars between two instants,
- * as the slot engine's Busy (no calendar: it's outside Hell-level). A
+ * as the slot engine's Busy (no calendar: it's outside Genisys OS). A
  * calendar Google won't read for now just doesn't block anything.
  */
 export async function googleBusy(accountId: string, members: string[], from: Date, to: Date, db: Db = prisma): Promise<Busy[]> {
   if (!members.length) return []
-  // Outside a booking's transaction, Hell-level's Google app may be read fresh; inside, the last read is used.
+  // Outside a booking's transaction, Genisys OS's Google app may be read fresh; inside, the last read is used.
   if (db === prisma) await loadHlApp().catch(() => null)
   const conns = (await rowsOf(accountId, db)).map((row) => ({ row, c: toConnection(row) })).filter(({ c }) => c.conflicts && c.checkIds.length && members.some((k) => isFor(c, k)))
   if (!conns.length) return []
@@ -655,7 +656,7 @@ export async function syncAppointmentToGoogle(appointmentId: string): Promise<vo
         meetLink ??= link ?? null
         await clearError(c)
       } catch (err) {
-        console.warn(`[hell-level] google calendar push ${c.email}:`, err instanceof Error ? err.message : err)
+        console.warn(`[genisys-os] google calendar push ${c.email}:`, err instanceof Error ? err.message : err)
         await noteError(c.id, err)
         // A copy Google says is gone is made again next time.
         const code = (err as { code?: number }).code
@@ -675,6 +676,6 @@ export async function syncAppointmentToGoogle(appointmentId: string): Promise<vo
       data: { meta: asJson({ ...obj(fresh.meta), google: refs }), ...(address !== undefined && address !== fresh.address ? { address } : {}) },
     })
   } catch (err) {
-    console.error('[hell-level] google calendar sync failed:', err)
+    console.error('[genisys-os] google calendar sync failed:', err)
   }
 }

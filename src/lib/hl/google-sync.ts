@@ -8,7 +8,7 @@ import { calendarFor, forgetBusy, loadHlApp, noteError, syncAppointmentToGoogle,
 import { publicBase } from './twilio'
 
 /**
- * Google → Hell-level, as GHL's Google Calendar does. Each connection watches
+ * Google → Genisys OS, as GHL's Google Calendar does. Each connection watches
  * its calendars (Google's push notifications, renewed before their week runs
  * out) and reads just what changed since last time (sync tokens):
  *   - any change: that person's busy times are read again, so a new Google
@@ -116,7 +116,7 @@ export async function watchConnection(id: string): Promise<void> {
           .watch({ calendarId, requestBody: { id: channel.id, type: 'web_hook', address: `${publicBase()}${NOTIFY_PATH}`, token: channel.token, expiration: String(channel.expiration) } })
           .catch((err) => {
             // Some calendars (free/busy only) can't be watched: the 10-minute read covers them.
-            console.warn(`[hell-level] google watch ${row.name} ${calendarId}:`, err instanceof Error ? err.message : err)
+            console.warn(`[genisys-os] google watch ${row.name} ${calendarId}:`, err instanceof Error ? err.message : err)
             return null
           })
         if (r?.data.resourceId) kept.push({ ...channel, resourceId: r.data.resourceId, expiration: Number(r.data.expiration) || channel.expiration })
@@ -148,7 +148,7 @@ async function applyChange(row: Row & { accountId: string }, e: calendar_v3.Sche
   const meta = obj(a.meta) as { google?: Record<string, GoogleRef>; members?: unknown }
   const refs = meta.google ?? {}
   const mine = Object.entries(refs).find(([, r]) => r.eventId === e.id && (r.connectionId === c.id || r.email === c.email))
-  // Not a copy Hell-level is keeping (an old one, or one just being made): leave it.
+  // Not a copy Genisys OS is keeping (an old one, or one just being made): leave it.
   if (!mine) return null
   const members = Array.isArray(meta.members) ? meta.members.filter((m): m is string => typeof m === 'string') : []
   const host = a.assignedUserId ?? members[0]
@@ -231,7 +231,7 @@ export async function syncCalendar(id: string, calendarId: string): Promise<{ ch
       const appointmentId = e.extendedProperties?.private?.hlAppointmentId
       if (!appointmentId) continue
       const what = await applyChange(row, e, appointmentId).catch((err) => {
-        console.error(`[hell-level] google change to ${appointmentId} failed:`, err)
+        console.error(`[genisys-os] google change to ${appointmentId} failed:`, err)
         return null
       })
       if (what === 'moved') out.moved++
@@ -314,7 +314,7 @@ export async function maybeSyncGoogleCalendars(): Promise<number> {
     if (typeof d.error === 'string' && /invalid_grant/i.test(d.error)) continue
     const want = watched(row)
     const renew = want.some((cid) => !(d.channels ?? []).some((ch) => ch.calendarId === cid && ch.expiration - Date.now() > RENEW_MS))
-    if (renew) await watchConnection(row.id).catch((err) => console.warn('[hell-level] google watch renew failed:', err))
+    if (renew) await watchConnection(row.id).catch((err) => console.warn('[genisys-os] google watch renew failed:', err))
     for (const cid of want) changed += (await syncCalendar(row.id, cid).catch(() => ({ changed: 0 }))).changed
   }
   return changed

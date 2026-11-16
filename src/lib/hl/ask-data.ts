@@ -11,7 +11,7 @@ import type { HlStage } from './types'
  * What Ask AI reads (src/lib/hl/ask.ts): plain, read-only lookups over one
  * sub-account, or every sub-account for the agency view. Results come back
  * small and JSON-ready, times in the sub-account's own timezone, and each
- * person with their Hell-level link so an answer can point at them.
+ * person with their Genisys OS link so an answer can point at them.
  */
 
 export const DAY = 86_400_000
@@ -26,8 +26,8 @@ type NameParts = { firstName?: string | null; lastName?: string | null; phone?: 
 export const personName = (c: NameParts | null | undefined) =>
   !c ? 'Unknown' : [c.firstName, c.lastName].filter(Boolean).join(' ') || (c.phone ? prettyPhone(c.phone) : '') || c.email || 'Unknown'
 
-export const contactLink = (accountId: string, contactId: string) => `/hell-level/${accountId}/conversations?contact=${contactId}`
-export const accountLink = (accountId: string, page = 'dashboard') => `/hell-level/${accountId}/${page}`
+export const contactLink = (accountId: string, contactId: string) => `/genisys-os/${accountId}/conversations?contact=${contactId}`
+export const accountLink = (accountId: string, page = 'dashboard') => `/genisys-os/${accountId}/${page}`
 
 /** "Tue Oct 21 2026, 2:05 PM" in the sub-account's timezone. */
 export const when = (d: Date | null | undefined, tz: string) => (d ? formatInTimeZone(d, tz, 'EEE MMM d yyyy, h:mm a') : null)

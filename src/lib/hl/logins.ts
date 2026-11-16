@@ -99,7 +99,7 @@ export async function inviteLogin(o: {
 
   const link = await passwordLink(user.id, INVITE_TTL)
   if (o.quiet) {
-    console.log(`[hell-level] ${o.by} gave ${email} a login to ${o.accountId} (link handed to the caller)`)
+    console.log(`[genisys-os] ${o.by} gave ${email} a login to ${o.accountId} (link handed to the caller)`)
     return { link, sent: [] }
   }
   const account = await prisma.hlAccount.findUniqueOrThrow({ where: { id: o.accountId }, select: { name: true, profile: true } })
@@ -112,17 +112,17 @@ export async function inviteLogin(o: {
       fromName: 'Genisys',
       to: email,
       subject: `Your login for ${business}`,
-      body: `Hi ${first},\n\nYou now have a login to ${business}'s CRM: your leads, conversations, calendar and pipeline in one place.\n\nChoose your password here (the link works for 7 days):\n${link}\n\nAfter that, sign in any time at ${publicBase()}/login with ${email}.\n\n- Genisys`,
+      body: `Hi ${first},\n\nYou now have a login to Genisys OS for ${business}: your leads, conversations, calendar and pipeline in one place.\n\nChoose your password here (the link works for 7 days):\n${link}\n\nAfter that, sign in any time at ${publicBase()}/login with ${email}.\n\n- Genisys`,
     })
     sent.push(`emailed ${email}`)
   } catch (err) {
-    console.warn('[hell-level] login invite email failed:', err instanceof Error ? err.message : err)
+    console.warn('[genisys-os] login invite email failed:', err instanceof Error ? err.message : err)
   }
   if (phone) {
-    const r = await sendInternalSms(o.accountId, [phone], `Hi ${first}, you have a login to ${business}'s CRM. Choose your password here (works for 7 days): ${link}`)
+    const r = await sendInternalSms(o.accountId, [phone], `Hi ${first}, you have a login to Genisys OS for ${business}. Choose your password here (works for 7 days): ${link}`)
     if (r.ok) sent.push(`texted ${phone}`)
   }
-  console.log(`[hell-level] ${o.by} invited ${email} to log in to ${o.accountId} (${sent.join(', ') || 'link only'})`)
+  console.log(`[genisys-os] ${o.by} invited ${email} to log in to ${o.accountId} (${sent.join(', ') || 'link only'})`)
   return { link, sent }
 }
 
@@ -179,16 +179,16 @@ export async function requestPasswordReset(rawEmail: string): Promise<void> {
       body: `Hi ${first},\n\nChoose a new password here (the link works for an hour):\n${link}\n\nIf you didn't ask for this, ignore this email: your password stays as it is.\n\n- Genisys`,
     })
   } catch (err) {
-    console.warn('[hell-level] reset email failed:', err instanceof Error ? err.message : err)
+    console.warn('[genisys-os] reset email failed:', err instanceof Error ? err.message : err)
   }
   // A text too, to the phone on their staff record.
   const m = user.hlMemberships[0]
   const staff = m.staffId ? await prisma.hlRecord.findUnique({ where: { id: m.staffId }, select: { data: true } }) : null
   const phone = staffData(staff?.data).phone
-  if (typeof phone === 'string' && phone) await sendInternalSms(m.accountId, [phone], `Reset your CRM password here (works for an hour): ${link}`).catch(() => undefined)
+  if (typeof phone === 'string' && phone) await sendInternalSms(m.accountId, [phone], `Reset your Genisys OS password here (works for an hour): ${link}`).catch(() => undefined)
 }
 
-/** The sub-accounts a login can open, first one first (where /hell-level takes them). */
+/** The sub-accounts a login can open, first one first (where /genisys-os takes them). */
 export async function memberAccountIds(userId: string): Promise<string[]> {
   const rows = await prisma.hlMember.findMany({ where: { userId, account: { archivedAt: null } }, orderBy: { createdAt: 'asc' }, select: { accountId: true } })
   return rows.map((r) => r.accountId)

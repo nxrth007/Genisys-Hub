@@ -4,7 +4,7 @@ import type { HlConsentBox } from './types'
 /**
  * A booking calendar's settings, in GoHighLevel's own field names (what GHL's
  * API returns and the import keeps), so imported calendars book as they did
- * in GHL. A few Hell-level additions sit at the end. Client-safe: the
+ * in GHL. A few Genisys OS additions sit at the end. Client-safe: the
  * settings editor and the engine (src/lib/hl/slots.ts) read the same shape.
  */
 
@@ -78,7 +78,7 @@ export type HlCalendarSettings = {
   /** GHL's recurring appointments: each booking is a series (only with enableRecurring on). */
   enableRecurring?: boolean
   recurring?: HlRecurring
-  // --- Hell-level's own ---
+  // --- Genisys OS's own ---
   /** The calendar's own notifications (GHL's Notifications tab). GHL's imported `notifications` are its older email switches, kept as they were. */
   hlNotifications?: HlNotification[]
   /** Where it happens when no team member has their own: an address, a phone number, a meeting link. */
@@ -205,7 +205,7 @@ export const NOTIFICATION_EVENTS: { key: HlNotification['on']; label: string }[]
   { key: 'followup', label: 'Follow-up' },
 ]
 
-/** GHL's usual set, in Hell-level's words: confirmations, two reminders, the team's heads-up. */
+/** GHL's usual set, in Genisys OS's words: confirmations, two reminders, the team's heads-up. */
 export const NOTIFICATION_PRESETS: (Omit<HlNotification, 'id' | 'enabled'> & { label: string })[] = [
   { label: 'Confirmation text to the contact', on: 'booked', to: 'contact', channel: 'sms', body: 'Hi {{contact.first_name}}, you’re booked with {{account.business_name}} for {{appointment.start_time}}. Need to change it? {{appointment.reschedule_link}}' },
   { label: 'Reminder text a day before', on: 'reminder', to: 'contact', channel: 'sms', minutes: 1440, body: 'Reminder: {{account.business_name}} tomorrow, {{appointment.start_time}}. Need a different time? {{appointment.reschedule_link}}' },

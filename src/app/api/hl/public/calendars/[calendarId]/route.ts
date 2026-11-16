@@ -40,7 +40,7 @@ export async function GET(req: Request, { params }: Ctx) {
     return NextResponse.json({ calendar, slots: open.map((s) => ({ start: s.start.toISOString(), end: s.end.toISOString() })) }, { headers: CORS })
   } catch (err) {
     if (err instanceof BookingError) return NextResponse.json({ error: err.message }, { status: 400, headers: CORS })
-    console.error('[hell-level] slots failed:', err)
+    console.error('[genisys-os] slots failed:', err)
     return NextResponse.json({ error: 'Couldn’t load the times. Please try again.' }, { status: 500, headers: CORS })
   }
 }
@@ -74,7 +74,7 @@ export async function POST(req: Request, { params }: Ctx) {
       pageUrl: s(raw._page) ?? req.headers.get('referer'),
       member: s(raw.member),
     })
-    after(() => fireBookingTriggers(b).catch((err) => console.error('[hell-level] booking automations failed:', err)))
+    after(() => fireBookingTriggers(b).catch((err) => console.error('[genisys-os] booking automations failed:', err)))
     const calendar = await publicCalendar(calendarId)
     return NextResponse.json(
       {
@@ -90,7 +90,7 @@ export async function POST(req: Request, { params }: Ctx) {
     )
   } catch (err) {
     if (err instanceof BookingError) return NextResponse.json({ error: err.message, field: err.field }, { status: 400, headers: CORS })
-    console.error('[hell-level] booking failed:', err)
+    console.error('[genisys-os] booking failed:', err)
     return NextResponse.json({ error: 'Something went wrong. Please call us to book.' }, { status: 500, headers: CORS })
   }
 }

@@ -61,7 +61,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!number) return NextResponse.json({ error: 'Number not found' }, { status: 404 })
   try {
     await releaseNumber(numberId)
-    console.log(`[hell-level] ${guard.email} released ${number.number}`)
+    console.log(`[genisys-os] ${guard.email} released ${number.number}`)
     return NextResponse.json({ ok: true })
   } catch (err) {
     return hlError(err, 'release number')

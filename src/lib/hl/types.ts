@@ -1,5 +1,5 @@
 /**
- * Hell-level shapes shared by the server and the pages: the business
+ * Genisys OS shapes shared by the server and the pages: the business
  * profile (the sub-account's custom values), workflow triggers and steps,
  * form fields and pipeline stages. No server imports here.
  */
@@ -80,7 +80,7 @@ export type HlTriggerType =
   | 'link_clicked'
   /** Another app posted to the trigger's own URL (src/lib/hl/webhooks.ts): GHL's "Inbound webhook". */
   | 'inbound_webhook'
-  /** A GoHighLevel trigger Hell-level doesn't have (Facebook lead form…): shown, never fires. */
+  /** A GoHighLevel trigger Genisys OS doesn't have (Facebook lead form…): shown, never fires. */
   | 'ghl'
 
 /**
@@ -172,7 +172,7 @@ export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?
   { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
   { type: 'link_clicked', label: 'Trigger link clicked', hint: 'A contact opens a tracked link from a text, like the review link' },
   { type: 'inbound_webhook', label: 'Inbound webhook', hint: 'Another app sends data to this trigger’s own URL: Zapier, a website’s form, a CRM' },
-  { type: 'ghl', label: 'GoHighLevel trigger', hint: 'A GoHighLevel trigger Hell-level doesn’t have yet; it never fires here', pick: false },
+  { type: 'ghl', label: 'GoHighLevel trigger', hint: 'A GoHighLevel trigger Genisys OS doesn’t have yet; it never fires here', pick: false },
 ]
 
 export type HlStepType =
@@ -201,7 +201,7 @@ export type HlStepType =
   | 'drip'
   /** A request to another app (src/lib/hl/outbound-webhook.ts): GHL's Webhook and Custom Webhook. */
   | 'webhook'
-  /** A GoHighLevel action Hell-level can't run yet: shown as it was; a run stops there. */
+  /** A GoHighLevel action Genisys OS can't run yet: shown as it was; a run stops there. */
   | 'ghl'
 
 /** How a Webhook action proves who it is to the other app (GHL's Authorization options). */

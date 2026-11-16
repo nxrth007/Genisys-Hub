@@ -256,7 +256,7 @@ test('Echo asks before buying a new client a toll-free number: the question, its
   const a = s.approvals[0]
   assert.equal(a.id, 'n1')
   assert.equal(a.botId, 'echo')
-  assert.equal(a.question, 'Buy a toll-free number for Acme Roofing in Hell-level?')
+  assert.equal(a.question, 'Buy a toll-free number for Acme Roofing in Genisys OS?')
   assert.match(a.note, /^About \$2\.15\/month on Genisys’s Twilio, no ID check\. Calls ring \(603\) 555-0142\./)
   assert.match(a.note, /Texting verification is filed once their site link is in\.$/)
   assert.equal(a.stage, 'ask')
@@ -359,7 +359,7 @@ test('demo state carries sample questions: a number, and a filled GHL registrati
   runInThisContext(`(function(require, module, exports) {${outputText}\n})`)((n) => (n === './mapping' ? mapping : null), m, m.exports)
   const s = m.exports.demoState(NOW)
   assert.equal(s.approvals.length, 2)
-  assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing in Hell-level?')
+  assert.equal(s.approvals[0].question, 'Buy a toll-free number for Sample Roofing in Genisys OS?')
   assert.equal(s.approvals[0].botId, 'echo')
   assert.equal(s.approvals[1].question, 'Send Sample Painting’s toll-free registration in GHL?')
   assert.equal(s.approvals[1].kind, 'registration')

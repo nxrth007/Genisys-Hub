@@ -10,7 +10,7 @@ import { AgentShell } from './agent-shell'
  * - /agent/*  → AgentShell (minimal, no Hub sidebar)
  * - /client/* → no chrome; the client portal renders its own header
  * - /signin/* → no chrome; the signin pages render their own centered card
- * - /login/*  → no chrome; contractors' Hell-level sign-in is full-screen
+ * - /login/*  → no chrome; contractors' Genisys OS sign-in is full-screen
  * - everything else → AppShell (full Hub with sidebar + header)
  */
 export function RootShell({ children }: { children: React.ReactNode }) {
@@ -28,17 +28,17 @@ export function RootShell({ children }: { children: React.ReactNode }) {
   }
 
   if (pathname.startsWith('/hl/')) {
-    // Hell-level's public forms, chat widget and legal pages, embedded on client websites.
+    // Genisys OS's public forms, chat widget and legal pages, embedded on client websites.
     return <>{children}</>
   }
 
   if (pathname === '/login' || pathname.startsWith('/login/')) {
-    // Contractors' sign-in to Hell-level: full-screen, the entrance's white fire.
+    // Contractors' sign-in to Genisys OS: full-screen, the entrance's white fire.
     return <>{children}</>
   }
 
-  if (pathname === '/hell-level' || pathname.startsWith('/hell-level/')) {
-    // Hell-level draws its own GoHighLevel-style shell (src/app/hell-level/layout.tsx).
+  if (pathname === '/genisys-os' || pathname.startsWith('/genisys-os/')) {
+    // Genisys OS draws its own GoHighLevel-style shell (src/app/genisys-os/layout.tsx).
     return <>{children}</>
   }
 

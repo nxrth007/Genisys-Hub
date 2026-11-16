@@ -7,7 +7,7 @@ import { splitName, toE164 } from './phone'
 import type { HlProfile, HlStage } from './types'
 
 /**
- * Copies a GoHighLevel sub-account into Hell-level: business profile, staff,
+ * Copies a GoHighLevel sub-account into Genisys OS: business profile, staff,
  * tags, custom fields and values, pipelines, contacts, opportunities,
  * conversations with their messages, notes, tasks, calendars and
  * appointments, workflows, forms with submissions, and the lists GHL keeps
@@ -210,8 +210,8 @@ function freshPhases(): Record<ImportPhase, PhaseState> {
 
 /**
  * Start (or restart) importing the GHL location behind a Vault key. Makes the
- * Hell-level sub-account for that location the first time, and makes it the
- * one Hell-level opens on when no other default is set.
+ * Genisys OS sub-account for that location the first time, and makes it the
+ * one Genisys OS opens on when no other default is set.
  */
 export async function startGhlImport(o: { vaultName?: string; accountId?: string; by: string }): Promise<ImportState> {
   const vaultName = o.vaultName?.trim() || DEFAULT_GHL_VAULT
@@ -301,7 +301,7 @@ export async function runGhlImport(accountId: string): Promise<void> {
           ph.status = 'failed'
           ph.detail = err instanceof Error ? err.message.slice(0, 300) : String(err)
         }
-        console.warn(`[hell-level import] ${key}: ${ph.status}: ${ph.detail}`)
+        console.warn(`[genisys-os import] ${key}: ${ph.status}: ${ph.detail}`)
       }
       await c.save(true)
     }
@@ -309,7 +309,7 @@ export async function runGhlImport(accountId: string): Promise<void> {
     s.phase = null
     s.finishedAt = new Date().toISOString()
     await writeImportState(s)
-    console.log(`[hell-level import] ${accountId} done`)
+    console.log(`[genisys-os import] ${accountId} done`)
   } catch (err) {
     if (state) {
       state.status = 'failed'
@@ -317,7 +317,7 @@ export async function runGhlImport(accountId: string): Promise<void> {
       state.finishedAt = new Date().toISOString()
       await writeImportState(state).catch(() => {})
     }
-    console.error('[hell-level import] failed:', err)
+    console.error('[genisys-os import] failed:', err)
   } finally {
     running.delete(accountId)
   }

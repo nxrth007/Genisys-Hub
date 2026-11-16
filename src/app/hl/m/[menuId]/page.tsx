@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { publicMenu } from '@/lib/hl/service-menus'
-import { BookingFrame } from '@/components/hell-level/booking-frame'
-import { ServiceMenuBooking } from '@/components/hell-level/service-menu'
-import { FrameHeight } from '@/components/hell-level/frame-height'
+import { BookingFrame } from '@/components/genisys-os/booking-frame'
+import { ServiceMenuBooking } from '@/components/genisys-os/service-menu'
+import { FrameHeight } from '@/components/genisys-os/frame-height'
 
 export const dynamic = 'force-dynamic'
 

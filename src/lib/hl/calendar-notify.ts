@@ -99,7 +99,7 @@ async function attempt(a: Loaded, n: HlNotification): Promise<Notice> {
   const done = (ok: boolean, detail: string): Notice => ({ id: n.id, on: n.on, at: new Date().toISOString(), ok, detail })
   if (!body) return done(false, 'Empty message')
   if (n.to === 'contact') {
-    if (n.channel !== 'sms') return done(false, 'Email to contacts isn’t set up in Hell-level yet')
+    if (n.channel !== 'sms') return done(false, 'Email to contacts isn’t set up in Genisys OS yet')
     if (!a.contactId) return done(false, 'No contact on the appointment')
     const r = await sendSmsToContact({ accountId: a.accountId, contactId: a.contactId, body, by: 'calendar' })
     return done(r.ok, r.detail)

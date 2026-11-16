@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: Ctx) {
         await logActivity(contact.accountId, contact.id, t.link === 'review' ? 'Clicked the review link' : `Clicked the ${t.link} link`, { link: t.link }, false)
         await fireTrigger(contact.accountId, contact.id, { type: 'link_clicked', link: t.link })
       } catch (err) {
-        console.error('[hell-level] link click failed:', err)
+        console.error('[genisys-os] link click failed:', err)
       }
     })
   }

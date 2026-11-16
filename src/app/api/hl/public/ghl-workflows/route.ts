@@ -3,7 +3,7 @@ import { hlError, hlGuard, HlInputError } from '@/lib/hl/http'
 import { createExportKey, receiveExport, reimportSaved } from '@/lib/hl/ghl-workflows'
 
 /**
- * GoHighLevel workflows → Hell-level (src/lib/hl/ghl-workflows.ts). Under /api/hl/public
+ * GoHighLevel workflows → Genisys OS (src/lib/hl/ghl-workflows.ts). Under /api/hl/public
  * because the copy script posts from GHL's site with no Hub session; the
  * signed-in calls check the session themselves (hlGuard).
  *
@@ -42,7 +42,7 @@ export async function PUT(req: Request) {
   const accountId = new URL(req.url).searchParams.get('accountId') ?? ''
   try {
     const result = await reimportSaved(accountId)
-    console.log(`[hell-level] ${guard.email} re-imported GHL workflows for ${accountId}: ${result.workflows} workflows`)
+    console.log(`[genisys-os] ${guard.email} re-imported GHL workflows for ${accountId}: ${result.workflows} workflows`)
     return NextResponse.json({ result })
   } catch (err) {
     return hlError(err, 'GHL workflow re-import')
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       throw new HlInputError('The copy wasn’t readable.')
     }
     const { accountId, result } = await receiveExport(key, body)
-    console.log(`[hell-level] GHL workflows copied into ${accountId}: ${result.workflows} workflows, ${result.published} on`)
+    console.log(`[genisys-os] GHL workflows copied into ${accountId}: ${result.workflows} workflows, ${result.published} on`)
     return NextResponse.json({ result }, { headers: CORS })
   } catch (err) {
     const res = hlError(err, 'GHL workflow copy')

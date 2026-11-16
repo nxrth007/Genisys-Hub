@@ -2,7 +2,7 @@ import type { MergeData } from './merge'
 import { PROFILE_FIELDS, type HlProfile } from './types'
 
 /**
- * Every {{merge field}} Hell-level fills in, as the builder's reference shows
+ * Every {{merge field}} Genisys OS fills in, as the builder's reference shows
  * it: what each one fills with, where that comes from, what a message gets
  * when it's blank, and GoHighLevel's name for it. The Insert field menus are
  * made from this list too, and tests/hl-merge-fields.test.mjs renders every
@@ -22,15 +22,15 @@ export type MergeFieldDoc = {
   from: string
   /** What the message gets when there's nothing to put in. */
   blank: string
-  /** GoHighLevel's names for the same value. Hell-level fills these too (the test checks). Empty = Hell-level only. */
+  /** GoHighLevel's names for the same value. Genisys OS fills these too (the test checks). Empty = Genisys OS only. */
   ghl: string[]
-  /** GoHighLevel's names for it that Hell-level doesn't fill: use `token` instead. */
+  /** GoHighLevel's names for it that Genisys OS doesn't fill: use `token` instead. */
   ghlNot?: string[]
-  /** How GoHighLevel did it, where that isn't a merge field Hell-level fills. */
+  /** How GoHighLevel did it, where that isn't a merge field Genisys OS fills. */
   ghlNote?: string
-  /** Other spellings Hell-level fills the same way. */
+  /** Other spellings Genisys OS fills the same way. */
   also?: string[]
-  /** GoHighLevel's names (the "GoHighLevel's names" group): the Hell-level field that holds the same value. */
+  /** GoHighLevel's names (the "GoHighLevel's names" group): the Genisys OS field that holds the same value. */
   hl?: string
   /** Offered in the Insert field menu. */
   pick?: boolean
@@ -338,7 +338,7 @@ export const MERGE_GROUPS: MergeFieldGroup[] = [
       {
         token: '{{appointment.status}}',
         label: 'Appointment: status',
-        fills: 'Its status as Hell-level keeps it: new, confirmed, showed, noshow, cancelled or invalid.',
+        fills: 'Its status as Genisys OS keeps it: new, confirmed, showed, noshow, cancelled or invalid.',
         from: 'The appointment.',
         blank: 'Nothing, unless an appointment started the run.',
         ghl: [],
@@ -490,7 +490,7 @@ export const MERGE_GROUPS: MergeFieldGroup[] = [
   {
     key: 'ghl',
     title: 'GoHighLevel’s names',
-    intro: 'GHL copy pasted or imported as it is keeps working: these GHL names fill from the Business Profile. The Business profile fields are the Hell-level names for the same values.',
+    intro: 'GHL copy pasted or imported as it is keeps working: these GHL names fill from the Business Profile. The Business profile fields are the Genisys OS names for the same values.',
     fields: [
       {
         token: '{{user.name}}',
@@ -596,14 +596,14 @@ export const MERGE_GROUPS: MergeFieldGroup[] = [
 ]
 
 /**
- * GoHighLevel names Hell-level doesn't fill (from GHL's own merge field list),
+ * GoHighLevel names Genisys OS doesn't fill (from GHL's own merge field list),
  * and what to use instead. `becomes` is what a message gets: "blank" when the
- * part before the dot is one Hell-level knows (no warning in the editor), "kept"
+ * part before the dot is one Genisys OS knows (no warning in the editor), "kept"
  * when it isn't: it goes out as typed and the editor warns "Won't fill".
  */
 export const GHL_NOT_FILLED: { token: string; becomes: 'blank' | 'kept'; instead?: string; note?: string }[] = [
   { token: '{{calendar.name}}', becomes: 'kept', instead: '{{appointment.calendar}}' },
-  { token: '{{appointment.end_time}}', becomes: 'blank', note: 'Hell-level’s messages have no end time yet.' },
+  { token: '{{appointment.end_time}}', becomes: 'blank', note: 'Genisys OS’s messages have no end time yet.' },
   { token: '{{appointment.only_end_date}}', becomes: 'blank' },
   { token: '{{appointment.only_end_time}}', becomes: 'blank' },
   { token: '{{appointment.notes}}', becomes: 'blank' },
@@ -627,7 +627,7 @@ export const MERGE_RULES: string[] = [
   'Fields fill when the message goes out, from what’s true at that moment.',
   'A field with nothing to put in comes out empty. A greeting tidies up after it: “Hey {{contact.first_name}}!” becomes “Hey!”.',
   'Capitals and spaces inside the braces don’t matter: {{ Contact.First_Name }} works.',
-  'A field Hell-level doesn’t know at all stays in the message as typed, and the editor warns “Won’t fill” under the message box. One that starts with a known part (contact., appointment., location.…) comes out blank instead, with no warning.',
+  'A field Genisys OS doesn’t know at all stays in the message as typed, and the editor warns “Won’t fill” under the message box. One that starts with a known part (contact., appointment., location.…) comes out blank instead, with no warning.',
   'The preview under a message uses a made-up lead (Jennifer Smith) with this sub-account’s Business Profile.',
 ]
 

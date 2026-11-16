@@ -66,7 +66,7 @@ export function getPublicOrigin(req: {
   return process.env.AUTH_URL || 'http://localhost:3000'
 }
 
-/** The Hub's Google client, returning to /api/drive/callback (Hell-level's calendar connections share it: see src/lib/hl/google-calendar.ts). */
+/** The Hub's Google client, returning to /api/drive/callback (Genisys OS's calendar connections share it: see src/lib/hl/google-calendar.ts). */
 export function getOAuth2Client(baseUrl?: string) {
   return new google.auth.OAuth2(
     process.env.AUTH_GOOGLE_ID,

@@ -37,7 +37,7 @@ import {
  *      every few days until someone marks it verified.
  *   4. Verified: the profile link goes into the SEO engine's facts (the
  *      site's sameAs) and the review link into the GHL sub-account's
- *      "Review Google URL" custom value and the Hell-level sub-account's
+ *      "Review Google URL" custom value and the Genisys OS sub-account's
  *      Google review link, which the review workflows use.
  *
  * State lives in AppSetting `gbp.client.<id>`; no schema change.
@@ -374,9 +374,9 @@ export async function markVerified(
   if (reviewUrl) {
     const r = await setClientCustomValue(id, 'Review Google URL', reviewUrl).catch((err) => ({ ok: false, detail: err instanceof Error ? err.message : String(err) }))
     results.push(r.ok ? `GHL: ${r.detail}` : `GHL review link not set: ${r.detail}`)
-    // Hell-level's review survey sends happy customers to the sub-account's Google review link.
+    // Genisys OS's review survey sends happy customers to the sub-account's Google review link.
     const hl = await setHlReviewLink(id, reviewUrl).catch(() => false)
-    if (hl) results.push('Hell-level: Google review link set')
+    if (hl) results.push('Genisys OS: Google review link set')
   }
   state.history.push({ at: now(), by, what: `Marked verified. ${results.join('. ')}` })
   await save(id, state)

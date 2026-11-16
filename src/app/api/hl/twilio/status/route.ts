@@ -19,7 +19,7 @@ const ERRORS: Record<string, string> = {
 /** Codes meaning the number itself can't take texts (not a passing carrier hiccup). */
 const INVALID_NUMBER = new Set(['30003', '30005', '30006', '21614', '21211'])
 
-/** POST /api/hl/twilio/status: delivery receipts for texts Hell-level sent. */
+/** POST /api/hl/twilio/status: delivery receipts for texts Genisys OS sent. */
 export async function POST(req: Request) {
   const p = await twilioParams(req)
   if (!(await isFromTwilio(req, p))) return new Response('Forbidden', { status: 403 })
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     // The number can't get texts at all: workflows listening for that (GHL's "Twilio validation error") run.
     if (code && INVALID_NUMBER.has(code)) {
       const m = await prisma.hlMessage.findFirst({ where: { providerSid: sid }, select: { accountId: true, contactId: true } })
-      if (m?.contactId) await fireTrigger(m.accountId, m.contactId, { type: 'sms_error' }).catch((err) => console.error('[hell-level] sms_error trigger failed:', err))
+      if (m?.contactId) await fireTrigger(m.accountId, m.contactId, { type: 'sms_error' }).catch((err) => console.error('[genisys-os] sms_error trigger failed:', err))
     }
   }
   return new Response(null, { status: 204 })

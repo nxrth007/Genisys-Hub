@@ -1,9 +1,9 @@
 /**
  * A new client's website, built in Lovable after a Yes in the Office (Alex,
  * 2026-11-13: run Ethan's site build on Render after onboarding, with the
- * Hell-level quote form and chat on every new site).
+ * Genisys OS quote form and chat on every new site).
  *
- * Right after onboarding makes the client's Hell-level sub-account, Forge
+ * Right after onboarding makes the client's Genisys OS sub-account, Forge
  * (the website-build bot) asks in the Office: build their website?
  * (./site-plan.ts decides who.) A Claude call and Lovable credits cost
  * money, so nothing runs until a person presses Build it. Then one step at a
@@ -26,7 +26,7 @@
  *                <business-name>.lovable.app (free), then checks every minute
  *                until that address loads.
  *
- * Then their domain (Hell-level → Domains: bought through Forge, moved in,
+ * Then their domain (Genisys OS → Domains: bought through Forge, moved in,
  * or one whose DNS stays elsewhere). If it was there when Publish it was
  * pressed, connecting starts straight after; else Forge asks "Connect
  * acme.com to X's website?" once it appears. On Yes:
@@ -48,7 +48,7 @@
  * its own /privacy and /terms wherever it's shown (./legal-links.ts).
  */
 import { Prisma } from '@/generated/prisma/client'
-import { embedCode } from '@/components/hell-level/embed'
+import { embedCode } from '@/components/genisys-os/embed'
 import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
 import { textSiteEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { hubLink } from '@/lib/hub-alerts'
@@ -265,7 +265,7 @@ export async function gatherSite(clientId: string): Promise<Gathered | null> {
   const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
   const answer = (s: string | null | undefined) => (s ?? '').trim()
 
-  // The number on the site: their toll-free one (Hell-level, or bought in GHL), else their own.
+  // The number on the site: their toll-free one (Genisys OS, or bought in GHL), else their own.
   const hlNumber = account.numbers.find((n) => n.kind === 'toll_free') ?? account.numbers[0] ?? null
   const ghlNumber = c.hlNumberRequest?.route === 'ghl' && c.hlNumberRequest.status === 'bought' ? c.hlNumberRequest.number : null
   const own = phoneParts(p.businessPhone) ?? phoneParts(i?.customerPhone) ?? phoneParts(c.contactPhone) ?? phoneParts(i?.businessContact)
@@ -324,7 +324,7 @@ export async function gatherSite(clientId: string): Promise<Gathered | null> {
     !phone && 'phone number',
     !facts.email && 'email address',
     !facts.address.trim() && !facts.cities.trim() && 'address or service area',
-    !embeds && 'Hell-level quote form and chat widget',
+    !embeds && 'Genisys OS quote form and chat widget',
   ].filter((x): x is string => !!x)
   return {
     accountId: account.id,
@@ -470,7 +470,7 @@ async function decidePublish(r: { id: string; clientId: string; status: string; 
 /** Clears a domain connection's working fields (a new try starts from Lovable's chat). */
 const DOMAIN_RESET = { domainMessageId: null, domainThreadId: null, domainTxt: null, domainWwwTxt: null, domainStepAt: null, domainAt: null }
 
-/** The client's domain as Forge would connect it now (./site-plan.ts siteDomainChoice), and its row in Hell-level → Domains. */
+/** The client's domain as Forge would connect it now (./site-plan.ts siteDomainChoice), and its row in Genisys OS → Domains. */
 async function clientDomain(clientId: string): Promise<{ choice: SiteDomainChoice; accountId: string | null; domainId: string | null }> {
   const account = await prisma.hlAccount.findUnique({
     where: { clientId },
@@ -495,7 +495,7 @@ async function decideConnect(r: { id: string; clientId: string; status: string; 
   }
   if (!r.projectId) return { ok: false, reason: 'The Hub lost track of the Lovable copy. Connect the domain in Lovable instead.' }
   const d = await clientDomain(r.clientId)
-  if (!d.choice) return { ok: false, reason: 'They have no domain yet. Buy one with Forge’s domain question, or add theirs in Hell-level → Domains.' }
+  if (!d.choice) return { ok: false, reason: 'They have no domain yet. Buy one with Forge’s domain question, or add theirs in Genisys OS → Domains.' }
   if ('waiting' in d.choice) return { ok: false, reason: `${d.choice.waiting} is still moving in. Connect it once that’s done.` }
   const row = await prisma.hlSiteRequest.findUnique({ where: { id: r.id }, select: { editorUrl: true, client: { select: { name: true } } } })
   const help = connectHelp(d.choice.name, d.choice.managed)
@@ -531,7 +531,7 @@ export async function pasteDomainCode(clientId: string, text: string, by: string
   const { rootTxt, wwwTxt } = lovableVerifyCodes(text)
   if (!rootTxt) return { ok: false, reason: 'Paste the value Lovable shows that starts with lovable_verify=.' }
   const d = await clientDomain(clientId)
-  if (!d.choice || !('name' in d.choice) || d.choice.name !== r.domain || !d.domainId || !d.accountId) return { ok: false, reason: `${r.domain} isn’t ready in their Hell-level Domains.` }
+  if (!d.choice || !('name' in d.choice) || d.choice.name !== r.domain || !d.domainId || !d.accountId) return { ok: false, reason: `${r.domain} isn’t ready in their Genisys OS Domains.` }
   const records = recordsText(r.domain, rootTxt, wwwTxt)
   if (d.choice.managed) {
     await connectLovable(d.domainId, { host: '', rootTxt, wwwTxt, by })
@@ -551,7 +551,7 @@ export async function pasteDomainCode(clientId: string, text: string, by: string
  */
 export async function previewClientSite(clientId: string): Promise<{ prompt: string; fill: SiteFill; shown: number[]; costUsd: number; note: string | null; facts: SiteFacts }> {
   const g = await gatherSite(clientId)
-  if (!g) throw new SiteStop('No Hell-level sub-account for this client.')
+  if (!g) throw new SiteStop('No Genisys OS sub-account for this client.')
   if (g.missing.length || !g.embeds) throw new SiteStop(`Can’t fill it: no ${g.missing.join(' or ')} on file.`)
   const res = await fillOneShot(g.facts)
   try {
@@ -652,8 +652,8 @@ function stopReason(err: unknown, status: string): string {
 /** filling → copying: Claude fills the one-shot. */
 async function fillStep(r: SiteRow): Promise<boolean> {
   const g = await gatherSite(r.clientId)
-  if (!g) throw new SiteStop('The client or their Hell-level sub-account is gone.')
-  if (g.missing.length || !g.embeds) throw new SiteStop(`No ${g.missing.join(' or ')} on file. Add it in their Hell-level sub-account, then ask again from their folder in Sites.`)
+  if (!g) throw new SiteStop('The client or their Genisys OS sub-account is gone.')
+  if (g.missing.length || !g.embeds) throw new SiteStop(`No ${g.missing.join(' or ')} on file. Add it in their Genisys OS sub-account, then ask again from their folder in Sites.`)
   const res = await fillOneShot(g.facts)
   let prompt: string
   try {
@@ -661,7 +661,7 @@ async function fillStep(r: SiteRow): Promise<boolean> {
   } catch (err) {
     // The answers don't hold what the site needs: asking Claude again wouldn't change that.
     const notes = res.fill.notes.length ? ` Claude’s notes: ${res.fill.notes.join(' ')}` : ''
-    throw new SiteStop(`${describe(err)} Add it to their Hell-level Business Profile (Business address with city, state and ZIP; Service area) or onboarding answers, then ask again from their folder in Sites.${notes}`)
+    throw new SiteStop(`${describe(err)} Add it to their Genisys OS Business Profile (Business address with city, state and ZIP; Service area) or onboarding answers, then ask again from their folder in Sites.${notes}`)
   }
   const kept = prompt.match(/^- https:\/\/\S+/gm)?.length ?? 0
   await move(r.id, 'filling', `Claude filled the one-shot for $${res.costUsd.toFixed(2)}: ${kept} of ${g.facts.photos.length} photo(s) kept.${res.note ? ` ${res.note}` : ''}`, {
@@ -1064,7 +1064,7 @@ async function connectStep(r: SiteRow): Promise<boolean> {
   if (!r.domain) throw new SiteStop('Lost track of which domain to connect.')
   const d = await clientDomain(r.clientId)
   if (!d.choice || !('name' in d.choice) || d.choice.name !== r.domain) {
-    throw new SiteStop(`${r.domain} isn’t ready in their Hell-level Domains any more${d.choice && 'waiting' in d.choice ? ` (${d.choice.waiting} is moving in)` : ''}.`)
+    throw new SiteStop(`${r.domain} isn’t ready in their Genisys OS Domains any more${d.choice && 'waiting' in d.choice ? ` (${d.choice.waiting} is moving in)` : ''}.`)
   }
   // Rows from before the paste box (they asked Lovable's chat, which can't connect a domain) wait for the code too.
   if (r.domainStep === 'records' || r.domainStep === 'asking' || r.domainStep === 'lovable') return waitForRecords(r, r.domain, d.choice.managed, d.domainId)
@@ -1074,7 +1074,7 @@ async function connectStep(r: SiteRow): Promise<boolean> {
 
 /** records → live: the records are in (a person added them elsewhere, or pasted Lovable's code here). */
 async function waitForRecords(r: SiteRow, domain: string, managed: boolean, domainId: string | null): Promise<boolean> {
-  if (!domainId) throw new SiteStop(`${domain} isn’t in their Hell-level Domains any more.`)
+  if (!domainId) throw new SiteStop(`${domain} isn’t in their Genisys OS Domains any more.`)
   const row = managed ? await prisma.hlDomain.findUnique({ where: { id: domainId }, select: { meta: true } }) : await verifyExternal(domainId)
   const root = metaOf(row?.meta).hosts?.find((h) => h.host === '')
   // Only a code set since Forge asked counts: an older connection's code wouldn't verify this one.
@@ -1219,7 +1219,7 @@ let finding = false
  * A client's site, built in Lovable and live on a domain the Hub was never told about (Concrete
  * masonry, 2026-11-14: built by hand, its domain connected in Lovable, the folder still saying
  * "Being built"). Lovable's API doesn't say where a project is published, so the Hub looks where
- * the domain could be: their Hell-level Domains, their onboarding domain and website answers, the
+ * the domain could be: their Genisys OS Domains, their onboarding domain and website answers, the
  * SEO site's address, every domain in Genisys's Porkbun account, and the names a domain would take
  * from the business name (concretemasonryllc.org was bought outside Porkbun). A page counts only when it
  * carries the client's own project id (lovp_…); a match becomes their site link in Clients, and

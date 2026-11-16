@@ -30,7 +30,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const { id, connectionId } = await params
   try {
     const connection = await updateConnection(id, connectionId, await jsonBody(req))
-    after(() => watchConnection(connectionId).catch((err) => console.error('[hell-level] google watch failed:', err)))
+    after(() => watchConnection(connectionId).catch((err) => console.error('[genisys-os] google watch failed:', err)))
     return NextResponse.json({ connection })
   } catch (err) {
     return hlError(err, 'update calendar connection')

@@ -3,7 +3,7 @@ import { hlGuard } from '@/lib/hl/http'
 import { readBilling } from '@/lib/hl/billing'
 
 /**
- * GET /api/hl/accounts/:id/billing — the client's Whop membership and payments, for Hell-level →
+ * GET /api/hl/accounts/:id/billing — the client's Whop membership and payments, for Genisys OS →
  * Memberships. Read only (Alex, 2026-11-14): nothing here changes anything on Whop. Genisys only.
  */
 export const dynamic = 'force-dynamic'

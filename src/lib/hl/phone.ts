@@ -1,5 +1,5 @@
 /**
- * Phone numbers as Hell-level stores them: E.164 (+16035551234). US/Canada
+ * Phone numbers as Genisys OS stores them: E.164 (+16035551234). US/Canada
  * numbers typed any way ("(603) 555-1234", "603.555.1234", "1 603…") come
  * out the same; anything that can't be a dialable number comes out null.
  */

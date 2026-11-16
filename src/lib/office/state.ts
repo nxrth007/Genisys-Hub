@@ -179,7 +179,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       stage: 'ask',
       detail: d.detail,
       choices: readChoices(d.suggestions),
-      domainsLink: `/hell-level/${d.accountId}/settings?tab=domains`,
+      domainsLink: `/genisys-os/${d.accountId}/settings?tab=domains`,
     })
   }
   input.domainRequests = domainRequests
@@ -249,7 +249,7 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
         at: s.publishedAt ?? s.updatedAt,
         stage: 'domain',
         detail,
-        reviewLink: accountId ? `/hell-level/${accountId}/settings?tab=domains` : `/sites/${s.clientId}`,
+        reviewLink: accountId ? `/genisys-os/${accountId}/settings?tab=domains` : `/sites/${s.clientId}`,
         siteDomain,
       })
     }
