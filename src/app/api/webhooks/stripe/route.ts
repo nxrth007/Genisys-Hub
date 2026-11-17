@@ -1,0 +1,147 @@
+import { NextRequest, NextResponse, after } from 'next/server'
+import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
+import { prisma } from '@/lib/prisma'
+import { recordJourney, setJourneyStage } from '@/lib/client-journey'
+import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { textTeam } from '@/lib/team-sms'
+import { checkoutMember, claimStripeEvent, firstSecret, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
+import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
+
+/**
+ * POST /api/webhooks/stripe
+ *
+ * Stripe calls this for Genisys's account. Alex added the endpoint in the
+ * Stripe dashboard on 2026-11-17 (events: checkout.session.completed,
+ * customer.subscription.updated, customer.subscription.deleted,
+ * invoice.payment_failed); its signing secret is the Vault entry "Stripe
+ * Official Webhook Secret". The signup site (nxrth007/freesysystems) has its own
+ * Stripe webhooks for its ledger and GHL; this one is the Hub's:
+ *   - a trial starts: a team text and a #genisys-alerts post, the client's
+ *     journey ticked, Ethan's tracker ticked, the member remembered
+ *     (AppSetting stripe.customer:<id>) for the Memberships panel;
+ *   - a payment fails, a subscription goes past due or ends: a post.
+ *
+ * A valid event always gets a 200 straight away; the work runs afterwards
+ * (next/server `after`) so a slow Slack or GHL never makes Stripe retry. Each
+ * event is handled once (claimStripeEvent), so a retry can't text twice. Only
+ * a bad signature (401) or an unreadable body (400) is refused.
+ */
+
+export async function POST(req: NextRequest) {
+  const raw = await req.text()
+  const secret = await firstSecret(STRIPE_WEBHOOK_ENTRIES)
+  if (!secret) {
+    await hubAlertThrottled('stripe-webhook:no_secret', 30 * 60_000, `:rotating_light: *Stripe sent the Hub an event but the Vault has no "${STRIPE_WEBHOOK_ENTRIES[0]}"* — add the endpoint's signing secret (whsec_…) from Stripe → Developers → Webhooks.`)
+    return NextResponse.json({ error: 'not_configured' }, { status: 503 })
+  }
+  const check = verifyStripeSignature({ secret: secret.value, header: req.headers.get('stripe-signature'), body: raw })
+  if (!check.ok) {
+    await hubAlertThrottled('stripe-webhook:invalid_signature', 30 * 60_000, `:rotating_light: *Stripe webhook rejected a request* (${check.reason}). If real sign-ups aren't showing up, check the Vault entry "${secret.name}" matches the endpoint's signing secret in Stripe → Developers → Webhooks.`)
+    return NextResponse.json({ error: 'invalid_signature', reason: check.reason }, { status: 401 })
+  }
+
+  let event: unknown
+  try {
+    event = JSON.parse(raw)
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
+  }
+  const news = describeEvent(event)
+  if (news.kind === 'ignored') return NextResponse.json({ ok: true, ignored: news.type })
+  after(() => handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
+  return NextResponse.json({ ok: true })
+}
+
+const clientsLink = () => hubLink('/clients')
+
+async function handle(news: Exclude<StripeNews, { kind: 'ignored' }>) {
+  if (!(await claimStripeEvent(news.eventId))) return
+  switch (news.kind) {
+    case 'signup':
+      return handleSignup(news)
+    case 'status':
+      return handleStatus(news)
+    case 'canceled':
+      return handleCanceled(news)
+    case 'payment_failed':
+      return handlePaymentFailed(news)
+    case 'trial_ending':
+      return handleTrialEnding(news)
+  }
+}
+
+async function handleSignup(n: Extract<StripeNews, { kind: 'signup' }>) {
+  // The event carries the checkout, not the subscription: ask Stripe for the trial's dates and price.
+  const looked = n.sessionId ? await checkoutMember(n.sessionId).catch(() => null) : null
+  const m = looked && looked.valid ? looked : null
+  const email = m?.email ?? n.email
+  const name = m?.name ?? n.name
+  const customerId = m?.customerId ?? n.customerId
+  if (customerId) {
+    await rememberMember({ customerId, subscriptionId: m?.subscriptionId ?? n.subscriptionId, email, name, phone: m?.phone ?? n.phone, status: m?.subscriptionStatus ?? 'trialing', trialEnd: m?.trialEnd ?? null, periodEnd: m?.periodEnd ?? null, price: m?.price ?? null, livemode: n.livemode }).catch((err) => console.error('[stripe-webhook] remember:', err))
+  }
+  const who = name ?? email ?? 'someone'
+  const charge = shortDate(m?.trialEnd ?? null)
+  await hubAlert(`:moneybag: *New sign-up* — ${who}${name && email ? ` (${email})` : ''} started the free trial${m?.price ? ` of *${m.price}*` : ''}${charge ? `; first charge ${charge}` : ''}${n.livemode ? '' : ' _(Stripe test mode)_'}. <${clientsLink()}|Clients>`).catch(() => {})
+
+  // Journey: tick sign-up for a client already on file with this email (most sign-ups have no Client yet; the intake makes it).
+  if (email) {
+    await recordJourney(`stripe signup ${n.subscriptionId ?? n.sessionId}`, async () => {
+      const client = await prisma.client.findFirst({ where: { contactEmail: { equals: email, mode: 'insensitive' } }, select: { id: true } })
+      if (client) await setJourneyStage(client.id, 'signup', 'done', { note: `Stripe trial ${m?.subscriptionId ?? n.subscriptionId ?? ''}`.trim(), actor: 'stripe-webhook' })
+    })
+  }
+
+  // Only the live Hub texts anyone, and only about real money.
+  if (process.env.NODE_ENV !== 'production' || !n.livemode) return
+  try {
+    await textTeam(stripeSignupText({ name, email, price: m?.price ?? null, trialEnd: m?.trialEnd ?? null, link: clientsLink() }), 'Stripe sign-up')
+    const tracked = await markTrackerStep('signup', { emails: email ? [email] : [], name }, { addIfMissing: true })
+    if (!tracked.ok) console.warn(`[stripe-webhook] tracker: ${tracked.detail}`)
+  } catch (err) {
+    console.error(`[stripe-webhook] ${n.eventId}: announce failed:`, err)
+  }
+}
+
+async function whoIs(customerId: string | null, fallback: { email?: string | null; name?: string | null } = {}): Promise<string> {
+  const c = customerId ? await stripeCustomer(customerId) : null
+  const name = fallback.name ?? c?.name ?? null
+  const email = fallback.email ?? c?.email ?? null
+  return `${name ?? email ?? customerId ?? 'a client'}${name && email ? ` (${email})` : ''}`
+}
+
+async function handleStatus(n: Extract<StripeNews, { kind: 'status' }>) {
+  if (n.customerId) {
+    const c = await stripeCustomer(n.customerId)
+    await rememberMember({ customerId: n.customerId, subscriptionId: n.subscriptionId, email: c?.email ?? null, name: c?.name ?? null, phone: c?.phone ?? null, status: n.status, trialEnd: n.trialEnd, periodEnd: n.periodEnd, price: n.price, livemode: n.livemode }).catch((err) => console.error('[stripe-webhook] remember:', err))
+  }
+  if (!n.livemode || n.status === n.previousStatus) return
+  if (n.status === 'past_due' || n.status === 'unpaid') {
+    await hubAlert(`:warning: *Subscription ${n.status.replace('_', ' ')}* — ${await whoIs(n.customerId)}. Stripe will retry the card; <${clientsLink()}|Clients>.`).catch(() => {})
+  } else if (n.previousStatus === 'trialing' && n.status === 'active') {
+    await hubAlert(`:tada: *Trial converted* — ${await whoIs(n.customerId)} is now paying${n.price ? ` ${n.price}` : ''}. <${clientsLink()}|Clients>`).catch(() => {})
+  }
+}
+
+async function handleCanceled(n: Extract<StripeNews, { kind: 'canceled' }>) {
+  if (n.customerId) await rememberMember({ customerId: n.customerId, subscriptionId: n.subscriptionId, status: 'canceled', trialEnd: null, livemode: n.livemode }).catch((err) => console.error('[stripe-webhook] remember:', err))
+  if (!n.livemode) return
+  await hubAlert(`:no_entry_sign: *Subscription ended* — ${await whoIs(n.customerId)} canceled. <${clientsLink()}|Clients>`).catch(() => {})
+}
+
+async function handlePaymentFailed(n: Extract<StripeNews, { kind: 'payment_failed' }>) {
+  if (!n.livemode) return
+  const next = shortDate(n.nextAttempt)
+  await hubAlert(`:credit_card: *Payment failed* — ${await whoIs(n.customerId, { email: n.email, name: n.name })}${n.amount ? `, ${n.amount}` : ''}${n.attempt ? ` (attempt ${n.attempt})` : ''}${next ? `; Stripe retries ${next}` : ''}. <${clientsLink()}|Clients>`).catch(() => {})
+}
+
+async function handleTrialEnding(n: Extract<StripeNews, { kind: 'trial_ending' }>) {
+  if (!n.livemode) return
+  const end = shortDate(n.trialEnd)
+  await hubAlert(`:hourglass: *Trial ending* — ${await whoIs(n.customerId)}'s free trial ends${end ? ` ${end}` : ' in 3 days'}; the first charge follows. <${clientsLink()}|Clients>`).catch(() => {})
+}
+
+/** A GET is someone checking the URL is live. */
+export function GET() {
+  return NextResponse.json({ ok: true, endpoint: 'stripe-webhook', accepts: 'POST (Stripe-Signature signed)' })
+}
