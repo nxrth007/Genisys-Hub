@@ -42,7 +42,8 @@ function sameSecret(a: string, b: string): boolean {
 
 export async function POST(req: NextRequest) {
   const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
-  if (!checkRateLimit(`checkout-verify:${clientIp(req)}`, 60, 10 * 60_000).ok || !checkRateLimit('checkout-verify:all', 600, 60 * 60_000).ok) {
+  // The form's server asks on behalf of every client from a handful of addresses, so the per-address allowance is generous.
+  if (!checkRateLimit(`checkout-verify:${clientIp(req)}`, 300, 10 * 60_000).ok || !checkRateLimit('checkout-verify:all', 2000, 60 * 60_000).ok) {
     return json({ valid: false, error: 'Too many requests' }, 429)
   }
 
