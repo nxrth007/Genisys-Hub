@@ -184,6 +184,46 @@ export async function claimStripeEvent(eventId: string): Promise<boolean> {
   }
 }
 
+// --- What the Clients page shows about the gate ------------------------------
+
+/**
+ * The gate's health, as the Clients page's onboarding strip shows it (the team
+ * doesn't read Slack): the Hub's own check of its Stripe key and Vault entries,
+ * the last time the form asked the Hub and how that went, the last event Stripe
+ * delivered, and the last sign-up. Each part is one AppSetting row
+ * (`stripe.status:<part>`), written as things happen.
+ */
+export type StripeGateStatus = {
+  selfCheck: { at: string; ok: boolean; problems: string[]; keyMode: 'live' | 'test' | null } | null
+  verify: { at: string; outcome: 'ok' | 'not_member' | 'unauthorized' | 'unavailable'; asked: 'session' | 'email' | 'unknown' } | null
+  webhook: { at: string; type: string; livemode: boolean } | null
+  signup: { at: string; who: string; email: string | null; price: string | null; trialEnd: string | null; livemode: boolean } | null
+}
+
+const statusKey = (part: keyof StripeGateStatus) => `stripe.status:${part}`
+
+export async function noteStripeStatus<K extends keyof StripeGateStatus>(part: K, data: NonNullable<StripeGateStatus[K]>): Promise<void> {
+  const value = JSON.stringify(data)
+  await prisma.appSetting
+    .upsert({ where: { key: statusKey(part) }, create: { key: statusKey(part), value }, update: { value } })
+    .catch((err) => console.error(`[stripe-onboarding] status ${part}:`, err))
+}
+
+export async function stripeGateStatus(): Promise<StripeGateStatus> {
+  const parts: (keyof StripeGateStatus)[] = ['selfCheck', 'verify', 'webhook', 'signup']
+  const rows = await prisma.appSetting.findMany({ where: { key: { in: parts.map(statusKey) } } })
+  const read = <K extends keyof StripeGateStatus>(part: K): StripeGateStatus[K] => {
+    const row = rows.find((r) => r.key === statusKey(part))
+    if (!row) return null as StripeGateStatus[K]
+    try {
+      return JSON.parse(row.value) as StripeGateStatus[K]
+    } catch {
+      return null as StripeGateStatus[K]
+    }
+  }
+  return { selfCheck: read('selfCheck'), verify: read('verify'), webhook: read('webhook'), signup: read('signup') }
+}
+
 // --- Self-check ------------------------------------------------------------
 
 let lastSelfCheck = 0
@@ -191,33 +231,41 @@ const SELF_CHECK_EVERY_MS = 6 * 60 * 60_000
 const SELF_CHECK_DONE_KEY = 'stripe.selfCheck.v1'
 
 /**
- * Within a minute of a deploy and every six hours after: can the Hub actually
- * ask Stripe, is the key a live one, and are the other two Vault entries there?
- * Posts to #genisys-alerts once when it all first works, and (throttled) when
- * something is wrong, so nobody learns from a blocked client that a name or a
- * key was off.
+ * Within a minute of a deploy, every six hours after, and whenever the Clients
+ * page asks (`force`): can the Hub actually ask Stripe, is the key a live one,
+ * and are the other two Vault entries there? The result is kept for the
+ * Clients page; Slack hears once when it all first works and (throttled) when
+ * something is wrong.
  */
-export async function maybeCheckStripeOnboarding(): Promise<void> {
-  if (process.env.NODE_ENV !== 'production') return
-  if (Date.now() - lastSelfCheck < SELF_CHECK_EVERY_MS) return
+export async function maybeCheckStripeOnboarding(force = false): Promise<StripeGateStatus['selfCheck']> {
+  if (!force) {
+    if (process.env.NODE_ENV !== 'production') return null
+    if (Date.now() - lastSelfCheck < SELF_CHECK_EVERY_MS) return null
+  }
   lastSelfCheck = Date.now()
   const problems: string[] = []
+  let keyMode: 'live' | 'test' | null = null
   const key = await firstSecret(STRIPE_KEY_ENTRIES)
   if (!key) {
     problems.push(`no "${STRIPE_KEY_ENTRIES[0]}" in the Vault`)
   } else {
+    keyMode = /^(rk|sk)_live_/.test(key.value) ? 'live' : 'test'
     const r = await stripeGet(key.value, '/customers?limit=1').catch((err: unknown) => ({ ok: false, status: 0, data: { error: { message: err instanceof Error ? err.message : String(err) } } }))
     if (!r.ok) problems.push(`Stripe refused the "${key.name}" key (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)})`)
-    else if (!/^(rk|sk)_live_/.test(key.value)) problems.push(`"${key.name}" is a test-mode key, and real sign-ups are live`)
+    else if (keyMode !== 'live') problems.push(`"${key.name}" is a test-mode key, and real sign-ups are live`)
   }
   if (!(await firstSecret(STRIPE_WEBHOOK_ENTRIES))) problems.push(`no "${STRIPE_WEBHOOK_ENTRIES[0]}" in the Vault, so Stripe's events will be refused`)
   if (!(await firstSecret(VERIFY_KEY_ENTRIES))) problems.push(`no "${VERIFY_KEY_ENTRIES[0]}" in the Vault, so the form can't ask the Hub`)
+  const result = { at: new Date().toISOString(), ok: problems.length === 0, problems, keyMode }
+  await noteStripeStatus('selfCheck', result)
   if (problems.length) {
     console.warn(`[stripe-onboarding] self-check: ${problems.join('; ')}`)
     await hubAlertThrottled('stripe-onboarding:selfcheck', SELF_CHECK_EVERY_MS, `:warning: *Stripe sign-up check* — ${problems.join('; ')}. Fix it in the Vault; until then the onboarding form asks the signup site's own verifier.`)
-    return
+    return result
   }
-  if (await prisma.appSetting.findUnique({ where: { key: SELF_CHECK_DONE_KEY } })) return
-  await prisma.appSetting.create({ data: { key: SELF_CHECK_DONE_KEY, value: new Date().toISOString() } }).catch(() => null)
-  await hubAlert(":white_check_mark: *Stripe is connected to the Hub* — the restricted key, the webhook secret and the form's password are all in the Vault, and Stripe answered. New sign-ups will be announced here as they happen.")
+  if (!(await prisma.appSetting.findUnique({ where: { key: SELF_CHECK_DONE_KEY } }))) {
+    await prisma.appSetting.create({ data: { key: SELF_CHECK_DONE_KEY, value: result.at } }).catch(() => null)
+    await hubAlert(":white_check_mark: *Stripe is connected to the Hub* — the restricted key, the webhook secret and the form's password are all in the Vault, and Stripe answered. New sign-ups will be announced here as they happen.")
+  }
+  return result
 }

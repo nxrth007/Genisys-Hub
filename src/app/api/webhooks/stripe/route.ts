@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { textTeam } from '@/lib/team-sms'
-import { checkoutMember, claimStripeEvent, firstSecret, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
+import { checkoutMember, claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
 import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
 
 /**
@@ -47,6 +47,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
   }
   const news = describeEvent(event)
+  // The Clients page shows the last event Stripe delivered: proof the secret matches, whatever the event was.
+  const e = event as { type?: unknown; livemode?: unknown } | null
+  void noteStripeStatus('webhook', { at: new Date().toISOString(), type: typeof e?.type === 'string' ? e.type : 'unknown', livemode: e?.livemode === true })
   if (news.kind === 'ignored') return NextResponse.json({ ok: true, ignored: news.type })
   after(() => handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
   return NextResponse.json({ ok: true })
@@ -82,6 +85,7 @@ async function handleSignup(n: Extract<StripeNews, { kind: 'signup' }>) {
   }
   const who = name ?? email ?? 'someone'
   const charge = shortDate(m?.trialEnd ?? null)
+  await noteStripeStatus('signup', { at: new Date().toISOString(), who, email, price: m?.price ?? null, trialEnd: m?.trialEnd ?? null, livemode: n.livemode })
   await hubAlert(`:moneybag: *New sign-up* — ${who}${name && email ? ` (${email})` : ''} started the free trial${m?.price ? ` of *${m.price}*` : ''}${charge ? `; first charge ${charge}` : ''}${n.livemode ? '' : ' _(Stripe test mode)_'}. <${clientsLink()}|Clients>`).catch(() => {})
 
   // Journey: tick sign-up for a client already on file with this email (most sign-ups have no Client yet; the intake makes it).

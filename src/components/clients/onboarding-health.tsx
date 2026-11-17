@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Webhook } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CreditCard, Loader2, RefreshCw, Webhook } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -11,6 +11,12 @@ import { cn } from '@/lib/utils'
  * and the Hub's own read of the form's Google Sheet (every few minutes,
  * and on demand here). A submission that misses the first is caught by
  * the second, and this says which is doing the work.
+ *
+ * A second line is the Stripe sign-up gate (the form only takes answers
+ * from a client whose free trial started in Stripe): whether the Hub can
+ * ask Stripe, the form's last question to the Hub, Stripe's last event,
+ * and the last sign-up. The team doesn't read Slack, so this is where
+ * those answers live.
  */
 
 type SheetStatus = {
@@ -23,6 +29,13 @@ type SheetStatus = {
   account: string | null
 }
 
+type StripeStatus = {
+  selfCheck: { at: string; ok: boolean; problems: string[]; keyMode: 'live' | 'test' | null } | null
+  verify: { at: string; outcome: 'ok' | 'not_member' | 'unauthorized' | 'unavailable'; asked: 'session' | 'email' | 'unknown' } | null
+  webhook: { at: string; type: string; livemode: boolean } | null
+  signup: { at: string; who: string; email: string | null; price: string | null; trialEnd: string | null; livemode: boolean } | null
+}
+
 type Health = {
   webhookUrl: string
   secretConfigured: boolean
@@ -31,6 +44,7 @@ type Health = {
   unlinked: number
   total: number
   sheet: SheetStatus | null
+  stripe: StripeStatus | null
 }
 
 function ago(iso: string): string {
@@ -41,6 +55,13 @@ function ago(iso: string): string {
   if (h >= 1) return `${h}h ago`
   const m = Math.max(1, Math.floor(ms / 60_000))
   return `${m}m ago`
+}
+
+const VERIFY_WORDS: Record<NonNullable<StripeStatus['verify']>['outcome'], string> = {
+  ok: 'last check passed',
+  not_member: 'last check: no live trial for that link or email (a bad or unfinished checkout)',
+  unauthorized: 'the form’s password doesn’t match the Vault — fix HUB_VERIFICATION_KEY in Lovable',
+  unavailable: 'Stripe couldn’t be asked — see the check above',
 }
 
 export function OnboardingHealth() {
@@ -66,10 +87,19 @@ export function OnboardingHealth() {
       qc.invalidateQueries({ queryKey: ['clients-roster'] })
     },
   })
+  const stripeCheck = useMutation({
+    mutationFn: async (): Promise<Health> => {
+      const res = await fetch('/api/clients/onboarding-health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'stripe' }) })
+      if (!res.ok) throw new Error(`Check failed (${res.status})`)
+      return res.json()
+    },
+    onSuccess: (data) => qc.setQueryData(['clients-onboarding-health'], data),
+  })
 
   if (!q.data) return null
   const h = q.data
   const s = h.sheet
+  const st = h.stripe
   const justImported = sync.isSuccess ? (sync.data?.sheet?.imported.length ?? 0) : 0
 
   const problem = !h.secretConfigured
@@ -80,11 +110,13 @@ export function OnboardingHealth() {
         ? `${h.unlinked} submission${h.unlinked === 1 ? '' : 's'} never became a client (no business name?).`
         : null
 
+  const stripeProblem = (st?.selfCheck && !st.selfCheck.ok) || st?.verify?.outcome === 'unauthorized'
+
   return (
     <div
       className={cn(
         'flex flex-col gap-1.5 rounded-xl border px-4 py-2.5 text-[12.5px]',
-        problem ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border-soft bg-surface text-muted-foreground',
+        problem || stripeProblem ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border-soft bg-surface text-muted-foreground',
       )}
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -134,6 +166,49 @@ export function OnboardingHealth() {
         {sync.isSuccess && (justImported > 0 ? ` Just added ${justImported} from the sheet.` : ' Nothing new in the sheet.')}
         {sync.isError && ' The check failed — try again.'}
       </p>
+      <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-1.5 text-[12px]', stripeProblem ? 'border-warning/30 text-warning/90' : 'border-border-soft text-muted-foreground')}>
+        <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
+          <CreditCard className="h-3.5 w-3.5" /> Sign-ups (Stripe)
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          {st?.selfCheck ? (
+            st.selfCheck.ok ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" /> Hub ↔ Stripe connected, checked {ago(st.selfCheck.at)}
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {st.selfCheck.problems.join('; ')} (checked {ago(st.selfCheck.at)})
+              </>
+            )
+          ) : (
+            'Hub ↔ Stripe: not checked yet'
+          )}
+        </span>
+        <span>Form → Hub: {st?.verify ? `${VERIFY_WORDS[st.verify.outcome]}, ${ago(st.verify.at)}` : 'the form hasn’t asked yet'}</span>
+        <span>Stripe → Hub: {st?.webhook ? `last event ${st.webhook.type}${st.webhook.livemode ? '' : ' (test)'}, ${ago(st.webhook.at)}` : 'no events yet'}</span>
+        <span>
+          Last sign-up:{' '}
+          {st?.signup ? (
+            <>
+              <span className="text-foreground/85">{st.signup.who}</span>
+              {st.signup.price ? ` (${st.signup.price})` : ''}, {ago(st.signup.at)}
+            </>
+          ) : (
+            'none yet'
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={() => stripeCheck.mutate()}
+          disabled={stripeCheck.isPending}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11.5px] font-medium text-foreground/85 transition hover:bg-muted disabled:opacity-50"
+        >
+          {stripeCheck.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Check Stripe now
+        </button>
+        {stripeCheck.isError && <span>The check failed — try again.</span>}
+      </div>
     </div>
   )
 }

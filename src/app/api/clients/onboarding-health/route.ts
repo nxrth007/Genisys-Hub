@@ -1,19 +1,22 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { getSheetSyncStatus, reconcileOnboardingSheet } from '@/lib/onboarding-sheet'
+import { maybeCheckStripeOnboarding, stripeGateStatus } from '@/lib/stripe-onboarding'
 
 /**
  * GET /api/clients/onboarding-health
  *
  * Is the onboarding form → Hub pipeline healthy? The webhook's own
  * config, when the last submission arrived, how many this month, whether
- * any submission never became a Client, and how the Hub's own read of the
- * form's Google Sheet is going.
+ * any submission never became a Client, how the Hub's own read of the
+ * form's Google Sheet is going, and the Stripe sign-up gate (the Hub's
+ * check of its Stripe key and Vault entries, the form's last question to
+ * the Hub, Stripe's last event, the last sign-up).
  *
- * POST runs that sheet read now instead of waiting for the schedule.
- * Staff only.
+ * POST runs the sheet read now instead of waiting for the schedule;
+ * POST { action: "stripe" } runs the Stripe check now. Staff only.
  */
 
 async function staff(): Promise<NextResponse | null> {
@@ -26,7 +29,7 @@ async function staff(): Promise<NextResponse | null> {
 
 async function health() {
   const since = new Date(Date.now() - 30 * 86_400_000)
-  const [secretConfigured, lastIntake, intakes30d, unlinked, total, sheet] = await Promise.all([
+  const [secretConfigured, lastIntake, intakes30d, unlinked, total, sheet, stripe] = await Promise.all([
     getSecretByName('Client Onboarding Webhook Secret')
       .then((v) => v.trim().length > 0)
       .catch(() => false),
@@ -38,6 +41,7 @@ async function health() {
     prisma.clientIntake.count({ where: { clientId: null, status: { not: 'archived' } } }),
     prisma.clientIntake.count(),
     getSheetSyncStatus().catch(() => null),
+    stripeGateStatus().catch(() => null),
   ])
   const base = (process.env.AUTH_URL || 'http://localhost:3000').replace(/\/+$/, '')
   return {
@@ -50,6 +54,7 @@ async function health() {
     unlinked,
     total,
     sheet,
+    stripe,
   }
 }
 
@@ -59,9 +64,11 @@ export async function GET() {
   return NextResponse.json(await health())
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const denied = await staff()
   if (denied) return denied
-  await reconcileOnboardingSheet()
+  const body = (await req.json().catch(() => ({}))) as { action?: unknown } | null
+  if (body?.action === 'stripe') await maybeCheckStripeOnboarding(true)
+  else await reconcileOnboardingSheet()
   return NextResponse.json(await health())
 }

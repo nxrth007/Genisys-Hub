@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
 import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 import { hubAlertThrottled } from '@/lib/hub-alerts'
-import { checkoutMember, emailMember, firstSecret, STRIPE_KEY_ENTRIES, StripeUnavailable, VERIFY_KEY_ENTRIES } from '@/lib/stripe-onboarding'
+import { checkoutMember, emailMember, firstSecret, noteStripeStatus, STRIPE_KEY_ENTRIES, StripeUnavailable, VERIFY_KEY_ENTRIES } from '@/lib/stripe-onboarding'
 import { CHECKOUT_SESSION_ID } from '@/lib/stripe-onboarding-plan'
 
 /**
@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
   if (!provided || !sameSecret(provided, expected.value)) {
     // A header that is there but wrong is a setup problem worth hearing about; scanners send none.
     if (provided) {
+      void noteStripeStatus('verify', { at: new Date().toISOString(), outcome: 'unauthorized', asked: 'unknown' })
       await hubAlertThrottled(
         'checkout-verify:bad_key',
         30 * 60_000,
@@ -80,16 +81,20 @@ export async function POST(req: NextRequest) {
   if (sessionId && !CHECKOUT_SESSION_ID.test(sessionId)) return json({ valid: false, error: 'Invalid session_id' }, 400)
   if (!sessionId && !EMAIL.test(email)) return json({ valid: false, error: 'Invalid email' }, 400)
 
+  const asked = sessionId ? 'session' : 'email'
   try {
     const m = sessionId ? await checkoutMember(sessionId) : await emailMember(email)
     if (!m.valid) {
       console.log(`[checkout-verify] ${sessionId || email}: not a member (${m.reason})`)
+      void noteStripeStatus('verify', { at: new Date().toISOString(), outcome: 'not_member', asked })
       return json({ valid: false, error: 'Subscription not confirmed' }, 403)
     }
     console.log(`[checkout-verify] ${sessionId || email}: ${m.subscriptionStatus}${m.livemode ? '' : ' (test mode)'}`)
+    void noteStripeStatus('verify', { at: new Date().toISOString(), outcome: 'ok', asked })
     return json({ valid: true, email: m.email, name: m.name, subscription_status: m.subscriptionStatus, trial_end: m.trialEnd, livemode: m.livemode })
   } catch (err) {
     if (err instanceof StripeUnavailable) {
+      void noteStripeStatus('verify', { at: new Date().toISOString(), outcome: 'unavailable', asked })
       await hubAlertThrottled(
         'checkout-verify:stripe',
         30 * 60_000,
