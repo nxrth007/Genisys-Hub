@@ -219,5 +219,5 @@ export async function maybeCheckStripeOnboarding(): Promise<void> {
   }
   if (await prisma.appSetting.findUnique({ where: { key: SELF_CHECK_DONE_KEY } })) return
   await prisma.appSetting.create({ data: { key: SELF_CHECK_DONE_KEY, value: new Date().toISOString() } }).catch(() => null)
-  await hubAlert(':white_check_mark: *Stripe is connected to the Hub* — the restricted key, the webhook secret and the form's password are all in the Vault, and Stripe answered. New sign-ups will be announced here as they happen.')
+  await hubAlert(":white_check_mark: *Stripe is connected to the Hub* — the restricted key, the webhook secret and the form's password are all in the Vault, and Stripe answered. New sign-ups will be announced here as they happen.")
 }

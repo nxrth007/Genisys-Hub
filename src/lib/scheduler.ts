@@ -516,12 +516,12 @@ export function initScheduler() {
       .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
     // Whop: text Alex and Ethan about new memberships (checks every 5 min).
     void maybeAlertWhopSignups()
-    // Stripe sign-up gate: can the Hub ask Stripe, are the Vault entries there (every 6 h; says so in Slack once it works, and when it breaks).
-    void maybeCheckStripeOnboarding().catch((err) => console.error('[stripe-onboarding] self-check:', err))
       .then((n) => {
         if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
       })
       .catch((err) => console.error('[scheduler] whop sign-up check failed:', err))
+    // Stripe sign-up gate: can the Hub ask Stripe, are the Vault entries there (every 6 h; says so in Slack once it works, and when it breaks).
+    void maybeCheckStripeOnboarding().catch((err) => console.error('[stripe-onboarding] self-check:', err))
     // Render monitor: failed deploys, error logs, health check → text Ethan (every 5 min, RENDER_MONITOR_ENABLED=1).
     void maybeRunRenderMonitor()
       .then((r) => {
