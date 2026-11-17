@@ -126,6 +126,20 @@ test('the sign-up text names the person, the plan and the first charge', () => {
   assert.equal(plan.stripeSignupText({ name: null, email: null, price: null, trialEnd: null, link: 'https://hub/clients' }), 'Genisys: New sign-up! Someone started the free trial. https://hub/clients')
 })
 
+test("which Stripe account a key or id belongs to, read off its marker", () => {
+  // Sample keys are assembled here so no key-shaped string sits in the repo (GitHub's push protection reads them as real).
+  const sample = (kind, mode, body) => [kind, mode, body].join('_')
+  assert.equal(plan.accountMarker(sample('pk', 'live', '51TnjrvIm6NAwaEIm' + 'n'.repeat(80))), 'Im6NAwaEIm')
+  assert.equal(plan.accountMarker(sample('rk', 'live', '51TnjrvIm6NAwaEIm' + 'a'.repeat(40))), 'Im6NAwaEIm')
+  assert.equal(plan.accountMarker('price_1Ub3otIm6NAwaEImXCIP9UM2'), 'Im6NAwaEIm')
+  assert.equal(plan.accountMarker('we_1UctFbIm6NAwaEIm52p7SyHv'), 'Im6NAwaEIm')
+  assert.equal(plan.accountMarker('sub_1QzAbCDeFgHiJkLmNoPqRsTu'), 'DeFgHiJkLm')
+  assert.equal(plan.accountMarker(sample('sk', 'live', '51MoBy5LkdIwHu7ix' + 'A'.repeat(60))), 'LkdIwHu7ix')
+  assert.equal(plan.accountMarker('cus_NffrFeUfNV2Hib'), null, 'customer ids carry no account marker')
+  assert.equal(plan.accountMarker(sample('sk', 'test', 'TYooMQauvdEDq54NiTphI7jx')), null, 'an old-style key says nothing')
+  assert.equal(plan.SIGNUP_ACCOUNT_MARKER, 'Im6NAwaEIm')
+})
+
 test('checkout ids: test and live, nothing else', () => {
   assert.ok(plan.CHECKOUT_SESSION_ID.test('cs_live_a1B2c3D4'))
   assert.ok(plan.CHECKOUT_SESSION_ID.test('cs_test_a1B2c3D4'))

@@ -30,7 +30,7 @@ type SheetStatus = {
 }
 
 type StripeStatus = {
-  selfCheck: { at: string; ok: boolean; problems: string[]; keyMode: 'live' | 'test' | null } | null
+  selfCheck: { at: string; ok: boolean; problems: string[]; notes?: string[]; keyMode: 'live' | 'test' | null; sameAccount?: boolean | null } | null
   verify: { at: string; outcome: 'ok' | 'not_member' | 'unauthorized' | 'unavailable'; asked: 'session' | 'email' | 'unknown' } | null
   webhook: { at: string; type: string; livemode: boolean } | null
   signup: { at: string; who: string; email: string | null; price: string | null; trialEnd: string | null; livemode: boolean } | null
@@ -174,7 +174,8 @@ export function OnboardingHealth() {
           {st?.selfCheck ? (
             st.selfCheck.ok ? (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" /> Hub ↔ Stripe connected, checked {ago(st.selfCheck.at)}
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" /> Hub ↔ Stripe connected{st.selfCheck.sameAccount ? ' (the signup’s account)' : ''}, checked {ago(st.selfCheck.at)}
+                {st.selfCheck.notes?.length ? ` · ${st.selfCheck.notes.join('; ')}` : ''}
               </>
             ) : (
               <>

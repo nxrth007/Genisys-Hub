@@ -12,7 +12,7 @@
 import { prisma } from '@/lib/prisma'
 import { hubAlert, hubAlertThrottled } from '@/lib/hub-alerts'
 import { getSecretByName } from '@/lib/vault-service'
-import { CHECKOUT_SESSION_ID, judgeCheckout, judgeSubscriptions, type NotMember, type StripeMember } from './stripe-onboarding-plan'
+import { accountMarker, CHECKOUT_SESSION_ID, judgeCheckout, judgeSubscriptions, SIGNUP_ACCOUNT_MARKER, type NotMember, type StripeMember } from './stripe-onboarding-plan'
 
 /** Vault entries: the names Alex gave them, then the names suggested before he made them. */
 export const STRIPE_KEY_ENTRIES = ['Stripe Official Restricted', 'Stripe Onboarding Key']
@@ -77,11 +77,21 @@ export async function checkoutMember(sessionId: string): Promise<StripeMember | 
   return judgeCheckout(r.data)
 }
 
-/** Stripe's answer for an email: the newest trialing or active subscription of a customer with that email. */
+/**
+ * Stripe's answer for an email: the newest trialing or active subscription of a
+ * customer with that email. The list filter is exact and case-sensitive (and
+ * fresh); when it finds nobody, the search API matches the email whatever its
+ * capitalisation (it can lag a minute behind).
+ */
 export async function emailMember(email: string): Promise<StripeMember | NotMember> {
   const key = await stripeKey()
-  const list = await stripeMust(key, `/customers?email=${encodeURIComponent(email.trim().toLowerCase())}&limit=10`)
-  const customers = isObj(list) && Array.isArray(list.data) ? list.data.filter(isObj) : []
+  const clean = email.trim().toLowerCase()
+  const fromList = await stripeMust(key, `/customers?email=${encodeURIComponent(clean)}&limit=10`)
+  let customers = isObj(fromList) && Array.isArray(fromList.data) ? fromList.data.filter(isObj) : []
+  if (!customers.length) {
+    const fromSearch = await stripeMust(key, `/customers/search?query=${encodeURIComponent(`email:"${clean.replace(/["\\]/g, '')}"`)}&limit=10`)
+    customers = isObj(fromSearch) && Array.isArray(fromSearch.data) ? fromSearch.data.filter(isObj) : []
+  }
   const found: { customer: unknown; subscriptions: unknown }[] = []
   for (const customer of customers.slice(0, 5)) {
     const id = typeof customer.id === 'string' ? customer.id : ''
@@ -194,7 +204,16 @@ export async function claimStripeEvent(eventId: string): Promise<boolean> {
  * (`stripe.status:<part>`), written as things happen.
  */
 export type StripeGateStatus = {
-  selfCheck: { at: string; ok: boolean; problems: string[]; keyMode: 'live' | 'test' | null } | null
+  selfCheck: {
+    at: string
+    ok: boolean
+    problems: string[]
+    /** Worth knowing, not a failure of the gate (the Payments page's own key, say). */
+    notes: string[]
+    keyMode: 'live' | 'test' | null
+    /** The restricted key is the signup site's Stripe account (null: couldn't tell yet). */
+    sameAccount: boolean | null
+  } | null
   verify: { at: string; outcome: 'ok' | 'not_member' | 'unauthorized' | 'unavailable'; asked: 'session' | 'email' | 'unknown' } | null
   webhook: { at: string; type: string; livemode: boolean } | null
   signup: { at: string; who: string; email: string | null; price: string | null; trialEnd: string | null; livemode: boolean } | null
@@ -244,19 +263,49 @@ export async function maybeCheckStripeOnboarding(force = false): Promise<StripeG
   }
   lastSelfCheck = Date.now()
   const problems: string[] = []
+  const notes: string[] = []
   let keyMode: 'live' | 'test' | null = null
+  let sameAccount: boolean | null = null
+  const tryStripe = (k: string, path: string) =>
+    stripeGet(k, path).catch((err: unknown) => ({ ok: false, status: 0, data: { error: { message: err instanceof Error ? err.message : String(err) } } }))
   const key = await firstSecret(STRIPE_KEY_ENTRIES)
   if (!key) {
     problems.push(`no "${STRIPE_KEY_ENTRIES[0]}" in the Vault`)
   } else {
     keyMode = /^(rk|sk)_live_/.test(key.value) ? 'live' : 'test'
-    const r = await stripeGet(key.value, '/customers?limit=1').catch((err: unknown) => ({ ok: false, status: 0, data: { error: { message: err instanceof Error ? err.message : String(err) } } }))
+    const r = await tryStripe(key.value, '/customers?limit=1')
     if (!r.ok) problems.push(`Stripe refused the "${key.name}" key (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)})`)
     else if (keyMode !== 'live') problems.push(`"${key.name}" is a test-mode key, and real sign-ups are live`)
+    // The same Stripe account as the signup at leadgenisys.com? The key says, or failing that any subscription's id.
+    let marker = accountMarker(key.value)
+    if (!marker && r.ok) {
+      const subs = await tryStripe(key.value, '/subscriptions?limit=1&status=all')
+      const first = subs.ok && isObj(subs.data) && Array.isArray(subs.data.data) ? subs.data.data.find(isObj) : null
+      marker = first && typeof first.id === 'string' ? accountMarker(first.id) : null
+    }
+    if (marker) {
+      sameAccount = marker === SIGNUP_ACCOUNT_MARKER
+      if (!sameAccount) problems.push(`"${key.name}" belongs to a different Stripe account than the signup at leadgenisys.com, so it can't see real sign-ups`)
+    } else if (r.ok) {
+      notes.push(`couldn't yet tell whether "${key.name}" is the signup site's Stripe account (no subscriptions to compare)`)
+    }
   }
   if (!(await firstSecret(STRIPE_WEBHOOK_ENTRIES))) problems.push(`no "${STRIPE_WEBHOOK_ENTRIES[0]}" in the Vault, so Stripe's events will be refused`)
   if (!(await firstSecret(VERIFY_KEY_ENTRIES))) problems.push(`no "${VERIFY_KEY_ENTRIES[0]}" in the Vault, so the form can't ask the Hub`)
-  const result = { at: new Date().toISOString(), ok: problems.length === 0, problems, keyMode }
+  // The Payments page has its own, fuller key; a rolled or revoked one shows up here rather than as a blank page.
+  const payments = await firstSecret(['Stripe API Key'])
+  if (!payments) {
+    notes.push('the Payments page has no "Stripe API Key" in the Vault')
+  } else {
+    const r = await tryStripe(payments.value, '/customers?limit=1')
+    if (!r.ok) problems.push(`Stripe refused the Payments page's "Stripe API Key" (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)}) — rolled or revoked? Payments is down until it's replaced`)
+    else {
+      const pm = accountMarker(payments.value)
+      if (pm && pm !== SIGNUP_ACCOUNT_MARKER) notes.push('the Payments page\'s "Stripe API Key" is for a different Stripe account than the signup')
+      if (!/^(rk|sk)_live_/.test(payments.value)) notes.push('the Payments page\'s "Stripe API Key" is a test-mode key')
+    }
+  }
+  const result = { at: new Date().toISOString(), ok: problems.length === 0, problems, notes, keyMode, sameAccount }
   await noteStripeStatus('selfCheck', result)
   if (problems.length) {
     console.warn(`[stripe-onboarding] self-check: ${problems.join('; ')}`)

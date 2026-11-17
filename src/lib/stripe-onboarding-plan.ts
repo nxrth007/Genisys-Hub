@@ -144,6 +144,23 @@ export function judgeSubscriptions(customers: { customer: unknown; subscriptions
   return { valid: false, reason }
 }
 
+// --- Which Stripe account -----------------------------------------------------
+
+/**
+ * Stripe keys and object ids carry a 10-character account marker: a live key
+ * reads sk_live_51<5 chars><marker>…, an id price_1<5 chars><marker>…. The
+ * signup at leadgenisys.com publishes a live key with that marker and bills
+ * price_1Ub3otIm6NAwaEImXCIP9UM2, and the Hub's webhook endpoint there is
+ * we_1UctFbIm6NAwaEIm…, so that account's marker is:
+ */
+export const SIGNUP_ACCOUNT_MARKER = 'Im6NAwaEIm'
+
+/** The account marker of a key or an object id, or null when the format doesn't carry one (customers, old-style keys). */
+export function accountMarker(keyOrId: string): string | null {
+  const m = /^(?:[sr]k|pk)_(?:live|test)_51[A-Za-z0-9]{5}([A-Za-z0-9]{10})/.exec(keyOrId) ?? /^[a-z]+(?:_[a-z]+)*_1[A-Za-z0-9]{5}([A-Za-z0-9]{10})/.exec(keyOrId)
+  return m?.[1] ?? null
+}
+
 // --- Webhooks ---------------------------------------------------------------
 
 /** What Stripe puts in the Stripe-Signature header for a body, for tests and checks. */
