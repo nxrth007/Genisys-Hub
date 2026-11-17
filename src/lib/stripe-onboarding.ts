@@ -10,6 +10,7 @@
  * Key".
  */
 import { prisma } from '@/lib/prisma'
+import { hubAlert, hubAlertThrottled } from '@/lib/hub-alerts'
 import { getSecretByName } from '@/lib/vault-service'
 import { CHECKOUT_SESSION_ID, judgeCheckout, judgeSubscriptions, type NotMember, type StripeMember } from './stripe-onboarding-plan'
 
@@ -181,4 +182,42 @@ export async function claimStripeEvent(eventId: string): Promise<boolean> {
     if (!!err && typeof err === 'object' && (err as { code?: unknown }).code === 'P2002') return false
     throw err
   }
+}
+
+// --- Self-check ------------------------------------------------------------
+
+let lastSelfCheck = 0
+const SELF_CHECK_EVERY_MS = 6 * 60 * 60_000
+const SELF_CHECK_DONE_KEY = 'stripe.selfCheck.v1'
+
+/**
+ * Within a minute of a deploy and every six hours after: can the Hub actually
+ * ask Stripe, is the key a live one, and are the other two Vault entries there?
+ * Posts to #genisys-alerts once when it all first works, and (throttled) when
+ * something is wrong, so nobody learns from a blocked client that a name or a
+ * key was off.
+ */
+export async function maybeCheckStripeOnboarding(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production') return
+  if (Date.now() - lastSelfCheck < SELF_CHECK_EVERY_MS) return
+  lastSelfCheck = Date.now()
+  const problems: string[] = []
+  const key = await firstSecret(STRIPE_KEY_ENTRIES)
+  if (!key) {
+    problems.push(`no "${STRIPE_KEY_ENTRIES[0]}" in the Vault`)
+  } else {
+    const r = await stripeGet(key.value, '/customers?limit=1').catch((err: unknown) => ({ ok: false, status: 0, data: { error: { message: err instanceof Error ? err.message : String(err) } } }))
+    if (!r.ok) problems.push(`Stripe refused the "${key.name}" key (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)})`)
+    else if (!/^(rk|sk)_live_/.test(key.value)) problems.push(`"${key.name}" is a test-mode key, and real sign-ups are live`)
+  }
+  if (!(await firstSecret(STRIPE_WEBHOOK_ENTRIES))) problems.push(`no "${STRIPE_WEBHOOK_ENTRIES[0]}" in the Vault, so Stripe's events will be refused`)
+  if (!(await firstSecret(VERIFY_KEY_ENTRIES))) problems.push(`no "${VERIFY_KEY_ENTRIES[0]}" in the Vault, so the form can't ask the Hub`)
+  if (problems.length) {
+    console.warn(`[stripe-onboarding] self-check: ${problems.join('; ')}`)
+    await hubAlertThrottled('stripe-onboarding:selfcheck', SELF_CHECK_EVERY_MS, `:warning: *Stripe sign-up check* — ${problems.join('; ')}. Fix it in the Vault; until then the onboarding form asks the signup site's own verifier.`)
+    return
+  }
+  if (await prisma.appSetting.findUnique({ where: { key: SELF_CHECK_DONE_KEY } })) return
+  await prisma.appSetting.create({ data: { key: SELF_CHECK_DONE_KEY, value: new Date().toISOString() } }).catch(() => null)
+  await hubAlert(':white_check_mark: *Stripe is connected to the Hub* — the restricted key, the webhook secret and the form's password are all in the Vault, and Stripe answered. New sign-ups will be announced here as they happen.')
 }

@@ -47,6 +47,7 @@ import { backfillFromSheet, sheetSyncEnabled } from './tracker/sheet-sync'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
+import { maybeCheckStripeOnboarding } from './stripe-onboarding'
 import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
@@ -515,6 +516,8 @@ export function initScheduler() {
       .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
     // Whop: text Alex and Ethan about new memberships (checks every 5 min).
     void maybeAlertWhopSignups()
+    // Stripe sign-up gate: can the Hub ask Stripe, are the Vault entries there (every 6 h; says so in Slack once it works, and when it breaks).
+    void maybeCheckStripeOnboarding().catch((err) => console.error('[stripe-onboarding] self-check:', err))
       .then((n) => {
         if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
       })
