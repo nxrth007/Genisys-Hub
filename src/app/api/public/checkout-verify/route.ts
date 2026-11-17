@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
     )
     return json({ valid: false, error: 'Not configured' }, 503)
   }
-  const provided = req.headers.get('x-onboarding-key') ?? ''
+  // Trimmed both sides: a password pasted into Lovable with a stray space or newline still matches.
+  const provided = (req.headers.get('x-onboarding-key') ?? '').trim()
   if (!provided || !sameSecret(provided, expected.value)) {
     // A header that is there but wrong is a setup problem worth hearing about; scanners send none.
     if (provided) {
