@@ -298,7 +298,11 @@ export async function maybeCheckStripeOnboarding(force = false): Promise<StripeG
   // revoked one shows up here rather than as a blank page.
   const payments = await firstSecret(['Stripe Official Payments Key'])
   if (!payments) {
-    if (key) notes.push(`the Payments page reads this same "${key.name}"; for balances, payments and payouts add a read-only "Stripe Official Payments Key" (the Payments page lists what to tick)`)
+    // The restricted key may well read balances too (Alex's does); only say a fuller key is needed when it can't.
+    if (key) {
+      const bal = await tryStripe(key.value, '/balance')
+      notes.push(bal.ok ? `the Payments page reads this same "${key.name}"` : `the Payments page reads this same "${key.name}", which can't read balances, payments or payouts — add a read-only "Stripe Official Payments Key" (the Payments page lists what to tick)`)
+    }
   } else {
     const r = await tryStripe(payments.value, '/customers?limit=1')
     if (!r.ok) problems.push(`Stripe refused the Payments page's "${payments.name}" (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)}) — rolled or revoked? Payments falls back to the restricted key until it's replaced`)
