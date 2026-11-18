@@ -30,6 +30,8 @@ import {
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { OnboardingHealth } from '@/components/clients/onboarding-health'
+import { BillingChip, BillingSection, SubscriptionsPanel, useClientSubscriptions } from '@/components/clients/subscriptions-panel'
+import type { ClientBilling } from '@/lib/stripe-billing-plan'
 import { LovableGitWatch } from '@/components/clients/lovable-git-watch'
 import { DuplicateClients } from '@/components/clients/duplicate-clients'
 import { GhlSubAccountPicker } from '@/components/clients/ghl-subaccount-picker'
@@ -289,6 +291,9 @@ function ClientsPage() {
     },
   })
   const clients = useMemo(() => query.data?.clients ?? [], [query.data])
+  // Each client's Stripe subscription (src/components/clients/subscriptions-panel.tsx): the Billing column, the panel, the detail.
+  const billing = useClientSubscriptions()
+  const billingByClient = billing.data?.byClient
   // Which client holds which repo, so the Repo dropdown can grey out taken ones.
   const repoOwners = useMemo(() => {
     const m = new Map<string, string>()
@@ -369,6 +374,15 @@ function ClientsPage() {
   const activeCount = live.filter((c) => c.lifecycle === 'active').length
   const onboardingCount = live.filter((c) => c.lifecycle === 'onboarding').length
   const sitesLive = live.filter((c) => c.siteUrl).length
+  const subStates = billing.data?.summary.states
+  const subscriptionsRunning = subStates ? subStates.active + subStates.trialing + subStates.ending : 0
+  const subscriptionsSub = billing.isLoading
+    ? 'asking Stripe…'
+    : billing.data?.error
+      ? 'Stripe not connected'
+      : subStates
+        ? `${subStates.trialing} on trial${subStates.problem ? ` · ${subStates.problem} past due` : ''}`
+        : 'couldn’t load'
 
   return (
     <div className="mx-auto flex max-w-[1760px] flex-col gap-6">
@@ -393,12 +407,21 @@ function ClientsPage() {
       <LovableGitWatch />
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat label="Active" value={activeCount} sub="live and being served" />
         <Stat label="Onboarding" value={onboardingCount} sub="site in progress" />
         <Stat label="Sites live" value={sitesLive} sub={`of ${live.length} client${live.length === 1 ? '' : 's'}`} />
+        <Stat label="Subscriptions" value={subscriptionsRunning} sub={subscriptionsSub} />
         <Stat label="Clients" value={live.length} sub={`${archived.length || clients.length - live.length} archived`} />
       </div>
+
+      {/* Every client's Stripe subscription: filter by where they stand, who's not in Stripe, who's in Stripe with no client. */}
+      <SubscriptionsPanel
+        onOpenClient={(id) => {
+          const c = clients.find((x) => x.id === id)
+          if (c) setActive(c)
+        }}
+      />
 
       {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-3">
@@ -468,18 +491,21 @@ function ClientsPage() {
                   <th className="px-4 py-2.5">Site</th>
                   <th className="px-4 py-2.5">Repo</th>
                   <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Billing</th>
                   <th className="px-5 py-2.5 text-right">Onboarded</th>
                 </tr>
               </thead>
               <tbody>
                 {roster.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                       Everything matching is archived.
                     </td>
                   </tr>
                 ) : (
-                  roster.map((c) => <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} />)
+                  roster.map((c) => (
+                    <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} billing={billingByClient?.[c.id]} billingLoading={billing.isLoading} />
+                  ))
                 )}
               </tbody>
             </table>
@@ -505,7 +531,7 @@ function ClientsPage() {
                   <table className="w-full min-w-[60rem] text-[13px]">
                     <tbody>
                       {archived.map((c) => (
-                        <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} />
+                        <ClientRow key={c.id} client={c} onOpen={setActive} repoOwners={repoOwners} suggestion={repoSuggestions.get(c.id)} billing={billingByClient?.[c.id]} billingLoading={billing.isLoading} />
                       ))}
                     </tbody>
                   </table>
@@ -574,11 +600,16 @@ function ClientRow({
   onOpen,
   repoOwners,
   suggestion,
+  billing,
+  billingLoading,
 }: {
   client: RosterClient
   onOpen: (c: RosterClient) => void
   repoOwners: Map<string, string>
   suggestion?: RepoSuggestion
+  /** The client's Stripe subscription; undefined while it loads. */
+  billing?: ClientBilling | null
+  billingLoading?: boolean
 }) {
   const i = client.intake
   return (
@@ -622,6 +653,9 @@ function ClientRow({
       </td>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <InlineStatus client={client} />
+      </td>
+      <td className="whitespace-nowrap px-4 py-3">
+        <BillingChip billing={billing} loading={billingLoading} />
       </td>
       <td className="whitespace-nowrap px-5 py-3 text-right font-mono text-[12px] text-muted-foreground">
         {dateFmt.format(new Date(client.intake?.receivedAt ?? client.createdAt))}
@@ -1252,6 +1286,9 @@ function ClientDetailDialog({
             </Field>
           </div>
         </Section>
+
+        {/* Their Stripe subscription: status, plan, next charge, the customer in Stripe */}
+        <BillingSection clientId={client.id} emails={[client.contactEmail, i?.leadEmail, i?.businessContact]} />
 
         {/* Contact */}
         <Section label="Contact">

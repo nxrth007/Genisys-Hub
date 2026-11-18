@@ -1,148 +1,110 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { canAccessPayments } from '@/lib/payments-access'
-import { getSecretByName } from '@/lib/vault-service'
+import { firstSecret, STRIPE_KEY_ENTRIES } from '@/lib/stripe-onboarding'
+import {
+  billingSnapshot,
+  LEGACY_STRIPE_KEY_ENTRY,
+  listItems,
+  PAYMENTS_KEY_PERMISSIONS,
+  paymentsStripeKey,
+  STRIPE_PAYMENTS_KEY_ENTRY,
+  stripeRead,
+} from '@/lib/stripe-billing'
+import { stateOf, stripeLink, summarize, type BillingSubscription, type StripeDenied } from '@/lib/stripe-billing-plan'
 
 /**
  * GET /api/payments/stripe/overview
  *
- * Server-side proxy for the Stripe dashboard. Reads the "Stripe API Key"
- * from the Vault and calls the Stripe REST API directly (no SDK). The
- * key never reaches the client. Gated to the Payments email allowlist.
+ * Server-side proxy for the Stripe dashboard on the Payments page. Reads the
+ * signup site's Stripe account — the Vault's "Stripe Official Payments Key",
+ * else the sign-up gate's "Stripe Official Restricted" — and calls Stripe's
+ * REST API directly (no SDK). The key never reaches the browser. Gated to the
+ * Payments email allowlist. Read-only: GETs only. ?refresh=1 re-reads the
+ * subscriptions instead of using the two-minute snapshot.
  *
- * Pulls a real dashboard's worth of data: balance, 30-day volume (gross
- * / net / fees + a daily series), active subscriptions + MRR, recent
- * payments, payouts (incl. in-transit to bank), and open disputes.
+ * Pulls a dashboard's worth: balance, 30-day volume (gross / net / fees + a
+ * daily series), every subscription (counts by status, MRR, renewals and first
+ * charges due in 30 days, payment problems, cancellations), recent and failed
+ * payments, open invoices, payouts, open disputes, recent customers. A
+ * restricted key that may not read a section says so (`denied`) instead of
+ * failing the page, so the subscriptions show even before the fuller key exists.
  */
 
-const STRIPE_BASE = 'https://api.stripe.com/v1'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
-async function stripeGet(
-  path: string,
-  key: string,
-): Promise<{ ok: boolean; status: number; data: unknown }> {
-  const res = await fetch(`${STRIPE_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${key}` },
-    cache: 'no-store',
-  })
-  const data = await res.json().catch(() => ({}))
-  return { ok: res.ok, status: res.status, data }
-}
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
-/** Normalize a recurring price to a MONTHLY amount (in the price's unit). */
-function toMonthly(
-  unitAmount: number,
-  interval: string,
-  intervalCount: number,
-): number {
-  const per = unitAmount / (intervalCount || 1)
-  switch (interval) {
-    case 'year':
-      return per / 12
-    case 'week':
-      return per * 4.3333
-    case 'day':
-      return per * 30
-    default:
-      return per // month
-  }
-}
-
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!canAccessPayments(session?.user?.email)) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  let key: string
-  try {
-    key = await getSecretByName('Stripe API Key')
-  } catch {
+  const key = await paymentsStripeKey()
+  if (!key) {
     return NextResponse.json(
-      { error: 'no-key', message: 'No "Stripe API Key" found in the Vault.' },
+      { error: 'no-key', message: `No "${STRIPE_PAYMENTS_KEY_ENTRY}" (or "${STRIPE_KEY_ENTRIES[0]}") in the Vault.` },
       { status: 400 },
     )
   }
+  const refresh = req.nextUrl.searchParams.get('refresh') === '1'
 
   const now = Math.floor(Date.now() / 1000)
   const since = now - 30 * 24 * 3600
   const gte = encodeURIComponent('created[gte]')
 
-  const [
-    balance,
-    charges,
-    payouts,
-    account,
-    txns,
-    subs,
-    disputes,
-    customers,
-    invoices,
-  ] = await Promise.all([
-    stripeGet('/balance', key),
-    stripeGet('/charges?limit=10', key),
-    stripeGet('/payouts?limit=10', key),
-    stripeGet('/account', key),
-    stripeGet(`/balance_transactions?limit=100&${gte}=${since}`, key),
-    stripeGet('/subscriptions?status=active&limit=100', key),
-    stripeGet('/disputes?limit=5', key),
-    stripeGet('/customers?limit=8', key),
-    stripeGet('/invoices?limit=10', key),
+  const [snapshot, balance, charges, payouts, txns, disputes, invoices, legacyKey] = await Promise.all([
+    billingSnapshot({ refresh }),
+    stripeRead(key.value, '/balance'),
+    stripeRead(key.value, '/charges?limit=100'),
+    stripeRead(key.value, '/payouts?limit=10'),
+    stripeRead(key.value, `/balance_transactions?limit=100&${gte}=${since}`),
+    stripeRead(key.value, '/disputes?limit=5'),
+    stripeRead(key.value, '/invoices?limit=100'),
+    firstSecret([LEGACY_STRIPE_KEY_ENTRY]),
   ])
 
-  if (!balance.ok) {
-    const d = balance.data as { error?: { message?: string } }
+  // Nothing at all could be read: the key is wrong, or Stripe is down.
+  if (snapshot.error && !balance.ok && !charges.ok && !invoices.ok) {
     return NextResponse.json(
       {
         error: 'stripe-error',
         status: balance.status,
-        message:
-          d?.error?.message ||
-          `Stripe returned ${balance.status} — check the "Stripe API Key" in the Vault.`,
+        message: `${balance.error ?? snapshot.error} — check the "${key.name}" in the Vault.`,
       },
       { status: 502 },
     )
   }
 
-  const bal = balance.data as {
-    available?: Array<{ amount: number; currency: string }>
-    pending?: Array<{ amount: number; currency: string }>
+  const denied: StripeDenied[] = []
+  const errors: string[] = []
+  for (const d of snapshot.denied) denied.push(d)
+  for (const r of [balance, charges, payouts, txns, disputes, invoices]) {
+    if (r.ok) continue
+    if (r.denied) denied.push(r.denied)
+    else if (r.error) errors.push(r.error)
   }
-  const chargeData =
-    ((charges.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const payoutData =
-    ((payouts.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const txnData =
-    ((txns.data as { data?: unknown[]; has_more?: boolean })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const txnHasMore = (txns.data as { has_more?: boolean })?.has_more ?? false
-  const subData =
-    ((subs.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const disputeData =
-    ((disputes.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const customerData =
-    ((customers.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const invoiceData =
-    ((invoices.data as { data?: unknown[] })?.data as Array<
-      Record<string, unknown>
-    >) ?? []
-  const acct = account.data as {
-    business_profile?: { name?: string | null }
-    email?: string | null
-    default_currency?: string | null
-    settings?: { dashboard?: { display_name?: string | null } }
-  }
+  const seen = new Set<string>()
+  const deniedUnique = denied.filter((d) => (seen.has(d.what) ? false : (seen.add(d.what), true)))
+  if (snapshot.error) errors.push(snapshot.error)
+
+  const bal = balance.ok && isObj(balance.data) ? (balance.data as { available?: Array<{ amount: number; currency: string }>; pending?: Array<{ amount: number; currency: string }> }) : {}
+  const chargeData = listItems(charges)
+  const payoutData = listItems(payouts)
+  const txnData = listItems(txns)
+  const txnHasMore = isObj(txns.data) && txns.data.has_more === true
+  const disputeData = listItems(disputes)
+  const invoiceData = listItems(invoices)
+
+  const currency = bal.available?.[0]?.currency ?? snapshot.subscriptions[0]?.currency ?? 'usd'
+  const accountId = snapshot.account.id
+  const livemode = key.mode !== 'test'
+  const link = (kind: Parameters<typeof stripeLink>[0], id: string) => stripeLink(kind, id, { accountId, livemode })
 
   // ---- 30-day volume from balance transactions (charges/payments only)
   let grossVolume = 0
@@ -158,9 +120,7 @@ export async function GET() {
     netVolume += Number(t.net ?? 0)
     feeVolume += Number(t.fee ?? 0)
     paymentCount++
-    const day = new Date(Number(t.created ?? 0) * 1000)
-      .toISOString()
-      .slice(0, 10)
+    const day = new Date(Number(t.created ?? 0) * 1000).toISOString().slice(0, 10)
     dailyMap.set(day, (dailyMap.get(day) ?? 0) + amount)
   }
   // Fill a continuous 30-day series (oldest → newest) so the chart is stable.
@@ -170,113 +130,170 @@ export async function GET() {
     daily.push({ date: d, gross: dailyMap.get(d) ?? 0 })
   }
 
-  // ---- Active subscriptions + MRR
-  let mrr = 0
-  for (const s of subData) {
-    const items =
-      ((s.items as { data?: unknown[] })?.data as Array<
-        Record<string, unknown>
-      >) ?? []
-    for (const it of items) {
-      const price = it.price as
-        | {
-            unit_amount?: number
-            recurring?: { interval?: string; interval_count?: number }
-          }
-        | undefined
-      if (!price?.unit_amount || !price.recurring?.interval) continue
-      const qty = Number(it.quantity ?? 1)
-      mrr += toMonthly(
-        price.unit_amount * qty,
-        price.recurring.interval,
-        price.recurring.interval_count ?? 1,
-      )
-    }
-  }
+  // ---- Subscriptions: every status, MRR, what's due, what's wrong
+  const summary = summarize(snapshot.subscriptions)
+  const subRow = (s: BillingSubscription) => ({
+    id: s.id,
+    customerId: s.customerId,
+    who: s.name ?? s.email ?? s.customerId ?? s.id,
+    email: s.email,
+    plan: s.plan,
+    price: s.price,
+    status: s.status,
+    state: stateOf(s),
+    amountCents: s.amountCents,
+    currency: s.currency,
+    trialEnd: s.trialEnd,
+    periodEnd: s.periodEnd,
+    cancelAtPeriodEnd: s.cancelAtPeriodEnd,
+    canceledAt: s.canceledAt,
+    endedAt: s.endedAt,
+    created: s.created,
+    link: link('subscription', s.id),
+    customerLink: s.customerId ? link('customer', s.customerId) : null,
+  })
 
   // ---- In-transit to bank (payouts still moving)
-  const inTransit = payoutData
-    .filter((p) => ['pending', 'in_transit'].includes(String(p.status)))
-    .reduce((s, p) => s + Number(p.amount ?? 0), 0)
+  const inTransit = payoutData.filter((p) => ['pending', 'in_transit'].includes(String(p.status))).reduce((s, p) => s + Number(p.amount ?? 0), 0)
 
-  const currency = acct?.default_currency || 'usd'
-
-  return NextResponse.json({
-    ok: true,
-    account: {
-      name:
-        acct?.settings?.dashboard?.display_name ||
-        acct?.business_profile?.name ||
-        acct?.email ||
-        'Stripe account',
-      currency,
-    },
-    // amounts in smallest unit (cents); formatted client-side
-    available: bal.available ?? [],
-    pending: bal.pending ?? [],
-    inTransit,
-    volume30d: {
-      gross: grossVolume,
-      net: netVolume,
-      fees: feeVolume,
-      count: paymentCount,
-      truncated: txnHasMore, // >100 txns in 30d — figures are a partial sample
-      currency,
-    },
-    daily,
-    subscriptions: { activeCount: subData.length, mrr: Math.round(mrr) },
-    disputes: {
-      count: disputeData.length,
-      items: disputeData.map((d) => ({
-        id: d.id,
-        amount: d.amount,
-        currency: d.currency,
-        status: d.status,
-        reason: d.reason,
-        created: d.created,
-      })),
-    },
-    charges: chargeData.map((c) => ({
-      id: c.id,
-      amount: c.amount,
-      currency: c.currency,
-      status: c.status,
-      paid: c.paid,
-      refunded: c.refunded,
-      created: c.created,
-      description: c.description ?? null,
-      customerEmail:
-        (c.billing_details as { email?: string } | undefined)?.email ??
-        (c.receipt_email as string | undefined) ??
-        null,
-    })),
-    payouts: payoutData.slice(0, 6).map((p) => ({
-      id: p.id,
-      amount: p.amount,
-      currency: p.currency,
-      status: p.status,
-      arrivalDate: p.arrival_date,
-      created: p.created,
-    })),
-    customers: customerData.map((c) => ({
-      id: c.id,
-      name: (c.name as string) ?? null,
-      email: (c.email as string) ?? null,
-      created: c.created,
-    })),
-    invoices: invoiceData.map((i) => ({
-      id: i.id,
-      number: (i.number as string) ?? null,
-      customerName:
-        (i.customer_name as string) ?? (i.customer_email as string) ?? null,
-      customerEmail: (i.customer_email as string) ?? null,
-      amountDue: i.amount_due,
-      amountPaid: i.amount_paid,
-      currency: i.currency,
-      status: i.status, // draft | open | paid | void | uncollectible
-      created: i.created,
-      hostedUrl: (i.hosted_invoice_url as string) ?? null,
-      pdfUrl: (i.invoice_pdf as string) ?? null,
-    })),
+  const customerEmailOf = (c: Obj) => (isObj(c.billing_details) ? str(c.billing_details.email) : null) ?? str(c.receipt_email) ?? null
+  const customerNameOf = (c: Obj) => (isObj(c.billing_details) ? str(c.billing_details.name) : null)
+  const failureOf = (c: Obj) => str(c.failure_message) ?? (isObj(c.outcome) ? str(c.outcome.seller_message) : null)
+  const chargeRow = (c: Obj) => ({
+    id: String(c.id),
+    amount: num(c.amount) ?? 0,
+    currency: str(c.currency) ?? currency,
+    status: str(c.status) ?? 'unknown',
+    paid: c.paid === true,
+    refunded: c.refunded === true,
+    created: num(c.created) ?? 0,
+    description: str(c.description),
+    customerEmail: customerEmailOf(c),
+    customerName: customerNameOf(c),
+    customerId: typeof c.customer === 'string' ? c.customer : null,
+    failureMessage: failureOf(c),
+    link: link('payment', typeof c.payment_intent === 'string' ? c.payment_intent : String(c.id)),
   })
+  const invoiceRow = (i: Obj) => ({
+    id: String(i.id),
+    number: str(i.number),
+    customerName: str(i.customer_name) ?? str(i.customer_email),
+    customerEmail: str(i.customer_email),
+    customerId: typeof i.customer === 'string' ? i.customer : null,
+    subscriptionId: typeof i.subscription === 'string' ? i.subscription : isObj(i.subscription) ? str(i.subscription.id) : null,
+    amountDue: num(i.amount_due) ?? 0,
+    amountPaid: num(i.amount_paid) ?? 0,
+    currency: str(i.currency) ?? currency,
+    status: str(i.status) ?? 'unknown', // draft | open | paid | void | uncollectible
+    created: num(i.created) ?? 0,
+    dueDate: num(i.due_date),
+    attemptCount: num(i.attempt_count) ?? 0,
+    nextAttempt: num(i.next_payment_attempt),
+    hostedUrl: str(i.hosted_invoice_url),
+    pdfUrl: str(i.invoice_pdf),
+    link: link('invoice', String(i.id)),
+  })
+
+  const failedPayments = chargeData.filter((c) => str(c.status) === 'failed' && (num(c.created) ?? 0) >= since).map(chargeRow)
+  const openInvoices = invoiceData
+    .filter((i) => str(i.status) === 'open')
+    .map(invoiceRow)
+    .map((i) => ({ ...i, pastDue: (i.dueDate !== null && i.dueDate < now) || i.attemptCount > 0 }))
+    .sort((a, b) => (a.dueDate ?? a.created) - (b.dueDate ?? b.created))
+
+  const recentCustomers = [...snapshot.customers]
+    .sort((a, b) => (b.created ?? '').localeCompare(a.created ?? ''))
+    .slice(0, 8)
+    .map((c) => ({ id: c.id, name: c.name, email: c.email, created: c.created ? Math.floor(new Date(c.created).getTime() / 1000) : 0, delinquent: c.delinquent, link: link('customer', c.id) }))
+
+  return NextResponse.json(
+    {
+      ok: true,
+      asOf: snapshot.at,
+      account: {
+        name: snapshot.account.name ?? (snapshot.account.marker ? `Stripe account …${snapshot.account.marker}` : 'Stripe account'),
+        id: accountId,
+        marker: snapshot.account.marker,
+        sameAsSignup: snapshot.account.sameAsSignup,
+        currency,
+        dashboardUrl: accountId ? `https://dashboard.stripe.com/${accountId}/dashboard` : 'https://dashboard.stripe.com/',
+      },
+      key: { entry: key.name, kind: key.kind, mode: key.mode, readOnly: key.readOnly },
+      // Which sections this key may read; the UI says "needs permission" instead of showing zeros.
+      sections: {
+        account: !!accountId,
+        balance: balance.ok,
+        volume: txns.ok,
+        charges: charges.ok,
+        payouts: payouts.ok,
+        disputes: disputes.ok,
+        invoices: invoices.ok,
+        subscriptions: !snapshot.error,
+        customers: snapshot.customers.length > 0 || !snapshot.denied.some((d) => d.path.startsWith('/customers')),
+      },
+      denied: deniedUnique,
+      errors,
+      setup: {
+        entry: STRIPE_PAYMENTS_KEY_ENTRY,
+        permissions: PAYMENTS_KEY_PERMISSIONS,
+        legacyKeyPresent: !!legacyKey,
+        legacyEntry: LEGACY_STRIPE_KEY_ENTRY,
+      },
+      // amounts in smallest unit (cents); formatted client-side
+      available: bal.available ?? [],
+      pending: bal.pending ?? [],
+      inTransit,
+      volume30d: {
+        gross: grossVolume,
+        net: netVolume,
+        fees: feeVolume,
+        count: paymentCount,
+        truncated: txnHasMore, // >100 txns in 30d — figures are a partial sample
+        currency,
+      },
+      daily,
+      subscriptions: {
+        total: summary.total,
+        counts: summary.counts,
+        states: summary.states,
+        activeCount: summary.counts.active ?? 0,
+        trialingCount: summary.counts.trialing ?? 0,
+        mrr: summary.mrrCents,
+        trialMrr: summary.trialMonthlyCents,
+        upcoming: summary.upcoming.map((u) => ({ ...subRow(u.subscription), at: u.at, kind: u.kind, amountCents: u.amountCents })),
+        problems: summary.problems.map(subRow),
+        ending: summary.ending.map(subRow),
+        canceledRecently: summary.canceledRecently.map(subRow),
+        truncated: snapshot.truncated,
+      },
+      disputes: {
+        count: disputeData.length,
+        items: disputeData.map((d) => ({
+          id: d.id,
+          amount: d.amount,
+          currency: d.currency,
+          status: d.status,
+          reason: d.reason,
+          created: d.created,
+          link: link('dispute', String(d.id)),
+        })),
+      },
+      charges: chargeData.slice(0, 10).map(chargeRow),
+      failedPayments,
+      payouts: payoutData.slice(0, 6).map((p) => ({
+        id: p.id,
+        amount: p.amount,
+        currency: p.currency,
+        status: p.status,
+        arrivalDate: p.arrival_date,
+        created: p.created,
+        link: link('payout', String(p.id)),
+      })),
+      customers: recentCustomers,
+      customerCount: snapshot.customers.length,
+      invoices: invoiceData.slice(0, 10).map(invoiceRow),
+      openInvoices,
+    },
+    { headers: { 'Cache-Control': 'no-store' } },
+  )
 }

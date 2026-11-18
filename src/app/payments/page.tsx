@@ -10,8 +10,8 @@ import { PaymentsTabs } from './payments-tabs'
  * though they're admins. Server-side redirect enforces it regardless of
  * the nav link being hidden for them.
  *
- * Tabs: Stripe + Mercury dashboards (data proxied server-side via the
- * Vault keys) and a blank Automation Log.
+ * Tabs: Stripe (the signup site's account, read-only — stripe-tab.tsx),
+ * Mercury and Whop dashboards, data proxied server-side via the Vault keys.
  */
 export default async function PaymentsPage() {
   const session = await auth()

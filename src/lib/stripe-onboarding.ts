@@ -6,8 +6,9 @@
  *
  * The Stripe key is a restricted key (Checkout Sessions, Customers and
  * Subscriptions: read) Alex made on 2026-11-17, so the Hub can look but never
- * charge or refund here. The Payments page keeps its own, fuller "Stripe API
- * Key".
+ * charge or refund here. The Payments page and the Clients page's subscriptions
+ * read the same account through src/lib/stripe-billing.ts (its own read-only
+ * "Stripe Official Payments Key" when the Vault has one, else this key).
  */
 import { prisma } from '@/lib/prisma'
 import { hubAlert, hubAlertThrottled } from '@/lib/hub-alerts'
@@ -292,19 +293,24 @@ export async function maybeCheckStripeOnboarding(force = false): Promise<StripeG
   }
   if (!(await firstSecret(STRIPE_WEBHOOK_ENTRIES))) problems.push(`no "${STRIPE_WEBHOOK_ENTRIES[0]}" in the Vault, so Stripe's events will be refused`)
   if (!(await firstSecret(VERIFY_KEY_ENTRIES))) problems.push(`no "${VERIFY_KEY_ENTRIES[0]}" in the Vault, so the form can't ask the Hub`)
-  // The Payments page has its own, fuller key; a rolled or revoked one shows up here rather than as a blank page.
-  const payments = await firstSecret(['Stripe API Key'])
+  // The Payments page reads this same account: its own read-only "Stripe Official Payments Key" when the
+  // Vault has one (balances, charges, payouts, invoices), else the restricted key above. A rolled or
+  // revoked one shows up here rather than as a blank page.
+  const payments = await firstSecret(['Stripe Official Payments Key'])
   if (!payments) {
-    notes.push('the Payments page has no "Stripe API Key" in the Vault')
+    if (key) notes.push(`the Payments page reads this same "${key.name}"; for balances, payments and payouts add a read-only "Stripe Official Payments Key" (the Payments page lists what to tick)`)
   } else {
     const r = await tryStripe(payments.value, '/customers?limit=1')
-    if (!r.ok) problems.push(`Stripe refused the Payments page's "Stripe API Key" (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)}) — rolled or revoked? Payments is down until it's replaced`)
+    if (!r.ok) problems.push(`Stripe refused the Payments page's "${payments.name}" (${r.status || 'no answer'}: ${stripeErrorMessage(r.data)}) — rolled or revoked? Payments falls back to the restricted key until it's replaced`)
     else {
       const pm = accountMarker(payments.value)
-      if (pm && pm !== SIGNUP_ACCOUNT_MARKER) notes.push('the Payments page\'s "Stripe API Key" is for a different Stripe account than the signup')
-      if (!/^(rk|sk)_live_/.test(payments.value)) notes.push('the Payments page\'s "Stripe API Key" is a test-mode key')
+      if (pm && pm !== SIGNUP_ACCOUNT_MARKER) problems.push(`the Payments page's "${payments.name}" is for a different Stripe account than the signup, so the Payments page shows the wrong account`)
+      if (!/^(rk|sk)_live_/.test(payments.value)) notes.push(`the Payments page's "${payments.name}" is a test-mode key`)
+      if (/^sk_/.test(payments.value)) notes.push(`the Payments page's "${payments.name}" is a full secret key; a restricted read-only key is enough and safer`)
     }
   }
+  // The previous Stripe account's key ("Lead Genisys LLC"): nothing reads it since 2026-11-18.
+  if (await firstSecret(['Stripe API Key'])) notes.push('the old "Stripe API Key" (the previous Stripe account) is no longer read by anything and can be removed from the Vault')
   const result = { at: new Date().toISOString(), ok: problems.length === 0, problems, notes, keyMode, sameAccount }
   await noteStripeStatus('selfCheck', result)
   if (problems.length) {

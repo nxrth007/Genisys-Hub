@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { textTeam } from '@/lib/team-sms'
+import { invalidateBillingSnapshot } from '@/lib/stripe-billing'
 import { checkoutMember, claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
 import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
 
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
   // The Clients page shows the last event Stripe delivered: proof the secret matches, whatever the event was.
   const e = event as { type?: unknown; livemode?: unknown } | null
   void noteStripeStatus('webhook', { at: new Date().toISOString(), type: typeof e?.type === 'string' ? e.type : 'unknown', livemode: e?.livemode === true })
+  // Something changed in Stripe: the Clients and Payments pages read it fresh next time.
+  invalidateBillingSnapshot()
   if (news.kind === 'ignored') return NextResponse.json({ ok: true, ignored: news.type })
   after(() => handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
   return NextResponse.json({ ok: true })

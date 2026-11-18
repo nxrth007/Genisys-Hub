@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { canAccessPayments } from '@/lib/payments-access'
-import { getSecretByName } from '@/lib/vault-service'
+import { paymentsStripeKey, STRIPE_PAYMENTS_KEY_ENTRY } from '@/lib/stripe-billing'
 
 /**
  * POST /api/payments/stripe/actions
  *
- * Write actions for the Payments → Stripe tab. Uses the full-access
- * "Stripe API Key" from the Vault; the key never reaches the client.
- * Gated to the Payments email allowlist (owner + Ethan).
+ * Write actions for the Payments → Stripe tab, on the same Stripe account the
+ * tab reads (the Vault's "Stripe Official Payments Key", else the sign-up
+ * gate's restricted key); the key never reaches the client. Gated to the
+ * Payments email allowlist (owner + Ethan).
+ *
+ * Since 2026-11-18 the Hub reads Stripe with restricted (read-only) keys, so
+ * every action here is refused before Stripe is asked, and the tab hides the
+ * buttons: refunds and invoices are done in the Stripe Dashboard. Only a full
+ * secret key in the Vault would turn them back on.
  *
  * Actions (body.action):
  *   refund            { chargeId, amountCents? }   — full or partial refund
@@ -62,15 +68,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  let key: string
-  try {
-    key = await getSecretByName('Stripe API Key')
-  } catch {
+  const vaultKey = await paymentsStripeKey()
+  if (!vaultKey) {
     return NextResponse.json(
-      { error: 'No "Stripe API Key" found in the Vault.' },
+      { error: `No "${STRIPE_PAYMENTS_KEY_ENTRY}" found in the Vault.` },
       { status: 400 },
     )
   }
+  if (vaultKey.readOnly) {
+    return NextResponse.json(
+      { error: `The Hub reads Stripe with a read-only key ("${vaultKey.name}"), so refunds and invoices are done in the Stripe Dashboard.` },
+      { status: 403 },
+    )
+  }
+  const key = vaultKey.value
 
   let body: Record<string, unknown>
   try {
