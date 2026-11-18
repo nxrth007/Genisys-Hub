@@ -79,7 +79,7 @@ export function DropdownPill<T extends string>({
                   }}
                   className={cn(
                     'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] hover:bg-muted',
-                    value === o.id && 'bg-white/[0.06] font-medium text-foreground'
+                    value === o.id && 'bg-foreground/[0.06] font-medium text-foreground'
                   )}
                 >
                   {o.label}

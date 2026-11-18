@@ -1190,7 +1190,7 @@ function PostPreview({ post: p, base }: { post: Partial<SeoPostFile>; base: stri
         </div>
       )}
       {p.answer && (
-        <div className="mt-5 rounded-md border-l-2 border-foreground/50 bg-white/[0.03] px-4 py-3 text-[14px] leading-relaxed">
+        <div className="mt-5 rounded-md border-l-2 border-foreground/50 bg-foreground/[0.03] px-4 py-3 text-[14px] leading-relaxed">
           <p className="eyebrow mb-1 text-muted-foreground">Short answer</p>
           <InlineText text={p.answer} base={base} />
         </div>

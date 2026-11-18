@@ -130,7 +130,7 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
             ) : (
               <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} />
             )}
-            <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-white/[0.04] hover:text-foreground">
+            <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-foreground/[0.04] hover:text-foreground">
               <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
               Back to the Hub
             </Link>
@@ -145,7 +145,7 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
             <button
               type="button"
               onClick={() => void signOut({ callbackUrl: '/login' })}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground"
               title="Sign out"
             >
               <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
@@ -237,8 +237,8 @@ function NavLink({
       className={cn(
         'relative flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] transition',
         active
-          ? 'bg-white/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
-          : 'text-foreground/70 hover:bg-white/[0.04] hover:text-foreground',
+          ? 'bg-foreground/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
+          : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground',
       )}
     >
       <Icon className={cn('h-[15px] w-[15px] shrink-0', active && 'text-primary')} strokeWidth={1.75} />
@@ -359,7 +359,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
           <button
             type="button"
             onClick={() => a.id !== defaultId && makeHome.mutate(a.id)}
-            className={cn('grid h-7 w-7 place-items-center rounded-md transition', a.id === defaultId ? 'text-primary' : 'text-muted-foreground/60 hover:bg-white/[0.06] hover:text-foreground')}
+            className={cn('grid h-7 w-7 place-items-center rounded-md transition', a.id === defaultId ? 'text-primary' : 'text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground')}
             title={a.id === defaultId ? 'Home sub-account: Genisys OS opens here' : 'Make this the home sub-account'}
           >
             <Home className={cn('h-3.5 w-3.5', a.id === defaultId && 'fill-primary/20')} />
@@ -367,7 +367,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
           <button
             type="button"
             onClick={() => togglePin(a.id)}
-            className={cn('grid h-7 w-7 place-items-center rounded-md transition', pinned.includes(a.id) ? 'text-primary' : 'text-muted-foreground/60 hover:bg-white/[0.06] hover:text-foreground')}
+            className={cn('grid h-7 w-7 place-items-center rounded-md transition', pinned.includes(a.id) ? 'text-primary' : 'text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground')}
             title={pinned.includes(a.id) ? 'Unpin' : 'Pin to the top'}
           >
             <Pin className={cn('h-3.5 w-3.5', pinned.includes(a.id) && 'fill-primary')} />

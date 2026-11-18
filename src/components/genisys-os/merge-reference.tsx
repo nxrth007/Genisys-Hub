@@ -169,7 +169,7 @@ function NavItem({ on, label, count, onClick }: { on: boolean; label: string; co
       onClick={onClick}
       className={cn(
         'flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition',
-        on ? 'bg-white/[0.06] text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+        on ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
       )}
     >
       <span>{label}</span>

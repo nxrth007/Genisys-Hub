@@ -27,19 +27,32 @@ export const metadata: Metadata = {
  * Apply the persisted palette BEFORE React hydrates so the page doesn't
  * flash between palettes on first paint.
  *
- * `.dark` is always on: both palettes are dark, and every `dark:` utility
- * in the codebase must stay the active one. `.graphite` on top of it is
- * the dark-grey palette. The localStorage key keeps its old values
- * ('dark' = Obsidian, 'light' = Graphite) so nobody's saved choice is
- * lost by the rename.
+ * Obsidian is `dark`, Graphite is `dark graphite`, and Chalk (the light
+ * palette) is `light` with no `dark`, so every `dark:` utility switches
+ * off there. The server renders Obsidian; this flips the classes before
+ * the body paints. The choice lives in localStorage under `palette`; the
+ * older `theme` key ('dark' = Obsidian, 'light' = Graphite, from before
+ * Chalk existed) is still read when `palette` is missing, so nobody's
+ * saved choice is lost.
  */
 const THEME_INIT_SCRIPT = `
 (function() {
   var root = document.documentElement;
-  root.classList.add('dark');
+  var palette = null;
   try {
-    if (localStorage.getItem('theme') === 'light') root.classList.add('graphite');
+    palette = localStorage.getItem('palette');
+    if (!palette) {
+      var legacy = localStorage.getItem('theme');
+      palette = legacy === 'light' ? 'graphite' : legacy === 'dark' ? 'obsidian' : null;
+    }
   } catch (_) {}
+  if (palette === 'light') {
+    root.classList.remove('dark');
+    root.classList.add('light');
+  } else {
+    root.classList.add('dark');
+    if (palette === 'graphite') root.classList.add('graphite');
+  }
 })();
 `
 

@@ -107,7 +107,11 @@ export function WelcomeType({ className }: { className?: string }) {
       <p className="mt-2 flex h-[1.1em] items-center text-[clamp(44px,6vw,76px)] font-semibold leading-none tracking-[-0.035em] text-foreground">
         <span
           className="font-mono"
-          style={{ textShadow: '0 0 28px oklch(1 0 0 / 22%), 0 0 2px oklch(1 0 0 / 40%)' }}
+          style={{
+            // A glow in the palette's own ink: white on the dark two, a soft dark halo on Chalk.
+            textShadow:
+              '0 0 28px color-mix(in oklch, var(--foreground) 22%, transparent), 0 0 2px color-mix(in oklch, var(--foreground) 40%, transparent)',
+          }}
         >
           {two}
         </span>

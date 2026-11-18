@@ -1,22 +1,32 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
-import { Moon, Sun } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * Palette toggle: Obsidian (near-black) ↔ Graphite (dark grey).
+ * Palette switch: Obsidian (near-black) · Graphite (dark grey) · Chalk (light).
  *
- * Both palettes are dark, so `.dark` stays on <html> permanently and the
- * toggle only adds or removes `.graphite`. Persists to the same
- * localStorage key the init script in layout.tsx reads — 'dark' means
- * Obsidian, 'light' means Graphite, kept for compatibility with saved
- * preferences from before the rename.
+ * The <html> class list is the source of truth. Obsidian is `dark`,
+ * Graphite is `dark graphite`, and Chalk is `light` — with no `dark`, so
+ * every `dark:` utility in the codebase switches off and the `.light`
+ * tokens in globals.css take over. The inline script in layout.tsx sets
+ * the same classes before first paint.
  *
- * The <html> class list is the source of truth, read through an
- * external-store subscription so every toggle on the page agrees and
- * nothing renders the wrong icon during hydration.
+ * The choice persists under localStorage `palette`. The older `theme` key
+ * ('dark' = Obsidian, 'light' = Graphite, from before Chalk existed) is
+ * still read when `palette` is missing, so nobody's saved choice is lost.
+ *
+ * Read through an external-store subscription so every switch on the page
+ * agrees and nothing renders the wrong state during hydration.
  */
+
+export type Palette = 'obsidian' | 'graphite' | 'light'
+
+export const PALETTES: { id: Palette; label: string; hint: string }[] = [
+  { id: 'obsidian', label: 'Obsidian', hint: 'near-black' },
+  { id: 'graphite', label: 'Graphite', hint: 'dark grey' },
+  { id: 'light', label: 'Chalk', hint: 'light' },
+]
 
 function subscribeToRootClass(onChange: () => void) {
   const observer = new MutationObserver(onChange)
@@ -26,43 +36,100 @@ function subscribeToRootClass(onChange: () => void) {
   })
   return () => observer.disconnect()
 }
-const readGraphite = () => document.documentElement.classList.contains('graphite')
-const serverGraphite = () => null
 
-export function useGraphite() {
-  const graphite = useSyncExternalStore(subscribeToRootClass, readGraphite, serverGraphite)
+export function readPalette(): Palette {
+  const c = document.documentElement.classList
+  return c.contains('light') ? 'light' : c.contains('graphite') ? 'graphite' : 'obsidian'
+}
+const serverPalette = () => null
 
-  function toggle() {
-    const next = !readGraphite()
-    document.documentElement.classList.toggle('graphite', next)
-    try {
-      localStorage.setItem('theme', next ? 'light' : 'dark')
-    } catch {
-      // localStorage may be disabled in strict-privacy modes — non-fatal.
-    }
+export function applyPalette(palette: Palette) {
+  const c = document.documentElement.classList
+  c.toggle('light', palette === 'light')
+  c.toggle('dark', palette !== 'light')
+  c.toggle('graphite', palette === 'graphite')
+  try {
+    localStorage.setItem('palette', palette)
+  } catch {
+    // localStorage may be disabled in strict-privacy modes — non-fatal.
   }
-
-  return { graphite, toggle }
 }
 
-export function ThemeToggle({ className }: { className?: string }) {
-  const { graphite, toggle } = useGraphite()
+export function usePalette() {
+  const palette = useSyncExternalStore(subscribeToRootClass, readPalette, serverPalette)
+  return { palette, setPalette: applyPalette }
+}
 
-  if (graphite === null) {
-    return <div className={cn('h-8 w-8', className)} aria-hidden />
+/* One swatch per palette in that palette's own canvas colour, hairlined so
+   the white one shows on Chalk and the black one on Obsidian. */
+const SWATCH: Record<Palette, string> = {
+  obsidian: 'bg-[oklch(0.095_0.005_260)]',
+  graphite: 'bg-[oklch(0.235_0.008_260)]',
+  light: 'bg-[oklch(0.975_0.003_250)]',
+}
+
+/**
+ * Three swatches in a pill — black, grey, white — the active one ringed
+ * in the accent. `vertical` stacks them for the collapsed sidebar.
+ */
+export function PaletteSwitch({
+  className,
+  vertical = false,
+}: {
+  className?: string
+  vertical?: boolean
+}) {
+  const { palette, setPalette } = usePalette()
+
+  if (palette === null) {
+    // Server render and the first client frame: hold the space, draw nothing.
+    return (
+      <div
+        className={cn(vertical ? 'h-[66px] w-[26px]' : 'h-[26px] w-[66px]', className)}
+        aria-hidden
+      />
+    )
   }
 
   return (
-    <button
-      onClick={toggle}
-      aria-label={graphite ? 'Switch to Obsidian' : 'Switch to Graphite'}
-      title={graphite ? 'Obsidian' : 'Graphite'}
+    <div
+      role="radiogroup"
+      aria-label="Palette"
       className={cn(
-        'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground',
+        'inline-flex rounded-full border border-border bg-surface p-0.5',
+        vertical ? 'flex-col' : 'items-center',
         className,
       )}
     >
-      {graphite ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-    </button>
+      {PALETTES.map((p) => {
+        const on = p.id === palette
+        return (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={`${p.label} (${p.hint})`}
+            title={`${p.label} · ${p.hint}`}
+            onClick={() => setPalette(p.id)}
+            className="grid h-5 w-5 place-items-center rounded-full transition hover:bg-muted"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                'block h-2.5 w-2.5 rounded-full ring-1 ring-inset ring-foreground/15 transition',
+                SWATCH[p.id],
+                on && 'outline outline-[1.5px] outline-offset-[1.5px] outline-primary',
+              )}
+            />
+          </button>
+        )
+      })}
+    </div>
   )
+}
+
+/** The agent portal's header switch — the same pill, under its old name. */
+export function ThemeToggle({ className }: { className?: string }) {
+  return <PaletteSwitch className={className} />
 }

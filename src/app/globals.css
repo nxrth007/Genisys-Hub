@@ -1,21 +1,22 @@
 @import "tailwindcss";
 
 /*
- * Both palettes are dark. The `.dark` class is always present on <html>
- * (set by the inline script in layout.tsx) so every `dark:` utility in
- * the codebase is permanently the active one; `.graphite` on top of it
- * swaps the token values from near-black to dark grey. That is what
- * lets 75 pages written against `bg-white dark:bg-zinc-900` render
- * correctly in both modes without touching them.
+ * Three palettes. Obsidian and Graphite are dark: `.dark` is on <html>
+ * for both (set by the inline script in layout.tsx), so every `dark:`
+ * utility in the codebase is the active one, and `.graphite` on top of
+ * it swaps the token values from near-black to dark grey. Chalk is the
+ * light palette: `.light` replaces `.dark`, the tokens flip to the light
+ * values below and every `dark:` utility switches off, so the pages
+ * written against `bg-white dark:bg-zinc-900` render their light half.
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
  * Obsidian design system.
- * Two palettes — Obsidian (OLED near-black) and Graphite (dark grey) —
- * one electric-blue accent, hairline borders instead of shadows, and a
- * single type family: Geist for reading, Geist Mono for labels, nav,
- * figures and anything that should feel instrumented.
+ * Three palettes — Obsidian (OLED near-black), Graphite (dark grey) and
+ * Chalk (light) — one electric-blue accent, hairline borders instead of
+ * shadows, and a single type family: Geist for reading, Geist Mono for
+ * labels, nav, figures and anything that should feel instrumented.
  */
 
 @theme inline {
@@ -70,10 +71,12 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Hairlines do the work shadows used to; these stay barely there. */
-  --shadow-soft: 0 0 0 1px oklch(1 0 0 / 3%);
-  --shadow-card: 0 0 0 1px oklch(1 0 0 / 3%), 0 1px 0 0 oklch(1 0 0 / 2%) inset;
-  --shadow-pop: 0 24px 64px -24px oklch(0 0 0 / 85%), 0 0 0 1px oklch(1 0 0 / 6%);
+  /* Hairlines do the work shadows used to; these stay barely there. The
+     values live with each palette (--sh-*): white tints on the dark
+     palettes, black tints on Chalk. */
+  --shadow-soft: var(--sh-soft);
+  --shadow-card: var(--sh-card);
+  --shadow-pop: var(--sh-pop);
 }
 
 /* ---------- Obsidian (default) ---------- */
@@ -139,6 +142,12 @@
   --ring: oklch(0.8 0.1 235);
   --sidebar-border: oklch(1 0 0 / 7%);
   --sidebar-ring: oklch(0.8 0.1 235);
+
+  /* Hairline shadows and the scrollbar thumb — white tints on dark */
+  --sh-soft: 0 0 0 1px oklch(1 0 0 / 3%);
+  --sh-card: 0 0 0 1px oklch(1 0 0 / 3%), 0 1px 0 0 oklch(1 0 0 / 2%) inset;
+  --sh-pop: 0 24px 64px -24px oklch(0 0 0 / 85%), 0 0 0 1px oklch(1 0 0 / 6%);
+  --scrollbar-thumb: oklch(1 0 0 / 14%);
 }
 
 /* ---------- Graphite ---------- */
@@ -163,6 +172,75 @@
   --sidebar-border: oklch(1 0 0 / 9%);
 }
 
+/* ---------- Chalk (light) ---------- */
+.light {
+  color-scheme: light;
+
+  /* Surfaces — cool off-white canvas; cards lift to white, the sidebar sits back */
+  --background: oklch(0.968 0.003 250);
+  --sidebar: oklch(0.948 0.004 250);
+  --surface: oklch(0.995 0.001 250);
+  --surface-muted: oklch(0.952 0.004 250);
+  --card: oklch(0.995 0.001 250);
+  --popover: oklch(1 0 0);
+
+  --foreground: oklch(0.2 0.012 260);
+  --card-foreground: oklch(0.2 0.012 260);
+  --popover-foreground: oklch(0.2 0.012 260);
+  --sidebar-foreground: oklch(0.2 0.012 260);
+  --muted-foreground: oklch(0.5 0.016 255);
+
+  /* Accent — the same ice blue, deep enough to read on white */
+  --primary: oklch(0.52 0.15 240);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.52 0.15 240 / 10%);
+  --sidebar-primary: oklch(0.52 0.15 240);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.935 0.005 255);
+  --secondary-foreground: oklch(0.2 0.012 260);
+  --muted: oklch(0.935 0.005 255);
+  --accent: oklch(0.92 0.008 250);
+  --accent-foreground: oklch(0.2 0.012 260);
+  --sidebar-accent: oklch(0.92 0.008 250);
+  --sidebar-accent-foreground: oklch(0.2 0.012 260);
+
+  /* Status — darker, so `text-success` and friends hold contrast on white */
+  --destructive: oklch(0.55 0.21 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.55 0.14 160);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.6 0.15 70);
+  --warning-foreground: oklch(0.18 0.03 70);
+  --info: oklch(0.52 0.15 240);
+  --info-foreground: oklch(0.99 0 0);
+
+  /* Chips — the same tints, with ink dark enough to read */
+  --chip-pink: oklch(0.65 0.2 18 / 12%);
+  --chip-pink-fg: oklch(0.5 0.19 18);
+  --chip-amber: oklch(0.75 0.15 75 / 18%);
+  --chip-amber-fg: oklch(0.5 0.13 65);
+  --chip-mint: oklch(0.7 0.15 160 / 15%);
+  --chip-mint-fg: oklch(0.45 0.12 160);
+  --chip-blue: oklch(0.6 0.13 240 / 12%);
+  --chip-blue-fg: oklch(0.45 0.12 240);
+  --chip-violet: oklch(0.6 0.18 295 / 12%);
+  --chip-violet-fg: oklch(0.48 0.17 295);
+
+  --border: oklch(0 0 0 / 10%);
+  --border-soft: oklch(0 0 0 / 6%);
+  --input: oklch(0 0 0 / 5%);
+  --ring: oklch(0.52 0.15 240);
+  --sidebar-border: oklch(0 0 0 / 8%);
+  --sidebar-ring: oklch(0.52 0.15 240);
+
+  /* Hairline shadows and the scrollbar thumb — black tints on light */
+  --sh-soft: 0 0 0 1px oklch(0 0 0 / 5%);
+  --sh-card: 0 0 0 1px oklch(0 0 0 / 5%), 0 1px 2px 0 oklch(0 0 0 / 4%);
+  --sh-pop: 0 24px 64px -24px oklch(0 0 0 / 28%), 0 0 0 1px oklch(0 0 0 / 7%);
+  --scrollbar-thumb: oklch(0 0 0 / 20%);
+}
+
 @layer base {
   html,
   body {
@@ -185,7 +263,7 @@
     font-family: var(--font-mono);
   }
   ::selection {
-    background-color: oklch(0.8 0.1 235 / 28%);
+    background-color: color-mix(in oklch, var(--primary) 28%, transparent);
   }
 
   /* Native dropdown lists. The browser paints the open list itself and
@@ -203,14 +281,14 @@
   /* Thin, quiet scrollbars — the fat default ones break the instrument feel. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: oklch(1 0 0 / 14%) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
   *::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   *::-webkit-scrollbar-thumb {
-    background-color: oklch(1 0 0 / 14%);
+    background-color: var(--scrollbar-thumb);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
@@ -255,9 +333,10 @@
 
 /*
  * Legacy mapping layer — pages written against `dark:bg-zinc-*` /
- * `dark:border-zinc-*` are remapped onto the token palette. Since `.dark`
- * is now always on <html>, these are what every such page renders with
- * in both Obsidian and Graphite. As pages move to `bg-card`,
+ * `dark:border-zinc-*` are remapped onto the token palette. `.dark` is on
+ * <html> for both dark palettes, so these are what every such page renders
+ * with in Obsidian and Graphite; on Chalk the `dark:` half is simply off
+ * and the page's own light classes show. As pages move to `bg-card`,
  * `border-border` etc. directly these become no-ops for that page.
  *
  * Targeted via the same dark variant selector Tailwind generates, so

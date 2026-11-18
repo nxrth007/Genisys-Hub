@@ -322,7 +322,7 @@ function SectionCard({ s, onAsk, disabled }: { s: AttentionSection; onAsk: (q: s
       <ul className="mt-2 flex flex-col">
         {s.items.map((it, i) => (
           <li key={i}>
-            <Link href={it.link} className="flex flex-col px-3 py-1.5 transition hover:bg-white/[0.03]">
+            <Link href={it.link} className="flex flex-col px-3 py-1.5 transition hover:bg-foreground/[0.03]">
               <span className="truncate text-[12.5px] text-foreground/90">{it.label}</span>
               <span className="truncate text-[11.5px] text-muted-foreground">{it.detail}</span>
             </Link>
@@ -330,7 +330,7 @@ function SectionCard({ s, onAsk, disabled }: { s: AttentionSection; onAsk: (q: s
         ))}
       </ul>
       {s.count > s.items.length && <p className="px-3 pt-1 text-[11.5px] text-muted-foreground">and {s.count - s.items.length} more</p>}
-      <button type="button" disabled={disabled} onClick={() => onAsk(s.ask)} className="flex w-full items-center gap-1.5 border-t border-border-soft px-3 py-2 text-left text-[12px] font-medium text-primary transition hover:bg-white/[0.03] disabled:opacity-40">
+      <button type="button" disabled={disabled} onClick={() => onAsk(s.ask)} className="flex w-full items-center gap-1.5 border-t border-border-soft px-3 py-2 text-left text-[12px] font-medium text-primary transition hover:bg-foreground/[0.03] disabled:opacity-40">
         Ask about this <ArrowRight className="h-3 w-3" />
       </button>
     </div>

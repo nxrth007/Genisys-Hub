@@ -1154,7 +1154,7 @@ function AddSiteDialog({
                   onClick={() => setMode(m.value)}
                   className={cn(
                     'flex flex-col gap-1 rounded-lg border p-3 text-left transition',
-                    active ? 'border-foreground/60 bg-white/[0.05]' : 'border-border hover:border-foreground/25',
+                    active ? 'border-foreground/60 bg-foreground/[0.05]' : 'border-border hover:border-foreground/25',
                     locked && 'cursor-not-allowed opacity-40 hover:border-border',
                   )}
                 >

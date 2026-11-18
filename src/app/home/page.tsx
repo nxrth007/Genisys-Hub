@@ -285,13 +285,14 @@ export default function HomePage() {
       data-globe-bounds
       className="relative flex h-full min-h-[600px] flex-col overflow-hidden bg-background"
     >
-      {/* Faint grid so the black field reads as a surface, not a void. */}
+      {/* Faint grid so the field reads as a surface, not a void — drawn in
+          the palette's ink, so it shows on Chalk as well as the dark two. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-[0.35]"
         style={{
           backgroundImage:
-            'linear-gradient(to right, oklch(1 0 0 / 3%) 1px, transparent 1px), linear-gradient(to bottom, oklch(1 0 0 / 3%) 1px, transparent 1px)',
+            'linear-gradient(to right, color-mix(in oklch, var(--foreground) 3%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklch, var(--foreground) 3%, transparent) 1px, transparent 1px)',
           backgroundSize: '48px 48px',
           maskImage: 'radial-gradient(ellipse 70% 70% at 50% 45%, black 20%, transparent 75%)',
           WebkitMaskImage: 'radial-gradient(ellipse 70% 70% at 50% 45%, black 20%, transparent 75%)',

@@ -61,12 +61,33 @@ type Props = {
 }
 
 type RGB = [number, number, number]
-const PALETTE: Record<'obsidian' | 'graphite', { baseColor: RGB; glowColor: RGB }> = {
-  obsidian: { baseColor: [0.14, 0.15, 0.17], glowColor: [0.075, 0.08, 0.1] },
-  graphite: { baseColor: [0.24, 0.25, 0.28], glowColor: [0.16, 0.17, 0.2] },
+type PaletteName = 'obsidian' | 'graphite' | 'light'
+/** Per palette: the cobe uniforms for the sphere, and the 2D arc colours drawn over it. */
+const PALETTE: Record<
+  PaletteName,
+  {
+    globe: { dark: number; mapBrightness: number; baseColor: RGB; glowColor: RGB; markerColor: RGB }
+    arc: { line: string; head: string; headGlow: string }
+  }
+> = {
+  obsidian: {
+    globe: { dark: 1, mapBrightness: 7.5, baseColor: [0.14, 0.15, 0.17], glowColor: [0.075, 0.08, 0.1], markerColor: [0.86, 0.93, 1] },
+    arc: { line: 'rgb(214, 234, 255)', head: '#ffffff', headGlow: 'rgba(200, 225, 255, 0.95)' },
+  },
+  graphite: {
+    globe: { dark: 1, mapBrightness: 7.5, baseColor: [0.24, 0.25, 0.28], glowColor: [0.16, 0.17, 0.2], markerColor: [0.86, 0.93, 1] },
+    arc: { line: 'rgb(214, 234, 255)', head: '#ffffff', headGlow: 'rgba(200, 225, 255, 0.95)' },
+  },
+  // Chalk: a pale sphere with grey land on the light canvas; arcs in the deep accent blue.
+  light: {
+    globe: { dark: 0, mapBrightness: 6, baseColor: [0.3, 0.33, 0.38], glowColor: [0.88, 0.9, 0.93], markerColor: [0.16, 0.45, 0.85] },
+    arc: { line: 'rgb(31, 111, 208)', head: '#1f6fd0', headGlow: 'rgba(31, 111, 208, 0.8)' },
+  },
 }
-const currentPalette = () =>
-  PALETTE[document.documentElement.classList.contains('graphite') ? 'graphite' : 'obsidian']
+const currentPalette = () => {
+  const c = document.documentElement.classList
+  return PALETTE[c.contains('light') ? 'light' : c.contains('graphite') ? 'graphite' : 'obsidian']
+}
 
 const DRAG_SENSITIVITY = 220
 const TILT_SENSITIVITY = 320
@@ -254,25 +275,23 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
       height: size * 2,
       phi: phi.current,
       theta: theta.current,
-      dark: 1,
       diffuse: 1.15,
       mapSamples: 28000,
-      mapBrightness: 7.5,
-      ...currentPalette(),
-      markerColor: [0.86, 0.93, 1],
+      ...currentPalette().globe,
       markers: [],
       markerElevation: MARKER_ELEVATION,
     })
     globeRef.current = globe
 
-    // Follow the Obsidian / Graphite toggle while the page is open.
-    const paletteWatch = new MutationObserver(() => globe.update(currentPalette()))
+    // Follow the Obsidian / Graphite / Chalk switch while the page is open.
+    const paletteWatch = new MutationObserver(() => globe.update(currentPalette().globe))
     paletteWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 
     const drawArcs = (now: number) => {
       const S = arcCanvas.width
       ctx.clearRect(0, 0, S, S)
       const p = phi.current, t = theta.current
+      const ink = currentPalette().arc
 
       // Home base: a steady ring at the origin.
       const o = live.current.origin
@@ -280,7 +299,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
         const op = projectLocation(o, p, t)
         if (op.visible) {
           ctx.globalAlpha = 0.55
-          ctx.strokeStyle = 'rgb(214, 234, 255)'
+          ctx.strokeStyle = ink.line
           ctx.lineWidth = 1 * dpr
           ctx.beginPath()
           ctx.arc(op.x * S, op.y * S, 5 * dpr, 0, TAU)
@@ -297,7 +316,7 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
         const pts = arc.points.map((v) => projectVec(v, p, t))
 
         // Trail: brighter toward the head, only where it faces us.
-        ctx.strokeStyle = 'rgb(214, 234, 255)'
+        ctx.strokeStyle = ink.line
         ctx.lineWidth = 1.4 * dpr
         ctx.lineCap = 'round'
         const span = Math.max(head - tail, 1e-3)
@@ -327,9 +346,9 @@ export const Globe = forwardRef<GlobeHandle, Props>(function Globe(
           )
           if (hp.visible) {
             ctx.globalAlpha = 1
-            ctx.shadowColor = 'rgba(200, 225, 255, 0.95)'
+            ctx.shadowColor = ink.headGlow
             ctx.shadowBlur = 12 * dpr
-            ctx.fillStyle = '#ffffff'
+            ctx.fillStyle = ink.head
             ctx.beginPath()
             ctx.arc(hp.x * S, hp.y * S, 2.2 * dpr, 0, TAU)
             ctx.fill()

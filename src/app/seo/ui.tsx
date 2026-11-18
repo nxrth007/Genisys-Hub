@@ -1390,7 +1390,7 @@ export function RepoPicker({
       onClick={onPick}
       className={cn(
         'flex w-full items-center gap-2 border-t border-border-soft px-3 py-2 text-left text-[13px] transition first:border-t-0',
-        selected ? 'bg-white/[0.06] text-foreground' : 'text-foreground/85 hover:bg-surface-muted',
+        selected ? 'bg-foreground/[0.06] text-foreground' : 'text-foreground/85 hover:bg-surface-muted',
       )}
     >
       <span className="grid h-4 w-4 shrink-0 place-items-center">{selected && <Check className="h-3.5 w-3.5" />}</span>

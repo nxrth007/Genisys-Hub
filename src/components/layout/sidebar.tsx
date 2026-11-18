@@ -28,8 +28,6 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
-  Moon,
-  Sun,
   LogOut,
   Flame,
   Bot,
@@ -42,15 +40,15 @@ import { canAccessSeo } from '@/lib/seo/access'
 import { canAccessHellLevel } from '@/lib/hl/access'
 import { Avatar } from '../ui/avatar'
 import { SearchDialog } from './search-dialog'
-import { useGraphite } from './theme-toggle'
+import { PaletteSwitch } from './theme-toggle'
 
 /**
  * Sidebar — a 216px instrument column (56px collapsed):
- *  - Brand mark + palette toggle + collapse
+ *  - Brand mark + collapse
  *  - Search pill (opens ⌘K)
  *  - Main menu (role-based: alex sees the full Hub, everyone else
  *    including Ethan sees the curated set)
- *  - Footer: Settings, Help, profile
+ *  - Footer: Settings, Help, the palette switch (Obsidian · Graphite · Chalk), profile
  *
  * Nav labels are mono; the active item gets a 2px accent bar on its
  * left edge and a faint fill rather than a coloured pill, so the column
@@ -217,7 +215,7 @@ export function Sidebar() {
           collapsed ? 'w-[56px] px-1.5' : 'w-[216px] px-3',
         )}
       >
-        {/* ---- Brand + palette toggle + collapse ---- */}
+        {/* ---- Brand + collapse ---- */}
         <div
           className={cn(
             'mb-3 flex items-center',
@@ -234,22 +232,19 @@ export function Sidebar() {
               </span>
             )}
           </Link>
-          <div className={cn('flex items-center', collapsed && 'flex-col')}>
-            <CompactThemeToggle />
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              {collapsed ? (
-                <PanelLeftOpen className="h-3.5 w-3.5" />
-              ) : (
-                <PanelLeftClose className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-3.5 w-3.5" />
+            ) : (
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            )}
+          </button>
         </div>
 
         {/* ---- Search ---- */}
@@ -315,6 +310,17 @@ export function Sidebar() {
             {!collapsed && 'Help'}
           </a>
 
+          {/* ---- Palette: Obsidian · Graphite · Chalk ---- */}
+          <div
+            className={cn(
+              'mt-2 flex items-center',
+              collapsed ? 'justify-center' : 'justify-between px-2.5',
+            )}
+          >
+            {!collapsed && <span className="eyebrow text-muted-foreground/70">Palette</span>}
+            <PaletteSwitch vertical={collapsed} />
+          </div>
+
           {session?.user &&
             (collapsed ? (
               // Collapsed profile — avatar-only with sign-out tooltip.
@@ -355,27 +361,6 @@ export function Sidebar() {
   )
 }
 
-/**
- * Compact palette toggle sized to sit next to the collapse button.
- * Obsidian shows a sun (go lighter), Graphite shows a moon (go darker).
- */
-function CompactThemeToggle() {
-  const { graphite, toggle } = useGraphite()
-  if (graphite === null) {
-    return <div className="h-7 w-7" aria-hidden />
-  }
-  return (
-    <button
-      onClick={toggle}
-      aria-label={graphite ? 'Switch to Obsidian' : 'Switch to Graphite'}
-      title={graphite ? 'Obsidian' : 'Graphite'}
-      className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
-    >
-      {graphite ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-    </button>
-  )
-}
-
 function NavLink({
   item,
   pathname,
@@ -403,8 +388,8 @@ function NavLink({
         'relative flex h-8 items-center gap-2.5 rounded-md font-mono text-[12.5px] transition',
         collapsed ? 'justify-center px-0' : 'px-2.5',
         active
-          ? 'bg-white/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
-          : 'text-foreground/70 hover:bg-white/[0.04] hover:text-foreground',
+          ? 'bg-foreground/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
+          : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground',
       )}
     >
       <Icon

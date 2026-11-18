@@ -49,7 +49,7 @@ function Settings() {
               href={`/genisys-os/${accountId}/settings?tab=${p.key}`}
               className={cn(
                 'rounded-md px-2.5 py-1.5 text-[13px] transition',
-                page === p.key ? 'bg-white/[0.06] text-foreground' : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+                page === p.key ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
               )}
             >
               {p.label}
