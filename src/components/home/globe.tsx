@@ -78,9 +78,11 @@ const PALETTE: Record<
     globe: { dark: 1, mapBrightness: 7.5, baseColor: [0.24, 0.25, 0.28], glowColor: [0.16, 0.17, 0.2], markerColor: [0.86, 0.93, 1] },
     arc: { line: 'rgb(214, 234, 255)', head: '#ffffff', headGlow: 'rgba(200, 225, 255, 0.95)' },
   },
-  // Chalk: a pale sphere with grey land on the light canvas; arcs in the deep accent blue.
+  // Chalk: a chalk-white sphere with dark grey land on the light canvas; arcs in the deep
+  // accent blue. In cobe's light mode the land darkens the base (not the other way round),
+  // so the base has to be pale and the map brightness low, or the globe turns into a slate ball.
   light: {
-    globe: { dark: 0, mapBrightness: 6, baseColor: [0.3, 0.33, 0.38], glowColor: [0.88, 0.9, 0.93], markerColor: [0.16, 0.45, 0.85] },
+    globe: { dark: 0, mapBrightness: 3, baseColor: [0.86, 0.88, 0.91], glowColor: [1, 1, 1], markerColor: [0.16, 0.45, 0.85] },
     arc: { line: 'rgb(31, 111, 208)', head: '#1f6fd0', headGlow: 'rgba(31, 111, 208, 0.8)' },
   },
 }
