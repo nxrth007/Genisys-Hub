@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 /**
  * Lightweight in-memory rate limiter.
  *
@@ -56,22 +58,35 @@ export function checkRateLimit(
   return { ok: true, remaining: limit - recent.length }
 }
 
-/** Best-effort client IP extractor. NextAuth / Next.js doesn't expose
- *  one directly; we read the standard reverse-proxy headers Render
- *  forwards (`x-forwarded-for` is comma-separated, leftmost = client).
- *  Falls back to a literal "unknown" string so all anonymous requests
- *  share one bucket — worst case the legitimate user gets rate-limited
- *  alongside an attacker on the same host, which is acceptable for
- *  public-registration endpoints. */
+function oneIp(value: string | null | undefined): string | null {
+  const t = (value ?? '').trim()
+  if (!t || t.length > 45 || /[\s,]/.test(t)) return null
+  return isIP(t) ? t : null
+}
+
+/**
+ * Visitor address on Render.
+ *
+ * Render's edge is Cloudflare. Cloudflare sets CF-Connecting-IP to the
+ * visitor and overwrites a client-supplied value, so a spoofed
+ * X-Forwarded-For prefix cannot override it. True-Client-IP is not set on
+ * Render's Cloudflare plan and a client can supply it, so it is ignored.
+ *
+ * When CF-Connecting-IP is absent, the first X-Forwarded-For address is the
+ * visitor. Render sets that entry to the real client. The last address is
+ * the latest proxy, so it is not the cardholder and is not used.
+ */
 export function clientIp(req: {
   headers: { get(name: string): string | null }
 }): string {
+  const cf = oneIp(req.headers.get('cf-connecting-ip'))
+  if (cf) return cf
   const xff = req.headers.get('x-forwarded-for')
   if (xff) {
-    const first = xff.split(',')[0]?.trim()
-    if (first) return first
+    for (const part of xff.split(',')) {
+      const ip = oneIp(part)
+      if (ip) return ip
+    }
   }
-  const realIp = req.headers.get('x-real-ip')
-  if (realIp) return realIp.trim()
-  return 'unknown'
+  return oneIp(req.headers.get('x-real-ip')) ?? 'unknown'
 }

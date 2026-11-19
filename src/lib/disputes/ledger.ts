@@ -302,8 +302,10 @@ async function backfillAcceptance(clientId: string | null, intakeId: string, ema
         acceptedAt: new Date(a.acceptedAt),
         ip: a.ip,
         userAgent: a.userAgent,
+        textHash: a.textHash,
+        textUrl: a.textUrl,
         source: 'intake',
-        contentHash: acknowledgementHash({ kind: a.kind, version: a.version, acceptedAt: a.acceptedAt, ip: a.ip, userAgent: a.userAgent, email }),
+        contentHash: acknowledgementHash({ kind: a.kind, version: a.version, acceptedAt: a.acceptedAt, ip: a.ip, userAgent: a.userAgent, email, textHash: a.textHash, textUrl: a.textUrl }),
       },
     })
   }

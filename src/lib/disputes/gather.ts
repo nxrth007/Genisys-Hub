@@ -6,7 +6,8 @@
 import { prisma } from '@/lib/prisma'
 import { syncServiceLedger } from './ledger'
 import { syncSetupMilestones } from './setup'
-import { emailHeaderHas, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { emailHeaderHas, parsePurchaseSignals, pickPurchaseSignals, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { rememberPurchase } from './purchase'
 
 export async function gatherFacts(o: {
   disputeId: string
@@ -20,6 +21,11 @@ export async function gatherFacts(o: {
   chargedAt: Date | null
   cardBrand: string | null
   networkReasonCode: string | null
+  purchaseIp: string | null
+  purchaseUa: string | null
+  deviceId: string | null
+  cardFingerprint?: string | null
+  stripeChargeId?: string | null
   email: string | null
   name: string | null
   phone: string | null
@@ -43,13 +49,13 @@ export async function gatherFacts(o: {
   const intake = o.intakeId
     ? await prisma.clientIntake.findUnique({
         where: { id: o.intakeId },
-        select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true },
+        select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true, raw: true },
       })
     : o.clientId
       ? await prisma.clientIntake.findFirst({
           where: { clientId: o.clientId },
           orderBy: { receivedAt: 'desc' },
-          select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true },
+          select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true, raw: true },
         })
       : null
 
@@ -73,6 +79,29 @@ export async function gatherFacts(o: {
       : Promise.resolve([]),
   ])
 
+  const fromIntake = intake ? parsePurchaseSignals(intake.raw) : { ip: null, userAgent: null, deviceId: null }
+  if (intake && (fromIntake.ip || fromIntake.userAgent || fromIntake.deviceId)) {
+    await rememberPurchase({
+      clientId: o.clientId,
+      intakeId: intake.id,
+      source: 'intake',
+      sourceId: intake.id,
+      signals: fromIntake,
+      occurredAt: intake.receivedAt,
+    }).catch(() => {})
+  }
+  const chargeStored = o.stripeChargeId
+    ? await prisma.checkoutContext.findUnique({ where: { source_sourceId: { source: 'stripe_charge', sourceId: o.stripeChargeId } } })
+    : null
+  const intakeStored = intake
+    ? await prisma.checkoutContext.findUnique({ where: { source_sourceId: { source: 'intake', sourceId: intake.id } } })
+    : null
+  const purchase = pickPurchaseSignals([
+    { ip: o.purchaseIp, userAgent: o.purchaseUa, deviceId: o.deviceId },
+    chargeStored,
+    fromIntake,
+    intakeStored,
+  ])
   const emails = o.clientId ? await clientEmails(o.clientId, client?.contactEmail ?? intake?.leadEmail ?? o.email) : []
   const priors: PriorCharge[] = []
   for (const ch of o.priorCharges) {
@@ -95,7 +124,10 @@ export async function gatherFacts(o: {
       name: o.name,
       phone: o.phone,
       billingAddress: o.billingAddress,
-      purchaseIp: null,
+      purchaseIp: purchase.ip,
+      purchaseUa: purchase.userAgent,
+      deviceId: purchase.deviceId,
+      cardFingerprint: o.cardFingerprint ?? null,
       chargeRefunded: o.chargeRefunded,
     },
     client: client
@@ -131,6 +163,8 @@ export async function gatherFacts(o: {
       userAgent: a.userAgent,
       source: a.source,
       contentHash: a.contentHash,
+      textHash: a.textHash,
+      textUrl: a.textUrl,
     })),
     ledger: ledger.map((l) => ({
       kind: l.kind,
@@ -156,7 +190,7 @@ export async function gatherFacts(o: {
       emailSentAt: inv.emailSentAt?.toISOString() ?? null,
       smsSentAt: inv.smsSentAt?.toISOString() ?? null,
     })),
-    logins: logins.map((l) => ({ at: l.createdAt.toISOString(), email: l.email, ip: l.ip, kind: l.kind })),
+    logins: logins.map((l) => ({ at: l.createdAt.toISOString(), email: l.email, ip: l.ip, userAgent: l.userAgent, kind: l.kind })),
     priors,
     narrative: o.narrative,
     template: o.template,

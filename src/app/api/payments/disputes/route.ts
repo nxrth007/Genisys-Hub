@@ -52,6 +52,7 @@ export async function POST(req: Request) {
       ...(typeof patch.openTracking === 'boolean' ? { openTracking: patch.openTracking } : {}),
       ...(typeof patch.milestoneAck === 'boolean' ? { milestoneAck: patch.milestoneAck } : {}),
       ...(typeof patch.stampMetadata === 'boolean' ? { stampMetadata: patch.stampMetadata } : {}),
+      ...(patch.inquiryPolicy === 'fight' || patch.inquiryPolicy === 'flag' ? { inquiryPolicy: patch.inquiryPolicy } : {}),
     })
     return NextResponse.json({ ok: true, config: saved })
   }

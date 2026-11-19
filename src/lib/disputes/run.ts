@@ -36,6 +36,7 @@ import {
   type SideEffect,
 } from './plan'
 import { recordStripeNotice } from './receipts'
+import { rememberPurchase } from './purchase'
 import { listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
 
 const OPEN = new Set(['needs_response', 'warning_needs_response'])
@@ -213,6 +214,10 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   let cardBrand = row.cardBrand
   let chargedAt = row.chargedAt
   let chargeRefunded = row.status === 'charge_refunded'
+  let purchaseIp: string | null = null
+  let purchaseUa: string | null = null
+  let deviceId: string | null = null
+  let cardFingerprint: string | null = null
   if (row.stripeCustomerId) {
     try {
       const charges = await listCustomerCharges(row.stripeCustomerId)
@@ -228,6 +233,20 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
           cardBrand = parsed.cardBrand ?? cardBrand
           chargedAt = parsed.chargedAt ? new Date(parsed.chargedAt) : chargedAt
           chargeRefunded = parsed.chargeRefunded
+          purchaseIp = parsed.purchaseIp
+          purchaseUa = parsed.purchaseUa
+          deviceId = parsed.deviceId
+          cardFingerprint = parsed.cardFingerprint
+          if (row.stripeChargeId && (parsed.purchaseIp || parsed.purchaseUa || parsed.deviceId)) {
+            await rememberPurchase({
+              clientId: row.clientId,
+              intakeId: row.intakeId,
+              source: 'stripe_charge',
+              sourceId: row.stripeChargeId,
+              signals: { ip: parsed.purchaseIp, userAgent: parsed.purchaseUa, deviceId: parsed.deviceId },
+              occurredAt: chargedAt ?? new Date(),
+            }).catch(() => {})
+          }
         }
       }
     } catch (err) {
@@ -246,18 +265,24 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
     chargedAt,
     cardBrand,
     networkReasonCode: row.networkReasonCode,
+    purchaseIp,
+    purchaseUa,
+    deviceId,
+    cardFingerprint,
+    stripeChargeId: row.stripeChargeId,
     email,
     name,
     phone,
     billingAddress: billing,
     chargeRefunded,
     narrative: row.narrative,
-    template: templateFor(row.reason, templates),
+    template: templateFor(row.reason, templates, row.networkReasonCode),
     priorCharges: priors,
   })
   const built = buildEvidence(facts)
   const pdf = renderEvidencePdf(built.sections)
-  const budget = budgetFiles(pdf.length, [])
+  const signaturePdf = built.signatureSections?.length ? renderEvidencePdf(built.signatureSections) : null
+  const budget = budgetFiles(pdf.length, signaturePdf ? [{ bytes: signaturePdf.length }] : [])
   const packetSha = sha256(pdf)
   const evidenceSha = sha256(JSON.stringify({ fields: built.fields, ce3: built.ce3, ledger: built.ledgerHashes, packetSha }))
   await prisma.stripeDispute.update({
@@ -333,6 +358,9 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   try {
     pdfId = await uploadDisputeFile(pdf, `dispute-${row.stripeDisputeId}.pdf`, 'application/pdf')
     files.uncategorized_file = pdfId
+    if (signaturePdf && budget.keep[0]) {
+      files.customer_signature = await uploadDisputeFile(signaturePdf, `signature-${row.stripeDisputeId}.pdf`, 'application/pdf')
+    }
     const form = evidenceFormBody({ fields: built.fields, files, ce3: built.ce3, submit: decision.stripeSubmit })
     const idempotencyKey = decision.stripeSubmit ? `submit:${row.stripeDisputeId}:${evidenceSha}` : undefined
     try {

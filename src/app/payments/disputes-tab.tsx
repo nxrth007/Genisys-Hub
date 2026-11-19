@@ -23,7 +23,7 @@ type DisputeRow = {
 }
 
 type ListResponse = {
-  config: { mode: string; submitLeadHours: number; efwRefund: boolean; alertSms: boolean; clientNotices: boolean; openTracking: boolean; milestoneAck: boolean; stampMetadata: boolean; forceDryRun: boolean; submitsToStripe: boolean; canSubmit: boolean }
+  config: { mode: string; submitLeadHours: number; efwRefund: boolean; alertSms: boolean; clientNotices: boolean; openTracking: boolean; milestoneAck: boolean; stampMetadata: boolean; forceDryRun: boolean; submitsToStripe: boolean; canSubmit: boolean; inquiryPolicy: 'flag' | 'fight' }
   templates: Record<string, string>
   outcomes: { byReason: { reason: string; won: number; lost: number; open: number; winRate: number | null }[]; totals: { won: number; lost: number; open: number; winRate: number | null } }
   disputes: DisputeRow[]
@@ -113,9 +113,9 @@ export function DisputesTab() {
             <p className="font-semibold text-foreground">Dispute defense is in {config.mode.replace('_', '-')}{config.forceDryRun ? ' (forced dry-run)' : ''}</p>
             <p className="mt-1 text-muted-foreground">
               {config.canSubmit
-                ? `Live. Auto-submit is ${config.submitLeadHours}h before the deadline, unless a dispute is paused, its narrative was edited, or the client match is weak. Submit is final.`
+                ? `Live. Auto-submit is ${config.submitLeadHours}h before the deadline, unless a dispute is paused, its narrative was edited, or the client match is weak. Inquiries are ${config.inquiryPolicy === 'fight' ? 'fought like chargebacks' : 'flagged for a refund and not auto-submitted'}. Submit is final.`
                 : config.submitsToStripe
-                  ? 'Stage. Evidence is saved on the dispute with submit=false. Nothing is sent to the bank until you switch to live.'
+                  ? 'Stage. Evidence is saved on the dispute with submit=false. Nothing is sent to the bank until you switch to live. Inquiries are not auto-submitted unless the inquiry policy is fight.'
                   : 'Dry-run. Packets are stored here. Stripe is not updated, and evidence cannot be submitted.'}
             </p>
           </div>
@@ -217,6 +217,7 @@ function Settings({ config, onSaved }: { config: ListResponse['config']; onSaved
   const [efw, setEfw] = useState(config.efwRefund)
   const [notices, setNotices] = useState(config.clientNotices)
   const [milestone, setMilestone] = useState(config.milestoneAck)
+  const [inquiry, setInquiry] = useState(config.inquiryPolicy ?? 'flag')
   return (
     <form
       className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3 text-xs"
@@ -224,7 +225,7 @@ function Settings({ config, onSaved }: { config: ListResponse['config']; onSaved
         e.preventDefault()
         void post('/api/payments/disputes', {
           action: 'settings',
-          config: { mode, submitLeadHours: Number(hours), efwRefund: efw, clientNotices: notices, milestoneAck: milestone },
+          config: { mode, submitLeadHours: Number(hours), efwRefund: efw, clientNotices: notices, milestoneAck: milestone, inquiryPolicy: inquiry },
         }).then(onSaved)
       }}
     >
@@ -241,6 +242,12 @@ function Settings({ config, onSaved }: { config: ListResponse['config']; onSaved
       <label className="flex items-center gap-1"><input type="checkbox" checked={efw} onChange={(e) => setEfw(e.target.checked)} /> Refund early fraud warnings</label>
       <label className="flex items-center gap-1"><input type="checkbox" checked={notices} onChange={(e) => setNotices(e.target.checked)} /> Onboarding confirmation emails</label>
       <label className="flex items-center gap-1"><input type="checkbox" checked={milestone} onChange={(e) => setMilestone(e.target.checked)} /> Milestone confirmations</label>
+      <label>Inquiries
+        <select className="ml-1 rounded border border-border bg-background px-2 py-1" value={inquiry} onChange={(e) => setInquiry(e.target.value === 'fight' ? 'fight' : 'flag')}>
+          <option value="flag">flag for refund</option>
+          <option value="fight">fight</option>
+        </select>
+      </label>
       <button type="submit" className="rounded-lg border border-border px-3 py-1.5">Save</button>
     </form>
   )

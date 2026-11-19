@@ -10,8 +10,9 @@ import { sendEmail } from '@/lib/gmail'
 import { rememberedMemberByEmail } from '@/lib/stripe-onboarding'
 import { stampMetadata } from './stripe'
 import { pdfBytes, renderEvidencePdf } from './pdf'
-import { acknowledgementHash, allowsStripeWrite, redactCredentialLinks, sha256, type DisputeConfig } from './plan'
+import { acknowledgementHash, allowsStripeWrite, parsePurchaseSignals, redactCredentialLinks, sha256, type DisputeConfig } from './plan'
 import { captureIntakeAcceptance, noticeHash, writeLedger } from './ledger'
+import { rememberPurchase } from './purchase'
 import { loadDisputeConfig } from './config'
 import { syncSetupMilestones } from './setup'
 
@@ -291,6 +292,14 @@ export async function trackClientReport(o: {
 /** Clickwrap from an onboarding body, plus the optional confirmation email. */
 export async function afterIntake(o: { intakeId: string; clientId: string | null; email: string | null; name: string; raw: unknown; receivedAt: Date }): Promise<void> {
   await captureIntakeAcceptance(o.clientId, o.intakeId, o.email, o.raw, o.receivedAt)
+  await rememberPurchase({
+    clientId: o.clientId,
+    intakeId: o.intakeId,
+    source: 'intake',
+    sourceId: o.intakeId,
+    signals: parsePurchaseSignals(o.raw),
+    occurredAt: o.receivedAt,
+  }).catch(() => {})
   if (!o.clientId) return
   const config = await loadDisputeConfig()
   await maybeSendOnboardingNotice({ config, clientId: o.clientId, intakeId: o.intakeId, email: o.email, name: o.name }).catch((err) => {
