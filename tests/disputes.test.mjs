@@ -256,6 +256,7 @@ test('the packet PDF is a real PDF under the size cap and names the timeline', (
   assert.ok(draftPdf.includes(Buffer.from('DRAFT')))
   assert.equal(draftPdf.includes(Buffer.from('?')), false)
   assert.ok(draftPdf.includes(Buffer.from('\\227')))
+  assert.ok(draftPdf.includes(Buffer.from('/Encoding /WinAnsiEncoding')))
   const longUrl = 'https://acme.example/' + 'path-segment/'.repeat(20) + 'end'
   const longPdf = pdf.renderEvidencePdf([{ heading: 'Service delivery timeline', body: `Website live — ${longUrl}` }])
   assert.ok(longPdf.includes(Buffer.from('path-segment/path-segment')))
@@ -524,6 +525,9 @@ test('dispute policy text matches the onboarding pages and is quoted only for th
     assert.equal(edition.textUrl, `https://clientonboarding.leadgenisys.com${edition.path}`)
     assert.doesNotMatch(edition.summary, forbidden)
     assert.doesNotMatch(edition.text, /alex@leadgenisys\.com/)
+    if (!edition.text.includes('ethan@leadgenisys.com')) assert.doesNotMatch(edition.summary, /ethan@leadgenisys\.com/)
+    if (!edition.text.includes('30 days written notice')) assert.doesNotMatch(edition.summary, /30 days written notice/)
+    if (!/section 10/i.test(edition.text)) assert.doesNotMatch(edition.summary, /section 10/i)
     if (edition.kind !== 'terms') assert.doesNotMatch(edition.text, /cancel at any time/i)
   }
   const refund = policies.currentPolicy('refund_policy')
@@ -542,12 +546,18 @@ test('dispute policy text matches the onboarding pages and is quoted only for th
   assert.match(recur.text, /\$297 per month/)
   assert.equal(recur.text.includes(policies.BILLING_SUMMARY), true)
   assert.match(recur.summary, /\$297 per month/)
-  assert.match(recur.summary, /30 days written notice to ethan@leadgenisys\.com/)
+  assert.match(recur.summary, /section 5 of the Terms of Service/)
+  assert.doesNotMatch(recur.summary, /section 10/i)
+  assert.doesNotMatch(recur.summary, /ethan@leadgenisys\.com/)
+  assert.doesNotMatch(recur.summary, /30 days written notice/)
   assert.match(policies.currentPolicy('terms').text, /30 days written notice/)
   assert.match(policies.currentPolicy('terms').text, /You can cancel the SMS service at any time/)
+  assert.doesNotMatch(policies.currentPolicy('terms').summary, /not cancellation of the subscription/)
   assert.doesNotMatch(policies.PRODUCT_DESCRIPTION, forbidden)
   assert.match(policies.PRODUCT_DESCRIPTION, /\$0 due today/)
   assert.match(policies.PRODUCT_DESCRIPTION, /\$297 per month/)
+  assert.match(policies.PRODUCT_DESCRIPTION, /30 days written notice to ethan@leadgenisys\.com/)
+  assert.match(policies.PRODUCT_DESCRIPTION, /Cancel within 30 days of signup and you pay nothing/)
   assert.equal(plan.PRODUCT_DESCRIPTION, policies.PRODUCT_DESCRIPTION)
 
   const baseDispute = {
@@ -574,8 +584,35 @@ test('dispute policy text matches the onboarding pages and is quoted only for th
   assert.match(matched.fields.cancellation_rebuttal, /30 days written notice/)
   assert.match(matched.fields.refund_policy_disclosure, /\$0 is due today/)
   assert.match(matched.fields.uncategorized_text, /\$297 per month/)
+  assert.match(matched.fields.uncategorized_text, /section 5 of the Terms of Service/)
   assert.match(matched.fields.uncategorized_text, /text sha256/)
+  assert.doesNotMatch(matched.fields.uncategorized_text, /30 days written notice to ethan@leadgenisys\.com/)
+  assert.match(matched.fields.cancellation_rebuttal, /ledger has no entry on or after this charge/)
+  assert.doesNotMatch(matched.fields.cancellation_rebuttal, /no cancellation request/i)
   assert.doesNotMatch(JSON.stringify(matched.fields), forbidden)
+  const textLimit = 20_000
+  let textTotal = 0
+  for (const [key, value] of Object.entries(matched.fields)) {
+    assert.ok(value.length <= textLimit, `${key} is ${value.length} characters`)
+    textTotal += value.length
+  }
+  assert.ok(textTotal <= 150_000)
+  const bulkyMails = Array.from({ length: 400 }, () => ({
+    at: '2026-10-02T00:00:00.000Z', direction: 'in', from: 'owner@acme.test', to: 'ethan@leadgenisys.com',
+    subject: 'Question about the invoice', snippet: 'x'.repeat(180),
+  }))
+  const bulky = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null,
+    acknowledgements: [ack('recurring_billing', recur)],
+    ledger: [], emails: bulkyMails, receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.ok(bulky.fields.uncategorized_text.length <= textLimit)
+  const quoteAt = bulky.fields.uncategorized_text.lastIndexOf('Recurring billing disclosure')
+  assert.ok(quoteAt > 0)
+  const quote = bulky.fields.uncategorized_text.slice(quoteAt)
+  assert.equal(quote.includes('[truncated]'), false)
+  assert.equal(quote.includes(recur.summary), true)
+  assert.match(quote, new RegExp(recur.textHash))
   const renamed = plan.buildEvidence({
     dispute: baseDispute, client: null, intake: null,
     acknowledgements: [ack('cancellation_policy', cancel, { version: 'client-label' })],
@@ -627,6 +664,18 @@ test('dispute policy text matches the onboarding pages and is quoted only for th
   assert.equal(bare.fields.cancellation_policy_disclosure, undefined)
   assert.equal(bare.fields.refund_policy_disclosure, undefined)
   assert.match(bare.fields.cancellation_rebuttal, /does not yet have a clickwrap/)
+  assert.match(bare.fields.cancellation_rebuttal, /ledger has no entry on or after this charge/)
   assert.doesNotMatch(bare.fields.cancellation_rebuttal, /30 days written notice/)
+  assert.doesNotMatch(bare.fields.cancellation_rebuttal, /the client accepted/i)
+  assert.doesNotMatch(bare.fields.cancellation_rebuttal, /no cancellation request/i)
+  const bareCredit = plan.buildEvidence({
+    dispute: { ...baseDispute, reason: 'credit_not_processed', networkReasonCode: 'C02' },
+    client: null, intake: null, acknowledgements: [],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(bareCredit.fields.refund_refusal_explanation, /does not yet have a clickwrap/)
+  assert.match(bareCredit.fields.refund_refusal_explanation, /does not state a refund rule/)
+  assert.doesNotMatch(bareCredit.fields.refund_refusal_explanation, /non-refundable/)
+  assert.doesNotMatch(bareCredit.fields.refund_refusal_explanation, /the client accepted/i)
   assert.doesNotMatch(JSON.stringify(bare.fields), forbidden)
 })

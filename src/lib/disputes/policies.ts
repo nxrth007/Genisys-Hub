@@ -70,7 +70,6 @@ const TERMS_SUMMARY = [
   'Section 5: the core offer is a monthly subscription. Subscription fees are billed monthly in advance and continue until cancelled in accordance with section 10.',
   'Section 10: either party may cancel services with 30 days written notice sent to ethan@leadgenisys.com. Hosting, AI follow-up, and review automation are discontinued at the end of the current billing period.',
   'Refunds in section 10: setup and creative work are non-refundable once work has commenced; fees paid for the current service period are non-refundable; unused prepaid services may be credited toward future services at Lead Genisys LLC\'s discretion.',
-  'Stopping SMS messages by texting STOP, or otherwise leaving the text program, is not cancellation of the subscription.',
 ].join(' ')
 
 const REFUND_SUMMARY = [
@@ -88,8 +87,8 @@ const CANCELLATION_SUMMARY = [
 const RECURRING_SUMMARY = [
   BILLING_SUMMARY,
   'A card is required to start the trial. After the 30-day trial, the card on file is charged $297 per month.',
-  'Subscription fees are billed monthly in advance and continue until cancelled in accordance with section 10 of the Terms of Service (last updated August 6, 2026): 30 days written notice to ethan@leadgenisys.com.',
-  'If you are not bringing your own domain, the price of the domain you requested is still charged on your next invoice. This does not state that domain\'s price.',
+  'Subscription fees are billed monthly in advance and continue until cancelled, which is what section 5 of the Terms of Service (last updated August 6, 2026) states.',
+  'If you are not bringing your own domain, the price of the domain you requested is still charged on your next invoice. This page does not state that domain\'s price.',
 ].join(' ')
 
 function edition(row: Omit<PolicyEdition, 'textUrl' | 'textHash'>): PolicyEdition {

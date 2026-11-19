@@ -935,6 +935,22 @@ function clip(s: string, n: number): string {
   return `${t.slice(0, n - 20).trimEnd()}\n[truncated]`
 }
 
+/**
+ * Join body and a required suffix inside `limit`.
+ * The suffix stays whole. Extra length is cut from the body, which is the part Stripe would otherwise clip off the end.
+ */
+function appendWithinLimit(body: string, suffix: string, limit: number): string {
+  const cleanBody = body.trim()
+  const cleanSuffix = suffix.trim()
+  if (!cleanSuffix) return clip(cleanBody, limit)
+  if (!cleanBody) return clip(cleanSuffix, limit)
+  const sep = '\n\n'
+  if (cleanSuffix.length + sep.length >= limit) return clip(cleanSuffix, limit)
+  const room = limit - cleanSuffix.length - sep.length
+  const head = cleanBody.length <= room ? cleanBody : clip(cleanBody, room)
+  return `${head}${sep}${cleanSuffix}`
+}
+
 function money(cents: number, currency = 'usd'): string {
   const prefix = currency.toLowerCase() === 'usd' ? '$' : `${currency.toUpperCase()} `
   return prefix + (cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2))
@@ -1073,7 +1089,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const afterPurchase = facts.ledger.filter((l) => d.chargedAt && new Date(l.occurredAt).getTime() >= new Date(d.chargedAt).getTime())
   const afterNote = afterPurchase.length
     ? `After this charge the ledger shows ${afterPurchase.length} service event${afterPurchase.length === 1 ? '' : 's'}.`
-    : 'The Hub has no cancellation request dated before this charge.'
+    : 'The ledger has no entry on or after this charge.'
   const cancelEdition = cancelAck ? matchedPolicy(cancelAck) : null
   const refundEdition = refundAck ? matchedPolicy(refundAck) : null
   const recurringEdition = recurring ? matchedPolicy(recurring) : null
@@ -1081,7 +1097,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     ? cancelEdition
       ? `The client accepted the cancellation policy ${policyCite(cancelAck)}. The text hash matches ${cancelEdition.textUrl} version ${cancelEdition.version}. ${cancelEdition.summary} ${afterNote}`
       : `The client has a cancellation acceptance (${policyCite(cancelAck)}) that does not match a cancellation policy text on file, so this packet does not substitute a different cancellation rule. ${afterNote}`
-    : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterPurchase.length ? `The ledger shows ${afterPurchase.length} service events on or after the charge.` : 'No cancellation request is on file before this charge.'}`
+    : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterNote}`
 
   const refusal = d.chargeRefunded
     ? 'The charge has already been refunded. No further credit is owed.'
@@ -1089,7 +1105,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
       ? refundEdition
         ? `The client accepted the refund policy ${policyCite(refundAck)}. The text hash matches ${refundEdition.textUrl} version ${refundEdition.version}. ${refundEdition.summary} The ledger shows what was delivered.`
         : `The client has a refund acceptance (${policyCite(refundAck)}) that does not match a refund policy text on file, so this packet does not substitute a different refund rule. The ledger shows what was delivered.`
-      : 'The Hub does not yet have a clickwrap record of the refund policy for this client. The ledger shows the service that was delivered.'
+      : 'The Hub does not yet have a clickwrap record of the refund policy for this client. This packet does not state a refund rule as something this client accepted.'
 
   const narrative = (facts.narrative?.trim() || facts.template?.trim() || templateFor(d.reason, null, d.networkReasonCode)).trim()
   const repeat = client && client.disputeCount >= 2 ? `This client has ${client.disputeCount} disputes on file.` : ''
@@ -1132,7 +1148,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     const line = recurringEdition
       ? `Recurring billing disclosure ${policyCite(recurring)}. The text hash matches ${recurringEdition.textUrl} version ${recurringEdition.version}${recurringEdition.draft ? ", draft, pending the owner's legal review" : ''}. ${recurringEdition.summary}`
       : `Recurring billing disclosure ${policyCite(recurring)}. That acceptance record does not match a recurring-billing text on file, so this packet does not substitute a different billing disclosure.`
-    fields.uncategorized_text = `${fields.uncategorized_text}\n\n${line}`
+    fields.uncategorized_text = appendWithinLimit(fields.uncategorized_text, line, UNCATEGORIZED_LIMIT)
   }
 
   // Drop empty strings so we don't wipe a Stripe field with a blank.

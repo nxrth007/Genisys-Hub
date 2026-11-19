@@ -130,8 +130,8 @@ export function renderEvidencePdf(sections: PdfSection[]): Buffer {
   const pageCount = pages.length
   objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`
   objects[2] = `<< /Type /Pages /Count ${pageCount} /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] >>`
-  objects[fontRegular] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`
-  objects[fontBold] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`
+  objects[fontRegular] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`
+  objects[fontBold] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`
   pages.forEach((lines, i) => {
     const stream = contentStream(lines, i + 1, pageCount)
     const pageId = pageIds[i]
