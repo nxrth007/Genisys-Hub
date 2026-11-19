@@ -106,7 +106,7 @@ The signing secret is the Vault entry **Stripe Official Webhook Secret**. The ke
 
 ### Restricted key permissions
 
-Read (the Disputes tab can probe these): Disputes, Charges, PaymentIntents, Customers, Invoices, Checkout Sessions, Files, Radar early fraud warnings, Webhook endpoints.
+Read (the Disputes tab can probe these): Disputes, Charges, PaymentIntents, Customers, Invoices, Subscriptions, Checkout Sessions, Files, Radar early fraud warnings, Webhook endpoints.
 
 Write, which a read-only probe cannot check: Disputes, Files (purpose `dispute_evidence`), Customers, Charges, and PaymentIntents (the last three stamp `hub_client_id` and `hub_intake_id` on future charges). Refunds write is only needed if early-fraud auto-refund is turned on. It ships off. The Hub does not create the webhook endpoint, so Webhook endpoints write is not required.
 
@@ -201,6 +201,8 @@ Each policy is its own object. `accepted` must be boolean `true` (or the strings
 Keys: `terms`, `refundPolicy`, `cancellationPolicy`, `recurringBilling`. Snake-case aliases `refund_policy`, `cancellation_policy`, and `recurring_billing` are also accepted.
 
 The Hub maps them as follows. Policy prose is sent only in the disclosure text fields. `customer_signature` is a PDF file of the clickwrap (version, time, IP, user agent, text hash, text URL), uploaded only when defense mode is stage or live.
+
+The prose is the summary in `src/lib/disputes/policies.ts` for the edition whose SHA-256 equals `textHash`. The intake version, text hash, and text URL are cited whenever they were stored. A missing or different hash is not filled in with another policy's words. Those summaries follow the onboarding pages: $0 today, a 30-day free trial, then $297/month; cancel within 30 days and pay nothing; after the trial, 30 days written notice to ethan@leadgenisys.com. The pages still marked DRAFT stay in that module so a later final version can be added beside them.
 
 | Acceptance key | Stripe evidence |
 | --- | --- |

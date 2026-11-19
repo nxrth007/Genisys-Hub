@@ -10,10 +10,17 @@ import {
   DISPUTE_WEBHOOK_EVENTS,
   LEGACY_STRIPE_KEY_ENTRY,
   WEBHOOK_PATH,
+  checkoutSessionForPurchase,
+  invoiceIdFromCharge,
   nextPurchaseFetch,
+  purchaseLookupFailed,
+  purchaseSignalsFromMetadata,
+  purchaseSignalsFromStripe,
   redactSecrets,
+  stampPurchaseSignals,
   type Ce3,
   type PurchaseFetch,
+  type PurchaseSignals,
 } from './plan'
 
 const API = 'https://api.stripe.com/v1'
@@ -113,19 +120,46 @@ const SUBSCRIPTION_ID = /^sub_[A-Za-z0-9]+$/
 /** Last API version that still returns Charge.invoice. Basil (2025-03-31) removed it. */
 const CHARGE_INVOICE_VERSION = '2024-09-30.acacia'
 
-async function softGet(key: string, path: string, stripeVersion?: string): Promise<unknown | null> {
+type SoftResult = { data: unknown | null; status: number; failed: boolean }
+
+/** GET only. 404 is a miss. 403, 429, and network errors are misses that must not be cached. */
+async function softGet(key: string, path: string, stripeVersion?: string): Promise<SoftResult> {
   try {
     const r = await call(key, `${API}${path}`, {
       method: 'GET',
       headers: stripeVersion ? { 'Stripe-Version': stripeVersion } : {},
     })
-    if (r.ok) return r.data
-    if (r.status !== 404) console.error(`[disputes] purchase lookup ${path.split('?')[0]}:`, messageOf(r.data, r.status))
-    return null
+    if (r.ok) return { data: r.data, status: r.status, failed: false }
+    if (purchaseLookupFailed(r.status)) console.error(`[disputes] purchase lookup ${path.split('?')[0]}:`, messageOf(r.data, r.status))
+    return { data: null, status: r.status, failed: purchaseLookupFailed(r.status) }
   } catch (err) {
     console.error('[disputes] purchase lookup:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    return { data: null, status: 0, failed: true }
+  }
+}
+
+type Loaded<T> = { value: T | null; failed: boolean }
+
+/**
+ * Completed lookups, including an empty trio. A 15-minute reconcile must not
+ * repeat a walk that already finished. 403 and 429 are not stored.
+ */
+const PURCHASE_CACHE_MS = 2 * 60 * 60 * 1000
+const purchaseCache = new Map<string, { at: number; signals: PurchaseSignals }>()
+
+function recallPurchaseSignals(chargeId: string): PurchaseSignals | null {
+  const hit = purchaseCache.get(chargeId)
+  if (!hit) return null
+  if (Date.now() - hit.at > PURCHASE_CACHE_MS) {
+    purchaseCache.delete(chargeId)
     return null
   }
+  return hit.signals
+}
+
+function rememberPurchaseSignals(chargeId: string, signals: PurchaseSignals): void {
+  if (purchaseCache.size > 2000) purchaseCache.clear()
+  purchaseCache.set(chargeId, { at: Date.now(), signals })
 }
 
 function firstObject(data: unknown): Obj | null {
@@ -162,10 +196,21 @@ function attachSubscription(charge: Obj, subscription: Obj): void {
  * Reads only, and only the next object in line: invoice snapshot, then the
  * subscription, then the checkout session. A charge that already has a usable
  * IP, user agent, or device id is left alone. Failures are logged and skipped
- * so a missing permission does not drop the rest of the charge.
+ * so a missing permission does not drop the rest of the charge or the packet.
+ * The pre-basil re-read contributes its invoice id and nothing else.
  */
 export async function enrichChargePurchaseContext(charges: Obj[]): Promise<void> {
-  if (!charges.some((ch) => nextPurchaseFetch({ charge: ch }))) return
+  const pending = charges.filter((ch) => {
+    const id = typeof ch.id === 'string' ? ch.id : ''
+    const live = purchaseSignalsFromMetadata(ch.metadata)
+    if (live.ip || live.userAgent || live.deviceId) return false
+    if (!id) return nextPurchaseFetch({ charge: ch }) !== null
+    const recalled = recallPurchaseSignals(id)
+    if (!recalled) return nextPurchaseFetch({ charge: ch }) !== null
+    if (recalled.ip || recalled.userAgent || recalled.deviceId) stampPurchaseSignals(ch, recalled)
+    return false
+  })
+  if (!pending.length) return
   let key: { value: string }
   try {
     key = await disputeKey()
@@ -173,100 +218,129 @@ export async function enrichChargePurchaseContext(charges: Obj[]): Promise<void>
     console.error('[disputes] purchase lookup:', redactSecrets(err instanceof Error ? err.message : String(err)))
     return
   }
-  const invoices = new Map<string, Promise<Obj | null>>()
-  const invoicesByPayment = new Map<string, Promise<Obj | null>>()
-  const subscriptions = new Map<string, Promise<Obj | null>>()
-  const sessionsBySubscription = new Map<string, Promise<Obj | null>>()
-  const sessionsByPayment = new Map<string, Promise<Obj | null>>()
+  const invoices = new Map<string, Promise<Loaded<Obj>>>()
+  const chargeInvoices = new Map<string, Promise<{ invoiceId: string | null | undefined; failed: boolean }>>()
+  const invoicesByPayment = new Map<string, Promise<Loaded<Obj>>>()
+  const subscriptions = new Map<string, Promise<Loaded<Obj>>>()
+  const sessionsBySubscription = new Map<string, Promise<{ sessions: Obj[]; failed: boolean }>>()
+  const sessionsByPayment = new Map<string, Promise<{ sessions: Obj[]; failed: boolean }>>()
 
   const loadInvoice = (id: string) =>
     cachedGet(invoices, id, async () => {
-      if (!INVOICE_ID.test(id)) return null
-      const data = await softGet(key.value, `/invoices/${encodeURIComponent(id)}`)
-      return isObj(data) && data.id === id ? data : null
+      if (!INVOICE_ID.test(id)) return { value: null, failed: false }
+      const result = await softGet(key.value, `/invoices/${encodeURIComponent(id)}`)
+      const invoice = isObj(result.data) && result.data.id === id ? result.data : null
+      return { value: invoice, failed: result.failed }
     })
   const loadInvoiceIdFromCharge = (chargeId: string) =>
-    cachedGet(invoices, `charge:${chargeId}`, async () => {
-      if (!/^ch_[A-Za-z0-9]+$/.test(chargeId)) return null
-      const data = await softGet(key.value, `/charges/${encodeURIComponent(chargeId)}`, CHARGE_INVOICE_VERSION)
-      if (!isObj(data) || !('invoice' in data)) return null
-      return data
+    cachedGet(chargeInvoices, chargeId, async () => {
+      if (!/^ch_[A-Za-z0-9]+$/.test(chargeId)) return { invoiceId: undefined, failed: false }
+      const result = await softGet(key.value, `/charges/${encodeURIComponent(chargeId)}`, CHARGE_INVOICE_VERSION)
+      if (!isObj(result.data)) return { invoiceId: undefined, failed: result.failed }
+      return { invoiceId: invoiceIdFromCharge(result.data), failed: result.failed }
     })
   const loadInvoiceByPayment = (paymentIntentId: string) =>
     cachedGet(invoicesByPayment, paymentIntentId, async () => {
-      if (!PAYMENT_INTENT_ID.test(paymentIntentId)) return null
+      if (!PAYMENT_INTENT_ID.test(paymentIntentId)) return { value: null, failed: false }
       const q = new URLSearchParams()
       q.set('limit', '1')
       q.set('payment[type]', 'payment_intent')
       q.set('payment[payment_intent]', paymentIntentId)
-      const data = await softGet(key.value, `/invoice_payments?${q}`)
-      const row = firstObject(data)
-      if (row && isObj(row.invoice) && typeof row.invoice.id === 'string') return row.invoice
-      const invoiceId = row && typeof row.invoice === 'string' ? row.invoice : null
-      if (!invoiceId) return null
+      const result = await softGet(key.value, `/invoice_payments?${q}`)
+      if (result.failed || !isObj(result.data)) return { value: null, failed: result.failed }
+      const invoiceId = invoiceIdFromCharge({ invoice: firstObject(result.data)?.invoice })
+      if (!invoiceId) return { value: null, failed: false }
       return loadInvoice(invoiceId)
     })
   const loadSubscription = (id: string) =>
     cachedGet(subscriptions, id, async () => {
-      if (!SUBSCRIPTION_ID.test(id)) return null
-      const data = await softGet(key.value, `/subscriptions/${encodeURIComponent(id)}`)
-      return isObj(data) && (data.object === 'subscription' || data.id === id) ? data : null
+      if (!SUBSCRIPTION_ID.test(id)) return { value: null, failed: false }
+      const result = await softGet(key.value, `/subscriptions/${encodeURIComponent(id)}`)
+      const subscription = isObj(result.data) && (result.data.object === 'subscription' || result.data.id === id) ? result.data : null
+      return { value: subscription, failed: result.failed }
     })
-  const loadSession = async (step: Extract<PurchaseFetch, { kind: 'checkout_session' }>): Promise<Obj | null> => {
+  const loadSession = async (step: Extract<PurchaseFetch, { kind: 'checkout_session' }>): Promise<Loaded<Obj>> => {
+    let failed = false
     if (step.subscriptionId && SUBSCRIPTION_ID.test(step.subscriptionId)) {
-      const found = await cachedGet(sessionsBySubscription, step.subscriptionId, () => listCheckoutSession(key.value, 'subscription', step.subscriptionId as string))
-      if (found) return found
+      const page = await cachedGet(sessionsBySubscription, step.subscriptionId, () => listCheckoutSessions(key.value, 'subscription', step.subscriptionId as string))
+      if (page.failed) failed = true
+      const picked = checkoutSessionForPurchase(page.sessions)
+      if (picked) return { value: picked, failed }
     }
     if (step.paymentIntentId && PAYMENT_INTENT_ID.test(step.paymentIntentId)) {
-      return cachedGet(sessionsByPayment, step.paymentIntentId, () => listCheckoutSession(key.value, 'payment_intent', step.paymentIntentId as string))
+      const page = await cachedGet(sessionsByPayment, step.paymentIntentId, () => listCheckoutSessions(key.value, 'payment_intent', step.paymentIntentId as string))
+      if (page.failed) failed = true
+      const picked = checkoutSessionForPurchase(page.sessions)
+      if (picked) return { value: picked, failed }
     }
-    return null
+    return { value: null, failed }
   }
 
-  await mapPool(charges, 4, async (ch) => {
-    const triedInvoiceIds: string[] = []
-    const triedChargeIds: string[] = []
-    const triedPaymentIntents: string[] = []
-    const triedSubscriptionIds: string[] = []
-    const triedSessionKeys: string[] = []
-    for (let n = 0; n < 6; n++) {
-      const step = nextPurchaseFetch({ charge: ch, triedInvoiceIds, triedChargeIds, triedPaymentIntents, triedSubscriptionIds, triedSessionKeys })
-      if (!step) return
-      if (step.kind === 'invoice') {
-        triedInvoiceIds.push(step.id)
-        const invoice = await loadInvoice(step.id)
-        if (invoice) ch.invoice = invoice
-      } else if (step.kind === 'charge_invoice') {
-        triedChargeIds.push(step.chargeId)
-        const legacy = await loadInvoiceIdFromCharge(step.chargeId)
-        if (legacy && 'invoice' in legacy) {
-          const id = typeof legacy.invoice === 'string' && legacy.invoice.startsWith('in_') ? legacy.invoice : null
-          ch.invoice = id
+  await mapPool(pending, 4, async (ch) => {
+    try {
+      let failed = false
+      let finished = false
+      const triedInvoiceIds: string[] = []
+      const triedChargeIds: string[] = []
+      const triedPaymentIntents: string[] = []
+      const triedSubscriptionIds: string[] = []
+      const triedSessionKeys: string[] = []
+      for (let n = 0; n < 6; n++) {
+        const step = nextPurchaseFetch({ charge: ch, triedInvoiceIds, triedChargeIds, triedPaymentIntents, triedSubscriptionIds, triedSessionKeys })
+        if (!step) {
+          finished = true
+          break
         }
-      } else if (step.kind === 'invoice_payment') {
-        triedPaymentIntents.push(step.paymentIntentId)
-        const invoice = await loadInvoiceByPayment(step.paymentIntentId)
-        if (invoice) ch.invoice = invoice
-      } else if (step.kind === 'subscription') {
-        triedSubscriptionIds.push(step.id)
-        const subscription = await loadSubscription(step.id)
-        if (subscription) attachSubscription(ch, subscription)
-      } else {
-        triedSessionKeys.push(`${step.subscriptionId ?? ''}|${step.paymentIntentId ?? ''}`)
-        const session = await loadSession(step)
-        if (session) ch.checkout_session = session
+        if (step.kind === 'invoice') {
+          triedInvoiceIds.push(step.id)
+          const loaded = await loadInvoice(step.id)
+          if (loaded.failed) failed = true
+          if (loaded.value) ch.invoice = loaded.value
+        } else if (step.kind === 'charge_invoice') {
+          triedChargeIds.push(step.chargeId)
+          const legacy = await loadInvoiceIdFromCharge(step.chargeId)
+          if (legacy.failed) failed = true
+          if (typeof legacy.invoiceId === 'string') ch.invoice = legacy.invoiceId
+          else if (legacy.invoiceId === null) ch.invoice = null
+        } else if (step.kind === 'invoice_payment') {
+          triedPaymentIntents.push(step.paymentIntentId)
+          const loaded = await loadInvoiceByPayment(step.paymentIntentId)
+          if (loaded.failed) failed = true
+          if (loaded.value) ch.invoice = loaded.value
+        } else if (step.kind === 'subscription') {
+          triedSubscriptionIds.push(step.id)
+          const loaded = await loadSubscription(step.id)
+          if (loaded.failed) failed = true
+          if (loaded.value) attachSubscription(ch, loaded.value)
+        } else {
+          triedSessionKeys.push(`${step.subscriptionId ?? ''}|${step.paymentIntentId ?? ''}`)
+          const loaded = await loadSession(step)
+          if (loaded.failed) failed = true
+          if (loaded.value) ch.checkout_session = loaded.value
+        }
       }
+      const chargeId = typeof ch.id === 'string' ? ch.id : ''
+      if (chargeId && !failed && finished) rememberPurchaseSignals(chargeId, purchaseSignalsFromStripe({ charge: ch }))
+    } catch (err) {
+      console.error('[disputes] purchase lookup:', redactSecrets(err instanceof Error ? err.message : String(err)))
     }
   })
 }
 
-async function listCheckoutSession(key: string, field: 'subscription' | 'payment_intent', id: string): Promise<Obj | null> {
+async function listCheckoutSessions(key: string, field: 'subscription' | 'payment_intent', id: string): Promise<{ sessions: Obj[]; failed: boolean }> {
   const q = new URLSearchParams()
-  q.set('limit', '1')
+  q.set('limit', '10')
   q.set(field, id)
-  const row = firstObject(await softGet(key, `/checkout/sessions?${q}`))
-  if (!row) return null
-  return row.object === 'checkout.session' || (typeof row.id === 'string' && row.id.startsWith('cs_')) ? row : null
+  const result = await softGet(key, `/checkout/sessions?${q}`)
+  if (!isObj(result.data)) return { sessions: [], failed: result.failed }
+  const rows = Array.isArray(result.data.data) ? result.data.data.filter(isObj) : []
+  const sessions = rows.filter((row) => {
+    if (!(row.object === 'checkout.session' || (typeof row.id === 'string' && row.id.startsWith('cs_')))) return false
+    const value = row[field]
+    const found = typeof value === 'string' ? value : isObj(value) && typeof value.id === 'string' ? value.id : null
+    return !found || found === id
+  })
+  return { sessions, failed: result.failed }
 }
 
 async function mapPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
