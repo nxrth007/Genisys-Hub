@@ -20,6 +20,7 @@ function loadTs(rel) {
 
 const plan = loadTs('src/lib/disputes/plan.ts')
 const pdf = loadTs('src/lib/disputes/pdf.ts')
+const rateLimit = loadTs('src/lib/rate-limit.ts')
 
 const client = (over = {}) => ({
   clientId: 'c1',
@@ -264,4 +265,88 @@ test('the defense uses the restricted key and the webhook route is public', () =
   assert.equal(plan.LEGACY_STRIPE_KEY_ENTRY, 'Stripe API Key')
   assert.ok(plan.DISPUTE_WEBHOOK_EVENTS.includes('charge.dispute.created'))
   assert.ok(plan.DISPUTE_WEBHOOK_EVENTS.includes('radar.early_fraud_warning.created'))
+})
+
+test('network reason codes pick the narrative and the emphasis', () => {
+  assert.match(plan.templateFor('product_not_received', null, '13.1'), /Visa 13\.1/)
+  assert.match(plan.templateFor('fraudulent', null, '10.4'), /Visa 10\.4/)
+  assert.match(plan.templateFor('general', null, '4855'), /Mastercard 4855/)
+  assert.match(plan.templateFor('general', null, 'f29'), /F29/)
+  assert.equal(plan.disputeEmphasis('product_not_received', '13.1').emphasis, 'not_received')
+  assert.equal(plan.disputeEmphasis('fraudulent', '10.4').emphasis, 'fraud')
+  assert.equal(plan.disputeEmphasis('subscription_canceled', null).emphasis, 'canceled')
+  const facts = {
+    dispute: { id: 'dp_1', reason: 'product_not_received', status: 'needs_response', amountCents: 29700, currency: 'usd', dueBy: null, chargedAt: '2026-10-01T00:00:00.000Z', cardBrand: 'visa', networkReasonCode: '13.1', email: 'owner@acme.test', name: 'Acme', phone: null, billingAddress: null, purchaseIp: '203.0.113.8', purchaseUa: 'Mozilla/5.0', deviceId: null, chargeRefunded: false },
+    client: { id: 'c1', name: 'Acme Roofing', email: 'owner@acme.test', phone: null, address: null, packageName: null, serviceStart: null, website: null, disputeCount: 0 },
+    intake: null,
+    acknowledgements: [],
+    ledger: [{ kind: 'setup_site', title: 'Website live', detail: 'https://acme.test — HTTP 200', occurredAt: '2026-09-02T00:00:00.000Z', contentHash: 'h' }],
+    emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  }
+  const notReceived = plan.buildEvidence(facts)
+  assert.match(notReceived.fields.uncategorized_text, /^Service delivery timeline:/)
+  assert.match(notReceived.fields.uncategorized_text, /Visa 13\.1/)
+  assert.equal(notReceived.sections[1].heading, 'Service delivery timeline')
+  const fraud = plan.buildEvidence({ ...facts, dispute: { ...facts.dispute, reason: 'fraudulent', networkReasonCode: '10.4' } })
+  assert.match(fraud.fields.uncategorized_text, /^Purchase IP recorded at checkout: 203\.0\.113\.8/)
+  assert.match(fraud.fields.customer_purchase_ip, /203\.0\.113\.8/)
+  assert.equal(fraud.sections[1].heading, 'Checkout purchase')
+})
+
+test('an inquiry is flagged and not auto-submitted unless the policy is fight', () => {
+  const base = { status: 'warning_needs_response', dueBy: new Date(Date.now() + 3600_000).toISOString(), now: new Date().toISOString(), paused: false, narrativeEdited: false, alreadySubmitted: false, matchConfidence: 'exact' }
+  const flagged = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
+  assert.equal(flagged.action, 'compile_only')
+  assert.equal(flagged.stripeSubmit, false)
+  const fight = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live', DISPUTE_INQUIRY_POLICY: 'fight' }) })
+  assert.equal(fight.stripeSubmit, true)
+  assert.equal(plan.parseDisputeConfig({}).inquiryPolicy, 'flag')
+})
+
+test('purchase signals and the acceptance contract', () => {
+  const signals = plan.parsePurchaseSignals({
+    purchase: { ip: '203.0.113.10', userAgent: 'Mozilla/5.0', deviceId: 'short' },
+    metadata: { hub_purchase_ip: '198.51.100.8' },
+  })
+  assert.equal(signals.ip, '203.0.113.10')
+  assert.equal(signals.userAgent, 'Mozilla/5.0')
+  assert.equal(signals.deviceId, null)
+  const fromStripe = plan.parsePurchaseSignals({ metadata: { hub_purchase_ip: '198.51.100.8', hub_purchase_ua: 'Stripe UA', hub_device_id: 'A1B2C3D4E5F60718' } })
+  assert.equal(fromStripe.ip, '198.51.100.8')
+  assert.equal(fromStripe.deviceId, 'A1B2C3D4E5F60718')
+  const hash = 'ab'.repeat(32)
+  const acks = plan.parseAcceptance({
+    acceptance: {
+      terms: { accepted: true, version: '2026-11-19', at: '2026-11-19T18:04:00.000Z', ip: '203.0.113.10', userAgent: 'Mozilla/5.0', textHash: hash, textUrl: 'https://leadgenisys.com/terms' },
+      refundPolicy: { accepted: true, version: '2026-11-19', at: '2026-11-19T18:04:00.000Z', textHash: 'nope', textUrl: 'javascript:alert(1)' },
+    },
+  }, '2026-11-19T18:04:00.000Z')
+  assert.equal(acks[0].textHash, hash)
+  assert.equal(acks[0].textUrl, 'https://leadgenisys.com/terms')
+  assert.equal(acks[1].textHash, null)
+  assert.equal(acks[1].textUrl, null)
+  const facts = {
+    dispute: { id: 'dp_1', reason: 'subscription_canceled', status: 'needs_response', amountCents: 100, currency: 'usd', dueBy: null, chargedAt: null, cardBrand: 'visa', networkReasonCode: '13.2', email: null, name: null, phone: null, billingAddress: null, purchaseIp: null, purchaseUa: null, deviceId: null, chargeRefunded: false },
+    client: null, intake: null,
+    acknowledgements: [{ kind: 'terms', version: '2026-11-19', acceptedAt: '2026-11-19T18:04:00.000Z', ip: '203.0.113.10', userAgent: 'Mozilla/5.0', source: 'intake', textHash: hash, textUrl: 'https://leadgenisys.com/terms' }, { kind: 'cancellation_policy', version: '2026-11-19', acceptedAt: '2026-11-19T18:04:00.000Z', ip: '203.0.113.10', userAgent: 'Mozilla/5.0', source: 'intake', textHash: hash, textUrl: 'https://leadgenisys.com/cancellation' }],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  }
+  const built = plan.buildEvidence(facts)
+  assert.equal(built.fields.customer_signature, undefined)
+  assert.ok(built.signatureSections)
+  assert.match(built.signatureSections[0].body, new RegExp(hash))
+  assert.match(built.fields.cancellation_policy_disclosure, /sha256/)
+  assert.match(built.fields.cancellation_rebuttal, /cancellation policy/)
+  const form = plan.evidenceFormBody({ fields: built.fields, files: { customer_signature: 'file_sig', uncategorized_file: 'file_pdf' }, ce3: null, submit: false })
+  assert.match(form, /customer_signature/)
+  assert.match(form, /file_sig/)
+  assert.doesNotMatch(form, /submit=true/)
+})
+
+test('Render client IP prefers Cloudflare and otherwise the first X-Forwarded-For hop', () => {
+  const headers = (map) => ({ get: (name) => map[name.toLowerCase()] ?? null })
+  assert.equal(rateLimit.clientIp({ headers: headers({ 'cf-connecting-ip': '203.0.113.9', 'x-forwarded-for': '1.2.3.4, 203.0.113.9' }) }), '203.0.113.9')
+  assert.equal(rateLimit.clientIp({ headers: headers({ 'x-forwarded-for': '203.0.113.8, 10.0.0.1' }) }), '203.0.113.8')
+  assert.equal(rateLimit.clientIp({ headers: headers({ 'x-forwarded-for': 'not-an-ip, 198.51.100.4' }) }), '198.51.100.4')
+  assert.equal(rateLimit.clientIp({ headers: headers({}) }), 'unknown')
 })

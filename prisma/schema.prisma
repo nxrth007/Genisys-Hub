@@ -784,6 +784,7 @@ model Client {
   serviceMilestones       ServiceMilestone[]
   deliveryReceipts        DeliveryReceipt[]
   earlyFraudWarnings      EarlyFraudWarning[]
+  checkoutContexts        CheckoutContext[]
 }
 
 /// A new client's website, built in Lovable after a Yes in the Office (src/lib/hl/site-request.ts):
@@ -3415,6 +3416,10 @@ model ServiceAcknowledgement {
   acceptedAt  DateTime
   ip          String?
   userAgent   String?
+  /// SHA-256 of the exact text the client was shown, when the form sent one.
+  textHash    String?
+  /// Public URL of that text, when the form sent one.
+  textUrl     String?
   /// intake | portal | milestone
   source      String
   contentHash String
@@ -3423,6 +3428,27 @@ model ServiceAcknowledgement {
   @@index([clientId, kind])
   @@index([email])
   @@index([intakeId])
+}
+
+/// Purchase IP, user agent, and optional device id from checkout metadata
+/// or the onboarding intake. Used as customer_purchase_ip and for Visa CE 3.0.
+/// source + sourceId keeps one row per intake or per Stripe charge.
+model CheckoutContext {
+  id         String   @id @default(cuid())
+  clientId   String?
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  intakeId   String?
+  /// intake | stripe_charge
+  source     String
+  sourceId   String
+  ip         String?
+  userAgent  String?  @db.Text
+  deviceId   String?
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([source, sourceId])
+  @@index([clientId, occurredAt])
 }
 
 /// A client-portal or Genisys OS login / page view, for access_activity_log.

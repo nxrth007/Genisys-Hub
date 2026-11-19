@@ -125,9 +125,12 @@ Environment, or the switches on Payments → Disputes (a saved setting overrides
 | `DISPUTE_OPEN_TRACKING` | on | Add an open pixel to invoices and reports the Hub sends. |
 | `DISPUTE_MILESTONE_ACK` | off | Include a one-click "confirm service started" link. The link opens a page; the button confirms, so a mail scanner does not. |
 | `DISPUTE_STAMP_METADATA` | on | Write `hub_client_id` / `hub_intake_id` onto the Stripe customer and charge. |
+| `DISPUTE_INQUIRY_POLICY` | `flag` | `flag` compiles an inquiry and does not auto-submit it, so someone can refund. `fight` treats `warning_needs_response` like a chargeback. |
 | `DISPUTE_DEFENSE_CRON` | off outside production | Set to `1` to reconcile disputes from a non-production process. |
 
-Auto-submit does not run when a dispute is paused, when an admin edited the narrative, when the client match is weak or missing, or after `due_by`. A weak match (a business name, a person name, or metadata whose email does not belong to that client) is compiled locally and not uploaded. Rebuilding or linking a client does not submit. Submitting evidence is final, and Stripe's default for `submit` is true, so the Hub refuses a dispute update that does not set the flag explicitly. `has_evidence` means the evidence was staged, not submitted.
+Auto-submit does not run when a dispute is paused, when an admin edited the narrative, when the client match is weak or missing, after `due_by`, or for an inquiry while `DISPUTE_INQUIRY_POLICY` is `flag` (the default). A weak match (a business name, a person name, or metadata whose email does not belong to that client) is compiled locally and not uploaded. Rebuilding or linking a client does not submit. Submitting evidence is final, and Stripe's default for `submit` is true, so the Hub refuses a dispute update that does not set the flag explicitly. `has_evidence` means the evidence was staged, not submitted.
+
+The narrative follows the card network reason code when Stripe sends one (Visa 10.4, 13.1, 13.2, 13.3, 13.7, and the Mastercard and American Express codes listed below), and otherwise the Stripe reason. Not-received and not-as-described packets lead with the setup timeline. Fraud packets lead with the purchase IP and Visa Compelling Evidence 3.0 when two older undisputed charges share that IP or a device id.
 
 ### What to set in the Stripe Dashboard (not code)
 
@@ -137,19 +140,108 @@ Auto-submit does not run when a dispute is paused, when an admin edited the narr
 - Receipt emails: Stripe can email a receipt for every successful charge. That is independent of the Hub's invoice emails.
 - Customer portal: if it is on, clients can cancel there, which is the cancellation path the packet describes.
 
-### Onboarding form fields that make later disputes stronger
+### What the onboarding form must send
 
-The form at clientonboarding.leadgenisys.com can add an `acceptance` object. The Hub stores each accepted block with the IP, user agent, version, and a SHA-256:
+The form lives in `nxrth007/genisysclientonboarding`. The Hub reads two blocks on the intake JSON (the same body already posted to the onboarding webhook). It also reads the same values from Stripe charge metadata when the Checkout Session copies them onto the charge. Dry-run stores them and does not write them back to Stripe.
+
+#### Checkout purchase (`purchase`, and Stripe metadata)
+
+Put this on the intake body. Also set the same three keys on the Checkout Session metadata that Stripe copies onto the Charge (`payment_intent_data.metadata` for a one-time charge, `subscription_data.metadata` for the subscription). Stripe metadata values are limited to 500 characters, so the full user agent belongs on the intake; the metadata copy can be the first 500 characters.
+
+| Name | Where | Meaning |
+| --- | --- | --- |
+| `purchase.ip` | intake JSON | Customer IP at checkout. Also accepted as `hub_purchase_ip`. |
+| `purchase.userAgent` | intake JSON | Browser user agent. Also accepted as `hub_purchase_ua`. |
+| `purchase.deviceId` | intake JSON | Optional device id. Visa only counts it at 15 characters or more. Also accepted as `hub_device_id`. |
+| `hub_purchase_ip` | Stripe charge metadata | Same IP. This is what `customer_purchase_ip` and Visa CE 3.0 use for that charge. |
+| `hub_purchase_ua` | Stripe charge metadata | User agent, truncated to 500 characters. |
+| `hub_device_id` | Stripe charge metadata | Same device id. |
 
 ```json
 {
-  "ip": "203.0.113.5",
+  "purchase": {
+    "ip": "203.0.113.10",
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+    "deviceId": "A1B2C3D4E5F60718"
+  }
+}
+```
+
+Stripe metadata on the charge:
+
+```text
+hub_purchase_ip=203.0.113.10
+hub_purchase_ua=Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)
+hub_device_id=A1B2C3D4E5F60718
+```
+
+A missing IP is left blank. The Hub does not invent one from a later login.
+
+#### Clickwrap (`acceptance`)
+
+Each policy is its own object. `accepted` must be boolean `true` (or the strings `true` or `yes`). Anything else is not an acceptance. `ip` and `userAgent` on the object win; the same fields at the top of the body fill anything left blank.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `accepted` | yes | `true` |
+| `version` | yes | Version string the client was shown. The Hub uses `2026-11-19` if this is omitted. |
+| `at` | no | ISO-8601 time they accepted. `acceptedAt` is also accepted. Defaults to when the Hub received the intake. |
+| `ip` | no | IP at acceptance. |
+| `userAgent` | no | User agent at acceptance. |
+| `textHash` | no | Lowercase SHA-256 hex (64 characters) of the exact text shown. Other shapes are ignored. |
+| `textUrl` | no | `http` or `https` URL of that text. |
+
+Keys: `terms`, `refundPolicy`, `cancellationPolicy`, `recurringBilling`. Snake-case aliases `refund_policy`, `cancellation_policy`, and `recurring_billing` are also accepted.
+
+The Hub maps them as follows. Policy prose is sent only in the disclosure text fields. `customer_signature` is a PDF file of the clickwrap (version, time, IP, user agent, text hash, text URL), uploaded only when defense mode is stage or live.
+
+| Acceptance key | Stripe evidence |
+| --- | --- |
+| `terms` | `customer_signature` file (the clickwrap PDF) and the access-activity line |
+| `refundPolicy` | `refund_policy_disclosure` |
+| `cancellationPolicy` | `cancellation_policy_disclosure`, and `cancellation_rebuttal` on a cancellation dispute |
+| `recurringBilling` | included in `uncategorized_text` |
+
+```json
+{
+  "ip": "203.0.113.10",
   "userAgent": "Mozilla/5.0",
+  "purchase": {
+    "ip": "203.0.113.10",
+    "userAgent": "Mozilla/5.0",
+    "deviceId": "A1B2C3D4E5F60718"
+  },
   "acceptance": {
-    "terms": { "accepted": true, "version": "2026-11-19", "at": "2026-11-19T12:00:00Z" },
-    "refundPolicy": { "accepted": true, "version": "2026-11-19", "at": "2026-11-19T12:00:00Z" },
-    "cancellationPolicy": { "accepted": true, "version": "2026-11-19", "at": "2026-11-19T12:00:00Z" },
-    "recurringBilling": { "accepted": true, "version": "2026-11-19", "at": "2026-11-19T12:00:00Z" }
+    "terms": {
+      "accepted": true,
+      "version": "2026-11-19",
+      "at": "2026-11-19T18:04:00.000Z",
+      "ip": "203.0.113.10",
+      "userAgent": "Mozilla/5.0",
+      "textHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "textUrl": "https://leadgenisys.com/terms"
+    },
+    "refundPolicy": {
+      "accepted": true,
+      "version": "2026-11-19",
+      "at": "2026-11-19T18:04:00.000Z",
+      "textHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "textUrl": "https://leadgenisys.com/refunds"
+    },
+    "cancellationPolicy": {
+      "accepted": true,
+      "version": "2026-11-19",
+      "at": "2026-11-19T18:04:00.000Z",
+      "textHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "textUrl": "https://leadgenisys.com/cancellation"
+    },
+    "recurringBilling": {
+      "accepted": true,
+      "version": "2026-11-19",
+      "at": "2026-11-19T18:04:00.000Z",
+      "textHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "textUrl": "https://leadgenisys.com/billing"
+    }
   }
 }
 ```

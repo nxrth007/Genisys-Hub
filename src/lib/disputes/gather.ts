@@ -6,7 +6,8 @@
 import { prisma } from '@/lib/prisma'
 import { syncServiceLedger } from './ledger'
 import { syncSetupMilestones } from './setup'
-import { emailHeaderHas, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { emailHeaderHas, parsePurchaseSignals, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { rememberPurchase } from './purchase'
 
 export async function gatherFacts(o: {
   disputeId: string
@@ -20,6 +21,9 @@ export async function gatherFacts(o: {
   chargedAt: Date | null
   cardBrand: string | null
   networkReasonCode: string | null
+  purchaseIp: string | null
+  purchaseUa: string | null
+  deviceId: string | null
   email: string | null
   name: string | null
   phone: string | null
@@ -43,13 +47,13 @@ export async function gatherFacts(o: {
   const intake = o.intakeId
     ? await prisma.clientIntake.findUnique({
         where: { id: o.intakeId },
-        select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true },
+        select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true, raw: true },
       })
     : o.clientId
       ? await prisma.clientIntake.findFirst({
           where: { clientId: o.clientId },
           orderBy: { receivedAt: 'desc' },
-          select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true },
+          select: { id: true, receivedAt: true, businessName: true, fullName: true, leadEmail: true, customerPhone: true, businessAddress: true, mainServices: true, raw: true },
         })
       : null
 
@@ -73,6 +77,20 @@ export async function gatherFacts(o: {
       : Promise.resolve([]),
   ])
 
+  const fromIntake = intake ? parsePurchaseSignals(intake.raw) : { ip: null, userAgent: null, deviceId: null }
+  if (intake && (fromIntake.ip || fromIntake.userAgent || fromIntake.deviceId)) {
+    await rememberPurchase({
+      clientId: o.clientId,
+      intakeId: intake.id,
+      source: 'intake',
+      sourceId: intake.id,
+      signals: fromIntake,
+      occurredAt: intake.receivedAt,
+    }).catch(() => {})
+  }
+  const stored = o.clientId
+    ? await prisma.checkoutContext.findFirst({ where: { clientId: o.clientId }, orderBy: { occurredAt: 'desc' } })
+    : null
   const emails = o.clientId ? await clientEmails(o.clientId, client?.contactEmail ?? intake?.leadEmail ?? o.email) : []
   const priors: PriorCharge[] = []
   for (const ch of o.priorCharges) {
@@ -95,7 +113,9 @@ export async function gatherFacts(o: {
       name: o.name,
       phone: o.phone,
       billingAddress: o.billingAddress,
-      purchaseIp: null,
+      purchaseIp: o.purchaseIp ?? fromIntake.ip ?? stored?.ip ?? null,
+      purchaseUa: o.purchaseUa ?? fromIntake.userAgent ?? stored?.userAgent ?? null,
+      deviceId: o.deviceId ?? fromIntake.deviceId ?? stored?.deviceId ?? null,
       chargeRefunded: o.chargeRefunded,
     },
     client: client
@@ -131,6 +151,8 @@ export async function gatherFacts(o: {
       userAgent: a.userAgent,
       source: a.source,
       contentHash: a.contentHash,
+      textHash: a.textHash,
+      textUrl: a.textUrl,
     })),
     ledger: ledger.map((l) => ({
       kind: l.kind,
@@ -156,7 +178,7 @@ export async function gatherFacts(o: {
       emailSentAt: inv.emailSentAt?.toISOString() ?? null,
       smsSentAt: inv.smsSentAt?.toISOString() ?? null,
     })),
-    logins: logins.map((l) => ({ at: l.createdAt.toISOString(), email: l.email, ip: l.ip, kind: l.kind })),
+    logins: logins.map((l) => ({ at: l.createdAt.toISOString(), email: l.email, ip: l.ip, userAgent: l.userAgent, kind: l.kind })),
     priors,
     narrative: o.narrative,
     template: o.template,
