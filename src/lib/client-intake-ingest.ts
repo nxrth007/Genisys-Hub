@@ -193,6 +193,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     console.error(`[client-onboarding] client promotion failed for ${intake.id}:`, err)
   }
 
+  void import('@/lib/disputes/receipts')
+    .then((m) => m.afterIntake({ intakeId: intake.id, clientId, email: data.leadEmail, name: intake.businessName ?? 'there', raw: body, receivedAt: intake.receivedAt }))
+    .catch((err) => console.error('[client-onboarding] acceptance capture failed:', err instanceof Error ? err.message : err))
+
   // Every submission gets announced, so a missing one is noticed.
   const who = intake.businessName ?? 'an unnamed business'
   const city = data.cities?.split(/[,\n;]/)[0]?.trim()

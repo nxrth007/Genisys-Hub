@@ -433,12 +433,31 @@ export async function processPpaInvoicingForClient(
   const failureNotes: string[] = []
 
   if (client.contactEmail?.trim()) {
+    const subject = `Invoice from Lead Genisys — ${count} qualified appointment${count === 1 ? '' : 's'} (${formatUsd(amountCents)})`
+    let body = emailHtml
+    try {
+      const [{ prepareTrackedEmail }, { loadDisputeConfig }] = await Promise.all([
+        import('@/lib/disputes/receipts'),
+        import('@/lib/disputes/config'),
+      ])
+      body = await prepareTrackedEmail({
+        config: await loadDisputeConfig(),
+        clientId: client.id,
+        kind: 'invoice',
+        to: client.contactEmail.trim(),
+        subject,
+        html: emailHtml,
+        sourceId: `invoice-email:${invoice.id}`,
+      })
+    } catch (err) {
+      console.error('[ppa-invoicing] receipt tracking skipped:', err instanceof Error ? err.message : err)
+    }
     try {
       await sendEmail({
         accountEmail: FROM_GMAIL_ACCOUNT,
         to: client.contactEmail.trim(),
-        subject: `Invoice from Lead Genisys — ${count} qualified appointment${count === 1 ? '' : 's'} (${formatUsd(amountCents)})`,
-        body: emailHtml,
+        subject,
+        body,
         fromName: 'Genisys',
       })
       emailSentAt = new Date()
@@ -464,6 +483,9 @@ export async function processPpaInvoicingForClient(
         ...(client.contactName ? splitName(client.contactName) : {}),
       })
       smsSentAt = new Date()
+      void import('@/lib/disputes/receipts')
+        .then((m) => m.recordSmsReceipt({ clientId: client.id, kind: 'invoice', to: client.contactPhone!.trim(), body: smsBody, sourceId: `invoice-sms:${invoice.id}` }))
+        .catch(() => {})
     } catch (err) {
       failureNotes.push(
         `sms: ${err instanceof Error ? err.message : String(err)}`,

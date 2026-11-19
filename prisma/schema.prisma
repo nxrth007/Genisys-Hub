@@ -770,6 +770,20 @@ model Client {
   hlDomainRequest  HlDomainRequest?
   /// Forge's question in the Office: build their website in Lovable?
   hlSiteRequest    HlSiteRequest?
+
+  /// Stripe disputes linked to this client. disputeCount >= 2 means they
+  /// have disputed more than once: the Clients page warns the team.
+  disputeCount     Int       @default(0)
+  lastDisputeAt    DateTime?
+
+  stripeDisputes          StripeDispute[]
+  serviceLedger           ServiceLedgerEntry[]
+  serviceAcknowledgements ServiceAcknowledgement[]
+  portalActivity          PortalActivity[]
+  serviceNotices          ServiceNotice[]
+  serviceMilestones       ServiceMilestone[]
+  deliveryReceipts        DeliveryReceipt[]
+  earlyFraudWarnings      EarlyFraudWarning[]
 }
 
 /// A new client's website, built in Lovable after a Yes in the Office (src/lib/hl/site-request.ts):
@@ -3262,4 +3276,261 @@ model ClientTracker {
   publicTokenNonce      String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// Stripe dispute defense (src/lib/disputes).
+// A dispute is compiled and staged locally. Submitting evidence to Stripe
+// is final, so the default mode is dry-run: build the packet, never call
+// the dispute update endpoint until an admin turns the mode up.
+// -----------------------------------------------------------------------------
+
+/// One Stripe dispute the Hub is defending. The packet PDF and its SHA-256
+/// live here so a restart of the Render disk cannot lose the evidence.
+model StripeDispute {
+  id                    String    @id @default(cuid())
+  stripeDisputeId       String    @unique
+  stripeChargeId        String?
+  stripePaymentIntentId String?
+  stripeCustomerId      String?
+  stripeInvoiceId       String?
+  /// needs_response | under_review | charge_refunded | won | lost |
+  /// warning_needs_response | warning_under_review | warning_closed | …
+  status                String
+  reason                String
+  networkReasonCode     String?
+  amountCents           Int
+  currency              String    @default("usd")
+  dueBy                 DateTime?
+  chargedAt             DateTime?
+  livemode              Boolean   @default(true)
+  cardBrand             String?
+  /// Stripe evidence_details.submission_count > 0. Already filed.
+  stripeSubmitted       Boolean   @default(false)
+
+  clientId              String?
+  client                Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  intakeId              String?
+  /// metadata | email | phone | business_name | person_name | manual | none
+  matchMethod           String?
+  /// exact | strong | weak | none
+  matchConfidence       String    @default("none")
+
+  /// Admin rewrite of the narrative. Setting this blocks auto-submit.
+  narrative             String?   @db.Text
+  narrativeEditedAt     DateTime?
+  narrativeEditedBy     String?
+
+  /// Structured Stripe evidence text fields (no file bytes).
+  evidenceJson          Json?
+  /// Visa Compelling Evidence 3.0 block, when the dispute qualifies.
+  compellingEvidence    Json?
+  /// SHA-256 of the canonical evidence JSON, and of the PDF bytes.
+  evidenceSha256        String?
+  packetPdf             Bytes?
+  packetBytes           Int?
+  packetSha256          String?
+  packetBuiltAt         DateTime?
+  /// Stripe File id once uploaded (purpose dispute_evidence).
+  stripeFileId          String?
+
+  /// new | compiled | staged | submitted | held
+  defenseStatus         String    @default("new")
+  paused                Boolean   @default(false)
+  pausedAt              DateTime?
+  pausedBy              String?
+  stagedAt              DateTime?
+  submittedAt           DateTime?
+  autoSubmitAt          DateTime?
+  lastError             String?   @db.Text
+
+  /// Stripe's dispute object. No API keys live in it.
+  raw                   Json
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  events                StripeDisputeEvent[]
+
+  @@index([status, dueBy])
+  @@index([clientId])
+  @@index([defenseStatus, autoSubmitAt])
+  @@index([stripeChargeId])
+}
+
+/// Append-only audit log. Each row's contentHash is SHA-256 of the previous
+/// hash plus the canonical payload, so a changed row breaks the chain.
+model StripeDisputeEvent {
+  id          String        @id @default(cuid())
+  disputeId   String
+  dispute     StripeDispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  seq         Int
+  /// ingested | reconciled | matched | compiled | staged | edited | paused |
+  /// resumed | submitted | dry_run | error | alerted | assigned
+  kind        String
+  detail      String?       @db.Text
+  actor       String?
+  payload     Json?
+  prevHash    String
+  contentHash String
+  createdAt   DateTime      @default(now())
+
+  @@unique([disputeId, seq])
+  @@index([disputeId, createdAt])
+}
+
+/// Per-client proof of delivery and use. Append-only. source + sourceId
+/// keeps a scanner from writing the same appointment twice.
+model ServiceLedgerEntry {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// onboarding | ghl_subaccount | campaign | lead | appointment | invoice |
+  /// payment | email_out | email_in | sms | login | reply | report | website |
+  /// journey | acknowledgement | notice
+  kind        String
+  title       String
+  detail      String?  @db.Text
+  occurredAt  DateTime
+  /// Which table the row was copied from (intake, appointment, email, …).
+  source      String
+  sourceId    String
+  contentHash String
+  createdAt   DateTime @default(now())
+
+  @@unique([source, sourceId])
+  @@index([clientId, occurredAt])
+}
+
+/// Clickwrap: terms, refund policy, cancellation policy, recurring billing,
+/// or a milestone confirmation. Hashed so the acceptance can be shown later.
+model ServiceAcknowledgement {
+  id          String    @id @default(cuid())
+  clientId    String?
+  client      Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  intakeId    String?
+  email       String?
+  /// terms | refund_policy | cancellation_policy | recurring_billing | milestone
+  kind        String
+  version     String
+  acceptedAt  DateTime
+  ip          String?
+  userAgent   String?
+  /// intake | portal | milestone
+  source      String
+  contentHash String
+  createdAt   DateTime  @default(now())
+
+  @@index([clientId, kind])
+  @@index([email])
+  @@index([intakeId])
+}
+
+/// A client-portal or Genisys OS login / page view, for access_activity_log.
+model PortalActivity {
+  id        String   @id @default(cuid())
+  userId    String?
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  email     String?
+  /// login | page
+  kind      String
+  path      String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([email, createdAt])
+}
+
+/// radar.early_fraud_warning. Refunds stay off unless config says so.
+model EarlyFraudWarning {
+  id               String    @id @default(cuid())
+  stripeWarningId  String    @unique
+  stripeChargeId   String?
+  stripeCustomerId String?
+  actionable       Boolean   @default(false)
+  fraudType        String?
+  clientId         String?
+  client           Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// none | refunded | skipped | dry_run
+  action           String    @default("none")
+  actionDetail     String?   @db.Text
+  livemode         Boolean   @default(true)
+  raw              Json
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+/// A receipt or service notice. channel stripe means Stripe billed them
+/// and the Hub recorded it; email and sms mean the Hub sent it.
+model ServiceNotice {
+  id             String   @id @default(cuid())
+  clientId       String?
+  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// receipt | onboarding | invoice | service_delivery
+  kind           String
+  /// email | sms | stripe
+  channel        String
+  toAddress      String
+  subject        String?
+  body           String   @db.Text
+  stripeChargeId String?
+  contentHash    String
+  /// SHA-256 of the email HTML, and a text PDF of the same notice when we snapshotted one.
+  snapshotSha256 String?
+  snapshotPdf    Bytes?
+  sentAt         DateTime @default(now())
+
+  @@index([clientId, sentAt])
+}
+
+/// Optional one-click "confirm service started". The raw token is emailed
+/// once; only its SHA-256 is stored. Default off (nothing is created).
+model ServiceMilestone {
+  id          String    @id @default(cuid())
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// service_started | campaign_launched
+  kind        String
+  tokenHash   String    @unique
+  /// pending | confirmed
+  status      String    @default("pending")
+  confirmedAt DateTime?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([clientId, kind])
+}
+
+/// Email/SMS send, with an open pixel for email. tokenHash matches the
+/// pixel URL. openedAt can be a mail-scanner prefetch; the packet says so.
+model DeliveryReceipt {
+  id           String    @id @default(cuid())
+  clientId     String?
+  client       Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// invoice | onboarding | report | service
+  kind         String
+  /// email | sms
+  channel      String
+  toAddress    String
+  subject      String?
+  tokenHash    String?   @unique
+  sentAt       DateTime  @default(now())
+  deliveredAt  DateTime?
+  openedAt     DateTime?
+  openCount    Int       @default(0)
+  lastOpenIp   String?
+  lastOpenUa   String?
+  bodyHash     String
+  sourceId     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([channel, sourceId])
+  @@index([clientId, sentAt])
 }

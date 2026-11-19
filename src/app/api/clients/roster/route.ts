@@ -75,6 +75,8 @@ export async function GET() {
       ghlProvisionError: true,
       createdAt: true,
       archivedAt: true,
+      disputeCount: true,
+      lastDisputeAt: true,
       seoSite: { select: { id: true, repoFullName: true, archivedAt: true } },
       intakes: {
         orderBy: { receivedAt: 'desc' },

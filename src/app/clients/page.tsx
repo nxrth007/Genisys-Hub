@@ -114,6 +114,7 @@ type RosterClient = {
   ghlProvisionError: string | null
   createdAt: string
   archivedAt: string | null
+  disputeCount?: number
   intake: Intake | null
   /** The client's own GHL sub-account, when the vault holds its token. */
   ghlSubAccount: { vaultName: string; locationId: string; locationName: string } | null
@@ -623,7 +624,11 @@ function ClientRow({
             {initials(client.name)}
           </span>
           <div>
-            <p className="font-medium">{client.name}</p>
+            <p className="font-medium">
+              {client.name}
+              {(client.disputeCount ?? 0) >= 2 && <span className="ml-2 text-xs font-normal text-destructive">Repeat disputer</span>}
+              {client.disputeCount === 1 && <span className="ml-2 text-xs font-normal text-destructive">Disputed a charge</span>}
+            </p>
             <p className="text-xs text-muted-foreground">
               {client.contactName ?? i?.fullName ?? '—'}
             </p>
@@ -1179,6 +1184,8 @@ function ClientDetailDialog({
                 {client.einStatus === 'none' && <Chip tone="amber">No EIN</Chip>}
                 {client.einStatus === 'pending' && <Chip>EIN pending</Chip>}
                 {client.archivedAt && <Chip>Archived</Chip>}
+                {(client.disputeCount ?? 0) >= 2 && <Chip tone="pink">Repeat disputer</Chip>}
+                {client.disputeCount === 1 && <Chip tone="amber">Disputed a charge</Chip>}
               </p>
               <SubmittedAt client={client} />
             </div>

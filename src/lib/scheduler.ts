@@ -48,6 +48,7 @@ import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybeCheckStripeOnboarding } from './stripe-onboarding'
+import { maybeReconcileDisputes } from './disputes/run'
 import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
@@ -180,6 +181,12 @@ let lastVicidialSnapshotDayUtc: string | null = null
 let vicidialSnapshotInFlight = false
 const VICIDIAL_SNAPSHOT_HOUR_UTC = 10
 
+// Stripe disputes: list anything still open so a dropped webhook is caught,
+// and compile the packet. Dry-run does not call Stripe's update endpoint.
+const DISPUTE_RECONCILE_MS = 15 * 60 * 1000
+let lastDisputeReconcileAt = 0
+let disputeReconcileInFlight = false
+
 // County backfill — geocode appointments that have an address but no
 // county yet, a small batch per tick, until the backlog drains. Runs
 // fire-and-forget (concurrent with the rest of the tick) so it never
@@ -261,6 +268,16 @@ export function initScheduler() {
       await maybeRunScheduledBulkCredentials()
     } catch (err) {
       console.error('[scheduler] scheduled bulk-credentials check failed:', err)
+    }
+
+    if (Date.now() - lastDisputeReconcileAt >= DISPUTE_RECONCILE_MS && !disputeReconcileInFlight) {
+      disputeReconcileInFlight = true
+      lastDisputeReconcileAt = Date.now()
+      void maybeReconcileDisputes()
+        .catch((err) => console.error('[scheduler] dispute reconcile failed:', err instanceof Error ? err.message : err))
+        .finally(() => {
+          disputeReconcileInFlight = false
+        })
     }
 
     // PPA bi-weekly invoicing — fire once during the 14:00 UTC hour

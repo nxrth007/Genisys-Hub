@@ -76,6 +76,13 @@ const PUBLIC_PATHS = [
   '/api/webhooks/ghl-subaccount-worker',
   // Whop membership webhooks; the route verifies Whop's signature itself.
   '/api/webhooks/whop',
+  // Stripe signs this itself (Stripe-Signature). Dispute events use the same endpoint.
+  '/api/webhooks/stripe',
+  // The onboarding form asks this with the verification key. The route checks it.
+  '/api/public/checkout-verify',
+  // Email open pixels and the one-click service confirmation. The token is the access.
+  '/api/public/receipts',
+  '/api/public/acknowledge',
   // Client sub-account workflows post form / chat leads here (?secret=).
   '/api/webhooks/ghl-lead',
   // Genisys OS (src/lib/hl): what the public and Twilio reach. /hl serves the

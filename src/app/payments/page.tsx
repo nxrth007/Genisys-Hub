@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { canAccessPayments } from '@/lib/payments-access'
@@ -25,7 +26,9 @@ export default async function PaymentsPage() {
         title="Payments"
         breadcrumbs={[{ label: 'Genisys' }, { label: 'Payments' }]}
       />
-      <PaymentsTabs />
+      <Suspense fallback={null}>
+        <PaymentsTabs />
+      </Suspense>
     </div>
   )
 }
