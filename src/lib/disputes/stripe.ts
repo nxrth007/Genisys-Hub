@@ -10,8 +10,10 @@ import {
   DISPUTE_WEBHOOK_EVENTS,
   LEGACY_STRIPE_KEY_ENTRY,
   WEBHOOK_PATH,
+  nextPurchaseFetch,
   redactSecrets,
   type Ce3,
+  type PurchaseFetch,
 } from './plan'
 
 const API = 'https://api.stripe.com/v1'
@@ -104,6 +106,181 @@ export async function listCustomerCharges(customerId: string): Promise<Obj[]> {
   return isObj(data) && Array.isArray(data.data) ? data.data.filter(isObj) : []
 }
 
+const INVOICE_ID = /^in_[A-Za-z0-9]+$/
+const PAYMENT_INTENT_ID = /^pi_[A-Za-z0-9]+$/
+const SUBSCRIPTION_ID = /^sub_[A-Za-z0-9]+$/
+
+/** Last API version that still returns Charge.invoice. Basil (2025-03-31) removed it. */
+const CHARGE_INVOICE_VERSION = '2024-09-30.acacia'
+
+async function softGet(key: string, path: string, stripeVersion?: string): Promise<unknown | null> {
+  try {
+    const r = await call(key, `${API}${path}`, {
+      method: 'GET',
+      headers: stripeVersion ? { 'Stripe-Version': stripeVersion } : {},
+    })
+    if (r.ok) return r.data
+    if (r.status !== 404) console.error(`[disputes] purchase lookup ${path.split('?')[0]}:`, messageOf(r.data, r.status))
+    return null
+  } catch (err) {
+    console.error('[disputes] purchase lookup:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    return null
+  }
+}
+
+function firstObject(data: unknown): Obj | null {
+  const row = isObj(data) && Array.isArray(data.data) ? data.data.find(isObj) : null
+  return row ?? null
+}
+
+async function cachedGet<T>(map: Map<string, Promise<T>>, id: string, load: () => Promise<T>): Promise<T> {
+  const existing = map.get(id)
+  if (existing) return existing
+  const pending = load()
+  map.set(id, pending)
+  return pending
+}
+
+function attachSubscription(charge: Obj, subscription: Obj): void {
+  const invoice = isObj(charge.invoice) ? charge.invoice : null
+  const parent = invoice && isObj(invoice.parent) ? invoice.parent : null
+  const details = parent && isObj(parent.subscription_details) ? parent.subscription_details : null
+  const parentType = parent && typeof parent.type === 'string' ? parent.type : null
+  if (details && parentType !== 'quote_details') {
+    details.subscription = subscription
+    return
+  }
+  if (invoice) {
+    invoice.subscription = subscription
+    return
+  }
+  charge.subscription = subscription
+}
+
+/**
+ * Fills in purchase metadata Stripe did not copy onto the charge.
+ * Reads only, and only the next object in line: invoice snapshot, then the
+ * subscription, then the checkout session. A charge that already has a usable
+ * IP, user agent, or device id is left alone. Failures are logged and skipped
+ * so a missing permission does not drop the rest of the charge.
+ */
+export async function enrichChargePurchaseContext(charges: Obj[]): Promise<void> {
+  if (!charges.some((ch) => nextPurchaseFetch({ charge: ch }))) return
+  let key: { value: string }
+  try {
+    key = await disputeKey()
+  } catch (err) {
+    console.error('[disputes] purchase lookup:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    return
+  }
+  const invoices = new Map<string, Promise<Obj | null>>()
+  const invoicesByPayment = new Map<string, Promise<Obj | null>>()
+  const subscriptions = new Map<string, Promise<Obj | null>>()
+  const sessionsBySubscription = new Map<string, Promise<Obj | null>>()
+  const sessionsByPayment = new Map<string, Promise<Obj | null>>()
+
+  const loadInvoice = (id: string) =>
+    cachedGet(invoices, id, async () => {
+      if (!INVOICE_ID.test(id)) return null
+      const data = await softGet(key.value, `/invoices/${encodeURIComponent(id)}`)
+      return isObj(data) && data.id === id ? data : null
+    })
+  const loadInvoiceIdFromCharge = (chargeId: string) =>
+    cachedGet(invoices, `charge:${chargeId}`, async () => {
+      if (!/^ch_[A-Za-z0-9]+$/.test(chargeId)) return null
+      const data = await softGet(key.value, `/charges/${encodeURIComponent(chargeId)}`, CHARGE_INVOICE_VERSION)
+      if (!isObj(data) || !('invoice' in data)) return null
+      return data
+    })
+  const loadInvoiceByPayment = (paymentIntentId: string) =>
+    cachedGet(invoicesByPayment, paymentIntentId, async () => {
+      if (!PAYMENT_INTENT_ID.test(paymentIntentId)) return null
+      const q = new URLSearchParams()
+      q.set('limit', '1')
+      q.set('payment[type]', 'payment_intent')
+      q.set('payment[payment_intent]', paymentIntentId)
+      const data = await softGet(key.value, `/invoice_payments?${q}`)
+      const row = firstObject(data)
+      if (row && isObj(row.invoice) && typeof row.invoice.id === 'string') return row.invoice
+      const invoiceId = row && typeof row.invoice === 'string' ? row.invoice : null
+      if (!invoiceId) return null
+      return loadInvoice(invoiceId)
+    })
+  const loadSubscription = (id: string) =>
+    cachedGet(subscriptions, id, async () => {
+      if (!SUBSCRIPTION_ID.test(id)) return null
+      const data = await softGet(key.value, `/subscriptions/${encodeURIComponent(id)}`)
+      return isObj(data) && (data.object === 'subscription' || data.id === id) ? data : null
+    })
+  const loadSession = async (step: Extract<PurchaseFetch, { kind: 'checkout_session' }>): Promise<Obj | null> => {
+    if (step.subscriptionId && SUBSCRIPTION_ID.test(step.subscriptionId)) {
+      const found = await cachedGet(sessionsBySubscription, step.subscriptionId, () => listCheckoutSession(key.value, 'subscription', step.subscriptionId as string))
+      if (found) return found
+    }
+    if (step.paymentIntentId && PAYMENT_INTENT_ID.test(step.paymentIntentId)) {
+      return cachedGet(sessionsByPayment, step.paymentIntentId, () => listCheckoutSession(key.value, 'payment_intent', step.paymentIntentId as string))
+    }
+    return null
+  }
+
+  await mapPool(charges, 4, async (ch) => {
+    const triedInvoiceIds: string[] = []
+    const triedChargeIds: string[] = []
+    const triedPaymentIntents: string[] = []
+    const triedSubscriptionIds: string[] = []
+    const triedSessionKeys: string[] = []
+    for (let n = 0; n < 6; n++) {
+      const step = nextPurchaseFetch({ charge: ch, triedInvoiceIds, triedChargeIds, triedPaymentIntents, triedSubscriptionIds, triedSessionKeys })
+      if (!step) return
+      if (step.kind === 'invoice') {
+        triedInvoiceIds.push(step.id)
+        const invoice = await loadInvoice(step.id)
+        if (invoice) ch.invoice = invoice
+      } else if (step.kind === 'charge_invoice') {
+        triedChargeIds.push(step.chargeId)
+        const legacy = await loadInvoiceIdFromCharge(step.chargeId)
+        if (legacy && 'invoice' in legacy) {
+          const id = typeof legacy.invoice === 'string' && legacy.invoice.startsWith('in_') ? legacy.invoice : null
+          ch.invoice = id
+        }
+      } else if (step.kind === 'invoice_payment') {
+        triedPaymentIntents.push(step.paymentIntentId)
+        const invoice = await loadInvoiceByPayment(step.paymentIntentId)
+        if (invoice) ch.invoice = invoice
+      } else if (step.kind === 'subscription') {
+        triedSubscriptionIds.push(step.id)
+        const subscription = await loadSubscription(step.id)
+        if (subscription) attachSubscription(ch, subscription)
+      } else {
+        triedSessionKeys.push(`${step.subscriptionId ?? ''}|${step.paymentIntentId ?? ''}`)
+        const session = await loadSession(step)
+        if (session) ch.checkout_session = session
+      }
+    }
+  })
+}
+
+async function listCheckoutSession(key: string, field: 'subscription' | 'payment_intent', id: string): Promise<Obj | null> {
+  const q = new URLSearchParams()
+  q.set('limit', '1')
+  q.set(field, id)
+  const row = firstObject(await softGet(key, `/checkout/sessions?${q}`))
+  if (!row) return null
+  return row.object === 'checkout.session' || (typeof row.id === 'string' && row.id.startsWith('cs_')) ? row : null
+}
+
+async function mapPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = cursor++
+      if (index >= items.length) return
+      await fn(items[index])
+    }
+  })
+  await Promise.all(workers)
+}
+
 export async function uploadDisputeFile(bytes: Buffer, filename: string, mime: string): Promise<string> {
   const key = await disputeKey()
   if (bytes.length > 5 * 1024 * 1024) throw new DisputeStripeError(`${filename} is over 5 MB`, 0, null)
@@ -173,6 +350,7 @@ export async function probeDisputeKey(): Promise<ProbeResult> {
     { path: '/payment_intents?limit=1', label: 'PaymentIntents: Read' },
     { path: '/customers?limit=1', label: 'Customers: Read' },
     { path: '/invoices?limit=1', label: 'Invoices: Read' },
+    { path: '/subscriptions?limit=1', label: 'Subscriptions: Read' },
     { path: '/checkout/sessions?limit=1', label: 'Checkout Sessions: Read' },
     { path: '/files?limit=1', label: 'Files: Read' },
     { path: '/webhook_endpoints?limit=1', label: 'Webhook endpoints: Read' },

@@ -37,7 +37,7 @@ import {
 } from './plan'
 import { recordStripeNotice } from './receipts'
 import { rememberPurchase } from './purchase'
-import { listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
+import { enrichChargePurchaseContext, listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
 
 const OPEN = new Set(['needs_response', 'warning_needs_response'])
 
@@ -221,6 +221,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   if (row.stripeCustomerId) {
     try {
       const charges = await listCustomerCharges(row.stripeCustomerId)
+      await enrichChargePurchaseContext(charges)
       priors = charges.filter((c) => c.id !== row.stripeChargeId)
       const own = charges.find((c) => c.id === row.stripeChargeId)
       if (own) {
