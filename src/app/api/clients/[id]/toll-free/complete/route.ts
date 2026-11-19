@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/auth-helpers'
 import { markTrackerStep, trackerRowFor, trackerWhoForClient } from '@/lib/onboarding-tracker'
+import { setTrackerStep } from '@/lib/tracker/store'
 
 /**
  * The Toll-Free board's "Mark Complete": checks "Toll-Free Submitted" for
@@ -24,5 +25,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params
   const who = await trackerWhoForClient(id)
   if (!who) return NextResponse.json({ error: 'client not found' }, { status: 404 })
+  // The Hub's own tracker remembers it too (src/lib/tracker), whatever the sheet says.
+  await setTrackerStep(id, 'number', 'done', { actor: 'board', note: 'Toll-Free board: Mark Complete' }).catch((err) => console.warn(`[tracker] number mark for ${id}:`, err))
   return NextResponse.json({ tracker: await markTrackerStep('tollfree', who) })
 }

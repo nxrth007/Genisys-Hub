@@ -1,67 +1,45 @@
 /**
- * DB client tracker: read/write ClientTracker rows (one per client) with
- * every step change audited in ClientJourneyEvent as stage "tracker.<step>".
- * Provider-neutral: nothing here talks to GHL / Genisys OS.
+ * The client tracker: rows derived from what the Hub knows (src/lib/tracker/
+ * derive.ts over src/lib/tracker/facts.ts), plus the ClientTracker row that
+ * holds a client's hand marks and status-link nonce. A hand mark is audited
+ * in ClientJourneyEvent as stage "tracker.<step>". Provider-neutral.
  */
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { STEP_FIELDS, TRACKER_STEPS, safeStatusView, type SafeStatus, type TrackerStatus, type TrackerStep } from './columns'
+import {
+  MANUAL_FIELDS,
+  deriveSteps,
+  filterRows,
+  isManualStep,
+  lastChangeAt,
+  publicStatusView,
+  readStep,
+  summarizeTracker,
+  trackerRow,
+  type ManualStep,
+  type PublicStatus,
+  type RowFilter,
+  type TrackerRow,
+  type TrackerSummary,
+} from './derive'
+import { trackerFacts, type BillingRead } from './facts'
 import { linkSecret, newNonce, signStatusToken, tokenClientId, verifyStatusToken } from './token'
 
-export type TrackerListRow = {
-  clientId: string
-  clientName: string
-  business: string | null
-  contactName: string | null
-  contactEmail: string | null
-  startDate: string | null
-  steps: Record<TrackerStep, TrackerStatus>
-  /** First step not done (null = all done). */
-  current: TrackerStep | null
-  hasRow: boolean
-  source: string | null
-  sheetRow: number | null
-  sheetSyncedAt: string | null
-  updatedAt: string | null
-  archived: boolean
-  extra: Record<string, string> | null
+export type { TrackerRow, TrackerSummary }
+
+export type TrackerList = {
+  rows: TrackerRow[]
+  /** Over every client listed (before the filters), roster only. */
+  summary: TrackerSummary
+  billing: BillingRead
+  asOf: string
 }
 
-const asStatus = (v: string | null | undefined): TrackerStatus => (v === 'done' ? 'done' : 'pending')
-
-export async function listTracker(opts: { q?: string; step?: TrackerStep; status?: TrackerStatus; includeArchived?: boolean } = {}): Promise<TrackerListRow[]> {
-  const clients = await prisma.client.findMany({
-    where: opts.includeArchived ? {} : { archivedAt: null },
-    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, contactName: true, contactEmail: true, archivedAt: true, tracker: true },
-  })
-  const q = (opts.q ?? '').trim().toLowerCase()
-  const rows = clients.map((c): TrackerListRow => {
-    const t = c.tracker
-    const steps = Object.fromEntries(TRACKER_STEPS.map((s) => [s, asStatus(t?.[STEP_FIELDS[s]])])) as Record<TrackerStep, TrackerStatus>
-    return {
-      clientId: c.id,
-      clientName: c.name,
-      business: t?.business ?? null,
-      contactName: t?.clientName ?? c.contactName,
-      contactEmail: t?.contactEmail ?? c.contactEmail,
-      startDate: t?.startDate ?? null,
-      steps,
-      current: TRACKER_STEPS.find((s) => steps[s] !== 'done') ?? null,
-      hasRow: !!t,
-      source: t?.source ?? null,
-      sheetRow: t?.sheetRow ?? null,
-      sheetSyncedAt: t?.sheetSyncedAt?.toISOString() ?? null,
-      updatedAt: t?.updatedAt.toISOString() ?? null,
-      archived: !!c.archivedAt,
-      extra: (t?.extra as Record<string, string> | null) ?? null,
-    }
-  })
-  return rows.filter((r) => {
-    if (opts.step && opts.status && r.steps[opts.step] !== opts.status) return false
-    if (!q) return true
-    return [r.clientName, r.business, r.contactName, r.contactEmail].some((v) => (v ?? '').toLowerCase().includes(q))
-  })
+export async function listTracker(opts: RowFilter & { includeArchived?: boolean; refresh?: boolean } = {}): Promise<TrackerList> {
+  const { facts, rows: meta, billing } = await trackerFacts({ includeArchived: opts.includeArchived, refresh: opts.refresh })
+  const now = Date.now()
+  const all = facts.map((f) => trackerRow(f, meta.get(f.id) ?? { hasRow: false, sheetRow: null }, now))
+  return { rows: filterRows(all, opts), summary: summarizeTracker(all), billing, asOf: new Date(now).toISOString() }
 }
 
 /** Create the client's tracker row from Hub data if it has none. Never creates a client. */
@@ -87,10 +65,20 @@ export async function ensureTrackerRow(clientId: string) {
   })
 }
 
-/** Set one step's status, auditing the change. No-op (no event) when unchanged. */
-export async function setTrackerStep(clientId: string, step: TrackerStep, status: TrackerStatus, opts: { actor?: string | null; note?: string | null } = {}) {
+/** The step a request names, when it is one that can be marked by hand; null otherwise. */
+export function manualStepFor(step: unknown): ManualStep | null {
+  const s = readStep(step)
+  return s && isManualStep(s) ? s : null
+}
+
+/**
+ * Mark one step done (or clear the mark) by hand, auditing the change. Only the
+ * five hand-markable steps; the rest are read from the Hub and refused by the
+ * callers. No-op (no event) when unchanged.
+ */
+export async function setTrackerStep(clientId: string, step: ManualStep, status: 'done' | 'pending', opts: { actor?: string | null; note?: string | null } = {}) {
   const row = await ensureTrackerRow(clientId)
-  const field = STEP_FIELDS[step]
+  const field = MANUAL_FIELDS[step]
   const from = row[field]
   if (from === status) return { changed: false, status }
   await prisma.$transaction([
@@ -130,11 +118,15 @@ export async function revokeStatusLinks(clientId: string): Promise<void> {
   await prisma.clientTracker.updateMany({ where: { clientId }, data: { publicTokenNonce: null } })
 }
 
-/** Public: the safe status view for a token, or null for any bad/revoked token. */
-export async function publicStatus(token: string): Promise<SafeStatus | null> {
+/** Public: the client's derived status for a token, or null for any bad/revoked token. */
+export async function publicStatus(token: string): Promise<PublicStatus | null> {
   const clientId = tokenClientId(token)
   if (!clientId) return null
-  const row = await prisma.clientTracker.findUnique({ where: { clientId }, include: { client: { select: { name: true, archivedAt: true } } } })
+  const row = await prisma.clientTracker.findUnique({ where: { clientId }, include: { client: { select: { name: true } } } })
   if (!row || !verifyStatusToken(token, row.publicTokenNonce, linkSecret())) return null
-  return safeStatusView({ ...row, business: row.business || row.client.name })
+  const { facts } = await trackerFacts({ clientId, includeArchived: true })
+  const f = facts[0]
+  if (!f) return null
+  const steps = deriveSteps(f)
+  return publicStatusView(steps, { business: row.business || f.business || row.client.name, updatedAt: lastChangeAt(steps, f.createdAt) })
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/auth-helpers'
 import { markTrackerStep, trackerRowFor, trackerWhoForClient } from '@/lib/onboarding-tracker'
+import { setTrackerStep } from '@/lib/tracker/store'
 
 /**
  * The A2P board's "Mark Complete": checks "A2P Submitted" for this client in
@@ -24,5 +25,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params
   const who = await trackerWhoForClient(id)
   if (!who) return NextResponse.json({ error: 'client not found' }, { status: 404 })
+  // The Hub's own tracker remembers it too (src/lib/tracker), whatever the sheet says.
+  await setTrackerStep(id, 'texting', 'done', { actor: 'board', note: 'A2P board: Mark Complete' }).catch((err) => console.warn(`[tracker] texting mark for ${id}:`, err))
   return NextResponse.json({ tracker: await markTrackerStep('a2p', who) })
 }

@@ -8,10 +8,13 @@ export const metadata = {
   robots: { index: false, follow: false },
 }
 
+const WORD = { done: '✅ Done', in_progress: 'In progress', pending: 'Pending' } as const
+
 /**
- * /status/[token] — a client's read-only onboarding status. Public: the
- * signed token in the link is the access (src/lib/tracker/token.ts). Shows
- * only stage, step statuses and the next step; never notes, emails or ids.
+ * /status/[token] — a client's read-only onboarding status, derived from what
+ * the Hub knows (src/lib/tracker/derive.ts). Public: the signed token in the
+ * link is the access (src/lib/tracker/token.ts). Shows only each step's label
+ * and coarse state and the next step; never notes, dates, emails or ids.
  */
 export default async function StatusPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
@@ -31,7 +34,7 @@ export default async function StatusPage({ params }: { params: Promise<{ token: 
         {status.steps.map((s) => (
           <li key={s.label} className="flex items-center justify-between rounded-md border border-neutral-200 px-3 py-2 text-sm">
             <span>{s.label}</span>
-            <span className={s.status === 'done' ? 'text-green-600' : 'text-neutral-500'}>{s.status === 'done' ? '✅ Done' : 'Pending'}</span>
+            <span className={s.status === 'done' ? 'text-green-600' : s.status === 'in_progress' ? 'text-blue-600' : 'text-neutral-500'}>{WORD[s.status]}</span>
           </li>
         ))}
       </ul>

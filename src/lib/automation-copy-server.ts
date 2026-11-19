@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { AUTOMATION_IDS, type AutomationInputs, automationPrefill, bestIntake } from '@/lib/automation-copy'
 import { AUTOMATION_COPY_PREFIX, cleanSavedCopy, parseSavedCopy, type SavedCopy } from '@/lib/automation-copy-saved'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
+import { setTrackerStep } from '@/lib/tracker/store'
 
 /**
  * A client's Automation Copy details as the board shows them: the onboarding
@@ -61,6 +62,8 @@ export async function markAutomationCopyDone(id: string): Promise<{ saved: Saved
   const saved = cleanSavedCopy({ ...parseSavedCopy(row?.value), done: AUTOMATION_IDS, updatedAt: new Date().toISOString() })
   await prisma.appSetting.upsert({ where: { key }, create: { key, value: JSON.stringify(saved) }, update: { value: JSON.stringify(saved) } })
   const intake = client.intakes[0]
+  // The Hub's own tracker remembers it too (src/lib/tracker), whatever the sheet says.
+  await setTrackerStep(id, 'automations', 'done', { actor: 'board', note: 'Automation Copy board: Mark Completed' }).catch((err) => console.warn(`[automation-copy] tracker mark for ${id}:`, err))
   const tracker = await markTrackerStep('automations', {
     emails: [intake?.leadEmail, client.contactEmail],
     business: intake?.businessName || client.name,
