@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CreditCard, Landmark, ArrowDownLeft, ArrowUpRight, ShoppingBag } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { CreditCard, Landmark, ArrowDownLeft, ArrowUpRight, ShoppingBag, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StripeTab } from './stripe-tab'
 import { WhopTab } from './whop-tab'
+import { DisputesTab } from './disputes-tab'
 import { ErrorBlock, fromIso, LoadingBlock, money, StatCard, StatusPill } from './ui'
 
 /* -------------------------------------------------------------------------- */
@@ -163,12 +165,14 @@ function MercuryTab() {
 
 const TABS = [
   { key: 'stripe', label: 'Stripe', icon: CreditCard },
+  { key: 'disputes', label: 'Disputes', icon: ShieldAlert },
   { key: 'mercury', label: 'Mercury', icon: Landmark },
   { key: 'whop', label: 'Whop', icon: ShoppingBag },
 ] as const
 
 export function PaymentsTabs() {
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('stripe')
+  const initial = useSearchParams().get('tab')
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(initial === 'disputes' || initial === 'mercury' || initial === 'whop' ? initial : 'stripe')
 
   return (
     <div className="space-y-5">
@@ -196,6 +200,7 @@ export function PaymentsTabs() {
       </div>
 
       {tab === 'stripe' && <StripeTab />}
+      {tab === 'disputes' && <DisputesTab />}
       {tab === 'mercury' && <MercuryTab />}
       {tab === 'whop' && <WhopTab />}
     </div>

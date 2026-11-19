@@ -213,21 +213,50 @@ export async function sendClientReport(clientId: string, o: { to: string; includ
       throw err
     }
   }
+  const numbers = await numbersFor(a.id)
   const email = reportEmail({
     business,
     firstName: p.ownerFirstName || c.contactName?.trim().split(/\s+/)[0] || null,
-    numbers: await numbersFor(a.id),
+    numbers,
     site: { url: siteHref(c.siteUrl!.trim()), host: siteHost(c.siteUrl) },
     phone: pretty(a.numbers[0].number),
     login,
     signInUrl: `${publicBase()}/login`,
   })
+  const summary = [
+    `New leads ${numbers.leads}`,
+    `forms and chat ${numbers.forms}`,
+    `calls answered ${numbers.callsAnswered}`,
+    `missed calls texted ${numbers.callsMissed}`,
+    `texts sent ${numbers.textsSent}`,
+    `replies ${numbers.textsReceived}`,
+    `appointments ${numbers.appointments}`,
+    `review requests ${numbers.reviewRequests}`,
+    `website ${siteHref(c.siteUrl!.trim())}`,
+    `number ${pretty(a.numbers[0].number)}`,
+  ].join('; ')
+  let body = email.html
+  try {
+    const { trackClientReport } = await import('@/lib/disputes/receipts')
+    body = await trackClientReport({
+      clientId,
+      to,
+      by: o.by,
+      subject: email.subject,
+      html: email.html,
+      summary,
+      loginIncluded: !!login,
+      loginEmail: login?.email ?? null,
+    })
+  } catch (err) {
+    console.error('[client-report] evidence log failed:', err instanceof Error ? err.message : 'failed')
+  }
   await sendEmail({
     accountEmail: process.env.AGENT_APPROVAL_FROM_EMAIL || (await getWriterAccountEmail()),
     fromName: 'Genisys',
     to,
     subject: email.subject,
-    body: email.html,
+    body,
   })
   const log = [...(await sentLog(clientId)), { at: new Date().toISOString(), to, by: o.by, login: !!login }].slice(-20)
   const key = LOG_KEY + clientId

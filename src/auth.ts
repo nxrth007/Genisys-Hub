@@ -272,6 +272,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
+    async signIn({ user }) {
+      const u = user as { id?: string; email?: string | null; role?: string | null }
+      if (!u.id) return
+      const role = u.role ?? ''
+      if (role !== 'hl_user' && !role.startsWith('client_')) return
+      const { recordDashboardLogin } = await import('@/lib/disputes/activity')
+      await recordDashboardLogin({ userId: u.id, email: u.email ?? null, role }).catch((err) => {
+        console.error('[auth] dashboard login log failed:', err instanceof Error ? err.message : 'failed')
+      })
+    },
     async createUser({ user }) {
       // Promote the first user to admin — workspace founder (Alex). Subsequent
       // Google signups default to "member"; agents come in as "agent_pending"

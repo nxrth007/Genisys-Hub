@@ -7,6 +7,8 @@ import { textTeam } from '@/lib/team-sms'
 import { invalidateBillingSnapshot } from '@/lib/stripe-billing'
 import { checkoutMember, claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
 import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
+import { classifyStripeSideEffect, redactSecrets } from '@/lib/disputes/plan'
+import { handleStripeSideEffect } from '@/lib/disputes/run'
 
 /**
  * POST /api/webhooks/stripe
@@ -48,14 +50,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
   }
   const news = describeEvent(event)
+  const side = classifyStripeSideEffect(event)
   // The Clients page shows the last event Stripe delivered: proof the secret matches, whatever the event was.
   const e = event as { type?: unknown; livemode?: unknown } | null
   void noteStripeStatus('webhook', { at: new Date().toISOString(), type: typeof e?.type === 'string' ? e.type : 'unknown', livemode: e?.livemode === true })
   // Something changed in Stripe: the Clients and Payments pages read it fresh next time.
   invalidateBillingSnapshot()
-  if (news.kind === 'ignored') return NextResponse.json({ ok: true, ignored: news.type })
-  after(() => handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
-  return NextResponse.json({ ok: true })
+  if (news.kind === 'ignored' && !side) return NextResponse.json({ ok: true, ignored: news.type })
+  after(() => {
+    const jobs: Promise<unknown>[] = []
+    if (news.kind !== 'ignored') jobs.push(handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
+    if (side) jobs.push(handleStripeSideEffect(side).catch((err) => console.error(`[stripe-webhook] dispute ${side.eventId}:`, redactSecrets(err instanceof Error ? err.message : String(err)))))
+    return Promise.all(jobs).then(() => undefined)
+  })
+  return NextResponse.json({ ok: true, dispute: side?.kind ?? null })
 }
 
 const clientsLink = () => hubLink('/clients')
