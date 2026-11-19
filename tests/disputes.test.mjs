@@ -511,6 +511,255 @@ test('intake fields cannot inject a line, a private IP, or a secret into the pac
   assert.equal(built.signatureSections[0].body.includes('\nRule for the merchant'), false)
 })
 
+test('purchase metadata is read from one Stripe source, in order, and invalid values are dropped', () => {
+  const ip = '203.0.113.10'
+  const otherIp = '198.51.100.8'
+  const device = 'A1B2C3D4E5F60718'
+  const otherDevice = 'B'.repeat(15)
+  const ua = 'Mozilla/5.0 checkout'
+  const signals = (metadata) => ({ hub_purchase_ip: ip, hub_purchase_ua: ua, hub_device_id: device, ...metadata })
+  const basilInvoice = (metadata, subscription = 'sub_1') => ({
+    id: 'in_1',
+    object: 'invoice',
+    parent: {
+      type: 'subscription_details',
+      subscription_details: { subscription, metadata },
+    },
+  })
+  const legacyInvoice = (metadata, subscription = 'sub_legacy') => ({
+    id: 'in_legacy',
+    object: 'invoice',
+    subscription,
+    subscription_details: { metadata },
+  })
+
+  const fromCharge = plan.purchaseSignalsFromStripe({
+    charge: { metadata: signals() },
+    invoice: basilInvoice({ hub_purchase_ip: otherIp, hub_device_id: otherDevice }),
+  })
+  assert.deepEqual(fromCharge, { ip, userAgent: ua, deviceId: device })
+
+  const chargeWins = plan.purchaseSignalsFromStripe({
+    charge: {
+      id: 'ch_1',
+      metadata: { hub_purchase_ip: ip },
+      invoice: basilInvoice({ hub_purchase_ip: otherIp, hub_purchase_ua: ua, hub_device_id: device }),
+    },
+  })
+  assert.equal(chargeWins.ip, ip)
+  assert.equal(chargeWins.userAgent, null)
+  assert.equal(chargeWins.deviceId, null)
+  assert.equal(plan.nextPurchaseFetch({ charge: { metadata: { hub_purchase_ip: ip }, invoice: 'in_1', payment_intent: 'pi_1' } }), null)
+
+  const fromParent = plan.purchaseSignalsFromStripe({
+    charge: { id: 'ch_1', metadata: { flow: 'signup' }, invoice: basilInvoice(signals(), 'sub_1') },
+  })
+  assert.deepEqual(fromParent, { ip, userAgent: ua, deviceId: device })
+
+  const fromLegacy = plan.purchaseSignalsFromStripe({
+    charge: { metadata: {}, invoice: legacyInvoice(signals()) },
+  })
+  assert.deepEqual(fromLegacy, { ip, userAgent: ua, deviceId: device })
+
+  const parentNotMixed = plan.purchaseSignalsFromStripe({
+    invoice: {
+      parent: { type: 'subscription_details', subscription_details: { metadata: { hub_purchase_ip: ip } } },
+      subscription_details: { metadata: { hub_device_id: device, hub_purchase_ua: ua } },
+    },
+  })
+  assert.equal(parentNotMixed.ip, ip)
+  assert.equal(parentNotMixed.userAgent, null)
+  assert.equal(parentNotMixed.deviceId, null)
+
+  const quoteIgnored = plan.purchaseSignalsFromStripe({
+    invoice: { parent: { type: 'quote_details', subscription_details: { metadata: signals() } } },
+  })
+  assert.deepEqual(quoteIgnored, { ip: null, userAgent: null, deviceId: null })
+
+  const privateOnInvoice = plan.purchaseSignalsFromStripe({
+    invoice: basilInvoice({ hub_purchase_ip: '10.0.0.1', hub_purchase_ua: 'Mozilla/5.0\nsecond line', hub_device_id: 'short' }),
+    subscription: { id: 'sub_1', object: 'subscription', metadata: { hub_purchase_ip: otherIp, hub_device_id: device } },
+  })
+  assert.equal(privateOnInvoice.ip, null)
+  assert.equal(privateOnInvoice.userAgent, 'Mozilla/5.0 second line')
+  assert.equal(privateOnInvoice.deviceId, null)
+
+  const invalidInvoiceFallsThrough = plan.purchaseSignalsFromStripe({
+    invoice: basilInvoice({ hub_purchase_ip: '10.1.1.1', hub_device_id: 'bad id', hub_purchase_ua: ' \n\t ' }),
+    subscription: { id: 'sub_1', object: 'subscription', metadata: { hub_purchase_ip: ip, hub_device_id: 'nope' } },
+  })
+  assert.equal(invalidInvoiceFallsThrough.ip, ip)
+  assert.equal(invalidInvoiceFallsThrough.deviceId, null)
+  assert.equal(invalidInvoiceFallsThrough.userAgent, null)
+
+  const fromSubscription = plan.purchaseSignalsFromStripe({
+    charge: {
+      metadata: {},
+      invoice: {
+        parent: {
+          type: 'subscription_details',
+          subscription_details: {
+            subscription: { id: 'sub_1', object: 'subscription', metadata: signals({ hub_purchase_ip: '192.168.1.1' }) },
+            metadata: { flow: 'signup' },
+          },
+        },
+      },
+    },
+  })
+  assert.equal(fromSubscription.ip, null)
+  assert.equal(fromSubscription.userAgent, ua)
+  assert.equal(fromSubscription.deviceId, device)
+
+  const fromSession = plan.purchaseSignalsFromStripe({
+    charge: {
+      metadata: {},
+      invoice: basilInvoice({}),
+      checkout_session: { id: 'cs_1', object: 'checkout.session', metadata: signals() },
+    },
+  })
+  assert.deepEqual(fromSession, { ip, userAgent: ua, deviceId: device })
+
+  const bounds = plan.purchaseSignalsFromMetadata({
+    hub_purchase_ip: '127.0.0.1',
+    hub_purchase_ua: `${'M'.repeat(600)}\nnext`,
+    hub_device_id: 'D'.repeat(200),
+  })
+  assert.equal(bounds.ip, null)
+  assert.equal(bounds.userAgent.length, 500)
+  assert.equal(bounds.userAgent.includes('\n'), false)
+  assert.equal(bounds.deviceId, 'D'.repeat(200))
+  assert.equal(plan.purchaseSignalsFromMetadata({ hub_device_id: 'D'.repeat(14) }).deviceId, null)
+  assert.equal(plan.purchaseSignalsFromMetadata({ hub_device_id: 'D'.repeat(201) }).deviceId, null)
+  assert.equal(plan.purchaseSignalsFromMetadata({ hub_device_id: 'has space in id!!' }).deviceId, null)
+  assert.equal(plan.deviceIdOf('D'.repeat(15)), 'D'.repeat(15))
+
+  const dispute = plan.readDispute(
+    { id: 'dp_1', object: 'dispute', reason: 'fraudulent', status: 'needs_response', metadata: { hub_purchase_ip: otherIp, hub_client_id: 'c1' } },
+    { id: 'ch_1', metadata: {}, invoice: basilInvoice(signals()) },
+  )
+  assert.equal(dispute.purchaseIp, ip)
+  assert.equal(dispute.purchaseUa, ua)
+  assert.equal(dispute.deviceId, device)
+  assert.equal(dispute.metadata.hub_client_id, 'c1')
+  assert.equal(dispute.stripeInvoiceId, 'in_1')
+
+  const prior = plan.readCharge({
+    id: 'ch_prior', amount: 29700, created: 1_700_000_000, paid: true, disputed: false, refunded: false,
+    metadata: {},
+    invoice: legacyInvoice({ hub_purchase_ip: ip, hub_device_id: device }),
+    payment_method_details: { card: { fingerprint: 'fpSameCard1' } },
+  }, null)
+  assert.equal(prior.ip, ip)
+  assert.equal(prior.deviceId, device)
+  assert.equal(prior.fingerprint, 'fpSameCard1')
+
+  const basilCharge = { id: 'ch_b', payment_intent: 'pi_1', metadata: {} }
+  assert.deepEqual(plan.nextPurchaseFetch({ charge: basilCharge }), { kind: 'charge_invoice', chargeId: 'ch_b' })
+  assert.deepEqual(plan.nextPurchaseFetch({ charge: basilCharge, triedChargeIds: ['ch_b'] }), { kind: 'invoice_payment', paymentIntentId: 'pi_1' })
+  assert.deepEqual(plan.nextPurchaseFetch({ charge: { ...basilCharge, invoice: null } }), { kind: 'checkout_session', subscriptionId: null, paymentIntentId: 'pi_1' })
+  assert.deepEqual(
+    plan.nextPurchaseFetch({ charge: { id: 'ch_plain', metadata: { hub_purchase_ip: '10.0.0.1' } } }),
+    { kind: 'charge_invoice', chargeId: 'ch_plain' },
+  )
+  assert.equal(plan.nextPurchaseFetch({ charge: { id: 'ch_plain', metadata: { hub_purchase_ip: '10.0.0.1' } }, triedChargeIds: ['ch_plain'] }), null)
+  assert.deepEqual(
+    plan.nextPurchaseFetch({ charge: { metadata: { hub_purchase_ip: '10.0.0.1' }, invoice: 'in_2', payment_intent: 'pi_2' } }),
+    { kind: 'invoice', id: 'in_2' },
+  )
+  assert.deepEqual(plan.nextPurchaseFetch({ charge: { id: 'ch_old', invoice: 'in_9', payment_intent: 'pi_9', metadata: {} } }), { kind: 'invoice', id: 'in_9' })
+  const withInvoice = { id: 'ch_old', invoice: basilInvoice({}, 'sub_9'), payment_intent: 'pi_9', metadata: {} }
+  assert.deepEqual(plan.nextPurchaseFetch({ charge: withInvoice }), { kind: 'subscription', id: 'sub_9' })
+  const triedSub = plan.nextPurchaseFetch({ charge: withInvoice, triedSubscriptionIds: ['sub_9'] })
+  assert.deepEqual(triedSub, { kind: 'checkout_session', subscriptionId: 'sub_9', paymentIntentId: 'pi_9' })
+  assert.equal(plan.nextPurchaseFetch({ charge: withInvoice, triedSubscriptionIds: ['sub_9'], triedSessionKeys: ['sub_9|pi_9'] }), null)
+  assert.ok(plan.DISPUTE_PERMISSIONS.read.includes('Subscriptions: Read'))
+  assert.equal(plan.parseDisputeConfig({}).mode, 'dry_run')
+})
+
+test('purchase lookup stays on one source, bounds the reconcile, and a versioned charge is only an invoice id', () => {
+  assert.equal(plan.purchaseLookupFailed(200), false)
+  assert.equal(plan.purchaseLookupFailed(404), false)
+  assert.equal(plan.purchaseLookupFailed(403), true)
+  assert.equal(plan.purchaseLookupFailed(429), true)
+  assert.equal(plan.purchaseLookupFailed(500), true)
+  assert.equal(plan.purchaseLookupFailed(0), true)
+
+  const legacy = {
+    id: 'ch_1',
+    object: 'charge',
+    metadata: { hub_purchase_ip: '198.51.100.8', hub_device_id: 'B'.repeat(15), hub_client_id: 'other-client' },
+    payment_intent: { id: 'pi_legacy', object: 'payment_intent' },
+    billing_details: { email: 'secret@example.com', name: 'Not Used' },
+    invoice: { id: 'in_1', object: 'invoice', metadata: { hub_purchase_ip: '203.0.113.10' } },
+  }
+  assert.equal(plan.invoiceIdFromCharge(legacy), 'in_1')
+  assert.equal(plan.invoiceIdFromCharge({ invoice: null, metadata: { hub_purchase_ip: '203.0.113.10' } }), null)
+  assert.equal(plan.invoiceIdFromCharge({ id: 'ch_1', metadata: { hub_purchase_ip: '203.0.113.10' } }), undefined)
+  assert.equal(plan.invoiceIdFromCharge({ invoice: 'in_2' }), 'in_2')
+  assert.equal(plan.invoiceIdFromCharge({ invoice: 'not-an-invoice' }), undefined)
+  assert.equal(plan.invoiceIdFromCharge({ invoice: { id: 'cus_1' } }), undefined)
+  const charge = { id: 'ch_1', metadata: { hub_client_id: 'c1', hub_device_id: 'D'.repeat(15), hub_purchase_ip: '10.0.0.1' }, payment_intent: 'pi_1' }
+  plan.stampPurchaseSignals(charge, { ip: '203.0.113.10', userAgent: null, deviceId: null })
+  assert.equal(charge.metadata.hub_client_id, 'c1')
+  assert.equal(charge.payment_intent, 'pi_1')
+  assert.deepEqual(plan.purchaseSignalsFromMetadata(charge.metadata), { ip: '203.0.113.10', userAgent: null, deviceId: null })
+  assert.equal('billing_details' in charge, false)
+
+  const older = { id: 'cs_old', object: 'checkout.session', created: 100, subscription: 'sub_1', metadata: { hub_purchase_ip: '203.0.113.10' } }
+  const newer = { id: 'cs_new', object: 'checkout.session', created: 200, subscription: 'sub_1', metadata: { hub_purchase_ua: 'Mozilla/5.0', hub_device_id: 'D'.repeat(15) } }
+  const picked = plan.checkoutSessionForPurchase([newer, older, { id: 'cs_empty', object: 'checkout.session', created: 50, metadata: { hub_purchase_ip: '10.0.0.1' } }])
+  assert.equal(picked.id, 'cs_old')
+  assert.deepEqual(plan.purchaseSignalsFromMetadata(picked.metadata), { ip: '203.0.113.10', userAgent: null, deviceId: null })
+  const onlyNewer = plan.checkoutSessionForPurchase([
+    { id: 'cs_blank', object: 'checkout.session', created: 100, metadata: {} },
+    newer,
+  ])
+  assert.equal(onlyNewer.id, 'cs_new')
+  assert.equal(plan.checkoutSessionForPurchase([{ id: 'cs_blank', object: 'checkout.session', created: 100, metadata: {} }]), null)
+
+  const T = 1_700_000_000
+  const fp = 'fpSameCard1'
+  const day = 86_400
+  const ch = (id, created, over = {}) => ({
+    id, amount: 29700, created, paid: true, disputed: false, refunded: false, metadata: {},
+    payment_method_details: { card: { fingerprint: fp } },
+    ...over,
+  })
+  const disputed = ch('ch_dispute', T)
+  const recent = ch('ch_recent', T - 10 * day)
+  const inWindow = ch('ch_window', T - 200 * day)
+  const old = ch('ch_old', T - 400 * day)
+  const otherCard = ch('ch_other', T - 200 * day, { payment_method_details: { card: { fingerprint: 'fpOtherCard9' } } })
+  const refunded = ch('ch_refunded', T - 180 * day, { refunded: true })
+  const pickedCharges = plan.chargesForPurchaseLookup(
+    [disputed, recent, inWindow, old, otherCard, refunded],
+    { disputeChargeId: 'ch_dispute', chargedAtMs: T * 1000, fingerprint: fp },
+  )
+  assert.deepEqual(pickedCharges.map((c) => c.id), ['ch_dispute', 'ch_window'])
+  const many = Array.from({ length: 40 }, (_, i) => ch(`ch_m${String(i).padStart(2, '0')}`, T - (120 * day + i * day)))
+  const capped = plan.chargesForPurchaseLookup([disputed, ...many], { disputeChargeId: 'ch_dispute', chargedAtMs: T * 1000, fingerprint: fp })
+  assert.equal(capped.length, 1 + plan.PURCHASE_LOOKUP_PRIOR_CAP)
+  assert.equal(capped[0].id, 'ch_dispute')
+  assert.equal(capped.some((c) => c.id === 'ch_m00'), true)
+  assert.equal(capped.some((c) => c.id === 'ch_m39'), false)
+  assert.deepEqual(
+    plan.chargesForPurchaseLookup([recent, inWindow], { disputeChargeId: 'ch_missing', chargedAtMs: null, fingerprint: fp }).map((c) => c.id),
+    [],
+  )
+
+  const stripe = readFileSync(join(root, 'src/lib/disputes/stripe.ts'), 'utf8')
+  const enrich = stripe.slice(stripe.indexOf('export async function enrichChargePurchaseContext'), stripe.indexOf('async function listCheckoutSessions'))
+  assert.doesNotMatch(enrich, /method:\s*'POST'|stripeForm|submit=/)
+  assert.equal((stripe.match(/CHARGE_INVOICE_VERSION/g) || []).length, 2)
+  assert.match(stripe, /headers: stripeVersion \? \{ 'Stripe-Version': stripeVersion \} : \{\}/)
+  assert.match(enrich, /softGet\(key\.value, `\/charges\/\$\{encodeURIComponent\(chargeId\)\}`, CHARGE_INVOICE_VERSION\)/)
+  assert.match(stripe, /method: 'GET'/)
+  const run = readFileSync(join(root, 'src/lib/disputes/run.ts'), 'utf8')
+  assert.match(run, /chargesForPurchaseLookup/)
+  assert.match(run, /allowsStripeWrite/)
+  assert.match(run, /kill switch: no Stripe write/)
+})
+
 test('dispute policy text matches the onboarding pages and is quoted only for the hashed edition', () => {
   assert.equal(plan.parseDisputeConfig({}).mode, 'dry_run')
   assert.equal(policies.POLICY_CONTACT_EMAIL, 'ethan@leadgenisys.com')

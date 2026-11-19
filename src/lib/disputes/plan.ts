@@ -75,6 +75,7 @@ export const DISPUTE_PERMISSIONS = {
     'PaymentIntents: Read',
     'Customers: Read',
     'Invoices: Read',
+    'Subscriptions: Read',
     'Checkout Sessions: Read',
     'Files: Read',
     'Radar: Read (early fraud warnings)',
@@ -410,6 +411,212 @@ function cardFingerprintOf(v: string | null | undefined): string | null {
   return /^[A-Za-z0-9]{8,64}$/.test(t) ? t : null
 }
 
+/**
+ * Purchase IP, user agent, and device id are one trio. The first source that
+ * still has a usable value after validation supplies all three fields. A later
+ * source does not fill what the earlier one left blank.
+ *
+ * Order: charge metadata, the invoice's subscription snapshot
+ * (`parent.subscription_details.metadata` on 2025-03-31.basil and later,
+ * `subscription_details.metadata` on older versions), the Subscription's
+ * metadata, then the Checkout Session metadata.
+ */
+export type PurchaseFetch =
+  | { kind: 'invoice'; id: string }
+  | { kind: 'charge_invoice'; chargeId: string }
+  | { kind: 'invoice_payment'; paymentIntentId: string }
+  | { kind: 'subscription'; id: string }
+  | { kind: 'checkout_session'; subscriptionId: string | null; paymentIntentId: string | null }
+
+export function purchaseSignalsFromMetadata(meta: unknown): PurchaseSignals {
+  const m = metaMap(meta)
+  return {
+    ip: customerIp(m.hub_purchase_ip),
+    userAgent: oneLine(m.hub_purchase_ua, 500),
+    deviceId: deviceIdOf(m.hub_device_id),
+  }
+}
+
+function usablePurchase(s: PurchaseSignals | null | undefined): boolean {
+  return !!(s && (s.ip || s.userAgent || s.deviceId))
+}
+
+function hubPurchaseMeta(v: unknown): Record<string, string> | null {
+  const meta = metaMap(v)
+  if (meta.hub_purchase_ip || meta.hub_purchase_ua || meta.hub_device_id) return meta
+  return null
+}
+
+/** Basil nests the snapshot under parent. A quote parent is not a subscription. */
+function parentSubscriptionDetails(invoice: Obj): Obj | null {
+  const parent = isObj(invoice.parent) ? invoice.parent : null
+  if (!parent || !isObj(parent.subscription_details)) return null
+  if (typeof parent.type === 'string' && parent.type !== 'subscription_details') return null
+  return parent.subscription_details
+}
+
+function isSubscriptionObject(v: unknown): v is Obj {
+  if (!isObj(v)) return false
+  if (str(v.object) === 'subscription') return true
+  const id = str(v.id)
+  return !!id && id.startsWith('sub_')
+}
+
+function isCheckoutSession(v: unknown): v is Obj {
+  if (!isObj(v)) return false
+  if (str(v.object) === 'checkout.session') return true
+  const id = str(v.id)
+  return !!id && id.startsWith('cs_')
+}
+
+function subscriptionObjectFromInvoice(invoice: unknown): Obj | null {
+  if (!isObj(invoice)) return null
+  const details = parentSubscriptionDetails(invoice)
+  if (details && isSubscriptionObject(details.subscription)) return details.subscription
+  if (isSubscriptionObject(invoice.subscription)) return invoice.subscription
+  const legacy = isObj(invoice.subscription_details) ? invoice.subscription_details : null
+  if (legacy && isSubscriptionObject(legacy.subscription)) return legacy.subscription
+  return null
+}
+
+/** The subscription snapshot on an invoice. Parent wins when it carries the keys; the older field is not mixed in. */
+export function invoiceSubscriptionMetadata(invoice: unknown): Record<string, string> {
+  if (!isObj(invoice)) return {}
+  const parent = parentSubscriptionDetails(invoice)
+  const fromParent = parent ? hubPurchaseMeta(parent.metadata) : null
+  if (fromParent) return fromParent
+  const legacy = isObj(invoice.subscription_details) ? hubPurchaseMeta(invoice.subscription_details.metadata) : null
+  return legacy ?? {}
+}
+
+export function subscriptionIdFromInvoice(invoice: unknown): string | null {
+  if (!isObj(invoice)) return null
+  const details = parentSubscriptionDetails(invoice)
+  const fromParent = details ? idOf(details.subscription) : null
+  if (fromParent?.startsWith('sub_')) return fromParent
+  const legacy = idOf(invoice.subscription)
+  if (legacy?.startsWith('sub_')) return legacy
+  const legacyDetails = isObj(invoice.subscription_details) ? invoice.subscription_details : null
+  const fromLegacy = legacyDetails ? idOf(legacyDetails.subscription) : null
+  return fromLegacy?.startsWith('sub_') ? fromLegacy : null
+}
+
+function paymentIntentIdOf(charge: Obj): string | null {
+  const id = idOf(charge.payment_intent)
+  return id?.startsWith('pi_') ? id : null
+}
+
+/**
+ * Invoice id on a Charge. `undefined` when the field is absent (basil) or
+ * is not an `in_` id. `null` when the field is present and null.
+ * An expanded `{ id }` is accepted. Nothing else on the charge is read,
+ * so a pre-basil retrieve cannot change metadata, payment intent, or billing.
+ */
+export function invoiceIdFromCharge(charge: unknown): string | null | undefined {
+  if (!isObj(charge) || !('invoice' in charge)) return undefined
+  if (charge.invoice === null) return null
+  const id = idOf(charge.invoice)
+  return id && /^in_[A-Za-z0-9]+$/.test(id) ? id : undefined
+}
+
+/** 404 is a missing object. 403, 429, and other non-2xx responses are skips, not packet failures. */
+export function purchaseLookupFailed(status: number): boolean {
+  if (status >= 200 && status < 300) return false
+  return status !== 404
+}
+
+/** Oldest checkout session that has a usable purchase trio. Sessions are not mixed. */
+export function checkoutSessionForPurchase(sessions: unknown[]): Obj | null {
+  const usable = sessions.filter((s): s is Obj => isCheckoutSession(s) && usablePurchase(purchaseSignalsFromMetadata(s.metadata)))
+  if (!usable.length) return null
+  usable.sort((a, b) => (num(a.created) ?? Number.MAX_SAFE_INTEGER) - (num(b.created) ?? Number.MAX_SAFE_INTEGER))
+  return usable[0]
+}
+
+/**
+ * Write one already-chosen trio onto charge metadata.
+ * The three purchase keys are replaced together. Other keys stay.
+ */
+export function stampPurchaseSignals(charge: Obj, signals: PurchaseSignals): void {
+  const meta: Obj = isObj(charge.metadata) ? { ...charge.metadata } : {}
+  delete meta.hub_purchase_ip
+  delete meta.hub_purchase_ua
+  delete meta.hub_device_id
+  if (signals.ip) meta.hub_purchase_ip = signals.ip
+  if (signals.userAgent) meta.hub_purchase_ua = signals.userAgent
+  if (signals.deviceId) meta.hub_device_id = signals.deviceId
+  charge.metadata = meta
+}
+
+/**
+ * Signals already present on the charge and any invoice, subscription, or
+ * checkout session object nested on it. Explicit objects override the nested ones.
+ */
+export function purchaseSignalsFromStripe(o: {
+  charge?: unknown
+  invoice?: unknown
+  subscription?: unknown
+  checkoutSession?: unknown
+} = {}): PurchaseSignals {
+  const charge = isObj(o.charge) ? o.charge : null
+  const invoice = o.invoice !== undefined ? o.invoice : charge && isObj(charge.invoice) ? charge.invoice : null
+  const subscription =
+    o.subscription !== undefined
+      ? o.subscription
+      : subscriptionObjectFromInvoice(invoice) ?? (charge && isSubscriptionObject(charge.subscription) ? charge.subscription : null)
+  const checkoutSession =
+    o.checkoutSession !== undefined ? o.checkoutSession : charge && isCheckoutSession(charge.checkout_session) ? charge.checkout_session : null
+  return pickPurchaseSignals([
+    charge ? purchaseSignalsFromMetadata(charge.metadata) : null,
+    purchaseSignalsFromMetadata(invoiceSubscriptionMetadata(invoice)),
+    isObj(subscription) ? purchaseSignalsFromMetadata(subscription.metadata) : null,
+    isObj(checkoutSession) ? purchaseSignalsFromMetadata(checkoutSession.metadata) : null,
+  ])
+}
+
+function tried(list: readonly string[] | undefined, value: string): boolean {
+  return !!list?.includes(value)
+}
+
+/**
+ * The next read-only Stripe lookup for this charge, or null when the trio is
+ * already known or every earlier place has been tried. A charge that already
+ * has a usable value does not ask for the invoice.
+ */
+export function nextPurchaseFetch(o: {
+  charge: unknown
+  triedInvoiceIds?: readonly string[]
+  triedChargeIds?: readonly string[]
+  triedPaymentIntents?: readonly string[]
+  triedSubscriptionIds?: readonly string[]
+  triedSessionKeys?: readonly string[]
+}): PurchaseFetch | null {
+  const charge = isObj(o.charge) ? o.charge : null
+  if (!charge) return null
+  if (usablePurchase(purchaseSignalsFromStripe({ charge }))) return null
+  const invoiceId = typeof charge.invoice === 'string' && charge.invoice.startsWith('in_') ? charge.invoice : null
+  if (!isObj(charge.invoice) && invoiceId && !tried(o.triedInvoiceIds, invoiceId)) return { kind: 'invoice', id: invoiceId }
+  const paymentIntentId = paymentIntentIdOf(charge)
+  const chargeId = str(charge.id)
+  // Basil removed charge.invoice. Re-read the charge on an older API version before listing invoice payments.
+  // An explicit null means an older charge that has no invoice.
+  if (!('invoice' in charge) && !isObj(charge.invoice) && !invoiceId && chargeId?.startsWith('ch_') && !tried(o.triedChargeIds, chargeId)) {
+    return { kind: 'charge_invoice', chargeId }
+  }
+  if (!('invoice' in charge) && !isObj(charge.invoice) && !invoiceId && paymentIntentId && !tried(o.triedPaymentIntents, paymentIntentId)) {
+    return { kind: 'invoice_payment', paymentIntentId }
+  }
+  const subscriptionId = subscriptionIdFromInvoice(charge.invoice)
+  if (subscriptionId && !subscriptionObjectFromInvoice(charge.invoice) && !isSubscriptionObject(charge.subscription) && !tried(o.triedSubscriptionIds, subscriptionId)) {
+    return { kind: 'subscription', id: subscriptionId }
+  }
+  if (!isCheckoutSession(charge.checkout_session) && (subscriptionId || paymentIntentId)) {
+    const key = `${subscriptionId ?? ''}|${paymentIntentId ?? ''}`
+    if (!tried(o.triedSessionKeys, key)) return { kind: 'checkout_session', subscriptionId, paymentIntentId }
+  }
+  return null
+}
+
 export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute | null {
   if (!isObj(dispute)) return null
   const id = str(dispute.id)
@@ -421,6 +628,7 @@ export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute |
   const card = embedded && isObj(embedded.payment_method_details) && isObj(embedded.payment_method_details.card) ? embedded.payment_method_details.card : null
   const billing = embedded && isObj(embedded.billing_details) ? embedded.billing_details : null
   const meta = { ...metaMap(embedded?.metadata), ...metaMap(dispute.metadata) }
+  const purchase = purchaseSignalsFromStripe({ charge: embedded })
   const dueSecs = num(evidenceDetails.due_by)
   const submissionCount = num(evidenceDetails.submission_count) ?? 0
   return {
@@ -447,9 +655,9 @@ export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute |
     billingAddress: addressLine(billing ? billing.address : null),
     metadata: meta,
     chargeRefunded: embedded?.refunded === true || str(dispute.status) === 'charge_refunded',
-    purchaseIp: customerIp(meta.hub_purchase_ip),
-    purchaseUa: oneLine(str(meta.hub_purchase_ua), 500),
-    deviceId: deviceIdOf(meta.hub_device_id),
+    purchaseIp: purchase.ip,
+    purchaseUa: purchase.userAgent,
+    deviceId: purchase.deviceId,
     cardFingerprint: cardFingerprintOf(card ? str(card.fingerprint) : null),
   }
 }
@@ -586,6 +794,7 @@ export function readCharge(ch: unknown, accountId: string | null): PriorCharge |
   if (!id || !id.startsWith('ch_')) return null
   const billing = isObj(ch.billing_details) ? ch.billing_details : null
   const meta = metaMap(ch.metadata)
+  const purchase = purchaseSignalsFromStripe({ charge: ch })
   return {
     id,
     amountCents: num(ch.amount) ?? 0,
@@ -594,8 +803,8 @@ export function readCharge(ch: unknown, accountId: string | null): PriorCharge |
     disputed: ch.disputed === true,
     refunded: ch.refunded === true,
     email: cleanEmail(billing ? str(billing.email) : null) ?? cleanEmail(meta.email),
-    ip: customerIp(str(meta.hub_purchase_ip)),
-    deviceId: deviceIdOf(str(meta.hub_device_id)),
+    ip: purchase.ip,
+    deviceId: purchase.deviceId,
     accountId: str(meta.hub_client_id) ?? accountId,
     fingerprint: cardFingerprintOf(cardFingerprintFromCharge(ch)),
   }
@@ -631,6 +840,48 @@ export type Ce3 = {
 }
 
 const DAY = 86_400_000
+
+/** Priors outside this window cannot satisfy Visa CE 3.0, so the reconcile does not look them up. */
+export const PURCHASE_LOOKUP_PRIOR_CAP = 24
+
+function sameCardFingerprint(disputed: string | null | undefined, prior: string | null | undefined): boolean {
+  const fp = cardFingerprintOf(disputed)
+  const priorFp = cardFingerprintOf(prior)
+  if (fp && priorFp) return priorFp === fp
+  if (fp || priorFp) return false
+  return true
+}
+
+/**
+ * Charges whose purchase metadata is worth a Stripe read during reconcile:
+ * the disputed charge, plus paid priors in the CE 3.0 window on the same card.
+ * Recent, refunded, and too-old charges are omitted. The prior list is capped.
+ */
+export function chargesForPurchaseLookup<T>(charges: readonly T[], o: {
+  disputeChargeId: string | null
+  chargedAtMs: number | null
+  fingerprint?: string | null
+}): T[] {
+  const disputed = o.disputeChargeId ? charges.find((c) => isObj(c) && c.id === o.disputeChargeId) : undefined
+  const chosen: T[] = []
+  if (disputed) chosen.push(disputed)
+  if (o.chargedAtMs == null || !Number.isFinite(o.chargedAtMs)) return chosen
+  const ranked: { charge: T; age: number }[] = []
+  for (const charge of charges) {
+    if (!isObj(charge) || charge === disputed) continue
+    const parsed = readCharge(charge, null)
+    if (!parsed || !parsed.paid || parsed.disputed || parsed.refunded || parsed.amountCents < 100) continue
+    const createdMs = new Date(parsed.created).getTime()
+    if (!Number.isFinite(createdMs) || createdMs <= 0) continue
+    const age = o.chargedAtMs - createdMs
+    if (age < 120 * DAY || age >= 365 * DAY) continue
+    if (!sameCardFingerprint(o.fingerprint, parsed.fingerprint)) continue
+    ranked.push({ charge, age })
+  }
+  ranked.sort((a, b) => a.age - b.age)
+  for (const row of ranked.slice(0, PURCHASE_LOOKUP_PRIOR_CAP)) chosen.push(row.charge)
+  return chosen
+}
 
 /**
  * Visa CE 3.0 on Stripe (network code 10.4): two prior undisputed charges on
@@ -677,12 +928,7 @@ export function selectCompellingEvidence(o: {
     const mains = (b.ip ? 1 : 0) + (b.device ? 1 : 0)
     return mains >= 2 || (mains >= 1 && b.email)
   }
-  const sameCard = (p: PriorCharge) => {
-    const priorFp = cardFingerprintOf(p.fingerprint)
-    if (fp && priorFp) return priorFp === fp
-    if (fp || priorFp) return false
-    return true
-  }
+  const sameCard = (p: PriorCharge) => sameCardFingerprint(fp, p.fingerprint)
   const eligible = o.priors
     .filter((p) => p.paid && !p.disputed && !p.refunded && p.amountCents >= 100 && sameCard(p))
     .map((p) => ({ p, age: disputedAt - new Date(p.created).getTime(), bits: bitsOf(p) }))

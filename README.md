@@ -106,7 +106,7 @@ The signing secret is the Vault entry **Stripe Official Webhook Secret**. The ke
 
 ### Restricted key permissions
 
-Read (the Disputes tab can probe these): Disputes, Charges, PaymentIntents, Customers, Invoices, Checkout Sessions, Files, Radar early fraud warnings, Webhook endpoints.
+Read (the Disputes tab can probe these): Disputes, Charges, PaymentIntents, Customers, Invoices, Subscriptions, Checkout Sessions, Files, Radar early fraud warnings, Webhook endpoints.
 
 Write, which a read-only probe cannot check: Disputes, Files (purpose `dispute_evidence`), Customers, Charges, and PaymentIntents (the last three stamp `hub_client_id` and `hub_intake_id` on future charges). Refunds write is only needed if early-fraud auto-refund is turned on. It ships off. The Hub does not create the webhook endpoint, so Webhook endpoints write is not required.
 
@@ -142,20 +142,27 @@ The narrative follows the card network reason code when Stripe sends one (Visa 1
 
 ### What the onboarding form must send
 
-The form lives in `nxrth007/genisysclientonboarding`. The Hub reads two blocks on the intake JSON (the same body already posted to the onboarding webhook). It also reads the same values from Stripe charge metadata when the Checkout Session copies them onto the charge. Dry-run stores them and does not write them back to Stripe.
+The form lives in `nxrth007/genisysclientonboarding`. The Hub reads two blocks on the intake JSON (the same body already posted to the onboarding webhook). It also reads the same three keys from Stripe. The signup site (`nxrth007/freesysystems`, subscription mode, API `2025-08-27.basil`) stamps them on the Checkout Session and on `subscription_data.metadata`. Stripe does not copy those keys onto the Charge. Dry-run stores them and does not write them back to Stripe.
 
 #### Checkout purchase (`purchase`, and Stripe metadata)
 
-Put this on the intake body. Also set the same three keys on the Checkout Session metadata that Stripe copies onto the Charge (`payment_intent_data.metadata` for a one-time charge, `subscription_data.metadata` for the subscription). Stripe metadata values are limited to 500 characters, so the full user agent belongs on the intake; the metadata copy can be the first 500 characters.
+Put this on the intake body. The signup checkout sets the same three keys on the Checkout Session `metadata` and on `subscription_data.metadata`. Stripe stores that metadata on the Subscription and snapshots it onto `invoice.parent.subscription_details.metadata` when it finalizes an invoice. Older API versions expose the snapshot as `invoice.subscription_details.metadata`. Stripe metadata values are limited to 500 characters, so the full user agent belongs on the intake; the metadata copy can be the first 500 characters.
+
+The Hub takes `hub_purchase_ip`, `hub_purchase_ua`, and `hub_device_id` from the first place that has a usable value. It does not fill a blank field from the next place:
+
+1. Charge metadata, when the charge itself has the keys.
+2. The charge's invoice snapshot: `invoice.parent.subscription_details.metadata`, then `invoice.subscription_details.metadata` if the newer field has none of the keys.
+3. The Subscription's metadata.
+4. The Checkout Session metadata, when the session can be found from the subscription or the payment intent.
 
 | Name | Where | Meaning |
 | --- | --- | --- |
 | `purchase.ip` | intake JSON | Customer IP at checkout. Also accepted as `hub_purchase_ip`. |
 | `purchase.userAgent` | intake JSON | Browser user agent. Also accepted as `hub_purchase_ua`. |
 | `purchase.deviceId` | intake JSON | Optional device id, 15 to 200 letters, digits, or `. _ : + / = -`. Shorter or other values are ignored. Also accepted as `hub_device_id`. |
-| `hub_purchase_ip` | Stripe charge metadata | Same IP. This is what `customer_purchase_ip` and Visa CE 3.0 use for that charge. |
-| `hub_purchase_ua` | Stripe charge metadata | User agent, truncated to 500 characters. |
-| `hub_device_id` | Stripe charge metadata | Same device id. |
+| `hub_purchase_ip` | Stripe metadata, in the order above | Same IP. This is what `customer_purchase_ip` and Visa CE 3.0 use for that charge. |
+| `hub_purchase_ua` | Stripe metadata, in the order above | User agent, truncated to 500 characters. |
+| `hub_device_id` | Stripe metadata, in the order above | Same device id. |
 
 ```json
 {
@@ -167,7 +174,7 @@ Put this on the intake body. Also set the same three keys on the Checkout Sessio
 }
 ```
 
-Stripe metadata on the charge:
+Stripe metadata keys:
 
 ```text
 hub_purchase_ip=203.0.113.10

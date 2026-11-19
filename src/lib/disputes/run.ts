@@ -25,6 +25,8 @@ import {
   matchDispute,
   phoneKey,
   publicConfig,
+  chargesForPurchaseLookup,
+  readCharge,
   readDispute,
   redactSecrets,
   sha256,
@@ -37,7 +39,7 @@ import {
 } from './plan'
 import { recordStripeNotice } from './receipts'
 import { rememberPurchase } from './purchase'
-import { listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
+import { enrichChargePurchaseContext, listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
 
 const OPEN = new Set(['needs_response', 'warning_needs_response'])
 
@@ -221,6 +223,14 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   if (row.stripeCustomerId) {
     try {
       const charges = await listCustomerCharges(row.stripeCustomerId)
+      const ownCharge = charges.find((c) => c.id === row.stripeChargeId)
+      const ownCreatedMs = ownCharge && typeof ownCharge.created === 'number' ? ownCharge.created * 1000 : NaN
+      const ownParsed = ownCharge ? readCharge(ownCharge, row.clientId) : null
+      await enrichChargePurchaseContext(chargesForPurchaseLookup(charges, {
+        disputeChargeId: row.stripeChargeId,
+        chargedAtMs: Number.isFinite(ownCreatedMs) ? ownCreatedMs : row.chargedAt?.getTime() ?? null,
+        fingerprint: ownParsed?.fingerprint ?? null,
+      }))
       priors = charges.filter((c) => c.id !== row.stripeChargeId)
       const own = charges.find((c) => c.id === row.stripeChargeId)
       if (own) {
