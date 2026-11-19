@@ -130,7 +130,7 @@ Environment, or the switches on Payments → Disputes (a saved setting overrides
 
 Auto-submit does not run when a dispute is paused, when an admin edited the narrative, when the client match is weak or missing, after `due_by`, or for an inquiry while `DISPUTE_INQUIRY_POLICY` is `flag` (the default). A weak match (a business name, a person name, or metadata whose email does not belong to that client) is compiled locally and not uploaded. Rebuilding or linking a client does not submit. Submitting evidence is final, and Stripe's default for `submit` is true, so the Hub refuses a dispute update that does not set the flag explicitly. `has_evidence` means the evidence was staged, not submitted.
 
-The narrative follows the card network reason code when Stripe sends one (Visa 10.4, 13.1, 13.2, 13.3, 13.7, and the Mastercard and American Express codes listed below), and otherwise the Stripe reason. Not-received and not-as-described packets lead with the setup timeline. Fraud packets lead with the purchase IP and Visa Compelling Evidence 3.0 when two older undisputed charges share that IP or a device id.
+The narrative follows the card network reason code when Stripe sends one (Visa 10.4, 13.1, 13.2, 13.3, 13.7, and the Mastercard and American Express codes in the dispute plan), and otherwise the Stripe reason. Not-received and not-as-described packets lead with the setup timeline. Fraud packets lead with the purchase IP. Visa Compelling Evidence 3.0 is added only for Visa 10.4 when two older undisputed charges on the same card share the same qualifying pair with this charge: purchase IP and device id, or one of those plus the email.
 
 ### What to set in the Stripe Dashboard (not code)
 
@@ -152,7 +152,7 @@ Put this on the intake body. Also set the same three keys on the Checkout Sessio
 | --- | --- | --- |
 | `purchase.ip` | intake JSON | Customer IP at checkout. Also accepted as `hub_purchase_ip`. |
 | `purchase.userAgent` | intake JSON | Browser user agent. Also accepted as `hub_purchase_ua`. |
-| `purchase.deviceId` | intake JSON | Optional device id. Visa only counts it at 15 characters or more. Also accepted as `hub_device_id`. |
+| `purchase.deviceId` | intake JSON | Optional device id, 15 to 200 letters, digits, or `. _ : + / = -`. Shorter or other values are ignored. Also accepted as `hub_device_id`. |
 | `hub_purchase_ip` | Stripe charge metadata | Same IP. This is what `customer_purchase_ip` and Visa CE 3.0 use for that charge. |
 | `hub_purchase_ua` | Stripe charge metadata | User agent, truncated to 500 characters. |
 | `hub_device_id` | Stripe charge metadata | Same device id. |
@@ -175,7 +175,7 @@ hub_purchase_ua=Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)
 hub_device_id=A1B2C3D4E5F60718
 ```
 
-A missing IP is left blank. The Hub does not invent one from a later login.
+A missing IP is left blank. The Hub does not invent one from a later login or from a different charge. Private, loopback, and malformed addresses are dropped. An IP, user agent, and device id are taken from one source together, not mixed.
 
 #### Clickwrap (`acceptance`)
 
@@ -184,12 +184,12 @@ Each policy is its own object. `accepted` must be boolean `true` (or the strings
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `accepted` | yes | `true` |
-| `version` | yes | Version string the client was shown. The Hub uses `2026-11-19` if this is omitted. |
+| `version` | yes | Version the client was shown. A short token (letters, digits, `.`, `_`, `-`, up to 64 characters) is stored as sent. Anything else is collapsed to one 64-character line. Omitted versions use `2026-11-19`. |
 | `at` | no | ISO-8601 time they accepted. `acceptedAt` is also accepted. Defaults to when the Hub received the intake. |
 | `ip` | no | IP at acceptance. |
 | `userAgent` | no | User agent at acceptance. |
 | `textHash` | no | Lowercase SHA-256 hex (64 characters) of the exact text shown. Other shapes are ignored. |
-| `textUrl` | no | `http` or `https` URL of that text. |
+| `textUrl` | no | Public `http` or `https` URL of that text. Credentials, localhost, and private addresses are ignored. |
 
 Keys: `terms`, `refundPolicy`, `cancellationPolicy`, `recurringBilling`. Snake-case aliases `refund_policy`, `cancellation_policy`, and `recurring_billing` are also accepted.
 

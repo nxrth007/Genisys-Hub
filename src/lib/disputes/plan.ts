@@ -9,6 +9,7 @@
  * "Stripe API Key" is the previous, dead account and is never read.
  */
 import { createHash } from 'node:crypto'
+import { isIP } from 'node:net'
 
 export const DISPUTE_KEY_ENTRY = 'Stripe Official Restricted'
 export const LEGACY_STRIPE_KEY_ENTRY = 'Stripe API Key'
@@ -383,6 +384,8 @@ export type ParsedDispute = {
   purchaseIp: string | null
   purchaseUa: string | null
   deviceId: string | null
+  /** Card fingerprint from the disputed charge. Used only to keep CE 3.0 on the same card. */
+  cardFingerprint: string | null
 }
 
 function metaMap(v: unknown): Record<string, string> {
@@ -398,6 +401,18 @@ function addressLine(v: unknown): string | null {
   if (!isObj(v)) return null
   const parts = [str(v.line1), str(v.line2), str(v.city), str(v.state), str(v.postal_code), str(v.country)].filter(Boolean)
   return parts.length ? parts.join(', ') : null
+}
+
+function cardFingerprintFromCharge(ch: Obj): string | null {
+  const details = isObj(ch.payment_method_details) ? ch.payment_method_details : null
+  const card = details && isObj(details.card) ? details.card : null
+  return card ? str(card.fingerprint) : null
+}
+
+/** Stripe card fingerprints are short alphanumeric ids. Anything else is ignored. */
+function cardFingerprintOf(v: string | null | undefined): string | null {
+  const t = (v ?? '').trim()
+  return /^[A-Za-z0-9]{8,64}$/.test(t) ? t : null
 }
 
 export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute | null {
@@ -438,8 +453,9 @@ export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute |
     metadata: meta,
     chargeRefunded: embedded?.refunded === true || str(dispute.status) === 'charge_refunded',
     purchaseIp: customerIp(meta.hub_purchase_ip),
-    purchaseUa: str(meta.hub_purchase_ua)?.slice(0, 2000) ?? null,
+    purchaseUa: oneLine(str(meta.hub_purchase_ua), 500),
     deviceId: deviceIdOf(meta.hub_device_id),
+    cardFingerprint: cardFingerprintOf(card ? str(card.fingerprint) : null),
   }
 }
 
@@ -586,6 +602,7 @@ export function readCharge(ch: unknown, accountId: string | null): PriorCharge |
     ip: customerIp(str(meta.hub_purchase_ip)),
     deviceId: deviceIdOf(str(meta.hub_device_id)),
     accountId: str(meta.hub_client_id) ?? accountId,
+    fingerprint: cardFingerprintOf(cardFingerprintFromCharge(ch)),
   }
 }
 
@@ -600,6 +617,8 @@ export type PriorCharge = {
   ip: string | null
   deviceId: string | null
   accountId: string | null
+  /** Present when the charge payload included a card fingerprint. */
+  fingerprint?: string | null
 }
 
 export type Ce3Party = {
@@ -619,11 +638,13 @@ export type Ce3 = {
 const DAY = 86_400_000
 
 /**
- * Visa CE 3.0 (network code 10.4): two prior undisputed charges, 120 to 364
- * days before the disputed charge. A qualifying pair is two main elements
- * (purchase IP and a device id of at least 15 characters) or one of those
- * plus the email. Identifiers are copied only when that prior charge
- * actually has them. An internal client id is not a recognizable account id.
+ * Visa CE 3.0 on Stripe (network code 10.4): two prior undisputed charges on
+ * the same card, 120 to 364 days before the disputed charge. Stripe's match
+ * is two main elements (purchase IP, and a device id of at least 15
+ * characters) or one of those plus a secondary element (email). The same
+ * elements must be present on the disputed charge and both priors. An
+ * internal client id is not a recognizable account id. Device id and device
+ * fingerprint are one slot; this Hub only has a device id.
  */
 export function selectCompellingEvidence(o: {
   reason: string
@@ -633,6 +654,8 @@ export function selectCompellingEvidence(o: {
   email: string | null
   ip: string | null
   deviceId?: string | null
+  /** When set, a prior charge with a different or missing fingerprint is not the same card. */
+  fingerprint?: string | null
   accountId: string | null
   productDescription: string
   priors: PriorCharge[]
@@ -648,33 +671,54 @@ export function selectCompellingEvidence(o: {
   if (!email && !(ip && device)) return null
   const disputedAt = o.chargedAt ? new Date(o.chargedAt).getTime() : NaN
   if (!Number.isFinite(disputedAt)) return null
-  const same = (p: PriorCharge) => {
-    const sameEmail = !!email && cleanEmail(p.email) === email
-    const sameIp = !!ip && customerIp(p.ip) === ip
-    const sameDevice = !!device && deviceIdOf(p.deviceId) === device
-    const mains = (sameIp ? 1 : 0) + (sameDevice ? 1 : 0)
-    return { sameEmail, sameIp, sameDevice, ok: mains >= 2 || (mains >= 1 && sameEmail) }
+  const fp = cardFingerprintOf(o.fingerprint)
+  type Bits = { ip: boolean; device: boolean; email: boolean }
+  const bitsOf = (p: PriorCharge): Bits => ({
+    ip: !!ip && customerIp(p.ip) === ip,
+    device: !!device && deviceIdOf(p.deviceId) === device,
+    email: !!email && cleanEmail(p.email) === email,
+  })
+  const qualifies = (b: Bits) => {
+    const mains = (b.ip ? 1 : 0) + (b.device ? 1 : 0)
+    return mains >= 2 || (mains >= 1 && b.email)
+  }
+  const sameCard = (p: PriorCharge) => {
+    const priorFp = cardFingerprintOf(p.fingerprint)
+    if (fp && priorFp) return priorFp === fp
+    if (fp || priorFp) return false
+    return true
   }
   const eligible = o.priors
-    .filter((p) => p.paid && !p.disputed && !p.refunded && p.amountCents >= 100)
-    .map((p) => ({ p, age: disputedAt - new Date(p.created).getTime(), match: same(p) }))
-    .filter((x) => x.age >= 120 * DAY && x.age < 365 * DAY && x.match.ok)
+    .filter((p) => p.paid && !p.disputed && !p.refunded && p.amountCents >= 100 && sameCard(p))
+    .map((p) => ({ p, age: disputedAt - new Date(p.created).getTime(), bits: bitsOf(p) }))
+    .filter((x) => x.age >= 120 * DAY && x.age < 365 * DAY)
     .sort((a, b) => a.age - b.age)
-  const picked = eligible.slice(0, 2)
-  if (picked.length < 2) return null
-  const anyIp = picked.some((x) => x.match.sameIp)
-  const anyDevice = picked.some((x) => x.match.sameDevice)
-  const anyEmail = picked.some((x) => x.match.sameEmail)
-  const party = (match?: { sameEmail: boolean; sameIp: boolean; sameDevice: boolean }): Ce3Party => ({
+  let chosen: typeof eligible | null = null
+  let shared: Bits | null = null
+  for (let i = 0; i < eligible.length && !chosen; i++) {
+    for (let j = i + 1; j < eligible.length; j++) {
+      const both: Bits = {
+        ip: eligible[i].bits.ip && eligible[j].bits.ip,
+        device: eligible[i].bits.device && eligible[j].bits.device,
+        email: eligible[i].bits.email && eligible[j].bits.email,
+      }
+      if (!qualifies(both)) continue
+      chosen = [eligible[i], eligible[j]]
+      shared = both
+      break
+    }
+  }
+  if (!chosen || !shared) return null
+  const row: Ce3Party = {
     customerAccountId: null,
-    customerEmail: anyEmail && (!match || match.sameEmail) ? email : null,
-    customerPurchaseIp: anyIp && ip && (!match || match.sameIp) ? ip : null,
-    customerDeviceId: anyDevice && device && (!match || match.sameDevice) ? device : null,
+    customerEmail: shared.email ? email : null,
+    customerPurchaseIp: shared.ip && ip ? ip : null,
+    customerDeviceId: shared.device && device ? device : null,
     productDescription: o.productDescription,
-  })
+  }
   return {
-    disputed: party(),
-    prior: picked.map((x) => ({ charge: x.p.id, ...party(x.match) })),
+    disputed: row,
+    prior: chosen.map((x) => ({ charge: x.p.id, ...row })),
   }
 }
 
@@ -715,6 +759,7 @@ export type EvidenceFacts = {
     purchaseIp: string | null
     purchaseUa: string | null
     deviceId: string | null
+    cardFingerprint?: string | null
     chargeRefunded: boolean
   }
   client: { id: string; name: string; email: string | null; phone: string | null; address: string | null; packageName: string | null; serviceStart: string | null; website: string | null; disputeCount: number } | null
@@ -798,10 +843,10 @@ const NETWORK_CODES: Record<string, { emphasis: EvidenceEmphasis; label: string 
   '4860': { emphasis: 'credit', label: 'Mastercard 4860 credit not processed' },
   F29: { emphasis: 'fraud', label: 'American Express F29 card-not-present fraud' },
   F24: { emphasis: 'fraud', label: 'American Express F24 no cardholder authorization' },
-  C31: { emphasis: 'not_received', label: 'American Express C31 goods or services not received' },
-  C08: { emphasis: 'not_as_described', label: 'American Express C08 not as described' },
-  C04: { emphasis: 'canceled', label: 'American Express C04 goods or services cancelled' },
-  C05: { emphasis: 'canceled', label: 'American Express C05 cancelled recurring' },
+  C08: { emphasis: 'not_received', label: 'American Express C08 goods or services not received' },
+  C31: { emphasis: 'not_as_described', label: 'American Express C31 goods or services not as described' },
+  C04: { emphasis: 'credit', label: 'American Express C04 goods or services returned or refused' },
+  C05: { emphasis: 'canceled', label: 'American Express C05 goods or services canceled' },
   C28: { emphasis: 'canceled', label: 'American Express C28 cancelled recurring billing' },
   C02: { emphasis: 'credit', label: 'American Express C02 credit not processed' },
 }
@@ -862,10 +907,10 @@ const NETWORK_NARRATIVES: Record<string, string> = {
   '4860': `Mastercard 4860, credit not processed. ${EMPHASIS_NARRATIVES.credit}`,
   F29: `American Express F29, card-not-present fraud. ${EMPHASIS_NARRATIVES.fraud}`,
   F24: `American Express F24, no cardholder authorization. ${EMPHASIS_NARRATIVES.fraud}`,
-  C31: `American Express C31, goods or services not received. ${EMPHASIS_NARRATIVES.not_received}`,
-  C08: `American Express C08, not as described. ${EMPHASIS_NARRATIVES.not_as_described}`,
-  C04: `American Express C04, cancelled. ${EMPHASIS_NARRATIVES.canceled}`,
-  C05: `American Express C05, cancelled recurring. ${EMPHASIS_NARRATIVES.canceled}`,
+  C08: `American Express C08, goods or services not received. ${EMPHASIS_NARRATIVES.not_received}`,
+  C31: `American Express C31, goods or services not as described. ${EMPHASIS_NARRATIVES.not_as_described}`,
+  C04: `American Express C04, goods or services returned or refused. ${EMPHASIS_NARRATIVES.credit}`,
+  C05: `American Express C05, goods or services canceled. ${EMPHASIS_NARRATIVES.canceled}`,
   C28: `American Express C28, cancelled recurring billing. ${EMPHASIS_NARRATIVES.canceled}`,
   C02: `American Express C02, credit not processed. ${EMPHASIS_NARRATIVES.credit}`,
 }
@@ -920,7 +965,14 @@ function hasAck(acks: EvidenceAck[], kind: string): EvidenceAck | undefined {
 }
 
 function ackLine(a: EvidenceAck): string {
-  return `${a.kind} version ${a.version} accepted ${when(a.acceptedAt)} from IP ${a.ip ?? 'not recorded'}, browser ${a.userAgent ?? 'not recorded'} (${a.source})`
+  const ua = oneLine(a.userAgent, 300)
+  return `${a.kind} version ${versionOf(a.version)} accepted ${when(a.acceptedAt)} from IP ${customerIp(a.ip) ?? 'not recorded'}, browser ${ua ?? 'not recorded'} (${oneLine(a.source, 40) ?? 'unknown'})`
+}
+
+function hashAndUrl(a: EvidenceAck): string {
+  const hash = textHashOf(a.textHash ?? null)
+  const url = textUrlOf(a.textUrl ?? null)
+  return `${hash ? `, text sha256 ${hash}` : ''}${url ? `, ${url}` : ''}`
 }
 
 export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
@@ -942,7 +994,11 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const recurring = hasAck(acks, 'recurring_billing')
 
   const activity = [
-    ...facts.logins.map((l) => `${when(l.at)}  ${l.kind}${l.email ? ` ${l.email}` : ''}${l.ip ? ` ip ${l.ip}` : ''}${l.userAgent ? ` ua ${l.userAgent.slice(0, 120)}` : ''}`),
+    ...facts.logins.map((l) => {
+      const ua = oneLine(l.userAgent, 120)
+      const loginIp = customerIp(l.ip)
+      return `${when(l.at)}  ${oneLine(l.kind, 40) ?? 'login'}${l.email ? ` ${l.email}` : ''}${loginIp ? ` ip ${loginIp}` : ''}${ua ? ` ua ${ua}` : ''}`
+    }),
     ...facts.ledger
       .filter((l) => ['login', 'login_invite', 'client_report', 'reply', 'email_in', 'email_out', 'setup_site', 'setup_form'].includes(l.kind))
       .map((l) => `${when(l.occurredAt)}  ${l.title}`),
@@ -964,21 +1020,22 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
 
   const afterPurchase = facts.ledger.filter((l) => d.chargedAt && new Date(l.occurredAt).getTime() >= new Date(d.chargedAt).getTime())
   const rebuttal = cancelAck
-    ? `The client accepted cancellation policy version ${cancelAck.version} on ${when(cancelAck.acceptedAt)}. ${afterPurchase.length ? `After this charge the ledger still shows ${afterPurchase.length} service events, which is use of a period that had started.` : 'The Hub has no cancellation request dated before this charge.'} Cancellation stops the next renewal. It does not refund a period that already started.`
+    ? `The client accepted cancellation policy version ${versionOf(cancelAck.version)} on ${when(cancelAck.acceptedAt)}. ${afterPurchase.length ? `After this charge the ledger still shows ${afterPurchase.length} service events, which is use of a period that had started.` : 'The Hub has no cancellation request dated before this charge.'} Cancellation stops the next renewal. It does not refund a period that already started.`
     : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterPurchase.length ? `The ledger shows ${afterPurchase.length} service events on or after the charge, which is use of the service.` : 'No cancellation request is on file before this charge.'}`
 
   const refusal = d.chargeRefunded
     ? 'The charge has already been refunded. No further credit is owed.'
     : refundAck
-      ? `The client accepted refund policy version ${refundAck.version} on ${when(refundAck.acceptedAt)}: fees for service already rendered are not refunded. The ledger and invoices show the service was delivered.`
+      ? `The client accepted refund policy version ${versionOf(refundAck.version)} on ${when(refundAck.acceptedAt)}: fees for service already rendered are not refunded. The ledger and invoices show the service was delivered.`
       : 'The Hub does not yet have a clickwrap record of the refund policy for this client. The ledger shows the service that was delivered. A refund was not issued because the service had been provided.'
 
   const narrative = (facts.narrative?.trim() || facts.template?.trim() || templateFor(d.reason, null, d.networkReasonCode)).trim()
   const repeat = client && client.disputeCount >= 2 ? `This client has ${client.disputeCount} disputes on file.` : ''
+  const purchaseUa = oneLine(d.purchaseUa, 500)
   const purchaseLines = [
     ip ? `Purchase IP recorded at checkout: ${ip}.` : 'No purchase IP was recorded at checkout.',
     deviceId ? `Device id recorded at checkout: ${deviceId}.` : '',
-    d.purchaseUa ? `User agent at checkout: ${d.purchaseUa}` : '',
+    purchaseUa ? `User agent at checkout: ${purchaseUa}` : '',
   ].filter(Boolean)
   const leadBlock = emphasis.emphasis === 'fraud' || emphasis.emphasis === 'unrecognized'
     ? [...purchaseLines, narrative]
@@ -987,7 +1044,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
       : [narrative]
   const uncategorized = [...leadBlock, repeat, `Packet prepared by Genisys Hub. Dispute ${d.id}. Reason ${d.reason}${emphasis.label ? ` (${emphasis.label})` : ''}. Amount ${money(d.amountCents, d.currency)}.`].filter(Boolean).join('\n\n')
 
-  const clickwrap = terms ? `Clickwrap ${ackLine(terms)}${terms.textHash ? `, text sha256 ${terms.textHash}` : ''}${terms.textUrl ? `, ${terms.textUrl}` : ''}. The full text and hash are in the attached packet.` : ''
+  const clickwrap = terms ? `Clickwrap ${ackLine(terms)}${hashAndUrl(terms)}. The acceptance record and the policy text on file are in the attached packet.` : ''
   const fields: Record<string, string> = {
     product_description: product,
     customer_name: person || name,
@@ -996,8 +1053,8 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     customer_purchase_ip: ip ?? '',
     service_date: serviceDate ? serviceDate.slice(0, 10) : '',
     access_activity_log: [activity.join('\n'), clickwrap].filter(Boolean).join('\n'),
-    refund_policy_disclosure: refundAck ? `Shown and accepted at ${refundAck.source} on ${when(refundAck.acceptedAt)}, version ${refundAck.version}, IP ${refundAck.ip ?? 'not recorded'}${refundAck.textHash ? `, text sha256 ${refundAck.textHash}` : ''}${refundAck.textUrl ? `, ${refundAck.textUrl}` : ''}. ${REFUND_POLICY}` : '',
-    cancellation_policy_disclosure: cancelAck ? `Shown and accepted at ${cancelAck.source} on ${when(cancelAck.acceptedAt)}, version ${cancelAck.version}, IP ${cancelAck.ip ?? 'not recorded'}${cancelAck.textHash ? `, text sha256 ${cancelAck.textHash}` : ''}${cancelAck.textUrl ? `, ${cancelAck.textUrl}` : ''}. ${CANCELLATION_POLICY}` : '',
+    refund_policy_disclosure: refundAck ? `Shown and accepted at ${oneLine(refundAck.source, 40) ?? 'intake'} on ${when(refundAck.acceptedAt)}, version ${versionOf(refundAck.version)}, IP ${customerIp(refundAck.ip) ?? 'not recorded'}${hashAndUrl(refundAck)}. ${REFUND_POLICY}` : '',
+    cancellation_policy_disclosure: cancelAck ? `Shown and accepted at ${oneLine(cancelAck.source, 40) ?? 'intake'} on ${when(cancelAck.acceptedAt)}, version ${versionOf(cancelAck.version)}, IP ${customerIp(cancelAck.ip) ?? 'not recorded'}${hashAndUrl(cancelAck)}. ${CANCELLATION_POLICY}` : '',
     cancellation_rebuttal: emphasis.emphasis === 'canceled' ? rebuttal : '',
     refund_refusal_explanation: emphasis.emphasis === 'not_as_described' || emphasis.emphasis === 'credit' ? refusal : '',
     duplicate_charge_explanation: d.reason === 'duplicate' ? narrative : '',
@@ -1010,7 +1067,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     ].filter(Boolean).join('\n\n'),
   }
   if (recurring) {
-    fields.uncategorized_text = `${fields.uncategorized_text}\n\nRecurring billing disclosure version ${recurring.version} accepted ${when(recurring.acceptedAt)} from IP ${recurring.ip ?? 'not recorded'}: ${RECURRING_DISCLOSURE}`
+    fields.uncategorized_text = `${fields.uncategorized_text}\n\nRecurring billing disclosure version ${versionOf(recurring.version)} accepted ${when(recurring.acceptedAt)} from IP ${customerIp(recurring.ip) ?? 'not recorded'}${hashAndUrl(recurring)}: ${RECURRING_DISCLOSURE}`
   }
 
   // Drop empty strings so we don't wipe a Stripe field with a blank.
@@ -1025,6 +1082,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     email,
     ip,
     deviceId,
+    fingerprint: d.cardFingerprint ?? null,
     accountId: null,
     productDescription: product,
     priors: facts.priors,
@@ -1099,7 +1157,11 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const signatureSections = signatureAcks.length
     ? [{
         heading: 'Clickwrap acceptance',
-        body: signatureAcks.map((a) => [ackLine(a), a.textHash ? `Text SHA-256: ${a.textHash}` : '', a.textUrl ? `Text URL: ${a.textUrl}` : ''].filter(Boolean).join('\n')).join('\n\n'),
+        body: signatureAcks.map((a) => {
+          const hash = textHashOf(a.textHash ?? null)
+          const url = textUrlOf(a.textUrl ?? null)
+          return [ackLine(a), hash ? `Text SHA-256: ${hash}` : '', url ? `Text URL: ${url}` : ''].filter(Boolean).join('\n')
+        }).join('\n\n'),
       }]
     : null
 
@@ -1209,8 +1271,8 @@ export function parseAcceptance(body: unknown, receivedAt: string): ParsedAccept
   if (!isRecord(body)) return []
   const answers = isRecord(body.answers) ? body.answers : body
   const block = isRecord(body.acceptance) ? body.acceptance : isRecord(answers.acceptance) ? answers.acceptance : {}
-  const ip = str(body.ip) ?? str(body.customerIp) ?? str(answers.ip) ?? null
-  const ua = str(body.userAgent) ?? str(body.user_agent) ?? str(answers.userAgent) ?? null
+  const ip = customerIp(str(body.ip) ?? str(body.customerIp) ?? str(answers.ip))
+  const ua = oneLine(str(body.userAgent) ?? str(body.user_agent) ?? str(answers.userAgent), 500)
   const map: { key: string; kind: AckKind }[] = [
     { key: 'terms', kind: 'terms' },
     { key: 'refundPolicy', kind: 'refund_policy' },
@@ -1233,10 +1295,10 @@ export function parseAcceptance(body: unknown, receivedAt: string): ParsedAccept
     const parsed = new Date(at)
     out.push({
       kind,
-      version: str(row.version) ?? TERMS_VERSION,
+      version: versionOf(str(row.version)),
       acceptedAt: Number.isNaN(parsed.getTime()) ? receivedAt : parsed.toISOString(),
-      ip: str(row.ip) ?? ip,
-      userAgent: str(row.userAgent) ?? str(row.user_agent) ?? ua,
+      ip: customerIp(str(row.ip)) ?? ip,
+      userAgent: oneLine(str(row.userAgent) ?? str(row.user_agent), 500) ?? ua,
       textHash: textHashOf(str(row.textHash) ?? str(row.text_hash) ?? str(row.hash)),
       textUrl: textUrlOf(str(row.textUrl) ?? str(row.text_url) ?? str(row.url)),
     })
@@ -1258,9 +1320,21 @@ export function parsePurchaseSignals(source: unknown): PurchaseSignals {
   const purchase = isRecord(source.purchase) ? source.purchase : isRecord(answers.purchase) ? answers.purchase : {}
   const meta = isRecord(source.metadata) ? source.metadata : {}
   const ip = customerIp(str(purchase.ip) ?? str(purchase.hub_purchase_ip) ?? str(meta.hub_purchase_ip) ?? str(source.hub_purchase_ip) ?? str(answers.hub_purchase_ip))
-  const userAgent = str(purchase.userAgent) ?? str(purchase.user_agent) ?? str(purchase.hub_purchase_ua) ?? str(meta.hub_purchase_ua) ?? str(source.hub_purchase_ua) ?? str(answers.hub_purchase_ua)
+  const userAgent = oneLine(str(purchase.userAgent) ?? str(purchase.user_agent) ?? str(purchase.hub_purchase_ua) ?? str(meta.hub_purchase_ua) ?? str(source.hub_purchase_ua) ?? str(answers.hub_purchase_ua), 500)
   const deviceId = deviceIdOf(str(purchase.deviceId) ?? str(purchase.device_id) ?? str(purchase.hub_device_id) ?? str(meta.hub_device_id) ?? str(source.hub_device_id) ?? str(answers.hub_device_id))
-  return { ip, userAgent: userAgent ? userAgent.slice(0, 2000) : null, deviceId }
+  return { ip, userAgent, deviceId }
+}
+
+/** First source that has a usable IP, user agent, or device id. Fields are not mixed across sources. */
+export function pickPurchaseSignals(sources: Array<Partial<PurchaseSignals> | null | undefined>): PurchaseSignals {
+  for (const s of sources) {
+    if (!s) continue
+    const ip = customerIp(s.ip)
+    const userAgent = oneLine(s.userAgent, 500)
+    const deviceId = deviceIdOf(s.deviceId)
+    if (ip || userAgent || deviceId) return { ip, userAgent, deviceId }
+  }
+  return { ip: null, userAgent: null, deviceId: null }
 }
 
 function textHashOf(v: string | null): string | null {
@@ -1271,20 +1345,39 @@ function textHashOf(v: string | null): string | null {
 
 function textUrlOf(v: string | null): string | null {
   if (!v) return null
+  const t = v.trim()
+  if (t.length > 500 || !isPublicEvidenceUrl(t)) return null
   try {
-    const url = new URL(v)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
-    return url.toString().slice(0, 500)
+    return new URL(t).toString().slice(0, 500)
   } catch {
     return null
   }
 }
 
-/** Visa's device id must be at least 15 characters. Shorter values are stored but not sent as CE 3.0. */
+/**
+ * Visa's device id must be 15 to 200 visible characters, and is ignored
+ * unless it is. Shorter or unsafe values are not stored and are not sent as CE 3.0.
+ */
 export function deviceIdOf(v: string | null | undefined): string | null {
   const t = (v ?? '').trim()
-  if (t.length < 15 || t.length > 200) return null
+  if (!/^[A-Za-z0-9._:+/=-]{15,200}$/.test(t)) return null
+  if (!/[A-Za-z0-9]/.test(t)) return null
   return t
+}
+
+/** One evidence line. Control characters become spaces so a field cannot forge a new row. */
+export function oneLine(v: string | null | undefined, max: number): string | null {
+  const t = (v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!t) return null
+  return t.slice(0, max)
+}
+
+function versionOf(v: string | null | undefined): string {
+  const raw = (v ?? '').trim()
+  if (!raw) return TERMS_VERSION
+  if (/^[A-Za-z0-9._-]{1,64}$/.test(raw)) return raw
+  // Keep what was sent, on one line, instead of claiming the current terms version.
+  return oneLine(raw, 64) ?? TERMS_VERSION
 }
 
 // --- Win / loss --------------------------------------------------------------
@@ -1318,13 +1411,11 @@ export function repeatLabel(count: number): string | null {
   return null
 }
 
-/** A single IP address Stripe will accept in customer_purchase_ip. Lists and prose are dropped. */
+/** A single public IP Stripe will accept in customer_purchase_ip. Lists, prose, and private addresses are dropped. */
 export function customerIp(v: string | null | undefined): string | null {
   const first = (v ?? '').split(',')[0]?.trim() ?? ''
-  if (!first || first.length > 45) return null
-  if (ipv4ToInt(first) !== null) return first
-  if (/^[0-9a-f:]+$/i.test(first) && first.includes(':')) return first
-  return null
+  if (!first || first.length > 45 || !isIP(first) || !isPublicIp(first)) return null
+  return first
 }
 
 function ipv4ToInt(host: string): number | null {

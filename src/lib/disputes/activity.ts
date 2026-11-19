@@ -3,9 +3,15 @@
  * logins resolve to the client's sub-account; the client portal uses
  * the user's own client id.
  */
+import { isIP } from 'node:net'
 import { prisma } from '@/lib/prisma'
 import { requestContext } from '@/lib/request-context'
 import { writeLedger } from './ledger'
+
+function oneLine(v: string | null | undefined, max: number): string | null {
+  const t = (v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  return t ? t.slice(0, max) : null
+}
 
 export async function recordDashboardLogin(o: { userId: string; email: string | null; role?: string | null; ip?: string | null; userAgent?: string | null }): Promise<void> {
   const role = o.role ?? ''
@@ -22,10 +28,11 @@ export async function recordDashboardLogin(o: { userId: string; email: string | 
     clientId = user?.clientId ?? null
   }
   const ctx = requestContext.getStore()
-  const ip = (o.ip ?? ctx?.ip ?? '').trim() || null
-  const userAgent = (o.userAgent ?? ctx?.userAgent ?? '')?.slice(0, 300) || null
+  const rawIp = (o.ip ?? ctx?.ip ?? '').trim()
+  const ip = rawIp && rawIp !== 'unknown' && isIP(rawIp) ? rawIp : null
+  const userAgent = oneLine(o.userAgent ?? ctx?.userAgent, 300)
   const activity = await prisma.portalActivity.create({
-    data: { userId: o.userId, clientId, email: o.email, kind: 'login', ip: ip === 'unknown' ? null : ip, userAgent },
+    data: { userId: o.userId, clientId, email: o.email, kind: 'login', ip, userAgent },
   })
   if (!clientId) return
   const where = [ip && ip !== 'unknown' ? `ip ${ip}` : null, userAgent ? `ua ${userAgent.slice(0, 160)}` : null].filter(Boolean).join('; ')

@@ -217,6 +217,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   let purchaseIp: string | null = null
   let purchaseUa: string | null = null
   let deviceId: string | null = null
+  let cardFingerprint: string | null = null
   if (row.stripeCustomerId) {
     try {
       const charges = await listCustomerCharges(row.stripeCustomerId)
@@ -235,6 +236,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
           purchaseIp = parsed.purchaseIp
           purchaseUa = parsed.purchaseUa
           deviceId = parsed.deviceId
+          cardFingerprint = parsed.cardFingerprint
           if (row.stripeChargeId && (parsed.purchaseIp || parsed.purchaseUa || parsed.deviceId)) {
             await rememberPurchase({
               clientId: row.clientId,
@@ -266,6 +268,8 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
     purchaseIp,
     purchaseUa,
     deviceId,
+    cardFingerprint,
+    stripeChargeId: row.stripeChargeId,
     email,
     name,
     phone,

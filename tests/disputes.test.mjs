@@ -301,6 +301,18 @@ test('an inquiry is flagged and not auto-submitted unless the policy is fight', 
   const fight = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live', DISPUTE_INQUIRY_POLICY: 'fight' }) })
   assert.equal(fight.stripeSubmit, true)
   assert.equal(plan.parseDisputeConfig({}).inquiryPolicy, 'flag')
+  const killed = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live', DISPUTE_INQUIRY_POLICY: 'fight', DISPUTE_DEFENSE_FORCE_DRY_RUN: '1' }) })
+  assert.equal(killed.action, 'compile_only')
+  assert.equal(killed.stripeSubmit, false)
+  const dryFight = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'dry_run', DISPUTE_INQUIRY_POLICY: 'fight' }) })
+  assert.equal(dryFight.action, 'compile_only')
+  assert.equal(dryFight.stripeSubmit, false)
+  const stageFight = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'stage', DISPUTE_INQUIRY_POLICY: 'fight' }) })
+  assert.equal(stageFight.action, 'stage')
+  assert.equal(stageFight.stripeSubmit, false)
+  const stageFlag = plan.decideAction({ ...base, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'stage' }) })
+  assert.equal(stageFlag.action, 'compile_only')
+  assert.equal(stageFlag.stripeSubmit, false)
 })
 
 test('purchase signals and the acceptance contract', () => {
@@ -349,4 +361,138 @@ test('Render client IP prefers Cloudflare and otherwise the first X-Forwarded-Fo
   assert.equal(rateLimit.clientIp({ headers: headers({ 'x-forwarded-for': '203.0.113.8, 10.0.0.1' }) }), '203.0.113.8')
   assert.equal(rateLimit.clientIp({ headers: headers({ 'x-forwarded-for': 'not-an-ip, 198.51.100.4' }) }), '198.51.100.4')
   assert.equal(rateLimit.clientIp({ headers: headers({}) }), 'unknown')
+  assert.equal(rateLimit.clientIp({ headers: headers({ 'true-client-ip': '198.51.100.9', 'x-forwarded-for': '203.0.113.8' }) }), '203.0.113.8')
+  assert.equal(rateLimit.clientIp({ headers: headers({ 'cf-connecting-ip': '::::', 'true-client-ip': '198.51.100.9', 'x-forwarded-for': '203.0.113.8' }) }), '203.0.113.8')
+})
+
+test('Amex reason codes follow the network definitions', () => {
+  assert.equal(plan.disputeEmphasis('general', 'C08').emphasis, 'not_received')
+  assert.equal(plan.disputeEmphasis('general', 'C31').emphasis, 'not_as_described')
+  assert.equal(plan.disputeEmphasis('general', 'C04').emphasis, 'credit')
+  assert.equal(plan.disputeEmphasis('general', 'C05').emphasis, 'canceled')
+  assert.match(plan.templateFor('general', null, 'c08'), /not received/i)
+  assert.match(plan.templateFor('general', null, 'C31'), /not as described/i)
+  assert.match(plan.templateFor('general', null, 'C04'), /returned or refused/i)
+  const facts = {
+    dispute: { id: 'dp_1', reason: 'general', status: 'needs_response', amountCents: 100, currency: 'usd', dueBy: null, chargedAt: '2026-10-01T00:00:00.000Z', cardBrand: 'amex', networkReasonCode: 'C08', email: null, name: null, phone: null, billingAddress: null, purchaseIp: null, purchaseUa: null, deviceId: null, chargeRefunded: false },
+    client: null, intake: null, acknowledgements: [], ledger: [{ kind: 'setup_site', title: 'Website live', detail: null, occurredAt: '2026-09-02T00:00:00.000Z', contentHash: 'h' }],
+    emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  }
+  const notReceived = plan.buildEvidence(facts)
+  assert.match(notReceived.fields.uncategorized_text, /^Service delivery timeline:/)
+  assert.equal(notReceived.fields.refund_refusal_explanation, undefined)
+  assert.equal(notReceived.fields.cancellation_rebuttal, undefined)
+  const described = plan.buildEvidence({ ...facts, dispute: { ...facts.dispute, networkReasonCode: 'C31' } })
+  assert.ok(described.fields.refund_refusal_explanation)
+  assert.equal(described.fields.cancellation_rebuttal, undefined)
+  const returned = plan.buildEvidence({ ...facts, dispute: { ...facts.dispute, networkReasonCode: 'C04' } })
+  assert.ok(returned.fields.refund_refusal_explanation)
+  assert.equal(returned.fields.cancellation_rebuttal, undefined)
+})
+
+test('Visa CE 3.0 requires the same elements on all three charges and the same card', () => {
+  const chargedAt = '2026-11-01T00:00:00.000Z'
+  const day = 86400_000
+  const ip = '203.0.113.9'
+  const device = 'A1B2C3D4E5F60718'
+  const prior = (id, daysAgo, over = {}) => ({
+    id, amountCents: 29700, created: new Date(new Date(chargedAt).getTime() - daysAgo * day).toISOString(),
+    paid: true, disputed: false, refunded: false, email: 'owner@acme.test', ip: null, deviceId: null, accountId: null, fingerprint: 'fpSameCard1', ...over,
+  })
+  const base = {
+    reason: 'fraudulent', cardBrand: 'visa', networkReasonCode: '10.4', chargedAt, email: 'owner@acme.test', ip, deviceId: device, fingerprint: 'fpSameCard1', accountId: null, productDescription: 'service',
+  }
+  const mixed = plan.selectCompellingEvidence({
+    ...base,
+    priors: [prior('ch_ip', 200, { ip }), prior('ch_dev', 220, { deviceId: device })],
+  })
+  assert.equal(mixed, null)
+  const shared = plan.selectCompellingEvidence({
+    ...base,
+    priors: [
+      prior('ch_ip', 200, { ip }),
+      prior('ch_dev', 220, { deviceId: device }),
+      prior('ch_both_a', 240, { ip, deviceId: device }),
+      prior('ch_both_b', 260, { ip, deviceId: device }),
+    ],
+  })
+  assert.deepEqual(shared.prior.map((p) => p.charge), ['ch_ip', 'ch_both_a'])
+  assert.equal(shared.disputed.customerPurchaseIp, ip)
+  assert.equal(shared.disputed.customerDeviceId, null)
+  assert.equal(shared.prior[0].customerDeviceId, null)
+  assert.equal(shared.prior[1].customerPurchaseIp, ip)
+  const both = plan.selectCompellingEvidence({
+    ...base,
+    priors: [prior('ch_both_a', 240, { ip, deviceId: device }), prior('ch_both_b', 260, { ip, deviceId: device })],
+  })
+  assert.equal(both.disputed.customerDeviceId, device)
+  assert.equal(both.prior[0].customerDeviceId, device)
+  assert.equal(both.prior[1].customerDeviceId, device)
+  const otherCard = plan.selectCompellingEvidence({
+    ...base,
+    priors: [prior('ch_a', 200, { ip, fingerprint: 'otherCard99' }), prior('ch_b', 300, { ip, fingerprint: 'otherCard99' })],
+  })
+  assert.equal(otherCard, null)
+  const read = plan.readCharge({
+    id: 'ch_a', amount: 29700, created: 1_700_000_000, paid: true, disputed: false, refunded: false,
+    billing_details: { email: 'owner@acme.test' },
+    metadata: { hub_purchase_ip: ip, hub_device_id: device },
+    payment_method_details: { card: { fingerprint: 'fpSameCard1' } },
+  }, null)
+  assert.equal(read.fingerprint, 'fpSameCard1')
+  assert.equal(read.ip, ip)
+})
+
+test('intake fields cannot inject a line, a private IP, or a secret into the packet', () => {
+  assert.equal(plan.customerIp('::::'), null)
+  assert.equal(plan.customerIp('10.0.0.1'), null)
+  assert.equal(plan.customerIp('127.0.0.1'), null)
+  assert.equal(plan.customerIp('203.0.113.8'), '203.0.113.8')
+  const nastyUa = 'Mozilla/5.0\n2020-01-01  login admin admitted the charge'
+  const signals = plan.parsePurchaseSignals({
+    purchase: { ip: '10.1.1.1', userAgent: nastyUa, deviceId: 'A1B2C3D4E5F60718\nEVIL' },
+  })
+  assert.equal(signals.ip, null)
+  assert.equal(signals.deviceId, null)
+  assert.equal(signals.userAgent.includes('\n'), false)
+  assert.match(signals.userAgent, /^Mozilla\/5.0 2020-01-01/)
+  const hash = 'ab'.repeat(32)
+  const acks = plan.parseAcceptance({
+    acceptance: {
+      terms: {
+        accepted: true,
+        version: '2026-11-19\nRule for the merchant',
+        at: '2026-11-19T18:04:00.000Z',
+        ip: '::::',
+        userAgent: nastyUa,
+        textHash: hash,
+        textUrl: 'https://user:secret@leadgenisys.com/terms',
+      },
+    },
+  }, '2026-11-19T18:04:00.000Z')
+  assert.equal(acks[0].version.includes('\n'), false)
+  assert.equal(acks[0].version.startsWith('2026-11-19'), true)
+  assert.ok(acks[0].version.length <= 64)
+  assert.equal(acks[0].ip, null)
+  assert.equal(acks[0].textUrl, null)
+  assert.equal(acks[0].userAgent.includes('\n'), false)
+  const picked = plan.pickPurchaseSignals([
+    { ip: '203.0.113.10', userAgent: null, deviceId: null },
+    { ip: null, userAgent: null, deviceId: 'A1B2C3D4E5F60718' },
+  ])
+  assert.equal(picked.ip, '203.0.113.10')
+  assert.equal(picked.deviceId, null)
+  const facts = {
+    dispute: { id: 'dp_1', reason: 'fraudulent', status: 'needs_response', amountCents: 100, currency: 'usd', dueBy: null, chargedAt: null, cardBrand: 'visa', networkReasonCode: '10.4', email: null, name: null, phone: null, billingAddress: null, purchaseIp: null, purchaseUa: nastyUa, deviceId: 'bad id', chargeRefunded: false },
+    client: null, intake: null,
+    acknowledgements: acks.map((a) => ({ ...a, source: 'intake' })),
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [{ at: '2026-11-19T18:04:00.000Z', email: 'owner@acme.test', ip: '203.0.113.8', userAgent: nastyUa, kind: 'login' }],
+    priors: [], narrative: null, template: null,
+  }
+  const built = plan.buildEvidence(facts)
+  assert.equal(built.fields.uncategorized_text.includes('\n2020-01-01'), false)
+  assert.equal(built.fields.access_activity_log.includes('secret'), false)
+  assert.equal(built.fields.access_activity_log.includes('\n2020-01-01'), false)
+  assert.equal(built.signatureSections[0].body.includes('secret'), false)
+  assert.equal(built.signatureSections[0].body.includes('\nRule for the merchant'), false)
 })

@@ -6,7 +6,7 @@
 import { prisma } from '@/lib/prisma'
 import { syncServiceLedger } from './ledger'
 import { syncSetupMilestones } from './setup'
-import { emailHeaderHas, parsePurchaseSignals, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { emailHeaderHas, parsePurchaseSignals, pickPurchaseSignals, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
 import { rememberPurchase } from './purchase'
 
 export async function gatherFacts(o: {
@@ -24,6 +24,8 @@ export async function gatherFacts(o: {
   purchaseIp: string | null
   purchaseUa: string | null
   deviceId: string | null
+  cardFingerprint?: string | null
+  stripeChargeId?: string | null
   email: string | null
   name: string | null
   phone: string | null
@@ -88,9 +90,18 @@ export async function gatherFacts(o: {
       occurredAt: intake.receivedAt,
     }).catch(() => {})
   }
-  const stored = o.clientId
-    ? await prisma.checkoutContext.findFirst({ where: { clientId: o.clientId }, orderBy: { occurredAt: 'desc' } })
+  const chargeStored = o.stripeChargeId
+    ? await prisma.checkoutContext.findUnique({ where: { source_sourceId: { source: 'stripe_charge', sourceId: o.stripeChargeId } } })
     : null
+  const intakeStored = intake
+    ? await prisma.checkoutContext.findUnique({ where: { source_sourceId: { source: 'intake', sourceId: intake.id } } })
+    : null
+  const purchase = pickPurchaseSignals([
+    { ip: o.purchaseIp, userAgent: o.purchaseUa, deviceId: o.deviceId },
+    chargeStored,
+    fromIntake,
+    intakeStored,
+  ])
   const emails = o.clientId ? await clientEmails(o.clientId, client?.contactEmail ?? intake?.leadEmail ?? o.email) : []
   const priors: PriorCharge[] = []
   for (const ch of o.priorCharges) {
@@ -113,9 +124,10 @@ export async function gatherFacts(o: {
       name: o.name,
       phone: o.phone,
       billingAddress: o.billingAddress,
-      purchaseIp: o.purchaseIp ?? fromIntake.ip ?? stored?.ip ?? null,
-      purchaseUa: o.purchaseUa ?? fromIntake.userAgent ?? stored?.userAgent ?? null,
-      deviceId: o.deviceId ?? fromIntake.deviceId ?? stored?.deviceId ?? null,
+      purchaseIp: purchase.ip,
+      purchaseUa: purchase.userAgent,
+      deviceId: purchase.deviceId,
+      cardFingerprint: o.cardFingerprint ?? null,
       chargeRefunded: o.chargeRefunded,
     },
     client: client

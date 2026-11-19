@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 /**
  * Lightweight in-memory rate limiter.
  *
@@ -59,35 +61,26 @@ export function checkRateLimit(
 function oneIp(value: string | null | undefined): string | null {
   const t = (value ?? '').trim()
   if (!t || t.length > 45 || /[\s,]/.test(t)) return null
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(t)) {
-    const parts = t.split('.').map((n) => Number(n))
-    if (parts.some((n) => n > 255)) return null
-    return t
-  }
-  if (/^[0-9a-f:]+$/i.test(t) && t.includes(':')) return t
-  return null
+  return isIP(t) ? t : null
 }
 
 /**
  * Visitor address on Render.
  *
- * Render's edge is Cloudflare, then Render's own proxy. Cloudflare sets
- * CF-Connecting-IP to the visitor and overwrites a client-supplied value,
- * and Render forwards that header. A spoofed X-Forwarded-For prefix cannot
- * override it.
+ * Render's edge is Cloudflare. Cloudflare sets CF-Connecting-IP to the
+ * visitor and overwrites a client-supplied value, so a spoofed
+ * X-Forwarded-For prefix cannot override it. True-Client-IP is not set on
+ * Render's Cloudflare plan and a client can supply it, so it is ignored.
  *
- * When that header is absent, the first X-Forwarded-For address is the
+ * When CF-Connecting-IP is absent, the first X-Forwarded-For address is the
  * visitor. Render sets that entry to the real client. The last address is
- * the latest proxy (often Cloudflare or Render's balancer), so it is not
- * the cardholder and is not used.
+ * the latest proxy, so it is not the cardholder and is not used.
  */
 export function clientIp(req: {
   headers: { get(name: string): string | null }
 }): string {
   const cf = oneIp(req.headers.get('cf-connecting-ip'))
   if (cf) return cf
-  const trusted = oneIp(req.headers.get('true-client-ip'))
-  if (trusted) return trusted
   const xff = req.headers.get('x-forwarded-for')
   if (xff) {
     for (const part of xff.split(',')) {
