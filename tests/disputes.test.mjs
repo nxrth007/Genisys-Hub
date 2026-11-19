@@ -7,18 +7,27 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const tsCache = new Map()
 
 function loadTs(rel) {
-  const absPath = join(root, rel)
+  const absPath = rel.startsWith('/') ? rel : join(root, rel)
+  if (tsCache.has(absPath)) return tsCache.get(absPath)
   const { outputText } = ts.transpileModule(readFileSync(absPath, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   })
   const m = { exports: {} }
-  new Function('module', 'exports', 'require', outputText)(m, m.exports, createRequire(pathToFileURL(absPath)))
+  tsCache.set(absPath, m.exports)
+  const localRequire = createRequire(pathToFileURL(absPath))
+  const req = (id) => {
+    if (id.startsWith('.')) return loadTs(join(dirname(absPath), id.endsWith('.ts') ? id : `${id}.ts`))
+    return localRequire(id)
+  }
+  new Function('module', 'exports', 'require', outputText)(m, m.exports, req)
   return m.exports
 }
 
 const plan = loadTs('src/lib/disputes/plan.ts')
+const policies = loadTs('src/lib/disputes/policies.ts')
 const pdf = loadTs('src/lib/disputes/pdf.ts')
 const rateLimit = loadTs('src/lib/rate-limit.ts')
 
@@ -243,6 +252,10 @@ test('the packet PDF is a real PDF under the size cap and names the timeline', (
   ])
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-')
   assert.ok(bytes.includes(Buffer.from('Service delivery timeline')))
+  const draftPdf = pdf.renderEvidencePdf([{ heading: 'Policies', body: 'DRAFT \u2014 pending legal review' }])
+  assert.ok(draftPdf.includes(Buffer.from('DRAFT')))
+  assert.equal(draftPdf.includes(Buffer.from('?')), false)
+  assert.ok(draftPdf.includes(Buffer.from('\\227')))
   const longUrl = 'https://acme.example/' + 'path-segment/'.repeat(20) + 'end'
   const longPdf = pdf.renderEvidencePdf([{ heading: 'Service delivery timeline', body: `Website live — ${longUrl}` }])
   assert.ok(longPdf.includes(Buffer.from('path-segment/path-segment')))
@@ -495,4 +508,125 @@ test('intake fields cannot inject a line, a private IP, or a secret into the pac
   assert.equal(built.fields.access_activity_log.includes('\n2020-01-01'), false)
   assert.equal(built.signatureSections[0].body.includes('secret'), false)
   assert.equal(built.signatureSections[0].body.includes('\nRule for the merchant'), false)
+})
+
+test('dispute policy text matches the onboarding pages and is quoted only for the hashed edition', () => {
+  assert.equal(plan.parseDisputeConfig({}).mode, 'dry_run')
+  assert.equal(policies.POLICY_CONTACT_EMAIL, 'ethan@leadgenisys.com')
+  assert.equal(policies.BILLING_SUMMARY, '$0 due today on the 30-day free trial, then $297 per month.')
+  assert.equal(policies.currentPolicy('terms').version, '2026-08-06')
+  assert.equal(policies.currentPolicy('terms').draft, false)
+  assert.equal(policies.currentPolicy('refund_policy').version, '2026-11-19')
+  assert.equal(policies.currentPolicy('refund_policy').draft, true)
+  const forbidden = /alex@leadgenisys\.com|before the next renewal|customer portal|pay-per-appointment|cancel anytime|plan price|unless a different price/i
+  for (const edition of policies.POLICY_EDITIONS) {
+    assert.equal(edition.textHash, policies.policyTextHash(edition.text))
+    assert.equal(edition.textUrl, `https://clientonboarding.leadgenisys.com${edition.path}`)
+    assert.doesNotMatch(edition.summary, forbidden)
+    assert.doesNotMatch(edition.text, /alex@leadgenisys\.com/)
+    if (edition.kind !== 'terms') assert.doesNotMatch(edition.text, /cancel at any time/i)
+  }
+  const refund = policies.currentPolicy('refund_policy')
+  assert.match(refund.text, /\$0 is due today/)
+  assert.match(refund.text, /Cancel within 30 days and you pay nothing/)
+  assert.match(refund.text, /non-refundable once work has commenced/)
+  assert.match(refund.summary, /\$0 is due today/)
+  assert.match(refund.summary, /Cancel within 30 days and you pay nothing/)
+  const cancel = policies.currentPolicy('cancellation_policy')
+  assert.match(cancel.text, /30 days written notice/)
+  assert.match(cancel.text, /ethan@leadgenisys\.com/)
+  assert.match(cancel.summary, /30 days written notice/)
+  assert.match(cancel.summary, /ethan@leadgenisys\.com/)
+  assert.match(cancel.summary, /Cancel within 30 days of signup and you pay nothing/)
+  const recur = policies.currentPolicy('recurring_billing')
+  assert.match(recur.text, /\$297 per month/)
+  assert.equal(recur.text.includes(policies.BILLING_SUMMARY), true)
+  assert.match(recur.summary, /\$297 per month/)
+  assert.match(recur.summary, /30 days written notice to ethan@leadgenisys\.com/)
+  assert.match(policies.currentPolicy('terms').text, /30 days written notice/)
+  assert.match(policies.currentPolicy('terms').text, /You can cancel the SMS service at any time/)
+  assert.doesNotMatch(policies.PRODUCT_DESCRIPTION, forbidden)
+  assert.match(policies.PRODUCT_DESCRIPTION, /\$0 due today/)
+  assert.match(policies.PRODUCT_DESCRIPTION, /\$297 per month/)
+  assert.equal(plan.PRODUCT_DESCRIPTION, policies.PRODUCT_DESCRIPTION)
+
+  const baseDispute = {
+    id: 'dp_1', reason: 'subscription_canceled', status: 'needs_response', amountCents: 29700, currency: 'usd',
+    dueBy: null, chargedAt: '2026-10-01T00:00:00.000Z', cardBrand: 'visa', networkReasonCode: '13.2',
+    email: 'owner@acme.test', name: 'Acme', phone: null, billingAddress: null, purchaseIp: null, purchaseUa: null,
+    deviceId: null, chargeRefunded: false,
+  }
+  const ack = (kind, edition, over = {}) => ({
+    kind, version: edition.version, acceptedAt: '2026-11-19T18:04:00.000Z', ip: '203.0.113.10',
+    userAgent: 'Mozilla/5.0', source: 'intake', textHash: edition.textHash, textUrl: edition.textUrl, ...over,
+  })
+  const matched = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null,
+    acknowledgements: [ack('cancellation_policy', cancel), ack('refund_policy', refund), ack('recurring_billing', recur)],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(matched.fields.cancellation_policy_disclosure, new RegExp(cancel.textHash))
+  assert.match(matched.fields.cancellation_policy_disclosure, /https:\/\/clientonboarding\.leadgenisys\.com\/cancellation-policy/)
+  assert.match(matched.fields.cancellation_policy_disclosure, /version 2026-11-19/)
+  assert.match(matched.fields.cancellation_policy_disclosure, /30 days written notice/)
+  assert.match(matched.fields.cancellation_policy_disclosure, /ethan@leadgenisys\.com/)
+  assert.match(matched.fields.cancellation_policy_disclosure, /draft/i)
+  assert.match(matched.fields.cancellation_rebuttal, /30 days written notice/)
+  assert.match(matched.fields.refund_policy_disclosure, /\$0 is due today/)
+  assert.match(matched.fields.uncategorized_text, /\$297 per month/)
+  assert.match(matched.fields.uncategorized_text, /text sha256/)
+  assert.doesNotMatch(JSON.stringify(matched.fields), forbidden)
+  const renamed = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null,
+    acknowledgements: [ack('cancellation_policy', cancel, { version: 'client-label' })],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(renamed.fields.cancellation_policy_disclosure, /version client-label/)
+  assert.match(renamed.fields.cancellation_policy_disclosure, /hashed text is version 2026-11-19/)
+  assert.match(renamed.fields.cancellation_policy_disclosure, /30 days written notice/)
+  const crossed = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null,
+    acknowledgements: [ack('refund_policy', cancel)],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(crossed.fields.refund_policy_disclosure, /does not substitute/)
+  assert.doesNotMatch(crossed.fields.refund_policy_disclosure, /30 days written notice/)
+  const policiesSection = matched.sections.find((s) => s.heading === 'Policies')
+  assert.match(policiesSection.body, /This is the text the acceptance record hashes to/)
+  assert.match(policiesSection.body, new RegExp(cancel.textHash))
+
+  const other = 'cd'.repeat(32)
+  const unmatchedAcks = [ack('cancellation_policy', cancel, { textHash: other, version: '2026-01-01', textUrl: 'https://clientonboarding.leadgenisys.com/cancellation-policy' }), ack('refund_policy', refund, { textHash: other })]
+  const unmatched = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null, acknowledgements: unmatchedAcks,
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(unmatched.fields.cancellation_policy_disclosure, new RegExp(other))
+  assert.match(unmatched.fields.cancellation_policy_disclosure, /version 2026-01-01/)
+  assert.match(unmatched.fields.cancellation_policy_disclosure, /does not match a cancellation policy/)
+  assert.match(unmatched.fields.cancellation_policy_disclosure, /does not substitute/)
+  assert.doesNotMatch(unmatched.fields.cancellation_policy_disclosure, /30 days written notice/)
+  assert.doesNotMatch(unmatched.fields.cancellation_rebuttal, /30 days written notice/)
+  assert.match(unmatched.fields.cancellation_rebuttal, /does not substitute/)
+  assert.doesNotMatch(unmatched.fields.refund_policy_disclosure, /\$0 is due today/)
+  const credit = plan.buildEvidence({
+    dispute: { ...baseDispute, reason: 'credit_not_processed', networkReasonCode: 'C02' },
+    client: null, intake: null, acknowledgements: unmatchedAcks,
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.match(credit.fields.refund_refusal_explanation, /does not substitute/)
+  assert.doesNotMatch(credit.fields.refund_refusal_explanation, /non-refundable/)
+  const unmatchedPolicies = unmatched.sections.find((s) => s.heading === 'Policies').body
+  assert.match(unmatchedPolicies, /not stated as what the client accepted/)
+  assert.doesNotMatch(JSON.stringify(unmatched.fields), forbidden)
+
+  const bare = plan.buildEvidence({
+    dispute: baseDispute, client: null, intake: null, acknowledgements: [],
+    ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null,
+  })
+  assert.equal(bare.fields.cancellation_policy_disclosure, undefined)
+  assert.equal(bare.fields.refund_policy_disclosure, undefined)
+  assert.match(bare.fields.cancellation_rebuttal, /does not yet have a clickwrap/)
+  assert.doesNotMatch(bare.fields.cancellation_rebuttal, /30 days written notice/)
+  assert.doesNotMatch(JSON.stringify(bare.fields), forbidden)
 })

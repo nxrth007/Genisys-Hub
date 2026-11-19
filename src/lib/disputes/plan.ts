@@ -10,11 +10,18 @@
  */
 import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
+import { PRODUCT_DESCRIPTION, POLICY_EDITIONS, policyEditionForAcceptance, type PolicyEdition } from './policies'
+
+export { PRODUCT_DESCRIPTION }
 
 export const DISPUTE_KEY_ENTRY = 'Stripe Official Restricted'
 export const LEGACY_STRIPE_KEY_ENTRY = 'Stripe API Key'
 export const WEBHOOK_SECRET_ENTRY = 'Stripe Official Webhook Secret'
 export const WEBHOOK_PATH = '/api/webhooks/stripe'
+/**
+ * Stored when an intake omits `version`. Not the Terms of Service version
+ * (2026-08-06) and not a claim that this client accepted the draft pages.
+ */
 export const TERMS_VERSION = '2026-11-19'
 
 /** Combined evidence files must stay under this. Each file must stay under 5 MB. */
@@ -85,18 +92,6 @@ export const DISPUTE_PERMISSIONS = {
     'Webhook endpoints: Write — only if you register the endpoint from code; the Hub does not',
   ],
 } as const
-
-export const PRODUCT_DESCRIPTION =
-  'Lead Genisys sells contractor lead generation and marketing services to the client: a GoHighLevel sub-account, onboarding, lead and appointment delivery, SMS and email follow-up, and invoicing. The signup plan is a 30-day free trial of the monthly subscription (currently $297/month unless a different price was agreed) and, where contracted, pay-per-appointment billing for qualified appointments the client confirmed.'
-
-export const REFUND_POLICY =
-  'Fees for services already rendered are not refunded. That includes a subscription period that has started and pay-per-appointment invoices for appointments already delivered. A client may cancel future billing under the cancellation policy. During the 30-day free trial, canceling before the trial ends means the card on file is not charged.'
-
-export const CANCELLATION_POLICY =
-  'The client may cancel the monthly subscription before the next renewal by emailing alex@leadgenisys.com or through the Stripe customer portal when one is offered. Cancellation stops future charges. It does not refund the current period or pay-per-appointment invoices for appointments already delivered. The free trial may be canceled before it converts, in which case no charge is made.'
-
-export const RECURRING_DISCLOSURE =
-  'After the 30-day free trial, the card on file is charged the plan price automatically each month until the subscription is canceled. Pay-per-appointment clients are invoiced separately for qualified appointments they confirmed.'
 
 const ACK_KINDS = ['terms', 'refund_policy', 'cancellation_policy', 'recurring_billing', 'milestone'] as const
 export type AckKind = (typeof ACK_KINDS)[number]
@@ -880,11 +875,11 @@ const EMPHASIS_NARRATIVES: Record<EvidenceEmphasis, string> = {
   not_received:
     'Nothing was shipped. The service delivery timeline is the proof of what was delivered: the website going live, the domain, the toll-free number, texting approval, calls ringing the owner, the Genisys OS form and chat on the site, lead automations, Google review requests, and a completed business profile, then the setup report we emailed and any later sign-in. Leads that arrived after that are supporting detail.',
   not_as_described:
-    'The service delivery timeline is what the client received: website, domain, toll-free number, texting, call routing, form and chat, automations, review requests, and the business profile. That is the lead-generation system described at signup. The refund policy they accepted, when we have that clickwrap, is in the refund fields. A refund was not owed because the setup was delivered as agreed.',
+    'The service delivery timeline is what the client received: website, domain, toll-free number, texting, call routing, form and chat, automations, review requests, and the business profile. That is the lead-generation system described at signup. The refund fields quote the refund policy the client accepted when that acceptance text hash matches a policy on file.',
   canceled:
-    'The subscription was still in force on the charge date. Cancellation stops the next renewal. It does not refund a period that already started or a setup that was already delivered. The service delivery timeline shows the system they kept, and the cancellation policy they accepted is in the cancellation fields when we have that clickwrap.',
+    'The subscription was still in force on the charge date. The service delivery timeline shows the system the client kept. The cancellation fields quote the cancellation policy the client accepted when that acceptance text hash matches a policy on file.',
   credit:
-    'No credit that was agreed was withheld. The timeline shows the service that was delivered, and the refund fields show the policy and any refund that was actually issued. A chargeback is not a substitute for a refund that was never owed.',
+    'The timeline shows the service that was delivered. The refund fields quote the refund policy the client accepted when that acceptance text hash matches a policy on file, and they note a refund when one was actually issued.',
   duplicate:
     'This charge is a distinct billing period or invoice, not a second copy of another charge. The packet lists the cycle it covers.',
   unrecognized:
@@ -975,6 +970,63 @@ function hashAndUrl(a: EvidenceAck): string {
   return `${hash ? `, text sha256 ${hash}` : ''}${url ? `, ${url}` : ''}`
 }
 
+function policyCite(a: EvidenceAck): string {
+  return `version ${versionOf(a.version)} on ${when(a.acceptedAt)} from IP ${customerIp(a.ip) ?? 'not recorded'}${hashAndUrl(a)}`
+}
+
+function matchedPolicy(a: EvidenceAck): PolicyEdition | null {
+  return policyEditionForAcceptance({ kind: a.kind, textHash: a.textHash })
+}
+
+/** Version, hash, and URL from the intake, plus the summary only when the hash is that page. */
+function acceptedPolicySentence(a: EvidenceAck, label: string): string {
+  const edition = matchedPolicy(a)
+  const cite = `Shown and accepted at ${oneLine(a.source, 40) ?? 'intake'}, ${policyCite(a)}.`
+  if (!edition) {
+    return `${cite} That acceptance record does not match a ${label} text on file, so this packet does not substitute a different ${label}.`
+  }
+  const draft = edition.draft ? " The matched text is marked draft, pending the owner's legal review." : ''
+  const versionNote = versionOf(a.version) === edition.version
+    ? ''
+    : ` The record's version string is ${versionOf(a.version)}; the hashed text is version ${edition.version}.`
+  return `${cite} The text hash matches ${edition.textUrl} version ${edition.version}.${versionNote}${draft} ${edition.summary}`
+}
+
+function policiesBody(acks: EvidenceAck[]): string {
+  const blocks = POLICY_EDITIONS.map((edition) => {
+    const ack = acks.find((a) => a.kind === edition.kind)
+    const matched = ack ? matchedPolicy(ack) : null
+    let status: string
+    if (!ack) {
+      status = "No acceptance record for this client. The text below is what the onboarding site publishes. It is not stated as this client's acceptance."
+    } else if (matched?.textHash === edition.textHash) {
+      status = `This is the text the acceptance record hashes to (${policyCite(ack)}).`
+    } else if (matched) {
+      status = `The acceptance record matches a different edition (version ${matched.version}, sha256 ${matched.textHash}), not this text.`
+    } else {
+      status = `An acceptance record is on file (${policyCite(ack)}) but its text hash does not match this text, so this text is not stated as what the client accepted.`
+    }
+    return [
+      edition.title,
+      `Version ${edition.version}${edition.draft ? ", draft, pending the owner's legal review" : ''}`,
+      edition.textUrl,
+      `sha256 ${edition.textHash}`,
+      status,
+      '',
+      'Summary quoted in Stripe fields when the hash matches:',
+      edition.summary,
+      '',
+      'Full text:',
+      edition.text,
+    ].join('\n')
+  })
+  return [
+    "Each block is one published version of a policy. A Stripe disclosure field quotes the summary only when the client's textHash is the SHA-256 of that block's full text.",
+    '',
+    blocks.join('\n\n'),
+  ].join('\n')
+}
+
 export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const d = facts.dispute
   const client = facts.client
@@ -1019,15 +1071,25 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const invoices = facts.invoices.map((inv) => `${when(inv.at)}  ${money(inv.amountCents)} covering ${inv.appointments} appointment${inv.appointments === 1 ? '' : 's'}${inv.emailSentAt ? `, emailed ${when(inv.emailSentAt)}` : ''}${inv.smsSentAt ? `, texted ${when(inv.smsSentAt)}` : ''}`)
 
   const afterPurchase = facts.ledger.filter((l) => d.chargedAt && new Date(l.occurredAt).getTime() >= new Date(d.chargedAt).getTime())
+  const afterNote = afterPurchase.length
+    ? `After this charge the ledger shows ${afterPurchase.length} service event${afterPurchase.length === 1 ? '' : 's'}.`
+    : 'The Hub has no cancellation request dated before this charge.'
+  const cancelEdition = cancelAck ? matchedPolicy(cancelAck) : null
+  const refundEdition = refundAck ? matchedPolicy(refundAck) : null
+  const recurringEdition = recurring ? matchedPolicy(recurring) : null
   const rebuttal = cancelAck
-    ? `The client accepted cancellation policy version ${versionOf(cancelAck.version)} on ${when(cancelAck.acceptedAt)}. ${afterPurchase.length ? `After this charge the ledger still shows ${afterPurchase.length} service events, which is use of a period that had started.` : 'The Hub has no cancellation request dated before this charge.'} Cancellation stops the next renewal. It does not refund a period that already started.`
-    : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterPurchase.length ? `The ledger shows ${afterPurchase.length} service events on or after the charge, which is use of the service.` : 'No cancellation request is on file before this charge.'}`
+    ? cancelEdition
+      ? `The client accepted the cancellation policy ${policyCite(cancelAck)}. The text hash matches ${cancelEdition.textUrl} version ${cancelEdition.version}. ${cancelEdition.summary} ${afterNote}`
+      : `The client has a cancellation acceptance (${policyCite(cancelAck)}) that does not match a cancellation policy text on file, so this packet does not substitute a different cancellation rule. ${afterNote}`
+    : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterPurchase.length ? `The ledger shows ${afterPurchase.length} service events on or after the charge.` : 'No cancellation request is on file before this charge.'}`
 
   const refusal = d.chargeRefunded
     ? 'The charge has already been refunded. No further credit is owed.'
     : refundAck
-      ? `The client accepted refund policy version ${versionOf(refundAck.version)} on ${when(refundAck.acceptedAt)}: fees for service already rendered are not refunded. The ledger and invoices show the service was delivered.`
-      : 'The Hub does not yet have a clickwrap record of the refund policy for this client. The ledger shows the service that was delivered. A refund was not issued because the service had been provided.'
+      ? refundEdition
+        ? `The client accepted the refund policy ${policyCite(refundAck)}. The text hash matches ${refundEdition.textUrl} version ${refundEdition.version}. ${refundEdition.summary} The ledger shows what was delivered.`
+        : `The client has a refund acceptance (${policyCite(refundAck)}) that does not match a refund policy text on file, so this packet does not substitute a different refund rule. The ledger shows what was delivered.`
+      : 'The Hub does not yet have a clickwrap record of the refund policy for this client. The ledger shows the service that was delivered.'
 
   const narrative = (facts.narrative?.trim() || facts.template?.trim() || templateFor(d.reason, null, d.networkReasonCode)).trim()
   const repeat = client && client.disputeCount >= 2 ? `This client has ${client.disputeCount} disputes on file.` : ''
@@ -1053,8 +1115,8 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     customer_purchase_ip: ip ?? '',
     service_date: serviceDate ? serviceDate.slice(0, 10) : '',
     access_activity_log: [activity.join('\n'), clickwrap].filter(Boolean).join('\n'),
-    refund_policy_disclosure: refundAck ? `Shown and accepted at ${oneLine(refundAck.source, 40) ?? 'intake'} on ${when(refundAck.acceptedAt)}, version ${versionOf(refundAck.version)}, IP ${customerIp(refundAck.ip) ?? 'not recorded'}${hashAndUrl(refundAck)}. ${REFUND_POLICY}` : '',
-    cancellation_policy_disclosure: cancelAck ? `Shown and accepted at ${oneLine(cancelAck.source, 40) ?? 'intake'} on ${when(cancelAck.acceptedAt)}, version ${versionOf(cancelAck.version)}, IP ${customerIp(cancelAck.ip) ?? 'not recorded'}${hashAndUrl(cancelAck)}. ${CANCELLATION_POLICY}` : '',
+    refund_policy_disclosure: refundAck ? acceptedPolicySentence(refundAck, 'refund policy') : '',
+    cancellation_policy_disclosure: cancelAck ? acceptedPolicySentence(cancelAck, 'cancellation policy') : '',
     cancellation_rebuttal: emphasis.emphasis === 'canceled' ? rebuttal : '',
     refund_refusal_explanation: emphasis.emphasis === 'not_as_described' || emphasis.emphasis === 'credit' ? refusal : '',
     duplicate_charge_explanation: d.reason === 'duplicate' ? narrative : '',
@@ -1067,7 +1129,10 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     ].filter(Boolean).join('\n\n'),
   }
   if (recurring) {
-    fields.uncategorized_text = `${fields.uncategorized_text}\n\nRecurring billing disclosure version ${versionOf(recurring.version)} accepted ${when(recurring.acceptedAt)} from IP ${customerIp(recurring.ip) ?? 'not recorded'}${hashAndUrl(recurring)}: ${RECURRING_DISCLOSURE}`
+    const line = recurringEdition
+      ? `Recurring billing disclosure ${policyCite(recurring)}. The text hash matches ${recurringEdition.textUrl} version ${recurringEdition.version}${recurringEdition.draft ? ", draft, pending the owner's legal review" : ''}. ${recurringEdition.summary}`
+      : `Recurring billing disclosure ${policyCite(recurring)}. That acceptance record does not match a recurring-billing text on file, so this packet does not substitute a different billing disclosure.`
+    fields.uncategorized_text = `${fields.uncategorized_text}\n\n${line}`
   }
 
   // Drop empty strings so we don't wipe a Stripe field with a blank.
@@ -1127,7 +1192,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     { heading: 'Full ledger', body: usage.length ? usage.join('\n') : 'No ledger entries yet.' },
     { heading: 'Invoices and receipts', body: invoices.length ? invoices.join('\n') : 'No Hub invoices on file. Stripe receipts, if enabled in the Dashboard, are a separate copy.' },
     { heading: 'Communications', body: comms.length ? comms.join('\n') : 'No emails, texts, or replies matched this client.' },
-    { heading: 'Policies', body: [`Version ${TERMS_VERSION}`, '', 'Refund policy (included in the Stripe refund fields only when the client accepted it):', REFUND_POLICY, '', 'Cancellation policy (same rule):', CANCELLATION_POLICY, '', 'Recurring billing disclosure:', RECURRING_DISCLOSURE].join('\n') },
+    { heading: 'Policies', body: policiesBody(acks) },
   ]
   if (ce3) {
     sections.push({

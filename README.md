@@ -195,6 +195,8 @@ Keys: `terms`, `refundPolicy`, `cancellationPolicy`, `recurringBilling`. Snake-c
 
 The Hub maps them as follows. Policy prose is sent only in the disclosure text fields. `customer_signature` is a PDF file of the clickwrap (version, time, IP, user agent, text hash, text URL), uploaded only when defense mode is stage or live.
 
+The prose is the summary in `src/lib/disputes/policies.ts` for the edition whose SHA-256 equals `textHash`. The intake version, text hash, and text URL are cited whenever they were stored. A missing or different hash is not filled in with another policy's words. Those summaries follow the onboarding pages: $0 today, a 30-day free trial, then $297/month; cancel within 30 days and pay nothing; after the trial, 30 days written notice to ethan@leadgenisys.com. The pages still marked DRAFT stay in that module so a later final version can be added beside them.
+
 | Acceptance key | Stripe evidence |
 | --- | --- |
 | `terms` | `customer_signature` file (the clickwrap PDF) and the access-activity line |

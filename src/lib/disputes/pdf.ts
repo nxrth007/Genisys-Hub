@@ -42,11 +42,24 @@ function wrap(text: string): string[] {
   return lines
 }
 
+/** Helvetica uses WinAnsi. These are the punctuation marks the policy pages use outside ASCII. */
+const WIN_ANSI: Record<number, number> = {
+  0x2013: 0x96,
+  0x2014: 0x97,
+  0x2018: 0x91,
+  0x2019: 0x92,
+  0x201c: 0x93,
+  0x201d: 0x94,
+  0x2026: 0x85,
+}
+
 function escapePdf(s: string): string {
   let out = ''
   for (const ch of s) {
     const c = ch.charCodeAt(0)
+    const mapped = WIN_ANSI[c]
     if (c === 40 || c === 41 || c === 92) out += `\\${ch}`
+    else if (mapped) out += `\\${mapped.toString(8).padStart(3, '0')}`
     else if (c >= 32 && c <= 126) out += ch
     else if (c >= 160 && c <= 255) out += `\\${c.toString(8).padStart(3, '0')}`
     else out += '?'
