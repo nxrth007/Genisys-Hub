@@ -269,6 +269,8 @@ function number(f: ClientFacts): StepView {
     if (f.ghl.staysOnGhl || !n.verificationRequired) return view('done', `${phone(n.number)} in GHL`, f.ghl.censusAt, `/clients/${f.id}/ghl`)
     return view('in_progress', `${phone(n.number)} in GHL: Verification Required, it can’t text yet`, f.ghl.censusAt, `/clients/${f.id}/ghl`)
   }
+  // One of the clients Alex keeps on GHL: verified there on a GHL number, read or not.
+  if (!tollFree && !ghlBought && f.ghl.linked && f.ghl.staysOnGhl) return view('done', 'Number in GHL (stays on GHL)', f.ghl.censusAt, `/clients/${f.id}/ghl`)
   const r = tollFreeStage({
     number: tollFree ? { number: tollFree.number, verificationStatus: tollFree.verificationStatus, verificationNote: tollFree.verificationNote } : null,
     ghl: ghlBought ? { number: ghlBought.number!, registration: f.ghl.registration } : null,

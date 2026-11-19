@@ -217,6 +217,8 @@ test('GHL clients: the number in GHL, the registration, and the ones that stay o
   assert.match(unverified.number.note, /Verification Required/)
   const stays = d.deriveSteps(blank({ ghl: ghl({ staysOnGhl: true }) }))
   assert.deepEqual([stays.number.state, stays.texting.state, stays.texting.note], ['done', 'done', 'Verified in GHL (stays on GHL)'])
+  const unread = d.deriveSteps(blank({ ghl: ghl({ staysOnGhl: true, censusNumbers: [], censusAt: null }) }))
+  assert.deepEqual([unread.number.state, unread.number.note, unread.texting.state], ['done', 'Number in GHL (stays on GHL)', 'done'])
   const submitted = d.deriveSteps(blank({ ghl: ghl({ registration: 'submitted' }) }))
   assert.deepEqual([submitted.texting.state, submitted.texting.note], ['in_progress', 'GHL toll-free registration is with GHL'])
   const customized = d.deriveSteps(blank({ ghl: ghl({ customize: { status: 'done', finishedAt: day(1), updatedAt: day(1) } }) }))

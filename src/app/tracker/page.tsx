@@ -355,10 +355,10 @@ export default function TrackerPage() {
                         <button type="button" className="text-left" onClick={() => setOpen(isOpen ? null : { clientId: r.clientId, step: null })}>
                           <span className="flex items-center gap-2">
                             <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
-                            <span className="font-medium text-foreground">{r.business ?? r.clientName}</span>
+                            <span className="font-medium text-foreground">{r.clientName}</span>
                             {r.lifecycle !== 'active' && r.lifecycle !== 'onboarding' && <span className="rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{r.lifecycle}</span>}
                           </span>
-                          <span className="block pl-4 text-xs text-muted-foreground">{[r.person, r.email].filter(Boolean).join(' · ') || r.clientName}</span>
+                          <span className="block pl-4 text-xs text-muted-foreground">{[r.person, r.email].filter(Boolean).join(' · ') || (r.business ?? '')}</span>
                         </button>
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
@@ -421,7 +421,7 @@ export default function TrackerPage() {
                                         className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
                                         disabled={mark.isPending}
                                         onClick={() => {
-                                          const note = prompt(`Mark "${STEP_TITLE[s]}" done by hand for ${r.business ?? r.clientName}. Why? (optional)`)
+                                          const note = prompt(`Mark "${STEP_TITLE[s]}" done by hand for ${r.clientName}. Why? (optional)`)
                                           if (note === null) return
                                           mark.mutate({ clientId: r.clientId, step: s, status: 'done', note: note.trim() || null })
                                         }}

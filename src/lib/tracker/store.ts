@@ -128,5 +128,6 @@ export async function publicStatus(token: string): Promise<PublicStatus | null> 
   const f = facts[0]
   if (!f) return null
   const steps = deriveSteps(f)
-  return publicStatusView(steps, { business: row.business || f.business || row.client.name, updatedAt: lastChangeAt(steps, f.createdAt) })
+  // The Hub's own client name: the sheet's and the form's business fields have held addresses.
+  return publicStatusView(steps, { business: row.client.name, updatedAt: lastChangeAt(steps, f.createdAt) })
 }
