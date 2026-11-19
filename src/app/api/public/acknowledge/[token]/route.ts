@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { confirmMilestone } from '@/lib/disputes/receipts'
-import { clientIp } from '@/lib/rate-limit'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 function page(title: string, body: string) {
   return new NextResponse(`<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem">
@@ -20,7 +20,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params
-  const result = await confirmMilestone(token, clientIp(req), req.headers.get('user-agent'))
+  const ip = clientIp(req)
+  if (!checkRateLimit(`ack:${ip}`, 20, 60_000).ok) return page('Slow down', 'Too many confirmation attempts. Wait a minute and try the link again.')
+  if (!/^[a-f0-9]{32,128}$/i.test(token)) return page('Link not found', 'This confirmation link is not valid.')
+  const result = await confirmMilestone(token, ip, req.headers.get('user-agent'))
   if (!result.ok) return page('Link not found', 'This confirmation link is not valid.')
   return page('Recorded', result.already ? 'You already confirmed this. Thank you.' : 'Thank you. We recorded that service has started, with the time and the network address of this confirmation.')
 }

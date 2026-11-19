@@ -5,7 +5,7 @@
  * sub-account worker; it only reads the job row the worker already wrote.
  */
 import { prisma } from '@/lib/prisma'
-import { acknowledgementHash, ledgerHash, parseAcceptance, sha256 } from './plan'
+import { acknowledgementHash, emailHeaderHas, ledgerHash, parseAcceptance, sha256 } from './plan'
 
 export type NewRow = {
   clientId: string
@@ -156,7 +156,7 @@ export async function syncServiceLedger(clientId: string): Promise<number> {
       kind: 'appointment',
       title: `Appointment ${a.status}: ${a.customerName}`,
       detail: null,
-      occurredAt: a.createdAt,
+      occurredAt: a.apptDateTime,
       source: 'appointment',
       sourceId: a.id,
     })
@@ -191,8 +191,9 @@ export async function syncServiceLedger(clientId: string): Promise<number> {
       take: 40,
       select: { id: true, date: true, from: true, to: true, subject: true, folder: true, snippet: true },
     })
-    for (const m of mail) {
-      const inbound = uniqueEmails.some((e) => m.from.toLowerCase().includes(e)) && m.folder !== 'sent'
+    const matchedMail = mail.filter((m) => uniqueEmails.some((e) => emailHeaderHas(m.from, e) || emailHeaderHas(m.to, e)))
+    for (const m of matchedMail) {
+      const inbound = uniqueEmails.some((e) => emailHeaderHas(m.from, e)) && m.folder !== 'sent'
       add({
         clientId,
         kind: inbound ? 'reply' : 'email_out',

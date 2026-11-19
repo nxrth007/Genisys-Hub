@@ -21,8 +21,26 @@ export const MAX_COMBINED_FILE_BYTES = Math.floor(4.5 * 1024 * 1024)
 export const MAX_FILE_BYTES = 5 * 1024 * 1024
 export const MAX_EVIDENCE_FILES = 5
 export const TEXT_FIELD_LIMIT = 20_000
-export const UNCATEGORIZED_LIMIT = 150_000
+/** Stripe caps each text evidence field. access_activity_log is 20,000; the combined cap is 150,000. */
+export const UNCATEGORIZED_LIMIT = 20_000
 export const COMBINED_TEXT_LIMIT = 150_000
+
+/**
+ * These evidence keys take a Stripe file id (purpose dispute_evidence).
+ * A sentence in one of them makes Stripe reject the whole update, so the
+ * text packet never lands. Prose goes in the text fields; the PDF is uncategorized_file.
+ */
+export const FILE_EVIDENCE_FIELDS = new Set([
+  'cancellation_policy',
+  'customer_communication',
+  'customer_signature',
+  'duplicate_charge_documentation',
+  'receipt',
+  'refund_policy',
+  'service_documentation',
+  'shipping_documentation',
+  'uncategorized_file',
+])
 
 /** What Alex adds to the existing webhook endpoint in the Stripe Dashboard. */
 export const DISPUTE_WEBHOOK_EVENTS = [
@@ -137,15 +155,32 @@ export function parseDisputeConfig(
 }
 
 /** Public config for the admin page. No secrets. */
-export function publicConfig(cfg: DisputeConfig): Omit<DisputeConfig, 'forceDryRun'> & { forceDryRun: boolean; submitsToStripe: boolean } {
-  return { ...cfg, submitsToStripe: cfg.mode !== 'dry_run' && !cfg.forceDryRun }
+export function publicConfig(cfg: DisputeConfig): Omit<DisputeConfig, 'forceDryRun'> & { forceDryRun: boolean; submitsToStripe: boolean; canSubmit: boolean } {
+  return {
+    ...cfg,
+    /** Stage and live may call Stripe. Dry-run and the kill switch never do. */
+    submitsToStripe: allowsStripeWrite(cfg),
+    /** submit=true is final. Only live mode, and only when the kill switch is off. */
+    canSubmit: cfg.mode === 'live' && !cfg.forceDryRun,
+  }
+}
+
+/** False in dry-run and when the kill switch is on. Stage and live may write. */
+export function allowsStripeWrite(cfg: DisputeConfig): boolean {
+  return cfg.mode !== 'dry_run' && !cfg.forceDryRun
 }
 
 // --- Hashing -----------------------------------------------------------------
 
-/** The password-set link (`?t=`) is a secret. Snapshots keep the invite, not the link. */
+/**
+ * The password-set link (`t=`) is a secret. The report HTML escapes `&` to
+ * `&amp;` before this runs, and the open-pixel URL is a bearer token too.
+ * Snapshots keep the invite, not either secret.
+ */
 export function redactCredentialLinks(html: string): string {
-  return redactSecrets(html).replace(/([?&]t=)[^&"'>\s]+/gi, '$1[not-stored]')
+  return redactSecrets(html)
+    .replace(/([?&](?:amp;|#38;|#x26;)?t=)[^&"'#\s<>]+/gi, '$1[not-stored]')
+    .replace(/(\/api\/public\/(?:receipts|acknowledge)\/)[A-Za-z0-9_-]+/g, '$1[not-stored]')
 }
 
 export function redactSecrets(s: string): string {
@@ -251,37 +286,52 @@ export function matchDispute(id: DisputeIdentity, candidates: MatchCandidate[]):
     repeatDisputer: c.disputeCount >= 2,
   })
 
+  const linkedIntake = (c: MatchCandidate, wanted: string | null) => {
+    if (wanted && c.intakeIds.includes(wanted)) return wanted
+    return c.intakeIds.length === 1 ? c.intakeIds[0] : null
+  }
+  /** A charge email that belongs to someone else makes an otherwise exact match unsafe to file. */
+  const emailAgrees = (c: MatchCandidate, email: string | null) => !email || c.emails.some((e) => cleanEmail(e) === email)
+
   const clientId = meta(id.metadata, 'hub_client_id', 'client_id', 'clientId')
   const intakeId = meta(id.metadata, 'hub_intake_id', 'intake_id', 'intakeId')
+  const email = cleanEmail(id.email)
   if (clientId) {
     const c = candidates.find((x) => x.clientId === clientId)
-    if (c) return hit(c, 'metadata', 'exact', intakeId && c.intakeIds.includes(intakeId) ? intakeId : c.intakeIds[0] ?? intakeId)
+    if (c) return hit(c, 'metadata', emailAgrees(c, email) ? 'exact' : 'weak', linkedIntake(c, intakeId))
   }
   if (intakeId) {
     const c = candidates.find((x) => x.intakeIds.includes(intakeId))
-    if (c) return hit(c, 'metadata', 'exact', intakeId)
+    if (c) return hit(c, 'metadata', emailAgrees(c, email) ? 'exact' : 'weak', intakeId)
   }
 
-  const email = cleanEmail(id.email)
   if (email) {
     const found = candidates.filter((c) => c.emails.some((e) => cleanEmail(e) === email))
-    if (found.length === 1) return hit(found[0], 'email', 'strong', found[0].intakeIds[0] ?? null)
+    if (found.length === 1) return hit(found[0], 'email', 'strong', linkedIntake(found[0], null))
   }
 
   const phone = phoneKey(id.phone)
   if (phone) {
     const found = candidates.filter((c) => c.phones.some((p) => phoneKey(p) === phone))
-    if (found.length === 1) return hit(found[0], 'phone', 'strong', found[0].intakeIds[0] ?? null)
+    if (found.length === 1) return hit(found[0], 'phone', emailAgrees(found[0], email) ? 'strong' : 'weak', linkedIntake(found[0], null))
   }
 
   const business = normName(id.name ?? '')
   if (business.length >= 3) {
+    // A unique business name is a hint, not proof. Auto-submit stays off (weak).
     const byBiz = candidates.filter((c) => [c.name, ...c.businessNames].some((n) => n && normName(n) === business))
-    if (byBiz.length === 1) return hit(byBiz[0], 'business_name', 'strong', byBiz[0].intakeIds[0] ?? null)
+    if (byBiz.length === 1) return hit(byBiz[0], 'business_name', 'weak', linkedIntake(byBiz[0], null))
     const byPerson = candidates.filter((c) => c.people.some((n) => n && normName(n) === business))
-    if (byPerson.length === 1) return hit(byPerson[0], 'person_name', 'weak', byPerson[0].intakeIds[0] ?? null)
+    if (byPerson.length === 1) return hit(byPerson[0], 'person_name', 'weak', linkedIntake(byPerson[0], null))
   }
   return none()
+}
+
+/** True when `header` (a From or To) contains this address as a whole token. */
+export function emailHeaderHas(header: string, email: string): boolean {
+  const e = email.trim().toLowerCase()
+  if (!e.includes('@')) return false
+  return header.toLowerCase().split(/[\s,;<>"']+/).filter(Boolean).includes(e)
 }
 
 // --- Stripe objects ----------------------------------------------------------
@@ -311,7 +361,11 @@ export type ParsedDispute = {
   chargedAt: string | null
   livemode: boolean
   cardBrand: string | null
+  /** submission_count > 0. has_evidence only means evidence was staged. */
   stripeSubmitted: boolean
+  /** due_by of 0 means the bank is not accepting a response. */
+  respondable: boolean
+  pastDue: boolean
   email: string | null
   name: string | null
   phone: string | null
@@ -346,7 +400,8 @@ export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute |
   const card = embedded && isObj(embedded.payment_method_details) && isObj(embedded.payment_method_details.card) ? embedded.payment_method_details.card : null
   const billing = embedded && isObj(embedded.billing_details) ? embedded.billing_details : null
   const meta = { ...metaMap(embedded?.metadata), ...metaMap(dispute.metadata) }
-  const due = iso(evidenceDetails.due_by)
+  const dueSecs = num(evidenceDetails.due_by)
+  const submissionCount = num(evidenceDetails.submission_count) ?? 0
   return {
     stripeDisputeId: id,
     stripeChargeId: idOf(dispute.charge) ?? (embedded ? str(embedded.id) : null),
@@ -358,11 +413,13 @@ export function readDispute(dispute: unknown, charge?: unknown): ParsedDispute |
     networkReasonCode: str(dispute.network_reason_code),
     amountCents: num(dispute.amount) ?? 0,
     currency: str(dispute.currency) ?? 'usd',
-    dueBy: due,
+    dueBy: dueSecs ? new Date(dueSecs * 1000).toISOString() : null,
     chargedAt: embedded ? iso(embedded.created) : null,
     livemode: dispute.livemode === true,
     cardBrand: card ? str(card.brand) : null,
-    stripeSubmitted: num(evidenceDetails.submission_count) ? (num(evidenceDetails.submission_count) ?? 0) > 0 : evidenceDetails.has_evidence === true,
+    stripeSubmitted: submissionCount > 0,
+    respondable: dueSecs !== 0,
+    pastDue: evidenceDetails.past_due === true,
     email: cleanEmail(billing ? str(billing.email) : null) ?? cleanEmail(str(dispute.evidence && isObj(dispute.evidence) ? dispute.evidence.customer_email_address : null)),
     name: (billing ? str(billing.name) : null) ?? (isObj(dispute.evidence) ? str(dispute.evidence.customer_name) : null),
     phone: (billing ? str(billing.phone) : null),
@@ -443,30 +500,44 @@ export function decideAction(o: {
   narrativeEdited: boolean
   alreadySubmitted: boolean
   matchConfidence: 'exact' | 'strong' | 'weak' | 'none'
+  /** due_by of 0, or Stripe's past_due flag. Defaults to still open. */
+  respondable?: boolean
+  pastDue?: boolean
 }): DefenseAction {
   if (o.alreadySubmitted || !OPEN.has(o.status)) {
     return { action: 'skip', stripeSubmit: false, reason: o.alreadySubmitted ? 'evidence was already submitted' : `status ${o.status} is not waiting on evidence` }
   }
+  const due = o.dueBy ? new Date(o.dueBy).getTime() : NaN
+  const now = new Date(o.now).getTime()
+  const deadlinePassed = o.pastDue === true || (Number.isFinite(due) && now >= due)
+  if (o.respondable === false || deadlinePassed) {
+    return { action: 'compile_only', stripeSubmit: false, reason: o.respondable === false ? 'the bank is not accepting evidence for this dispute' : 'the evidence deadline has passed, so Stripe is not called' }
+  }
   const dry = o.config.mode === 'dry_run' || o.config.forceDryRun
   if (dry) return { action: 'compile_only', stripeSubmit: false, reason: 'dry-run builds the packet and does not call the Stripe dispute update' }
-  const hold = o.paused || o.narrativeEdited || o.matchConfidence === 'weak' || o.matchConfidence === 'none'
+  // A weak or missing match must not upload another client's records onto the dispute.
+  if (o.matchConfidence === 'weak' || o.matchConfidence === 'none') {
+    return { action: 'compile_only', stripeSubmit: false, reason: `the client match is ${o.matchConfidence}, so nothing is sent to Stripe until someone links the client` }
+  }
+  const hold = o.paused || o.narrativeEdited
   if (hold) {
-    const why = o.paused ? 'an admin paused it' : o.narrativeEdited ? 'an admin edited the narrative' : `the client match is ${o.matchConfidence}`
+    const why = o.paused ? 'an admin paused it' : 'an admin edited the narrative'
     return { action: 'stage', stripeSubmit: false, reason: `${why}, so the packet is staged and not submitted` }
   }
   if (o.config.mode === 'stage') return { action: 'stage', stripeSubmit: false, reason: 'mode is stage: save evidence on the dispute with submit=false' }
-  const due = o.dueBy ? new Date(o.dueBy).getTime() : NaN
-  const now = new Date(o.now).getTime()
   const leadMs = o.config.submitLeadHours * 3600_000
   if (!Number.isFinite(due)) return { action: 'stage', stripeSubmit: false, reason: 'no due date yet, so the packet is staged' }
   if (now >= due - leadMs) return { action: 'submit', stripeSubmit: true, reason: `inside the ${o.config.submitLeadHours}h window before the deadline` }
   return { action: 'stage', stripeSubmit: false, reason: 'outside the auto-submit window' }
 }
 
-/** A person pressed Submit. Dry-run refuses. Pause does not: they asked. */
+/** A person pressed Submit. Only live mode may set submit=true. Stage saves with submit=false. */
 export function decideManualSubmit(config: DisputeConfig): { ok: true } | { ok: false; reason: string } {
-  if (config.mode === 'dry_run' || config.forceDryRun) {
-    return { ok: false, reason: 'Defense is in dry-run. Switch the mode to stage or live before submitting. Submitting evidence is final.' }
+  if (config.forceDryRun || config.mode === 'dry_run') {
+    return { ok: false, reason: 'Defense is in dry-run. Switch the mode to live before submitting. Submitting evidence is final.' }
+  }
+  if (config.mode !== 'live') {
+    return { ok: false, reason: 'Stage mode saves evidence with submit=false. Switch to live to submit. Submitting evidence is final.' }
   }
   return { ok: true }
 }
@@ -520,13 +591,18 @@ export type Ce3 = {
 const DAY = 86_400_000
 
 /**
- * Visa CE 3.0: two prior undisputed charges, 120 to 365 days before the
- * disputed charge, sharing at least two of account id, email, and IP.
- * Services, not shipped goods. Returns null when it does not qualify.
+ * Visa CE 3.0 (reason code 10.4): two prior undisputed charges on the same
+ * card, 120 to 364 days before the disputed charge. Qualifying pairs are
+ * two main elements, or one main and one secondary. Purchase IP is the only
+ * main element this Hub can have (no device id). Email is secondary.
+ * Account id plus email, with no IP, does not qualify, and an internal
+ * client id is not an account id the cardholder would recognize.
+ * Returns null when it does not qualify. Callers must not invent the IP or email.
  */
 export function selectCompellingEvidence(o: {
   reason: string
   cardBrand: string | null
+  networkReasonCode?: string | null
   chargedAt: string | null
   email: string | null
   ip: string | null
@@ -535,38 +611,30 @@ export function selectCompellingEvidence(o: {
   priors: PriorCharge[]
 }): Ce3 | null {
   if (o.reason !== 'fraudulent') return null
-  if (o.cardBrand && o.cardBrand !== 'visa') return null
+  if (o.cardBrand !== 'visa') return null
+  if (o.networkReasonCode && o.networkReasonCode !== '10.4') return null
+  const email = cleanEmail(o.email)
+  const ip = customerIp(o.ip)
+  if (!email || !ip) return null
   const disputedAt = o.chargedAt ? new Date(o.chargedAt).getTime() : NaN
   if (!Number.isFinite(disputedAt)) return null
   const eligible = o.priors
-    .filter((p) => p.paid && !p.disputed && !p.refunded)
+    .filter((p) => p.paid && !p.disputed && !p.refunded && p.amountCents >= 100)
     .map((p) => ({ p, age: disputedAt - new Date(p.created).getTime() }))
-    .filter((x) => x.age >= 120 * DAY && x.age <= 365 * DAY)
+    .filter((x) => x.age >= 120 * DAY && x.age < 365 * DAY)
+    .filter((x) => cleanEmail(x.p.email) === email && customerIp(x.p.ip) === ip)
     .sort((a, b) => a.age - b.age)
-  const shared = (p: PriorCharge) => {
-    let n = 0
-    if (o.email && p.email && o.email === p.email) n++
-    if (o.accountId && p.accountId && o.accountId === p.accountId) n++
-    if (o.ip && p.ip && o.ip === p.ip) n++
-    return n
-  }
-  const picked = eligible.filter((x) => shared(x.p) >= 2).slice(0, 2)
+  const picked = eligible.slice(0, 2)
   if (picked.length < 2) return null
-  const row = (p: PriorCharge) => ({
-    charge: p.id,
-    customerAccountId: o.accountId,
-    customerEmail: o.email,
-    customerPurchaseIp: o.ip && p.ip === o.ip ? o.ip : null,
+  const row = () => ({
+    customerAccountId: null as string | null,
+    customerEmail: email,
+    customerPurchaseIp: ip,
     productDescription: o.productDescription,
   })
   return {
-    disputed: {
-      customerAccountId: o.accountId,
-      customerEmail: o.email,
-      customerPurchaseIp: o.ip,
-      productDescription: o.productDescription,
-    },
-    prior: picked.map((x) => row(x.p)),
+    disputed: row(),
+    prior: picked.map((x) => ({ charge: x.p.id, ...row() })),
   }
 }
 
@@ -589,6 +657,7 @@ export type EvidenceFacts = {
     dueBy: string | null
     chargedAt: string | null
     cardBrand: string | null
+    networkReasonCode: string | null
     email: string | null
     name: string | null
     phone: string | null
@@ -722,7 +791,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const client = facts.client
   const acks = facts.acknowledgements
   const product = PRODUCT_DESCRIPTION
-  const ip = purchaseIp(acks, d.chargedAt, d.purchaseIp)
+  const ip = customerIp(purchaseIp(acks, d.chargedAt, d.purchaseIp))
   const email = cleanEmail(client?.email) ?? cleanEmail(facts.intake?.email) ?? d.email
   const name = client?.name ?? facts.intake?.businessName ?? d.name ?? 'the client'
   const person = facts.intake?.fullName ?? d.name
@@ -769,6 +838,7 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const repeat = client && client.disputeCount >= 2 ? `This client has ${client.disputeCount} disputes on file.` : ''
   const uncategorized = [narrative, repeat, `Packet prepared by Genisys Hub. Dispute ${d.id}. Reason ${d.reason}. Amount ${money(d.amountCents, d.currency)}.`].filter(Boolean).join('\n\n')
 
+  const clickwrap = terms ? `Clickwrap ${ackLine(terms)}. The full text and hash are in the attached packet.` : ''
   const fields: Record<string, string> = {
     product_description: product,
     customer_name: person || name,
@@ -776,21 +846,16 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     billing_address: address ?? '',
     customer_purchase_ip: ip ?? '',
     service_date: serviceDate ? serviceDate.slice(0, 10) : '',
-    access_activity_log: activity.join('\n'),
-    customer_communication: comms.join('\n'),
-    receipt: invoices.join('\n') || 'See the attached packet for invoices and Stripe receipts.',
-    service_documentation: timeline,
-    customer_signature: terms ? `Clickwrap ${ackLine(terms)}. The full text and hash are in the attached packet.` : '',
-    refund_policy: refundAck ? REFUND_POLICY : '',
-    refund_policy_disclosure: refundAck ? `Shown and accepted at ${refundAck.source} on ${when(refundAck.acceptedAt)}, version ${refundAck.version}, IP ${refundAck.ip ?? 'not recorded'}.` : '',
-    cancellation_policy: cancelAck ? CANCELLATION_POLICY : '',
-    cancellation_policy_disclosure: cancelAck ? `Shown and accepted at ${cancelAck.source} on ${when(cancelAck.acceptedAt)}, version ${cancelAck.version}, IP ${cancelAck.ip ?? 'not recorded'}.` : '',
+    access_activity_log: [activity.join('\n'), clickwrap].filter(Boolean).join('\n'),
+    refund_policy_disclosure: refundAck ? `Shown and accepted at ${refundAck.source} on ${when(refundAck.acceptedAt)}, version ${refundAck.version}, IP ${refundAck.ip ?? 'not recorded'}. ${REFUND_POLICY}` : '',
+    cancellation_policy_disclosure: cancelAck ? `Shown and accepted at ${cancelAck.source} on ${when(cancelAck.acceptedAt)}, version ${cancelAck.version}, IP ${cancelAck.ip ?? 'not recorded'}. ${CANCELLATION_POLICY}` : '',
     cancellation_rebuttal: d.reason === 'subscription_canceled' ? rebuttal : '',
     refund_refusal_explanation: d.reason === 'product_unacceptable' || d.reason === 'credit_not_processed' ? refusal : '',
-    uncategorized_text: uncategorized,
+    duplicate_charge_explanation: d.reason === 'duplicate' ? narrative : '',
+    uncategorized_text: [uncategorized, 'Service delivery timeline:', timeline, comms.length ? `Communications:\n${comms.join('\n')}` : '', invoices.length ? `Invoices:\n${invoices.join('\n')}` : ''].filter(Boolean).join('\n\n'),
   }
   if (recurring) {
-    fields.uncategorized_text = clip(`${fields.uncategorized_text}\n\nRecurring billing disclosure version ${recurring.version} accepted ${when(recurring.acceptedAt)} from IP ${recurring.ip ?? 'not recorded'}: ${RECURRING_DISCLOSURE}`, UNCATEGORIZED_LIMIT)
+    fields.uncategorized_text = `${fields.uncategorized_text}\n\nRecurring billing disclosure version ${recurring.version} accepted ${when(recurring.acceptedAt)} from IP ${recurring.ip ?? 'not recorded'}: ${RECURRING_DISCLOSURE}`
   }
 
   // Drop empty strings so we don't wipe a Stripe field with a blank.
@@ -800,12 +865,13 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const ce3 = selectCompellingEvidence({
     reason: d.reason,
     cardBrand: d.cardBrand,
+    networkReasonCode: d.networkReasonCode,
     chargedAt: d.chargedAt,
     email,
     ip,
-    accountId: client?.id ?? null,
+    accountId: null,
     productDescription: product,
-    priors: facts.priors.map((p) => ({ ...p, email: p.email ?? email, accountId: p.accountId ?? client?.id ?? null })),
+    priors: facts.priors,
   })
 
   const sections: { heading: string; body: string }[] = [
@@ -884,8 +950,13 @@ function fitText(fields: Record<string, string>): void {
 
 export function evidenceFormBody(o: { fields: Record<string, string>; files: Record<string, string>; ce3: Ce3 | null; submit: boolean }): string {
   const p = new URLSearchParams()
-  for (const [k, v] of Object.entries(o.fields)) if (v) p.set(`evidence[${k}]`, v)
-  for (const [field, fileId] of Object.entries(o.files)) if (fileId) p.set(`evidence[${field}]`, fileId)
+  for (const [k, v] of Object.entries(o.fields)) {
+    if (!v || FILE_EVIDENCE_FIELDS.has(k)) continue
+    p.set(`evidence[${k}]`, v)
+  }
+  for (const [field, fileId] of Object.entries(o.files)) {
+    if (fileId && FILE_EVIDENCE_FIELDS.has(field)) p.set(`evidence[${field}]`, fileId)
+  }
   if (o.ce3) {
     const base = 'evidence[enhanced_evidence][visa_compelling_evidence_3]'
     const put = (path: string, value: string | null) => { if (value) p.set(`${base}${path}`, value) }
@@ -1011,4 +1082,67 @@ export function repeatLabel(count: number): string | null {
   if (count >= 2) return `Repeat disputer (${count} disputes)`
   if (count === 1) return 'Disputed a charge'
   return null
+}
+
+/** A single IP address Stripe will accept in customer_purchase_ip. Lists and prose are dropped. */
+export function customerIp(v: string | null | undefined): string | null {
+  const first = (v ?? '').split(',')[0]?.trim() ?? ''
+  if (!first || first.length > 45) return null
+  if (ipv4ToInt(first) !== null) return first
+  if (/^[0-9a-f:]+$/i.test(first) && first.includes(':')) return first
+  return null
+}
+
+function ipv4ToInt(host: string): number | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return null
+  const p = m.slice(1).map((x) => Number(x))
+  if (p.some((n) => n > 255)) return null
+  return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0
+}
+
+/** False for loopback, private, link-local, CGNAT, and multicast addresses. */
+export function isPublicIp(address: string): boolean {
+  const v4 = ipv4ToInt(address)
+  if (v4 !== null) {
+    const block = (base: number, bits: number) => (v4 >>> (32 - bits)) === (base >>> (32 - bits))
+    if (block(0, 8)) return false
+    if (block(0x0a000000, 8)) return false
+    if (block(0x7f000000, 8)) return false
+    if (block(0xa9fe0000, 16)) return false
+    if (block(0xac100000, 12)) return false
+    if (block(0xc0a80000, 16)) return false
+    if (block(0x64400000, 10)) return false
+    if (block(0xe0000000, 4)) return false
+    if (v4 === 0xffffffff) return false
+    return true
+  }
+  const v6 = address.toLowerCase()
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(v6)
+  if (mapped) return isPublicIp(mapped[1])
+  if (v6 === '::1' || v6 === '::') return false
+  if (v6.startsWith('fc') || v6.startsWith('fd')) return false
+  if (/^fe[89ab]/.test(v6)) return false
+  if (v6.startsWith('ff')) return false
+  return v6.includes(':')
+}
+
+/** An http(s) URL the evidence fetcher may request. Rejects credentials, localhost, and private IPs. */
+export function isPublicEvidenceUrl(raw: string): boolean {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return false
+  }
+  if (url.username || url.password) return false
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false
+  if (host === 'metadata.google.internal' || host === 'metadata.google.com') return false
+  if (/^\d+$/.test(host)) return false
+  if (ipv4ToInt(host) !== null) return isPublicIp(host)
+  if (host.includes(':')) return isPublicIp(host)
+  if (!/^[a-z0-9.-]+$/.test(host) || !host.includes('.')) return false
+  return true
 }

@@ -81,7 +81,7 @@ Only Google accounts ending in `leadgenisys.com` or `trustware.io` can log in (c
 
 When a client disputes a Stripe charge, the Hub builds an evidence packet and keeps it on the dispute record. The default mode is **dry-run**: the packet is compiled and stored, and Stripe's dispute update endpoint is never called.
 
-Payments → Disputes (Alex and Ethan) lists disputes, the win/loss rate by reason, the packet, the narrative, and pause / submit. Submit stays disabled in dry-run.
+Payments → Disputes (Alex and Ethan) lists disputes, the win/loss rate by reason, the packet, the narrative, and pause / submit. Submit stays disabled in dry-run and in stage. Only live mode can set `submit=true`.
 
 The packet leads with the **service delivery timeline** from the Sites "Report for the client" checklist: website live (with an HTTP status), domain, toll-free number, texting approval, call routing, Genisys OS form and chat, lead automations, Google review requests, and a complete business profile. Sending that report is logged with an open pixel, a snapshot of the email (the set-password link is stripped), and a dashboard-login invite that does not store the password. Later dashboard sign-ins are logged the same way. Leads and appointments are included after the timeline, as support.
 
@@ -116,7 +116,7 @@ Environment, or the switches on Payments → Disputes (a saved setting overrides
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DISPUTE_DEFENSE_MODE` | `dry_run` | `dry_run` builds only. `stage` saves evidence on the dispute with `submit=false`. `live` also auto-submits inside the lead window. |
+| `DISPUTE_DEFENSE_MODE` | `dry_run` | `dry_run` builds only and does not write to Stripe (no metadata stamps, no file upload, no dispute update). `stage` saves evidence with `submit=false`. `live` also auto-submits inside the lead window. A manual Submit is refused unless the mode is live. |
 | `DISPUTE_SUBMIT_LEAD_HOURS` | `48` | How long before `due_by` live mode submits. |
 | `DISPUTE_DEFENSE_FORCE_DRY_RUN` | off | Set to `1` to force dry-run no matter what was saved. |
 | `DISPUTE_EFW_REFUND` | off | Refund an actionable early-fraud warning. Only runs in live mode. |
@@ -127,7 +127,7 @@ Environment, or the switches on Payments → Disputes (a saved setting overrides
 | `DISPUTE_STAMP_METADATA` | on | Write `hub_client_id` / `hub_intake_id` onto the Stripe customer and charge. |
 | `DISPUTE_DEFENSE_CRON` | off outside production | Set to `1` to reconcile disputes from a non-production process. |
 
-Auto-submit does not run when a dispute is paused, when an admin edited the narrative, or when the client match is weak. Submitting evidence is final.
+Auto-submit does not run when a dispute is paused, when an admin edited the narrative, when the client match is weak or missing, or after `due_by`. A weak match (a business name, a person name, or metadata whose email does not belong to that client) is compiled locally and not uploaded. Rebuilding or linking a client does not submit. Submitting evidence is final, and Stripe's default for `submit` is true, so the Hub refuses a dispute update that does not set the flag explicitly. `has_evidence` means the evidence was staged, not submitted.
 
 ### What to set in the Stripe Dashboard (not code)
 

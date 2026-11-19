@@ -124,8 +124,20 @@ export async function uploadDisputeFile(bytes: Buffer, filename: string, mime: s
   return id
 }
 
-export async function updateDisputeEvidence(disputeId: string, formBody: string): Promise<unknown> {
-  return stripeForm(`/disputes/${encodeURIComponent(disputeId)}`, formBody)
+export async function updateDisputeEvidence(disputeId: string, formBody: string, idempotencyKey?: string): Promise<unknown> {
+  // Stripe's default for `submit` is true. A body that forgets the flag would file the dispute.
+  if (!/(^|&)submit=(?:true|false)(?:&|$)/.test(formBody)) {
+    throw new DisputeStripeError('refusing a dispute update that does not set submit explicitly', 0, null)
+  }
+  const key = await disputeKey()
+  return must(key.value, `${API}/disputes/${encodeURIComponent(disputeId)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey.slice(0, 255) } : {}),
+    },
+    body: formBody,
+  })
 }
 
 export async function stampMetadata(resource: 'customers' | 'charges' | 'payment_intents', id: string, metadata: Record<string, string>): Promise<void> {

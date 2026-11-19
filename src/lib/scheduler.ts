@@ -49,6 +49,7 @@ import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybeCheckStripeOnboarding } from './stripe-onboarding'
 import { maybeReconcileDisputes } from './disputes/run'
+import { redactSecrets } from './disputes/plan'
 import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
@@ -274,7 +275,7 @@ export function initScheduler() {
       disputeReconcileInFlight = true
       lastDisputeReconcileAt = Date.now()
       void maybeReconcileDisputes()
-        .catch((err) => console.error('[scheduler] dispute reconcile failed:', err instanceof Error ? err.message : err))
+        .catch((err) => console.error('[scheduler] dispute reconcile failed:', redactSecrets(err instanceof Error ? err.message : String(err))))
         .finally(() => {
           disputeReconcileInFlight = false
         })

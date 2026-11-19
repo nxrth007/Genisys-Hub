@@ -8,9 +8,10 @@ import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { claimStripeEvent, rememberedMemberByEmail } from '@/lib/stripe-onboarding'
 import { textTeam } from '@/lib/team-sms'
 import { loadDisputeConfig, loadTemplates } from './config'
-import { gatherFacts, screenshotFor } from './gather'
+import { gatherFacts } from './gather'
 import { pdfBytes, renderEvidencePdf } from './pdf'
 import {
+  allowsStripeWrite,
   budgetFiles,
   buildEvidence,
   chainHash,
@@ -20,6 +21,7 @@ import {
   decideEfwRefund,
   decideManualSubmit,
   evidenceFormBody,
+  MAX_FILE_BYTES,
   matchDispute,
   phoneKey,
   publicConfig,
@@ -34,7 +36,7 @@ import {
   type SideEffect,
 } from './plan'
 import { recordStripeNotice } from './receipts'
-import { listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, type ProbeResult } from './stripe'
+import { listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
 
 const OPEN = new Set(['needs_response', 'warning_needs_response'])
 
@@ -51,9 +53,10 @@ async function audit(disputeId: string, kind: string, detail: string | null, pay
         const prev = last?.contentHash ?? 'genesis'
         const seq = (last?.seq ?? 0) + 1
         const createdAt = new Date()
-        const body = { ...bodyBase, seq, createdAt: createdAt.toISOString() }
+        const storedPayload = json(payload)
+        const hashed = { ...bodyBase, payload: storedPayload, seq, createdAt: createdAt.toISOString() }
         await tx.stripeDisputeEvent.create({
-          data: { disputeId, seq, kind, detail, actor, payload: json(payload), prevHash: prev, contentHash: chainHash(prev, body), createdAt },
+          data: { disputeId, seq, kind, detail, actor, payload: storedPayload, prevHash: prev, contentHash: chainHash(prev, hashed), createdAt },
         })
       })
       return
@@ -113,7 +116,7 @@ function money(cents: number, currency: string): string {
 async function alertNew(row: { id: string; amountCents: number; currency: string; reason: string; dueBy: Date | null; livemode: boolean; clientId: string | null }, matchNote: string): Promise<void> {
   if (!(await rememberAlert(row.id, 'opened'))) return
   const client = row.clientId ? await prisma.client.findUnique({ where: { id: row.clientId }, select: { name: true, disputeCount: true } }) : null
-  const repeat = client && client.disputeCount >= 2 ? ` Repeat disputer (${client.disputeCount} disputes).` : client?.disputeCount === 1 ? ' This client has disputed before.' : ''
+  const repeat = client && client.disputeCount >= 2 ? ` Repeat disputer (${client.disputeCount} disputes, including this one).` : ''
   const due = row.dueBy ? row.dueBy.toISOString().slice(0, 10) : 'no deadline yet'
   const text = `:rotating_light: *Stripe dispute* — ${money(row.amountCents, row.currency)} · ${row.reason} · ${client?.name ?? 'unmatched'}.${repeat} Due ${due}. ${matchNote} The packet is being compiled. Defense is still in dry-run unless you changed it. <${hubLink('/payments?tab=disputes')}|Disputes>`
   await hubAlert(text).catch(() => {})
@@ -151,9 +154,18 @@ export async function upsertDispute(parsed: ParsedDispute, actor: string): Promi
     matchConfidence: matched.confidence,
     raw: json(parsed),
   }
-  const row = existing
-    ? await prisma.stripeDispute.update({ where: { id: existing.id }, data })
-    : await prisma.stripeDispute.create({ data: { ...data, stripeDisputeId: parsed.stripeDisputeId } })
+  let row: Awaited<ReturnType<typeof prisma.stripeDispute.create>>
+  try {
+    row = existing
+      ? await prisma.stripeDispute.update({ where: { id: existing.id }, data })
+      : await prisma.stripeDispute.create({ data: { ...data, stripeDisputeId: parsed.stripeDisputeId } })
+  } catch (err) {
+    const unique = !!err && typeof err === 'object' && (err as { code?: unknown }).code === 'P2002'
+    if (existing || !unique) throw err
+    const winner = await prisma.stripeDispute.findUnique({ where: { stripeDisputeId: parsed.stripeDisputeId } })
+    if (!winner) throw err
+    row = await prisma.stripeDispute.update({ where: { id: winner.id }, data })
+  }
   await refreshCounts([existing?.clientId ?? null, row.clientId])
   await audit(row.id, existing ? 'reconciled' : 'ingested', `${parsed.status} · ${parsed.reason} · match ${matched.method}/${matched.confidence}`, { stripeDisputeId: parsed.stripeDisputeId }, actor)
   if (!existing) await alertNew(row, `Matched by ${matched.method} (${matched.confidence}).`)
@@ -172,7 +184,7 @@ async function noteError(id: string, err: unknown): Promise<void> {
 
 async function stampHub(o: { customerId: string | null; chargeId: string | null; paymentIntentId: string | null; clientId: string | null; intakeId: string | null }): Promise<void> {
   const config = await loadDisputeConfig()
-  if (!config.stampMetadata || !o.clientId) return
+  if (!config.stampMetadata || !allowsStripeWrite(config) || !o.clientId) return
   const metadata: Record<string, string> = { hub_client_id: o.clientId }
   if (o.intakeId) metadata.hub_intake_id = o.intakeId
   const jobs: Promise<void>[] = []
@@ -183,11 +195,12 @@ async function stampHub(o: { customerId: string | null; chargeId: string | null;
 }
 
 /** Build the packet and, unless dry-run, stage or submit it. */
-export async function advance(id: string, actor: string, opts: { forceRebuild?: boolean; forceSubmit?: boolean } = {}): Promise<void> {
+export async function advance(id: string, actor: string, opts: { forceRebuild?: boolean; forceSubmit?: boolean; allowSubmit?: boolean } = {}): Promise<void> {
   const row = await prisma.stripeDispute.findUnique({ where: { id } })
   if (!row) return
   const config = await loadDisputeConfig()
   if (opts.forceSubmit) {
+    if (row.stripeSubmitted || row.submittedAt) throw new Error('Evidence was already submitted to Stripe. It can only be submitted once.')
     const gate = decideManualSubmit(config)
     if (!gate.ok) throw new Error(gate.reason)
   }
@@ -232,6 +245,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
     dueBy: row.dueBy,
     chargedAt,
     cardBrand,
+    networkReasonCode: row.networkReasonCode,
     email,
     name,
     phone,
@@ -243,8 +257,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   })
   const built = buildEvidence(facts)
   const pdf = renderEvidencePdf(built.sections)
-  const shot = row.clientId ? await screenshotFor(row.clientId).catch(() => null) : null
-  const budget = budgetFiles(pdf.length, shot ? [{ bytes: shot.bytes.length }] : [])
+  const budget = budgetFiles(pdf.length, [])
   const packetSha = sha256(pdf)
   const evidenceSha = sha256(JSON.stringify({ fields: built.fields, ce3: built.ce3, ledger: built.ledgerHashes, packetSha }))
   await prisma.stripeDispute.update({
@@ -265,7 +278,8 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   })
   await audit(id, 'compiled', built.summary, { packetSha256: packetSha, evidenceSha256: evidenceSha, ledgerHashes: built.ledgerHashes, fileNotes: budget.notes }, actor)
 
-  const decision = opts.forceSubmit
+  const raw = row.raw && typeof row.raw === 'object' && !Array.isArray(row.raw) ? (row.raw as { respondable?: boolean; pastDue?: boolean }) : null
+  let decision = opts.forceSubmit
     ? { action: 'submit' as const, stripeSubmit: true, reason: 'an admin submitted it' }
     : decideAction({
         config,
@@ -276,21 +290,65 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
         narrativeEdited: !!row.narrativeEditedAt,
         alreadySubmitted: row.stripeSubmitted || !!row.submittedAt,
         matchConfidence: (row.matchConfidence as 'exact' | 'strong' | 'weak' | 'none') ?? 'none',
+        respondable: raw?.respondable !== false,
+        pastDue: raw?.pastDue === true,
       })
+  if (!opts.forceSubmit && opts.allowSubmit === false && decision.stripeSubmit) {
+    decision = { action: 'stage', stripeSubmit: false, reason: 'an admin rebuilt the packet, so it was not submitted' }
+  }
   const unchanged = !opts.forceRebuild && !opts.forceSubmit && row.evidenceSha256 === evidenceSha && row.packetSha256 === packetSha
   if (decision.action === 'skip' || decision.action === 'compile_only') {
     if (!unchanged) await audit(id, decision.action === 'compile_only' ? 'dry_run' : 'compiled', decision.reason, null, actor)
     return
   }
-  if (unchanged && decision.action === 'stage' && row.stripeFileId) return
-  const files: Record<string, string> = {}
-  const pdfId = await uploadDisputeFile(pdf, `dispute-${row.stripeDisputeId}.pdf`, 'application/pdf')
-  files.uncategorized_file = pdfId
-  if (shot && budget.keep[0]) {
-    files.service_documentation = await uploadDisputeFile(shot.bytes, `setup-${row.stripeDisputeId}.${shot.mime === 'image/png' ? 'png' : 'jpg'}`, shot.mime)
+  // Kill switch. Dry-run never reaches a Stripe write, even if a caller asked to submit.
+  if (!allowsStripeWrite(config) || (decision.stripeSubmit && !decideManualSubmit(config).ok && !opts.forceSubmit)) {
+    await audit(id, 'dry_run', 'kill switch: no Stripe write', null, actor)
+    return
   }
-  const form = evidenceFormBody({ fields: built.fields, files, ce3: built.ce3, submit: decision.stripeSubmit })
-  await updateDisputeEvidence(row.stripeDisputeId, form)
+  if (decision.stripeSubmit && !decideManualSubmit(config).ok) {
+    await audit(id, 'dry_run', 'refusing submit=true outside live mode', null, actor)
+    return
+  }
+  if (unchanged && decision.action === 'stage' && row.stripeFileId) return
+  if (pdf.length > MAX_FILE_BYTES) {
+    await audit(id, 'error', 'The packet PDF is over 5 MB, so it was not uploaded.', null, actor)
+    await prisma.stripeDispute.update({ where: { id }, data: { lastError: 'The packet PDF is over 5 MB, so it was not uploaded.' } })
+    return
+  }
+  if (decision.stripeSubmit) {
+    const claimed = await prisma.stripeDispute.updateMany({
+      where: {
+        id,
+        submittedAt: null,
+        stripeSubmitted: false,
+        OR: [{ defenseStatus: { not: 'submitting' } }, { updatedAt: { lt: new Date(Date.now() - 10 * 60_000) } }],
+      },
+      data: { defenseStatus: 'submitting' },
+    })
+    if (claimed.count !== 1) return
+  }
+  const files: Record<string, string> = {}
+  let pdfId = ''
+  try {
+    pdfId = await uploadDisputeFile(pdf, `dispute-${row.stripeDisputeId}.pdf`, 'application/pdf')
+    files.uncategorized_file = pdfId
+    const form = evidenceFormBody({ fields: built.fields, files, ce3: built.ce3, submit: decision.stripeSubmit })
+    const idempotencyKey = decision.stripeSubmit ? `submit:${row.stripeDisputeId}:${evidenceSha}` : undefined
+    try {
+      await updateDisputeEvidence(row.stripeDisputeId, form, idempotencyKey)
+    } catch (err) {
+      if (!built.ce3 || !ceRejected(err)) throw err
+      const fallback = evidenceFormBody({ fields: built.fields, files, ce3: null, submit: decision.stripeSubmit })
+      await updateDisputeEvidence(row.stripeDisputeId, fallback, idempotencyKey ? `${idempotencyKey}:no-ce` : undefined)
+      await audit(id, 'compiled', 'Compelling evidence was rejected. The packet was filed without it.', null, actor)
+    }
+  } catch (err) {
+    if (decision.stripeSubmit) {
+      await prisma.stripeDispute.update({ where: { id }, data: { defenseStatus: 'compiled' } }).catch(() => {})
+    }
+    throw err
+  }
   await prisma.stripeDispute.update({
     where: { id },
     data: {
@@ -326,7 +384,7 @@ async function handleEfw(effect: Extract<SideEffect, { kind: 'early_fraud_warnin
   const decision = decideEfwRefund({ config, actionable: effect.actionable, livemode: effect.livemode })
   let action = 'none'
   let detail = decision.reason
-  if (decision.refund && effect.chargeId) {
+  if (decision.refund && effect.chargeId && config.mode === 'live' && !config.forceDryRun) {
     try {
       await refundCharge(effect.chargeId)
       action = 'refunded'
@@ -362,8 +420,10 @@ async function handleInvoicePaid(effect: Extract<SideEffect, { kind: 'invoice_pa
   if (email) {
     const pool = await candidates()
     const match = matchDispute({ email, phone: null, name: effect.name, metadata: {} }, pool)
-    clientId = match.clientId
-    intakeId = match.intakeId
+    if (match.confidence === 'exact' || match.confidence === 'strong') {
+      clientId = match.clientId
+      intakeId = match.intakeId
+    }
   }
   if (!clientId && effect.customerId) {
     const remembered = await rememberedMemberByEmail(email ?? '').catch(() => null)
@@ -386,11 +446,11 @@ async function handleInvoicePaid(effect: Extract<SideEffect, { kind: 'invoice_pa
 
 export async function reconcileDisputes(): Promise<{ seen: number }> {
   const statuses = ['needs_response', 'warning_needs_response', 'under_review', 'warning_under_review']
-  let seen = 0
+  const seen = new Set<string>()
   for (const status of statuses) {
     let page: Awaited<ReturnType<typeof listDisputes>> = []
     try {
-      page = await listDisputes(status)
+      page = await listDisputes(status, 300)
     } catch (err) {
       console.error(`[disputes] list ${status}:`, redactSecrets(err instanceof Error ? err.message : String(err)))
       continue
@@ -401,13 +461,31 @@ export async function reconcileDisputes(): Promise<{ seen: number }> {
         const parsed = readDispute(full)
         if (!parsed) continue
         await upsertDispute(parsed, 'reconcile')
-        seen++
+        seen.add(parsed.stripeDisputeId)
       } catch (err) {
         console.error('[disputes] reconcile one:', redactSecrets(err instanceof Error ? err.message : String(err)))
       }
     }
   }
-  return { seen }
+  // A dropped "closed" webhook would leave a local row open and the next live
+  // window would try to file evidence on a dispute Stripe has already finished.
+  const locals = await prisma.stripeDispute.findMany({
+    where: { status: { in: statuses }, ...(seen.size ? { stripeDisputeId: { notIn: [...seen] } } : {}) },
+    select: { stripeDisputeId: true },
+    take: 50,
+  })
+  for (const local of locals) {
+    try {
+      const full = await retrieveDispute(local.stripeDisputeId)
+      const parsed = readDispute(full)
+      if (!parsed) continue
+      await upsertDispute(parsed, 'reconcile')
+      seen.add(parsed.stripeDisputeId)
+    } catch (err) {
+      console.error('[disputes] reconcile stale:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    }
+  }
+  return { seen: seen.size }
 }
 
 export async function maybeReconcileDisputes(): Promise<void> {
@@ -416,9 +494,15 @@ export async function maybeReconcileDisputes(): Promise<void> {
 }
 
 export async function pauseDispute(id: string, actor: string, paused: boolean): Promise<void> {
+  const current = await prisma.stripeDispute.findUnique({ where: { id }, select: { defenseStatus: true } })
   await prisma.stripeDispute.update({
     where: { id },
-    data: { paused, pausedAt: paused ? new Date() : null, pausedBy: paused ? actor : null, defenseStatus: paused ? 'held' : undefined },
+    data: {
+      paused,
+      pausedAt: paused ? new Date() : null,
+      pausedBy: paused ? actor : null,
+      defenseStatus: paused ? 'held' : current?.defenseStatus === 'held' ? 'compiled' : undefined,
+    },
   })
   await audit(id, paused ? 'paused' : 'resumed', null, null, actor)
 }
@@ -426,7 +510,7 @@ export async function pauseDispute(id: string, actor: string, paused: boolean): 
 export async function saveNarrative(id: string, actor: string, narrative: string): Promise<void> {
   await prisma.stripeDispute.update({ where: { id }, data: { narrative, narrativeEditedAt: new Date(), narrativeEditedBy: actor } })
   await audit(id, 'edited', 'Narrative edited. Auto-submit is off until someone submits it.', null, actor)
-  await advance(id, actor, { forceRebuild: true })
+  await advance(id, actor, { forceRebuild: true, allowSubmit: false })
 }
 
 export async function assignDispute(id: string, actor: string, clientId: string): Promise<void> {
@@ -435,7 +519,7 @@ export async function assignDispute(id: string, actor: string, clientId: string)
   await prisma.stripeDispute.update({ where: { id }, data: { clientId, intakeId: intake?.id ?? null, matchMethod: 'manual', matchConfidence: 'exact' } })
   await refreshCounts([prev?.clientId ?? null, clientId])
   await audit(id, 'assigned', `Linked to client ${clientId}`, null, actor)
-  await advance(id, actor, { forceRebuild: true })
+  await advance(id, actor, { forceRebuild: true, allowSubmit: false })
 }
 
 export async function disputeDetail(id: string) {
@@ -499,6 +583,11 @@ export async function runProbe(): Promise<ProbeResult> {
     update: { value: JSON.stringify(result) },
   }).catch(() => {})
   return result
+}
+
+function ceRejected(err: unknown): boolean {
+  if (!(err instanceof DisputeStripeError) || err.status !== 400) return false
+  return /compelling|enhanced_evidence|prior_undisputed/i.test(err.message)
 }
 
 export { classifyStripeSideEffect, phoneKey }

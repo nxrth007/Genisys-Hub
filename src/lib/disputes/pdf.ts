@@ -23,8 +23,12 @@ function wrap(text: string): string[] {
       continue
     }
     let line = ''
+    const pieces: string[] = []
     for (const word of para.split(/\s+/)) {
-      const piece = word.length > MAX_CHARS ? word.slice(0, MAX_CHARS) : word
+      if (word.length <= MAX_CHARS) pieces.push(word)
+      else for (let i = 0; i < word.length; i += MAX_CHARS) pieces.push(word.slice(i, i + MAX_CHARS))
+    }
+    for (const piece of pieces) {
       const next = line ? `${line} ${piece}` : piece
       if (next.length > MAX_CHARS && line) {
         lines.push(line)

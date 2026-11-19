@@ -35,7 +35,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         await saveNarrative(id, actor, body.narrative ?? '')
         break
       case 'rebuild':
-        await advance(id, actor, { forceRebuild: true })
+        await advance(id, actor, { forceRebuild: true, allowSubmit: false })
         break
       case 'submit':
         await advance(id, actor, { forceSubmit: true })

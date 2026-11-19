@@ -23,7 +23,7 @@ type DisputeRow = {
 }
 
 type ListResponse = {
-  config: { mode: string; submitLeadHours: number; efwRefund: boolean; alertSms: boolean; clientNotices: boolean; openTracking: boolean; milestoneAck: boolean; stampMetadata: boolean; forceDryRun: boolean; submitsToStripe: boolean }
+  config: { mode: string; submitLeadHours: number; efwRefund: boolean; alertSms: boolean; clientNotices: boolean; openTracking: boolean; milestoneAck: boolean; stampMetadata: boolean; forceDryRun: boolean; submitsToStripe: boolean; canSubmit: boolean }
   templates: Record<string, string>
   outcomes: { byReason: { reason: string; won: number; lost: number; open: number; winRate: number | null }[]; totals: { won: number; lost: number; open: number; winRate: number | null } }
   disputes: DisputeRow[]
@@ -112,9 +112,11 @@ export function DisputesTab() {
           <div>
             <p className="font-semibold text-foreground">Dispute defense is in {config.mode.replace('_', '-')}{config.forceDryRun ? ' (forced dry-run)' : ''}</p>
             <p className="mt-1 text-muted-foreground">
-              {config.submitsToStripe
-                ? `Evidence can be sent to Stripe. Auto-submit is ${config.submitLeadHours}h before the deadline, unless a dispute is paused or its narrative was edited.`
-                : 'Packets are built and stored here. Stripe is not updated. Switch the mode to stage or live when you want evidence filed.'}
+              {config.canSubmit
+                ? `Live. Auto-submit is ${config.submitLeadHours}h before the deadline, unless a dispute is paused, its narrative was edited, or the client match is weak. Submit is final.`
+                : config.submitsToStripe
+                  ? 'Stage. Evidence is saved on the dispute with submit=false. Nothing is sent to the bank until you switch to live.'
+                  : 'Dry-run. Packets are stored here. Stripe is not updated, and evidence cannot be submitted.'}
             </p>
           </div>
           <div className="flex gap-2">
@@ -195,9 +197,9 @@ export function DisputesTab() {
             <button type="button" disabled={busy} className="rounded-lg border border-border px-3 py-1.5 text-xs" onClick={() => act('rebuild')}>Rebuild packet</button>
             <a className="rounded-lg border border-border px-3 py-1.5 text-xs" href={`/api/payments/disputes/${open}/packet`}>Download packet</a>
             <button type="button" disabled={busy} className="rounded-lg border border-border px-3 py-1.5 text-xs" onClick={() => act(detail.data!.paused ? 'resume' : 'pause')}>{detail.data.paused ? 'Resume' : 'Pause'}</button>
-            <button type="button" disabled={busy || !config.submitsToStripe} className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background disabled:opacity-40" onClick={() => { if (confirm('Submit this evidence to Stripe? This is final.')) void act('submit') }}>Submit now</button>
+            <button type="button" disabled={busy || !config.canSubmit} className="rounded-lg bg-foreground px-3 py-1.5 text-xs text-background disabled:opacity-40" onClick={() => { if (confirm('Submit this evidence to Stripe? This is final and cannot be undone.')) void act('submit') }}>Submit now</button>
           </div>
-          {!config.submitsToStripe && <p className="text-xs text-muted-foreground">Submit stays off in dry-run. Stage or live mode is required before evidence is filed.</p>}
+          {!config.canSubmit && <p className="text-xs text-muted-foreground">{config.submitsToStripe ? 'Submit stays off in stage. Live mode is required before evidence is sent to the bank.' : 'Submit stays off in dry-run. Stripe is not updated.'}</p>}
           <div className="max-h-48 overflow-auto text-xs text-muted-foreground">
             {detail.data.events.map((e) => (
               <p key={e.seq}>{e.seq}. {fromIso(e.at)} {e.kind}{e.detail ? ` — ${e.detail}` : ''} <span className="font-mono">{e.contentHash.slice(0, 10)}</span></p>

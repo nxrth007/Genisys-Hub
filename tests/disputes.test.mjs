@@ -33,22 +33,30 @@ const client = (over = {}) => ({
   ...over,
 })
 
-test('metadata match is exact and wins over a different email', () => {
-  const m = plan.matchDispute(
+test('metadata match is exact when the email agrees, and weak when it belongs to someone else', () => {
+  const agreed = plan.matchDispute(
+    { email: 'owner@acme.test', phone: null, name: null, metadata: { hub_client_id: 'c1', hub_intake_id: 'in1' } },
+    [client(), client({ clientId: 'c2', name: 'Other', emails: ['other@x.test'], intakeIds: [] })],
+  )
+  assert.equal(agreed.clientId, 'c1')
+  assert.equal(agreed.intakeId, 'in1')
+  assert.equal(agreed.method, 'metadata')
+  assert.equal(agreed.confidence, 'exact')
+  const conflict = plan.matchDispute(
     { email: 'other@x.test', phone: null, name: null, metadata: { hub_client_id: 'c1', hub_intake_id: 'in1' } },
     [client(), client({ clientId: 'c2', name: 'Other', emails: ['other@x.test'], intakeIds: [] })],
   )
-  assert.equal(m.clientId, 'c1')
-  assert.equal(m.intakeId, 'in1')
-  assert.equal(m.method, 'metadata')
-  assert.equal(m.confidence, 'exact')
+  assert.equal(conflict.clientId, 'c1')
+  assert.equal(conflict.confidence, 'weak')
 })
 
 test('email, phone, and a unique business name match; two phones do not guess', () => {
   assert.equal(plan.matchDispute({ email: 'Owner@Acme.test', phone: null, name: null, metadata: {} }, [client()]).method, 'email')
   assert.equal(plan.matchDispute({ email: null, phone: '+1 512-555-0100', name: null, metadata: {} }, [client()]).confidence, 'strong')
   assert.equal(plan.matchDispute({ email: null, phone: '5125550100', name: null, metadata: {} }, [client(), client({ clientId: 'c2', phones: ['5125550100'] })]).confidence, 'none')
-  assert.equal(plan.matchDispute({ email: null, phone: null, name: 'Acme Roofing, LLC', metadata: {} }, [client()]).method, 'business_name')
+  const byName = plan.matchDispute({ email: null, phone: null, name: 'Acme Roofing, LLC', metadata: {} }, [client()])
+  assert.equal(byName.method, 'business_name')
+  assert.equal(byName.confidence, 'weak')
   const repeat = plan.matchDispute({ email: 'owner@acme.test', phone: null, name: null, metadata: {} }, [client({ disputeCount: 2 })])
   assert.equal(repeat.repeatDisputer, true)
 })
@@ -65,6 +73,22 @@ test('a dispute webhook is classified and a signup event is not', () => {
   assert.equal(side.dispute.amountCents, 29700)
   assert.equal(side.dispute.reason, 'fraudulent')
   assert.equal(side.dispute.stripeSubmitted, false)
+  assert.equal(side.dispute.respondable, true)
+  const staged = plan.classifyStripeSideEffect({
+    id: 'evt_staged',
+    type: 'charge.dispute.updated',
+    data: { object: { id: 'dp_2', object: 'dispute', reason: 'fraudulent', status: 'needs_response', evidence_details: { due_by: 1_800_000_000, has_evidence: true, submission_count: 0 } } },
+  })
+  assert.equal(staged.dispute.stripeSubmitted, false)
+  const filed = plan.classifyStripeSideEffect({
+    id: 'evt_filed',
+    type: 'charge.dispute.updated',
+    data: { object: { id: 'dp_3', object: 'dispute', reason: 'fraudulent', status: 'under_review', evidence_details: { due_by: 1_800_000_000, has_evidence: true, submission_count: 1 } } },
+  })
+  assert.equal(filed.dispute.stripeSubmitted, true)
+  const closed = plan.readDispute({ id: 'dp_4', object: 'dispute', reason: 'general', status: 'needs_response', evidence_details: { due_by: 0, submission_count: 0 } })
+  assert.equal(closed.respondable, false)
+  assert.equal(closed.dueBy, null)
   assert.equal(plan.classifyStripeSideEffect({ id: 'evt_s', type: 'checkout.session.completed', data: { object: {} } }), null)
   assert.equal(plan.classifyStripeSideEffect({ id: 'evt_w', type: 'radar.early_fraud_warning.created', livemode: true, data: { object: { id: 'issfr_1', actionable: true, charge: 'ch_9', fraud_type: 'unauthorized_use_of_card' } } }).kind, 'early_fraud_warning')
 })
@@ -79,7 +103,17 @@ test('dry-run never submits, a weak match never auto-submits, and the kill switc
   const early = plan.decideAction({ ...base, dueBy: new Date(Date.now() + 10 * 86400_000).toISOString(), config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
   assert.equal(early.action, 'stage')
   const weak = plan.decideAction({ ...base, matchConfidence: 'weak', config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
+  assert.equal(weak.action, 'compile_only')
   assert.equal(weak.stripeSubmit, false)
+  const past = plan.decideAction({ ...base, dueBy: new Date(Date.now() - 3600_000).toISOString(), config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
+  assert.equal(past.action, 'compile_only')
+  assert.equal(past.stripeSubmit, false)
+  const stage = plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'stage' })
+  assert.equal(plan.decideManualSubmit(stage).ok, false)
+  assert.equal(plan.decideManualSubmit(plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' })).ok, true)
+  assert.equal(plan.allowsStripeWrite(plan.parseDisputeConfig({})), false)
+  assert.equal(plan.allowsStripeWrite(stage), true)
+  assert.equal(plan.allowsStripeWrite(plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live', DISPUTE_DEFENSE_FORCE_DRY_RUN: '1' })), false)
   const paused = plan.decideAction({ ...base, paused: true, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
   assert.equal(paused.stripeSubmit, false)
   const edited = plan.decideAction({ ...base, narrativeEdited: true, config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live' }) })
@@ -91,20 +125,30 @@ test('dry-run never submits, a weak match never auto-submits, and the kill switc
   assert.equal(plan.decideEfwRefund({ config: plan.parseDisputeConfig({ DISPUTE_DEFENSE_MODE: 'live', DISPUTE_EFW_REFUND: '1' }), actionable: true, livemode: true }).refund, true)
 })
 
-test('Visa CE 3.0 needs two undisputed charges in the 120 to 365 day window sharing two identifiers', () => {
+test('Visa CE 3.0 needs purchase IP plus the same email, and does not treat email plus an internal account id as enough', () => {
   const chargedAt = '2026-11-01T00:00:00.000Z'
   const day = 86400_000
+  const ip = '203.0.113.9'
   const prior = (id, daysAgo, over = {}) => ({
     id, amountCents: 29700, created: new Date(new Date(chargedAt).getTime() - daysAgo * day).toISOString(),
-    paid: true, disputed: false, refunded: false, email: 'owner@acme.test', ip: null, accountId: 'c1', ...over,
+    paid: true, disputed: false, refunded: false, email: 'owner@acme.test', ip, accountId: 'c1', ...over,
   })
   const ok = plan.selectCompellingEvidence({
-    reason: 'fraudulent', cardBrand: 'visa', chargedAt, email: 'owner@acme.test', ip: null, accountId: 'c1', productDescription: 'service',
-    priors: [prior('ch_a', 200), prior('ch_b', 300), prior('ch_recent', 10), prior('ch_old', 400), prior('ch_refunded', 220, { refunded: true })],
+    reason: 'fraudulent', cardBrand: 'visa', networkReasonCode: '10.4', chargedAt, email: 'owner@acme.test', ip, accountId: 'c1', productDescription: 'service',
+    priors: [prior('ch_a', 200), prior('ch_b', 300), prior('ch_recent', 10), prior('ch_old', 400), prior('ch_refunded', 220, { refunded: true }), prior('ch_other', 220, { email: 'someone@else.test' })],
   })
   assert.deepEqual(ok.prior.map((p) => p.charge), ['ch_a', 'ch_b'])
-  assert.equal(plan.selectCompellingEvidence({ reason: 'product_not_received', cardBrand: 'visa', chargedAt, email: 'owner@acme.test', ip: null, accountId: 'c1', productDescription: 's', priors: [prior('ch_a', 200), prior('ch_b', 300)] }), null)
-  assert.equal(plan.selectCompellingEvidence({ reason: 'fraudulent', cardBrand: 'mastercard', chargedAt, email: 'a@b.c', ip: null, accountId: 'c1', productDescription: 's', priors: [prior('ch_a', 200), prior('ch_b', 300)] }), null)
+  assert.equal(ok.prior[0].customerEmail, 'owner@acme.test')
+  assert.equal(ok.prior[0].customerPurchaseIp, ip)
+  assert.equal(ok.disputed.customerAccountId, null)
+  const emailOnly = plan.selectCompellingEvidence({
+    reason: 'fraudulent', cardBrand: 'visa', chargedAt, email: 'owner@acme.test', ip: null, accountId: 'c1', productDescription: 'service',
+    priors: [prior('ch_a', 200, { ip: null }), prior('ch_b', 300, { ip: null })],
+  })
+  assert.equal(emailOnly, null)
+  assert.equal(plan.selectCompellingEvidence({ reason: 'product_not_received', cardBrand: 'visa', chargedAt, email: 'owner@acme.test', ip, accountId: 'c1', productDescription: 's', priors: [prior('ch_a', 200), prior('ch_b', 300)] }), null)
+  assert.equal(plan.selectCompellingEvidence({ reason: 'fraudulent', cardBrand: 'mastercard', chargedAt, email: 'owner@acme.test', ip, accountId: 'c1', productDescription: 's', priors: [prior('ch_a', 200), prior('ch_b', 300)] }), null)
+  assert.equal(plan.selectCompellingEvidence({ reason: 'fraudulent', cardBrand: 'visa', networkReasonCode: '13.1', chargedAt, email: 'owner@acme.test', ip, accountId: 'c1', productDescription: 's', priors: [prior('ch_a', 200), prior('ch_b', 300)] }), null)
 })
 
 test('the service delivery timeline leads the packet and leads are supporting', () => {
@@ -128,20 +172,29 @@ test('the service delivery timeline leads the packet and leads are supporting', 
     template: null,
   }
   const built = plan.buildEvidence(facts)
-  assert.match(built.fields.service_documentation, /Website live/)
-  assert.match(built.fields.service_documentation, /Client report emailed/)
-  assert.match(built.fields.service_documentation, /Dashboard login/)
-  assert.equal(built.fields.service_documentation.includes('Lead delivered'), false)
+  assert.match(built.fields.uncategorized_text, /Website live/)
+  assert.match(built.fields.uncategorized_text, /Client report emailed/)
+  assert.match(built.fields.uncategorized_text, /Dashboard login/)
+  assert.equal(built.fields.uncategorized_text.includes('Lead delivered'), false)
+  assert.equal(built.fields.service_documentation, undefined)
+  assert.equal(built.fields.receipt, undefined)
+  assert.equal(built.fields.customer_communication, undefined)
+  assert.equal(built.fields.refund_policy, undefined)
+  assert.equal(built.fields.cancellation_policy, undefined)
+  assert.equal(built.fields.customer_signature, undefined)
   const timeline = built.sections.find((s) => s.heading === 'Service delivery timeline')
   const leads = built.sections.find((s) => s.heading === 'Leads and appointments (supporting)')
   assert.ok(timeline.body.includes('HTTP 200'))
   assert.ok(leads.body.includes('Lead delivered'))
   assert.ok(built.sections.findIndex((s) => s.heading === 'Service delivery timeline') < built.sections.findIndex((s) => s.heading === 'Leads and appointments (supporting)'))
   assert.match(built.fields.customer_purchase_ip, /203\.0\.113\.8/)
-  const form = plan.evidenceFormBody({ fields: built.fields, files: { uncategorized_file: 'file_1' }, ce3: null, submit: false })
+  const form = plan.evidenceFormBody({ fields: { ...built.fields, service_documentation: 'Website live is not a file id', receipt: 'prose' }, files: { uncategorized_file: 'file_1', not_a_field: 'file_x' }, ce3: null, submit: false })
   assert.match(form, /submit=false/)
   assert.match(form, /uncategorized_file/)
   assert.doesNotMatch(form, /submit=true/)
+  assert.doesNotMatch(form, /service_documentation/)
+  assert.doesNotMatch(form, /not a file id/)
+  assert.doesNotMatch(form, /not_a_field/)
 })
 
 test('acceptance parsing, hashes, win/loss, file budget, and redaction', () => {
@@ -169,6 +222,17 @@ test('acceptance parsing, hashes, win/loss, file budget, and redaction', () => {
   const stored = plan.redactCredentialLinks('<a href="https://hub.example/login/password?u=user&t=super-secret-token">set</a>')
   assert.equal(stored.includes('super-secret-token'), false)
   assert.match(stored, /not-stored/)
+  const escaped = plan.redactCredentialLinks('<a href="https://hub.example/login/password?u=user&amp;t=super-secret-token">set</a><img src="https://genisys-hub.onrender.com/api/public/receipts/abc123deadbeef">')
+  assert.equal(escaped.includes('super-secret-token'), false)
+  assert.equal(escaped.includes('abc123deadbeef'), false)
+  assert.equal(plan.customerIp('203.0.113.8, 10.0.0.1'), '203.0.113.8')
+  assert.equal(plan.customerIp('not an ip'), null)
+  assert.equal(plan.isPublicEvidenceUrl('https://acme.example'), true)
+  assert.equal(plan.isPublicEvidenceUrl('http://127.0.0.1/latest/meta-data'), false)
+  assert.equal(plan.isPublicEvidenceUrl('https://169.254.169.254/'), false)
+  assert.equal(plan.isPublicEvidenceUrl('http://localhost/admin'), false)
+  assert.equal(plan.isPublicIp('10.1.2.3'), false)
+  assert.equal(plan.isPublicIp('8.8.8.8'), true)
 })
 
 test('the packet PDF is a real PDF under the size cap and names the timeline', () => {
@@ -178,6 +242,10 @@ test('the packet PDF is a real PDF under the size cap and names the timeline', (
   ])
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-')
   assert.ok(bytes.includes(Buffer.from('Service delivery timeline')))
+  const longUrl = 'https://acme.example/' + 'path-segment/'.repeat(20) + 'end'
+  const longPdf = pdf.renderEvidencePdf([{ heading: 'Service delivery timeline', body: `Website live — ${longUrl}` }])
+  assert.ok(longPdf.includes(Buffer.from('path-segment/path-segment')))
+  assert.ok(longPdf.includes(Buffer.from('end')))
   assert.ok(bytes.length < plan.MAX_COMBINED_FILE_BYTES)
 })
 
@@ -188,7 +256,9 @@ test('the defense uses the restricted key and the webhook route is public', () =
   assert.match(stripe, /DISPUTE_KEY_ENTRY/)
   assert.match(stripe, /LEGACY_STRIPE_KEY_ENTRY/)
   assert.doesNotMatch(stripe, /firstSecret\(\[[^\]]*Stripe API Key/)
-  assert.match(run, /DISPUTE_DEFENSE|compile_only|dry_run/)
+  assert.match(run, /allowsStripeWrite/)
+  assert.match(stripe, /refusing a dispute update that does not set submit explicitly/)
+  assert.doesNotMatch(run, /screenshotFor/)
   assert.match(middleware, /\/api\/webhooks\/stripe/)
   assert.equal(plan.DISPUTE_KEY_ENTRY, 'Stripe Official Restricted')
   assert.equal(plan.LEGACY_STRIPE_KEY_ENTRY, 'Stripe API Key')

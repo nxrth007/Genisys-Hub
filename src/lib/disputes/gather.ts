@@ -6,7 +6,7 @@
 import { prisma } from '@/lib/prisma'
 import { syncServiceLedger } from './ledger'
 import { syncSetupMilestones } from './setup'
-import { readCharge, type EvidenceFacts, type PriorCharge } from './plan'
+import { emailHeaderHas, readCharge, type EvidenceFacts, type PriorCharge } from './plan'
 
 export async function gatherFacts(o: {
   disputeId: string
@@ -19,6 +19,7 @@ export async function gatherFacts(o: {
   dueBy: Date | null
   chargedAt: Date | null
   cardBrand: string | null
+  networkReasonCode: string | null
   email: string | null
   name: string | null
   phone: string | null
@@ -89,6 +90,7 @@ export async function gatherFacts(o: {
       dueBy: o.dueBy?.toISOString() ?? null,
       chargedAt: o.chargedAt?.toISOString() ?? null,
       cardBrand: o.cardBrand,
+      networkReasonCode: o.networkReasonCode,
       email: o.email,
       name: o.name,
       phone: o.phone,
@@ -170,8 +172,9 @@ async function clientEmails(clientId: string, email: string | null): Promise<Evi
     take: 25,
     select: { date: true, from: true, to: true, subject: true, snippet: true, folder: true },
   })
-  return rows.map((m) => ({
-    direction: addresses.some((e) => m.from.toLowerCase().includes(e)) && m.folder !== 'sent' ? 'in' : 'out',
+  const matched = rows.filter((m) => addresses.some((e) => emailHeaderHas(m.from, e) || emailHeaderHas(m.to, e)))
+  return matched.map((m) => ({
+    direction: addresses.some((e) => emailHeaderHas(m.from, e)) && m.folder !== 'sent' ? 'in' : 'out',
     at: m.date.toISOString(),
     from: m.from,
     to: m.to,
@@ -180,14 +183,3 @@ async function clientEmails(clientId: string, email: string | null): Promise<Evi
   }))
 }
 
-export async function screenshotFor(clientId: string): Promise<{ bytes: Buffer; mime: string } | null> {
-  const job = await prisma.ghlSubaccountJob.findUnique({
-    where: { clientId },
-    select: { status: true, shots: { orderBy: { createdAt: 'desc' }, take: 1, select: { mime: true, data: true } } },
-  })
-  if (!job || job.status !== 'succeeded') return null
-  const shot = job.shots[0]
-  if (!shot) return null
-  if (shot.mime !== 'image/png' && shot.mime !== 'image/jpeg') return null
-  return { bytes: Buffer.from(shot.data), mime: shot.mime }
-}

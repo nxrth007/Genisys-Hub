@@ -5,27 +5,55 @@
  * we bought, verification, call forwarding, published workflows).
  * Leads are recorded elsewhere and are not these milestones.
  */
+import { lookup } from 'node:dns/promises'
 import { prisma } from '@/lib/prisma'
 import { readProfile } from '@/lib/hl/accounts'
 import { domainStage, siteHost, siteHref } from '@/lib/site-status'
 import { reportReadiness } from '@/lib/hl/client-report-plan'
+import { isPublicEvidenceUrl, isPublicIp } from './plan'
 import { writeLedger, type NewRow } from './ledger'
 
 const LOVABLE = /(^|\.)(lovable\.app|lovableproject\.com|onrender\.com)$/i
 
-async function httpProof(url: string): Promise<string> {
+/** A public http(s) URL whose DNS does not point at a private address. Redirects are checked one hop at a time. */
+async function resolvesPublic(raw: string): Promise<boolean> {
+  if (!isPublicEvidenceUrl(raw)) return false
+  const host = new URL(raw).hostname.replace(/^\[|\]$/g, '')
+  if (isPublicIp(host)) return true
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: AbortSignal.timeout(8_000),
-      headers: { 'User-Agent': 'GenisysHub-evidence/1' },
-    })
-    return `HTTP ${res.status}`
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'request failed'
-    return `HTTP check failed (${message.slice(0, 120)})`
+    const answers = await lookup(host, { all: true })
+    return answers.length > 0 && answers.every((a) => isPublicIp(a.address))
+  } catch {
+    return false
   }
+}
+
+async function publicGet(raw: string): Promise<{ status: number; body: string } | null> {
+  let current = raw
+  for (let hop = 0; hop < 3; hop++) {
+    if (!(await resolvesPublic(current))) return null
+    let res: Response
+    try {
+      res = await fetch(current, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(8_000), headers: { 'User-Agent': 'GenisysHub-evidence/1' } })
+    } catch {
+      return null
+    }
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location')
+      if (!loc) return { status: res.status, body: '' }
+      current = new URL(loc, current).href
+      continue
+    }
+    const body = (await res.text().catch(() => '')).slice(0, 200_000)
+    return { status: res.status, body }
+  }
+  return null
+}
+
+async function httpProof(url: string): Promise<string | null> {
+  const res = await publicGet(url)
+  if (!res || res.status < 200 || res.status >= 300) return null
+  return `HTTP ${res.status}`
 }
 
 function pretty(n: string): string {
@@ -69,9 +97,10 @@ export async function syncSetupMilestones(clientId: string): Promise<number> {
   const profile = readProfile(account?.profile)
   const own = siteHost(client.siteUrl)
   const tollFree = account?.numbers[0] ?? null
+  const formFallback = client.hlSiteRequest?.publishedAt ?? client.hlSiteRequest?.finishedAt ?? client.siteLiveAt ?? client.updatedAt
   const form = have.has(`${clientId}:form`)
-    ? { done: true, detail: '', at: new Date() }
-    : await formEvidence(client.id, client.hlSiteRequest, client.siteUrl)
+    ? { done: true, detail: '', at: formFallback }
+    : await formEvidence(client.id, client.hlSiteRequest, client.siteUrl, formFallback)
   const readiness = reportReadiness({
     siteLive: !!client.siteUrl?.trim(),
     domain: domainStage({
@@ -104,6 +133,7 @@ export async function syncSetupMilestones(clientId: string): Promise<number> {
     if (item.key === 'site' && client.siteUrl && !have.has(`${clientId}:site`)) {
       const url = siteHref(client.siteUrl.trim())
       const proof = await httpProof(url)
+      if (!proof) continue
       add('site', 'setup_site', 'Website live', `${url} — ${proof}`, client.siteLiveAt ?? client.updatedAt)
     } else if (item.key === 'domain') {
       const active = account?.domains.find((d) => d.status === 'active') ?? account?.domains.find((d) => d.status !== 'failed')
@@ -166,39 +196,37 @@ async function formEvidence(
   clientId: string,
   site: { status: string; publishedAt: Date | null; finishedAt: Date | null; liveUrl: string | null } | null,
   siteUrl: string | null,
+  fallback: Date,
 ): Promise<{ done: boolean; detail: string; at: Date }> {
   if (site && ['published', 'connected'].includes(site.status)) {
     return {
       done: true,
       detail: `Site build ${site.status}${site.liveUrl ? ` at ${site.liveUrl}` : ''}. Genisys OS form and chat ship with that build.`,
-      at: site.publishedAt ?? site.finishedAt ?? new Date(),
+      at: site.publishedAt ?? site.finishedAt ?? fallback,
     }
   }
   const swap = await swapState(clientId)
   if (swap?.status === 'done') {
+    const at = swap.at ? new Date(swap.at) : fallback
     return {
       done: true,
       detail: `Widget swap finished${swap.at ? ` ${swap.at}` : ''}${siteUrl ? ` on ${siteUrl}` : ''}.`,
-      at: swap.at ? new Date(swap.at) : new Date(),
+      at: Number.isNaN(at.getTime()) ? fallback : at,
     }
   }
   if (siteUrl) {
     const url = siteHref(siteUrl.trim())
     const proof = await pageHasOsWidget(url)
-    if (proof.found) return { done: true, detail: `${url} — ${proof.note}`, at: new Date() }
+    if (proof.found) return { done: true, detail: `${url} — ${proof.note}`, at: fallback }
   }
-  return { done: false, detail: 'Genisys OS form and chat are not on the live site yet.', at: new Date() }
+  return { done: false, detail: 'Genisys OS form and chat are not on the live site yet.', at: fallback }
 }
 
 async function pageHasOsWidget(url: string): Promise<{ found: boolean; note: string }> {
-  try {
-    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8_000), headers: { 'User-Agent': 'GenisysHub-evidence/1' } })
-    const text = (await res.text()).slice(0, 200_000)
-    const found = text.includes('/hl/widget.js')
-    return { found, note: `HTTP ${res.status}${found ? ', page includes /hl/widget.js' : ', page does not include /hl/widget.js'}` }
-  } catch (err) {
-    return { found: false, note: err instanceof Error ? err.message.slice(0, 120) : 'fetch failed' }
-  }
+  const res = await publicGet(url)
+  if (!res) return { found: false, note: 'site could not be fetched' }
+  const found = res.body.includes('/hl/widget.js')
+  return { found, note: `HTTP ${res.status}${found ? ', page includes /hl/widget.js' : ', page does not include /hl/widget.js'}` }
 }
 
 async function swapState(clientId: string): Promise<{ status?: string; at?: string; liveOk?: boolean } | null> {

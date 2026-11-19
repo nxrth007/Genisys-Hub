@@ -10,7 +10,7 @@ import { sendEmail } from '@/lib/gmail'
 import { rememberedMemberByEmail } from '@/lib/stripe-onboarding'
 import { stampMetadata } from './stripe'
 import { pdfBytes, renderEvidencePdf } from './pdf'
-import { acknowledgementHash, redactCredentialLinks, sha256, type DisputeConfig } from './plan'
+import { acknowledgementHash, allowsStripeWrite, redactCredentialLinks, sha256, type DisputeConfig } from './plan'
 import { captureIntakeAcceptance, noticeHash, writeLedger } from './ledger'
 import { loadDisputeConfig } from './config'
 import { syncSetupMilestones } from './setup'
@@ -187,7 +187,11 @@ export async function confirmMilestone(token: string, ip: string | null, userAge
   if (!row) return { ok: false, already: false }
   if (row.status === 'confirmed') return { ok: true, already: true }
   const confirmedAt = new Date()
-  await prisma.serviceMilestone.update({ where: { id: row.id }, data: { status: 'confirmed', confirmedAt, ip, userAgent: userAgent?.slice(0, 300) ?? null } })
+  const claimed = await prisma.serviceMilestone.updateMany({
+    where: { id: row.id, status: 'pending' },
+    data: { status: 'confirmed', confirmedAt, ip, userAgent: userAgent?.slice(0, 300) ?? null },
+  })
+  if (claimed.count !== 1) return { ok: true, already: true }
   const acceptedAt = confirmedAt.toISOString()
   await prisma.serviceAcknowledgement.create({
     data: {
@@ -293,7 +297,7 @@ export async function afterIntake(o: { intakeId: string; clientId: string | null
     console.error('[disputes] onboarding notice:', err instanceof Error ? err.message : 'failed')
   })
   await syncSetupMilestones(o.clientId).catch(() => {})
-  if (o.email && config.stampMetadata) {
+  if (o.email && config.stampMetadata && allowsStripeWrite(config)) {
     const member = await rememberedMemberByEmail(o.email).catch(() => null)
     if (member?.customerId) {
       await stampMetadata('customers', member.customerId, { hub_client_id: o.clientId, hub_intake_id: o.intakeId }).catch(() => {})

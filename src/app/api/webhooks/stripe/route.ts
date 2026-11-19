@@ -7,7 +7,7 @@ import { textTeam } from '@/lib/team-sms'
 import { invalidateBillingSnapshot } from '@/lib/stripe-billing'
 import { checkoutMember, claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
 import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
-import { classifyStripeSideEffect } from '@/lib/disputes/plan'
+import { classifyStripeSideEffect, redactSecrets } from '@/lib/disputes/plan'
 import { handleStripeSideEffect } from '@/lib/disputes/run'
 
 /**
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   after(() => {
     const jobs: Promise<unknown>[] = []
     if (news.kind !== 'ignored') jobs.push(handle(news).catch((err) => console.error(`[stripe-webhook] ${news.eventId}:`, err)))
-    if (side) jobs.push(handleStripeSideEffect(side).catch((err) => console.error(`[stripe-webhook] dispute ${side.eventId}:`, err instanceof Error ? err.message : err)))
+    if (side) jobs.push(handleStripeSideEffect(side).catch((err) => console.error(`[stripe-webhook] dispute ${side.eventId}:`, redactSecrets(err instanceof Error ? err.message : String(err)))))
     return Promise.all(jobs).then(() => undefined)
   })
   return NextResponse.json({ ok: true, dispute: side?.kind ?? null })
