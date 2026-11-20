@@ -15,6 +15,7 @@ import { ConfirmDialog, postAction } from './confirm-dialog'
 import { DomainCard } from './domain-card'
 import { ClientReportCard } from './client-report-card'
 import { RepoSelect, SiteLink, useRepoGuesses, type PickerClient, type RepoMatchClient } from '@/components/clients/site-repo-pickers'
+import { StripeStatus } from '@/components/clients/subscriptions-panel'
 
 /** "+18556762067" → "(855) 676-2067". */
 function pretty(n: string | null | undefined): string {
@@ -704,8 +705,8 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
         </div>
       </header>
 
-      {/* Where the site lives: the Clients page's Site and Repo columns, here at the top. */}
-      <section aria-label="Site and repo" className="flex flex-wrap items-start gap-x-10 gap-y-3 rounded-xl border border-border bg-card px-4 py-3">
+      {/* Where the site lives (the Clients page's Site and Repo columns) and where they stand in Stripe. */}
+      <section aria-label="Site, repo and Stripe" className="flex flex-wrap items-start gap-x-8 gap-y-3 rounded-xl border border-border bg-card px-4 py-3">
         <div className="flex items-start gap-3">
           <span className="eyebrow flex h-9 w-10 shrink-0 items-center text-muted-foreground">Site</span>
           <div className="flex min-h-9 items-center">
@@ -716,6 +717,12 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
           <span className="eyebrow flex h-9 w-10 shrink-0 items-center text-muted-foreground">Repo</span>
           <div className="flex min-h-9 items-center">
             <RepoSelect client={picker} repoOwners={repoOwners} suggestion={suggestions.get(picker.id)} size="md" onSaved={() => router.refresh()} />
+          </div>
+        </div>
+        <div className="flex items-start gap-3">
+          <span className="eyebrow flex h-9 shrink-0 items-center text-muted-foreground">Stripe</span>
+          <div className="flex min-h-9 items-center">
+            <StripeStatus clientId={d.client.id} />
           </div>
         </div>
       </section>

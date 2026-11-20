@@ -10,7 +10,8 @@ import type { ClientSubscriptionsView } from '@/lib/stripe-billing'
 
 /**
  * Every client's Stripe subscription on the Clients page: a chip on each row
- * (BillingChip), a section in the client's detail (BillingSection), and one
+ * (BillingChip), a section in the client's detail (BillingSection), one line
+ * at the top of the client's folder in Sites (StripeStatus), and one
  * panel with all of them (SubscriptionsPanel) — filter by where they stand,
  * the roster clients with no subscription, and the Stripe customers that match
  * no client, so nobody is lost. All three share one read of
@@ -59,6 +60,57 @@ export function BillingChip({ billing, loading, detail = true }: { billing: Clie
     <span className="inline-flex flex-col items-start gap-1">
       <Chip tone={label.tone}>{label.text}</Chip>
       {detail && label.detail && <span className="font-mono text-[11px] text-muted-foreground">{label.detail}</span>}
+    </span>
+  )
+}
+
+const TONE_PILL: Record<string, string> = { mint: 'chip-mint', blue: 'chip-blue', amber: 'chip-amber', pink: 'chip-pink', muted: 'bg-muted text-muted-foreground' }
+
+/**
+ * One line for a client's folder in Sites: whether they're in Stripe, the
+ * plan's standing ("Trial · $297/mo", which opens the subscription in
+ * Stripe), and the day they subscribed. The rest is in the tooltip.
+ */
+export function StripeStatus({ clientId }: { clientId: string }) {
+  const q = useClientSubscriptions()
+  const v = q.data
+  const b = v?.byClient[clientId]
+  const pill = 'inline-flex items-center rounded-md px-2 py-1 text-[12.5px] font-medium'
+  if (q.isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Asking Stripe…
+      </span>
+    )
+  }
+  if (q.isError || (v?.error && !b?.customers.length)) {
+    return (
+      <span className="text-[12.5px] text-warning" title={v?.error ?? 'Couldn’t load subscriptions'}>
+        Stripe couldn’t be read
+      </span>
+    )
+  }
+  const s = b?.subscription ?? null
+  if (!b || b.state === 'none' || !s) {
+    return (
+      <span className={cn(pill, TONE_PILL.muted)} title="No Stripe customer under this client’s emails. If they signed up under another email, put it in the contact email on Clients.">
+        Not in Stripe
+      </span>
+    )
+  }
+  const label = billingLabel(b)
+  const thisYear = s.created && new Date(s.created).getFullYear() === new Date().getFullYear()
+  const tip = [label.detail ? `${label.text} · ${label.detail}` : label.text, s.created ? `Subscribed ${day(s.created)}` : null, 'Click to open it in Stripe'].filter(Boolean).join('\n')
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <a href={stripeLink('subscription', s.id, linkOpts(v))} target="_blank" rel="noreferrer" title={tip} className={cn(pill, TONE_PILL[label.tone] ?? TONE_PILL.muted, 'transition hover:opacity-80')}>
+        {label.text}
+      </a>
+      {s.created && (
+        <span className="whitespace-nowrap text-[12.5px] text-muted-foreground">
+          Subscribed <span className="text-foreground">{thisYear ? shortDate(s.created) : day(s.created)}</span>
+        </span>
+      )}
     </span>
   )
 }
