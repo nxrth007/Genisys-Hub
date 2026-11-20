@@ -3,7 +3,9 @@
  * one query over the clients with everything the rules read, the Google
  * profile boards, the Automation Copy boards, and the Stripe billing view
  * (cached two minutes in stripe-billing.ts). Stripe failing never fails the
- * tracker: the sign-up step then says it couldn't be read.
+ * tracker: the Stripe step then says it couldn't be read. A Stripe sign-up
+ * no client has yet (no onboarding form under that email) becomes facts of
+ * its own, keyed by the Stripe customer id, so the team sees who to text.
  */
 import { prisma } from '@/lib/prisma'
 import { gbpOverview } from '@/lib/gbp-setup'
@@ -14,7 +16,7 @@ import { staysOnGhl } from '@/lib/hl/widget-swap-plan'
 import { SITE_STATUS_TEXT, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { personName } from '@/lib/site-status'
 import { clientSubscriptionsView, type ClientSubscriptionsView } from '@/lib/stripe-billing'
-import { stripeLink } from '@/lib/stripe-billing-plan'
+import { stripeLink, type UnmatchedCustomer } from '@/lib/stripe-billing-plan'
 import { MANUAL_FIELDS, NO_MARKS, type ClientFacts, type ManualMarks } from './derive'
 
 const BILLING_WAIT_MS = 12_000
@@ -39,6 +41,40 @@ async function readBilling(refresh: boolean): Promise<{ view: ClientSubscription
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
+
+/** A Stripe sign-up the Hub has no client for yet, as tracker facts: Stripe is all that's known. */
+function stripeOnlyFacts(u: UnmatchedCustomer, accountId: string | null): ClientFacts {
+  const s = u.subscription!
+  const person = personName(u.customer.name ?? s.name)
+  const email = (u.customer.email ?? s.email)?.toLowerCase() ?? null
+  return {
+    id: u.customer.id,
+    name: person ?? email ?? u.customer.id,
+    business: null,
+    person,
+    email,
+    color: '#94a3b8',
+    lifecycle: 'onboarding',
+    archived: false,
+    createdAt: u.customer.created ?? s.created ?? new Date(0).toISOString(),
+    intake: null,
+    billing: { state: u.state, subscription: s, created: s.created, href: stripeLink('subscription', s.id, { accountId, livemode: s.livemode }) },
+    billingKnown: true,
+    journey: {},
+    hl: null,
+    ghl: { linked: false, staysOnGhl: false, censusNumbers: [], censusAt: null, registration: null, customize: null },
+    siteUrl: null,
+    siteLiveAt: null,
+    siteBuild: null,
+    domainQuestion: null,
+    numberRequest: null,
+    automationCopy: { done: 0, total: AUTOMATION_IDS.length, updatedAt: null },
+    gbp: null,
+    seo: null,
+    manual: { ...NO_MARKS },
+    stripeOnly: { suggestion: u.suggestion, phone: u.customer.phone ?? s.phone },
+  }
+}
 
 export type TrackerFacts = {
   facts: ClientFacts[]
@@ -177,5 +213,14 @@ export async function trackerFacts(o: { includeArchived?: boolean; refresh?: boo
       manual,
     }
   })
+  // Stripe sign-ups with no client yet: the people to text for onboarding. Canceled ones are gone, so they're left out.
+  if (!o.clientId || o.clientId.startsWith('cus_')) {
+    for (const u of billing.view?.unmatched ?? []) {
+      if (!u.subscription || u.state === 'canceled' || u.state === 'none') continue
+      if (o.clientId && u.customer.id !== o.clientId) continue
+      facts.push(stripeOnlyFacts(u, accountId))
+      rows.set(u.customer.id, { hasRow: false, sheetRow: null })
+    }
+  }
   return { facts, rows, billing: billing.read }
 }

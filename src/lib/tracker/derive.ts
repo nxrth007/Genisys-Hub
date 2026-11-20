@@ -3,9 +3,8 @@
  * step's state is read from facts the Hub already holds, so the Tracker page
  * says what is true instead of waiting for somebody to tick a box.
  *
- *   signup       the paid sign-up: their Stripe subscription (trial, active,
- *                past due, canceled), else the Whop membership or the sign-up
- *                the onboarding form implies
+ *   signup       their Stripe subscription (trial, active, past due, canceled);
+ *                a client from before Stripe (GHL, Whop) shows it as not needed
  *   intake       the onboarding form came in
  *   subaccount   their Genisys OS sub-account (or a linked GHL one)
  *   website      the site link in Clients, else Forge's build in Lovable
@@ -15,23 +14,28 @@
  *   automations  the kit workflows live in Genisys OS, or the GHL copy
  *   gbp          Google Business Profile
  *   seo          the weekly SEO engine
+ *   qa           the final check: a person tests the site, the form, texting
+ *                and booking, then marks it done (the journey's "qa" stage)
  *
  * Five steps can also be marked done by hand (the old sheet's columns): a hand
  * mark counts only where the Hub has no evidence of its own, and shows as such.
+ * A Stripe sign-up with no client yet (no onboarding form under that email) is
+ * a row too, built from Stripe alone (`stripeOnly`), so the team sees who to
+ * text for onboarding. Every row says what to do next (`nextAction`).
  * src/lib/tracker/facts.ts gathers the facts; the rules live here so
  * tests/tracker-derive.test.mjs can run them without a database.
  */
 import { domainStage, siteHost, siteHref, tollFreeStage } from '@/lib/site-status'
 import { billingLabel, shortDate, type BillingState, type BillingSubscription, type BillingTone } from '@/lib/stripe-billing-plan'
 
-export const TRACK_STEPS = ['signup', 'intake', 'subaccount', 'website', 'domain', 'number', 'texting', 'automations', 'gbp', 'seo'] as const
+export const TRACK_STEPS = ['signup', 'intake', 'subaccount', 'website', 'domain', 'number', 'texting', 'automations', 'gbp', 'seo', 'qa'] as const
 export type TrackStep = (typeof TRACK_STEPS)[number]
 
-/** The steps a client needs for the system to work; the others are informational. */
-export const CORE_STEPS: readonly TrackStep[] = ['signup', 'intake', 'subaccount', 'website', 'number', 'texting', 'automations']
+/** The steps a client needs for the system to work, ending with the final check; the others are informational. */
+export const CORE_STEPS: readonly TrackStep[] = ['signup', 'intake', 'subaccount', 'website', 'number', 'texting', 'automations', 'qa']
 
 export const STEP_TITLE: Record<TrackStep, string> = {
-  signup: 'Sign-up',
+  signup: 'Stripe',
   intake: 'Onboarding form',
   subaccount: 'Sub-account',
   website: 'Website',
@@ -41,11 +45,12 @@ export const STEP_TITLE: Record<TrackStep, string> = {
   automations: 'Automations',
   gbp: 'Google profile',
   seo: 'SEO',
+  qa: 'QA',
 }
 
 /** What "done" means, for the legend and the cell details. */
 export const STEP_MEANS: Record<TrackStep, string> = {
-  signup: 'A Stripe subscription (trial or active), a Whop membership, or the sign-up the onboarding form implies.',
+  signup: 'Their Stripe subscription: a trial or an active plan is done; past due or canceled needs a person. A client from before Stripe (GHL, Whop) shows a dash.',
   intake: 'The onboarding form came in and is linked to the client.',
   subaccount: 'Their Genisys OS sub-account exists (or a GHL sub-account is linked).',
   website: 'The site link is in Clients, or Forge published the site.',
@@ -55,6 +60,7 @@ export const STEP_MEANS: Record<TrackStep, string> = {
   automations: 'The kit workflows are live in Genisys OS, or the GHL automations were set up.',
   gbp: 'Their Google Business Profile is verified or already existed.',
   seo: 'The weekly SEO engine runs for their site.',
+  qa: 'A person tested the site, the form, texting and booking, then marked the final check done.',
 }
 
 /** The words a client sees on their status link, and what to tell them is next. */
@@ -69,6 +75,7 @@ export const STEP_PUBLIC: Record<TrackStep, { label: string; next: string }> = {
   automations: { label: 'Automations', next: 'Our team is setting up your automations.' },
   gbp: { label: 'Google profile', next: 'Your Google Business Profile is being set up.' },
   seo: { label: 'SEO', next: 'SEO starts once your site is live.' },
+  qa: { label: 'Final check', next: 'Our team is running a final check of everything.' },
 }
 
 export type StepState = 'done' | 'in_progress' | 'blocked' | 'pending' | 'not_needed' | 'none'
@@ -88,6 +95,8 @@ export type StepView = {
   href: string | null
   /** Done because somebody marked it so, with no evidence of the Hub's own. */
   byHand: boolean
+  /** Nothing on record at all: the note only says so (the client page shows a dash). */
+  empty?: boolean
 }
 
 /** The steps that can be marked done by hand, and their ClientTracker column. */
@@ -113,6 +122,17 @@ export function readStep(v: unknown): TrackStep | null {
   if (isTrackStep(v)) return v
   return typeof v === 'string' && v in LEGACY_STEP ? LEGACY_STEP[v] : null
 }
+
+/** The steps a person can mark on the client's page: the sheet's five, and the final check. */
+export type HandStep = ManualStep | 'qa'
+export const HAND_STEPS: readonly HandStep[] = [...MANUAL_STEPS, 'qa']
+export function isHandStep(v: unknown): v is HandStep {
+  return v === 'qa' || isManualStep(v)
+}
+
+/** The client page: three milestones across the top, every other step in the fulfillment list. */
+export const MILESTONES: readonly TrackStep[] = ['signup', 'intake', 'website']
+export const FULFILLMENT: readonly TrackStep[] = ['subaccount', 'domain', 'number', 'texting', 'automations', 'gbp', 'seo', 'qa']
 
 export type ManualMarks = Record<ManualStep, 'done' | 'pending'> & { updatedAt: string | null; source: string | null }
 
@@ -169,11 +189,15 @@ export type ClientFacts = {
   gbp: { status: string | null; profileUrl: string | null } | null
   seo: { mode: string; enabled: boolean; archived: boolean; lastRunAt: string | null; lastScore: number | null } | null
   manual: ManualMarks
+  /** Set for a Stripe sign-up with no client in the Hub (no onboarding form under that email yet): `id` is the Stripe customer id. */
+  stripeOnly?: { suggestion: { clientId: string; name: string } | null; phone: string | null } | null
 }
 
 export const NO_MARKS: ManualMarks = { signup: 'pending', intake: 'pending', automations: 'pending', texting: 'pending', number: 'pending', updatedAt: null, source: null }
 
 const view = (state: StepState, note: string | null = null, at: string | null = null, href: string | null = null): StepView => ({ state, note, at, href, byHand: false })
+/** No evidence at all: the note says so, and nothing else is known. */
+const nothing = (state: StepState, note: string, href: string | null = null): StepView => ({ state, note, at: null, href, byHand: false, empty: true })
 
 const phone = (n: string): string => {
   const d = n.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
@@ -203,18 +227,26 @@ function signup(f: ClientFacts): StepView {
     return view('done', note, b.created, b.href)
   }
   const j = f.journey.signup
-  if (j?.status === 'done') return view('done', j.note ?? 'Signed up', j.updatedAt)
-  if (f.intake) return view('done', 'Implied by the onboarding form (it needs a sign-up to open)', f.intake.receivedAt)
-  if (!f.billingKnown) return view('none', 'Stripe couldn’t be read, and nothing else on record')
+  // Stripe couldn't be read this time: lean on the other evidence so an outage doesn't stall everyone here.
+  if (!f.billingKnown) {
+    if (j?.status === 'done') return view('done', `Stripe couldn’t be read · ${j.note ?? 'signed up'}`, j.updatedAt)
+    if (f.intake) return view('done', 'Stripe couldn’t be read · the onboarding form implies a sign-up', f.intake.receivedAt)
+    return view('none', 'Stripe couldn’t be read, and nothing else on record')
+  }
+  // Read, and not in Stripe: a client from before Stripe (GHL, Whop), or one whose Stripe email the Hub doesn't hold.
+  if (j?.status === 'done') return view('not_needed', `Not in Stripe · ${j.note ?? 'signed up before Stripe'}`, j.updatedAt)
+  if (f.intake) return view('not_needed', 'Not in Stripe: from before Stripe, or signed up under another email', f.intake.receivedAt)
   if (j?.status === 'blocked') return view('blocked', j.note, j.updatedAt)
-  return view('pending', 'No sign-up on record')
+  return nothing('pending', 'Not in Stripe')
 }
 
 function intake(f: ClientFacts): StepView {
   if (f.intake) return view('done', 'Onboarding form received', f.intake.receivedAt)
+  const look = f.stripeOnly?.suggestion
+  if (look) return view('pending', `No onboarding form under this email; the name looks like ${look.name}`)
   const j = f.journey.intake
   if (j?.status === 'blocked') return view('blocked', j.note, j.updatedAt)
-  return view('pending', 'No onboarding form yet')
+  return nothing('pending', 'No onboarding form yet')
 }
 
 function subaccount(f: ClientFacts): StepView {
@@ -224,7 +256,7 @@ function subaccount(f: ClientFacts): StepView {
   const j = f.journey.subaccount
   if (j?.status === 'blocked') return view('blocked', j.note, j.updatedAt)
   if (j?.status === 'in_progress') return view('in_progress', j.note, j.updatedAt)
-  return view('pending', 'No sub-account yet')
+  return nothing('pending', 'No sub-account yet')
 }
 
 const LIVE_BUILD = new Set(['published', 'connecting', 'connected'])
@@ -243,7 +275,7 @@ function website(f: ClientFacts): StepView {
   if (j?.status === 'done') return view('done', j.note ?? 'Website done', j.updatedAt, `/sites/${f.id}`)
   if (j?.status === 'blocked') return view('blocked', j.note, j.updatedAt, `/sites/${f.id}`)
   if (j?.status === 'in_progress') return view('in_progress', j.note ?? 'Being built', j.updatedAt, `/sites/${f.id}`)
-  return view('pending', 'Needs a site', null, `/sites/${f.id}`)
+  return nothing('pending', 'Needs a site', `/sites/${f.id}`)
 }
 
 function domain(f: ClientFacts): StepView {
@@ -255,7 +287,7 @@ function domain(f: ClientFacts): StepView {
   })
   const held = (f.hl?.domains ?? []).find((d) => d.status === 'active') ?? (f.hl?.domains ?? [])[0]
   const state: StepState = r.status === 'done' ? 'done' : r.status === 'in_progress' ? 'in_progress' : r.status === 'blocked' ? 'blocked' : 'pending'
-  if (state === 'pending' && !r.note && !f.hl) return view('none', 'No domain on record', null, `/sites/${f.id}`)
+  if (state === 'pending' && !r.note && !f.hl) return nothing('none', 'No domain on record', `/sites/${f.id}`)
   return view(state, r.note, held?.createdAt ?? null, `/sites/${f.id}`)
 }
 
@@ -320,7 +352,7 @@ function texting(f: ClientFacts): StepView {
     const n = f.ghl.censusNumbers.find((x) => x.tollFree) ?? f.ghl.censusNumbers[0]
     return n.verificationRequired ? view('pending', `${phone(n.number)} in GHL: Verification Required`, f.ghl.censusAt, `/clients/${f.id}/toll-free`) : view('done', `${phone(n.number)} in GHL can text`, f.ghl.censusAt, `/clients/${f.id}/ghl`)
   }
-  return view('pending', 'No texting registration yet', null, href)
+  return nothing('pending', 'No texting registration yet', href)
 }
 
 const CUSTOMIZE_DONE = new Set(['done', 'saved'])
@@ -340,13 +372,13 @@ function automations(f: ClientFacts): StepView {
   if (c && CUSTOMIZE_STUCK.has(c.status)) return view('blocked', `GHL workflow job ${c.status.replace(/_/g, ' ')}`, c.updatedAt, `/automation-copy/${f.id}`)
   if (c && CUSTOMIZE_WORKING.has(c.status)) return view('in_progress', 'Workflow AI is putting their copy into GHL', c.updatedAt, `/automation-copy/${f.id}`)
   if (ac.done > 0) return view('in_progress', `${ac.done} of ${ac.total} automations ticked on the board`, ac.updatedAt, `/automation-copy/${f.id}`)
-  return view('pending', 'Not set up yet', null, `/automation-copy/${f.id}`)
+  return nothing('pending', 'Not set up yet', `/automation-copy/${f.id}`)
 }
 
 function gbp(f: ClientFacts): StepView {
   const g = f.gbp
   const href = `/clients/${f.id}/gbp`
-  if (!g || !g.status) return view('none', 'No answer about a Google profile yet', null, href)
+  if (!g || !g.status) return nothing('none', 'No answer about a Google profile yet', href)
   switch (g.status) {
     case 'verified':
       return view('done', 'Profile verified', null, g.profileUrl ?? href)
@@ -367,7 +399,7 @@ function gbp(f: ClientFacts): StepView {
 
 function seo(f: ClientFacts): StepView {
   const s = f.seo
-  if (!s || s.archived) return view('none', 'No SEO site', null, '/seo')
+  if (!s || s.archived) return nothing('none', 'No SEO site', '/seo')
   if (!s.enabled) return view('pending', 'SEO engine switched off', s.lastRunAt, '/seo')
   const run = s.lastRunAt ? ` · last run ${shortDate(s.lastRunAt)}` : ''
   const score = s.lastScore != null ? ` · score ${s.lastScore}` : ''
@@ -376,16 +408,27 @@ function seo(f: ClientFacts): StepView {
   return view('in_progress', `Audit mode${run}${score}`, s.lastRunAt, '/seo')
 }
 
-const RULES: Record<TrackStep, (f: ClientFacts) => StepView> = { signup, intake, subaccount, website, domain, number, texting, automations, gbp, seo }
+function qa(f: ClientFacts): StepView {
+  const j = f.journey.qa
+  if (j?.status === 'done') return view('done', j.note ? `Final check passed: ${j.note}` : 'Final check passed', j.updatedAt)
+  if (j?.status === 'blocked') return view('blocked', j.note ?? 'The final check found a problem', j.updatedAt)
+  if (j?.status === 'in_progress') return view('in_progress', j.note ?? 'Final check under way', j.updatedAt)
+  return nothing('pending', 'Not checked yet')
+}
+
+const RULES: Record<TrackStep, (f: ClientFacts) => StepView> = { signup, intake, subaccount, website, domain, number, texting, automations, gbp, seo, qa }
 
 /** Every step for one client: the Hub's evidence first, a hand mark only where there is none. */
 export function deriveSteps(f: ClientFacts): Record<TrackStep, StepView> {
   const out = {} as Record<TrackStep, StepView>
   for (const s of TRACK_STEPS) {
-    const v = RULES[s](f)
+    let v = RULES[s](f)
     if ((v.state === 'pending' || v.state === 'none') && isManualStep(s) && f.manual[s] === 'done') {
-      out[s] = { state: 'done', note: 'Marked done by hand', at: f.manual.updatedAt, href: v.href, byHand: true }
-    } else out[s] = v
+      v = { state: 'done', note: 'Marked done by hand', at: f.manual.updatedAt, href: v.href, byHand: true }
+    }
+    // A Stripe sign-up with no client yet has no Hub pages to open; Stripe's own link stays.
+    if (f.stripeOnly && v.href?.startsWith('/')) v = { ...v, href: null }
+    out[s] = v
   }
   return out
 }
@@ -405,6 +448,89 @@ export const STUCK_AFTER_DAYS = 7
 export function daysSince(iso: string, now = Date.now()): number {
   const t = new Date(iso).getTime()
   return Number.isNaN(t) ? 0 : Math.max(0, Math.floor((now - t) / 86_400_000))
+}
+
+/** "Torrence" from "Torrence Surles"; null when there's no person or the first word isn't a name. */
+export function firstName(person: string | null | undefined): string | null {
+  const w = (person ?? '').trim().split(/\s+/)[0] ?? ''
+  return /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'’.-]*$/.test(w) ? w : null
+}
+
+/** What the team does next, in their words. `act`: a person on the team has to do it; `wait`: someone else has it. */
+export type NextAction = { kind: 'act' | 'wait' | 'done'; text: string; step: TrackStep | null }
+
+const REGISTRATION_STUCK = new Set(['held', 'needs_human'])
+
+/** The next action for the client's current step (the first core step not done). */
+export function nextAction(f: ClientFacts, steps: Record<TrackStep, StepView>, current: TrackStep | null): NextAction {
+  if (!current) return { kind: 'done', text: 'Done', step: null }
+  const v = steps[current]
+  const them = firstName(f.person) ?? 'them'
+  const act = (text: string): NextAction => ({ kind: 'act', text, step: current })
+  const wait = (text: string): NextAction => ({ kind: 'wait', text, step: current })
+  switch (current) {
+    case 'signup': {
+      const b = f.billing
+      if (b?.state === 'problem') return act(`Follow up with ${them}: ${billingLabel({ state: 'problem', subscription: b.subscription }).text.split(' · ')[0].toLowerCase()}`)
+      if (b?.state === 'canceled') return act('Canceled in Stripe')
+      if (v.state === 'none') return wait('Stripe couldn’t be read')
+      return act(`Get ${them} signed up`)
+    }
+    case 'intake': {
+      const look = f.stripeOnly?.suggestion
+      if (look) return act(`Same as ${look.name}?`)
+      return act(`Text ${them} for onboarding`)
+    }
+    case 'subaccount':
+      if (v.state === 'in_progress') return wait('Sub-account being made')
+      if (v.state === 'blocked') return act('Sub-account is archived')
+      return act('Create their sub-account')
+    case 'website': {
+      const b = f.siteBuild?.status
+      if (v.state === 'blocked') return act(b === 'failed' ? 'Site build didn’t finish' : 'Site is blocked')
+      if (b === 'awaiting_approval') return act('Approve the site in the Office')
+      if (b === 'built' || b === 'held') return act('Publish the site')
+      if (b === 'waiting_on_lovable') return act('Answer Lovable’s question')
+      if (v.state === 'in_progress') return wait('Site being built')
+      return act('Need to create site')
+    }
+    case 'number': {
+      const r = f.numberRequest?.status
+      if (r === 'awaiting_approval') return act('Answer Echo’s number question')
+      if (r === 'awaiting_identity') return act(`Get ${them} through GHL’s ID check`)
+      if (v.state === 'blocked') return act('Number purchase failed')
+      if (v.state === 'in_progress' && f.ghl.censusNumbers.length) return act('Verify their GHL number')
+      if (v.state === 'in_progress') return wait('Buying their number')
+      if (v.state === 'none') return act('Check their GHL number')
+      return act('Get their phone number')
+    }
+    case 'texting':
+      if (v.state === 'blocked') return act(REGISTRATION_STUCK.has(f.ghl.registration ?? '') ? 'Texting registration needs a person' : 'Texting registration rejected')
+      if (v.state === 'in_progress') {
+        if (f.hl?.a2p?.stage === 'otp') return act(`Ask ${them} to reply YES`)
+        if (f.ghl.registration === 'review') return act('Review the GHL filing in the Office')
+        if (f.ghl.registration === 'waiting_site') return wait('Texting waits for the live site')
+        return wait('Texting under review')
+      }
+      return act('File texting registration')
+    case 'automations':
+      if (v.state === 'blocked') return act('Automations need a person')
+      if (v.state === 'in_progress' && f.hl && !f.hl.archived) return act('Publish their automations')
+      if (v.state === 'in_progress' && f.ghl.customize && CUSTOMIZE_WORKING.has(f.ghl.customize.status)) return wait('Automations being set up')
+      if (v.state === 'in_progress') return act('Finish their automations')
+      return act('Set up automations')
+    case 'qa':
+      if (v.state === 'blocked') return act('Fix what the final check found')
+      if (v.state === 'in_progress') return wait('Final check under way')
+      return act('Run the final check')
+    default:
+      return act(STEP_TITLE[current])
+  }
+}
+
+/** When they signed up: their Stripe subscription, else the onboarding form, else when the Hub made the client. */
+export function signedUpAt(f: Pick<ClientFacts, 'billing' | 'intake' | 'createdAt'>): string {
+  return f.billing?.created ?? f.intake?.receivedAt ?? f.createdAt
 }
 
 export type TrackerRow = {
@@ -431,6 +557,14 @@ export type TrackerRow = {
   manual: ManualMarks
   hasRow: boolean
   sheetRow: number | null
+  /** When they signed up (Stripe, else the onboarding form, else the client record), ISO. */
+  signedUpAt: string
+  /** What to do next, in the team's words. */
+  next: NextAction
+  /** A Stripe sign-up with no client in the Hub yet: `clientId` is the Stripe customer id. */
+  stripeOnly: boolean
+  /** For a Stripe-only row: a client whose name looks like this customer's, for a person to check. */
+  suggestion: { clientId: string; name: string } | null
 }
 
 /** On the roster: not archived, churned or denied — the clients whose set-up matters. */
@@ -464,6 +598,10 @@ export function trackerRow(f: ClientFacts, o: { hasRow: boolean; sheetRow: numbe
     manual: f.manual,
     hasRow: o.hasRow,
     sheetRow: o.sheetRow,
+    signedUpAt: signedUpAt(f),
+    next: nextAction(f, steps, current),
+    stripeOnly: !!f.stripeOnly,
+    suggestion: f.stripeOnly?.suggestion ?? null,
   }
 }
 
@@ -472,6 +610,10 @@ export type TrackerSummary = {
   complete: number
   stuck: number
   blocked: number
+  /** The next action is the team's to do. */
+  act: number
+  /** The next action waits on someone else (Twilio, the carriers, Lovable). */
+  wait: number
   /** Clients per current step (roster only). */
   byStep: Record<TrackStep, number>
   /** Per step, how many roster clients are in each state. */
@@ -491,16 +633,25 @@ export function summarizeTracker(rows: TrackerRow[]): TrackerSummary {
     complete: roster.filter((r) => r.complete).length,
     stuck: roster.filter((r) => r.stuck).length,
     blocked: roster.filter((r) => r.blocked).length,
+    act: roster.filter((r) => r.next.kind === 'act').length,
+    wait: roster.filter((r) => r.next.kind === 'wait').length,
     byStep,
     states,
   }
+}
+
+export const SHOWS = ['all', 'act', 'wait', 'working', 'stuck', 'blocked', 'complete'] as const
+export type Show = (typeof SHOWS)[number]
+/** A `show` filter as a request names it; anything else is everyone. */
+export function readShow(v: unknown): Show {
+  return typeof v === 'string' && (SHOWS as readonly string[]).includes(v) ? (v as Show) : 'all'
 }
 
 export type RowFilter = {
   q?: string
   step?: TrackStep
   state?: StepState
-  show?: 'all' | 'stuck' | 'blocked' | 'complete' | 'working'
+  show?: Show
   stage?: TrackStep
   /** Only clients Stripe knows, in any subscription state ("In Stripe only"). */
   stripe?: boolean
@@ -519,15 +670,26 @@ export function filterRows(rows: TrackerRow[], o: RowFilter): TrackerRow[] {
     if (o.show === 'blocked' && !r.blocked) return false
     if (o.show === 'complete' && !r.complete) return false
     if (o.show === 'working' && (r.complete || !onRoster(r))) return false
+    if (o.show === 'act' && (r.next.kind !== 'act' || !onRoster(r))) return false
+    if (o.show === 'wait' && (r.next.kind !== 'wait' || !onRoster(r))) return false
     if (!q) return true
     return [r.clientName, r.business, r.person, r.email].some((v) => (v ?? '').toLowerCase().includes(q))
   })
 }
 
+/** Newest sign-up first, the way Stripe lists its customers. */
+export function sortRows(rows: TrackerRow[]): TrackerRow[] {
+  const at = (r: TrackerRow) => {
+    const t = Date.parse(r.signedUpAt)
+    return Number.isNaN(t) ? 0 : t
+  }
+  return [...rows].sort((a, b) => at(b) - at(a) || a.clientName.localeCompare(b.clientName))
+}
+
 // ---- the client's own status link ---------------------------------------------------------
 
 /** The steps a client sees on their status link, in order. */
-export const PUBLIC_STEPS: readonly TrackStep[] = ['signup', 'intake', 'subaccount', 'website', 'number', 'texting', 'automations', 'gbp']
+export const PUBLIC_STEPS: readonly TrackStep[] = ['signup', 'intake', 'subaccount', 'website', 'number', 'texting', 'automations', 'gbp', 'qa']
 
 export type PublicStatus = {
   business: string

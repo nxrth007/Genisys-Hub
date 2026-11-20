@@ -116,6 +116,8 @@ test('a brand-new client with nothing on record is pending everywhere and at the
   assert.equal(r.billing.text, 'Not in Stripe')
   assert.equal(r.stuckDays, 3)
   assert.equal(r.stuck, false)
+  assert.deepEqual(r.next, { kind: 'act', text: 'Get Maria signed up', step: 'signup' })
+  assert.equal(r.signedUpAt, day(3))
 })
 
 test('a Stripe trial is the sign-up, with the first charge in the note and a link into Stripe', () => {
@@ -134,16 +136,24 @@ test('a past-due subscription blocks the sign-up; a canceled one too', () => {
   const gone = blank({ billing: { state: 'canceled', subscription: sub({ status: 'canceled', canceledAt: day(1), endedAt: day(1) }), created: day(3), href: null } })
   assert.equal(d.deriveSteps(gone).signup.state, 'blocked')
   assert.equal(d.deriveSteps(gone).signup.at, day(1))
+  assert.deepEqual(d.trackerRow(past, { hasRow: false, sheetRow: null }, NOW).next, { kind: 'act', text: 'Follow up with Maria: past due', step: 'signup' })
+  assert.equal(d.trackerRow(gone, { hasRow: false, sheetRow: null }, NOW).next.text, 'Canceled in Stripe')
 })
 
-test('without Stripe, the journey, then the onboarding form, say the client signed up', () => {
+test('the Stripe step: a client from before Stripe shows a dash; a Stripe outage leans on the form', () => {
   const whop = blank({ journey: { signup: { status: 'done', note: 'Whop membership mem_1', updatedAt: day(20) } } })
-  assert.deepEqual([d.deriveSteps(whop).signup.state, d.deriveSteps(whop).signup.note], ['done', 'Whop membership mem_1'])
+  assert.deepEqual([d.deriveSteps(whop).signup.state, d.deriveSteps(whop).signup.note], ['not_needed', 'Not in Stripe · Whop membership mem_1'])
   const form = blank({ intake: { receivedAt: day(2) } })
-  assert.equal(d.deriveSteps(form).signup.state, 'done')
-  assert.match(d.deriveSteps(form).signup.note, /Implied by the onboarding form/)
+  assert.equal(d.deriveSteps(form).signup.state, 'not_needed')
+  assert.match(d.deriveSteps(form).signup.note, /^Not in Stripe/)
+  // Not needed isn't a step to do: the client moves on to the next one.
+  assert.equal(d.trackerRow(form, { hasRow: false, sheetRow: null }, NOW).current, 'subaccount')
   const unread = blank({ billingKnown: false })
   assert.equal(d.deriveSteps(unread).signup.state, 'none')
+  const unreadForm = blank({ billingKnown: false, intake: { receivedAt: day(2) } })
+  assert.equal(d.deriveSteps(unreadForm).signup.state, 'done')
+  const none = d.deriveSteps(blank()).signup
+  assert.deepEqual([none.state, none.empty], ['pending', true])
 })
 
 test('the onboarding form, the Genisys OS sub-account and the kit workflows read from the facts', () => {
@@ -258,6 +268,7 @@ test('a fully set-up client is complete; one waiting a week with nothing happeni
     hl: hl({ createdAt: day(39), numbers: [tollFree('approved', { createdAt: day(38), verificationAt: day(30) })] }),
     siteUrl: 'https://acme.com',
     siteLiveAt: day(35),
+    journey: { qa: { status: 'done', note: null, updatedAt: day(31) } },
   })
   const r = d.trackerRow(done, { hasRow: false, sheetRow: null }, NOW)
   assert.deepEqual([r.current, r.complete, r.stuck, r.stuckDays], [null, true, false, null])
@@ -286,6 +297,11 @@ test('summary and filters count the roster only', () => {
   assert.deepEqual(d.filterRows(rows, { step: 'intake', state: 'done' }).map((r) => r.clientId), ['a'])
   assert.deepEqual(d.filterRows(rows, { q: 'b' }).map((r) => r.clientId), ['b'])
   assert.deepEqual(d.filterRows(rows, { show: 'working' }).map((r) => r.clientId), ['a', 'b'])
+  assert.deepEqual([s.act, s.wait], [2, 0])
+  assert.deepEqual(d.filterRows(rows, { show: 'act' }).map((r) => r.clientId), ['a', 'b'])
+  assert.deepEqual(d.filterRows(rows, { show: 'wait' }).map((r) => r.clientId), [])
+  assert.equal(d.readShow('act'), 'act')
+  assert.equal(d.readShow('nope'), 'all')
 })
 
 test('"In Stripe only" hides clients Stripe has never heard of, not ones it could not read', () => {
@@ -311,7 +327,7 @@ test('the client’s status link shows labels and coarse states only', () => {
   assert.match(v.nextStep, /carriers/)
   assert.deepEqual(
     v.steps.map((s) => `${s.label}:${s.status}`),
-    ['Sign-up:done', 'Onboarding form:done', 'Your account:done', 'Website:done', 'Phone number:done', 'Texting registration:in_progress', 'Automations:done', 'Google profile:pending'],
+    ['Sign-up:done', 'Onboarding form:done', 'Your account:done', 'Website:done', 'Phone number:done', 'Texting registration:in_progress', 'Automations:done', 'Google profile:pending', 'Final check:pending'],
   )
   assert.equal(JSON.stringify(v).includes('stripe'), false)
   assert.equal(JSON.stringify(v).includes('855'), false)
@@ -325,4 +341,81 @@ test('step ids: the new ones and the sheet’s old ones both resolve; only five 
   assert.equal(d.readStep('nope'), null)
   assert.deepEqual(d.MANUAL_STEPS, ['signup', 'intake', 'automations', 'texting', 'number'])
   assert.equal(d.isManualStep('website'), false)
+  assert.equal(d.readStep('qa'), 'qa')
+  assert.deepEqual([d.isHandStep('qa'), d.isHandStep('texting'), d.isHandStep('website')], [true, true, false])
+})
+
+test('QA is the last step: a person marks the final check, and only then is the client done', () => {
+  const ready = blank({
+    billing: { state: 'active', subscription: sub({ status: 'active' }), created: day(40), href: null },
+    intake: { receivedAt: day(39) },
+    hl: hl({ createdAt: day(39), numbers: [tollFree('approved', { createdAt: day(38), verificationAt: day(30) })] }),
+    siteUrl: 'https://acme.com',
+    siteLiveAt: day(35),
+  })
+  const r = d.trackerRow(ready, { hasRow: false, sheetRow: null }, NOW)
+  assert.deepEqual([r.current, r.complete, r.steps.qa.state, r.steps.qa.empty], ['qa', false, 'pending', true])
+  assert.deepEqual(r.next, { kind: 'act', text: 'Run the final check', step: 'qa' })
+  const checked = d.trackerRow({ ...ready, journey: { qa: { status: 'done', note: 'Form, chat and booking tested', updatedAt: day(1) } } }, { hasRow: false, sheetRow: null }, NOW)
+  assert.deepEqual([checked.complete, checked.next.kind, checked.next.text], [true, 'done', 'Done'])
+  assert.equal(checked.steps.qa.note, 'Final check passed: Form, chat and booking tested')
+})
+
+test('the next action says what the team does next, in their words', () => {
+  const next = (over) => d.trackerRow(blank(over), { hasRow: false, sheetRow: null }, NOW).next
+  const trial = { billing: { state: 'trialing', subscription: sub(), created: day(3), href: null } }
+  assert.deepEqual(next(trial), { kind: 'act', text: 'Text Maria for onboarding', step: 'intake' })
+  assert.equal(next({ ...trial, person: null }).text, 'Text them for onboarding')
+  const formed = { ...trial, intake: { receivedAt: day(2) }, hl: hl() }
+  assert.equal(next(formed).text, 'Need to create site')
+  const build = (status, label) => ({ ...formed, siteBuild: { status, label, liveUrl: null, publishedAt: null, updatedAt: day(1) } })
+  assert.equal(next(build('awaiting_approval', 'Asked in the Office')).text, 'Approve the site in the Office')
+  assert.deepEqual(next(build('building', 'Lovable is building the site')), { kind: 'wait', text: 'Site being built', step: 'website' })
+  assert.equal(next(build('built', 'Built in Lovable')).text, 'Publish the site')
+  assert.equal(next({ ...formed, siteUrl: 'https://acme.com' }).text, 'Get their phone number')
+  assert.deepEqual(next({ ...formed, siteUrl: 'https://acme.com', hl: hl({ numbers: [tollFree('pending')] }) }), { kind: 'wait', text: 'Texting under review', step: 'texting' })
+  assert.equal(next({ ...formed, siteUrl: 'https://acme.com', hl: hl({ numbers: [tollFree('rejected')] }) }).text, 'Texting registration rejected')
+})
+
+test('a Stripe sign-up with no client yet is a row: text them for onboarding, or check the look-alike', () => {
+  const f = blank({
+    id: 'cus_123',
+    name: 'Torrence Surles',
+    business: null,
+    person: 'Torrence Surles',
+    email: 'torrence@example.com',
+    billing: { state: 'trialing', subscription: sub(), created: day(1), href: 'https://dashboard.stripe.com/subscriptions/sub_1' },
+    stripeOnly: { suggestion: null, phone: '+15551234567' },
+  })
+  const r = d.trackerRow(f, { hasRow: false, sheetRow: null }, NOW)
+  assert.deepEqual([r.stripeOnly, r.current, r.steps.signup.state, r.steps.intake.state], [true, 'intake', 'done', 'pending'])
+  assert.deepEqual(r.next, { kind: 'act', text: 'Text Torrence for onboarding', step: 'intake' })
+  assert.equal(r.signedUpAt, day(1))
+  // Stripe's link stays; there is no Hub page yet for a client that doesn't exist.
+  assert.equal(r.steps.signup.href, 'https://dashboard.stripe.com/subscriptions/sub_1')
+  assert.equal(r.steps.website.href, null)
+  const look = d.trackerRow({ ...f, stripeOnly: { suggestion: { clientId: 'c9', name: 'All Pro Painting' }, phone: null } }, { hasRow: false, sheetRow: null }, NOW)
+  assert.equal(look.next.text, 'Same as All Pro Painting?')
+  assert.deepEqual(look.suggestion, { clientId: 'c9', name: 'All Pro Painting' })
+  assert.match(look.steps.intake.note, /looks like All Pro Painting/)
+})
+
+test('rows sort newest sign-up first: Stripe, else the onboarding form, else the client record', () => {
+  const row = (over) => d.trackerRow(blank(over), { hasRow: false, sheetRow: null }, NOW)
+  const a = row({ id: 'a', name: 'A', createdAt: day(30) })
+  const b = row({ id: 'b', name: 'B', createdAt: day(30), intake: { receivedAt: day(5) } })
+  const c = row({ id: 'c', name: 'C', createdAt: day(30), intake: { receivedAt: day(5) }, billing: { state: 'trialing', subscription: sub(), created: day(2), href: null } })
+  assert.deepEqual([a.signedUpAt, b.signedUpAt, c.signedUpAt], [day(30), day(5), day(2)])
+  assert.deepEqual(d.sortRows([a, b, c]).map((r) => r.clientId), ['c', 'b', 'a'])
+})
+
+test('the client page shows every step exactly once: three milestones, the rest as fulfillment', () => {
+  const shown = [...d.MILESTONES, ...d.FULFILLMENT]
+  assert.equal(new Set(shown).size, shown.length)
+  assert.deepEqual([...shown].sort(), [...d.TRACK_STEPS].sort())
+  assert.deepEqual(d.MILESTONES, ['signup', 'intake', 'website'])
+  assert.equal(d.firstName('Torrence Surles'), 'Torrence')
+  assert.equal(d.firstName('  José   Cruz'), 'José')
+  assert.equal(d.firstName('123 Main St'), null)
+  assert.equal(d.firstName(null), null)
 })

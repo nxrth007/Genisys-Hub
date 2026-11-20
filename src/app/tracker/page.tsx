@@ -4,24 +4,25 @@
  * Client tracker: every onboarding step for every client, read from what the
  * Hub knows (src/lib/tracker/derive.ts): Stripe, the onboarding form, Genisys
  * OS, Forge's site build, numbers, texting registration, automations, the
- * Google profile board and the SEO engine. Nothing here is ticked by hand
- * except the five sheet-era steps, and a hand mark shows as one. Staff only.
+ * Google profile board, the SEO engine and the final check (QA). Nothing is
+ * ticked by hand except the five sheet-era steps and QA, and a hand mark
+ * shows as one.
  *
- * One quiet table, in the manner of a Stripe list: a row per client, a mark
- * per step, hairlines and nothing else. Click a mark (or the client) to open
- * the row: every step with its evidence, its date and a link to where to act.
- * "Copy status link" copies the client's read-only status page to the
- * clipboard; nothing is sent to the client. "In Stripe only" hides the
- * clients Stripe has no record of (GHL- and Whop-era) and is remembered
- * per browser.
+ * One quiet list, newest sign-up first, the way Stripe lists customers: the
+ * person, when they signed up, a circle per step, and what the team does next
+ * ("Text Torrence for onboarding"). Stripe sign-ups with no onboarding form
+ * yet are rows too. A row opens the client's page (src/app/tracker/[clientId])
+ * with the milestones, contact, business and the fulfillment list. "In Stripe
+ * only" hides the clients Stripe has no record of (GHL- and Whop-era) and is
+ * remembered per browser. Staff only.
  */
-import { Fragment, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Circle, CircleDashed, Ellipsis, ExternalLink, Link2, Minus, PenLine, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
+import { Check, Ellipsis, PenLine, RefreshCw, Search } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 import { cn } from '@/lib/utils'
-import { shortDate } from '@/lib/stripe-billing-plan'
 import {
   CORE_STEPS,
   STATE_WORD,
@@ -29,13 +30,13 @@ import {
   STEP_TITLE,
   STUCK_AFTER_DAYS,
   TRACK_STEPS,
-  isManualStep,
+  type Show,
   type StepState,
-  type StepView,
   type TrackStep,
   type TrackerRow,
   type TrackerSummary,
 } from '@/lib/tracker/derive'
+import { Mark, NextActionText, markTitle, rowTitle, signedUpShort } from './ui'
 
 type ListResponse = {
   rows: TrackerRow[]
@@ -45,21 +46,21 @@ type ListResponse = {
   sheetSync: { enabled: boolean; last: { at: string; counts: Record<string, number>; error: string | null } | null }
 }
 type SyncResponse = { dryRun: boolean; counts: Record<string, number>; missingHeaders: string[]; error: string | null; ops: { kind: string; sheetRow: number; label?: string; reason?: string }[] }
-type Show = 'all' | 'working' | 'stuck' | 'blocked' | 'complete'
 
 /** The views along the top, each with its roster count. */
-const SHOWS: { id: Show; label: string; count: (s: TrackerSummary) => number }[] = [
-  { id: 'all', label: 'Everyone', count: (s) => s.roster },
-  { id: 'working', label: 'Being set up', count: (s) => s.roster - s.complete },
-  { id: 'stuck', label: 'Stuck', count: (s) => s.stuck },
-  { id: 'blocked', label: 'Blocked', count: (s) => s.blocked },
-  { id: 'complete', label: 'Fully set up', count: (s) => s.complete },
+const VIEWS: { id: Show; label: string; count: (s: TrackerSummary) => number; hint: string }[] = [
+  { id: 'all', label: 'Everyone', count: (s) => s.roster, hint: 'Every client and Stripe sign-up on the roster' },
+  { id: 'act', label: 'Needs action', count: (s) => s.act, hint: 'The next action is the team’s to do' },
+  { id: 'wait', label: 'Waiting', count: (s) => s.wait, hint: 'Waiting on someone else: Twilio, the carriers, Lovable' },
+  { id: 'stuck', label: 'Stuck', count: (s) => s.stuck, hint: `Nothing has happened for ${STUCK_AFTER_DAYS}+ days` },
+  { id: 'blocked', label: 'Blocked', count: (s) => s.blocked, hint: 'A step was rejected or failed' },
+  { id: 'complete', label: 'Done', count: (s) => s.complete, hint: 'Every step done, the final check included' },
 ]
 
 /** Column heads: short, with the full name and meaning on hover. */
 const HEAD: Record<TrackStep, string> = {
-  signup: 'Sign-up',
-  intake: 'Form',
+  signup: 'Stripe',
+  intake: 'Onboarding',
   subaccount: 'Sub-account',
   website: 'Website',
   domain: 'Domain',
@@ -68,21 +69,9 @@ const HEAD: Record<TrackStep, string> = {
   automations: 'Automations',
   gbp: 'Google',
   seo: 'SEO',
+  qa: 'QA',
 }
-
-const INK: Record<StepState, string> = {
-  done: 'text-success',
-  in_progress: 'text-primary',
-  blocked: 'text-destructive',
-  pending: 'text-muted-foreground/60',
-  not_needed: 'text-muted-foreground/40',
-  none: 'text-muted-foreground/35',
-}
-const ICON: Record<Exclude<StepState, 'in_progress'>, LucideIcon> = { done: Check, blocked: X, pending: Circle, not_needed: Minus, none: CircleDashed }
-const TONE: Record<string, string> = { mint: 'chip-mint', blue: 'chip-blue', amber: 'chip-amber', pink: 'chip-pink', muted: 'bg-muted text-muted-foreground' }
 const LEGEND: StepState[] = ['done', 'in_progress', 'blocked', 'pending', 'not_needed', 'none']
-
-const when = (iso: string | null | undefined) => (iso ? shortDate(iso) : null)
 
 /**
  * "In Stripe only", remembered per browser. A tiny external store (not an
@@ -115,69 +104,27 @@ function setStripeOnly(v: boolean) {
   stripeOnlyListeners.forEach((l) => l())
 }
 
-/** The mark for a state: a check, a half circle, a cross, a ring, a dash, a dashed ring. */
-function Mark({ state, className }: { state: StepState; className?: string }) {
-  const cls = cn('h-3.5 w-3.5 shrink-0', INK[state], className)
-  if (state === 'in_progress') {
-    return (
-      <svg viewBox="0 0 16 16" className={cls} aria-hidden>
-        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.75" />
-        <path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" />
-      </svg>
-    )
-  }
-  const Icon = ICON[state]
-  return <Icon className={cls} strokeWidth={state === 'done' ? 2.75 : state === 'blocked' ? 2.5 : 1.75} aria-hidden />
-}
-
-function StepMark({ view, active, onClick }: { view: StepView; active: boolean; onClick: () => void }) {
-  const title = `${STATE_WORD[view.state]}${view.byHand ? ' (by hand)' : ''}${view.note ? ` — ${view.note}` : ''}${view.at ? ` · ${when(view.at)}` : ''}`
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={cn('relative inline-flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-muted', active && 'bg-muted ring-1 ring-primary/60')}
-    >
-      <Mark state={view.state} />
-      {view.byHand && <PenLine className="absolute right-0.5 top-0.5 h-2 w-2 text-muted-foreground" aria-label="by hand" />}
-    </button>
-  )
-}
-
-function Href({ href, children }: { href: string; children: React.ReactNode }) {
-  const cls = 'inline-flex items-center gap-1 text-primary hover:underline'
-  if (/^https?:\/\//i.test(href)) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className={cls}>
-        {children}
-        <ExternalLink className="h-3 w-3" />
-      </a>
-    )
-  }
-  return (
-    <Link href={href} className={cls}>
-      {children}
-    </Link>
-  )
+/** The muted line under the name: the business, or for a Stripe sign-up with no client yet, who it might be. */
+function rowSub(r: TrackerRow): string | null {
+  if (r.stripeOnly) return r.suggestion ? `Might be ${r.suggestion.name}` : r.email
+  if (r.person && r.person.toLowerCase() !== r.clientName.toLowerCase()) return r.clientName
+  return r.email
 }
 
 const control = 'h-8 rounded-md border border-border bg-card px-2.5 text-[12.5px] text-foreground transition hover:bg-muted focus:outline-none focus:ring-1 focus:ring-primary/50'
 const iconButton = 'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50'
-const quietLink = 'text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50'
 
 export default function TrackerPage() {
   const qc = useQueryClient()
+  const router = useRouter()
   const [q, setQ] = useState('')
   const [show, setShow] = useState<Show>('all')
   const [stage, setStage] = useState<TrackStep | ''>('')
   const [step, setStep] = useState<TrackStep | ''>('')
   const [state, setState] = useState<StepState>('pending')
   const [archived, setArchived] = useState(false)
-  const [open, setOpen] = useState<{ clientId: string; step: TrackStep | null } | null>(null)
   const [sync, setSync] = useState<SyncResponse | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-
   const stripeOnly = useSyncExternalStore(subscribeStripeOnly, readStripeOnly, () => false)
 
   const params = new URLSearchParams()
@@ -215,15 +162,6 @@ export default function TrackerPage() {
     onError: (e) => setMsg(String(e instanceof Error ? e.message : e)),
   })
 
-  const mark = useMutation({
-    mutationFn: async (v: { clientId: string; step: TrackStep; status: 'done' | 'pending'; note?: string | null }) => {
-      const r = await fetch('/api/tracker', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(v) })
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`)
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tracker'] }),
-    onError: (e) => setMsg(String(e instanceof Error ? e.message : e)),
-  })
-
   const runSync = useMutation({
     mutationFn: async (dryRun: boolean): Promise<SyncResponse> => {
       const r = await fetch('/api/tracker/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dryRun }) })
@@ -235,26 +173,17 @@ export default function TrackerPage() {
     },
   })
 
-  async function copyLink(clientId: string) {
-    const r = await fetch(`/api/tracker/${clientId}/link`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-    const j = await r.json().catch(() => null)
-    if (!r.ok || !j?.path) return setMsg(j?.error ?? `Could not create link (HTTP ${r.status})`)
-    const url = `${window.location.origin}${j.path}`
-    await navigator.clipboard.writeText(url).catch(() => {})
-    setMsg(`Status link copied (not sent): ${url}`)
-  }
-
   const rows = list.data?.rows ?? []
   const summary = list.data?.summary
   const billing = list.data?.billing
   const readAt = billing && !billing.error ? new Date(billing.asOf ?? list.data!.asOf).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) : null
-  const cols = TRACK_STEPS.length + 5
+  const cols = TRACK_STEPS.length + 3
 
   return (
     <div className="space-y-4 p-6">
       <PageHeader
         title="Tracker"
-        subtitle="Every onboarding step for every client, read from what the Hub knows."
+        subtitle="Every client from sign-up to the final check, newest first. Click a client for the details."
         breadcrumbs={[{ label: 'Clients', href: '/clients' }, { label: 'Tracker' }]}
         actions={
           <div className="flex items-center gap-1.5">
@@ -299,10 +228,11 @@ export default function TrackerPage() {
 
       {/* ---- Who to look at ---- */}
       <div className="flex flex-wrap items-center gap-1.5">
-        {SHOWS.map((v) => (
+        {VIEWS.map((v) => (
           <button
             key={v.id}
             type="button"
+            title={v.hint}
             onClick={() => setShow(v.id)}
             className={cn(
               'inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] transition',
@@ -319,7 +249,7 @@ export default function TrackerPage() {
       <div className="flex flex-wrap items-center gap-2">
         <label className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input className={cn(control, 'w-72 pl-8 hover:bg-card placeholder:text-muted-foreground/70')} placeholder="Search client, person or email" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className={cn(control, 'w-72 pl-8 hover:bg-card placeholder:text-muted-foreground/70')} placeholder="Search name, business or email" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <select className={control} value={stage} onChange={(e) => setStage(e.target.value as TrackStep | '')} title="The step a client is on">
           <option value="">Any stage</option>
@@ -340,7 +270,7 @@ export default function TrackerPage() {
         </select>
         {step && (
           <select className={control} value={state} onChange={(e) => setState(e.target.value as StepState)}>
-            {(['done', 'in_progress', 'blocked', 'pending', 'none'] as StepState[]).map((x) => (
+            {(['done', 'in_progress', 'blocked', 'pending', 'not_needed', 'none'] as StepState[]).map((x) => (
               <option key={x} value={x}>
                 is {STATE_WORD[x].toLowerCase()}
               </option>
@@ -384,26 +314,28 @@ export default function TrackerPage() {
         </div>
       )}
 
-      {/* ---- The table ---- */}
+      {/* ---- The list ---- */}
       {list.isLoading ? (
         <p className="py-8 text-center text-[12.5px] text-muted-foreground">Reading Stripe, Genisys OS and the boards…</p>
       ) : list.error ? (
         <p className="text-[12.5px] text-destructive">{String(list.error)}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[60rem] text-[13px]">
+          <table className="w-full min-w-[62rem] text-[13px]">
             <thead>
-              <tr className="border-b border-border text-left text-[11.5px] font-medium text-muted-foreground">
-                <th className="py-2 pr-3 font-medium">Client</th>
-                <th className="px-2 py-2 font-medium">Billing</th>
+              <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
+                <th className="whitespace-nowrap py-2.5 pr-3 font-medium">Client</th>
+                <th className="whitespace-nowrap px-2 py-2.5 font-medium">Signed up</th>
                 {TRACK_STEPS.map((s) => (
-                  <th key={s} className={cn('px-1 py-2 text-center font-medium', !CORE_STEPS.includes(s) && 'text-muted-foreground/60')} title={`${STEP_TITLE[s]} — ${STEP_MEANS[s]}`}>
+                  <th
+                    key={s}
+                    className={cn('whitespace-nowrap px-1 py-2.5 text-center font-medium', CORE_STEPS.includes(s) ? 'text-foreground/75' : 'text-muted-foreground/70')}
+                    title={`${STEP_TITLE[s]}: ${STEP_MEANS[s]}`}
+                  >
                     {HEAD[s]}
                   </th>
                 ))}
-                <th className="px-2 py-2 font-medium">Stage</th>
-                <th className="hidden px-2 py-2 font-medium 2xl:table-cell">Last change</th>
-                <th className="w-9 py-2" />
+                <th className="whitespace-nowrap px-2 py-2.5 font-medium">Next action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-soft">
@@ -415,112 +347,31 @@ export default function TrackerPage() {
                 </tr>
               )}
               {rows.map((r) => {
-                const isOpen = open?.clientId === r.clientId
-                const sub = [r.person, r.email].filter(Boolean).join(' · ') || r.business || ''
+                const href = `/tracker/${r.clientId}`
+                const sub = rowSub(r)
                 return (
-                  <Fragment key={r.clientId}>
-                    <tr className={cn('group transition hover:bg-muted/40', isOpen && 'bg-muted/40', r.archived && 'opacity-60')}>
-                      <td className="py-2 pr-3">
-                        <button type="button" className="block max-w-[16rem] text-left" onClick={() => setOpen(isOpen ? null : { clientId: r.clientId, step: null })}>
-                          <span className="flex items-center gap-2">
-                            <span className="truncate font-medium text-foreground">{r.clientName}</span>
-                            {r.lifecycle !== 'active' && r.lifecycle !== 'onboarding' && <span className="rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{r.lifecycle}</span>}
-                          </span>
-                          {sub && <span className="block truncate text-[12px] text-muted-foreground">{sub}</span>}
-                        </button>
+                  <tr key={r.clientId} onClick={() => router.push(href)} className={cn('cursor-pointer transition hover:bg-muted/40', r.archived && 'opacity-60')}>
+                    <td className="py-3 pr-3">
+                      <Link href={href} onClick={(e) => e.stopPropagation()} className="block max-w-[12rem]">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate text-[13.5px] font-semibold text-foreground">{rowTitle(r)}</span>
+                          {r.lifecycle !== 'active' && r.lifecycle !== 'onboarding' && <span className="rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{r.lifecycle}</span>}
+                        </span>
+                        {sub && <span className={cn('block truncate text-[12px]', r.stripeOnly && r.suggestion ? 'text-warning' : 'text-muted-foreground')}>{sub}</span>}
+                      </Link>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-3 text-muted-foreground">{signedUpShort(r.signedUpAt)}</td>
+                    {TRACK_STEPS.map((s) => (
+                      <td key={s} className="px-1 py-3 text-center">
+                        <span className="inline-flex" title={markTitle(r.steps[s])}>
+                          <Mark state={r.steps[s].state} byHand={r.steps[s].byHand} />
+                        </span>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2">
-                        {r.billing ? (
-                          <span className={cn('inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-medium', TONE[r.billing.tone])} title={r.billing.detail ?? undefined}>
-                            {r.billing.text}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">—</span>
-                        )}
-                      </td>
-                      {TRACK_STEPS.map((s) => (
-                        <td key={s} className="px-1 py-1.5 text-center">
-                          <StepMark view={r.steps[s]} active={isOpen && open?.step === s} onClick={() => setOpen(isOpen && open?.step === s ? null : { clientId: r.clientId, step: s })} />
-                        </td>
-                      ))}
-                      <td className="whitespace-nowrap px-2 py-2 text-[12.5px]">
-                        {r.complete ? (
-                          <span className="text-success">All set up</span>
-                        ) : r.current ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className={cn(r.steps[r.current].state === 'blocked' ? 'text-destructive' : 'text-foreground')}>{STEP_TITLE[r.current]}</span>
-                            {r.stuckDays != null && <span className={cn('font-mono text-[11px] tabular-nums', r.stuck ? 'text-warning' : 'text-muted-foreground/70')}>{r.stuckDays}d</span>}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">—</span>
-                        )}
-                      </td>
-                      <td className="hidden whitespace-nowrap px-2 py-2 text-[12.5px] text-muted-foreground 2xl:table-cell">{when(r.lastChangeAt) ?? '—'}</td>
-                      <td className="py-1.5 pl-1 text-right">
-                        <button
-                          type="button"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 transition hover:bg-muted hover:text-foreground group-hover:text-muted-foreground"
-                          onClick={() => copyLink(r.clientId)}
-                          title="Copy the client's status link (nothing is sent)"
-                          aria-label="Copy status link"
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr className="bg-muted/25">
-                        <td colSpan={cols} className="px-3 py-3">
-                          <ul className="grid gap-x-10 gap-y-1 text-[12.5px] sm:grid-cols-2">
-                            {TRACK_STEPS.map((s) => {
-                              const v = r.steps[s]
-                              const picked = open?.step === s
-                              const manual = isManualStep(s)
-                              return (
-                                <li key={s} className={cn('flex items-start gap-2.5 rounded-md px-2 py-1.5', picked && 'bg-card ring-1 ring-primary/40', !CORE_STEPS.includes(s) && 'opacity-80')}>
-                                  <Mark state={v.state} className="mt-0.5" />
-                                  <div className="min-w-0 flex-1">
-                                    <p>
-                                      <span className="font-medium text-foreground">{STEP_TITLE[s]}</span>
-                                      <span className="text-muted-foreground">
-                                        {' · '}
-                                        {STATE_WORD[v.state]}
-                                        {v.byHand && ', by hand'}
-                                      </span>
-                                    </p>
-                                    <p className="text-muted-foreground">{v.note ?? STEP_MEANS[s]}</p>
-                                    <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11.5px]">
-                                      {v.at && <span className="text-muted-foreground/70">{when(v.at)}</span>}
-                                      {v.href && <Href href={v.href}>Open</Href>}
-                                      {manual && r.manual[s] !== 'done' && v.state !== 'done' && (
-                                        <button
-                                          type="button"
-                                          className={quietLink}
-                                          disabled={mark.isPending}
-                                          onClick={() => {
-                                            const note = prompt(`Mark "${STEP_TITLE[s]}" done by hand for ${r.clientName}. Why? (optional)`)
-                                            if (note === null) return
-                                            mark.mutate({ clientId: r.clientId, step: s, status: 'done', note: note.trim() || null })
-                                          }}
-                                        >
-                                          Mark done by hand
-                                        </button>
-                                      )}
-                                      {manual && r.manual[s] === 'done' && (
-                                        <button type="button" className={quietLink} disabled={mark.isPending} onClick={() => mark.mutate({ clientId: r.clientId, step: s, status: 'pending' })}>
-                                          Clear hand mark
-                                        </button>
-                                      )}
-                                    </p>
-                                  </div>
-                                </li>
-                              )
-                            })}
-                          </ul>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                    ))}
+                    <td className="px-2 py-3 leading-snug">
+                      <NextActionText next={r.next} stuckDays={r.stuckDays} stuck={r.stuck} />
+                    </td>
+                  </tr>
                 )
               })}
             </tbody>
@@ -542,8 +393,8 @@ export default function TrackerPage() {
           )}
           <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
             {LEGEND.map((x) => (
-              <span key={x} className="inline-flex items-center gap-1">
-                <Mark state={x} className="h-3 w-3" />
+              <span key={x} className="inline-flex items-center gap-1.5">
+                <Mark state={x} size="sm" />
                 {STATE_WORD[x]}
               </span>
             ))}
@@ -564,7 +415,9 @@ export default function TrackerPage() {
             </li>
           ))}
         </ul>
-        <p className="mt-2">Stage is the first core step not done. A client is stuck when nothing has happened for {STUCK_AFTER_DAYS} days or more.</p>
+        <p className="mt-2">
+          The next action is the first core step not done. Red means it’s the team’s to do; grey means someone else has it. A client is stuck when nothing has happened for {STUCK_AFTER_DAYS} days or more. Stripe sign-ups with no onboarding form under their email show up here too, so nobody is missed.
+        </p>
       </details>
     </div>
   )
