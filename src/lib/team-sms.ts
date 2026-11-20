@@ -64,6 +64,21 @@ export async function textTeam(message: string, label = 'Alert'): Promise<TeamTe
   return results
 }
 
+/**
+ * One text per key per window, for alarms a stream of requests would otherwise
+ * repeat every few seconds (a webhook refusing the same sender, say). Mirrors
+ * hubAlertThrottled; the memory is this process's, which is the one Render
+ * instance. Returns null when the window swallowed it.
+ */
+const lastTextAt = new Map<string, number>()
+
+export async function textTeamThrottled(key: string, everyMs: number, message: string, label = 'Alert'): Promise<TeamTextResult[] | null> {
+  const now = Date.now()
+  if (now - (lastTextAt.get(key) ?? 0) < everyMs) return null
+  lastTextAt.set(key, now)
+  return textTeam(message, label)
+}
+
 async function logTeamText(entry: TeamTextLogEntry): Promise<void> {
   const row = await prisma.appSetting.findUnique({ where: { key: LOG_KEY } })
   let log: TeamTextLogEntry[] = []
@@ -91,6 +106,29 @@ export function onboardingText(o: { business: string; owner: string | null; city
   return o.created
     ? `Genisys: New client onboarded! ${o.business}${o.owner ? ` (${o.owner})` : ''}${o.city ? ` in ${o.city}` : ''} finished the onboarding form and was added to Clients in the Hub. ${o.link}`
     : `Genisys: ${o.business} finished the onboarding form again. Their answers were added to the client already in the Hub. ${o.link}`
+}
+
+/**
+ * A submission the Hub stored but could not turn into a client (no business
+ * name, or a phone number where the name should be). Until now the only trace
+ * was a Slack post nobody reads, and the client waited.
+ */
+export function onboardingNoClientText(o: { business: string; why: string; link: string }): string {
+  return `Genisys: ${o.business} finished the onboarding form, but the Hub could not make a client from it. ${o.why}. Review it under Clients > Onboarding answers: ${o.link}`
+}
+
+export type OnboardingRejection = 'invalid_secret' | 'invalid_json' | 'empty_payload'
+
+/** A submission the webhook turned away: the form sent it and the Hub did not keep it. */
+export function onboardingRejectedText(o: { reason: OnboardingRejection; business: string | null; link: string }): string {
+  const who = o.business ? ` for ${o.business}` : ''
+  const why =
+    o.reason === 'invalid_secret'
+      ? 'its webhook secret does not match the Vault. The Hub will pick it up from the onboarding sheet within 15 minutes; check INTAKE_WEBHOOK_SECRET in the form project'
+      : o.reason === 'invalid_json'
+        ? 'the Hub could not read it (not valid JSON). The form may have changed its payload; the onboarding sheet still has the answers'
+        : 'it carried no answers. The form may have changed its field names; the onboarding sheet still has the answers'
+  return `Genisys: the onboarding form sent a submission${who} but the Hub turned it away: ${why}. ${o.link}`
 }
 
 /** The text for a new Whop membership. */

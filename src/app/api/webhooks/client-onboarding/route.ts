@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { getSecretByName } from '@/lib/vault-service'
 import { ingestIntake, intakeDataFromBody, isRecord, looksLikeIntake, str } from '@/lib/client-intake-ingest'
-import { hubAlertThrottled } from '@/lib/hub-alerts'
+import { hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
+import { onboardingRejectedText, textTeamThrottled } from '@/lib/team-sms'
 
 /**
  * POST /api/webhooks/client-onboarding
@@ -23,6 +24,10 @@ import { hubAlertThrottled } from '@/lib/hub-alerts'
  * The verbatim body is stored alongside the parsed fields. The form will
  * gain questions faster than this schema does, and an answer that was
  * never written down is unrecoverable.
+ *
+ * A refused submission that carries onboarding answers also texts the team
+ * (throttled, src/lib/team-sms.ts): the Slack post alone goes unread, and a
+ * submission the Hub turned away is a client waiting on us.
  *
  * This is the fast path, not the only one: the form forwards here only
  * when its INTAKE_WEBHOOK_URL setting points at this URL, and skips
@@ -86,6 +91,11 @@ export async function POST(req: NextRequest) {
         30 * 60_000,
         `:rotating_light: *Onboarding webhook rejected a submission* — the secret it sent doesn't match the Vault entry "${SECRET_ENTRY}".${submission ? ` It looked like a real form entry${who ? ` for *${who}*` : ''}.` : ''} Check INTAKE_WEBHOOK_SECRET in the onboarding form's Lovable settings. The Hub will still pick the submission up from the onboarding sheet within a few minutes.`,
       )
+      // A real submission turned away texts the team; a stray header with no answers stays in Slack.
+      if (submission) {
+        void textTeamThrottled('onboarding:invalid_secret', 30 * 60_000, onboardingRejectedText({ reason: 'invalid_secret', business: who, link: hubLink('/clients') }), 'Onboarding form')
+          .catch((err) => console.warn('[client-onboarding] team text failed (invalid_secret):', err))
+      }
     }
     // Deliberately distinct from middleware's generic "unauthorized", so
     // a wrong secret is distinguishable from never reaching the handler.
@@ -104,6 +114,9 @@ export async function POST(req: NextRequest) {
       30 * 60_000,
       ':rotating_light: *Onboarding webhook rejected a submission* — the body was not valid JSON. The form’s payload format may have changed.',
     )
+    // Past the secret check, so this is the form (or someone holding its secret), not a scanner.
+    void textTeamThrottled('onboarding:invalid_json', 30 * 60_000, onboardingRejectedText({ reason: 'invalid_json', business: null, link: hubLink('/clients') }), 'Onboarding form')
+      .catch((err) => console.warn('[client-onboarding] team text failed (invalid_json):', err))
     return NextResponse.json(
       { error: 'invalid_json', message: 'Body was not valid JSON.' },
       { status: 400 },
@@ -119,6 +132,8 @@ export async function POST(req: NextRequest) {
       30 * 60_000,
       ':rotating_light: *Onboarding webhook received a submission with no answers in it* — the form’s field mapping may have changed. Nothing was stored.',
     )
+    void textTeamThrottled('onboarding:empty_payload', 30 * 60_000, onboardingRejectedText({ reason: 'empty_payload', business: null, link: hubLink('/clients') }), 'Onboarding form')
+      .catch((err) => console.warn('[client-onboarding] team text failed (empty_payload):', err))
     return NextResponse.json(
       { error: 'empty_payload', message: 'No onboarding fields were present.' },
       { status: 400 },

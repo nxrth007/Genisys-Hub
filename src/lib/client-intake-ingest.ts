@@ -8,7 +8,7 @@ import { hubAlert, hubLink } from '@/lib/hub-alerts'
 import { syncClientFacts } from '@/lib/seo/client-facts'
 import { ensureSeoSiteForClient } from '@/lib/seo/link-client'
 import { startGbpForNewIntake } from '@/lib/gbp-setup'
-import { onboardingText, textTeam } from '@/lib/team-sms'
+import { onboardingNoClientText, onboardingText, textTeam } from '@/lib/team-sms'
 import { markTrackerStep } from '@/lib/onboarding-tracker'
 import { advanceJourneyStage, getJourney, recordJourney, setJourneyStage } from '@/lib/client-journey'
 import { createAccountForClient } from '@/lib/hl/accounts'
@@ -291,6 +291,10 @@ export async function ingestIntake(body: Record<string, unknown>, source: 'webho
     await hubAlert(
       `:warning: *Onboarding submission stored but no client was created* — ${who}${via}. ${why}. Review it under Clients → Onboarding answers: <${hubLink('/clients/onboarding')}|open>`,
     )
+    // Text Alex and Ethan as well (src/lib/team-sms.ts): nobody reads the Slack post, and a client whose
+    // form nobody heard about is a client waiting on us. Fire-and-forget, like the text for a made client.
+    void textTeam(onboardingNoClientText({ business: who, why, link: hubLink('/clients/onboarding') }), 'Onboarding form')
+      .catch((err) => console.warn(`[client-onboarding] team text failed for intake ${intake.id}:`, err))
   }
 
   return { id: intake.id, clientId, created, duplicate: false }
