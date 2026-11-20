@@ -8,7 +8,8 @@ import { lastSheetSync, sheetSyncEnabled } from '@/lib/tracker/sheet-sync'
 
 /**
  * The derived client tracker (src/lib/tracker). Staff only.
- *   GET  ?q=&show=&stage=&step=&state=&archived=1&refresh=1  → rows, summary, billing read, sheet sync
+ *   GET  ?q=&show=&stage=&step=&state=&stripe=1&archived=1&refresh=1
+ *                                  → rows, summary, billing read, sheet sync (stripe=1: only clients Stripe knows)
  *   POST { clientId, step, status, note? }                    → a hand mark on one of the five
  *                                                               hand-markable steps (audited)
  */
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
     state: isStepState(state) ? state : undefined,
     stage: readStep(p.get('stage')) ?? undefined,
     show: show === 'stuck' || show === 'blocked' || show === 'complete' || show === 'working' ? show : 'all',
+    stripe: p.get('stripe') === '1',
     includeArchived: p.get('archived') === '1',
     refresh: p.get('refresh') === '1',
   })

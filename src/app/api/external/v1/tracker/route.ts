@@ -7,7 +7,8 @@ import { listTracker, manualStepFor, setTrackerStep } from '@/lib/tracker/store'
 
 /**
  * /api/external/v1/tracker — the derived client tracker for bots.
- *   GET   ?q=&show=&stage=&step=&state=&archived=1  → rows + summary (owner token)
+ *   GET   ?q=&show=&stage=&step=&state=&stripe=1&archived=1  → rows + summary (owner token;
+ *                                                     stripe=1 keeps only clients Stripe knows)
  *   PATCH { clientId, step, status, note? }         → a hand mark on one of the five
  *                                                     hand-markable steps, audited (owner account)
  * Every other step is read from the Hub. Owner-gated: rows carry contact
@@ -23,6 +24,7 @@ export const GET = withOwnerApi(async (req) => {
     state: isStepState(state) ? state : undefined,
     stage: readStep(p.get('stage')) ?? undefined,
     show: show === 'stuck' || show === 'blocked' || show === 'complete' || show === 'working' ? show : 'all',
+    stripe: p.get('stripe') === '1',
     includeArchived: p.get('archived') === '1',
   })
   return { ...list, steps: TRACK_STEPS, manualSteps: MANUAL_STEPS, states: STEP_STATES }

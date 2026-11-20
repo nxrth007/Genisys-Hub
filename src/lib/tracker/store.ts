@@ -10,6 +10,7 @@ import {
   MANUAL_FIELDS,
   deriveSteps,
   filterRows,
+  inStripe,
   isManualStep,
   lastChangeAt,
   publicStatusView,
@@ -29,7 +30,7 @@ export type { TrackerRow, TrackerSummary }
 
 export type TrackerList = {
   rows: TrackerRow[]
-  /** Over every client listed (before the filters), roster only. */
+  /** Over every client listed, roster only: after the Stripe toggle, before the other filters. */
   summary: TrackerSummary
   billing: BillingRead
   asOf: string
@@ -39,7 +40,9 @@ export async function listTracker(opts: RowFilter & { includeArchived?: boolean;
   const { facts, rows: meta, billing } = await trackerFacts({ includeArchived: opts.includeArchived, refresh: opts.refresh })
   const now = Date.now()
   const all = facts.map((f) => trackerRow(f, meta.get(f.id) ?? { hasRow: false, sheetRow: null }, now))
-  return { rows: filterRows(all, opts), summary: summarizeTracker(all), billing, asOf: new Date(now).toISOString() }
+  // "In Stripe only" narrows the population, so the view counts follow it.
+  const pop = opts.stripe ? all.filter(inStripe) : all
+  return { rows: filterRows(pop, opts), summary: summarizeTracker(pop), billing, asOf: new Date(now).toISOString() }
 }
 
 /** Create the client's tracker row from Hub data if it has none. Never creates a client. */

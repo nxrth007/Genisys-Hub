@@ -496,12 +496,24 @@ export function summarizeTracker(rows: TrackerRow[]): TrackerSummary {
   }
 }
 
-export type RowFilter = { q?: string; step?: TrackStep; state?: StepState; show?: 'all' | 'stuck' | 'blocked' | 'complete' | 'working'; stage?: TrackStep }
+export type RowFilter = {
+  q?: string
+  step?: TrackStep
+  state?: StepState
+  show?: 'all' | 'stuck' | 'blocked' | 'complete' | 'working'
+  stage?: TrackStep
+  /** Only clients Stripe knows, in any subscription state ("In Stripe only"). */
+  stripe?: boolean
+}
+
+/** Stripe knows this client, in any subscription state. When Stripe couldn't be read nobody is hidden. */
+export const inStripe = (r: Pick<TrackerRow, 'billing'>): boolean => !r.billing || r.billing.state !== 'none'
 
 export function filterRows(rows: TrackerRow[], o: RowFilter): TrackerRow[] {
   const q = (o.q ?? '').trim().toLowerCase()
   return rows.filter((r) => {
     if (o.step && o.state && r.steps[o.step].state !== o.state) return false
+    if (o.stripe && !inStripe(r)) return false
     if (o.stage && r.current !== o.stage) return false
     if (o.show === 'stuck' && !r.stuck) return false
     if (o.show === 'blocked' && !r.blocked) return false

@@ -11,9 +11,11 @@
  * per step, hairlines and nothing else. Click a mark (or the client) to open
  * the row: every step with its evidence, its date and a link to where to act.
  * "Copy status link" copies the client's read-only status page to the
- * clipboard; nothing is sent to the client.
+ * clipboard; nothing is sent to the client. "In Stripe only" hides the
+ * clients Stripe has no record of (GHL- and Whop-era) and is remembered
+ * per browser.
  */
-import { Fragment, useState } from 'react'
+import { Fragment, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Circle, CircleDashed, Ellipsis, ExternalLink, Link2, Minus, PenLine, RefreshCw, Search, X, type LucideIcon } from 'lucide-react'
@@ -82,6 +84,37 @@ const LEGEND: StepState[] = ['done', 'in_progress', 'blocked', 'pending', 'not_n
 
 const when = (iso: string | null | undefined) => (iso ? shortDate(iso) : null)
 
+/**
+ * "In Stripe only", remembered per browser. A tiny external store (not an
+ * effect) so the server render and hydration agree and the toggle updates
+ * every open Tracker tab.
+ */
+const STRIPE_ONLY_KEY = 'tracker.stripeOnly'
+const stripeOnlyListeners = new Set<() => void>()
+let stripeOnlyFallback = false
+function subscribeStripeOnly(cb: () => void) {
+  stripeOnlyListeners.add(cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    stripeOnlyListeners.delete(cb)
+    window.removeEventListener('storage', cb)
+  }
+}
+function readStripeOnly(): boolean {
+  try {
+    return localStorage.getItem(STRIPE_ONLY_KEY) === '1'
+  } catch {
+    return stripeOnlyFallback
+  }
+}
+function setStripeOnly(v: boolean) {
+  stripeOnlyFallback = v
+  try {
+    localStorage.setItem(STRIPE_ONLY_KEY, v ? '1' : '0')
+  } catch {}
+  stripeOnlyListeners.forEach((l) => l())
+}
+
 /** The mark for a state: a check, a half circle, a cross, a ring, a dash, a dashed ring. */
 function Mark({ state, className }: { state: StepState; className?: string }) {
   const cls = cn('h-3.5 w-3.5 shrink-0', INK[state], className)
@@ -145,6 +178,8 @@ export default function TrackerPage() {
   const [sync, setSync] = useState<SyncResponse | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
+  const stripeOnly = useSyncExternalStore(subscribeStripeOnly, readStripeOnly, () => false)
+
   const params = new URLSearchParams()
   if (q.trim()) params.set('q', q.trim())
   if (show !== 'all') params.set('show', show)
@@ -153,6 +188,7 @@ export default function TrackerPage() {
     params.set('step', step)
     params.set('state', state)
   }
+  if (stripeOnly) params.set('stripe', '1')
   if (archived) params.set('archived', '1')
   const key = params.toString()
 
@@ -311,6 +347,16 @@ export default function TrackerPage() {
             ))}
           </select>
         )}
+        <button
+          type="button"
+          aria-pressed={stripeOnly}
+          onClick={() => setStripeOnly(!stripeOnly)}
+          title="Hide the clients Stripe has no record of (GHL- and Whop-era clients)"
+          className={cn(control, 'inline-flex items-center gap-1.5', stripeOnly ? 'border-primary bg-primary-soft text-foreground hover:bg-primary-soft' : 'text-muted-foreground hover:text-foreground')}
+        >
+          {stripeOnly && <Check className="h-3 w-3" strokeWidth={2.5} />}
+          In Stripe only
+        </button>
       </div>
 
       {msg && (
@@ -487,6 +533,7 @@ export default function TrackerPage() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-muted-foreground">
           <span>
             {rows.length} client{rows.length === 1 ? '' : 's'}
+            {stripeOnly ? ' in Stripe' : ''}
           </span>
           {billing && (
             <span className={cn(billing.error && 'text-destructive')} title={billing.error ?? undefined}>

@@ -288,6 +288,22 @@ test('summary and filters count the roster only', () => {
   assert.deepEqual(d.filterRows(rows, { show: 'working' }).map((r) => r.clientId), ['a', 'b'])
 })
 
+test('"In Stripe only" hides clients Stripe has never heard of, not ones it could not read', () => {
+  const row = (over) => d.trackerRow(blank(over), { hasRow: false, sheetRow: null }, NOW)
+  const rows = [
+    row({ id: 'a', name: 'A' }), // Stripe read, no record: Not in Stripe
+    row({ id: 'b', name: 'B', billing: { state: 'trialing', subscription: sub(), created: day(3), href: null } }),
+    row({ id: 'c', name: 'C', billingKnown: false }), // Stripe could not be read: kept
+    row({ id: 'd', name: 'D', billing: { state: 'canceled', subscription: sub({ status: 'canceled', canceledAt: day(1), endedAt: day(1) }), created: day(3), href: null } }),
+  ]
+  assert.equal(rows[0].billing.text, 'Not in Stripe')
+  assert.equal(d.inStripe(rows[0]), false)
+  assert.equal(d.inStripe(rows[2]), true)
+  assert.deepEqual(d.filterRows(rows, { stripe: true }).map((r) => r.clientId), ['b', 'c', 'd'])
+  assert.deepEqual(d.filterRows(rows, { stripe: true, show: 'working' }).map((r) => r.clientId), ['b', 'c', 'd'])
+  assert.deepEqual(d.filterRows(rows, {}).map((r) => r.clientId), ['a', 'b', 'c', 'd'])
+})
+
 test('the client’s status link shows labels and coarse states only', () => {
   const steps = d.deriveSteps(blank({ intake: { receivedAt: day(2) }, hl: hl({ numbers: [tollFree('pending')] }), siteUrl: 'https://acme.com', billing: { state: 'trialing', subscription: sub(), created: day(3), href: 'https://stripe' } }))
   const v = d.publicStatusView(steps, { business: 'Acme', updatedAt: day(0) })
