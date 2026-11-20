@@ -4,8 +4,9 @@ import { getSiteDetail } from '@/lib/sites'
 import { SiteDetailView } from '@/components/sites/site-detail'
 
 /**
- * /sites/:clientId — one client's folder, opened: their status, a link to
- * their website, and the toll-free number (and details) the site build needs.
+ * /sites/:clientId — one client's folder, opened: the Site and Repo pickers
+ * at the top (as on the Clients page), their status, a link to their
+ * website, and the toll-free number (and details) the site build needs.
  * Staff only; asking for a number in the Office is admin only.
  */
 export const metadata = { title: 'Site · Genisys Hub' }

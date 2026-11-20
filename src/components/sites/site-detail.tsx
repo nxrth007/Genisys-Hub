@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Hammer, Loader2, Phone, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
@@ -13,6 +14,7 @@ import { BuilderWindow, DomainCodeBox } from './builder-window'
 import { ConfirmDialog, postAction } from './confirm-dialog'
 import { DomainCard } from './domain-card'
 import { ClientReportCard } from './client-report-card'
+import { RepoSelect, SiteLink, useRepoGuesses, type PickerClient, type RepoMatchClient } from '@/components/clients/site-repo-pickers'
 
 /** "+18556762067" → "(855) 676-2067". */
 function pretty(n: string | null | undefined): string {
@@ -603,9 +605,34 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
   )
 }
 
-/** One client's folder, opened: their status, their site, and what the site build needs. `openBuilder` opens the builder window straight away (?builder=1, the Office's link). */
+/**
+ * One client's folder, opened: the Site and Repo pickers at the top (the same as the Clients page's
+ * columns), their status, their site, and what the site build needs. `openBuilder` opens the builder
+ * window straight away (?builder=1, the Office's link).
+ */
 export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDetail; canAsk: boolean; openBuilder?: boolean }) {
   const router = useRouter()
+  // Every client's site link, repo and addresses, so the Repo dropdown greys out a repo another client
+  // holds and shows the Hub's guess in green, as on the Clients page.
+  const repoContext = useQuery<{ clients: RepoMatchClient[] }>({
+    queryKey: ['clients-repo-context'],
+    queryFn: async () => {
+      const res = await fetch('/api/clients/repo-context')
+      if (!res.ok) throw new Error(`Couldn’t load the repo list (${res.status})`)
+      return res.json()
+    },
+    staleTime: 60_000,
+  })
+  const matchClients = useMemo(() => repoContext.data?.clients ?? [], [repoContext.data])
+  const { repoOwners, suggestions } = useRepoGuesses(matchClients)
+  // The server's copy until the list is in; a save refreshes both.
+  const picker: PickerClient = matchClients.find((c) => c.id === d.client.id) ?? {
+    id: d.client.id,
+    name: d.client.name,
+    siteUrl: d.client.siteUrl,
+    archivedAt: d.client.archivedAt,
+    seo: d.seo && !d.seo.archived ? { siteId: d.seo.siteId, repoFullName: d.seo.repo } : null,
+  }
   const [askMsg, setAskMsg] = useState<string | null>(null)
   const [buyOpen, setBuyOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(openBuilder && !!d.builder)
@@ -661,7 +688,7 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
               <AppWindow className="h-4 w-4" /> Open website in builder
             </button>
           )}
-          {live && d.client.siteUrl ? (
+          {live && d.client.siteUrl && (
             <a
               href={siteHref(d.client.siteUrl)}
               target="_blank"
@@ -673,13 +700,25 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
             >
               <ExternalLink className="h-4 w-4" /> Open website
             </a>
-          ) : (
-            <Link href={`/clients?focus=${d.client.id}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-[13px] font-medium text-foreground transition hover:bg-muted">
-              Add the site link on Clients
-            </Link>
           )}
         </div>
       </header>
+
+      {/* Where the site lives: the Clients page's Site and Repo columns, here at the top. */}
+      <section aria-label="Site and repo" className="flex flex-wrap items-start gap-x-10 gap-y-3 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="flex items-start gap-3">
+          <span className="eyebrow flex h-9 w-10 shrink-0 items-center text-muted-foreground">Site</span>
+          <div className="flex min-h-9 items-center">
+            <SiteLink client={picker} size="md" onSaved={() => router.refresh()} />
+          </div>
+        </div>
+        <div className="flex items-start gap-3">
+          <span className="eyebrow flex h-9 w-10 shrink-0 items-center text-muted-foreground">Repo</span>
+          <div className="flex min-h-9 items-center">
+            <RepoSelect client={picker} repoOwners={repoOwners} suggestion={suggestions.get(picker.id)} size="md" onSaved={() => router.refresh()} />
+          </div>
+        </div>
+      </section>
 
       {d.builder && (
         <BuilderWindow

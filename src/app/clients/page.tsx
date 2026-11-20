@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,14 +9,11 @@ import {
   Archive,
   ArchiveRestore,
   Building2,
-  Check,
   ChevronDown,
   ChevronRight,
   Download,
   ExternalLink,
   FileText,
-  FolderGit2,
-  Globe,
   Loader2,
   MapPin,
   MessageSquareText,
@@ -24,7 +21,6 @@ import {
   Phone,
   Search,
   Trash2,
-  TrendingUp,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -37,9 +33,7 @@ import { DuplicateClients } from '@/components/clients/duplicate-clients'
 import { GhlSubAccountPicker } from '@/components/clients/ghl-subaccount-picker'
 import { Chip } from '@/components/ui/chip'
 import { DropdownPill } from '@/components/ui/dropdown-pill'
-import { suggestReposForClients, type RepoSuggestion } from '@/lib/site-match'
-import type { SiteSuggestion } from '@/lib/site-suggestions'
-import type { GitWatchView } from '@/lib/seo/lovable-git-watch'
+import { RepoSelect, SiteLink, useRepoGuesses, type RepoMatchClient, type RepoSuggestion } from '@/components/clients/site-repo-pickers'
 import {
   ClientEditDialog,
   LIFECYCLES,
@@ -157,14 +151,6 @@ function initials(name: string): string {
 
 function ownsDomain(i: Intake | null): boolean {
   return /^y(es)?$/i.test(i?.bringingOwnDomain ?? '')
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, '')
-  } catch {
-    return url
-  }
 }
 
 /** One CSV cell: quote when needed, double embedded quotes, keep newlines inside the quotes. */
@@ -295,40 +281,18 @@ function ClientsPage() {
   // Each client's Stripe subscription (src/components/clients/subscriptions-panel.tsx): the Billing column, the panel, the detail.
   const billing = useClientSubscriptions()
   const billingByClient = billing.data?.byClient
-  // Which client holds which repo, so the Repo dropdown can grey out taken ones.
-  const repoOwners = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const c of clients) if (c.seo?.repoFullName) m.set(c.seo.repoFullName.toLowerCase(), c.name)
-    return m
-  }, [clients])
-  // The repo each client most likely lives in (src/lib/site-match.ts), shown in green in the Repo column.
-  const repoList = useGithubRepos()
-  const gitWatch = useQuery<GitWatchView | null>({
-    queryKey: ['lovable-git-watch'],
-    queryFn: async () => {
-      const res = await fetch('/api/seo/lovable/git-watch')
-      if (res.status === 403) return null
-      if (!res.ok) throw new Error(`Failed to load (${res.status})`)
-      return res.json()
-    },
-    staleTime: 60_000,
-  })
-  const repoSuggestions = useMemo(() => {
-    const repos = (repoList.data?.repos ?? []).map((r) => r.fullName)
-    if (!repos.length) return new Map<string, RepoSuggestion>()
-    const live = clients.filter((c) => !c.archivedAt)
-    return suggestReposForClients(
-      live.map((c) => ({
-        id: c.id,
-        name: c.name,
+  // Which client holds which repo (the Repo dropdown greys out taken ones), and the repo each client most
+  // likely lives in (src/lib/site-match.ts), shown in green. The folder in Sites works it out the same way.
+  const matchClients = useMemo<RepoMatchClient[]>(
+    () =>
+      clients.map((c) => ({
+        ...c,
         people: [c.contactName, c.intake?.fullName],
         addresses: [c.siteUrl, c.website, c.intake?.domainName, c.intake?.website, c.contactEmail, c.intake?.leadEmail],
-        repoFullName: c.seo?.repoFullName ?? null,
       })),
-      repos,
-      (gitWatch.data?.projects ?? []).map((p) => ({ name: p.name, repoFullName: p.repoFullName, clientId: p.clientId })),
-    )
-  }, [clients, repoList.data, gitWatch.data])
+    [clients],
+  )
+  const { repoOwners, suggestions: repoSuggestions } = useRepoGuesses(matchClients)
 
   // ?focus=<id> (from the ⌘K palette) opens that client on arrival. It
   // is derived from the URL rather than copied into state; closing the
@@ -670,376 +634,6 @@ function ClientRow({
 }
 
 /* -------------------------------------------------------------------------- */
-
-/**
- * The site we built. A link once it is set; an inline field to paste
- * it into until then. Enter saves, Esc cancels, clicking the pencil
- * reopens it for changes. While the field is open, the live sites the
- * Hub found for this client are listed under it (green = the page names
- * the business); clicking one saves it.
- */
-function SiteLink({ client, size = 'sm' }: { client: RosterClient; size?: 'sm' | 'md' }) {
-  const qc = useQueryClient()
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(client.siteUrl ?? '')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const found = useQuery<{ suggestions: SiteSuggestion[] }>({
-    queryKey: ['site-suggestions', client.id],
-    queryFn: async () => {
-      const res = await fetch(`/api/clients/${client.id}/site-suggestions`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || `Couldn’t look for sites (${res.status})`)
-      return data
-    },
-    enabled: editing,
-    staleTime: 5 * 60_000,
-    retry: false,
-  })
-
-  const save = useMutation({
-    mutationFn: async (siteUrl: string) => {
-      const res = await fetch(`/api/clients/${client.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ siteUrl }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Failed to save')
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['clients-roster'] })
-      qc.invalidateQueries({ queryKey: ['clients'] })
-      // The Home globe fires an arc for a newly live site.
-      qc.invalidateQueries({ queryKey: ['home-globe'] })
-      setEditing(false)
-    },
-  })
-
-  function open() {
-    setValue(client.siteUrl ?? '')
-    setEditing(true)
-    setTimeout(() => inputRef.current?.focus(), 0)
-  }
-
-  if (editing) {
-    const options = (found.data?.suggestions ?? []).filter((s) => !s.current)
-    return (
-      <div className="flex flex-col gap-1.5">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            save.mutate(value.trim())
-          }}
-          className="flex items-center gap-1.5"
-        >
-          <input
-            ref={inputRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditing(false)
-            }}
-            placeholder="https://"
-            spellCheck={false}
-            className={cn(
-              'rounded-md border border-border bg-surface px-2 font-mono text-[12px] outline-none focus:border-foreground/30',
-              size === 'sm' ? 'h-7 w-44' : 'h-9 w-72',
-            )}
-          />
-          <button
-            type="submit"
-            disabled={save.isPending}
-            className="grid h-7 w-7 place-items-center rounded-md border border-border text-foreground hover:bg-muted disabled:opacity-50"
-            title="Save"
-          >
-            {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(false)}
-            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted"
-            title="Cancel"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-          {save.isError && (
-            <span className="text-xs text-destructive">{(save.error as Error).message}</span>
-          )}
-        </form>
-        {found.isFetching ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Looking for this client’s live site…
-          </span>
-        ) : found.isError ? (
-          <span className="text-[11px] text-muted-foreground">{(found.error as Error).message}</span>
-        ) : found.data && !options.length ? (
-          <span className="text-[11px] text-muted-foreground">No live site found yet. Paste it above.</span>
-        ) : (
-          options.map((s) => (
-            <button
-              key={s.url}
-              type="button"
-              disabled={save.isPending}
-              onClick={() => {
-                if (s.takenBy && !window.confirm(`${hostOf(s.url)} is already ${s.takenBy}’s site. Use it for ${client.name} too?`)) return
-                setValue(s.url)
-                save.mutate(s.url)
-              }}
-              title={[
-                s.title,
-                s.confirmed
-                  ? 'Our Lovable build, and the page names this business'
-                  : s.lovable
-                    ? 'On Lovable, but the page doesn’t name this business'
-                    : 'Not on Lovable: likely the client’s own or older site',
-                `Found from: ${s.from.join(', ')}`,
-              ]
-                .filter(Boolean)
-                .join('\n')}
-              className={cn(
-                'inline-flex w-fit items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[12px] transition disabled:opacity-50',
-                s.takenBy
-                  ? 'border-border text-muted-foreground/70 hover:text-foreground'
-                  : s.confirmed
-                    ? 'border-success/40 bg-success/10 text-success hover:bg-success/15'
-                    : 'border-dashed border-border text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {s.confirmed && !s.takenBy ? <Check className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
-              {hostOf(s.url)}
-              {s.takenBy ? <span className="font-sans text-[11px]">· {s.takenBy}’s</span> : null}
-            </button>
-          ))
-        )}
-      </div>
-    )
-  }
-
-  if (client.siteUrl) {
-    return (
-      <span className="group inline-flex items-center gap-1.5">
-        <a
-          href={client.siteUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-foreground transition hover:border-foreground/30',
-            size === 'md' && 'px-2.5 py-1.5 text-[13px]',
-          )}
-          title={client.siteUrl}
-        >
-          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-          {hostOf(client.siteUrl)}
-          <ExternalLink className="h-3 w-3 text-muted-foreground/70" />
-        </a>
-        <button
-          type="button"
-          onClick={open}
-          className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
-          title="Change link"
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-      </span>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={open}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1 font-mono text-[12px] text-muted-foreground transition hover:border-foreground/30 hover:text-foreground',
-        size === 'md' && 'px-2.5 py-1.5 text-[13px]',
-      )}
-    >
-      <Globe className="h-3.5 w-3.5" /> Add site link
-    </button>
-  )
-}
-
-type GithubRepo = { fullName: string; private: boolean; pushedAt: string | null }
-
-/**
- * The GitHub repo the client's website lives in — a dropdown of the repos
- * on the agency's GitHub account, styled like the Site chip. Picking one
- * links the client's SEO site to it (and moves it from Audit to Review, so
- * the engine can open pull requests that a person approves).
- *
- * A native <select> on purpose: the table scrolls sideways, and a custom
- * popup would be clipped by that scroll area. Only people who can use SEO
- * can load the repo list; everyone else sees the repo as plain text.
- */
-function useGithubRepos() {
-  return useQuery<{ repos: GithubRepo[] }>({
-    queryKey: ['seo-github-repos'],
-    queryFn: async () => {
-      const res = await fetch('/api/seo/github/repos')
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || `Could not load repos (${res.status})`)
-      return data
-    },
-    staleTime: 5 * 60_000,
-    retry: false,
-  })
-}
-
-/*
- * The Hub's guess (src/lib/site-match.ts) shows in green: the suggested
- * repo tops the list, an unlinked client gets a one-click "Link" chip, and
- * a linked repo that matches the guess turns green. A linked repo that
- * differs from the guess gets an amber dot worth a second look.
- */
-function RepoSelect({
-  client,
-  repoOwners,
-  suggestion,
-}: {
-  client: RosterClient
-  repoOwners: Map<string, string>
-  suggestion?: RepoSuggestion
-}) {
-  const qc = useQueryClient()
-  const current = client.seo?.repoFullName ?? ''
-
-  const repos = useGithubRepos()
-
-  const assign = useMutation({
-    mutationFn: async (repoFullName: string) => {
-      const res = await fetch(`/api/clients/${client.id}/repo`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoFullName: repoFullName || null }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Failed to save')
-      return data as { siteId: string; repoFullName: string | null }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['clients-roster'] })
-      qc.invalidateQueries({ queryKey: ['seo-overview'] })
-    },
-  })
-
-  const short = (full: string) => full.split('/').pop() ?? full
-
-  // Not allowed to manage repos (or GitHub isn't connected): show, don't edit.
-  if (repos.isError || client.archivedAt) {
-    return current ? (
-      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px]" title={current}>
-        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-        {short(current)}
-      </span>
-    ) : (
-      <span className="text-muted-foreground/50">—</span>
-    )
-  }
-
-  const list = repos.data?.repos ?? []
-  // Keep the current repo selectable even if the list hasn't loaded or no longer has it.
-  const withCurrent =
-    current && !list.some((r) => r.fullName.toLowerCase() === current.toLowerCase())
-      ? [{ fullName: current, private: true, pushedAt: null }, ...list]
-      : list
-  const suggested = suggestion?.repo ?? null
-  const isSuggested = (fullName: string) => !!suggested && fullName.toLowerCase() === suggested.toLowerCase()
-  // The suggested repo first.
-  const options = suggested
-    ? [...withCurrent.filter((r) => isSuggested(r.fullName)), ...withCurrent.filter((r) => !isSuggested(r.fullName))]
-    : withCurrent
-  const matches = !!current && isSuggested(current)
-  const differs = !!current && !!suggested && !matches
-  const busy = assign.isPending || repos.isLoading
-
-  return (
-    <span className="group inline-flex items-center gap-1.5">
-      <span
-        className={cn(
-          'relative inline-flex items-center rounded-md border font-mono text-[12px] transition focus-within:border-foreground/30 hover:border-foreground/30',
-          matches
-            ? 'border-success/40 bg-success/10 text-success'
-            : current
-              ? 'border-border bg-surface text-foreground'
-              : 'border-dashed border-border text-muted-foreground hover:text-foreground',
-          busy && 'opacity-60',
-        )}
-        title={
-          matches
-            ? `${current}\nMatches this client: ${suggestion!.why}`
-            : current || 'Pick the GitHub repo this client’s site lives in'
-        }
-      >
-        {assign.isPending ? (
-          <Loader2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <FolderGit2 className={cn('pointer-events-none absolute left-2 h-3.5 w-3.5', matches ? 'text-success' : 'text-muted-foreground')} />
-        )}
-        <select
-          value={current}
-          disabled={busy}
-          onChange={(e) => {
-            const next = e.target.value
-            if (next === current) return
-            if (!next && !window.confirm(`Unlink ${short(current)} from ${client.name}? The SEO engine goes back to audit-only for this client.`)) return
-            assign.mutate(next)
-          }}
-          className="max-w-[18rem] cursor-pointer appearance-none truncate bg-transparent py-1 pl-7 pr-6 focus:outline-none"
-        >
-          <option value="">{current ? 'No repo' : 'Assign repo'}</option>
-          {options.map((r) => {
-            const owner = repoOwners.get(r.fullName.toLowerCase())
-            const taken = !!owner && owner !== client.name
-            const pick = isSuggested(r.fullName)
-            return (
-              <option
-                key={r.fullName}
-                value={r.fullName}
-                disabled={taken}
-                style={pick ? { color: 'var(--success)', fontWeight: 600 } : undefined}
-              >
-                {pick ? '✓ ' : ''}
-                {short(r.fullName)}
-                {pick ? ' (suggested)' : ''}
-                {taken ? ` — ${owner}` : ''}
-              </option>
-            )
-          })}
-        </select>
-        <ChevronDown className={cn('pointer-events-none absolute right-1.5 h-3 w-3', matches ? 'text-success' : 'text-muted-foreground')} />
-      </span>
-      {!current && suggested && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => assign.mutate(suggested)}
-          className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-1 font-mono text-[12px] text-success transition hover:bg-success/15 disabled:opacity-50"
-          title={`Suggested: ${suggested}\n${suggestion!.why}`}
-        >
-          <Check className="h-3 w-3" /> {short(suggested)}
-        </button>
-      )}
-      {differs && (
-        <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
-          title={`Worth a second look: the Hub expected ${short(suggested!)} (${suggestion!.why}).`}
-        />
-      )}
-      {current && client.seo?.siteId && (
-        <a
-          href={`/seo/${client.seo.siteId}`}
-          className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
-          title="Open this client in SEO"
-        >
-          <TrendingUp className="h-3 w-3" />
-        </a>
-      )}
-      {assign.isError && <span className="text-xs text-destructive">{(assign.error as Error).message}</span>}
-    </span>
-  )
-}
 
 /** Native <select> styled as a chip. Optimistic update, revert on error. */
 function InlineStatus({ client }: { client: RosterClient }) {

@@ -87,7 +87,7 @@ const STAGE_LABEL: Record<JourneyStage, string> = {
 }
 
 export type SiteDetail = {
-  client: { id: string; name: string; person: string | null; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string }
+  client: { id: string; name: string; person: string | null; color: string; siteUrl: string | null; siteLiveAt: string | null; lifecycle: string; archivedAt: string | null }
   status: SiteStatus
   /** The Status card's rows: the journey stages, plus their Genisys OS sub-account (`href` opens it). */
   journey: { stage: string; label: string; status: string; note: string | null; updatedAt: string | null; href?: string | null }[]
@@ -118,7 +118,8 @@ export type SiteDetail = {
   phone: PhoneState
   /** What the Hub last read of the linked GHL sub-account's numbers; null without a linked sub-account. */
   ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
-  seo: { repo: string | null; lovableProjectId: string | null } | null
+  /** Their SEO site: the repo it commits to (the folder's Repo picker), the Lovable project. `siteId` opens it in SEO. */
+  seo: { siteId: string; repo: string | null; lovableProjectId: string | null; archived: boolean } | null
   /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
   build: {
     status: string
@@ -170,6 +171,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
       siteUrl: true,
       siteLiveAt: true,
       lifecycle: true,
+      archivedAt: true,
       ghlLocationId: true,
       hlAccount: {
         select: {
@@ -196,7 +198,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           shots: { orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, step: true, createdAt: true } },
         },
       },
-      seoSite: { select: { repoFullName: true, lovableProjectId: true } },
+      seoSite: { select: { id: true, repoFullName: true, lovableProjectId: true, archivedAt: true } },
       hlSiteRequest: {
         select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, pause: true, updatedAt: true },
       },
@@ -269,7 +271,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     build: folderBuild({ hasAccount, ghlLinked: !!c.ghlLocationId, status: forge?.status ?? null }),
   }
   return {
-    client: { id: c.id, name: c.name, person: personName(c.contactName) ?? personName(p?.ownerName), color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle },
+    client: { id: c.id, name: c.name, person: personName(c.contactName) ?? personName(p?.ownerName), color: c.color, siteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt?.toISOString() ?? null, lifecycle: c.lifecycle, archivedAt: c.archivedAt?.toISOString() ?? null },
     status: siteStatus({ siteUrl: c.siteUrl, websiteStage: website?.status }),
     journey: journey.stages.flatMap((s): SiteDetail['journey'] => {
       const updatedAt = s.updatedAt?.toISOString() ?? null
@@ -327,7 +329,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           detail: census?.detail ?? null,
         }
       : null,
-    seo: c.seoSite ? { repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId } : null,
+    seo: c.seoSite ? { siteId: c.seoSite.id, repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId, archived: !!c.seoSite.archivedAt } : null,
     build: c.hlSiteRequest
       ? {
           status: c.hlSiteRequest.status,
