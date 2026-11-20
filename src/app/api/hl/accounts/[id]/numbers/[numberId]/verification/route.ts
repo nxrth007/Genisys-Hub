@@ -25,14 +25,15 @@ export async function GET(req: Request, { params }: Ctx) {
   }
 }
 
-/** POST: file the toll-free verification with Twilio. */
-export async function POST(_req: Request, { params }: Ctx) {
+/** POST: file the toll-free verification with Twilio. Body (optional): { editReason } for a re-filing, the note Twilio's reviewer reads. */
+export async function POST(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const { id, numberId } = await params
   if (!(await owned(id, numberId))) return NextResponse.json({ error: 'Number not found' }, { status: 404 })
   try {
-    const r = await submitVerification(numberId)
+    const body = (await req.json().catch(() => null)) as { editReason?: unknown } | null
+    const r = await submitVerification(numberId, { editReason: typeof body?.editReason === 'string' ? body.editReason : undefined })
     console.log(`[genisys-os] ${guard.email} filed toll-free verification ${r.sid} for number ${numberId}`)
     return NextResponse.json(r)
   } catch (err) {

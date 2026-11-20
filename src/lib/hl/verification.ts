@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { parseUsAddress } from '@/lib/address-parse'
 import { GEO_RESET } from '@/lib/geocode'
 import { completeBusinessAddress } from '@/lib/intake-tidy'
+import { einProblem } from '@/lib/ein'
 import { readProfile } from './accounts'
 import { HlInputError } from './http'
 import { renderTemplate } from './merge'
@@ -201,6 +202,13 @@ export async function tollFreeFiling(accountId: string) {
     { contact: { firstName: 'Jennifer' }, account: { ...p, businessPhone: prettyPhone(helpPhone), ownerName: person || p.ownerName } },
   )
   const ein = (p.ein ?? '').replace(/\D/g, '')
+  // An EIN that can't be real (a typo on the onboarding form) gets the filing rejected after days in review
+  // ("Business Registration Number Is Missing or Invalid"): stop here and say what to ask instead.
+  const einWrong = einProblem(p.ein)
+  if (einWrong)
+    throw new HlInputError(
+      `For ${p.businessName}, ${einWrong}. Ask ${person || 'the owner'} for the EIN exactly as it appears on their IRS letter (CP 575 or 147C), put it in Settings → Business Profile, and file again. A business with no EIN leaves it blank and files as a sole proprietor.`,
+    )
   const owner = splitName(person)
   const business = p.legalName || p.businessName!
   return {
@@ -264,8 +272,11 @@ function checkLengths(request: Record<string, unknown>): void {
   }
 }
 
-/** File (or re-file after a rejection) the toll-free verification for a number. */
-export async function submitVerification(numberId: string): Promise<{ status: string; sid: string }> {
+/**
+ * File (or re-file after a rejection) the toll-free verification for a number. A re-filing edits the
+ * rejected one; `editReason` is the note Twilio's reviewer reads about what changed.
+ */
+export async function submitVerification(numberId: string, o: { editReason?: string } = {}): Promise<{ status: string; sid: string }> {
   const { number, request } = await verificationDraft(numberId)
   checkLengths(request)
   if (number.verificationStatus === 'approved') throw new HlInputError('This number is already approved.')
@@ -280,7 +291,7 @@ export async function submitVerification(numberId: string): Promise<{ status: st
   // A rejected verification is edited and resubmitted rather than filed again.
   const v =
     number.verificationStatus === 'rejected' && number.verificationSid
-      ? await client.messaging.v1.tollfreeVerifications(number.verificationSid).update({ ...params, editReason: 'Updated details after review' })
+      ? await client.messaging.v1.tollfreeVerifications(number.verificationSid).update({ ...params, editReason: o.editReason?.trim().slice(0, 500) || 'Updated details after review' })
       : await client.messaging.v1.tollfreeVerifications.create(params)
   const status = STATUS[v.status] ?? 'pending'
   await prisma.hlPhoneNumber.update({
