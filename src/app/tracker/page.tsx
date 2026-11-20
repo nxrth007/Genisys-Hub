@@ -345,7 +345,7 @@ export default function TrackerPage() {
         <p className="text-[12.5px] text-destructive">{String(list.error)}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[64rem] text-[13px]">
+          <table className="w-full min-w-[60rem] text-[13px]">
             <thead>
               <tr className="border-b border-border text-left text-[11.5px] font-medium text-muted-foreground">
                 <th className="py-2 pr-3 font-medium">Client</th>
@@ -356,7 +356,7 @@ export default function TrackerPage() {
                   </th>
                 ))}
                 <th className="px-2 py-2 font-medium">Stage</th>
-                <th className="hidden px-2 py-2 font-medium xl:table-cell">Last change</th>
+                <th className="hidden px-2 py-2 font-medium 2xl:table-cell">Last change</th>
                 <th className="w-9 py-2" />
               </tr>
             </thead>
@@ -375,7 +375,7 @@ export default function TrackerPage() {
                   <Fragment key={r.clientId}>
                     <tr className={cn('group transition hover:bg-muted/40', isOpen && 'bg-muted/40', r.archived && 'opacity-60')}>
                       <td className="py-2 pr-3">
-                        <button type="button" className="block max-w-[18rem] text-left" onClick={() => setOpen(isOpen ? null : { clientId: r.clientId, step: null })}>
+                        <button type="button" className="block max-w-[16rem] text-left" onClick={() => setOpen(isOpen ? null : { clientId: r.clientId, step: null })}>
                           <span className="flex items-center gap-2">
                             <span className="truncate font-medium text-foreground">{r.clientName}</span>
                             {r.lifecycle !== 'active' && r.lifecycle !== 'onboarding' && <span className="rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{r.lifecycle}</span>}
@@ -409,7 +409,7 @@ export default function TrackerPage() {
                           <span className="text-muted-foreground/50">—</span>
                         )}
                       </td>
-                      <td className="hidden whitespace-nowrap px-2 py-2 text-[12.5px] text-muted-foreground xl:table-cell">{when(r.lastChangeAt) ?? '—'}</td>
+                      <td className="hidden whitespace-nowrap px-2 py-2 text-[12.5px] text-muted-foreground 2xl:table-cell">{when(r.lastChangeAt) ?? '—'}</td>
                       <td className="py-1.5 pl-1 text-right">
                         <button
                           type="button"
