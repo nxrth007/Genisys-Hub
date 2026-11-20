@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { hubAlert, hubAlertThrottled, hubLink } from '@/lib/hub-alerts'
-import { prisma } from '@/lib/prisma'
-import { recordJourney, setJourneyStage } from '@/lib/client-journey'
-import { markTrackerStep } from '@/lib/onboarding-tracker'
-import { textTeam } from '@/lib/team-sms'
 import { invalidateBillingSnapshot } from '@/lib/stripe-billing'
-import { checkoutMember, claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
-import { describeEvent, shortDate, stripeSignupText, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
+import { claimStripeEvent, firstSecret, noteStripeStatus, rememberMember, STRIPE_WEBHOOK_ENTRIES, stripeCustomer } from '@/lib/stripe-onboarding'
+import { describeEvent, shortDate, verifyStripeSignature, type StripeNews } from '@/lib/stripe-onboarding-plan'
+import { announceSignup } from '@/lib/stripe-signup-alerts'
 import { classifyStripeSideEffect, redactSecrets } from '@/lib/disputes/plan'
 import { handleStripeSideEffect } from '@/lib/disputes/run'
 
@@ -28,6 +25,13 @@ import { handleStripeSideEffect } from '@/lib/disputes/run'
  * (next/server `after`) so a slow Slack or GHL never makes Stripe retry. Each
  * event is handled once (claimStripeEvent), so a retry can't text twice. Only
  * a bad signature (401) or an unreadable body (400) is refused.
+ *
+ * This route must stay in middleware's PUBLIC_PATHS (tests/public-routes.test.mjs
+ * checks). Until 2026-11-19 it wasn't: every delivery met the login check's
+ * 401, and Stripe's retries brought sign-ups in one to two days late. A
+ * sign-up is announced by src/lib/stripe-signup-alerts.ts, shared with a
+ * five-minute poll of Stripe, so it is texted once and within minutes even
+ * when this endpoint can't be reached.
  */
 
 export async function POST(req: NextRequest) {
@@ -84,39 +88,8 @@ async function handle(news: Exclude<StripeNews, { kind: 'ignored' }>) {
   }
 }
 
-async function handleSignup(n: Extract<StripeNews, { kind: 'signup' }>) {
-  // The event carries the checkout, not the subscription: ask Stripe for the trial's dates and price.
-  const looked = n.sessionId ? await checkoutMember(n.sessionId).catch(() => null) : null
-  const m = looked && looked.valid ? looked : null
-  const email = m?.email ?? n.email
-  const name = m?.name ?? n.name
-  const customerId = m?.customerId ?? n.customerId
-  if (customerId) {
-    await rememberMember({ customerId, subscriptionId: m?.subscriptionId ?? n.subscriptionId, email, name, phone: m?.phone ?? n.phone, status: m?.subscriptionStatus ?? 'trialing', trialEnd: m?.trialEnd ?? null, periodEnd: m?.periodEnd ?? null, price: m?.price ?? null, livemode: n.livemode }).catch((err) => console.error('[stripe-webhook] remember:', err))
-  }
-  const who = name ?? email ?? 'someone'
-  const charge = shortDate(m?.trialEnd ?? null)
-  await noteStripeStatus('signup', { at: new Date().toISOString(), who, email, price: m?.price ?? null, trialEnd: m?.trialEnd ?? null, livemode: n.livemode })
-  await hubAlert(`:moneybag: *New sign-up* — ${who}${name && email ? ` (${email})` : ''} started the free trial${m?.price ? ` of *${m.price}*` : ''}${charge ? `; first charge ${charge}` : ''}${n.livemode ? '' : ' _(Stripe test mode)_'}. <${clientsLink()}|Clients>`).catch(() => {})
-
-  // Journey: tick sign-up for a client already on file with this email (most sign-ups have no Client yet; the intake makes it).
-  if (email) {
-    await recordJourney(`stripe signup ${n.subscriptionId ?? n.sessionId}`, async () => {
-      const client = await prisma.client.findFirst({ where: { contactEmail: { equals: email, mode: 'insensitive' } }, select: { id: true } })
-      if (client) await setJourneyStage(client.id, 'signup', 'done', { note: `Stripe trial ${m?.subscriptionId ?? n.subscriptionId ?? ''}`.trim(), actor: 'stripe-webhook' })
-    })
-  }
-
-  // Only the live Hub texts anyone, and only about real money.
-  if (process.env.NODE_ENV !== 'production' || !n.livemode) return
-  try {
-    await textTeam(stripeSignupText({ name, email, price: m?.price ?? null, trialEnd: m?.trialEnd ?? null, link: clientsLink() }), 'Stripe sign-up')
-    const tracked = await markTrackerStep('signup', { emails: email ? [email] : [], name }, { addIfMissing: true })
-    if (!tracked.ok) console.warn(`[stripe-webhook] tracker: ${tracked.detail}`)
-  } catch (err) {
-    console.error(`[stripe-webhook] ${n.eventId}: announce failed:`, err)
-  }
-}
+// A trial started: src/lib/stripe-signup-alerts.ts tells the team once, whether this webhook or the five-minute poll sees it first.
+const handleSignup = (n: Extract<StripeNews, { kind: 'signup' }>) => announceSignup(n, 'webhook')
 
 async function whoIs(customerId: string | null, fallback: { email?: string | null; name?: string | null } = {}): Promise<string> {
   const c = customerId ? await stripeCustomer(customerId) : null

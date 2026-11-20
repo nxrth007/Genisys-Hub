@@ -97,7 +97,7 @@ test("Stripe's signature: the right secret within five minutes, and nothing else
 
 test('the events the team hears about, and the ones it does not', () => {
   const signup = plan.describeEvent({ id: 'evt_1', type: 'checkout.session.completed', livemode: true, data: { object: { ...session(), subscription: 'sub_1' } } })
-  assert.deepEqual(signup, { kind: 'signup', eventId: 'evt_1', sessionId: 'cs_live_a1B2c3', customerId: 'cus_1', subscriptionId: 'sub_1', email: 'maria@example.com', name: 'Maria Lopez', phone: '+15125550123', livemode: true })
+  assert.deepEqual(signup, { kind: 'signup', eventId: 'evt_1', sessionId: 'cs_live_a1B2c3', customerId: 'cus_1', subscriptionId: 'sub_1', email: 'maria@example.com', name: 'Maria Lopez', phone: '+15125550123', livemode: true, at: null })
   assert.deepEqual(plan.describeEvent({ id: 'evt_2', type: 'checkout.session.completed', data: { object: session({ mode: 'payment' }) } }), { kind: 'ignored', type: 'checkout.session.completed' })
 
   const failed = plan.describeEvent({ id: 'evt_3', type: 'invoice.payment_failed', livemode: true, data: { object: { object: 'invoice', customer: 'cus_1', customer_email: 'Maria@Example.com', customer_name: 'Maria Lopez', amount_due: 29700, currency: 'usd', attempt_count: 1, next_payment_attempt: TRIAL_END } } })
@@ -145,4 +145,47 @@ test('checkout ids: test and live, nothing else', () => {
   assert.ok(plan.CHECKOUT_SESSION_ID.test('cs_test_a1B2c3D4'))
   assert.ok(!plan.CHECKOUT_SESSION_ID.test('cs_live_a1B2c3D4/../x'))
   assert.ok(!plan.CHECKOUT_SESSION_ID.test('sub_123'))
+})
+
+test('a member knows when the subscription started; the event, when it happened', () => {
+  assert.equal(plan.judgeCheckout(session()).startedAt, new Date(1_700_000_000 * 1000).toISOString())
+  const started = Math.floor(Date.parse('2026-11-18T14:29:58Z') / 1000)
+  assert.equal(plan.judgeCheckout(session({ subscription: subscription({ start_date: started }) })).startedAt, '2026-11-18T14:29:58.000Z')
+  const signup = plan.describeEvent({ id: 'evt_9', type: 'checkout.session.completed', created: started, livemode: true, data: { object: { ...session(), subscription: 'sub_1' } } })
+  assert.equal(signup.at, '2026-11-18T14:29:58.000Z')
+})
+
+test('a sign-up texted late says when it happened instead of calling it new', () => {
+  const base = { name: 'Terell Collin Gray', email: 'gtc@example.com', price: '$297/mo', trialEnd: '2026-12-18T14:29:58.000Z', link: 'https://hub/clients' }
+  const signedUpAt = '2026-11-18T14:29:58.000Z'
+  const late = plan.stripeSignupText({ ...base, signedUpAt, now: Date.parse('2026-11-20T11:30:00Z') })
+  assert.equal(late, 'Genisys: Late sign-up alert. Terell Collin Gray (gtc@example.com) started the free trial of $297/mo on Nov 18 at 9:29 AM ET; first charge Dec 18. https://hub/clients')
+  // One plain SMS encoding: newer ICU puts a narrow no-break space before "AM".
+  assert.match(late, /^[\x20-\x7E]+$/)
+  assert.match(plan.stripeSignupText({ ...base, signedUpAt, now: Date.parse('2026-11-18T14:31:00Z') }), /^Genisys: New sign-up! Terell Collin Gray \(gtc@example\.com\) started the free trial of \$297\/mo; first charge Dec 18\./)
+  assert.match(plan.stripeSignupText({ ...base, signedUpAt: null, now: Date.parse('2026-11-20T11:30:00Z') }), /^Genisys: New sign-up!/)
+  assert.equal(plan.signupIsLate(signedUpAt, Date.parse('2026-11-18T14:44:58Z')), false, 'exactly 15 minutes is still on time')
+  assert.equal(plan.signupIsLate(signedUpAt, Date.parse('2026-11-18T14:45:00Z')), true)
+  assert.equal(plan.signupIsLate('not a date', Date.now()), false)
+})
+
+test("the poll reads Stripe's checkout list as the webhook's sign-up news: completed, live, subscription, new", () => {
+  const at = (iso) => Math.floor(Date.parse(iso) / 1000)
+  const s = (id, over = {}) => ({ id, object: 'checkout.session', mode: 'subscription', status: 'complete', livemode: true, created: at('2026-11-20T07:00:00Z'), customer: 'cus_1', subscription: 'sub_1', customer_details: { email: 'Maria@Example.com', name: 'Maria Lopez', phone: null }, ...over })
+  const list = {
+    object: 'list',
+    data: [
+      s('cs_live_new2', { created: at('2026-11-20T08:00:00Z') }),
+      s('cs_live_new1'),
+      s('cs_live_open', { status: 'open' }),
+      s('cs_live_payment', { mode: 'payment' }),
+      s('cs_test_x', { livemode: false }),
+      s('cs_live_old', { created: at('2026-11-18T14:29:58Z') }),
+    ],
+  }
+  const news = plan.signupsFromSessions(list, Date.parse('2026-11-20T06:00:00Z'))
+  assert.deepEqual(news.map((n) => n.sessionId), ['cs_live_new1', 'cs_live_new2'], 'oldest first, nothing before the start time')
+  assert.deepEqual(news[0], { kind: 'signup', eventId: 'poll:cs_live_new1', sessionId: 'cs_live_new1', customerId: 'cus_1', subscriptionId: 'sub_1', email: 'maria@example.com', name: 'Maria Lopez', phone: null, livemode: true, at: '2026-11-20T07:00:00.000Z' })
+  assert.deepEqual(plan.signupsFromSessions(null, 0), [])
+  assert.deepEqual(plan.signupsFromSessions({ data: 'nope' }, 0), [])
 })

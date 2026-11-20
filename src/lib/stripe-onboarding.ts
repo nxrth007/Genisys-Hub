@@ -185,14 +185,34 @@ export async function rememberMember(update: Partial<StripeMemberRecord> & { cus
  */
 export async function claimStripeEvent(eventId: string): Promise<boolean> {
   const id = eventId.trim()
-  if (!id) return false
+  return id ? claimOnce(`stripe.event:${id}`) : false
+}
+
+/**
+ * One announcement per checkout, whichever door sees it first: the webhook
+ * (seconds after the checkout) or the five-minute poll of Stripe
+ * (src/lib/stripe-signup-alerts.ts). True for the first caller only.
+ */
+export async function claimStripeSignup(sessionId: string): Promise<boolean> {
+  const id = sessionId.trim()
+  return id ? claimOnce(`stripe.signup:${id}`) : false
+}
+
+/** Insert-or-fail on a unique AppSetting key: true for the first caller, false for every later one. */
+async function claimOnce(key: string): Promise<boolean> {
   try {
-    await prisma.appSetting.create({ data: { key: `stripe.event:${id}`, value: new Date().toISOString() } })
+    await prisma.appSetting.create({ data: { key, value: new Date().toISOString() } })
     return true
   } catch (err) {
     if (!!err && typeof err === 'object' && (err as { code?: unknown }).code === 'P2002') return false
     throw err
   }
+}
+
+/** Stripe's newest Checkout Sessions, any status, for the sign-up poll. Throws StripeUnavailable when Stripe can't be asked. */
+export async function recentCheckoutSessions(limit = 50): Promise<unknown> {
+  const key = await stripeKey()
+  return stripeMust(key, `/checkout/sessions?limit=${Math.min(100, Math.max(1, Math.floor(limit)))}`)
 }
 
 // --- What the Clients page shows about the gate ------------------------------

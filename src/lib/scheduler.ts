@@ -47,6 +47,7 @@ import { backfillFromSheet, sheetSyncEnabled } from './tracker/sheet-sync'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
 import { maybeSendGbpReminders } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
+import { maybePollStripeSignups } from './stripe-signup-alerts'
 import { maybeCheckStripeOnboarding } from './stripe-onboarding'
 import { maybeReconcileDisputes } from './disputes/run'
 import { redactSecrets } from './disputes/plan'
@@ -538,6 +539,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] whop: ${n} new sign-up(s) texted`)
       })
       .catch((err) => console.error('[scheduler] whop sign-up check failed:', err))
+    // Stripe: the net under the sign-up webhook. A completed trial checkout nobody announced is texted within 5 minutes.
+    void maybePollStripeSignups()
+      .then((n) => {
+        if (n) console.log(`[scheduler] stripe: ${n} sign-up(s) the webhook missed, texted`)
+      })
+      .catch((err) => console.error('[scheduler] stripe sign-up poll failed:', err))
     // Stripe sign-up gate: can the Hub ask Stripe, are the Vault entries there (every 6 h; says so in Slack once it works, and when it breaks).
     void maybeCheckStripeOnboarding().catch((err) => console.error('[stripe-onboarding] self-check:', err))
     // Render monitor: failed deploys, error logs, health check → text Ethan (every 5 min, RENDER_MONITOR_ENABLED=1).

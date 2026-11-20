@@ -50,6 +50,8 @@ export type StripeMember = {
   /** "$297/mo" when the price is known. */
   price: string | null
   livemode: boolean
+  /** When the subscription started, i.e. when the checkout completed (ISO). */
+  startedAt: string | null
 }
 export type NotMember = { valid: false; reason: string }
 
@@ -103,6 +105,7 @@ function memberFromSubscription(sub: Obj, who: { email: string | null; name: str
     periodEnd: iso(sub.current_period_end ?? first?.current_period_end),
     price: priceLabel(first?.price),
     livemode: sub.livemode === true,
+    startedAt: iso(sub.start_date ?? sub.created),
   }
 }
 
@@ -184,7 +187,7 @@ export function verifyStripeSignature(o: { secret: string; header: string | null
 
 export type StripeNews =
   /** A trial started: checkout.session.completed for a subscription. The subscription itself isn't in the event; the Hub looks it up. */
-  | { kind: 'signup'; eventId: string; sessionId: string; customerId: string | null; subscriptionId: string | null; email: string | null; name: string | null; phone: string | null; livemode: boolean }
+  | { kind: 'signup'; eventId: string; sessionId: string; customerId: string | null; subscriptionId: string | null; email: string | null; name: string | null; phone: string | null; livemode: boolean; /** When it happened (ISO): the event's time, or the checkout's for the poll. */ at: string | null }
   /** customer.subscription.updated: trialing → active, past_due, … */
   | { kind: 'status'; eventId: string; customerId: string | null; subscriptionId: string | null; status: string; previousStatus: string | null; trialEnd: string | null; periodEnd: string | null; price: string | null; livemode: boolean }
   | { kind: 'canceled'; eventId: string; customerId: string | null; subscriptionId: string | null; livemode: boolean }
@@ -204,7 +207,7 @@ export function describeEvent(event: unknown): StripeNews {
     case 'checkout.session.completed': {
       if (str(obj.mode) !== 'subscription' || str(obj.status) !== 'complete') return { kind: 'ignored', type }
       const d = isObj(obj.customer_details) ? obj.customer_details : {}
-      return { kind: 'signup', eventId, sessionId: str(obj.id) ?? '', customerId: idOf(obj.customer), subscriptionId: idOf(obj.subscription), email: email(d.email), name: str(d.name), phone: str(d.phone), livemode }
+      return { kind: 'signup', eventId, sessionId: str(obj.id) ?? '', customerId: idOf(obj.customer), subscriptionId: idOf(obj.subscription), email: email(d.email), name: str(d.name), phone: str(d.phone), livemode, at: iso(event.created) }
     }
     case 'customer.subscription.updated': {
       const prev = isObj(data.previous_attributes) ? data.previous_attributes : {}
@@ -224,10 +227,58 @@ export function describeEvent(event: unknown): StripeNews {
   }
 }
 
-/** The team text for a new trial. */
-export function stripeSignupText(o: { name: string | null; email: string | null; price: string | null; trialEnd: string | null; link: string }): string {
+/**
+ * A sign-up alert sent this long after the checkout says when the person signed
+ * up, so a late one is never read as new. From 2026-11-17 to 11-19 the Hub's
+ * login check refused Stripe's deliveries, and Stripe's retries then brought
+ * one- and two-day-old sign-ups in as "New sign-up!".
+ */
+export const LATE_SIGNUP_MS = 15 * 60_000
+
+/** Is a sign-up from `signedUpAt` (ISO) old news at `now`? An unknown time counts as on time. */
+export function signupIsLate(signedUpAt: string | null | undefined, now: number = Date.now()): boolean {
+  const at = signedUpAt ? Date.parse(signedUpAt) : NaN
+  return Number.isFinite(at) && now - at > LATE_SIGNUP_MS
+}
+
+/** "Nov 18 at 9:29 AM", Eastern time, plain spaces only (newer ICU puts a narrow no-break space before AM). */
+export function signupMoment(isoDate: string | null | undefined): string | null {
+  if (!isoDate) return null
+  const d = new Date(isoDate)
+  if (Number.isNaN(d.getTime())) return null
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+  return `${day} at ${time}`.replace(/\s+/g, ' ')
+}
+
+/** The team text for a new trial. One that arrives late says when they signed up instead of calling it new. */
+export function stripeSignupText(o: { name: string | null; email: string | null; price: string | null; trialEnd: string | null; link: string; signedUpAt?: string | null; now?: number }): string {
   const who = o.name || o.email || 'Someone'
   const extra = o.name && o.email ? ` (${o.email})` : ''
   const charge = shortDate(o.trialEnd)
-  return `Genisys: New sign-up! ${who}${extra} started the free trial${o.price ? ` of ${o.price}` : ''}${charge ? `; first charge ${charge}` : ''}. ${o.link}`
+  const price = o.price ? ` of ${o.price}` : ''
+  const when = signupIsLate(o.signedUpAt, o.now) ? signupMoment(o.signedUpAt) : null
+  if (when) return `Genisys: Late sign-up alert. ${who}${extra} started the free trial${price} on ${when} ET${charge ? `; first charge ${charge}` : ''}. ${o.link}`
+  return `Genisys: New sign-up! ${who}${extra} started the free trial${price}${charge ? `; first charge ${charge}` : ''}. ${o.link}`
+}
+
+/**
+ * The poll's view of checkout.session.completed (src/lib/stripe-signup-alerts.ts):
+ * from Stripe's list of newest Checkout Sessions, the completed live trial
+ * checkouts opened at or after `sinceMs`, oldest first, shaped like the
+ * webhook's sign-up news. `at` is when the checkout was opened; the
+ * announcement prefers the subscription's own start time.
+ */
+export function signupsFromSessions(list: unknown, sinceMs: number): Array<Extract<StripeNews, { kind: 'signup' }>> {
+  const items = isObj(list) && Array.isArray(list.data) ? list.data.filter(isObj) : []
+  const out: Array<Extract<StripeNews, { kind: 'signup' }>> = []
+  for (const s of items) {
+    const id = str(s.id)
+    const created = num(s.created)
+    if (!id || created === null || created * 1000 < sinceMs) continue
+    if (str(s.mode) !== 'subscription' || str(s.status) !== 'complete' || s.livemode !== true) continue
+    const d = isObj(s.customer_details) ? s.customer_details : {}
+    out.push({ kind: 'signup', eventId: `poll:${id}`, sessionId: id, customerId: idOf(s.customer), subscriptionId: idOf(s.subscription), email: email(d.email), name: str(d.name), phone: str(d.phone), livemode: true, at: iso(created) })
+  }
+  return out.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
 }
