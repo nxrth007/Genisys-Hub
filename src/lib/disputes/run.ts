@@ -15,6 +15,7 @@ import {
   budgetFiles,
   buildEvidence,
   chainHash,
+  checkoutConsentAcceptance,
   classifyStripeSideEffect,
   cleanEmail,
   decideAction,
@@ -32,16 +33,20 @@ import {
   sha256,
   templateFor,
   verifyChain,
+  type DisputeConfig,
   type DisputeIdentity,
   type MatchCandidate,
+  type MatchResult,
   type ParsedDispute,
   type SideEffect,
 } from './plan'
+import { recordCheckoutConsent } from './ledger'
 import { recordStripeNotice } from './receipts'
 import { rememberPurchase } from './purchase'
-import { enrichChargePurchaseContext, listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
+import { checkoutSessionForCharge, enrichChargePurchaseContext, listCustomerCharges, listDisputes, probeDisputeKey, refundCharge, retrieveDispute, stampMetadata, updateDisputeEvidence, uploadDisputeFile, DisputeStripeError, type ProbeResult } from './stripe'
 
 const OPEN = new Set(['needs_response', 'warning_needs_response'])
+const MATCH_RANK: Record<string, number> = { none: 0, weak: 1, strong: 2, exact: 3 }
 
 function json(v: unknown) {
   return JSON.parse(JSON.stringify(v ?? null))
@@ -123,19 +128,21 @@ async function alertNew(row: { id: string; amountCents: number; currency: string
   const due = row.dueBy ? row.dueBy.toISOString().slice(0, 10) : 'no deadline yet'
   const text = `:rotating_light: *Stripe dispute* — ${money(row.amountCents, row.currency)} · ${row.reason} · ${client?.name ?? 'unmatched'}.${repeat} Due ${due}. ${matchNote} The packet is being compiled. Defense is still in dry-run unless you changed it. <${hubLink('/payments?tab=disputes')}|Disputes>`
   await hubAlert(text).catch(() => {})
-  const config = await loadDisputeConfig()
-  if (config.alertSms && row.livemode && process.env.NODE_ENV === 'production') {
-    await textTeam(`Genisys: Stripe dispute ${money(row.amountCents, row.currency)} (${row.reason}) for ${client?.name ?? 'an unmatched customer'}.${repeat} ${hubLink('/payments?tab=disputes')}`, 'Stripe dispute').catch(() => {})
-  }
+  await textOwners(row.livemode, `Genisys: Stripe dispute ${money(row.amountCents, row.currency)} (${row.reason}) for ${client?.name ?? 'an unmatched customer'}.${repeat} ${hubLink('/payments?tab=disputes')}`, 'Stripe dispute')
 }
 
 export async function upsertDispute(parsed: ParsedDispute, actor: string): Promise<string> {
   const existing = await prisma.stripeDispute.findUnique({ where: { stripeDisputeId: parsed.stripeDisputeId } })
   const pool = await candidates()
   const identity: DisputeIdentity = { email: parsed.email, phone: parsed.phone, name: parsed.name, metadata: parsed.metadata }
-  const matched = existing?.matchMethod === 'manual' && existing.clientId
-    ? { clientId: existing.clientId, intakeId: existing.intakeId, method: 'manual' as const, confidence: 'exact' as const, disputeCount: 0, repeatDisputer: false }
+  const fresh: MatchResult = existing?.matchMethod === 'manual' && existing.clientId
+    ? { clientId: existing.clientId, intakeId: existing.intakeId, method: 'manual', confidence: 'exact', disputeCount: 0, repeatDisputer: false }
     : matchDispute(identity, pool)
+  // A dispute webhook names no customer. A thin identity must not undo the match the reconcile made.
+  const keep = !!existing?.clientId && (MATCH_RANK[existing.matchConfidence] ?? 0) > (MATCH_RANK[fresh.confidence] ?? 0)
+  const matched: MatchResult = keep && existing
+    ? { clientId: existing.clientId, intakeId: existing.intakeId, method: (existing.matchMethod ?? 'none') as MatchResult['method'], confidence: existing.matchConfidence as MatchResult['confidence'], disputeCount: 0, repeatDisputer: false }
+    : fresh
   const data = {
     stripeChargeId: parsed.stripeChargeId,
     stripePaymentIntentId: parsed.stripePaymentIntentId,
@@ -170,7 +177,14 @@ export async function upsertDispute(parsed: ParsedDispute, actor: string): Promi
     row = await prisma.stripeDispute.update({ where: { id: winner.id }, data })
   }
   await refreshCounts([existing?.clientId ?? null, row.clientId])
-  await audit(row.id, existing ? 'reconciled' : 'ingested', `${parsed.status} · ${parsed.reason} · match ${matched.method}/${matched.confidence}`, { stripeDisputeId: parsed.stripeDisputeId }, actor)
+  // The reconcile runs every 15 minutes. Only a change earns an audit row.
+  const changed = !existing
+    || existing.status !== data.status
+    || existing.clientId !== data.clientId
+    || existing.matchConfidence !== data.matchConfidence
+    || existing.stripeSubmitted !== data.stripeSubmitted
+    || (existing.dueBy?.getTime() ?? null) !== (data.dueBy?.getTime() ?? null)
+  if (changed) await audit(row.id, existing ? 'reconciled' : 'ingested', `${parsed.status} · ${parsed.reason} · match ${matched.method}/${matched.confidence}`, { stripeDisputeId: parsed.stripeDisputeId }, actor)
   if (!existing) await alertNew(row, `Matched by ${matched.method} (${matched.confidence}).`)
   if (matched.clientId && matched.confidence !== 'none' && matched.confidence !== 'weak') {
     await stampHub({ customerId: parsed.stripeCustomerId, chargeId: parsed.stripeChargeId, paymentIntentId: parsed.stripePaymentIntentId, clientId: matched.clientId, intakeId: matched.intakeId }).catch(() => {})
@@ -183,6 +197,18 @@ async function noteError(id: string, err: unknown): Promise<void> {
   const message = redactSecrets(err instanceof Error ? err.message : String(err)).slice(0, 400)
   await prisma.stripeDispute.update({ where: { id }, data: { lastError: message } }).catch(() => {})
   await audit(id, 'error', message, null, 'system').catch(() => {})
+  // One text per dispute. The tab shows every later error on the row.
+  const row = await prisma.stripeDispute.findUnique({ where: { id }, select: { stripeDisputeId: true, livemode: true } }).catch(() => null)
+  if (!row || !(await rememberAlert(id, 'error').catch(() => false))) return
+  await hubAlert(`:x: *Dispute packet problem* — ${row.stripeDisputeId}: ${message} <${hubLink('/payments?tab=disputes')}|Disputes>`).catch(() => {})
+  await textOwners(row.livemode, `Genisys: the dispute packet for ${row.stripeDisputeId} hit a problem: ${message.slice(0, 160)} ${hubLink('/payments?tab=disputes')}`, 'Stripe dispute problem')
+}
+
+/** Texts Alex and Ethan about a live dispute. Slack is not read, so the text is the signal. */
+async function textOwners(livemode: boolean, message: string, label: string, config?: DisputeConfig): Promise<void> {
+  const cfg = config ?? (await loadDisputeConfig())
+  if (!cfg.alertSms || !livemode || process.env.NODE_ENV !== 'production') return
+  await textTeam(message, label).catch(() => {})
 }
 
 async function stampHub(o: { customerId: string | null; chargeId: string | null; paymentIntentId: string | null; clientId: string | null; intakeId: string | null }): Promise<void> {
@@ -258,6 +284,12 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
             }).catch(() => {})
           }
         }
+        if (row.clientId) {
+          // Stripe's own record of the terms box at Checkout, kept as a terms acceptance for this client.
+          const session = await checkoutSessionForCharge(own)
+          const consent = session ? checkoutConsentAcceptance(session) : null
+          if (consent) await recordCheckoutConsent({ clientId: row.clientId, intakeId: row.intakeId, email, acceptance: consent }).catch(() => {})
+        }
       }
     } catch (err) {
       await noteError(id, err)
@@ -295,6 +327,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   const budget = budgetFiles(pdf.length, signaturePdf ? [{ bytes: signaturePdf.length }] : [])
   const packetSha = sha256(pdf)
   const evidenceSha = sha256(JSON.stringify({ fields: built.fields, ce3: built.ce3, ledger: built.ledgerHashes, packetSha }))
+  const unchanged = !opts.forceRebuild && !opts.forceSubmit && row.evidenceSha256 === evidenceSha && row.packetSha256 === packetSha
   await prisma.stripeDispute.update({
     where: { id },
     data: {
@@ -311,7 +344,7 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
       lastError: null,
     },
   })
-  await audit(id, 'compiled', built.summary, { packetSha256: packetSha, evidenceSha256: evidenceSha, ledgerHashes: built.ledgerHashes, fileNotes: budget.notes }, actor)
+  if (!unchanged) await audit(id, 'compiled', built.summary, { packetSha256: packetSha, evidenceSha256: evidenceSha, ledgerHashes: built.ledgerHashes, fileNotes: budget.notes }, actor)
 
   const raw = row.raw && typeof row.raw === 'object' && !Array.isArray(row.raw) ? (row.raw as { respondable?: boolean; pastDue?: boolean }) : null
   let decision = opts.forceSubmit
@@ -331,7 +364,6 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   if (!opts.forceSubmit && opts.allowSubmit === false && decision.stripeSubmit) {
     decision = { action: 'stage', stripeSubmit: false, reason: 'an admin rebuilt the packet, so it was not submitted' }
   }
-  const unchanged = !opts.forceRebuild && !opts.forceSubmit && row.evidenceSha256 === evidenceSha && row.packetSha256 === packetSha
   if (decision.action === 'skip' || decision.action === 'compile_only') {
     if (!unchanged) await audit(id, decision.action === 'compile_only' ? 'dry_run' : 'compiled', decision.reason, null, actor)
     return
@@ -401,13 +433,14 @@ export async function advance(id: string, actor: string, opts: { forceRebuild?: 
   await audit(id, decision.stripeSubmit ? 'submitted' : 'staged', decision.reason, { file: pdfId }, actor)
   if (decision.stripeSubmit && (await rememberAlert(id, 'submitted'))) {
     await hubAlert(`:white_check_mark: *Dispute evidence submitted* — ${row.stripeDisputeId}. This is final. <${hubLink('/payments?tab=disputes')}|Disputes>`).catch(() => {})
+    await textOwners(row.livemode, `Genisys: dispute evidence for ${row.stripeDisputeId} (${money(row.amountCents, row.currency)}) was submitted to the bank. This is final. ${hubLink('/payments?tab=disputes')}`, 'Stripe dispute submitted', config)
   }
 }
 
 export async function handleStripeSideEffect(effect: SideEffect): Promise<void> {
   if (effect.eventId && !(await claimStripeEvent(effect.eventId))) return
   if (effect.kind === 'dispute') {
-    await upsertDispute(effect.dispute, 'stripe-webhook')
+    await upsertDispute(await fullDispute(effect.dispute), 'stripe-webhook')
     return
   }
   if (effect.kind === 'early_fraud_warning') {
@@ -415,6 +448,21 @@ export async function handleStripeSideEffect(effect: SideEffect): Promise<void> 
     return
   }
   if (effect.kind === 'invoice_paid') await handleInvoicePaid(effect)
+}
+
+/**
+ * A dispute webhook carries the charge as an id and no customer, so the payload
+ * alone cannot name the cardholder. Read it back with the charge expanded. When
+ * Stripe cannot be reached (no key, no permission) the payload is used as it came.
+ */
+async function fullDispute(parsed: ParsedDispute): Promise<ParsedDispute> {
+  if (parsed.stripeCustomerId && parsed.email) return parsed
+  try {
+    return readDispute(await retrieveDispute(parsed.stripeDisputeId)) ?? parsed
+  } catch (err) {
+    console.error('[disputes] webhook retrieve:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    return parsed
+  }
 }
 
 async function handleEfw(effect: Extract<SideEffect, { kind: 'early_fraud_warning' }>): Promise<void> {

@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
-import { PRODUCT_DESCRIPTION, POLICY_EDITIONS, policyEditionForAcceptance, type PolicyEdition } from './policies'
+import { PRODUCT_DESCRIPTION, POLICY_EDITIONS, TERMS_CANCELLATION_CLAUSE, TERMS_REFUND_CLAUSE, currentPolicy, policyEditionForAcceptance, type PolicyEdition } from './policies'
 
 export { PRODUCT_DESCRIPTION }
 
@@ -23,6 +23,12 @@ export const WEBHOOK_PATH = '/api/webhooks/stripe'
  * (2026-08-06) and not a claim that this client accepted the draft pages.
  */
 export const TERMS_VERSION = '2026-11-19'
+/**
+ * A terms box checked at Stripe Checkout. Stripe keeps the consent on the
+ * Checkout Session; it records the box, not the page text, so there is no hash.
+ */
+export const CHECKOUT_CONSENT_SOURCE = 'stripe_checkout'
+export const CHECKOUT_TERMS_VERSION = 'stripe-checkout'
 
 /** Combined evidence files must stay under this. Each file must stay under 5 MB. */
 export const MAX_COMBINED_FILE_BYTES = Math.floor(4.5 * 1024 * 1024)
@@ -249,7 +255,7 @@ export type DisputeIdentity = {
 export type MatchResult = {
   clientId: string | null
   intakeId: string | null
-  method: 'metadata' | 'email' | 'phone' | 'business_name' | 'person_name' | 'none'
+  method: 'metadata' | 'email' | 'phone' | 'business_name' | 'person_name' | 'manual' | 'none'
   confidence: 'exact' | 'strong' | 'weak' | 'none'
   disputeCount: number
   repeatDisputer: boolean
@@ -1121,11 +1127,11 @@ const EMPHASIS_NARRATIVES: Record<EvidenceEmphasis, string> = {
   not_received:
     'Nothing was shipped. The service delivery timeline is the proof of what was delivered: the website going live, the domain, the toll-free number, texting approval, calls ringing the owner, the Genisys OS form and chat on the site, lead automations, Google review requests, and a completed business profile, then the setup report we emailed and any later sign-in. Leads that arrived after that are supporting detail.',
   not_as_described:
-    'The service delivery timeline is what the client received: website, domain, toll-free number, texting, call routing, form and chat, automations, review requests, and the business profile. That is the lead-generation system described at signup. The refund fields quote the refund policy the client accepted when that acceptance text hash matches a policy on file.',
+    'The service delivery timeline is what the client received: website, domain, toll-free number, texting, call routing, form and chat, automations, review requests, and the business profile. That is the lead-generation system described at signup. The refund fields quote the refund policy the client accepted, from the hashed policy page or from section 10 of the Terms of Service they agreed to at Stripe Checkout.',
   canceled:
-    'The subscription was still in force on the charge date. The service delivery timeline shows the system the client kept. The cancellation fields quote the cancellation policy the client accepted when that acceptance text hash matches a policy on file.',
+    'The subscription was still in force on the charge date. The service delivery timeline shows the system the client kept. The cancellation fields quote the cancellation policy the client accepted, from the hashed policy page or from section 10 of the Terms of Service they agreed to at Stripe Checkout.',
   credit:
-    'The timeline shows the service that was delivered. The refund fields quote the refund policy the client accepted when that acceptance text hash matches a policy on file, and they note a refund when one was actually issued.',
+    'The timeline shows the service that was delivered. The refund fields quote the refund policy the client accepted, from the hashed policy page or from section 10 of the Terms of Service they agreed to at Stripe Checkout, and they note a refund when one was actually issued.',
   duplicate:
     'This charge is a distinct billing period or invoice, not a second copy of another charge. The packet lists the cycle it covers.',
   unrecognized:
@@ -1255,38 +1261,63 @@ function acceptedPolicySentence(a: EvidenceAck, label: string): string {
 }
 
 function policiesBody(acks: EvidenceAck[]): string {
-  const blocks = POLICY_EDITIONS.map((edition) => {
+  const blocks = POLICY_EDITIONS.flatMap((edition) => {
     const ack = acks.find((a) => a.kind === edition.kind)
+    // A draft nobody accepted has no place in front of a bank.
+    if (edition.draft && !ack) return []
     const matched = ack ? matchedPolicy(ack) : null
+    const isThis = !!ack && matched?.textHash === edition.textHash
+    const includeText = isThis || !edition.draft
     let status: string
     if (!ack) {
       status = "No acceptance record for this client. The text below is what the onboarding site publishes. It is not stated as this client's acceptance."
-    } else if (matched?.textHash === edition.textHash) {
+    } else if (isThis) {
       status = `This is the text the acceptance record hashes to (${policyCite(ack)}).`
     } else if (matched) {
       status = `The acceptance record matches a different edition (version ${matched.version}, sha256 ${matched.textHash}), not this text.`
+    } else if (!textHashOf(ack.textHash ?? null) && ack.source === CHECKOUT_CONSENT_SOURCE) {
+      status = `The client checked the Terms of Service box at Stripe Checkout (${policyCite(ack)}). Stripe records the checked box, not a text hash, so the text below is the published version, not a hashed copy of what was shown.`
     } else {
-      status = `An acceptance record is on file (${policyCite(ack)}) but its text hash does not match this text, so this text is not stated as what the client accepted.`
+      status = `An acceptance record is on file (${policyCite(ack)}) but its text hash does not match this edition, so this edition is not stated as what the client accepted.`
     }
     return [
-      edition.title,
-      `Version ${edition.version}${edition.draft ? ", draft, pending the owner's legal review" : ''}`,
-      edition.textUrl,
-      `sha256 ${edition.textHash}`,
-      status,
-      '',
-      'Summary quoted in Stripe fields when the hash matches:',
-      edition.summary,
-      '',
-      'Full text:',
-      edition.text,
-    ].join('\n')
+      [
+        edition.title,
+        `Version ${edition.version}${edition.draft ? ", draft, pending the owner's legal review" : ''}`,
+        edition.textUrl,
+        `sha256 ${edition.textHash}`,
+        status,
+        ...(includeText
+          ? ['', 'Summary quoted in Stripe fields when the hash matches:', edition.summary, '', 'Full text:', edition.text]
+          : ['', 'The text of this edition is not included.']),
+      ].join('\n'),
+    ]
   })
   return [
-    "Each block is one published version of a policy. A Stripe disclosure field quotes the summary only when the client's textHash is the SHA-256 of that block's full text.",
+    "Each block is one published version of a policy. A Stripe disclosure field quotes it only when the client's textHash is the SHA-256 of that block's full text, or, for the Terms of Service, when Stripe Checkout recorded the client's agreement.",
     '',
     blocks.join('\n\n'),
   ].join('\n')
+}
+
+/**
+ * Section 10 of the Terms carries the cancellation and refund rules. It is quoted
+ * when the client's terms acceptance is the hashed Terms page, or Stripe Checkout's
+ * terms box. An intake acceptance without a hash quotes nothing.
+ */
+function termsDisclosure(terms: EvidenceAck | undefined, topic: 'cancellation' | 'refund'): string | null {
+  if (!terms) return null
+  const clause = topic === 'cancellation' ? TERMS_CANCELLATION_CLAUSE : TERMS_REFUND_CLAUSE
+  const edition = matchedPolicy(terms)
+  if (edition) {
+    return `The client accepted the Terms of Service, ${policyCite(terms)}. The text hash matches ${edition.textUrl} version ${edition.version}. Section 10 of those Terms states: ${clause}`
+  }
+  if (!textHashOf(terms.textHash ?? null) && terms.source === CHECKOUT_CONSENT_SOURCE) {
+    const published = currentPolicy('terms')
+    if (published.draft) return null
+    return `The client checked "I agree to the Terms of Service" at Stripe Checkout, ${policyCite(terms)}. Stripe records the checked box, not a text hash. The published Terms of Service, ${published.textUrl} version ${published.version}, section 10, state: ${clause}`
+  }
+  return null
 }
 
 export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
@@ -1339,11 +1370,15 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
   const cancelEdition = cancelAck ? matchedPolicy(cancelAck) : null
   const refundEdition = refundAck ? matchedPolicy(refundAck) : null
   const recurringEdition = recurring ? matchedPolicy(recurring) : null
+  const cancelFromTerms = cancelAck ? null : termsDisclosure(terms, 'cancellation')
+  const refundFromTerms = refundAck ? null : termsDisclosure(terms, 'refund')
   const rebuttal = cancelAck
     ? cancelEdition
       ? `The client accepted the cancellation policy ${policyCite(cancelAck)}. The text hash matches ${cancelEdition.textUrl} version ${cancelEdition.version}. ${cancelEdition.summary} ${afterNote}`
       : `The client has a cancellation acceptance (${policyCite(cancelAck)}) that does not match a cancellation policy text on file, so this packet does not substitute a different cancellation rule. ${afterNote}`
-    : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterNote}`
+    : cancelFromTerms
+      ? `${cancelFromTerms} ${afterNote}`
+      : `The Hub does not yet have a clickwrap record of the cancellation policy for this client. ${afterNote}`
 
   const refusal = d.chargeRefunded
     ? 'The charge has already been refunded. No further credit is owed.'
@@ -1351,7 +1386,9 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
       ? refundEdition
         ? `The client accepted the refund policy ${policyCite(refundAck)}. The text hash matches ${refundEdition.textUrl} version ${refundEdition.version}. ${refundEdition.summary} The ledger shows what was delivered.`
         : `The client has a refund acceptance (${policyCite(refundAck)}) that does not match a refund policy text on file, so this packet does not substitute a different refund rule. The ledger shows what was delivered.`
-      : 'The Hub does not yet have a clickwrap record of the refund policy for this client. This packet does not state a refund rule as something this client accepted.'
+      : refundFromTerms
+        ? `${refundFromTerms} The ledger shows what was delivered.`
+        : 'The Hub does not yet have a clickwrap record of the refund policy for this client. This packet does not state a refund rule as something this client accepted.'
 
   const narrative = (facts.narrative?.trim() || facts.template?.trim() || templateFor(d.reason, null, d.networkReasonCode)).trim()
   const repeat = client && client.disputeCount >= 2 ? `This client has ${client.disputeCount} disputes on file.` : ''
@@ -1368,7 +1405,11 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
       : [narrative]
   const uncategorized = [...leadBlock, repeat, `Packet prepared by Genisys Hub. Dispute ${d.id}. Reason ${d.reason}${emphasis.label ? ` (${emphasis.label})` : ''}. Amount ${money(d.amountCents, d.currency)}.`].filter(Boolean).join('\n\n')
 
-  const clickwrap = terms ? `Clickwrap ${ackLine(terms)}${hashAndUrl(terms)}. The acceptance record and the policy text on file are in the attached packet.` : ''
+  const clickwrap = !terms
+    ? ''
+    : terms.source === CHECKOUT_CONSENT_SOURCE
+      ? `Terms of Service box checked at Stripe Checkout: ${ackLine(terms)}. Stripe holds that consent on the Checkout Session.`
+      : `Clickwrap ${ackLine(terms)}${hashAndUrl(terms)}. The acceptance record and the policy text on file are in the attached packet.`
   const fields: Record<string, string> = {
     product_description: product,
     customer_name: person || name,
@@ -1377,8 +1418,8 @@ export function buildEvidence(facts: EvidenceFacts): BuiltEvidence {
     customer_purchase_ip: ip ?? '',
     service_date: serviceDate ? serviceDate.slice(0, 10) : '',
     access_activity_log: [activity.join('\n'), clickwrap].filter(Boolean).join('\n'),
-    refund_policy_disclosure: refundAck ? acceptedPolicySentence(refundAck, 'refund policy') : '',
-    cancellation_policy_disclosure: cancelAck ? acceptedPolicySentence(cancelAck, 'cancellation policy') : '',
+    refund_policy_disclosure: refundAck ? acceptedPolicySentence(refundAck, 'refund policy') : refundFromTerms ?? '',
+    cancellation_policy_disclosure: cancelAck ? acceptedPolicySentence(cancelAck, 'cancellation policy') : cancelFromTerms ?? '',
     cancellation_rebuttal: emphasis.emphasis === 'canceled' ? rebuttal : '',
     refund_refusal_explanation: emphasis.emphasis === 'not_as_described' || emphasis.emphasis === 'credit' ? refusal : '',
     duplicate_charge_explanation: d.reason === 'duplicate' ? narrative : '',
@@ -1545,7 +1586,7 @@ export function evidenceFormBody(o: { fields: Record<string, string>; files: Rec
       put(`${prefix}[customer_purchase_ip]`, prior.customerPurchaseIp)
       put(`${prefix}[customer_device_id]`, prior.customerDeviceId)
       put(`${prefix}[product_description]`, prior.productDescription)
-      put(`${prefix}[merchandise_or_services]`, 'services')
+      // Stripe accepts merchandise_or_services on the disputed transaction only; on a prior it is a 400.
     })
   }
   p.set('submit', o.submit ? 'true' : 'false')
@@ -1631,6 +1672,24 @@ export function parseAcceptance(body: unknown, receivedAt: string): ParsedAccept
     })
   }
   return out
+}
+
+/**
+ * Stripe Checkout's terms box. Present when the signup site asks for
+ * `consent_collection.terms_of_service=required`; Stripe then stores
+ * `consent.terms_of_service=accepted` on the Checkout Session, behind the
+ * Dashboard's Terms URL. The time is the session's creation (Stripe keeps no
+ * separate acceptance time) and the IP and browser are the purchase trio the
+ * signup site stamped on the session. There is no text hash to cite.
+ */
+export function checkoutConsentAcceptance(session: unknown): ParsedAcceptance | null {
+  if (!isCheckoutSession(session)) return null
+  const consent = isObj(session.consent) ? session.consent : null
+  if (!consent || str(consent.terms_of_service) !== 'accepted') return null
+  const acceptedAt = iso(session.created)
+  if (!acceptedAt) return null
+  const signals = purchaseSignalsFromMetadata(session.metadata)
+  return { kind: 'terms', version: CHECKOUT_TERMS_VERSION, acceptedAt, ip: signals.ip, userAgent: signals.userAgent, textHash: null, textUrl: null }
 }
 
 export function acknowledgementHash(a: { kind: string; version: string; acceptedAt: string; ip: string | null; userAgent: string | null; email: string | null; textHash?: string | null; textUrl?: string | null }): string {

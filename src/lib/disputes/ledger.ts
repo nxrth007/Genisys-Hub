@@ -5,7 +5,7 @@
  * sub-account worker; it only reads the job row the worker already wrote.
  */
 import { prisma } from '@/lib/prisma'
-import { acknowledgementHash, emailHeaderHas, ledgerHash, parseAcceptance, sha256 } from './plan'
+import { CHECKOUT_CONSENT_SOURCE, acknowledgementHash, emailHeaderHas, ledgerHash, parseAcceptance, sha256, type ParsedAcceptance } from './plan'
 
 export type NewRow = {
   clientId: string
@@ -313,4 +313,43 @@ async function backfillAcceptance(clientId: string | null, intakeId: string, ema
 
 export function noticeHash(n: { kind: string; channel: string; to: string; subject: string | null; body: string; sentAt: string }): string {
   return sha256(`${n.kind}|${n.channel}|${n.to}|${n.subject ?? ''}|${n.body}|${n.sentAt}`)
+}
+
+/**
+ * Stripe Checkout's terms box as an acceptance row: one per client and session
+ * time. A row stored before the client existed is linked to the client later.
+ */
+export async function recordCheckoutConsent(o: { clientId: string | null; intakeId: string | null; email: string | null; acceptance: ParsedAcceptance }): Promise<boolean> {
+  const a = o.acceptance
+  const email = o.email?.trim().toLowerCase() || null
+  const who = [...(o.clientId ? [{ clientId: o.clientId }] : []), ...(email ? [{ email }] : [])]
+  if (!who.length) return false
+  const acceptedAt = new Date(a.acceptedAt)
+  const exists = await prisma.serviceAcknowledgement.findFirst({
+    where: { source: CHECKOUT_CONSENT_SOURCE, kind: a.kind, acceptedAt, OR: who },
+    select: { id: true, clientId: true },
+  })
+  if (exists) {
+    if (!exists.clientId && o.clientId) {
+      await prisma.serviceAcknowledgement.update({ where: { id: exists.id }, data: { clientId: o.clientId, intakeId: o.intakeId } })
+    }
+    return false
+  }
+  await prisma.serviceAcknowledgement.create({
+    data: {
+      clientId: o.clientId,
+      intakeId: o.intakeId,
+      email,
+      kind: a.kind,
+      version: a.version,
+      acceptedAt,
+      ip: a.ip,
+      userAgent: a.userAgent,
+      textHash: null,
+      textUrl: null,
+      source: CHECKOUT_CONSENT_SOURCE,
+      contentHash: acknowledgementHash({ kind: a.kind, version: a.version, acceptedAt: a.acceptedAt, ip: a.ip, userAgent: a.userAgent, email, textHash: null, textUrl: null }),
+    },
+  })
+  return true
 }

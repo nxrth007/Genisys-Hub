@@ -158,6 +158,13 @@ export function policyEditionForAcceptance(ack: { kind: string; textHash?: strin
   return POLICY_EDITIONS.find((e) => e.kind === ack.kind && e.textHash === hash) ?? null
 }
 
+/**
+ * Section 10 of the Terms, quoted in the cancellation and refund fields when the
+ * client's terms acceptance is on file. Each sentence is verbatim TERMS_TEXT.
+ */
+export const TERMS_CANCELLATION_CLAUSE = 'Either party may cancel services with 30 days written notice. Cancellation requests should be sent to ethan@leadgenisys.com. Upon cancellation, hosting, AI follow-up, and review automation are discontinued at the end of the current billing period.'
+export const TERMS_REFUND_CLAUSE = 'Setup and creative work are non-refundable once work has commenced. Fees paid for the current service period are non-refundable. Unused prepaid services may be credited toward future services at our discretion.'
+
 /** Product line for Stripe. Price and cancellation contact come from the pages above. */
 export const PRODUCT_DESCRIPTION = [
   'Lead Genisys LLC provides done-for-you websites, AI-powered text and email follow-up, appointment scheduling, CRM automation, and review requests for home service contractors.',

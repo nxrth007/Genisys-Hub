@@ -104,6 +104,8 @@ Add these events (the signup events already on it can stay):
 
 The signing secret is the Vault entry **Stripe Official Webhook Secret**. The key the defense calls Stripe with is **Stripe Official Restricted**. **Stripe API Key** is the old dead account and is not read.
 
+A dispute event names the charge by id and carries no customer, so the Hub reads the dispute back from Stripe with the charge expanded before it matches the client. If that read fails (no key, no permission) the event is used as it came, and a later reconcile fixes the match. A match the reconcile made is never downgraded by a thinner event.
+
 ### Restricted key permissions
 
 Read (the Disputes tab can probe these): Disputes, Charges, PaymentIntents, Customers, Invoices, Subscriptions, Checkout Sessions, Files, Radar early fraud warnings, Webhook endpoints.
@@ -129,6 +131,8 @@ Environment, or the switches on Payments → Disputes (a saved setting overrides
 | `DISPUTE_DEFENSE_CRON` | off outside production | Set to `1` to reconcile disputes from a non-production process. |
 
 Auto-submit does not run when a dispute is paused, when an admin edited the narrative, when the client match is weak or missing, after `due_by`, or for an inquiry while `DISPUTE_INQUIRY_POLICY` is `flag` (the default). A weak match (a business name, a person name, or metadata whose email does not belong to that client) is compiled locally and not uploaded. Rebuilding or linking a client does not submit. Submitting evidence is final, and Stripe's default for `submit` is true, so the Hub refuses a dispute update that does not set the flag explicitly. `has_evidence` means the evidence was staged, not submitted.
+
+Alex and Ethan are texted when a live dispute opens, when evidence is submitted, and the first time a packet build fails for a dispute. The Slack posts stay but are not the signal.
 
 The narrative follows the card network reason code when Stripe sends one (Visa 10.4, 13.1, 13.2, 13.3, 13.7, and the Mastercard and American Express codes in the dispute plan), and otherwise the Stripe reason. Not-received and not-as-described packets lead with the setup timeline. Fraud packets lead with the purchase IP. Visa Compelling Evidence 3.0 is added only for Visa 10.4 when two older undisputed charges on the same card share the same qualifying pair with this charge: purchase IP and device id, or one of those plus the email.
 
@@ -256,6 +260,12 @@ The prose is the summary in `src/lib/disputes/policies.ts` for the edition whose
 ```
 
 Until those are sent, the packet says the clickwrap is not on file and relies on the setup timeline.
+
+#### Terms consent from Stripe Checkout
+
+The onboarding form does not collect consent, and it does not have to. The signup checkout can ask Stripe to: set `consent_collection: { terms_of_service: "required" }` when the signup site (`nxrth007/freesysystems`, `supabase/functions/create-checkout-session`) creates the Checkout Session, with the Terms URL (`https://clientonboarding.leadgenisys.com/terms`) saved in Stripe → Settings → Business → Public details. Stripe then shows its own "I agree to the Terms of Service" box and records `consent.terms_of_service = accepted` on the session. When the Hub builds a packet it reads that session, stores the consent as a `terms` acceptance from `stripe_checkout` (session time, purchase IP and browser from the session metadata, no text hash), cites it in the clickwrap PDF and the access log, and quotes section 10 of the published Terms in the cancellation and refund disclosure fields. Sessions created before the setting was turned on carry no consent, so those clients still show no clickwrap.
+
+A policy page still marked DRAFT is not included in a packet unless the client's acceptance hashes to it.
 
 ### Safe test
 

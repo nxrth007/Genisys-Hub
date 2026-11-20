@@ -18,6 +18,7 @@ import {
   purchaseSignalsFromStripe,
   redactSecrets,
   stampPurchaseSignals,
+  subscriptionIdFromInvoice,
   type Ce3,
   type PurchaseFetch,
   type PurchaseSignals,
@@ -353,6 +354,65 @@ async function mapPool<T>(items: T[], limit: number, fn: (item: T) => Promise<vo
     }
   })
   await Promise.all(workers)
+}
+
+/**
+ * The Checkout Session behind the disputed charge: the one that started its
+ * subscription, or, for a one-off payment, its PaymentIntent. Read for Stripe's
+ * own record of the terms box. GET only; a missing object or permission is a
+ * null, logged by softGet. Finished lookups are kept for two hours so the
+ * 15-minute reconcile does not repeat them.
+ */
+const SESSION_CACHE_MS = 2 * 60 * 60 * 1000
+const sessionCache = new Map<string, { at: number; session: Obj | null }>()
+
+export async function checkoutSessionForCharge(charge: Obj): Promise<Obj | null> {
+  if (isObj(charge.checkout_session)) return charge.checkout_session
+  const chargeId = typeof charge.id === 'string' ? charge.id : ''
+  const hit = chargeId ? sessionCache.get(chargeId) : undefined
+  if (hit && Date.now() - hit.at <= SESSION_CACHE_MS) return hit.session
+  let key: { value: string }
+  try {
+    key = await disputeKey()
+  } catch (err) {
+    console.error('[disputes] checkout session:', redactSecrets(err instanceof Error ? err.message : String(err)))
+    return null
+  }
+  let failed = false
+  let subscriptionId = subscriptionIdFromInvoice(charge.invoice)
+  if (!subscriptionId) {
+    let invoiceId = typeof charge.invoice === 'string' && INVOICE_ID.test(charge.invoice) ? charge.invoice : null
+    if (!invoiceId && !('invoice' in charge) && /^ch_[A-Za-z0-9]+$/.test(chargeId)) {
+      const legacy = await softGet(key.value, `/charges/${encodeURIComponent(chargeId)}`, CHARGE_INVOICE_VERSION)
+      if (legacy.failed) failed = true
+      const id = isObj(legacy.data) ? invoiceIdFromCharge(legacy.data) : undefined
+      if (typeof id === 'string') invoiceId = id
+    }
+    if (invoiceId) {
+      const invoice = await softGet(key.value, `/invoices/${encodeURIComponent(invoiceId)}`)
+      if (invoice.failed) failed = true
+      subscriptionId = subscriptionIdFromInvoice(invoice.data)
+    }
+  }
+  const intent = charge.payment_intent
+  const paymentIntentId = typeof intent === 'string' ? intent : isObj(intent) && typeof intent.id === 'string' ? intent.id : null
+  let sessions: Obj[] = []
+  if (subscriptionId && SUBSCRIPTION_ID.test(subscriptionId)) {
+    const page = await listCheckoutSessions(key.value, 'subscription', subscriptionId)
+    if (page.failed) failed = true
+    sessions = page.sessions
+  }
+  if (!sessions.length && paymentIntentId && PAYMENT_INTENT_ID.test(paymentIntentId)) {
+    const page = await listCheckoutSessions(key.value, 'payment_intent', paymentIntentId)
+    if (page.failed) failed = true
+    sessions = page.sessions
+  }
+  const session = sessions.find((s) => s.status === 'complete') ?? sessions[0] ?? null
+  if (chargeId && !failed) {
+    if (sessionCache.size > 2000) sessionCache.clear()
+    sessionCache.set(chargeId, { at: Date.now(), session })
+  }
+  return session
 }
 
 export async function uploadDisputeFile(bytes: Buffer, filename: string, mime: string): Promise<string> {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
@@ -10,7 +10,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const tsCache = new Map()
 
 function loadTs(rel) {
-  const absPath = rel.startsWith('/') ? rel : join(root, rel)
+  const absPath = isAbsolute(rel) ? rel : join(root, rel)
   if (tsCache.has(absPath)) return tsCache.get(absPath)
   const { outputText } = ts.transpileModule(readFileSync(absPath, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -750,7 +750,10 @@ test('purchase lookup stays on one source, bounds the reconcile, and a versioned
   const stripe = readFileSync(join(root, 'src/lib/disputes/stripe.ts'), 'utf8')
   const enrich = stripe.slice(stripe.indexOf('export async function enrichChargePurchaseContext'), stripe.indexOf('async function listCheckoutSessions'))
   assert.doesNotMatch(enrich, /method:\s*'POST'|stripeForm|submit=/)
-  assert.equal((stripe.match(/CHARGE_INVOICE_VERSION/g) || []).length, 2)
+  assert.equal((stripe.match(/CHARGE_INVOICE_VERSION/g) || []).length, 3)
+  const sessionFn = stripe.slice(stripe.indexOf('export async function checkoutSessionForCharge'))
+  assert.ok(sessionFn.includes('listCheckoutSessions'))
+  assert.doesNotMatch(sessionFn.slice(0, sessionFn.indexOf('export async function uploadDisputeFile')), /method:\s*'POST'|stripeForm|submit=/)
   assert.match(stripe, /headers: stripeVersion \? \{ 'Stripe-Version': stripeVersion \} : \{\}/)
   assert.match(enrich, /softGet\(key\.value, `\/charges\/\$\{encodeURIComponent\(chargeId\)\}`, CHARGE_INVOICE_VERSION\)/)
   assert.match(stripe, /method: 'GET'/)
@@ -927,4 +930,94 @@ test('dispute policy text matches the onboarding pages and is quoted only for th
   assert.doesNotMatch(bareCredit.fields.refund_refusal_explanation, /non-refundable/)
   assert.doesNotMatch(bareCredit.fields.refund_refusal_explanation, /the client accepted/i)
   assert.doesNotMatch(JSON.stringify(bare.fields), forbidden)
+})
+
+test('Visa CE 3.0 form body puts merchandise_or_services on the disputed transaction only', () => {
+  const party = { customerAccountId: null, customerEmail: 'owner@acme.test', customerPurchaseIp: '203.0.113.9', customerDeviceId: null, productDescription: 'service' }
+  const form = plan.evidenceFormBody({ fields: {}, files: {}, ce3: { disputed: party, prior: [{ charge: 'ch_a', ...party }, { charge: 'ch_b', ...party }] }, submit: false })
+  const params = new URLSearchParams(form)
+  const base = 'evidence[enhanced_evidence][visa_compelling_evidence_3]'
+  assert.equal(params.get(`${base}[disputed_transaction][merchandise_or_services]`), 'services')
+  assert.equal(params.get(`${base}[disputed_transaction][product_description]`), 'service')
+  assert.equal(params.get(`${base}[prior_undisputed_transactions][0][charge]`), 'ch_a')
+  assert.equal(params.get(`${base}[prior_undisputed_transactions][1][product_description]`), 'service')
+  assert.equal(params.get(`${base}[prior_undisputed_transactions][0][merchandise_or_services]`), null)
+  assert.equal(params.get(`${base}[prior_undisputed_transactions][1][merchandise_or_services]`), null)
+  assert.equal(params.get('submit'), 'false')
+})
+
+test('Stripe Checkout terms consent is a terms acceptance, and drafts stay out of a packet nobody hashed', () => {
+  const session = {
+    id: 'cs_1', object: 'checkout.session', created: 1_760_000_000, status: 'complete',
+    consent_collection: { terms_of_service: 'required' },
+    consent: { terms_of_service: 'accepted', promotions: null },
+    metadata: { hub_purchase_ip: '203.0.113.10', hub_purchase_ua: 'Mozilla/5.0 checkout', flow: 'signup' },
+  }
+  const consent = plan.checkoutConsentAcceptance(session)
+  assert.equal(consent.kind, 'terms')
+  assert.equal(consent.version, plan.CHECKOUT_TERMS_VERSION)
+  assert.equal(consent.acceptedAt, new Date(1_760_000_000 * 1000).toISOString())
+  assert.equal(consent.ip, '203.0.113.10')
+  assert.equal(consent.userAgent, 'Mozilla/5.0 checkout')
+  assert.equal(consent.textHash, null)
+  assert.equal(consent.textUrl, null)
+  assert.equal(plan.checkoutConsentAcceptance({ ...session, consent: { terms_of_service: null } }), null)
+  assert.equal(plan.checkoutConsentAcceptance({ ...session, consent: undefined }), null)
+  assert.equal(plan.checkoutConsentAcceptance({ id: 'sub_1', object: 'subscription', consent: { terms_of_service: 'accepted' }, created: 1 }), null)
+
+  const terms = policies.currentPolicy('terms')
+  const dispute = { id: 'dp_1', reason: 'subscription_canceled', status: 'needs_response', amountCents: 29700, currency: 'usd', dueBy: null, chargedAt: '2026-10-01T00:00:00.000Z', cardBrand: 'visa', networkReasonCode: '13.2', email: 'owner@acme.test', name: 'Acme', phone: null, billingAddress: null, purchaseIp: null, purchaseUa: null, deviceId: null, chargeRefunded: false }
+  const empty = { client: null, intake: null, ledger: [], emails: [], receipts: [], invoices: [], logins: [], priors: [], narrative: null, template: null }
+  const ack = { ...consent, source: plan.CHECKOUT_CONSENT_SOURCE, contentHash: 'h1' }
+  const built = plan.buildEvidence({ dispute, ...empty, acknowledgements: [ack] })
+  const disclosure = built.fields.cancellation_policy_disclosure
+  assert.match(disclosure, /Stripe Checkout/)
+  assert.match(disclosure, /not a text hash/)
+  assert.match(disclosure, /30 days written notice/)
+  assert.match(disclosure, /ethan@leadgenisys\.com/)
+  assert.ok(disclosure.includes(terms.textUrl))
+  assert.match(disclosure, /version 2026-08-06/)
+  assert.doesNotMatch(disclosure, /DRAFT|pending the owner/)
+  assert.match(built.fields.cancellation_rebuttal, /30 days written notice/)
+  assert.match(built.fields.cancellation_rebuttal, /ledger has no entry on or after this charge/)
+  assert.match(built.fields.refund_policy_disclosure, /non-refundable once work has commenced/)
+  assert.match(built.fields.access_activity_log, /Stripe Checkout/)
+  assert.match(built.fields.customer_purchase_ip, /203\.0\.113\.10/)
+  assert.ok(built.signatureSections)
+  assert.match(built.signatureSections[0].body, /stripe_checkout/)
+  const credit = plan.buildEvidence({ dispute: { ...dispute, reason: 'credit_not_processed', networkReasonCode: 'C02' }, ...empty, acknowledgements: [ack] })
+  assert.match(credit.fields.refund_refusal_explanation, /Stripe Checkout/)
+  assert.match(credit.fields.refund_refusal_explanation, /non-refundable/)
+  const withConsent = built.sections.find((s) => s.heading === 'Policies').body
+  assert.doesNotMatch(withConsent, /DRAFT|pending the owner/)
+  assert.match(withConsent, /checked the Terms of Service box at Stripe Checkout/)
+  assert.doesNotMatch(withConsent, /Refund Policy\n/)
+  // Nobody accepted anything: the published Terms are listed, the drafts are not.
+  const nobody = plan.buildEvidence({ dispute, ...empty, acknowledgements: [] })
+  const nobodyBody = nobody.sections.find((s) => s.heading === 'Policies').body
+  assert.doesNotMatch(nobodyBody, /DRAFT|pending the owner/)
+  assert.match(nobodyBody, /Terms of Service\nVersion 2026-08-06/)
+  assert.doesNotMatch(nobodyBody, /Cancellation Policy\n|Recurring Billing\n/)
+  assert.equal(nobody.fields.cancellation_policy_disclosure, undefined)
+  // An intake terms acceptance without a hash does not quote the Terms.
+  const intakeNoHash = plan.buildEvidence({ dispute, ...empty, acknowledgements: [{ ...ack, source: 'intake' }] })
+  assert.equal(intakeNoHash.fields.cancellation_policy_disclosure, undefined)
+  assert.match(intakeNoHash.fields.cancellation_rebuttal, /does not yet have a clickwrap/)
+  // A hashed intake acceptance of the Terms quotes section 10 as accepted.
+  const hashed = plan.buildEvidence({ dispute, ...empty, acknowledgements: [{ ...ack, source: 'intake', version: terms.version, textHash: terms.textHash, textUrl: terms.textUrl }] })
+  assert.match(hashed.fields.cancellation_policy_disclosure, /text hash matches/)
+  assert.match(hashed.fields.cancellation_policy_disclosure, /30 days written notice/)
+  assert.doesNotMatch(hashed.fields.cancellation_policy_disclosure, /Stripe Checkout/)
+  // A draft the client did hash is still quoted, as before.
+  const cancel = policies.currentPolicy('cancellation_policy')
+  const draftHashed = plan.buildEvidence({ dispute, ...empty, acknowledgements: [{ ...ack, kind: 'cancellation_policy', source: 'intake', version: cancel.version, textHash: cancel.textHash, textUrl: cancel.textUrl }] })
+  assert.match(draftHashed.sections.find((s) => s.heading === 'Policies').body, /This is the text the acceptance record hashes to/)
+  assert.match(draftHashed.fields.cancellation_policy_disclosure, /draft/i)
+})
+
+test('the Terms clauses quoted for cancellation and refunds are verbatim section 10 text', () => {
+  const text = policies.currentPolicy('terms').text
+  assert.ok(text.includes(policies.TERMS_CANCELLATION_CLAUSE))
+  for (const sentence of policies.TERMS_REFUND_CLAUSE.split('. ')) assert.ok(text.includes(sentence.replace(/\.$/, '')), sentence)
+  assert.doesNotMatch(policies.TERMS_CANCELLATION_CLAUSE + policies.TERMS_REFUND_CLAUSE, /alex@leadgenisys\.com|cancel anytime|customer portal|\$297/)
 })
