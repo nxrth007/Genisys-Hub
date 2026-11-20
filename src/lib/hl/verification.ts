@@ -274,7 +274,8 @@ function checkLengths(request: Record<string, unknown>): void {
 
 /**
  * File (or re-file after a rejection) the toll-free verification for a number. A re-filing edits the
- * rejected one; `editReason` is the note Twilio's reviewer reads about what changed.
+ * rejected one; `editReason` is the note Twilio's reviewer reads about what changed (Twilio takes 100
+ * characters at most and refuses the whole edit past that, so a longer one is cut).
  */
 export async function submitVerification(numberId: string, o: { editReason?: string } = {}): Promise<{ status: string; sid: string }> {
   const { number, request } = await verificationDraft(numberId)
@@ -291,7 +292,7 @@ export async function submitVerification(numberId: string, o: { editReason?: str
   // A rejected verification is edited and resubmitted rather than filed again.
   const v =
     number.verificationStatus === 'rejected' && number.verificationSid
-      ? await client.messaging.v1.tollfreeVerifications(number.verificationSid).update({ ...params, editReason: o.editReason?.trim().slice(0, 500) || 'Updated details after review' })
+      ? await client.messaging.v1.tollfreeVerifications(number.verificationSid).update({ ...params, editReason: o.editReason?.trim().slice(0, 100) || 'Updated details after review' })
       : await client.messaging.v1.tollfreeVerifications.create(params)
   const status = STATUS[v.status] ?? 'pending'
   await prisma.hlPhoneNumber.update({

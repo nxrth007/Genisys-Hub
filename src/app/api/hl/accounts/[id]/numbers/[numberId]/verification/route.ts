@@ -25,7 +25,7 @@ export async function GET(req: Request, { params }: Ctx) {
   }
 }
 
-/** POST: file the toll-free verification with Twilio. Body (optional): { editReason } for a re-filing, the note Twilio's reviewer reads. */
+/** POST: file the toll-free verification with Twilio. Body (optional): { editReason } for a re-filing, the note Twilio's reviewer reads (100 characters at most). */
 export async function POST(req: Request, { params }: Ctx) {
   const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
