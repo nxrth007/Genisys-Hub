@@ -280,6 +280,9 @@ const cleanEmail = (v: string | null | undefined): string | null => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null
 }
 
+/** A client's names (the business, then the people behind it), normalised, each once. */
+const namesOf = (cl: ClientForBilling): string[] => [...new Set([cl.name, ...(cl.people ?? [])].map((n) => (n ? normName(n) : '')).filter(Boolean))]
+
 /**
  * Which client each Stripe customer is: by email first, the way the onboarding
  * form's check does (case and whitespace don't matter), then by the business or
@@ -313,12 +316,12 @@ export function matchClients(clients: ClientForBilling[], customers: BillingCust
     const n = c.name ? normName(c.name) : ''
     if (n) customersByName.set(n, [...(customersByName.get(n) ?? []), c])
   }
+  // Which clients go by each name. A client counts once per name however often it's on file: the contact
+  // name and the onboarding form's name are usually the same person, and counting both made the owner's
+  // name look shared by two clients, so a sign-up under a personal email matched nobody (Nov 2026).
   const clientsByName = new Map<string, ClientForBilling[]>()
   for (const cl of clients) {
-    for (const raw of [cl.name, ...(cl.people ?? [])]) {
-      const n = raw ? normName(raw) : ''
-      if (n) clientsByName.set(n, [...(clientsByName.get(n) ?? []), cl])
-    }
+    for (const n of namesOf(cl)) clientsByName.set(n, [...(clientsByName.get(n) ?? []), cl])
   }
 
   const taken = new Set<string>()
@@ -341,7 +344,7 @@ export function matchClients(clients: ClientForBilling[], customers: BillingCust
   // Then names: a customer named after the business (or its owner) when that name points at this one client.
   // A client the emails already placed can gain a second customer this way (a sign-up under a personal email).
   for (const cl of clients) {
-    const names = [...new Set([cl.name, ...(cl.people ?? [])].map((n) => (n ? normName(n) : '')).filter(Boolean))]
+    const names = namesOf(cl)
     const found = names.flatMap((n) => customersByName.get(n) ?? [])
     if (found.length && names.every((n) => (clientsByName.get(n) ?? []).length === 1)) claim(cl, found, 'name')
   }

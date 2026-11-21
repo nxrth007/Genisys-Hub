@@ -164,6 +164,28 @@ test('a customer no client has gets a suggestion when one client shares its name
   assert.deepEqual(one.unmatched[0].suggestion, { clientId: 'c3', name: 'Granite Masonry' })
 })
 
+test("an owner's name on file twice (contact name and onboarding form) still points at one client", () => {
+  // Counted twice, the name looked shared by two clients, and a trial started under a personal email
+  // matched nobody: the Tracker showed a second, empty row for the owner (Nov 2026).
+  const clients = [
+    { id: 'c1', name: 'Harbor View Painting LLC', emails: ['office@harborviewpainting.com'], people: ['Dana Whitfield', 'DANA  WHITFIELD'], archived: false, lifecycle: 'active' },
+    { id: 'c2', name: 'Summit Gutters', emails: ['hi@summitgutters.com'], people: ['Sam Ortiz'], archived: false, lifecycle: 'active' },
+    { id: 'c3', name: 'Ortiz Fencing', emails: ['hello@ortizfencing.com'], people: ['Sam Ortiz'], archived: false, lifecycle: 'active' },
+  ]
+  const subs = [plan.readSubscription(subscription({ id: 'sub_d', customer: { id: 'cus_d', object: 'customer', email: 'dana.whitfield@gmail.com', name: 'Dana Whitfield', phone: null } }))]
+  const customers = [
+    plan.readCustomer(customer({ id: 'cus_d', email: 'dana.whitfield@gmail.com', name: 'Dana Whitfield' })),
+    plan.readCustomer(customer({ id: 'cus_s', email: 'sam@gmail.com', name: 'Sam Ortiz' })), // two clients really do share Sam: no guess
+  ]
+  const m = plan.matchClients(clients, customers, subs)
+  assert.equal(m.byClient.c1.matchedBy, 'name')
+  assert.equal(m.byClient.c1.state, 'trialing')
+  assert.deepEqual(m.byClient.c1.customers.map((c) => c.id), ['cus_d'])
+  assert.equal(m.byClient.c2.state, 'none')
+  assert.equal(m.byClient.c3.state, 'none')
+  assert.deepEqual(m.unmatched.map((u) => u.customer.id), ['cus_s'])
+})
+
 test('the summary: counts by status, MRR from active and past-due, what is due in 30 days, what is wrong', () => {
   const now = new Date('2026-11-18T12:00:00Z').getTime()
   const at = (days) => Math.floor((now + days * 86_400_000) / 1000)
