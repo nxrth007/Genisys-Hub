@@ -53,6 +53,7 @@ import { maybeReconcileDisputes } from './disputes/run'
 import { redactSecrets } from './disputes/plan'
 import { maybeRunRenderMonitor } from './render-monitor-run'
 import { maybeHealLovableSync } from './seo/lovable-sync-heal'
+import { maybeRunDomainGuard } from './seo/domain-guard'
 import { recoverStuckRuns, resumeDueRuns } from './hl/automation'
 import { maybeRefreshVerifications } from './hl/verification'
 import { maybeSweepNumberRequests } from './hl/number-request'
@@ -533,6 +534,13 @@ export function initScheduler() {
         if (r.nudged || r.merged || r.conflicts) console.log(`[scheduler] lovable sync: ${r.nudged} nudged, ${r.merged} merged, ${r.conflicts} conflict(s)`)
       })
       .catch((err) => console.error('[scheduler] lovable sync check failed:', err))
+    // Domain guard: every live client site names its own domain in its canonical
+    // links and sitemap; fixes the code and publishes it when not (free, no Claude).
+    void maybeRunDomainGuard()
+      .then((r) => {
+        if (r?.fixed) console.log(`[scheduler] domain guard: ${r.fixed} site(s) now name their own domain`)
+      })
+      .catch((err) => console.error('[scheduler] domain guard failed:', err))
     // Whop: text Alex and Ethan about new memberships (checks every 5 min).
     void maybeAlertWhopSignups()
       .then((n) => {

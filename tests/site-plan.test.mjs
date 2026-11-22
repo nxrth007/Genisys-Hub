@@ -119,9 +119,9 @@ test('the filled one-shot carries the Genisys OS form and chat exactly, and no G
   assert.doesNotMatch(out, /\{\{[A-Z_]+\}\}|\[\/?IF\b/)
   // Every legal page keeps its contact line with the real details.
   assert.ok(out.includes('Panacea Homes LLC, 3104 Plymouth Rock Rd, Plymouth Meeting, PA 19462. (484) 362-7127. Email: owner@example.com'))
-  // No domain yet: the SMS terms say "on this website", and there's no canonical URL.
+  // No domain yet: the SMS terms say "on this website". The canonical URL is the Hub's to set (domain guard).
   assert.ok(out.includes('the quote form on this website'))
-  assert.doesNotMatch(out, /Canonical URL/)
+  assert.match(out, /- Canonical URL: set SITE_URL in src\/lib\/seo\.ts to an empty string \(""\) and leave it that way\./)
 })
 
 test('[IF] blocks follow what was supplied', () => {
@@ -146,7 +146,9 @@ test('[IF] blocks follow what was supplied', () => {
   assert.match(full, /## 1B\. TRADE CLAIM RULES — STRICT\n- No "lifetime" claims/)
   assert.match(full, /- Promo callout: "10% off cabinets"/)
   assert.match(full, /- Social and Google Business Profile links/)
-  assert.match(full, /- Canonical URL: https:\/\/panaceahomesllc\.com/)
+  // A domain from the answers is never baked into the canonical links: the Hub sets SITE_URL once the site is live on it.
+  assert.doesNotMatch(full, /Canonical URL: https?:/)
+  assert.match(full, /- Canonical URL: set SITE_URL in src\/lib\/seo\.ts to an empty string/)
   assert.ok(full.includes('the quote form at panaceahomesllc.com'))
   assert.doesNotMatch(full, /Not provided|None provided|\*\*Special offer:\*\* None/)
   // No run of blank lines left where blocks dropped out.

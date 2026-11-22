@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { getSiteDetail } from '@/lib/sites'
+import { canAccessSeo } from '@/lib/seo/access'
 import { SiteDetailView } from '@/components/sites/site-detail'
 
 /**
@@ -27,5 +28,6 @@ export default async function SitePage({
   if (!detail) notFound()
   // ?builder=1 (the Office's link for connecting a domain) opens the builder window straight away.
   const { builder } = await searchParams
-  return <SiteDetailView d={detail} canAsk={role === 'admin'} openBuilder={builder === '1'} />
+  // "Check now" on the On Google card can change the site's code: the SEO allowlist (Alex + Ethan) only.
+  return <SiteDetailView d={detail} canAsk={role === 'admin'} canCheckGoogle={canAccessSeo(session?.user?.email)} openBuilder={builder === '1'} />
 }

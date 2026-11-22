@@ -16,7 +16,14 @@
  *     offers (Ethan's filled examples adapt that line per client);
  *   - a line telling Lovable nobody is watching: no questions, choices or
  *     next-step offers (Cnc's build sat on "Which should I tackle next?",
- *     2026-11-14).
+ *     2026-11-14);
+ *   - section 7 no longer sets the canonical URL from the onboarding
+ *     answers' domain: Lovable blanks SITE_URL and the Hub's domain guard
+ *     (src/lib/seo/domain-guard.ts) sets it once the site is live on its own
+ *     domain. A guessed domain had sent every page's canonical link and
+ *     sitemap entry to a domain that wasn't the site's (Stable Lift,
+ *     2026-11-20). Blank, not "as it is": the template is a live client
+ *     site whose own SITE_URL names its own domain.
  *
  * Fill it with renderOneShot(vars): {{NAME}} takes a value, and
  * [IF NAME] … [/IF] / [IF NO NAME] … [/IF] / [IF A OR B] … [/IF] keep their
@@ -268,7 +275,7 @@ If we update this policy we will change the date above and post the new version 
 
 - Page title: "{{DISPLAY_NAME}} | {{TRADE}} in {{CITY_STATE}}"
 - Meta description: one or two sentences naming the main services, the main service areas, and "Call {{PHONE_DISPLAY}}." Include the promotion or the license line only if one is given above.
-[IF DOMAIN IS A REAL DOMAIN] - Canonical URL: https://{{DOMAIN}} [/IF]
+- Canonical URL: set SITE_URL in src/lib/seo.ts to an empty string ("") and leave it that way. Don't set it from the domain above, the business's website field or this template's own domain. The Genisys Hub sets it once the site is live on its own domain, and canonical links, og:url, the sitemap and structured data all read it.
 - LocalBusiness structured data: name, phone, email, {{CITY_STATE}}, areaServed ({{SERVICE_AREA_SUMMARY}}), foundingDate (only if supplied), and sameAs (only real social/GBP links). Do not invent reviews, ratings, licenses, hours, or prices.
 
 ## 8. FINAL CHECK

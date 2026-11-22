@@ -139,7 +139,7 @@ async function checkSite(site: WatchedSite, token: string | null, problems: Watc
       canonicalHost = null
     }
     if (canonicalHost && canonicalHost !== host) {
-      add('canonical', 'fail', `The homepage’s canonical link points at ${canonicalHost}, not ${host} — Google is told to rank the other domain. The next weekly run’s pull request fixes it once approved.`)
+      add('canonical', 'fail', `The homepage’s canonical link points at ${canonicalHost}, not ${host} — Google is told to rank the other domain. The Hub’s domain guard fixes the code and publishes it on its own (the client’s Sites folder → On Google).`)
     }
   }
 
@@ -156,7 +156,7 @@ async function checkSite(site: WatchedSite, token: string | null, problems: Watc
       }
     }
     const others = [...hosts].filter((h) => h !== host)
-    if (others.length) add('sitemap-host', 'fail', `The sitemap lists pages on ${others.join(', ')} instead of ${host}, so Google rejects them.`)
+    if (others.length) add('sitemap-host', 'fail', `The sitemap lists pages on ${others.join(', ')} instead of ${host}, so Google rejects them. The Hub’s domain guard fixes it on its own (the client’s Sites folder → On Google).`)
   }
 
   if (site.indexNowKey && site.foundationStatus === 'installed') {

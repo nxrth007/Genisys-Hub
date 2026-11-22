@@ -17,6 +17,8 @@ import { readProfile } from '@/lib/hl/accounts'
 import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteStatus as BuildStatus } from '@/lib/hl/site-plan'
 import { readSavedPause, type SitePause } from '@/lib/hl/site-pause'
 import { domainStage, hellLevelStage, personName, siteHost, siteHref, siteStatus, sortFolders, stageView, tollFreeStage, type SiteStatus } from '@/lib/site-status'
+import { DOMAIN_GUARD_KEY_PREFIX } from '@/lib/seo/domain-guard-plan'
+import type { DomainGuardState } from '@/lib/seo/domain-guard'
 
 export type SiteFolder = {
   id: string
@@ -120,6 +122,21 @@ export type SiteDetail = {
   ghlNumbers: { state: string; numbers: CensusNumber[]; checkedAt: string | null; triedAt: string | null; detail: string | null } | null
   /** Their SEO site: the repo it commits to (the folder's Repo picker), the Lovable project. `siteId` opens it in SEO. */
   seo: { siteId: string; repo: string | null; lovableProjectId: string | null; archived: boolean } | null
+  /**
+   * Does the live site tell Google its own domain (canonical links, sitemap)? The domain
+   * guard's last look and fix (src/lib/seo/domain-guard.ts); `searchConsole` is the property
+   * the Hub added the site to. Null without an SEO site.
+   */
+  google: {
+    siteId: string
+    status: DomainGuardState['status'] | 'unchecked'
+    detail: string | null
+    prUrl: string | null
+    checkedAt: string | null
+    fixedAt: string | null
+    submitted: string | null
+    searchConsole: string | null
+  } | null
   /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
   build: {
     status: string
@@ -160,6 +177,17 @@ export type SiteDetail = {
 
 export type { GhlRegistrationView }
 
+/** The domain guard's saved state (AppSetting JSON), or null. */
+function readGuardState(value: string | null | undefined): DomainGuardState | null {
+  if (!value) return null
+  try {
+    const v = JSON.parse(value) as unknown
+    return v && typeof v === 'object' && typeof (v as DomainGuardState).status === 'string' ? (v as DomainGuardState) : null
+  } catch {
+    return null
+  }
+}
+
 export async function getSiteDetail(clientId: string): Promise<SiteDetail | null> {
   const c = await prisma.client.findUnique({
     where: { id: clientId },
@@ -198,7 +226,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           shots: { orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, step: true, createdAt: true } },
         },
       },
-      seoSite: { select: { id: true, repoFullName: true, lovableProjectId: true, archivedAt: true } },
+      seoSite: { select: { id: true, repoFullName: true, lovableProjectId: true, archivedAt: true, gscProperty: true } },
       hlSiteRequest: {
         select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, pause: true, updatedAt: true },
       },
@@ -206,7 +234,12 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
     },
   })
   if (!c) return null
-  const [journey, intakes] = await Promise.all([getJourney(clientId), prisma.clientIntake.count({ where: { clientId } })])
+  const [journey, intakes, guardRow] = await Promise.all([
+    getJourney(clientId),
+    prisma.clientIntake.count({ where: { clientId } }),
+    c.seoSite ? prisma.appSetting.findUnique({ where: { key: `${DOMAIN_GUARD_KEY_PREFIX}${c.seoSite.id}` } }).catch(() => null) : null,
+  ])
+  const guard = readGuardState(guardRow?.value)
   const website = journey.stages.find((s) => s.stage === 'website')
   const p = c.hlAccount ? readProfile(c.hlAccount.profile) : null
   // The number for the site: the toll-free one, else whatever the sub-account texts from.
@@ -330,6 +363,19 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
         }
       : null,
     seo: c.seoSite ? { siteId: c.seoSite.id, repo: c.seoSite.repoFullName, lovableProjectId: c.seoSite.lovableProjectId, archived: !!c.seoSite.archivedAt } : null,
+    google:
+      c.seoSite && !c.seoSite.archivedAt
+        ? {
+            siteId: c.seoSite.id,
+            status: guard?.status ?? 'unchecked',
+            detail: guard?.detail ?? null,
+            prUrl: guard?.prUrl ?? null,
+            checkedAt: guard?.checkedAt ?? null,
+            fixedAt: guard?.fixedAt ?? null,
+            submitted: guard?.submitted ?? null,
+            searchConsole: c.seoSite.gscProperty,
+          }
+        : null,
     build: c.hlSiteRequest
       ? {
           status: c.hlSiteRequest.status,

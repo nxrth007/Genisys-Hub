@@ -254,6 +254,88 @@ function GhlNumbersList({ g, offerHellLevel = false }: { g: NonNullable<SiteDeta
 }
 
 /** The snapshot's site form, made the client's own in GHL (src/lib/ghl-form), and the button that runs it. */
+const GOOGLE_WORD: Record<NonNullable<SiteDetail['google']>['status'], string> = {
+  ok: 'Ready',
+  fixing: 'Fixing',
+  needs_person: 'Needs you',
+  waiting: 'Waits for domain',
+  unchecked: 'Not checked yet',
+}
+const GOOGLE_STYLE: Record<NonNullable<SiteDetail['google']>['status'], string> = {
+  ok: STAGE_STYLE.done,
+  fixing: STAGE_STYLE.in_progress,
+  needs_person: STAGE_STYLE.blocked,
+  waiting: STAGE_STYLE.pending,
+  unchecked: STAGE_STYLE.pending,
+}
+
+/**
+ * Does the live site tell Google its own domain? The domain guard
+ * (src/lib/seo/domain-guard.ts) looks twice a day and fixes the code and
+ * publishes it when the canonical links or sitemap name another domain or none.
+ */
+function GoogleCard({ g, canCheck }: { g: NonNullable<SiteDetail['google']>; canCheck: boolean }) {
+  const router = useRouter()
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function check() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await postAction('/api/seo/domain-guard', { siteId: g.siteId })
+      if (!r.ok) setMsg(r.reason)
+      router.refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const line =
+    g.detail ??
+    'Not checked yet. The Hub looks at every live site’s canonical links and sitemap on its own and fixes them when they name another domain.'
+  return (
+    <Card title="On Google" id="on-google">
+      <div className="flex items-start justify-between gap-3">
+        <p className={cn('text-[12.5px] leading-snug', g.status === 'needs_person' ? 'text-foreground' : 'text-foreground/90')}>{line}</p>
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', GOOGLE_STYLE[g.status])}>{GOOGLE_WORD[g.status]}</span>
+      </div>
+      <ul className="flex flex-col gap-1 text-[12px] text-muted-foreground">
+        <li>
+          Search Console: {g.searchConsole ? <span className="text-foreground/90">added ({g.searchConsole.replace(/^https?:\/\//, '').replace(/\/$/, '')})</span> : 'not added yet (the Hub adds live sites on its own)'}
+        </li>
+        {g.fixedAt && (
+          <li suppressHydrationWarning>
+            Fixed {new Date(g.fixedAt).toLocaleDateString()}
+            {g.submitted ? `. ${g.submitted}.` : '.'}
+          </li>
+        )}
+      </ul>
+      <div className="flex flex-wrap items-center gap-3 text-[12.5px]">
+        {g.prUrl && (
+          <a href={g.prUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-foreground hover:underline">
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" /> The change on GitHub
+          </a>
+        )}
+        {g.checkedAt && (
+          <span className="text-[11.5px] text-muted-foreground" suppressHydrationWarning>
+            Last checked {new Date(g.checkedAt).toLocaleString()}
+          </span>
+        )}
+        {canCheck && (
+          <button
+            type="button"
+            onClick={check}
+            disabled={busy}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[12.5px] font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Check now
+          </button>
+        )}
+      </div>
+      {msg && <p className="text-[12px] text-muted-foreground">{msg}</p>}
+    </Card>
+  )
+}
+
 function SiteFormCard({ clientId, f, canAct }: { clientId: string; f: NonNullable<SiteDetail['siteForm']>; canAct: boolean }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
@@ -611,7 +693,17 @@ function SiteBuildCard({ d, canAct, onOpenBuilder }: { d: SiteDetail; canAct: bo
  * columns), their status, their site, and what the site build needs. `openBuilder` opens the builder
  * window straight away (?builder=1, the Office's link).
  */
-export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDetail; canAsk: boolean; openBuilder?: boolean }) {
+export function SiteDetailView({
+  d,
+  canAsk,
+  canCheckGoogle = false,
+  openBuilder = false,
+}: {
+  d: SiteDetail
+  canAsk: boolean
+  canCheckGoogle?: boolean
+  openBuilder?: boolean
+}) {
   const router = useRouter()
   // Every client's site link, repo and addresses, so the Repo dropdown greys out a repo another client
   // holds and shows the Hub's guess in green, as on the Clients page.
@@ -894,6 +986,8 @@ export function SiteDetailView({ d, canAsk, openBuilder = false }: { d: SiteDeta
       {d.siteForm && <SiteFormCard clientId={d.client.id} f={d.siteForm} canAct={canAsk} />}
 
       <DomainCard d={d} canAct={canAsk} />
+
+      {d.google && live && <GoogleCard g={d.google} canCheck={canCheckGoogle} />}
 
       <SiteBuildCard d={d} canAct={canAsk} onOpenBuilder={d.builder ? () => setBuilderOpen(true) : null} />
 
