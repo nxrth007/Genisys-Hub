@@ -8,6 +8,7 @@ import { AppWindow, Check, Copy, ExternalLink, FileText, Folder, Globe, MessageC
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, copyText, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { embedCode, lovablePrompt } from '@/components/genisys-os/embed'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
+import { useAccount } from '@/components/genisys-os/bits'
 
 type FormRow = { id: string; name: string; kind: string; ghlId: string | null; submissions: number; lastSubmissionAt: string | null; settings: { color?: string; imported?: boolean } }
 
@@ -33,14 +34,17 @@ const NOT_YET: Record<string, { title: string; what: string }> = {
 function SitesSection() {
   const { accountId } = useParams<{ accountId: string }>()
   const tab = useSectionTab('sites')
+  const account = useAccount(accountId)
+  // GoHighLevel's websites exist only where an import brought them (Lead Genisys).
+  const imported = !!account.data?.account.ghlLocationId
   if (tab === 'forms') return <FormsList kind="form" />
   if (tab === 'chat-widget') return <FormsList kind="chat" />
   if (tab === 'funnels' || tab === 'websites')
     return (
       <>
         {/* The client's own website (built in Lovable) first; GoHighLevel's websites, imported, below it. */}
-        {tab === 'websites' && <ClientWebsite accountId={accountId} />}
-        <RecordsTable
+        {tab === 'websites' && <ClientWebsite accountId={accountId} imported={imported} />}
+        {(tab === 'funnels' || imported) && <RecordsTable
           accountId={accountId}
           kind={tab === 'funnels' ? 'funnel' : 'website'}
           title={tab === 'funnels' ? 'Funnels' : 'From GoHighLevel'}
@@ -50,7 +54,7 @@ function SitesSection() {
             { label: 'Steps', render: (r) => <span className="tabular-nums">{Array.isArray(r.data.steps) ? r.data.steps.length : '—'}</span> },
             { label: 'Domain', render: (r) => <span className="break-all text-muted-foreground">{rv(r, 'domainName', 'url') || '—'}</span> },
           ]}
-        />
+        />}
       </>
     )
   if (tab === 'surveys')
@@ -82,7 +86,7 @@ type ClientSite = {
 }
 
 /** The client's own website, built in Lovable: where it's live and where it stands (GET …/website). */
-function ClientWebsite({ accountId }: { accountId: string }) {
+function ClientWebsite({ accountId, imported }: { accountId: string; imported: boolean }) {
   const q = useQuery<{ site: ClientSite | null }>({ queryKey: ['hl', 'website', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/website`) })
   const s = q.data?.site ?? null
   const linkClass = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50'
@@ -90,7 +94,7 @@ function ClientWebsite({ accountId }: { accountId: string }) {
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 pt-6">
       <div>
         <h1 className="text-[24px] font-semibold tracking-tight text-foreground">Websites</h1>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">The client’s own website, built in Lovable. Websites imported from GoHighLevel are below it.</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">The client’s own website, built in Lovable.{imported ? ' Websites imported from GoHighLevel are below it.' : ''}</p>
       </div>
       <Card>
         {q.isLoading ? (

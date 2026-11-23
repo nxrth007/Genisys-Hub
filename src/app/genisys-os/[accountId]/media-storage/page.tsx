@@ -20,34 +20,46 @@ export default function MediaStoragePage() {
   const { accountId } = useParams<{ accountId: string }>()
   const [q, setQ] = useState('')
   const [page, setPage] = useState(0)
+  const account = useAccount(accountId)
+  // GoHighLevel's media library exists only where an import brought it (Lead Genisys).
+  const imported = !!account.data?.account.ghlLocationId
   const query = useQuery<{ records: RecordRow[]; total: number; pageSize: number }>({
     queryKey: ['hl', 'records', accountId, 'media', q, page],
     queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/records?kind=media&q=${encodeURIComponent(q)}&page=${page}`),
+    enabled: imported,
   })
-  const d = query.data
+  const d = imported ? query.data : undefined
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
       <PageHeader
         title="Media Storage"
-        description={d ? `${d.total.toLocaleString('en-US')} files from GoHighLevel. They stay on GHL’s storage; copy anything you need to keep before cancelling GHL.` : ' '}
+        description={
+          !imported
+            ? 'Logos and images kept for this sub-account. Forms and the chat show the logo from here.'
+            : d
+              ? `${d.total.toLocaleString('en-US')} files from GoHighLevel. They stay on GHL’s storage; copy anything you need to keep before cancelling GHL.`
+              : ' '
+        }
         actions={
-          <label className="flex h-9 w-64 items-center gap-2 rounded-md border border-border bg-surface px-3 text-muted-foreground focus-within:border-primary/50">
-            <Search className="h-3.5 w-3.5" />
-            <input
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value)
-                setPage(0)
-              }}
-              placeholder="Search files"
-              className="w-full bg-transparent text-[13px] text-foreground outline-none"
-            />
-          </label>
+          imported && (
+            <label className="flex h-9 w-64 items-center gap-2 rounded-md border border-border bg-surface px-3 text-muted-foreground focus-within:border-primary/50">
+              <Search className="h-3.5 w-3.5" />
+              <input
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value)
+                  setPage(0)
+                }}
+                placeholder="Search files"
+                className="w-full bg-transparent text-[13px] text-foreground outline-none"
+              />
+            </label>
+          )
         }
       />
       <KeptHere accountId={accountId} />
-      {query.isLoading ? (
+      {!imported ? null : query.isLoading ? (
         <div className="flex justify-center py-14">
           <Spinner />
         </div>

@@ -236,9 +236,14 @@ function MergeFieldsPanel({ accountId }: { accountId: string }) {
 function CustomValuesPanel({ accountId }: { accountId: string }) {
   const account = useAccount(accountId)
   const p = account.data?.account.profile ?? {}
+  // GoHighLevel's custom values exist only where an import brought them (Lead Genisys).
+  const imported = !!account.data?.account.ghlLocationId
   return (
     <div className="flex flex-col">
-      <Panel title="Custom Values" description="Values every automation can drop into a message. Edit them under Business Profile. The ones copied from GoHighLevel below are kept for reference: messages don’t fill them.">
+      <Panel
+        title="Custom Values"
+        description={`Values every automation can drop into a message. Edit them under Business Profile.${imported ? ' The ones copied from GoHighLevel below are kept for reference: messages don’t fill them.' : ''}`}
+      >
         <Card>
           <Table head={['Name', 'Merge field', 'Value']}>
             {PROFILE_FIELDS.filter((f) => f.key !== 'ein').map((f) => (
@@ -258,17 +263,19 @@ function CustomValuesPanel({ accountId }: { accountId: string }) {
           .
         </p>
       </Panel>
-      <RecordsTable
-        accountId={accountId}
-        kind="custom_value"
-        title="From GoHighLevel"
-        emptyText="Custom values from GoHighLevel show up here after the import."
-        columns={[
-          { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
-          { label: 'Key', render: (r) => <span className="font-mono text-[12px] text-muted-foreground">{rv(r, 'fieldKey')}</span> },
-          { label: 'Value', render: (r) => <span className="line-clamp-2 max-w-md break-all text-foreground/85">{rv(r, 'value')}</span> },
-        ]}
-      />
+      {imported && (
+        <RecordsTable
+          accountId={accountId}
+          kind="custom_value"
+          title="From GoHighLevel"
+          emptyText="Custom values from GoHighLevel show up here after the import."
+          columns={[
+            { label: 'Name', render: (r) => <span className="font-medium text-foreground">{r.name}</span> },
+            { label: 'Key', render: (r) => <span className="font-mono text-[12px] text-muted-foreground">{rv(r, 'fieldKey')}</span> },
+            { label: 'Value', render: (r) => <span className="line-clamp-2 max-w-md break-all text-foreground/85">{rv(r, 'value')}</span> },
+          ]}
+        />
+      )}
     </div>
   )
 }
