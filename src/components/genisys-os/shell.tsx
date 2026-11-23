@@ -5,13 +5,13 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { signOut } from 'next-auth/react'
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Rocket, Search, Settings, Sparkles, Undo2 } from 'lucide-react'
+import { ArrowLeft, Bell, Building2, ChevronDown, ChevronsUpDown, EyeOff, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Search, Settings, Sparkles, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { MEMBER_SECTIONS } from '@/lib/hl/member-access'
 import { Avatar, hlFetch } from './ui'
 import { ArrivalGate, EnterSplashGate } from './enter-splash'
-import { SECTIONS, SETTINGS_SECTION, activeTab, sectionOf, type Section } from './nav'
+import { SECTIONS, SETTINGS_SECTION, activeTab, defaultTab, laterTabs, sectionOf, shownTabs, type Section, type SectionTab } from './nav'
 import { ConfirmHost } from './confirm'
 import { ViewerContext, type HlViewer } from './viewer'
 
@@ -54,16 +54,20 @@ export function useAccounts() {
 
 const LAST_KEY = 'hl-last-account'
 
-/** The agency view's menu (GHL's agency sidebar, the parts Genisys OS has). */
+/**
+ * The agency view's menu (GHL's agency sidebar, the parts Genisys OS has).
+ * The Launchpad (its setup guide, all done) moved into Settings; its page
+ * still opens.
+ */
 const AGENCY_NAV = [
   { href: '/genisys-os/agency/ask-ai', label: 'Ask AI', icon: Sparkles },
-  { href: '/genisys-os/agency/launchpad', label: 'Launchpad', icon: Rocket },
   { href: '/genisys-os/agency/dashboard', label: 'Agency Dashboard', icon: LayoutDashboard },
   { href: '/genisys-os', label: 'Sub-Accounts', icon: Building2 },
   { href: '/genisys-os/agency/snapshots', label: 'Account Snapshots', icon: Layers },
 ]
 const AGENCY_SETTINGS = { href: '/genisys-os/agency/settings', label: 'Settings', icon: Settings }
-const agencyTitle = (pathname: string) => [...AGENCY_NAV, AGENCY_SETTINGS].find((n) => n.href === pathname)?.label ?? 'Agency view'
+const AGENCY_TITLES = [...AGENCY_NAV, AGENCY_SETTINGS, { href: '/genisys-os/agency/launchpad', label: 'Setup Guide' }]
+const agencyTitle = (pathname: string) => AGENCY_TITLES.find((n) => n.href === pathname)?.label ?? 'Agency view'
 
 /**
  * Genisys OS's frame: GoHighLevel's sub-account structure (the left menu in
@@ -91,8 +95,12 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
   }, [accountId])
 
   const base = accountId ? `/genisys-os/${accountId}` : null
-  const top = viewer.admin ? SECTIONS.filter((s) => s.group === 'top') : SECTIONS.filter((s) => s.key in MEMBER_SECTIONS)
-  const grow = viewer.admin ? SECTIONS.filter((s) => s.group === 'grow') : []
+  // Sections with nothing built fold away under "Not built yet" (Genisys staff only; logins never see them).
+  const top = viewer.admin ? SECTIONS.filter((s) => s.group === 'top' && !s.later) : SECTIONS.filter((s) => s.key in MEMBER_SECTIONS)
+  const grow = viewer.admin ? SECTIONS.filter((s) => s.group === 'grow' && !s.later) : []
+  const folded = viewer.admin ? SECTIONS.filter((s) => s.later) : []
+  // GoHighLevel-import lists only show where an import filled them (Lead Genisys).
+  const imported = !!current?.ghlLocationId
 
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-background text-foreground">
@@ -119,6 +127,7 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
               {grow.map((s) => (
                 <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} tag={s.badge} />
               ))}
+              {folded.length > 0 && <NotBuiltGroup base={base} sections={folded} active={sectionKey} />}
             </>
           )}
         </nav>
@@ -157,9 +166,9 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-[54px] shrink-0 items-center gap-6 border-b border-border px-5">
           <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : agencyTitle(pathname))}</p>
-          {section?.tabs && section.tabs.length > 1 && base && (
+          {section?.tabs && base && (
             <Suspense fallback={null}>
-              <SectionTabs section={section} href={`${base}/${section.key}`} />
+              <SectionTabs section={section} href={`${base}/${section.key}`} imported={imported} admin={viewer.admin} />
             </Suspense>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -193,26 +202,118 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
   )
 }
 
-function SectionTabs({ section, href }: { section: Section; href: string }) {
+/**
+ * A section's tabs across the top: the built ones (and the GHL-import lists
+ * on an imported sub-account), then, for Genisys staff, a "not built" menu
+ * holding the section's "Not in Genisys OS yet" tabs.
+ */
+function SectionTabs({ section, href, imported, admin }: { section: Section; href: string; imported: boolean; admin: boolean }) {
   const sp = useSearchParams()
   const pathname = usePathname()
-  // On a page under the section (a workflow, a form), the first tab stays lit.
+  // On a page under the section (a workflow, a form), the default tab stays lit.
   const current = activeTab(section, pathname === href ? sp.get('tab') : null)
+  const all = section.tabs ?? []
+  const later = admin ? laterTabs(all, { folded: section.later }) : []
+  const shown = shownTabs(all, { imported, folded: section.later })
+  // A tab that's off the bar (opened from an old link) shows while it's open.
+  const extra = all.find((t) => t.key === current && !shown.includes(t) && !later.includes(t))
+  const tabs = extra ? [...shown, extra] : shown
+  const home = defaultTab(section)
+  if (tabs.length < 2 && !later.length) return null
   return (
-    <nav className="-mb-px flex min-w-0 items-stretch gap-1 self-stretch overflow-x-auto">
-      {section.tabs!.map((t) => (
-        <Link
-          key={t.key}
-          href={t.key === section.tabs![0].key ? href : `${href}?tab=${t.key}`}
-          className={cn(
-            'flex shrink-0 items-center border-b-2 px-2.5 text-[13px] transition',
-            current === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
+    <div className="flex min-w-0 items-stretch gap-1 self-stretch">
+      <nav className="-mb-px flex min-w-0 items-stretch gap-1 overflow-x-auto">
+        {tabs.map((t) => (
+          <Link
+            key={t.key}
+            href={t.key === home ? href : `${href}?tab=${t.key}`}
+            className={cn(
+              'flex shrink-0 items-center border-b-2 px-2.5 text-[13px] transition',
+              current === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
+      {later.length > 0 && <LaterTabsMenu tabs={later} href={href} current={current} />}
+    </div>
+  )
+}
+
+/** The section's unbuilt tabs, one click away (it reads as the tab while one is open). */
+function LaterTabsMenu({ tabs, href, current }: { tabs: SectionTab[]; href: string; current: string | null }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  const on = tabs.find((t) => t.key === current)
+  return (
+    <div ref={box} className="relative -mb-px flex shrink-0 items-stretch">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        title="Not built yet: GoHighLevel has these, Genisys OS doesn't yet"
+        className={cn(
+          'flex items-center gap-1 border-b-2 px-2.5 text-[13px] transition',
+          on ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground/60 hover:text-foreground',
+        )}
+      >
+        {on ? on.label : `${tabs.length} not built`}
+        <ChevronDown className={cn('h-3 w-3 transition', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-pop">
+          <p className="eyebrow px-2.5 pb-1 pt-1.5 text-muted-foreground">Not built yet</p>
+          {tabs.map((t) => (
+            <Link
+              key={t.key}
+              href={`${href}?tab=${t.key}`}
+              onClick={() => setOpen(false)}
+              className={cn('block rounded-md px-2.5 py-1.5 text-[13px] transition hover:bg-muted', t.key === current ? 'text-foreground' : 'text-muted-foreground')}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The sections with nothing built (Payments, AI Agents, Marketing), folded at the foot of the menu; open while you're in one. */
+function NotBuiltGroup({ base, sections, active }: { base: string; sections: Section[]; active: string | undefined }) {
+  const [open, setOpen] = useState(false)
+  // Always open while you're in one of them.
+  const shown = open || sections.some((s) => s.key === active)
+  return (
+    <>
+      <div className="my-2 h-px bg-border-soft" />
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={shown}
+        title="GoHighLevel has these; Genisys OS doesn't yet. Folded away, nothing switched off."
+        className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/45 transition hover:bg-foreground/[0.04] hover:text-foreground/80"
+      >
+        <EyeOff className="h-[15px] w-[15px] shrink-0" strokeWidth={1.75} />
+        <span className="flex-1 text-left">Not built yet</span>
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition', shown && 'rotate-180')} />
+      </button>
+      {shown && sections.map((s) => <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={active === s.key} muted />)}
+    </>
   )
 }
 
@@ -223,6 +324,7 @@ function NavLink({
   active,
   badge,
   tag,
+  muted,
 }: {
   href: string
   label: string
@@ -230,6 +332,8 @@ function NavLink({
   active: boolean
   badge?: number
   tag?: string
+  /** A folded section's link: quieter than the rest of the menu. */
+  muted?: boolean
 }) {
   return (
     <Link
@@ -238,7 +342,9 @@ function NavLink({
         'relative flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] transition',
         active
           ? 'bg-foreground/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
-          : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground',
+          : muted
+            ? 'text-foreground/45 hover:bg-foreground/[0.04] hover:text-foreground'
+            : 'text-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground',
       )}
     >
       <Icon className={cn('h-[15px] w-[15px] shrink-0', active && 'text-primary')} strokeWidth={1.75} />
@@ -386,7 +492,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
         </label>
       </div>
       {current && admin && (
-        <Link href="/genisys-os/agency/launchpad" onClick={onClose} className="mx-3 mb-2 flex w-fit items-center gap-2 text-[12.5px] font-medium text-primary hover:underline">
+        <Link href="/genisys-os/agency/dashboard" onClick={onClose} className="mx-3 mb-2 flex w-fit items-center gap-2 text-[12.5px] font-medium text-primary hover:underline">
           <span className="grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
             <Undo2 className="h-3 w-3" />
           </span>

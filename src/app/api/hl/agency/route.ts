@@ -4,10 +4,32 @@ import { readImportState, defaultAccountId } from '@/lib/hl/ghl-import'
 import { hlGuard } from '@/lib/hl/http'
 import { registrarStatus } from '@/lib/hl/porkbun'
 import { twilioOverview } from '@/lib/hl/twilio'
+import { CUSTOMER_PIPELINE, CUSTOMER_STAGES, KIT_FOLDERS, KIT_VERSION, REVIEW_REQUEST_FORM, REVIEW_SURVEY, clientKitWorkflows } from '@/lib/hl/client-kit'
+
+/** The kit every client sub-account gets (src/lib/hl/client-kit.ts), as Account Snapshots shows it: read from the kit, so it can't go stale. */
+function kitSummary() {
+  const workflows = clientKitWorkflows({ quote: 'quote', chat: 'chat', reviewRequest: 'review', survey: 'survey', pipeline: 'pipeline' })
+  return {
+    version: KIT_VERSION,
+    pipeline: CUSTOMER_PIPELINE,
+    stages: CUSTOMER_STAGES.map((s) => s.name),
+    forms: ['Website Quote Form', 'Website Chat Widget', REVIEW_REQUEST_FORM, REVIEW_SURVEY],
+    folders: Object.values(KIT_FOLDERS)
+      .filter((f) => f !== KIT_FOLDERS.root)
+      .map((folder) => ({
+        name: folder.split('/').slice(1).join(' / '),
+        workflows: workflows
+          .filter((w) => w.folder === folder)
+          // A workflow whose every trigger is off never starts (two A2P ones listen to a pipeline clients don't have).
+          .map((w) => ({ name: w.name, runs: w.triggers.some((t) => t.active !== false) })),
+      })),
+  }
+}
 
 /**
  * GET: the agency view's numbers (GHL's Agency Dashboard) across every
- * sub-account, and the setup checklist for the agency Launchpad.
+ * sub-account, the setup checklist (Agency Settings), and the client kit
+ * (Account Snapshots).
  */
 export async function GET() {
   const guard = await hlGuard()
@@ -15,7 +37,7 @@ export async function GET() {
   const now = new Date()
   const d30 = new Date(now.getTime() - 30 * 86_400_000)
   const d7 = new Date(now.getTime() - 7 * 86_400_000)
-  const [accounts, clientsWithout, leads30, leads7, texts7, upcoming, open, won30, twilio, porkbun, homeId] = await Promise.all([
+  const [accounts, clientsWithout, leads30, leads7, texts7, upcoming, open, won30, twilio, porkbun, homeId, kitted] = await Promise.all([
     prisma.hlAccount.findMany({
       where: { archivedAt: null },
       orderBy: { name: 'asc' },
@@ -31,6 +53,8 @@ export async function GET() {
     twilioOverview(),
     registrarStatus(),
     defaultAccountId(),
+    // Sub-accounts with the kit: they have its quote-form workflow.
+    prisma.hlWorkflow.groupBy({ by: ['accountId'], where: { template: 'quote_form', deletedAt: null, account: { archivedAt: null } } }),
   ])
   const pick = <T extends { accountId: string }>(rows: T[], id: string) => rows.find((r) => r.accountId === id)
   const rows = accounts.map((a) => ({
@@ -55,6 +79,7 @@ export async function GET() {
   const imported = homeId ? await readImportState(homeId) : null
   const approved = twilio.profiles.some((p) => p.status === 'twilio-approved' && p.kind === 'primary')
   return NextResponse.json({
+    kit: { ...kitSummary(), accounts: kitted.length },
     accounts: rows,
     totals: {
       accounts: rows.length,

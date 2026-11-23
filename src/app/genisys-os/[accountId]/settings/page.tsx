@@ -4,14 +4,14 @@ import Link from 'next/link'
 import { Suspense, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Phone, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, EyeOff, Phone, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react'
 import { prettyPhone } from '@/lib/hl/merge'
 import { cn } from '@/lib/utils'
 import { PROFILE_FIELDS, type HlProfile } from '@/lib/hl/types'
 import { textingBadge, useAccount, type PhoneNumberRow } from '@/components/genisys-os/bits'
 import { Badge, Button, Card, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, Table, Toggle, copyText, fmtDateTime, hlFetch } from '@/components/genisys-os/ui'
 import { NotYet, RecordsTable, rv } from '@/components/genisys-os/section'
-import { SETTINGS_PAGES } from '@/components/genisys-os/nav'
+import { SETTINGS_PAGES, laterTabs, shownTabs, type SectionTab } from '@/components/genisys-os/nav'
 import { PipelinesManager } from '@/components/genisys-os/pipelines-manager'
 import { ImportPanel } from '@/components/genisys-os/import-panel'
 import { MergeReference } from '@/components/genisys-os/merge-reference'
@@ -32,29 +32,54 @@ export default function SettingsPage() {
   )
 }
 
-/** GHL's Settings: a menu down the left, the page on the right (?tab=). */
+/**
+ * GHL's Settings: a menu down the left, the page on the right (?tab=). Pages
+ * Genisys OS hasn't built fold under "Not built yet" at the foot of the menu;
+ * the GHL-import lists show only on an imported sub-account; a page that
+ * lives in its section (Calendars, Companies) shows only there.
+ */
 function Settings() {
   const { accountId } = useParams<{ accountId: string }>()
   const sp = useSearchParams()
   const page = SETTINGS_PAGES.find((p) => p.key === sp.get('tab'))?.key ?? 'business-profile'
   const account = useAccount(accountId)
+  const shown = shownTabs(SETTINGS_PAGES, { imported: !!account.data?.account.ghlLocationId })
+  const later = laterTabs(SETTINGS_PAGES)
+  // A page that's off the menu (opened from an old link) shows while it's open.
+  const extra = SETTINGS_PAGES.find((p) => p.key === page && !shown.includes(p) && !later.includes(p))
+  const [laterOpen, setLaterOpen] = useState(false)
+  const showLater = laterOpen || later.some((p) => p.key === page)
+  const link = (p: SectionTab) => (
+    <Link
+      key={p.key}
+      href={`/genisys-os/${accountId}/settings?tab=${p.key}`}
+      className={cn(
+        'rounded-md px-2.5 py-1.5 text-[13px] transition',
+        page === p.key ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+      )}
+    >
+      {p.label}
+    </Link>
+  )
   return (
     <div className="flex min-h-full">
       <aside className="w-[232px] shrink-0 border-r border-border px-3 py-5">
         <p className="eyebrow px-2.5 pb-2 text-muted-foreground">Settings</p>
         <nav className="flex flex-col gap-px">
-          {SETTINGS_PAGES.map((p) => (
-            <Link
-              key={p.key}
-              href={`/genisys-os/${accountId}/settings?tab=${p.key}`}
-              className={cn(
-                'rounded-md px-2.5 py-1.5 text-[13px] transition',
-                page === p.key ? 'bg-foreground/[0.06] text-foreground' : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
-              )}
-            >
-              {p.label}
-            </Link>
-          ))}
+          {(extra ? [...shown, extra] : shown).map(link)}
+          <div className="my-2 h-px bg-border-soft" />
+          <button
+            type="button"
+            onClick={() => setLaterOpen((o) => !o)}
+            aria-expanded={showLater}
+            title="GoHighLevel has these; Genisys OS doesn't yet. Folded away, nothing switched off."
+            className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-muted-foreground/70 transition hover:bg-foreground/[0.04] hover:text-foreground"
+          >
+            <EyeOff className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1">Not built yet</span>
+            <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition', showLater && 'rotate-180')} />
+          </button>
+          {showLater && later.map(link)}
         </nav>
       </aside>
       <div className="min-w-0 flex-1">
@@ -710,7 +735,11 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
         {d.accountType === 'Trial' && (
           <p className="mt-1 text-[13px] text-warning">Still a free trial: one number, texts only to verified phones, and no A2P. Upgrade it in the Twilio Console to buy numbers for clients (pay as you go).</p>
         )}
-        {d.hubNumber && <p className="mt-1 text-[13px] text-muted-foreground">Hub number for owner alerts until a sub-account’s own number is approved: {prettyPhone(d.hubNumber)}</p>}
+        {d.hubNumber ? (
+          <p className="mt-1 text-[13px] text-muted-foreground">Owner alerts and forwarded lead texts go from Lead Genisys’s number until a client’s own number is approved: {prettyPhone(d.hubNumber)}</p>
+        ) : (
+          <p className="mt-1 text-[13px] text-warning">Lead Genisys has no approved number, so owners of clients whose number isn’t approved get their lead alerts by email only.</p>
+        )}
       </div>
       <div className="border-t border-border pt-5">
         <p className="text-[15px] font-semibold text-foreground">Genisys business profile (Trust Hub)</p>

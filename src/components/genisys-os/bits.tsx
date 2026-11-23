@@ -24,7 +24,8 @@ export type PhoneNumberRow = {
 }
 
 export type AccountDetail = {
-  account: { id: string; name: string; clientId: string | null; timezone: string; profile: HlProfile; createdAt: string }
+  /** ghlLocationId: the GHL location it was imported from (Lead Genisys); null for every client. */
+  account: { id: string; name: string; clientId: string | null; ghlLocationId: string | null; timezone: string; profile: HlProfile; createdAt: string }
   numbers: PhoneNumberRow[]
   launchpad: { items: LaunchItem[]; done: number; total: number }
   client: { id: string; name: string; siteUrl: string | null } | null

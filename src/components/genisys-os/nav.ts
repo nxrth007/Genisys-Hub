@@ -22,10 +22,22 @@ import {
 /**
  * Genisys OS's structure, GoHighLevel's: the sub-account's left menu in GHL's
  * order, and each section's tabs across the top bar. Tabs are ?tab= on the
- * section's page; the first tab is the default.
+ * section's page; the first built tab is the default.
+ *
+ * What isn't built is folded away, not deleted (Alex, 2026-11-23, like Hub
+ * Settings' "Hidden" group): off the menu and the tab bars, one click away
+ * under "Not built yet" for Genisys staff. Every link to it still opens.
  */
 
-export type SectionTab = { key: string; label: string }
+/**
+ * Why a tab is off the tab bar (its page still opens from a link):
+ * - later: a "Not in Genisys OS yet" page, listed under "Not built yet".
+ * - imported: a list only a GoHighLevel import fills, so shown only on a
+ *   sub-account imported from GHL (Lead Genisys).
+ * - elsewhere: the same page lives in another section, and shows only there.
+ */
+export type TabFold = 'later' | 'imported' | 'elsewhere'
+export type SectionTab = { key: string; label: string; fold?: TabFold }
 export type Section = {
   key: string
   label: string
@@ -34,6 +46,8 @@ export type Section = {
   group: 'top' | 'grow'
   tabs?: SectionTab[]
   badge?: string
+  /** Nothing in it is built: off the menu, under "Not built yet" (opened, it shows all its tabs). */
+  later?: boolean
 }
 
 export const SECTIONS: Section[] = [
@@ -47,9 +61,9 @@ export const SECTIONS: Section[] = [
     group: 'top',
     tabs: [
       { key: 'conversations', label: 'Conversations' },
-      { key: 'manual-actions', label: 'Manual Actions' },
-      { key: 'snippets', label: 'Snippets' },
-      { key: 'trigger-links', label: 'Trigger Links' },
+      { key: 'manual-actions', label: 'Manual Actions', fold: 'later' },
+      { key: 'snippets', label: 'Snippets', fold: 'imported' },
+      { key: 'trigger-links', label: 'Trigger Links', fold: 'imported' },
     ],
   },
   {
@@ -70,11 +84,11 @@ export const SECTIONS: Section[] = [
     group: 'top',
     tabs: [
       { key: 'smart-lists', label: 'Smart Lists' },
-      { key: 'bulk-actions', label: 'Bulk Actions' },
-      { key: 'restore', label: 'Restore' },
+      { key: 'bulk-actions', label: 'Bulk Actions', fold: 'later' },
+      { key: 'restore', label: 'Restore', fold: 'later' },
       { key: 'tasks', label: 'Tasks' },
-      { key: 'companies', label: 'Companies' },
-      { key: 'manage-smart-lists', label: 'Manage Smart Lists' },
+      { key: 'companies', label: 'Companies', fold: 'imported' },
+      { key: 'manage-smart-lists', label: 'Manage Smart Lists', fold: 'later' },
     ],
   },
   {
@@ -84,8 +98,9 @@ export const SECTIONS: Section[] = [
     group: 'top',
     tabs: [
       { key: 'opportunities', label: 'Opportunities' },
-      { key: 'pipelines', label: 'Pipelines' },
-      { key: 'bulk-actions', label: 'Bulk Actions' },
+      // Settings → Opportunities & Pipelines is the same page.
+      { key: 'pipelines', label: 'Pipelines', fold: 'elsewhere' },
+      { key: 'bulk-actions', label: 'Bulk Actions', fold: 'later' },
     ],
   },
   {
@@ -93,6 +108,7 @@ export const SECTIONS: Section[] = [
     label: 'Payments',
     icon: Receipt,
     group: 'top',
+    later: true,
     tabs: [
       { key: 'invoices', label: 'Invoices & Estimates' },
       { key: 'documents', label: 'Documents & Contracts' },
@@ -111,6 +127,7 @@ export const SECTIONS: Section[] = [
     label: 'AI Agents',
     icon: Bot,
     group: 'grow',
+    later: true,
     tabs: [
       { key: 'getting-started', label: 'Getting Started' },
       { key: 'voice-ai', label: 'Voice AI' },
@@ -125,6 +142,7 @@ export const SECTIONS: Section[] = [
     label: 'Marketing',
     icon: Send,
     group: 'grow',
+    later: true,
     tabs: [
       { key: 'social-planner', label: 'Social Planner' },
       { key: 'emails', label: 'Emails' },
@@ -153,19 +171,20 @@ export const SECTIONS: Section[] = [
     icon: Globe,
     group: 'grow',
     tabs: [
-      { key: 'funnels', label: 'Funnels' },
+      // Websites first: Sites opens on it, now that Funnels shows only on imported sub-accounts.
       { key: 'websites', label: 'Websites' },
-      { key: 'stores', label: 'Stores' },
-      { key: 'webinars', label: 'Webinars' },
-      { key: 'analytics', label: 'Analytics' },
-      { key: 'blogs', label: 'Blogs' },
-      { key: 'wordpress', label: 'WordPress' },
-      { key: 'client-portal', label: 'Client Portal' },
+      { key: 'funnels', label: 'Funnels', fold: 'imported' },
+      { key: 'stores', label: 'Stores', fold: 'later' },
+      { key: 'webinars', label: 'Webinars', fold: 'later' },
+      { key: 'analytics', label: 'Analytics', fold: 'later' },
+      { key: 'blogs', label: 'Blogs', fold: 'later' },
+      { key: 'wordpress', label: 'WordPress', fold: 'later' },
+      { key: 'client-portal', label: 'Client Portal', fold: 'later' },
       { key: 'forms', label: 'Forms' },
-      { key: 'surveys', label: 'Surveys' },
-      { key: 'quizzes', label: 'Quizzes' },
+      { key: 'surveys', label: 'Surveys', fold: 'imported' },
+      { key: 'quizzes', label: 'Quizzes', fold: 'later' },
       { key: 'chat-widget', label: 'Chat Widget' },
-      { key: 'qr-codes', label: 'QR Codes' },
+      { key: 'qr-codes', label: 'QR Codes', fold: 'later' },
     ],
   },
   {
@@ -175,10 +194,10 @@ export const SECTIONS: Section[] = [
     group: 'grow',
     tabs: [
       { key: 'dashboard', label: 'Dashboard' },
-      { key: 'courses', label: 'Courses' },
-      { key: 'communities', label: 'Communities' },
-      { key: 'certificates', label: 'Certificates' },
-      { key: 'client-portal', label: 'Client Portal' },
+      { key: 'courses', label: 'Courses', fold: 'later' },
+      { key: 'communities', label: 'Communities', fold: 'later' },
+      { key: 'certificates', label: 'Certificates', fold: 'later' },
+      { key: 'client-portal', label: 'Client Portal', fold: 'later' },
     ],
   },
   { key: 'media-storage', label: 'Media Storage', icon: Image, group: 'grow' },
@@ -190,10 +209,10 @@ export const SECTIONS: Section[] = [
     tabs: [
       { key: 'overview', label: 'Overview' },
       { key: 'requests', label: 'Requests' },
-      { key: 'reviews', label: 'Reviews' },
-      { key: 'widgets', label: 'Widgets' },
-      { key: 'listings', label: 'Listings' },
-      { key: 'settings', label: 'Settings' },
+      { key: 'reviews', label: 'Reviews', fold: 'later' },
+      { key: 'widgets', label: 'Widgets', fold: 'later' },
+      { key: 'listings', label: 'Listings', fold: 'later' },
+      { key: 'settings', label: 'Settings', fold: 'later' },
     ],
   },
   {
@@ -202,10 +221,10 @@ export const SECTIONS: Section[] = [
     icon: BarChart3,
     group: 'grow',
     tabs: [
-      { key: 'custom-reports', label: 'Custom Reports' },
-      { key: 'google-ads', label: 'Google Ads' },
-      { key: 'facebook-ads', label: 'Facebook Ads' },
-      { key: 'attribution', label: 'Attribution Report' },
+      { key: 'custom-reports', label: 'Custom Reports', fold: 'later' },
+      { key: 'google-ads', label: 'Google Ads', fold: 'later' },
+      { key: 'facebook-ads', label: 'Facebook Ads', fold: 'later' },
+      { key: 'attribution', label: 'Attribution Report', fold: 'later' },
       { key: 'call-reporting', label: 'Call Reporting' },
       { key: 'appointment-report', label: 'Appointment Report' },
     ],
@@ -219,25 +238,27 @@ export const SETTINGS_PAGES: SectionTab[] = [
   { key: 'business-profile', label: 'Business Profile' },
   { key: 'my-staff', label: 'My Staff' },
   { key: 'pipelines', label: 'Opportunities & Pipelines' },
-  { key: 'automation', label: 'Automation' },
-  { key: 'calendars', label: 'Calendars' },
+  { key: 'automation', label: 'Automation', fold: 'later' },
+  // Calendars → Calendar Settings is the same page.
+  { key: 'calendars', label: 'Calendars', fold: 'elsewhere' },
   { key: 'email-services', label: 'Email Services' },
   { key: 'phone-numbers', label: 'Phone Numbers' },
-  { key: 'whatsapp', label: 'WhatsApp' },
-  { key: 'reputation', label: 'Reputation Management' },
-  { key: 'custom-fields', label: 'Custom Fields' },
+  { key: 'whatsapp', label: 'WhatsApp', fold: 'later' },
+  { key: 'reputation', label: 'Reputation Management', fold: 'later' },
+  { key: 'custom-fields', label: 'Custom Fields', fold: 'imported' },
   { key: 'custom-values', label: 'Custom Values' },
   { key: 'merge-fields', label: 'Merge Fields' },
-  { key: 'scoring', label: 'Manage Scoring' },
+  { key: 'scoring', label: 'Manage Scoring', fold: 'later' },
   { key: 'domains', label: 'Domains & URL Redirects' },
   { key: 'integrations', label: 'Integrations' },
-  { key: 'conversation-providers', label: 'Conversation Providers' },
-  { key: 'tags', label: 'Tags' },
-  { key: 'labs', label: 'Labs' },
-  { key: 'audit-logs', label: 'Audit Logs' },
-  { key: 'companies', label: 'Companies' },
-  { key: 'brand-boards', label: 'Brand Boards' },
-  { key: 'private-integrations', label: 'Private Integrations' },
+  { key: 'conversation-providers', label: 'Conversation Providers', fold: 'later' },
+  { key: 'tags', label: 'Tags', fold: 'imported' },
+  { key: 'labs', label: 'Labs', fold: 'later' },
+  { key: 'audit-logs', label: 'Audit Logs', fold: 'later' },
+  // Contacts → Companies is the same list.
+  { key: 'companies', label: 'Companies', fold: 'elsewhere' },
+  { key: 'brand-boards', label: 'Brand Boards', fold: 'later' },
+  { key: 'private-integrations', label: 'Private Integrations', fold: 'later' },
   { key: 'import', label: 'GoHighLevel Import' },
 ]
 
@@ -247,8 +268,28 @@ export function sectionOf(key: string | undefined): Section | null {
   return SECTIONS.find((s) => s.key === key) ?? null
 }
 
-/** The tab a section opens on, from ?tab= (first tab when missing or unknown). */
+/**
+ * The tabs (or Settings pages) a bar shows: the built ones, plus the imported
+ * lists on a sub-account imported from GHL. A folded section shows all of its
+ * tabs once opened: that's its GHL structure, kept for reference.
+ */
+export function shownTabs(tabs: SectionTab[], o: { imported: boolean; folded?: boolean }): SectionTab[] {
+  return o.folded ? tabs : tabs.filter((t) => !t.fold || (t.fold === 'imported' && o.imported))
+}
+
+/** The tabs (or Settings pages) folded under "Not built yet". */
+export function laterTabs(tabs: SectionTab[], o: { folded?: boolean } = {}): SectionTab[] {
+  return o.folded ? [] : tabs.filter((t) => t.fold === 'later')
+}
+
+/** The tab a section opens on: its first built one (a folded section's first). */
+export function defaultTab(section: Section | null): string | null {
+  if (!section?.tabs?.length) return null
+  return (section.later ? section.tabs[0] : (section.tabs.find((t) => !t.fold) ?? section.tabs[0])).key
+}
+
+/** The tab a section is on, from ?tab= (the default tab when missing or unknown; a folded tab still opens). */
 export function activeTab(section: Section | null, tab: string | null): string | null {
   if (!section?.tabs?.length) return null
-  return section.tabs.some((t) => t.key === tab) ? tab : section.tabs[0].key
+  return section.tabs.some((t) => t.key === tab) ? tab : defaultTab(section)
 }

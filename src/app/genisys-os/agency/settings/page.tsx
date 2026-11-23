@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Globe, Phone, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { ImportPanel } from '@/components/genisys-os/import-panel'
+import { SetupSummary } from '@/components/genisys-os/agency'
 import { Card, PageHeader, Spinner, hlFetch } from '@/components/genisys-os/ui'
 
 type Twilio = { ok: boolean; error: string | null; accountName: string | null; accountType: string | null; profiles: { status: string; kind: string }[]; hubNumber: string | null }
@@ -21,7 +22,7 @@ function Row({ icon, title, ok, detail }: { icon: React.ReactNode; title: string
   )
 }
 
-/** Agency view → Settings: the agency-wide connections (Twilio, Porkbun), who can get in, and the GoHighLevel import. */
+/** Agency view → Settings: the agency-wide connections (Twilio, Porkbun), who can get in, the setup guide (the old agency Launchpad) and the GoHighLevel import. */
 export default function AgencySettingsPage() {
   const twilio = useQuery<Twilio>({ queryKey: ['hl', 'twilio'], queryFn: () => hlFetch('/api/hl/settings/twilio') })
   const porkbun = useQuery<Porkbun>({ queryKey: ['hl', 'porkbun'], queryFn: () => hlFetch('/api/hl/settings/porkbun') })
@@ -38,7 +39,7 @@ export default function AgencySettingsPage() {
             twilio.data?.ok
               ? twilio.data.accountType === 'Trial'
                 ? `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}, but still a free trial: one number, texts only to verified phones, no A2P. Upgrade it in the Twilio Console (pay as you go).`
-                : `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}${twilio.data.hubNumber ? ` · Hub number ${twilio.data.hubNumber}` : ''}`
+                : `Connected${twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}${twilio.data.hubNumber ? ` · Owner alerts go from Lead Genisys’s ${twilio.data.hubNumber} until a client’s own number is approved` : ' · Lead Genisys has no approved number, so owner alerts wait for each client’s own'}`
               : (twilio.data?.error ?? 'Add “Twilio Account SID” and “Twilio Auth Token” to the Vault.')
           }
         />
@@ -63,6 +64,7 @@ export default function AgencySettingsPage() {
         <p className="text-[14px] font-semibold text-foreground">Who can open Genisys OS</p>
         <p className="text-[12.5px] text-muted-foreground">alex@leadgenisys.com and ethan@leadgenisys.com, signed in to the Hub. Nobody else sees it.</p>
       </Card>
+      <SetupSummary />
       <ImportPanel compact />
     </div>
   )
