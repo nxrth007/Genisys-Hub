@@ -1,10 +1,51 @@
 import { prisma } from '@/lib/prisma'
+import { lastGscHealth } from '@/lib/seo/gsc-health'
 import type { HlStage } from './types'
 
+/** A text to a missed caller within this long counts as the text-back (quiet hours can hold it overnight). */
+const TEXT_BACK_MS = 12 * 60 * 60_000
+
+/** What the system did between two dates: the results' headline counts (also run for the period before, to compare). */
+async function resultCounts(accountId: string, from: Date, to: Date) {
+  const range = { gte: from, lt: to }
+  const reviewFlows = (await prisma.hlWorkflow.findMany({ where: { accountId, template: 'review_request' }, select: { id: true } })).map((w) => w.id)
+  const [leads, forms, booked, reviewRequests] = await Promise.all([
+    prisma.hlContact.count({ where: { accountId, createdAt: range } }),
+    prisma.hlFormSubmission.count({ where: { accountId, createdAt: range } }),
+    prisma.hlAppointment.count({ where: { accountId, createdAt: range, status: { notIn: ['cancelled', 'invalid'] } } }),
+    reviewFlows.length ? prisma.hlWorkflowRun.count({ where: { accountId, workflowId: { in: reviewFlows }, createdAt: range } }) : Promise.resolve(0),
+  ])
+  return { leads, forms, booked, reviewRequests }
+}
+
+/** Missed calls since `since` whose caller got a text afterwards (the missed-call text-back, or the owner's own). */
+async function textedBack(accountId: string, since: Date): Promise<number> {
+  const calls = await prisma.hlMessage.findMany({ where: { accountId, channel: 'call', status: 'missed', createdAt: { gte: since } }, select: { contactId: true, createdAt: true } })
+  if (!calls.length) return 0
+  const texts = await prisma.hlMessage.findMany({
+    where: { accountId, channel: 'sms', direction: 'outbound', status: { in: ['queued', 'sent', 'delivered'] }, contactId: { in: [...new Set(calls.map((c) => c.contactId))] }, createdAt: { gte: since } },
+    select: { contactId: true, createdAt: true },
+  })
+  return calls.filter((c) => texts.some((t) => t.contactId === c.contactId && t.createdAt >= c.createdAt && t.createdAt.getTime() - c.createdAt.getTime() <= TEXT_BACK_MS)).length
+}
+
 /**
- * The numbers behind the sub-account Dashboard (GHL's widgets: opportunity
- * status and value, conversion rate, funnel, lead sources, tasks) plus calls,
- * texts and leads per day, over the last `days` days.
+ * The client's website on Google over the last 28 days, from the last Search
+ * Console check (SEO → Search Console health; read, never fetched here, so
+ * the dashboard costs Google nothing). Null when their site isn't connected.
+ */
+async function searchLast28(clientId: string | null): Promise<{ clicks: number; impressions: number; checkedAt: string } | null> {
+  if (!clientId) return null
+  const [site, health] = await Promise.all([prisma.seoSite.findUnique({ where: { clientId }, select: { id: true } }).catch(() => null), lastGscHealth()])
+  const last28 = site && health?.sites.find((s) => s.siteId === site.id)?.last28
+  return last28 && health ? { clicks: last28.clicks, impressions: last28.impressions, checkedAt: health.checkedAt } : null
+}
+
+/**
+ * The sub-account Dashboard: first its results over the last `days` days
+ * (leads, calls and the missed-call text-back, texts, appointments booked,
+ * review requests, Google search) against the period before, then GHL's
+ * widgets (funnel, lead sources, tasks) and calls, texts and leads per day.
  */
 export async function dashboardStats(accountId: string, days = 30) {
   const since = new Date(Date.now() - days * 86_400_000)
@@ -33,7 +74,16 @@ export async function dashboardStats(accountId: string, days = 30) {
       select: { id: true, title: true, startTime: true, contact: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } } },
     }),
   ])
-  const byDay = await prisma.hlContact.findMany({ where: { accountId, createdAt: { gte: since } }, select: { createdAt: true } })
+  const now = new Date()
+  const [account, current, previous, backed, byDay] = await Promise.all([
+    prisma.hlAccount.findUnique({ where: { id: accountId }, select: { clientId: true, numbers: { where: { status: 'active' }, select: { verificationStatus: true } } } }),
+    resultCounts(accountId, since, now),
+    resultCounts(accountId, new Date(since.getTime() - days * 86_400_000), since),
+    textedBack(accountId, since),
+    prisma.hlContact.findMany({ where: { accountId, createdAt: { gte: since } }, select: { createdAt: true } }),
+  ])
+  const search = await searchLast28(account?.clientId ?? null).catch(() => null)
+  const texting: 'live' | 'pending' | 'none' = account?.numbers.some((n) => n.verificationStatus === 'approved') ? 'live' : account?.numbers.length ? 'pending' : 'none'
   const daily: number[] = Array.from({ length: days }, () => 0)
   for (const c of byDay) {
     const i = days - 1 - Math.floor((Date.now() - c.createdAt.getTime()) / 86_400_000)
@@ -75,6 +125,8 @@ export async function dashboardStats(accountId: string, days = 30) {
     received,
     failed,
     daily,
+    /** The headline: this period's counts, the period before's, the missed calls texted back, and Google search. */
+    results: { ...current, previous, textedBack: backed, texting, search },
     pipeline: pipeline ? { id: pipeline.id, name: pipeline.name, stages } : null,
     opportunities: { open: status('open'), won, lost, abandoned: status('abandoned') },
     conversion: won.count + lost.count ? Math.round((won.count / (won.count + lost.count)) * 100) : null,
