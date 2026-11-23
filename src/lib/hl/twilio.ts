@@ -2,6 +2,7 @@ import twilio from 'twilio'
 import { prisma } from '@/lib/prisma'
 import { getSecretByName } from '@/lib/vault-service'
 import { HlInputError } from './http'
+import { genisysSender } from './genisys-sender'
 
 /**
  * Twilio for Genisys OS: the Hub's own Twilio account (Vault "Twilio Account
@@ -186,12 +187,12 @@ export type TwilioOverview = {
   accountType: string | null
   /** Trust Hub business profiles: toll-free verification needs one that Twilio approved. */
   profiles: { sid: string; name: string; status: string; kind: ProfileKind; policy: string }[]
-  /** The Hub's own sending number (TWILIO_FROM_NUMBER), used for owner texts when a sub-account has no approved number. */
+  /** Genisys's own sending number (Lead Genisys's approved one): owner alerts and forwarded texts go from it while a client's number can't text. */
   hubNumber: string | null
 }
 
 export async function twilioOverview(): Promise<TwilioOverview> {
-  const hubNumber = process.env.TWILIO_FROM_NUMBER ?? null
+  const hubNumber = (await genisysSender().catch(() => null))?.number ?? null
   try {
     const client = await twilioClient()
     const acct = await client.api.v2010.accounts(client.accountSid).fetch()

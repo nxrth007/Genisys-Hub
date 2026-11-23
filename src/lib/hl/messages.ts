@@ -5,6 +5,7 @@ import type { HlPhoneNumber, Prisma } from '@/generated/prisma/client'
 import { readProfile } from './accounts'
 import { upsertContact } from './contacts'
 import { sendTwilioSms } from './twilio'
+import { genisysSender } from './genisys-sender'
 
 /**
  * Texts and emails. Texts to contacts go out from the sub-account's own
@@ -124,14 +125,15 @@ export async function sendSmsToContact(o: { accountId: string; contactId: string
 
 /**
  * An owner notification text. From the sub-account's number once it can text;
- * until then from the Hub's own Twilio number (TWILIO_FROM_NUMBER), so owners
- * hear about leads even before verification finishes.
+ * until then from Genisys's own approved number (Lead Genisys's, see
+ * genisys-sender.ts), so owners hear about leads even before verification
+ * finishes, or before they have a number at all.
  */
 export async function sendInternalSms(accountId: string, to: string[], body: string): Promise<SendResult> {
   if (!to.length) return { ok: false, detail: 'No notification phone on the sub-account (Settings → Business Profile)' }
   const number = await sendingNumber(accountId)
-  const from = textingReady(number).ok && number ? number.number : process.env.TWILIO_FROM_NUMBER
-  if (!from) return { ok: false, detail: 'No number to text from: the sub-account’s number isn’t approved yet and TWILIO_FROM_NUMBER isn’t set' }
+  const from = textingReady(number).ok && number ? number.number : (await genisysSender())?.number
+  if (!from) return { ok: false, detail: 'No number to text from: this sub-account’s number can’t text yet, and Lead Genisys has no approved number either' }
   const results: string[] = []
   let ok = false
   for (const phone of to) {

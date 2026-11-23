@@ -5,6 +5,7 @@ import { readProfile } from '@/lib/hl/accounts'
 import { recordInboundSms } from '@/lib/hl/messages'
 import { forwardTextBody, ownerPhones } from '@/lib/hl/number-plan'
 import { isFromTwilio, sendTwilioSms, twilioParams, twiml } from '@/lib/hl/twilio'
+import { genisysSender, isClientOwnerPhone } from '@/lib/hl/genisys-sender'
 
 /**
  * POST /api/hl/twilio/sms: a text to a Genisys OS number (Twilio's
@@ -13,9 +14,11 @@ import { isFromTwilio, sendTwilioSms, twilioParams, twiml } from '@/lib/hl/twili
  *
  * A text from the owner's own phone (the number's forwarding phones, the
  * profile's business or notification phone) isn't a lead: no automations,
- * no forwarding. A lead's text is also forwarded to the number's
- * forwardTextsTo, from the Hub's own number, so a reply to the forward can
- * never land back here as a lead.
+ * no forwarding. Nor is a client's text to Genisys's own number (Lead
+ * Genisys's): that's them answering an owner alert or a forwarded text, which
+ * go out from it. A lead's text is also forwarded to the number's
+ * forwardTextsTo, from Genisys's own number, so a reply to the forward can
+ * never land in the client's sub-account as a lead.
  */
 export async function POST(req: Request) {
   const p = await twilioParams(req)
@@ -24,14 +27,14 @@ export async function POST(req: Request) {
   if (!number || !p.From || !p.MessageSid) return twiml('')
   const media = Array.from({ length: Math.min(10, Number(p.NumMedia) || 0) }, (_, i) => p[`MediaUrl${i}`]).filter(Boolean)
   const r = await recordInboundSms({ accountId: number.accountId, from: p.From, to: p.To, body: p.Body ?? '', sid: p.MessageSid, media })
-  const account = await prisma.hlAccount.findUnique({ where: { id: number.accountId }, select: { name: true, profile: true } })
+  const account = await prisma.hlAccount.findUnique({ where: { id: number.accountId }, select: { name: true, profile: true, clientId: true } })
   const profile = readProfile(account?.profile)
-  const fromOwner = ownerPhones(number, profile).has(p.From)
+  const fromOwner = ownerPhones(number, profile).has(p.From) || (!!account && !account.clientId && (await isClientOwnerPhone(p.From)))
   if (!r.duplicate && !r.stop && !fromOwner && number.forwardTextsTo && number.forwardTextsTo !== p.From) {
-    const hub = process.env.TWILIO_FROM_NUMBER
     const to = number.forwardTextsTo
     after(async () => {
-      if (!hub) return console.warn('[genisys-os] text forward skipped: TWILIO_FROM_NUMBER is not set')
+      const hub = (await genisysSender())?.number
+      if (!hub) return console.warn('[genisys-os] text forward skipped: Lead Genisys has no approved number to send it from')
       const name = [r.contact.firstName, r.contact.lastName].filter(Boolean).join(' ')
       const body = forwardTextBody({ business: profile.businessName || account?.name || 'Your business', from: p.From, name, body: p.Body ?? '', media: media.length })
       await sendTwilioSms({ from: hub, to, body }).catch((err) => console.warn('[genisys-os] text forward failed:', err instanceof Error ? err.message : err))
