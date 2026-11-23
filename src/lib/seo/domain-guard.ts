@@ -105,6 +105,8 @@ export type DomainGuardState = {
   manual?: boolean
   /** The repo head the Hub gave up at: it doesn't try again until the repo changes. */
   gaveUpSha?: string | null
+  /** The repo linked at the last look: picking one for a site that needed it gets a look straight away. */
+  repo?: string | null
   /** Sitemap pages naming the right domain at the last good look. */
   pages?: number | null
   failures?: number
@@ -240,7 +242,9 @@ export async function maybeRunDomainGuard(now = Date.now()): Promise<{ stepped: 
         if ((st.leaseUntil ?? 0) > now) return false
         // The Site link moved to another domain (a domain was connected): look now.
         const moved = !!st.servedOrigin && !sameSite(st.servedOrigin, originOf(s.liveUrl)) && st.status !== 'fixing'
-        return moved || (st.nextAt ?? 0) <= now
+        // Someone picked (or changed) the repo of a site that was waiting on a person: look now.
+        const repoPicked = st.status === 'needs_person' && (st.repo ?? null) !== (s.repoFullName ?? null)
+        return moved || repoPicked || (st.nextAt ?? 0) <= now
       })
       .sort((a, b) => rank(states[a.id]) - rank(states[b.id]) || (states[a.id]?.nextAt ?? 0) - (states[b.id]?.nextAt ?? 0))
       .slice(0, PER_RUN)
@@ -286,6 +290,8 @@ async function stepOne(site: GuardSite, st: DomainGuardState | undefined, now: n
       status: stuck ? 'needs_person' : (st?.status ?? 'fixing'),
       detail: stuck ? `Stopped after ${failures} failed tries: ${message(err)}` : (st?.detail ?? 'Checking the site.'),
       failures,
+      // Recorded so the "repo picked" shortcut can't skip this back-off.
+      repo: site.repoFullName ?? null,
       nextAt: now + (stuck ? PERSON_RECHECK_MS : Math.min(60, 2 ** failures) * MINUTE),
     }
   }
@@ -299,7 +305,7 @@ async function stepOne(site: GuardSite, st: DomainGuardState | undefined, now: n
 // ---------------------------------------------------------------------------
 
 async function step(site: GuardSite, st: DomainGuardState | undefined, now: number, opts: StepOpts): Promise<DomainGuardState> {
-  const base = { ...(st ?? {}), checkedAt: stamp(now) }
+  const base = { ...(st ?? {}), checkedAt: stamp(now), repo: site.repoFullName ?? null }
   const origin = originOf(site.liveUrl)
   if (!origin) return { ...base, status: 'needs_person', detail: 'The Site link in the Hub isn’t a web address. Fix it at the top of this folder.', step: null, nextAt: now + PERSON_RECHECK_MS }
   if (LOVABLE_HOST_RE.test(new URL(origin).hostname)) {
@@ -329,6 +335,16 @@ async function step(site: GuardSite, st: DomainGuardState | undefined, now: numb
   const told = { ...base, problem: verdict.problem, servedOrigin: verdict.servedOrigin, wrongHosts: verdict.wrongHosts }
   if (opts.lookOnly) {
     return { ...told, status: st?.status === 'needs_person' ? 'needs_person' : 'fixing', detail: `${verdict.summary} The Hub fixes it on its next pass.`, nextAt: now }
+  }
+  // No repo first: picking one in the folder's Repo picker also takes the site out of Audit mode.
+  if (!site.repoFullName?.trim()) {
+    return {
+      ...told,
+      status: 'needs_person',
+      detail: `${verdict.summary} No GitHub repo is linked to this client, so the Hub can’t fix it: pick the Repo at the top of this folder and the Hub does the rest.`,
+      step: null,
+      nextAt: now + PERSON_RECHECK_MS,
+    }
   }
   if (site.mode === 'audit') {
     return { ...told, status: 'needs_person', detail: `${verdict.summary} This site is in Audit mode in SEO, so the Hub doesn’t change its code.`, step: null, nextAt: now + PERSON_RECHECK_MS }
