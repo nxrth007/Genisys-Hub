@@ -2,28 +2,17 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2, CheckCircle2, ChevronRight, Plus, ShieldCheck, Star, TriangleAlert } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Building2, CheckCircle2, ChevronRight, Plus } from 'lucide-react'
 import { useAccounts } from '@/components/genisys-os/shell'
 import { textingBadge } from '@/components/genisys-os/bits'
-import { ImportPanel } from '@/components/genisys-os/import-panel'
 import { Avatar, Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { prettyPhone } from '@/lib/hl/merge'
-
-type TwilioStatus = {
-  ok: boolean
-  error: string | null
-  accountName: string | null
-  accountStatus: string | null
-  profiles: { sid: string; name: string; status: string }[]
-  hubNumber: string | null
-}
 
 /** The agency view (/genisys-os): every sub-account, and the clients that don't have one yet. */
 export function AgencyView() {
   const qc = useQueryClient()
   const accounts = useAccounts()
-  const twilio = useQuery<TwilioStatus>({ queryKey: ['hl', 'twilio'], queryFn: () => hlFetch('/api/hl/settings/twilio') })
   const [newOpen, setNewOpen] = useState(false)
   const [name, setName] = useState('')
 
@@ -36,14 +25,8 @@ export function AgencyView() {
     },
   })
 
-  const makeHome = useMutation({
-    mutationFn: (id: string) => hlFetch(`/api/hl/accounts/${id}`, { method: 'PATCH', json: { makeDefault: true } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'accounts'] }),
-  })
-
   const rows = accounts.data?.accounts ?? []
   const without = accounts.data?.clientsWithout ?? []
-  const approved = twilio.data?.profiles.some((p) => p.status === 'twilio-approved')
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-7">
@@ -56,40 +39,6 @@ export function AgencyView() {
           </Button>
         }
       />
-
-      <ImportPanel compact />
-
-      <Card className="flex flex-wrap items-center gap-4 px-5 py-4">
-        {twilio.isLoading ? (
-          <Spinner />
-        ) : twilio.data?.ok ? (
-          <>
-            <span className={`grid h-10 w-10 place-items-center rounded-full ${approved ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
-              {approved ? <ShieldCheck className="h-5 w-5" /> : <TriangleAlert className="h-5 w-5" />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-foreground">
-                Twilio connected{twilio.data.accountName ? `: ${twilio.data.accountName}` : ''}
-              </p>
-              <p className="text-[13px] text-muted-foreground">
-                {approved
-                  ? 'Genisys’s business profile is approved, so Genisys OS can file toll-free verifications for clients.'
-                  : 'Before texting can be verified for clients, Genisys needs an approved Trust Hub business profile in Twilio (one time). See Settings → Twilio in any sub-account.'}
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlert className="h-5 w-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-semibold text-foreground">Twilio isn’t reachable</p>
-              <p className="text-[13px] text-muted-foreground">{twilio.data?.error ?? 'Check the "Twilio Account SID" and "Twilio Auth Token" entries in the Vault.'}</p>
-            </div>
-          </>
-        )}
-      </Card>
 
       <Card>
         {accounts.isLoading ? (
@@ -135,16 +84,6 @@ export function AgencyView() {
                       <Link href={`/genisys-os/${a.id}/dashboard`} className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
                         Open <ChevronRight className="h-4 w-4" />
                       </Link>
-                      {a.id !== accounts.data?.defaultAccountId && (
-                        <button
-                          type="button"
-                          onClick={() => makeHome.mutate(a.id)}
-                          className="ml-3 inline-flex items-center gap-1 font-mono text-[11.5px] text-muted-foreground hover:text-foreground"
-                          title="Open Genisys OS on this sub-account"
-                        >
-                          <Star className="h-3 w-3" /> Make home
-                        </button>
-                      )}
                     </td>
                   </tr>
                 ))}

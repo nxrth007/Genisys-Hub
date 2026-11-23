@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileText, Mail, MessagesSquare, Phone, PhoneIncoming, PhoneMissed, Search, Send, Star, StickyNote, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
-import { contactLabel, useAccount } from '@/components/genisys-os/bits'
+import { contactLabel, useAccount, useEmailSetup } from '@/components/genisys-os/bits'
 import { ContactPanel, type ContactDetail } from '@/components/genisys-os/contact-panel'
 import { Avatar, Button, Empty, ErrorNote, Input, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
@@ -198,11 +198,8 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
   const [text, setText] = useState('')
   const [subject, setSubject] = useState('')
   // Email: whether the sub-account can send it (Settings → Email Services).
-  const email = useQuery<{ setup: { status: string; fromLocal: string; rootDomain: string } | null }>({
-    queryKey: ['hl', 'email', accountId],
-    queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/email`),
-    enabled: mode === 'email',
-  })
+  // Read up front: the Email tab only shows once the sub-account can send it.
+  const email = useEmailSetup(accountId)
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -244,10 +241,16 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
     if (!c.phone) return 'This contact has no phone number.'
     if (c.dnd) return 'This contact texted STOP. Nothing goes out until they text START.'
     if (!number) return `This sub-account has no phone number yet.${fix('Phone Numbers')}`
-    if (number.kind === 'toll_free' && number.verificationStatus !== 'approved') return 'Texting isn’t approved yet: the number’s toll-free verification is still with Twilio.'
+    // Any number, toll-free or local, can't text until approved (the server refuses it: textingReady in messages.ts).
+    if (number.verificationStatus !== 'approved')
+      return number.kind === 'toll_free' ? 'Texting isn’t approved yet: the number’s toll-free verification is still with Twilio.' : 'Texting isn’t approved yet: the number’s A2P registration isn’t finished.'
     if (!c.smsConsent) return 'No texting consent recorded. If they agreed, switch on “Agreed to texts” on the right.'
     return null
   }, [mode, c, number, email.data, setup, admin])
+  // Every warning above is something the server refuses, so Send waits until it's sorted (a note always saves).
+  const blocked = mode !== 'note' && !!warning
+  // Email shows once the sub-account can send it (Settings → Email Services); until then the tab would only say no.
+  const emailLive = setup?.status === 'active'
 
   return (
     <>
@@ -289,9 +292,11 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
             <button type="button" onClick={() => setMode('sms')} className={cn('flex items-center gap-1.5 pb-1', mode === 'sms' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
               <Send className="h-3.5 w-3.5" /> SMS
             </button>
-            <button type="button" onClick={() => setMode('email')} className={cn('flex items-center gap-1.5 pb-1', mode === 'email' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
-              <Mail className="h-3.5 w-3.5" /> Email
-            </button>
+            {emailLive && (
+              <button type="button" onClick={() => setMode('email')} className={cn('flex items-center gap-1.5 pb-1', mode === 'email' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
+                <Mail className="h-3.5 w-3.5" /> Email
+              </button>
+            )}
             <button type="button" onClick={() => setMode('note')} className={cn('flex items-center gap-1.5 pb-1', mode === 'note' ? 'border-b-2 border-warning text-warning' : 'text-muted-foreground')}>
               <StickyNote className="h-3.5 w-3.5" /> Internal note
             </button>
@@ -307,7 +312,7 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              if (text.trim()) send.mutate()
+              if (text.trim() && !blocked) send.mutate()
             }}
             className={cn('flex items-end gap-2 rounded-xl border p-2', mode === 'note' ? 'border-warning/30 bg-warning/5' : 'border-border bg-card')}
           >
@@ -318,14 +323,14 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
                 // An email is written over several lines: Enter only sends texts and notes.
                 if (mode !== 'email' && e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  if (text.trim()) send.mutate()
+                  if (text.trim() && !blocked) send.mutate()
                 }
               }}
               rows={mode === 'email' ? 5 : 2}
               placeholder={mode === 'sms' ? 'Type a text message (Enter to send, Shift+Enter for a new line)' : mode === 'email' ? 'Write the email' : 'Write a note only your team sees'}
               className={cn('min-h-[44px] flex-1 resize-none border-0 bg-transparent shadow-none focus:ring-0', mode === 'email' ? 'max-h-72' : 'max-h-40')}
             />
-            <Button type="submit" variant="primary" loading={send.isPending} disabled={!text.trim()}>
+            <Button type="submit" variant="primary" loading={send.isPending} disabled={!text.trim() || blocked}>
               {mode === 'note' ? 'Save note' : 'Send'}
             </Button>
           </form>

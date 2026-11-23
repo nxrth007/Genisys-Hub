@@ -120,8 +120,8 @@ export function WebhookStepFields({
       {method !== 'GET' && (
         <Field label="Send">
           <Select value={bodyType} onChange={(e) => set({ bodyType: e.target.value as Config['bodyType'] })}>
-            <option value="contact">The contact’s details (like GHL’s Webhook)</option>
-            <option value="raw">A body you write (like GHL’s Custom Webhook)</option>
+            <option value="contact">The contact’s details</option>
+            <option value="raw">A body you write</option>
             <option value="form">Form fields</option>
             <option value="none">Nothing</option>
           </Select>

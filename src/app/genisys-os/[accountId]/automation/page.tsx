@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tan
 import { ChevronRight, EllipsisVertical, FolderClosed, FolderPlus, Plus, Search, Workflow, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { triggerTitle, type HlTrigger } from '@/lib/hl/types'
-import { workflowTemplates } from '@/lib/hl/templates'
 import { useSectionTab } from '@/components/genisys-os/section'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, Table, fmtDateTime, hlFetch } from '@/components/genisys-os/ui'
 import { confirmAction } from '@/components/genisys-os/confirm'
@@ -341,23 +340,11 @@ function CreateWorkflow({ accountId, folder, onClose }: { accountId: string; fol
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Estimate follow-up" />
         </Field>
-        <div>
-          <p className="eyebrow mb-2 text-muted-foreground">Or start from a recipe</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {workflowTemplates().map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                disabled={create.isPending}
-                onClick={() => create.mutate({ template: t.key })}
-                className="flex flex-col gap-1 rounded-md border border-border bg-surface p-3 text-left transition hover:border-primary/50 hover:bg-primary-soft"
-              >
-                <span className="text-[13px] font-medium text-foreground">{t.name}</span>
-                <span className="text-[12px] text-muted-foreground">{t.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        {/*
+          No "start from a recipe" grid (2026-11-23): every recipe (src/lib/hl/templates.ts) is a copy of a
+          client-kit workflow each sub-account already has live, so publishing one texted leads twice, and the
+          review recipe watched a stage no client pipeline has. The kit (client-kit.ts) is the starting point.
+        */}
         <ErrorNote error={create.error} />
       </div>
     </Modal>
@@ -419,7 +406,7 @@ function GlobalSettings({ accountId }: { accountId: string }) {
     ['Opt-out', 'A contact’s first text gets “Reply STOP to opt out.” STOP and its synonyms stop all texts until they reply START.'],
     ['Texting consent', 'Automations text only contacts who ticked the consent box, or who called or texted first.'],
     ['Re-entry', 'The same trigger for the same contact within a minute is ignored (a retried webhook can’t double-send). Each workflow decides whether a contact can go through it again.'],
-    ['Owner alerts', 'Internal texts come from the sub-account’s number once it is approved, from the Hub’s number until then.'],
+    ['Owner alerts', 'Internal texts come from the sub-account’s number once it is approved, and from Lead Genisys’s number until then.'],
   ]
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-6">

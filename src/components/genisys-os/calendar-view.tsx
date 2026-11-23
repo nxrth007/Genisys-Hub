@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { asCalendarSettings, durationsOf, recurringLabel, recurringOf } from '@/lib/hl/calendar-shared'
 import type { StaffRow } from '@/lib/hl/staff'
 import { contactLabel, useAccount } from './bits'
+import { useHlViewer } from './viewer'
 import { confirmAction } from './confirm'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Select, Spinner, Tabs, Textarea, copyText, hlFetch } from './ui'
 
@@ -106,6 +107,9 @@ export function CalendarView({ accountId }: { accountId: string }) {
   const to = startOfDay(addDays(dates[dates.length - 1], 1), tz)
   const q = useRange(accountId, from, to, !!prefs.data && !!account.data)
   const cals = q.data?.calendars ?? []
+  // Nothing can be booked or blocked without a calendar (61 of 62 sub-accounts on 2026-11-23), so the buttons wait for one.
+  const noCalendars = !!q.data && cals.length === 0
+  const { admin } = useHlViewer()
   const staff = q.data?.staff ?? []
   const shown = (q.data?.appointments ?? []).filter((a) => (!calFilter || a.calendarId === calFilter) && (!userFilter || membersOf(a).includes(userFilter)))
   // Google busy times: the filtered user's, else the filtered calendar's team's, else everyone's.
@@ -138,6 +142,8 @@ export function CalendarView({ accountId }: { accountId: string }) {
         <h1 className="ml-1 text-[18px] font-semibold text-foreground">{title}</h1>
         <span className="font-mono text-[11px] text-muted-foreground">{tz.replace(/_/g, ' ')}</span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {!noCalendars && (
+          <>
           <Select className="h-8 w-auto text-[12.5px]" value={calFilter} onChange={(e) => setCalFilter(e.target.value)}>
             <option value="">All calendars</option>
             {cals.map((c) => (
@@ -154,6 +160,8 @@ export function CalendarView({ accountId }: { accountId: string }) {
               </option>
             ))}
           </Select>
+          </>
+          )}
           <div className="flex rounded-md border border-border p-0.5">
             {(['day', 'week', 'month'] as const).map((v) => (
               <button key={v} type="button" onClick={() => setView(v)} className={cn('rounded px-3 py-1 font-mono text-[12px] capitalize', view === v ? 'bg-muted text-foreground' : 'text-muted-foreground')}>
@@ -161,14 +169,30 @@ export function CalendarView({ accountId }: { accountId: string }) {
               </button>
             ))}
           </div>
-          <Button size="sm" icon={<Ban className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'block', date: view === 'month' ? today : at })}>
-            Block time
-          </Button>
-          <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'appointment', date: view === 'month' ? today : at })}>
-            New appointment
-          </Button>
+          {!noCalendars && (
+            <>
+              <Button size="sm" icon={<Ban className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'block', date: view === 'month' ? today : at })}>
+                Block time
+              </Button>
+              <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'appointment', date: view === 'month' ? today : at })}>
+                New appointment
+              </Button>
+            </>
+          )}
         </div>
       </div>
+      {noCalendars && (
+        <p className="rounded-lg border border-border bg-surface px-4 py-3 text-[13px] text-muted-foreground">
+          No calendar yet, so nothing can be booked here.{' '}
+          {admin ? (
+            <Link href={`/genisys-os/${accountId}/calendars?tab=settings`} className="font-medium text-primary hover:underline">
+              Create one in Calendar Settings
+            </Link>
+          ) : (
+            'Genisys sets one up for you.'
+          )}
+        </p>
+      )}
       {q.isLoading || !prefs.data || !account.data ? (
         <div className="flex justify-center py-16">
           <Spinner />
@@ -188,7 +212,7 @@ export function CalendarView({ accountId }: { accountId: string }) {
           }}
         />
       ) : (
-        <TimeGrid dates={dates} today={today} tz={tz} appts={shown} cals={cals} outside={outside} staff={staff} onOpen={setOpen} onPick={(date, time) => setCreating({ kind: 'appointment', date, time })} />
+        <TimeGrid dates={dates} today={today} tz={tz} appts={shown} cals={cals} outside={outside} staff={staff} onOpen={setOpen} onPick={noCalendars ? undefined : (date, time) => setCreating({ kind: 'appointment', date, time })} />
       )}
       <ErrorNote error={q.error || prefs.error} />
       {creating && q.data && (
@@ -318,7 +342,8 @@ function TimeGrid({
   outside: Outside[]
   staff: StaffRow[]
   onOpen: (a: Appt) => void
-  onPick: (date: string, time: string) => void
+  /** Clicking an empty time books there; none while there's no calendar to book on. */
+  onPick?: (date: string, time: string) => void
 }) {
   const scroller = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -364,9 +389,9 @@ function TimeGrid({
           {columns.map((col) => (
             <div
               key={col.date}
-              className="relative cursor-pointer border-l border-border-soft"
+              className={cn('relative border-l border-border-soft', onPick && 'cursor-pointer')}
               onClick={(e) => {
-                if (e.target !== e.currentTarget) return
+                if (!onPick || e.target !== e.currentTarget) return
                 const y = e.nativeEvent.offsetY
                 const minutes = Math.max(0, Math.min(24 * 60 - 15, Math.floor((y / HOUR_PX) * 4) * 15))
                 onPick(col.date, `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`)
@@ -595,7 +620,7 @@ function NewAppointment({
               </div>
             ) : (
               <>
-                <Input placeholder="Search by name, phone or email" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+                <Input placeholder="First or last name, phone or email" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
                 {hits.isFetching && <Spinner />}
                 {(hits.data?.contacts ?? []).slice(0, 6).map((c) => (
                   <button key={c.id} type="button" onClick={() => setContact(c)} className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-muted">

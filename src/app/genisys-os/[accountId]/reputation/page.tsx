@@ -49,7 +49,7 @@ function Reputation() {
             </div>
           ) : !runs.length ? (
             <Empty icon={<Star className="h-5 w-5" />} title="No review requests yet">
-              Moving a job to the completed stage on the pipeline starts one when the review workflow is on. So does the owner’s 5 Star Review Request Form.
+              Moving a job to Job Completed on the pipeline starts one when the review workflow is on. So does the owner filling in their 5 Star Review Request Form (Sites → Forms has the link to send them).
             </Empty>
           ) : (
             <Table head={['Contact', 'Requested', 'Status']}>

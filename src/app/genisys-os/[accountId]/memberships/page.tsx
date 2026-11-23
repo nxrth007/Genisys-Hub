@@ -171,7 +171,7 @@ function BillingCard({ accountId }: { accountId: string }) {
         <p className="mt-2 text-[13px] text-muted-foreground">Whop isn’t connected (the Vault has no “Whop API Key”).</p>
       ) : !b ? (
         <p className="mt-2 text-[13px] text-muted-foreground">
-          {q.data.emails.length ? `No Whop membership found for ${q.data.emails.join(', ')}.` : 'No email on file to look them up on Whop.'}
+          {q.data.emails.length ? `No Whop membership found for ${q.data.emails.join(', ')}.` : 'No email on file to look them up on Whop.'} Sign-ups since Nov 16, 2026 pay through Stripe: their billing is in the Hub’s Clients → Billing.
         </p>
       ) : (
         <div className="mt-3 flex flex-col gap-3">

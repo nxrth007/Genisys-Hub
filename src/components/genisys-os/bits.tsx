@@ -39,6 +39,22 @@ export function useAccount(accountId: string) {
   })
 }
 
+export type EmailSendSetup = { status: string; fromLocal: string; rootDomain: string } | null
+
+/**
+ * Whether the sub-account can send email (Settings → Email Services): the
+ * composer, the contact card and the workflow builder offer email only once
+ * it's `active`. A light read: no Mailgun call.
+ */
+export function useEmailSetup(accountId: string) {
+  return useQuery<{ setup: EmailSendSetup }>({
+    queryKey: ['hl', 'email-send', accountId],
+    queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/email?send=1`),
+    enabled: !!accountId,
+    staleTime: 60_000,
+  })
+}
+
 export function textingBadge(n: { kind: string; verification?: string; verificationStatus?: string } | null) {
   if (!n) return <Badge color="gray">No number</Badge>
   const v = n.verification ?? n.verificationStatus ?? 'none'

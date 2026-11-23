@@ -9,6 +9,7 @@ import { BackLink } from '@/components/genisys-os/back-link'
 import { cn } from '@/lib/utils'
 import {
   CALENDAR_TYPES,
+  PICKABLE_CALENDAR_TYPES,
   NOTIFICATION_EVENTS,
   NOTIFICATION_PRESETS,
   WEEKDAYS,
@@ -201,7 +202,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Calendar type">
                 <Select value={kind} onChange={(e) => setKind(e.target.value)}>
-                  {CALENDAR_TYPES.map((t) => (
+                  {CALENDAR_TYPES.filter((t) => PICKABLE_CALENDAR_TYPES.some((x) => x.key === t.key) || t.key === kind).map((t) => (
                     <option key={t.key} value={t.key}>
                       {t.label}
                     </option>
@@ -235,7 +236,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                   <option value="google_meet">Google Meet</option>
                 </Select>
               </Field>
-              <Field label="Meeting location" hint={s.meetingType === 'google_meet' ? 'Leave empty: each booking’s Meet link becomes its location' : 'An address, a phone number or a meeting link. A team member’s own location wins.'}>
+              <Field label="Meeting location" hint={s.meetingType === 'google_meet' ? 'Leave empty: each booking’s Meet link becomes its location' : 'An address, a phone number or a meeting link.'}>
                 <Input value={s.meetingLocation ?? ''} onChange={(e) => set({ meetingLocation: e.target.value })} placeholder={s.meetingType === 'google_meet' ? 'Google Meet' : 'We’ll call you at the number you give'} />
               </Field>
             </div>
@@ -299,7 +300,8 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                         <span className="block truncate text-[13.5px] text-foreground">{st.name}</span>
                         {st.email && <span className="block truncate text-[12px] text-muted-foreground">{st.email}</span>}
                       </span>
-                      {m && kind === 'round_robin' && (
+                      {/* Priority only matters with someone to weigh against. */}
+                      {m && kind === 'round_robin' && team.filter((x) => x.selected !== false).length > 1 && (
                         <Select className="w-28" value={String(m.priority ?? 0.5)} onChange={(e) => set({ teamMembers: team.map((x) => (x === m ? { ...x, priority: Number(e.target.value) } : x)) })}>
                           <option value="1">High</option>
                           <option value="0.5">Medium</option>
@@ -425,6 +427,8 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 <Input type="number" min={0} value={s.appointmentPerDay ?? ''} onChange={(e) => set({ appointmentPerDay: e.target.value === '' ? '' : Number(e.target.value) })} />
               </Field>
             </div>
+            {/* GHL's "look busy" hides real open times; only shown on a calendar that already has it on, to switch off. */}
+            {!!s.lookBusyConfig?.enabled && (
             <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 text-[13.5px] text-foreground/90">
               <span>
                 Look busy
@@ -437,6 +441,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
                 <Toggle checked={!!s.lookBusyConfig?.enabled} onChange={(v) => set({ lookBusyConfig: { enabled: v, lookBusyPercentage: s.lookBusyConfig?.lookBusyPercentage || 10 } })} label="Look busy" />
               </span>
             </label>
+            )}
           </Card>
         </div>
       )}
@@ -570,7 +575,7 @@ function CalendarEditor({ accountId, data }: { accountId: string; data: Detail }
             <div className={cn('overflow-hidden rounded-xl border border-border bg-card', !isActive && 'opacity-60')}>
               <iframe key={data.calendar.updatedAt} src={`/hl/b/${data.calendar.id}`} title="Booking page" className="h-[720px] w-full border-0" />
             </div>
-            {!isActive && <p className="text-[12px] text-warning">Turned off: the booking page says it isn’t taking bookings.</p>}
+            {!isActive && <p className="text-[12px] text-warning">Turned off: the booking page doesn’t open, so take the calendar off any website before switching it off.</p>}
           </div>
         </div>
       )}
@@ -653,9 +658,8 @@ function NotificationsTab({ value, onChange }: { value: HlNotification[]; onChan
               </Select>
               <Select className="h-8 w-24 text-[12.5px]" value={n.channel} onChange={(e) => set(i, { channel: e.target.value === 'email' ? 'email' : 'sms' })}>
                 <option value="sms">Text</option>
-                <option value="email" disabled={n.to === 'contact'}>
-                  Email{n.to === 'contact' ? ' (not yet)' : ''}
-                </option>
+                {/* Booking emails go to the team only; the contact gets texts. */}
+                {(n.to !== 'contact' || n.channel === 'email') && <option value="email">Email</option>}
               </Select>
               <button type="button" title="Remove" className="ml-auto text-muted-foreground hover:text-destructive" onClick={() => onChange(value.filter((_, j) => j !== i))}>
                 <Trash2 className="h-4 w-4" />

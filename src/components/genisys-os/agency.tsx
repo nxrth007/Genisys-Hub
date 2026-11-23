@@ -95,11 +95,12 @@ export function AgencyLaunchpad() {
   )
 }
 
-/** The setup guide, folded into Agency Settings: one line while every step is done, the steps left when one isn't. */
+/** The setup guide, folded into Agency Settings: the steps left when one isn't done, nothing once they all are (its page still opens). */
 export function SetupSummary() {
   const q = useAgency()
   const steps = q.data?.setup ?? []
   const left = steps.filter((s) => !s.done)
+  if (steps.length && !left.length) return null
   return (
     <Card className="px-5 py-4">
       <div className="flex items-center justify-between gap-3">

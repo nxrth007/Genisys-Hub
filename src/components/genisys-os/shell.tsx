@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { signOut } from 'next-auth/react'
 import { ArrowLeft, Bell, Building2, ChevronDown, ChevronsUpDown, EyeOff, Flame, Home, Layers, LayoutDashboard, LogOut, Phone, Pin, RefreshCcw, Search, Settings, Sparkles, Undo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -427,15 +427,10 @@ function AccountSwitcher({ accounts, defaultId, current, loading, admin }: { acc
 }
 
 function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }: { accounts: AccountRow[]; defaultId: string | null; current: AccountRow | null; section: string; admin: boolean; onClose: () => void }) {
-  const qc = useQueryClient()
   const [q, setQ] = useState('')
   // Read when the panel opens (it's only ever on screen in the browser).
   const [pinned, setPinned] = useState<string[]>(() => readList(PIN_KEY))
   const [recentIds] = useState<string[]>(() => readList(RECENT_KEY))
-  const makeHome = useMutation({
-    mutationFn: (id: string) => hlFetch(`/api/hl/accounts/${id}`, { method: 'PATCH', json: { makeDefault: true } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hl', 'accounts'] }),
-  })
   const togglePin = (id: string) => {
     const next = pinned.includes(id) ? pinned.filter((x) => x !== id) : [id, ...pinned]
     setPinned(next)
@@ -462,14 +457,13 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
       </Link>
       {tools && admin && (
         <>
-          <button
-            type="button"
-            onClick={() => a.id !== defaultId && makeHome.mutate(a.id)}
-            className={cn('grid h-7 w-7 place-items-center rounded-md transition', a.id === defaultId ? 'text-primary' : 'text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground')}
-            title={a.id === defaultId ? 'Home sub-account: Genisys OS opens here' : 'Make this the home sub-account'}
-          >
-            <Home className={cn('h-3.5 w-3.5', a.id === defaultId && 'fill-primary/20')} />
-          </button>
+          {/* The home sub-account (where Genisys OS opens; Lead Genisys) is marked, not changed from here: it also
+              decides where the GHL import and the setup guide look. */}
+          {a.id === defaultId && (
+            <span className="grid h-7 w-7 place-items-center text-primary" title="Home sub-account: Genisys OS opens here">
+              <Home className="h-3.5 w-3.5 fill-primary/20" />
+            </span>
+          )}
           <button
             type="button"
             onClick={() => togglePin(a.id)}

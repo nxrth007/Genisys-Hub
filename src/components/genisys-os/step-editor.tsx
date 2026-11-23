@@ -6,6 +6,7 @@ import { GHL_WEBHOOK_TYPES, ghlWebhookConfig } from '@/lib/hl/ghl-webhook-step'
 import { renderTemplate, unknownTokens, type MergeData } from '@/lib/hl/merge'
 import { MERGE_FIELDS, MERGE_PICKER, fillToday, sampleMerge } from '@/lib/hl/merge-fields'
 import { APPOINTMENT_STATUSES, STEPS, TRIGGERS, type HlCondition, type HlProfile, type HlStage, type HlStep, type HlStepType, type HlTrigger } from '@/lib/hl/types'
+import { useEmailSetup } from './bits'
 import { MergeReferenceButton, MergeReferenceModal } from './merge-reference'
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from './ui'
 import { WebhookStepFields, type FieldGroup } from './webhook-step'
@@ -46,6 +47,25 @@ export const STEP_LOOK: Record<HlStepType, { icon: React.ComponentType<{ classNa
 export const TRIGGER_LOOK = { icon: Zap, bg: 'var(--chip-amber)', fg: 'var(--chip-amber-fg)' }
 
 const STATUS_LABEL: Record<string, string> = { confirmed: 'Confirmed', cancelled: 'Cancelled', showed: 'Showed', noshow: 'No-show', rescheduled: 'Rescheduled' }
+
+/** "First name" → "first_name": the key an Update contact / Update custom field row saves under. */
+const fieldKeyOf = (label: string) =>
+  label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+/**
+ * The row's key as its name is typed: it follows the name until the row has a
+ * key of its own (a kit row like SMS Optin Date keeps sms_optin_date). Before
+ * 2026-11-23 the key froze at the first letter typed; a one-letter key that
+ * starts the name is taken as that and follows again.
+ */
+function nextFieldKey(row: { key: string; label?: string }, label: string): string {
+  const auto = !row.key || row.key === fieldKeyOf(row.label ?? '') || (row.key.length === 1 && (row.label ?? '').trim().toLowerCase().startsWith(row.key.toLowerCase()))
+  return auto ? fieldKeyOf(label) : row.key
+}
 
 const plain = (t: string | undefined) => (t ?? '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
 const tagsText = (c: HlStep['config']) => [...(c.tags ?? []), ...(c.tag ? [c.tag] : [])].join(', ')
@@ -320,7 +340,7 @@ export function StepEditor({
             <label className="flex items-center justify-between gap-3 text-[13px] text-foreground/90">
               <span>
                 Only carry on during set hours
-                <span className="block text-[12px] text-muted-foreground">After the wait, holds until the next time inside these hours (GHL’s “wait for business hours”).</span>
+                <span className="block text-[12px] text-muted-foreground">After the wait, holds until the next time inside these hours.</span>
               </span>
               <Toggle checked={!!s.config.window} onChange={(v) => set({ window: v ? { days: [1, 2, 3, 4, 5], start: '09:00', end: '17:00' } : undefined })} label="Set hours" />
             </label>
@@ -487,7 +507,7 @@ export function StepEditor({
           </datalist>
           {(s.config.fields ?? []).map((f, i) => (
             <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-              <Input value={f.label ?? f.key} onChange={(e) => set({ fields: (s.config.fields ?? []).map((x, j) => (j === i ? { ...x, label: e.target.value, key: x.key || e.target.value } : x)) })} placeholder="Field" />
+              <Input value={f.label ?? f.key} onChange={(e) => set({ fields: (s.config.fields ?? []).map((x, j) => (j === i ? { ...x, label: e.target.value, key: nextFieldKey(x, e.target.value) } : x)) })} placeholder="Field" />
               <Input list="hl-merge-tokens" value={f.value} onChange={(e) => set({ fields: (s.config.fields ?? []).map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} placeholder="Value or {{today}}" />
               <button type="button" className="text-[12px] text-muted-foreground hover:text-destructive" onClick={() => set({ fields: (s.config.fields ?? []).filter((_, j) => j !== i) })}>
                 Remove
@@ -646,7 +666,9 @@ export function TriggerEditor({
 }) {
   // A webhook trigger always shows its URL, even one saved before it had one.
   const [t, setT] = useState<HlTrigger>(trigger.type === 'inbound_webhook' && !trigger.hookId ? { ...trigger, hookId: newHookId() } : trigger)
-  const kindForms = forms.filter((f) => (t.type === 'chat_submitted' ? f.kind === 'chat' : f.kind === 'form'))
+  // Survey answers fire "Form submitted" too (the kit's Negative Feedback workflow listens to the Review Survey).
+  const kindForms = forms.filter((f) => (t.type === 'chat_submitted' ? f.kind === 'chat' : f.kind === 'form' || f.kind === 'survey'))
+  const emailLive = useEmailSetup(accountId ?? '').data?.setup?.status === 'active'
   return (
     <div className="flex flex-col gap-4">
       {t.type === 'ghl' ? (
@@ -669,7 +691,7 @@ export function TriggerEditor({
             setT({ type, id: t.id, name: t.name, active: t.active, ...(type === 'inbound_webhook' ? { hookId: trigger.hookId ?? newHookId(), mapping: trigger.mapping, reference: trigger.reference } : {}) })
           }}
         >
-          {TRIGGERS.filter((x) => x.pick !== false).map((x) => (
+          {TRIGGERS.filter((x) => x.pick !== false && (x.needs !== 'email' || emailLive || x.type === t.type)).map((x) => (
             <option key={x.type} value={x.type}>
               {x.label}
             </option>
@@ -781,7 +803,7 @@ export function TriggerEditor({
       <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
         <span className="text-[13.5px] text-foreground/90">
           Trigger on
-          <span className="block text-[12px] text-muted-foreground">Switched off, it stays here but doesn’t start the workflow (GHL’s per-trigger switch).</span>
+          <span className="block text-[12px] text-muted-foreground">Switched off, it stays here but doesn’t start the workflow.</span>
         </span>
         <Toggle checked={t.active !== false} onChange={(v) => setT({ ...t, active: v ? undefined : false })} label="Trigger on" />
       </label>

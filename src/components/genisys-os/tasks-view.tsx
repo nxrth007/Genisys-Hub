@@ -40,7 +40,7 @@ export function TasksView({ accountId }: { accountId: string }) {
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
       <PageHeader
         title="Tasks"
-        description="To-dos on contacts, imported from GoHighLevel and added here."
+        description="To-dos for the team."
         actions={
           <>
             <div className="flex rounded-md border border-border p-0.5">

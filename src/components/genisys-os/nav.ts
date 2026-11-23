@@ -83,7 +83,8 @@ export const SECTIONS: Section[] = [
     icon: Contact,
     group: 'top',
     tabs: [
-      { key: 'smart-lists', label: 'Smart Lists' },
+      // GHL calls it Smart Lists; here it's the plain list (saved lists aren't built: Manage Smart Lists).
+      { key: 'smart-lists', label: 'All contacts' },
       { key: 'bulk-actions', label: 'Bulk Actions', fold: 'later' },
       { key: 'restore', label: 'Restore', fold: 'later' },
       { key: 'tasks', label: 'Tasks' },
@@ -161,8 +162,10 @@ export const SECTIONS: Section[] = [
     group: 'grow',
     tabs: [
       { key: 'workflows', label: 'Workflows' },
-      { key: 'overview', label: 'Overview' },
-      { key: 'settings', label: 'Global Workflow Settings' },
+      // The Workflows list carries the same enrolled / needs-review counts.
+      { key: 'overview', label: 'Overview', fold: 'elsewhere' },
+      // GHL's settings tab: Genisys OS has no settings to put in it, only its fixed rules written out.
+      { key: 'settings', label: 'Global Workflow Settings', fold: 'later' },
     ],
   },
   {
@@ -246,7 +249,8 @@ export const SETTINGS_PAGES: SectionTab[] = [
   { key: 'whatsapp', label: 'WhatsApp', fold: 'later' },
   { key: 'reputation', label: 'Reputation Management', fold: 'later' },
   { key: 'custom-fields', label: 'Custom Fields', fold: 'imported' },
-  { key: 'custom-values', label: 'Custom Values' },
+  // The same values as Business Profile (where they're edited) and Merge Fields; on Lead Genisys it also lists GHL's.
+  { key: 'custom-values', label: 'Custom Values', fold: 'imported' },
   { key: 'merge-fields', label: 'Merge Fields' },
   { key: 'scoring', label: 'Manage Scoring', fold: 'later' },
   { key: 'domains', label: 'Domains & URL Redirects' },
@@ -259,7 +263,8 @@ export const SETTINGS_PAGES: SectionTab[] = [
   { key: 'companies', label: 'Companies', fold: 'elsewhere' },
   { key: 'brand-boards', label: 'Brand Boards', fold: 'later' },
   { key: 'private-integrations', label: 'Private Integrations', fold: 'later' },
-  { key: 'import', label: 'GoHighLevel Import' },
+  // It imports the GHL location behind Lead Genisys's Vault key, so it only works there.
+  { key: 'import', label: 'GoHighLevel Import', fold: 'imported' },
 ]
 
 export function sectionOf(key: string | undefined): Section | null {

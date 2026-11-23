@@ -8,15 +8,16 @@ import { mailgunStatus } from '@/lib/hl/mailgun'
 type Ctx = { params: Promise<{ id: string }> }
 
 /** GET: Email Services: Mailgun's connection, the sub-account's email (records and all), and the domains it could use. */
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
   const { id } = await params
   const guard = await hlAccountGuard(id)
   if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account
   try {
-    // The sub-account's own login: only whether it can send (the Conversations composer).
-    if (!guard.admin) {
+    // Only whether it can send (?send=1: the composer, contact card and workflow builder, which hide email
+    // until it's set up), which is all a sub-account's own login ever gets. No Mailgun call.
+    if (!guard.admin || new URL(req.url).searchParams.has('send')) {
       const setup = await prisma.hlEmailDomain.findUnique({ where: { accountId: id }, select: { status: true, domain: true, rootDomain: true, fromName: true, fromLocal: true } })
       return NextResponse.json({ setup })
     }

@@ -159,20 +159,21 @@ export type HlTrigger = {
 /** What "Appointment status" can listen for (GHL's statuses, plus a reschedule). */
 export const APPOINTMENT_STATUSES = ['confirmed', 'cancelled', 'showed', 'noshow', 'rescheduled'] as const
 
-export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?: false }[] = [
+/** `needs: 'email'`: offered only once the sub-account can send email (Settings → Email Services). */
+export const TRIGGERS: { type: HlTriggerType; label: string; hint: string; pick?: false; needs?: 'email' }[] = [
   { type: 'form_submitted', label: 'Form submitted', hint: 'Someone sends a form on the website' },
   { type: 'chat_submitted', label: 'Chat widget submitted', hint: 'Someone sends a message through the chat bubble' },
   { type: 'missed_call', label: 'Missed call', hint: 'A call to the sub-account’s number isn’t answered' },
   { type: 'inbound_sms', label: 'Customer replied', hint: 'A contact texts the sub-account’s number' },
-  { type: 'inbound_email', label: 'Customer replied by email', hint: 'A contact emails the sub-account, usually answering its email' },
+  { type: 'inbound_email', label: 'Customer replied by email', hint: 'A contact emails the sub-account, usually answering its email', needs: 'email' },
   { type: 'contact_created', label: 'Contact created', hint: 'A new contact is added, any way' },
   { type: 'tag_added', label: 'Contact tag', hint: 'A tag is put on a contact' },
   { type: 'opportunity_stage', label: 'Pipeline stage changed', hint: 'An opportunity moves into a stage' },
   { type: 'opportunity_created', label: 'Opportunity created', hint: 'A new opportunity is added to a pipeline' },
   { type: 'appointment_booked', label: 'Customer booked appointment', hint: 'Someone books on a calendar’s booking page' },
   { type: 'appointment_status', label: 'Appointment status', hint: 'An appointment is confirmed, cancelled, rescheduled, or marked showed / no-show' },
-  { type: 'sms_error', label: 'Text failed: invalid number', hint: 'A text bounces because the number can’t get texts (GHL’s Twilio validation error)' },
-  { type: 'manual', label: 'Manual', hint: 'Only when someone adds a contact by hand' },
+  { type: 'sms_error', label: 'Text failed: invalid number', hint: 'A text bounces because the number can’t get texts' },
+  { type: 'manual', label: 'Contact added by hand', hint: 'Someone adds a contact by hand (Contacts → Add contact). To put one contact in a workflow, use Add to workflow on their contact card.' },
   { type: 'link_clicked', label: 'Trigger link clicked', hint: 'A contact opens a tracked link from a text, like the review link' },
   { type: 'inbound_webhook', label: 'Inbound webhook', hint: 'Another app sends data to this trigger’s own URL: Zapier, a website’s form, a CRM' },
   { type: 'ghl', label: 'GoHighLevel trigger', hint: 'A GoHighLevel trigger Genisys OS doesn’t have yet; it never fires here', pick: false },
@@ -308,9 +309,10 @@ export type HlStep = {
 
 export type StepGroup = 'Communication' | 'Timing' | 'Contact' | 'Pipeline' | 'Logic' | 'Workflow' | 'Send data'
 
-export const STEPS: { type: HlStepType; label: string; group: StepGroup; pick?: false }[] = [
+/** `needs: 'email'`: offered only once the sub-account can send email (Settings → Email Services). */
+export const STEPS: { type: HlStepType; label: string; group: StepGroup; pick?: false; needs?: 'email' }[] = [
   { type: 'send_sms', label: 'Send SMS', group: 'Communication' },
-  { type: 'send_email', label: 'Send email', group: 'Communication' },
+  { type: 'send_email', label: 'Send email', group: 'Communication', needs: 'email' },
   { type: 'internal_sms', label: 'Internal notification (SMS)', group: 'Communication' },
   { type: 'internal_email', label: 'Internal notification (email)', group: 'Communication' },
   { type: 'wait', label: 'Wait', group: 'Timing' },

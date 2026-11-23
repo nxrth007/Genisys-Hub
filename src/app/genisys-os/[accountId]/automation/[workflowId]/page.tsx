@@ -10,7 +10,7 @@ import { STEPS, TRIGGERS, triggerTitle, type HlStage, type HlStep, type HlStepTy
 import { below, flow, forks, insertStep, removeStep, type FlowArm, type FlowChain, type Slot } from '@/lib/hl/workflow-graph'
 import { responseToken, webhookPaths, webhookToken } from '@/lib/hl/webhook-shared'
 import type { FieldGroup } from '@/components/genisys-os/webhook-step'
-import { contactLabel, useAccount, type ContactRow } from '@/components/genisys-os/bits'
+import { contactLabel, useAccount, useEmailSetup, type ContactRow } from '@/components/genisys-os/bits'
 import { STEP_LOOK, StepEditor, TRIGGER_LOOK, TriggerEditor, conditionText, stepSummary } from '@/components/genisys-os/step-editor'
 import { PanZoomCanvas } from '@/components/genisys-os/canvas'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Spinner, Toggle, fmtDateTime, hlFetch } from '@/components/genisys-os/ui'
@@ -94,6 +94,7 @@ export default function WorkflowBuilderPage() {
   const router = useRouter()
   const qc = useQueryClient()
   const account = useAccount(accountId)
+  const emailLive = useEmailSetup(accountId).data?.setup?.status === 'active'
   const q = useQuery<{ workflow: Workflow; runs: Run[] }>({
     queryKey: ['hl', 'workflow', accountId, workflowId],
     queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows/${workflowId}`),
@@ -101,7 +102,7 @@ export default function WorkflowBuilderPage() {
   const forms = useQuery<{ forms: { id: string; name: string; kind: string }[] }>({ queryKey: ['hl', 'forms', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms`) })
   const pipelines = useQuery<{ pipelines: Pipeline[] }>({ queryKey: ['hl', 'pipelines', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/pipelines`) })
   const calendars = useQuery<{ calendars: { id: string; name: string }[] }>({ queryKey: ['hl', 'calendars', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendars`) })
-  const workflows = useQuery<{ workflows: { id: string; name: string; deletedAt: string | null }[] }>({ queryKey: ['hl', 'workflows', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows`) })
+  const workflows = useQuery<{ workflows: { id: string; name: string; status: string; deletedAt: string | null }[] }>({ queryKey: ['hl', 'workflows', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows`) })
   // Back (and after Delete) goes to the folder the workflow is saved in.
   const folder = q.data?.workflow.folder
   const listHref = `/genisys-os/${accountId}/automation${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`
@@ -345,6 +346,7 @@ export default function WorkflowBuilderPage() {
                 )}
                 {drawer.kind === 'add' && (
                   <ActionPicker
+                    emailLive={emailLive}
                     onPick={(type) => {
                       const step: HlStep = { id: newId(), type, config: { ...DEFAULTS[type] } }
                       setSteps(insertStep(draft.steps, drawer.slot, step))
@@ -359,7 +361,8 @@ export default function WorkflowBuilderPage() {
                     stages={allStages}
                     pipelines={pipelines.data?.pipelines ?? []}
                     profile={profile}
-                    workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt)}
+                    // A step can only start a published workflow (a draft's run is cancelled at once), so drafts aren't offered.
+                    workflows={(workflows.data?.workflows ?? []).filter((w) => w.id !== draft.id && !w.deletedAt && w.status === 'published')}
                     steps={draft.steps}
                     triggerName={ctx.triggerName}
                     fieldGroups={fieldGroups}
@@ -395,7 +398,7 @@ export default function WorkflowBuilderPage() {
           <label className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4">
             <span>
               <span className="block text-[14px] font-semibold text-foreground">Stop on response</span>
-              <span className="block text-[13px] text-muted-foreground">When the contact texts back, they leave this workflow (GHL’s setting of the same name).</span>
+              <span className="block text-[13px] text-muted-foreground">When the contact texts back, they leave this workflow.</span>
             </span>
             <Toggle checked={draft.meta?.stopOnResponse === true} onChange={(v) => update({ meta: { ...(draft.meta ?? {}), stopOnResponse: v } })} label="Stop on response" />
           </label>
@@ -568,10 +571,11 @@ function Arms({ step, arms, ctx }: { step: HlStep; arms: FlowArm[]; ctx: Ctx }) 
   )
 }
 
-function ActionPicker({ onPick }: { onPick: (t: HlStepType) => void }) {
+/** The actions to add. "Send email" waits until the sub-account can send email (Settings → Email Services). */
+function ActionPicker({ onPick, emailLive }: { onPick: (t: HlStepType) => void; emailLive: boolean }) {
   const [q, setQ] = useState('')
   const groups = ['Communication', 'Timing', 'Contact', 'Pipeline', 'Logic', 'Workflow', 'Send data'] as const
-  const shown = STEPS.filter((s) => s.pick !== false && s.label.toLowerCase().includes(q.trim().toLowerCase()))
+  const shown = STEPS.filter((s) => s.pick !== false && (s.needs !== 'email' || emailLive) && s.label.toLowerCase().includes(q.trim().toLowerCase()))
   return (
     <div className="flex flex-col gap-4">
       <label className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50">

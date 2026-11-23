@@ -89,7 +89,8 @@ export async function launchpad(accountId: string): Promise<{ items: LaunchItem[
       title: 'Put the form and chat widget on the website',
       detail: submissions ? `${submissions} submission${submissions === 1 ? '' : 's'} received.` : 'Copy the embed code into the Lovable site. Done once the first lead comes through.',
       done: submissions > 0,
-      href: 'sites',
+      // The embed codes are on Sites → Forms (Sites opens on Websites).
+      href: 'sites?tab=forms',
       cta: 'Get embed code',
     },
     {

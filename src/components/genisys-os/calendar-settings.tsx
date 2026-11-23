@@ -8,6 +8,7 @@ import { CalendarCheck, CalendarDays, Check, ChevronDown, Copy, CopyPlus, Extern
 import { cn } from '@/lib/utils'
 import {
   CALENDAR_TYPES,
+  PICKABLE_CALENDAR_TYPES,
   WEEKDAYS,
   calendarTypeLabel,
   durationsOf,
@@ -57,9 +58,6 @@ export const ZONES = [
   'America/Anchorage',
   'Pacific/Honolulu',
   'America/Puerto_Rico',
-  'Europe/London',
-  'Europe/Dublin',
-  'Australia/Sydney',
 ]
 
 const lengthLabel = (m: number) => (m % 60 === 0 ? `${m / 60} hr` : m > 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m} min`)
@@ -97,7 +95,7 @@ export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
     <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-6">
       <PageHeader
         title="Calendars"
-        description="Booking calendars and their groups, when each person works, and the outside calendars and meeting apps they use."
+        description="Booking calendars and their groups, when each person works, and the Google Calendars they connect."
         actions={
           section === 'calendars' && (
             <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
@@ -118,6 +116,13 @@ export function CalendarSettingsPanel({ accountId }: { accountId: string }) {
   )
 }
 
+/**
+ * GHL's salon tools (a service menu across calendars, rooms, equipment): folded off the row on 2026-11-23,
+ * since contractors book jobs at the customer's place. Each still opens from a link (?section=), and shows
+ * in the row while it's open.
+ */
+const FOLDED: Section[] = ['services', 'rooms', 'equipment']
+
 /** One row of tabs: GHL's Calendars sub-tabs, then the settings around them. */
 function SectionTabs({ value, onChange, count }: { value: Section; onChange: (s: Section) => void; count?: number }) {
   const tab = (s: Section) => (
@@ -136,7 +141,7 @@ function SectionTabs({ value, onChange, count }: { value: Section; onChange: (s:
   )
   return (
     <div className="flex items-end gap-1 overflow-x-auto border-b border-border">
-      {(['calendars', 'services', 'rooms', 'equipment'] as const).map((s) => tab(s))}
+      {(['calendars', 'services', 'rooms', 'equipment'] as const).filter((s) => !FOLDED.includes(s) || s === value).map((s) => tab(s))}
       <span className="mx-2 mb-3 h-4 w-px shrink-0 bg-border" aria-hidden />
       {(['preferences', 'availability', 'connections'] as const).map((s) => tab(s))}
     </div>
@@ -467,13 +472,18 @@ function CalendarCard({
       </div>
 
       <div className="mt-auto flex items-center gap-0.5 border-t border-border-soft px-2 py-1.5 text-[12px]">
-        <button type="button" onClick={() => flash('link', `${window.location.origin}/hl/b/${c.id}`)} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
-          {copied === 'link' ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
-          {copied === 'link' ? 'Copied' : 'Copy link'}
-        </button>
-        <a href={`/hl/b/${c.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
-          <ExternalLink className="h-3.5 w-3.5" /> Preview
-        </a>
+        {/* A calendar that's off has no booking page (it's a 404), so nothing to copy or preview. */}
+        {c.isActive && (
+          <>
+            <button type="button" onClick={() => flash('link', `${window.location.origin}/hl/b/${c.id}`)} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              {copied === 'link' ? <Check className="h-3.5 w-3.5 text-success" /> : <Link2 className="h-3.5 w-3.5" />}
+              {copied === 'link' ? 'Copied' : 'Copy link'}
+            </button>
+            <a href={`/hl/b/${c.id}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              <ExternalLink className="h-3.5 w-3.5" /> Preview
+            </a>
+          </>
+        )}
         <Link href={edit} className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground">
           <Pencil className="h-3.5 w-3.5" /> Edit
         </Link>
@@ -505,9 +515,6 @@ function CalendarCard({
                 }}
               >
                 <CopyPlus className="h-3.5 w-3.5" /> Clone
-              </MenuItem>
-              <MenuItem onClick={() => flash('id', c.id)}>
-                {copied === 'id' ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />} {copied === 'id' ? 'Copied' : 'Copy calendar id'}
               </MenuItem>
               <div className="my-1 h-px bg-border-soft" />
               <MenuItem
@@ -605,7 +612,7 @@ function NewCalendarModal({ accountId, groups, group, onClose, onCreated }: { ac
     >
       {!kind ? (
         <div className="grid gap-2">
-          {CALENDAR_TYPES.map((t) => (
+          {PICKABLE_CALENDAR_TYPES.map((t) => (
             <button key={t.key} type="button" onClick={() => setKind(t.key)} className="rounded-lg border border-border px-4 py-3 text-left transition hover:border-primary hover:bg-primary-soft">
               <p className="text-[14px] font-semibold text-foreground">{t.label}</p>
               <p className="text-[12.5px] text-muted-foreground">{t.what}</p>
@@ -655,7 +662,8 @@ function GroupModal({
 }) {
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
-  const [slug, setSlug] = useState(group?.slug ?? '')
+  // The page address isn't edited any more (group links go by id); a saved one is kept as it was.
+  const [slug] = useState(group?.slug ?? '')
   const save = useMutation({
     mutationFn: () =>
       group
@@ -699,9 +707,6 @@ function GroupModal({
         </Field>
         <Field label="Description" hint="Shown on the group’s booking page">
           <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-        <Field label="Page address" hint="Letters, numbers and dashes">
-          <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="made from the name" />
         </Field>
         {group && (
           <button type="button" onClick={() => copyText(`${origin}/hl/g/${group.id}`)} className="flex w-fit items-center gap-1.5 text-[12.5px] text-primary hover:underline">
@@ -762,16 +767,11 @@ function PreferencesForm({ accountId, initial }: { accountId: string; initial: {
       {sub === 'mine' ? (
         <>
           {row(
-            'Meeting location',
-            'Where your appointments happen when the calendar doesn’t say: an address, a phone number or a meeting link.',
-            <Input value={me.meetingLocation ?? ''} onChange={(e) => setMe({ ...me, meetingLocation: e.target.value })} placeholder="e.g. a Zoom link, or the office address" />,
-          )}
-          {row(
             'View appointments in',
             'The timezone the Hub shows your appointments in. It doesn’t change your availability or how people book.',
             <Select value={me.timezone ?? ''} onChange={(e) => setMe({ ...me, timezone: e.target.value || undefined })}>
               <option value="">Business timezone ({account.data?.account.timezone ?? '…'})</option>
-              {ZONES.map((z) => (
+              {(me.timezone && !ZONES.includes(me.timezone) ? [me.timezone, ...ZONES] : ZONES).map((z) => (
                 <option key={z} value={z}>
                   {z.replace(/_/g, ' ')}
                 </option>
@@ -799,24 +799,6 @@ function PreferencesForm({ accountId, initial }: { accountId: string; initial: {
               <option value="12h">1:30 PM</option>
               <option value="24h">13:30</option>
             </Select>,
-          )}
-          {row(
-            'Services',
-            'Service booking extras: the service menu, rooms and equipment.',
-            <div className="flex flex-col gap-2">
-              {(
-                [
-                  ['serviceMenu', 'Service menu'],
-                  ['rooms', 'Rooms'],
-                  ['equipment', 'Equipment'],
-                ] as const
-              ).map(([k, label]) => (
-                <label key={k} className="flex items-center justify-between gap-3 text-[13px] text-foreground/90">
-                  {label}
-                  <Toggle checked={p.services[k]} onChange={(v) => setP({ ...p, services: { ...p.services, [k]: v } })} label={label} />
-                </label>
-              ))}
-            </div>,
           )}
         </>
       )}
@@ -979,7 +961,7 @@ function AvailabilityTab({ accountId }: { accountId: string }) {
   if (!staff.length)
     return (
       <Card className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-        Schedules belong to team members. Add the team under <Link href={`/genisys-os/${accountId}/settings?tab=staff`} className="text-primary hover:underline">My Staff</Link> first.
+        Schedules belong to team members. Add the team under <Link href={`/genisys-os/${accountId}/settings?tab=my-staff`} className="text-primary hover:underline">My Staff</Link> first.
       </Card>
     )
   const onTeam = (cals.data?.calendars ?? []).filter((c) => (c.settings.teamMembers ?? []).some((m) => m.userId === who && m.selected !== false))
@@ -1096,24 +1078,6 @@ function ScheduleEditor({ accountId, schedule, calendars }: { accountId: string;
 type Connection = { id: string; staffKey: string; staffId: string; email: string; calendarId: string; checkIds: string[]; conflicts: boolean; push: boolean; pull: boolean; connectedAt: string; error: string | null }
 type GoogleCal = { id: string; name: string; primary: boolean; canWrite: boolean }
 
-const LATER: { group: string; items: { name: string; what: string }[] }[] = [
-  {
-    group: 'Other calendars',
-    items: [
-      { name: 'Outlook calendar', what: 'Office 365, Outlook.com, live.com or hotmail.' },
-      { name: 'iCloud calendar', what: 'Apple calendars, through an app-specific password.' },
-      { name: 'Calendly', what: 'Bring Calendly bookings in.' },
-    ],
-  },
-  {
-    group: 'Other video conferencing',
-    items: [
-      { name: 'Zoom', what: 'A Zoom meeting for each booking.' },
-      { name: 'Microsoft Teams', what: 'A Teams meeting for each booking.' },
-    ],
-  },
-]
-
 /** GHL's Connections: each team member's own Google Calendar (busy times in, bookings out), and Google Meet. */
 function ConnectionsTab({ accountId }: { accountId: string }) {
   const sp = useSearchParams()
@@ -1142,7 +1106,7 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold text-foreground">Google Calendar</p>
             <p className="text-[12.5px] text-muted-foreground">
-              Each team member connects their own Google account. Busy times on it stop people booking them then, as soon as Google says they’ve changed. Their appointments go into it, moving or coming off when they’re rescheduled or cancelled, and a booking moved or deleted in Google moves or cancels the appointment, as in GHL. Send them a link to connect it themselves (it works for a week), or connect here if it’s your own.
+              Each team member connects their own Google account. Busy times on it stop people booking them then, as soon as Google says they’ve changed. Their appointments go into it, moving or coming off when they’re rescheduled or cancelled, and a booking moved or deleted in Google moves or cancels the appointment. Send them a link to connect it themselves (it works for a week), or connect here if it’s your own.
             </p>
           </div>
         </div>
@@ -1173,7 +1137,7 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
       <Card className="px-5 py-4">
         <p className="text-[14px] font-semibold text-foreground">Google Meet</p>
         <p className="text-[12.5px] text-muted-foreground">
-          A calendar set to Google Meet (its Details → Meeting type) gets a Meet link made for each booking, on the team member’s Google Calendar. The link becomes the appointment’s location, so {'{{appointment.location}}'} in its texts carries it. Calendars brought over from GHL with Meet keep it.
+          A calendar set to Google Meet (its Details → Meeting type) gets a Meet link made for each booking, on the team member’s Google Calendar. The link becomes the appointment’s location, so {'{{appointment.location}}'} in its texts carries it.
         </p>
         {meet.length > 0 ? (
           <div className="mt-2 flex flex-col divide-y divide-border-soft">
@@ -1191,22 +1155,6 @@ function ConnectionsTab({ accountId }: { accountId: string }) {
         )}
       </Card>
 
-      {LATER.map((g) => (
-        <Card key={g.group} className="px-5 py-4">
-          <p className="mb-2 text-[14px] font-semibold text-foreground">{g.group}</p>
-          <div className="flex flex-col divide-y divide-border-soft">
-            {g.items.map((i) => (
-              <div key={i.name} className="flex items-center gap-4 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-foreground">{i.name}</p>
-                  <p className="text-[12.5px] text-muted-foreground">{i.what}</p>
-                </div>
-                <Badge color="gray">Later</Badge>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ))}
     </div>
   )
 }

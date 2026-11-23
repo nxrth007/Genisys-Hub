@@ -83,21 +83,44 @@ test('GoHighLevel-import lists show only on an imported sub-account (Lead Genisy
   assert.deepEqual(keys(shownTabs(sectionOf('contacts').tabs, { imported: false })), ['smart-lists', 'tasks'])
 })
 
-test('Settings: 10 pages on a client, 12 on Lead Genisys, 9 under "Not built yet"', () => {
+test('Settings: 8 pages on a client, 12 on Lead Genisys, 9 under "Not built yet"', () => {
+  // Custom Values repeats Business Profile, and the GHL import only works on Lead Genisys (its Vault key).
   assert.deepEqual(keys(shownTabs(SETTINGS_PAGES, { imported: false })), [
     'business-profile',
     'my-staff',
     'pipelines',
     'email-services',
     'phone-numbers',
+    'merge-fields',
+    'domains',
+    'integrations',
+  ])
+  assert.deepEqual(keys(shownTabs(SETTINGS_PAGES, { imported: true })), [
+    'business-profile',
+    'my-staff',
+    'pipelines',
+    'email-services',
+    'phone-numbers',
+    'custom-fields',
     'custom-values',
     'merge-fields',
     'domains',
     'integrations',
+    'tags',
     'import',
   ])
-  assert.equal(shownTabs(SETTINGS_PAGES, { imported: true }).length, 12)
   assert.equal(laterTabs(SETTINGS_PAGES).length, 9)
+})
+
+test('Automation shows its workflow list; Overview and the settings-less settings tab fold away', () => {
+  const automation = sectionOf('automation')
+  assert.deepEqual(keys(shownTabs(automation.tabs, { imported: false })), ['workflows'])
+  assert.deepEqual(keys(laterTabs(automation.tabs)), ['settings'])
+  assert.equal(activeTab(automation, 'overview'), 'overview')
+})
+
+test('Contacts reads "All contacts", not GHL\'s "Smart Lists"', () => {
+  assert.equal(sectionOf('contacts').tabs[0].label, 'All contacts')
 })
 
 test('a folded section shows its whole GHL structure once opened', () => {

@@ -383,6 +383,7 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
           <Button size="sm" icon={<Upload className="h-3.5 w-3.5" />} loading={upload.isPending} onClick={() => file.current?.click()}>
             Upload a logo
           </Button>
+          {!profile.logoUrl?.trim() && (
           <Button
             size="sm"
             icon={<Sparkles className="h-3.5 w-3.5" />}
@@ -397,6 +398,7 @@ function ProfileForm({ accountId, a }: { accountId: string; a: { name: string; t
           >
             No logo? Make one in Peakfinity Studio
           </Button>
+          )}
         </div>
         {promptCopied && (
           <p className="mt-2 text-[12.5px] text-muted-foreground">
@@ -502,7 +504,7 @@ function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNum
         </div>
         <div className="flex flex-col gap-3">
           <p className="text-[14px] font-semibold text-foreground">Texting</p>
-          <Field label="Forward texts to" hint="Every text someone sends this number is also sent to this phone (from the Hub’s own number), saying who wrote. Leave blank to keep texts in Conversations only.">
+          <Field label="Forward texts to" hint="Every text someone sends this number is also sent to this phone (from Lead Genisys’s number), saying who wrote. Leave blank to keep texts in Conversations only.">
             <div className="flex gap-2">
               <Input value={textsTo} onChange={(e) => setTextsTo(e.target.value)} placeholder="(555) 123-4567" />
               <Button loading={patch.isPending && 'forwardTextsTo' in (patch.variables ?? {})} onClick={() => patch.mutate({ forwardTextsTo: textsTo })}>
@@ -522,7 +524,7 @@ function NumberCard({ accountId, n, multiple }: { accountId: string; n: PhoneNum
                 {n.verificationSid
                   ? n.verificationStatus === 'rejected'
                     ? `Rejected${n.verificationNote ? `: ${n.verificationNote}` : ''}. Fix the business profile and file again.`
-                    : `Filed ${n.verificationAt ? fmtDateTime(n.verificationAt) : ''}. Twilio is reviewing it; Genisys OS checks every 30 minutes. Until then, owner alerts come from the Hub’s own number and texts to leads wait.`
+                    : `Filed ${n.verificationAt ? fmtDateTime(n.verificationAt) : ''}. Twilio is reviewing it; Genisys OS checks every 30 minutes. Until then, owner alerts come from Lead Genisys’s number and texts to leads wait.`
                   : 'Not filed yet. Review what will be sent, then file it with one click.'}
               </p>
               <div className="flex flex-wrap gap-2">
@@ -750,9 +752,11 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
       </div>
       <div className="border-t border-border pt-5">
         <p className="text-[15px] font-semibold text-foreground">Genisys business profile (Trust Hub)</p>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          Twilio only accepts toll-free verifications from an account with an approved business profile. One-time setup in the Twilio Console: Trust Hub → Customer Profiles → create the Primary Business Profile for Genisys (pick “ISV / Reseller”, since you send for clients) and wait for “Twilio Approved”.
-        </p>
+        {!approved.length && (
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Twilio only accepts toll-free verifications from an account with an approved business profile. One-time setup in the Twilio Console: Trust Hub → Customer Profiles → create the Primary Business Profile for Genisys (pick “ISV / Reseller”, since you send for clients) and wait for “Twilio Approved”.
+          </p>
+        )}
         <div className="mt-3 flex flex-col gap-2">
           {d.profiles.filter((p) => p.kind !== 'client').map((p) => (
             <div key={p.sid} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-[13px]">
@@ -770,16 +774,18 @@ function TwilioForm({ d }: { d: TwilioInfo }) {
         </div>
       </div>
       <div className="grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
-        <Field label="Profile to file under" hint="Genisys’s primary profile. Blank = the approved one">
-          <Select value={profileSid} onChange={(e) => setProfileSid(e.target.value)}>
-            <option value="">{approved.length ? 'The approved primary profile' : 'None approved yet'}</option>
-            {primary.map((p) => (
-              <option key={p.sid} value={p.sid}>
-                {p.name} ({p.status})
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {(primary.length > 1 || !!profileSid) && (
+          <Field label="Profile to file under" hint="Genisys’s primary profile. Blank = the approved one">
+            <Select value={profileSid} onChange={(e) => setProfileSid(e.target.value)}>
+              <option value="">{approved.length ? 'The approved primary profile' : 'None approved yet'}</option>
+              {primary.map((p) => (
+                <option key={p.sid} value={p.sid}>
+                  {p.name} ({p.status})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Verification updates go to" hint="Twilio emails approvals and rejections here">
           <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="alex@leadgenisys.com" />
         </Field>

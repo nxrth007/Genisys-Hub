@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
-import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str, hlAccountGuard } from '@/lib/hl/http'
+import { hlAccountOr404, hlError, hlGuard, HlInputError, jsonBody, str } from '@/lib/hl/http'
 import { workflowTemplates } from '@/lib/hl/templates'
 
 type Ctx = { params: Promise<{ id: string }> }
@@ -10,10 +10,13 @@ type Ctx = { params: Promise<{ id: string }> }
  * GET: workflows (deleted ones flagged) with GHL's list columns: total enrolled,
  * active enrolled, and errors in the last 7 days ("Needs review"); plus the
  * folders, which exist once a workflow is in them or someone made one.
+ * Genisys only, like the rest of Automation: the rows carry every step,
+ * webhook passwords and tokens included, so a sub-account's own login never
+ * gets them (src/lib/hl/member-access.ts).
  */
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params
-  const guard = await hlAccountGuard(id)
+  const guard = await hlGuard()
   if (guard instanceof NextResponse) return guard
   const account = await hlAccountOr404(id)
   if (account instanceof NextResponse) return account

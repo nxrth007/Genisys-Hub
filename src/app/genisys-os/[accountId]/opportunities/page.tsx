@@ -289,7 +289,8 @@ function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: 
               <option value="open">Open</option>
               <option value="won">Won</option>
               <option value="lost">Lost</option>
-              <option value="abandoned">Abandoned</option>
+              {/* GHL's fourth status: the board can't filter by it, so it's only kept for a deal already set to it. */}
+              {form.status === 'abandoned' && <option value="abandoned">Abandoned</option>}
             </Select>
           </Field>
         </div>

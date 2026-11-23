@@ -5,10 +5,13 @@ import { Suspense, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AppWindow, Check, Copy, ExternalLink, FileText, Folder, Globe, MessageCircle, Pencil, Plus } from 'lucide-react'
-import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Spinner, copyText, hlFetch, timeAgo } from '@/components/genisys-os/ui'
+import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, copyText, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { embedCode, lovablePrompt } from '@/components/genisys-os/embed'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
 import { useAccount } from '@/components/genisys-os/bits'
+
+/** The kit's review-request form (src/lib/hl/client-kit.ts REVIEW_REQUEST_FORM; that module is server-only). */
+const REVIEW_REQUEST_FORM = '5 Star Review Request Form'
 
 type FormRow = { id: string; name: string; kind: string; ghlId: string | null; submissions: number; lastSubmissionAt: string | null; settings: { color?: string; imported?: boolean } }
 
@@ -163,9 +166,9 @@ function FormsList({ kind }: { kind: 'form' | 'chat' }) {
   const qc = useQueryClient()
   const q = useQuery<{ forms: FormRow[] }>({ queryKey: ['hl', 'forms', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/forms`) })
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState<{ name: string; kind: string }>({ name: '', kind })
+  const [name, setName] = useState('')
   const create = useMutation({
-    mutationFn: () => hlFetch<{ form: { id: string } }>(`/api/hl/accounts/${accountId}/forms`, { method: 'POST', json: form }),
+    mutationFn: () => hlFetch<{ form: { id: string } }>(`/api/hl/accounts/${accountId}/forms`, { method: 'POST', json: { name, kind } }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['hl', 'forms', accountId] })
       router.push(`/genisys-os/${accountId}/sites/forms/${r.form.id}`)
@@ -180,12 +183,15 @@ function FormsList({ kind }: { kind: 'form' | 'chat' }) {
         description={
           kind === 'chat'
             ? 'The chat bubble on the client’s website: messages land in Conversations and start the chat automation.'
-            : 'Forms for the client’s Lovable site: submissions land in Contacts and start the form automations.'
+            : 'Forms for the client’s website: submissions land in Contacts. The Website Quote Form is the one that starts the lead automations.'
         }
         actions={
-          <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
-            {kind === 'chat' ? 'New chat widget' : 'New form'}
-          </Button>
+          // One chat bubble per site: a second one would start no automation (the kit's chat workflow watches the kit's own).
+          kind !== 'chat' && (
+            <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
+              New form
+            </Button>
+          )
         }
       />
       {q.isLoading ? (
@@ -203,21 +209,15 @@ function FormsList({ kind }: { kind: 'form' | 'chat' }) {
         footer={
           <>
             <Button onClick={() => setCreating(false)}>Cancel</Button>
-            <Button variant="primary" loading={create.isPending} disabled={!form.name.trim()} onClick={() => create.mutate()}>
+            <Button variant="primary" loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>
               Create
             </Button>
           </>
         }
       >
         <div className="flex flex-col gap-4">
-          <Field label="Name">
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Estimate request" />
-          </Field>
-          <Field label="Kind">
-            <Select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-              <option value="form">Form (embedded on a page)</option>
-              <option value="chat">Chat widget (bubble in the corner)</option>
-            </Select>
+          <Field label="Name" hint="Its submissions land in Contacts. Only the Website Quote Form starts the lead automations.">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Estimate request" />
           </Field>
           <ErrorNote error={create.error} />
         </div>
@@ -236,6 +236,9 @@ function FormCard({ accountId, f, origin }: { accountId: string; f: FormRow; ori
   const chat = f.kind === 'chat'
   // A GHL form came over as its submissions; GHL's API doesn't give its fields, so there's nothing to embed.
   const imported = !!f.ghlId || f.settings?.imported === true
+  // The owner's form for asking a customer for a review (client-kit.ts REVIEW_REQUEST_FORM). On the website,
+  // anyone could send review-request texts to any number, so it gets its link, never embed code.
+  const ownerOnly = f.kind === 'form' && f.name === REVIEW_REQUEST_FORM
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-4 border-b border-border px-5 py-4">
@@ -249,18 +252,28 @@ function FormCard({ accountId, f, origin }: { accountId: string; f: FormRow; ori
             {f.lastSubmissionAt ? ` · last ${timeAgo(f.lastSubmissionAt)}` : ''}
           </p>
         </div>
-        {imported ? <Badge color="purple">Imported from GHL</Badge> : f.submissions > 0 ? <Badge color="green" dot>Receiving leads</Badge> : <Badge color="amber" dot>Not on the site yet</Badge>}
-        <a href={`/hl/${chat ? 'c' : 'f'}/${f.id}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50">
-          <ExternalLink className="h-3.5 w-3.5" /> Preview
-        </a>
+        {imported ? <Badge color="purple">Imported from GHL</Badge> : ownerOnly ? <Badge color="gray">For the owner</Badge> : f.submissions > 0 ? <Badge color="green" dot>Receiving leads</Badge> : <Badge color="amber" dot>No submissions yet</Badge>}
+        {/* An imported form has no fields here (GHL's API doesn't give them), so there's nothing to preview. */}
+        {!imported && (
+          <a href={`/hl/${chat ? 'c' : 'f'}/${f.id}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50">
+            <ExternalLink className="h-3.5 w-3.5" /> Preview
+          </a>
+        )}
         <Link href={`/genisys-os/${accountId}/sites/forms/${f.id}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50">
-          <Pencil className="h-3.5 w-3.5" /> Edit
+          <Pencil className="h-3.5 w-3.5" /> {imported ? 'Submissions' : 'Edit'}
         </Link>
       </div>
       {imported ? (
         <p className="px-5 py-4 text-[13px] text-muted-foreground">
-          Its {f.submissions} submission{f.submissions === 1 ? '' : 's'} came over from GoHighLevel and are under Edit → Submissions. To collect new ones here, make a new form and swap it into the site.
+          Its {f.submissions} submission{f.submissions === 1 ? '' : 's'} came over from GoHighLevel and are under Submissions. To collect new ones here, make a new form and swap it into the site.
         </p>
+      ) : ownerOnly ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
+          <p className="max-w-xl text-[13px] text-muted-foreground">The owner fills this in for a customer they want a review from, and the customer gets the review text. Send the owner its link; don’t put it on the website, where anyone could send review texts.</p>
+          <Button size="sm" icon={copied === 'link' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={() => copy('link', `${origin}/hl/f/${f.id}`)}>
+            {copied === 'link' ? 'Copied' : 'Copy link'}
+          </Button>
+        </div>
       ) : (
       <div className="flex flex-col gap-3 px-5 py-4">
         <div>

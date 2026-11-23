@@ -57,7 +57,7 @@ export function StaffPanel({ accountId }: { accountId: string }) {
           </div>
         ) : !staff.length ? (
           <Empty icon={<Users className="h-5 w-5" />} title="No staff yet">
-            Add the owner (and anyone else who takes appointments). People on the GoHighLevel sub-account come over with the import.
+            Add the owner (and anyone else who takes appointments).
           </Empty>
         ) : (
           <Table head={['Name', 'Email', 'Phone', 'Login', '']}>

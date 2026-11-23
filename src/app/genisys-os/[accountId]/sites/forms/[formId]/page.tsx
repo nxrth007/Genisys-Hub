@@ -61,7 +61,9 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
   const [name, setName] = useState(data.form.name)
   const [fields, setFields] = useState<HlField[]>(data.form.fields)
   const [settings, setSettings] = useState<HlFormSettings>(data.form.settings)
-  const [tab, setTab] = useState<'build' | 'submissions'>('build')
+  // A GHL form came over with no fields (GHL's API doesn't give them): only its submissions mean anything here.
+  const imported = data.form.fields.length === 0
+  const [tab, setTab] = useState<'build' | 'submissions'>(imported ? 'submissions' : 'build')
   const [version, setVersion] = useState(0)
 
   const [defaults, setDefaults] = useState(data.defaults)
@@ -83,7 +85,7 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
   const setConsent = (kind: HlConsentBox['kind'], patch: Partial<HlConsentBox>) =>
     setSettings((s) => ({ ...s, consents: (s.consents ?? []).map((c) => (c.kind === kind ? { ...c, ...patch } : c)) }))
   const chat = data.form.kind === 'chat'
-  // Back (and after Delete) goes to the tab this form is listed on, not the Sites section's first tab (Funnels).
+  // Back (and after Delete) goes to the tab this form is listed on, not the Sites section's first tab (Websites).
   const list = chat ? { tab: 'chat-widget', label: 'Chat Widget' } : { tab: 'forms', label: 'Forms' }
   const listHref = `/genisys-os/${accountId}/sites?tab=${list.tab}`
   const archive = useMutation({
@@ -113,13 +115,15 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
           <Button variant="ghost" className="text-destructive" loading={archive.isPending} onClick={() => void confirmAction('Delete this form? Where it’s embedded it stops working. Submissions and contacts stay.', 'Delete form').then((ok) => ok && archive.mutate())}>
             Delete
           </Button>
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
-            Save
-          </Button>
+          {!imported && (
+            <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
+              Save
+            </Button>
+          )}
         </div>
       </div>
       <ErrorNote error={save.error || archive.error} />
-      <Tabs tabs={[{ key: 'build', label: 'Build' }, { key: 'submissions', label: `Submissions (${data.submissions.length})` }]} value={tab} onChange={setTab} />
+      <Tabs tabs={[...(imported ? [] : [{ key: 'build' as const, label: 'Build' }]), { key: 'submissions' as const, label: `Submissions (${data.submissions.length})` }]} value={tab} onChange={setTab} />
 
       {tab === 'build' ? (
         <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
@@ -151,7 +155,10 @@ function FormEditor({ accountId, formId, data }: { accountId: string; formId: st
                       <label className="flex items-center gap-1.5">
                         <input type="checkbox" checked={!!f.required} onChange={(e) => setField(i, { required: e.target.checked })} /> Required
                       </label>
-                      <Input value={f.placeholder ?? ''} onChange={(e) => setField(i, { placeholder: e.target.value })} placeholder="Placeholder (optional)" className="h-8 max-w-xs text-[13px]" />
+                      {/* The chat's phone box always shows its label, so a placeholder there would never appear. */}
+                      {!(chat && f.type === 'phone') && (
+                        <Input value={f.placeholder ?? ''} onChange={(e) => setField(i, { placeholder: e.target.value })} placeholder="Placeholder (optional)" className="h-8 max-w-xs text-[13px]" />
+                      )}
                       <span className="ml-auto flex gap-1">
                         <button type="button" onClick={() => moveField(i, -1)} className="grid h-7 w-7 place-items-center rounded-md hover:bg-muted" title="Move up">
                           <ArrowUp className="h-3.5 w-3.5" />

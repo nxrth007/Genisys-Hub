@@ -75,6 +75,11 @@ function cleanSettings(raw: unknown): HlFormSettings {
     inputText: hex(s.inputText),
     inputBorder: hex(s.inputBorder),
     showLegalLinks: s.showLegalLinks !== false,
+    // Kept on every save (until 2026-11-23 these three were dropped, so the logo switch and the chat greeting
+    // never stuck, and a survey's own review threshold fell back to 4).
+    showLogo: s.showLogo !== false,
+    greeting: t(s.greeting, 200),
+    reviewThreshold: typeof s.reviewThreshold === 'number' && s.reviewThreshold >= 1 && s.reviewThreshold <= 5 ? Math.round(s.reviewThreshold) : undefined,
     privacyUrl: url(s.privacyUrl, 'privacy policy'),
     termsUrl: url(s.termsUrl, 'terms'),
   }

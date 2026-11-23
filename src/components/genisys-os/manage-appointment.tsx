@@ -33,7 +33,7 @@ export function ManageAppointment({ token, a, startCancelling }: { token: string
       const res = await fetch(`/api/hl/public/appointments/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       const data = (await res.json().catch(() => ({}))) as { error?: string; start?: string; end?: string }
       if (!res.ok) {
-        setError(data.error || 'Something went wrong. Please call us.')
+        setError(data.error || 'Something went wrong. Reply to the text we sent you and we’ll sort it out.')
         return
       }
       setResult(body.action === 'cancel' ? { kind: 'cancelled' } : { kind: 'moved', start: data.start!, end: data.end! })
@@ -95,7 +95,7 @@ export function ManageAppointment({ token, a, startCancelling }: { token: string
               Cancel appointment
             </button>
           )}
-          {!a.canReschedule && !a.canCancel && <p className="text-[13.5px] text-[#667085] sm:col-span-2">This appointment can’t be changed online. Please call {a.business}.</p>}
+          {!a.canReschedule && !a.canCancel && <p className="text-[13.5px] text-[#667085] sm:col-span-2">This appointment can’t be changed online. Reply to the text {a.business} sent you and they’ll sort it out.</p>}
         </div>
       )}
 

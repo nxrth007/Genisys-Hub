@@ -88,7 +88,8 @@ export function DomainsPanel({ accountId }: { accountId: string }) {
       <div className="flex items-center gap-6 border-b border-border px-6">
         <p className="py-3 text-[15px] font-semibold text-foreground">Domains & URL Redirects</p>
         <div className="flex gap-4">
-          {(['domains', 'redirects'] as const).map((v) => (
+          {/* URL Redirects run only on domains held here (Porkbun); without one the tab could only say so. */}
+          {(['domains', 'redirects'] as const).filter((v) => v === 'domains' || view === 'redirects' || domains.some((d) => d.origin !== 'external')).map((v) => (
             <button
               key={v}
               type="button"
@@ -273,7 +274,7 @@ function DomainsHome({
 function PurchaseCard({ disabled, onPurchase, onTransfer }: { disabled: boolean; onPurchase: () => void; onTransfer: () => void }) {
   const perks = ['DNS managed right here', 'All client domains under one roof', 'Free WHOIS privacy', 'Connects to the client’s site in one step', 'Renews at cost from Genisys’s Porkbun credit']
   return (
-    <Card className="grid gap-6 p-6 md:grid-cols-2">
+    <Card className="p-6">
       <div className="flex flex-col gap-4">
         <span className="grid h-10 w-10 place-items-center rounded-full bg-muted text-muted-foreground">
           <ShoppingCart className="h-5 w-5" />
@@ -297,29 +298,6 @@ function PurchaseCard({ disabled, onPurchase, onTransfer }: { disabled: boolean;
             Transfer-In Domain
           </Button>
         </div>
-      </div>
-      {/* A small picture of the DNS manager, standing in for GHL's screenshot carousel. */}
-      <div className="hidden overflow-hidden rounded-lg border border-border bg-muted/40 p-4 md:block" aria-hidden>
-        <p className="mb-1 text-[13px] font-semibold text-foreground">acmeroofing.com</p>
-        <p className="mb-3 text-[11px] text-muted-foreground">
-          <span className="text-success">● Active</span> · Expires Oct 24, 2027 · Auto-renew on
-        </p>
-        <div className="flex gap-3 border-b border-border pb-2 text-[11px] text-muted-foreground">
-          <span>Connected Products</span>
-          <span className="border-b-2 border-primary pb-2 text-foreground">DNS Records</span>
-        </div>
-        {[
-          ['A', '@', '185.158.133.1'],
-          ['A', 'www', '185.158.133.1'],
-          ['TXT', '_lovable', 'lovable_verify=…'],
-          ['MX', '@', 'fwd1.porkbun.com'],
-        ].map(([t, h, v]) => (
-          <div key={t + h} className="grid grid-cols-[48px_72px_1fr] gap-2 border-b border-border-soft py-2 font-mono text-[11px] text-foreground/80 last:border-0">
-            <span>{t}</span>
-            <span>{h}</span>
-            <span className="truncate">{v}</span>
-          </div>
-        ))}
       </div>
     </Card>
   )
@@ -627,7 +605,6 @@ function TransferWhen({ c }: { c: TransferCheck }) {
 /** GHL's "Connect a domain": a domain or subdomain for the client's site, wherever its DNS is. */
 function ConnectDialog({ accountId, name: initial, onClose, onDone }: { accountId: string; name?: string; onClose: () => void; onDone: (id: string) => void }) {
   const qc = useQueryClient()
-  const account = useAccount(accountId)
   const [name, setName] = useState(initial ?? '')
   const [txt, setTxt] = useState('')
   const [wwwTxt, setWwwTxt] = useState('')
@@ -639,7 +616,6 @@ function ConnectDialog({ accountId, name: initial, onClose, onDone }: { accountI
     },
   })
   const isSub = /^[^.]+\.[^.]+\.[^.]+/.test(name.trim()) && !/^www\./i.test(name.trim())
-  const siteUrl = account.data?.client?.siteUrl
   return (
     <Modal
       open
@@ -659,11 +635,6 @@ function ConnectDialog({ accountId, name: initial, onClose, onDone }: { accountI
       <div className="flex flex-col gap-4">
         <Field label="Domain or subdomain">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="acmeroofing.com or try.acmeroofing.com" autoFocus />
-        </Field>
-        <Field label="Connect to">
-          <Select value="site" disabled>
-            <option value="site">Website (the client’s Lovable site{siteUrl ? `, ${siteUrl.replace(/^https?:\/\//, '')}` : ''})</option>
-          </Select>
         </Field>
         <div className="rounded-lg border border-border p-3 text-[12.5px] text-foreground/85">
           In Lovable: the client’s project → Settings → Domains → Connect domain → {name.trim() || 'the domain'} → manual setup. Copy the TXT value it shows (lovable_verify=…). It can be added later too.

@@ -40,6 +40,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const body = await jsonBody(req)
     if (typeof body.addToWorkflow === 'string') {
+      // Automations are Genisys's: a sub-account's own login can stop a run on its contact, not start one.
+      if (!guard.admin) return NextResponse.json({ error: 'Genisys starts automations.' }, { status: 403 })
       const runId = await startWorkflow(body.addToWorkflow, contactId)
       return NextResponse.json({ runId })
     }

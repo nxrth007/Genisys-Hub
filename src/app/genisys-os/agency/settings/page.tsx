@@ -62,7 +62,9 @@ export default function AgencySettingsPage() {
       </Card>
       <Card className="px-5 py-4">
         <p className="text-[14px] font-semibold text-foreground">Who can open Genisys OS</p>
-        <p className="text-[12.5px] text-muted-foreground">alex@leadgenisys.com and ethan@leadgenisys.com, signed in to the Hub. Nobody else sees it.</p>
+        <p className="text-[12.5px] text-muted-foreground">
+          alex@leadgenisys.com and ethan@leadgenisys.com, signed in to the Hub, see every sub-account. A client’s own login (Settings → My Staff → Invite) sees only its own Dashboard, Conversations, Calendars, Contacts and Opportunities.
+        </p>
       </Card>
       <SetupSummary />
       <ImportPanel compact />

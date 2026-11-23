@@ -238,6 +238,12 @@ export const CALENDAR_TYPES = [
   { key: 'service_booking', label: 'Service booking', what: 'Booking by service, for service businesses.', example: 'Repairs, appointments, consultations' },
 ] as const
 export type CalendarType = (typeof CALENDAR_TYPES)[number]['key']
+/**
+ * The types offered when making or editing a calendar. "Service booking" isn't:
+ * nothing reads it (it books as a round robin with its settings hidden), and
+ * services are the Service menu's job. A calendar already set to it keeps it.
+ */
+export const PICKABLE_CALENDAR_TYPES = CALENDAR_TYPES.filter((t) => t.key !== 'service_booking')
 export const calendarTypeLabel = (k: string | null | undefined) => CALENDAR_TYPES.find((t) => t.key === k)?.label ?? 'Round robin'
 
 /** A calendar group (GHL's Groups): a shared booking page listing its calendars. */

@@ -34,6 +34,9 @@ export default function ReportingPage() {
   )
 }
 
+/** Appointment statuses in words (the report used to print the raw keys: "Noshow", "New"). */
+const STATUS_LABEL: Record<string, string> = { new: 'Unconfirmed', confirmed: 'Confirmed', showed: 'Showed', noshow: 'No-show', cancelled: 'Cancelled', invalid: 'Invalid' }
+
 function Range({ days, setDays }: { days: number; setDays: (n: number) => void }) {
   return (
     <Select value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-40">
@@ -73,7 +76,7 @@ function Reporting() {
                 .map(([k, n]) => (
                   <div key={k} className="mb-2">
                     <div className="flex justify-between text-[13px]">
-                      <span className="capitalize text-foreground/90">{k}</span>
+                      <span className="capitalize text-foreground/90">{STATUS_LABEL[k] ?? k}</span>
                       <span className="tabular-nums text-muted-foreground">{n}</span>
                     </div>
                     <div className="mt-1 h-1.5 rounded-full bg-muted">
@@ -103,7 +106,7 @@ function Reporting() {
   const d = calls.data
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
-      <PageHeader title="Call Reporting" description="Calls to the sub-account’s numbers (and calls imported from GoHighLevel)." actions={<Range days={days} setDays={setDays} />} />
+      <PageHeader title="Call Reporting" description="Calls to the sub-account’s numbers." actions={<Range days={days} setDays={setDays} />} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {(
           [

@@ -5,6 +5,7 @@ import { readProfile } from './accounts'
 import { addTags, removeTags } from './contacts'
 import { renderTemplate, type MergeAppointment, type MergeData } from './merge'
 import { sendEmailToContact } from './email'
+import { HlInputError } from './http'
 import { sendInternalEmail, sendInternalSms, sendSmsToContact } from './messages'
 import { replyIntent } from './intent'
 import { trackedLink } from './links'
@@ -817,6 +818,8 @@ export async function startWorkflow(workflowId: string, contactId: string): Prom
     prisma.hlContact.findUnique({ where: { id: contactId } }),
   ])
   if (!w || !contact || contact.accountId !== w.accountId) throw new Error('Workflow or contact not found in this sub-account')
+  // A deleted workflow (the client kit retires old starters by deleting them) never runs again.
+  if (w.deletedAt) throw new HlInputError('That workflow was deleted.')
   // A draft runs too when started by hand (`manual: true`): that's how a new workflow gets tested.
   const run = await prisma.hlWorkflowRun.create({
     data: { workflowId, accountId: w.accountId, contactId, context: { trigger: 'manual', manual: true, form: contact.fields ?? {} } as Prisma.InputJsonValue },

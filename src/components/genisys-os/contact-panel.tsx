@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mail, Phone, Plus, Tag, Trash2, Workflow, X } from 'lucide-react'
 import { prettyPhone } from '@/lib/hl/merge'
 import type { HlStage } from '@/lib/hl/types'
-import { contactLabel, SOURCE_LABEL, type ContactRow } from './bits'
+import { contactLabel, SOURCE_LABEL, useEmailSetup, type ContactRow } from './bits'
 import { Avatar, Badge, Button, ErrorNote, Input, Select, Toggle, fmtDateTime, hlFetch, timeAgo } from './ui'
 import { confirmAction } from './confirm'
 import { useHlViewer } from './viewer'
@@ -40,10 +40,14 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
   const [tag, setTag] = useState('')
   const [wf, setWf] = useState('')
 
-  const workflows = useQuery<{ workflows: { id: string; name: string; status: string }[] }>({
+  // Starting automations is Genisys's (src/lib/hl/member-access.ts): a sub-account's own login doesn't get the list.
+  const workflows = useQuery<{ workflows: { id: string; name: string; status: string; deletedAt: string | null }[] }>({
     queryKey: ['hl', 'workflows', accountId],
     queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/workflows`),
+    enabled: admin,
   })
+  // "No email" only means something once the sub-account can send email.
+  const emailLive = useEmailSetup(accountId).data?.setup?.status === 'active'
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => hlFetch(`/api/hl/accounts/${accountId}/contacts/${c.id}`, { method: 'PATCH', json: body }),
@@ -114,18 +118,20 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
         </label>
         <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
           <span>
-            Do not disturb
-            <span className="block text-[12px] text-muted-foreground">{c.dnd ? 'Texted STOP, or set by hand' : 'Nothing is sent while on'}</span>
+            No texts
+            <span className="block text-[12px] text-muted-foreground">{c.dnd ? 'Texted STOP, or set by hand' : 'No text goes to them while on'}</span>
           </span>
-          <Toggle checked={c.dnd} onChange={(v) => patch.mutate({ dnd: v })} label="Do not disturb" />
+          <Toggle checked={c.dnd} onChange={(v) => patch.mutate({ dnd: v })} label="No texts" />
         </label>
-        <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
-          <span>
-            No email
-            <span className="block text-[12px] text-muted-foreground">{c.emailDnd ? `Since they ${c.emailDndReason === 'set by hand' ? 'were set by hand' : (c.emailDndReason ?? 'unsubscribed')}` : 'Bounces, spam reports and unsubscribes switch this on'}</span>
-          </span>
-          <Toggle checked={!!c.emailDnd} onChange={(v) => patch.mutate({ emailDnd: v })} label="No email" />
-        </label>
+        {emailLive && (
+          <label className="flex items-center justify-between gap-3 text-[13.5px] text-foreground/90">
+            <span>
+              No email
+              <span className="block text-[12px] text-muted-foreground">{c.emailDnd ? `Since they ${c.emailDndReason === 'set by hand' ? 'were set by hand' : (c.emailDndReason ?? 'unsubscribed')}` : 'Bounces, spam reports and unsubscribes switch this on'}</span>
+            </span>
+            <Toggle checked={!!c.emailDnd} onChange={(v) => patch.mutate({ emailDnd: v })} label="No email" />
+          </label>
+        )}
       </div>
 
       <div>
@@ -202,20 +208,24 @@ export function ContactPanel({ accountId, detail, onDeleted }: { accountId: stri
         ) : (
           <p className="text-[12px] text-muted-foreground/70">Not in any workflow</p>
         )}
-        <div className="mt-2 flex gap-2">
-          <Select value={wf} onChange={(e) => setWf(e.target.value)} className="h-8 text-[13px]">
-            <option value="">Add to workflow…</option>
-            {(workflows.data?.workflows ?? []).map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-                {w.status !== 'published' ? ' (draft)' : ''}
-              </option>
-            ))}
-          </Select>
-          <Button size="sm" disabled={!wf} loading={patch.isPending && !!wf} onClick={() => wf && patch.mutate({ addToWorkflow: wf }, { onSuccess: () => setWf('') })}>
-            Add
-          </Button>
-        </div>
+        {admin && (
+          <div className="mt-2 flex gap-2">
+            <Select value={wf} onChange={(e) => setWf(e.target.value)} className="h-8 text-[13px]">
+              <option value="">Add to workflow…</option>
+              {(workflows.data?.workflows ?? [])
+                .filter((w) => !w.deletedAt)
+                .map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                    {w.status !== 'published' ? ' (draft)' : ''}
+                  </option>
+                ))}
+            </Select>
+            <Button size="sm" disabled={!wf} loading={patch.isPending && !!wf} onClick={() => wf && patch.mutate({ addToWorkflow: wf }, { onSuccess: () => setWf('') })}>
+              Add
+            </Button>
+          </div>
+        )}
       </div>
 
       <ErrorNote error={patch.error || del.error} />

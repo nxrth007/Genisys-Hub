@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hlAccountOr404, hlGuard } from '@/lib/hl/http'
+import { NOT_BLOCKED } from '@/lib/hl/ask-data'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -31,7 +32,8 @@ export async function GET(req: Request, { params }: Ctx) {
   }
 
   if (sp.get('kind') === 'appointments') {
-    const list = await prisma.hlAppointment.findMany({ where: { accountId: id, startTime: { gte: since } }, select: { status: true, calendar: { select: { name: true } } } })
+    // Appointments in the range that have happened: not ones still to come, and not time blocked off.
+    const list = await prisma.hlAppointment.findMany({ where: { accountId: id, ...NOT_BLOCKED, startTime: { gte: since, lt: new Date() } }, select: { status: true, calendar: { select: { name: true } } } })
     const byStatus: Record<string, number> = {}
     const byCalendar: Record<string, number> = {}
     for (const a of list) {
