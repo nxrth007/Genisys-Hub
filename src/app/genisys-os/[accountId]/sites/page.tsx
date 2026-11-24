@@ -8,7 +8,7 @@ import { AppWindow, Check, Copy, ExternalLink, FileText, Folder, Globe, MessageC
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, copyText, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { embedCode, lovablePrompt, workEmbedCode, workLovablePrompt } from '@/components/genisys-os/embed'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
-import { useAccount } from '@/components/genisys-os/bits'
+import { useAccount, useOrigin } from '@/components/genisys-os/bits'
 
 /** The kit's review-request form (src/lib/hl/client-kit.ts REVIEW_REQUEST_FORM; that module is server-only). */
 const REVIEW_REQUEST_FORM = '5 Star Review Request Form'
@@ -93,7 +93,7 @@ type ClientSite = {
 /** Recent Work: photos the owner texts to their business number, shown on the site through one script (src/lib/hl/work-photos.ts). */
 function WorkFeedCard({ accountId }: { accountId: string }) {
   const [copied, setCopied] = useState<string | null>(null)
-  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const origin = useOrigin()
   const copy = (what: string, text: string) => {
     copyText(text)
     setCopied(what)
@@ -221,7 +221,7 @@ function FormsList({ kind }: { kind: 'form' | 'chat' }) {
       router.push(`/genisys-os/${accountId}/sites/forms/${r.form.id}`)
     },
   })
-  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const origin = useOrigin()
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-7">

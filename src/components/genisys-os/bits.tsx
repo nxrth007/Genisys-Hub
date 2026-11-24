@@ -1,5 +1,6 @@
 'use client'
 
+import { useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { HlProfile } from '@/lib/hl/types'
 import type { LaunchItem } from '@/lib/hl/launchpad'
@@ -29,6 +30,16 @@ export type AccountDetail = {
   numbers: PhoneNumberRow[]
   launchpad: { items: LaunchItem[]; done: number; total: number }
   client: { id: string; name: string; siteUrl: string | null } | null
+}
+
+const never = () => () => {}
+
+/**
+ * The page's origin, for links and embed code that leave the Hub. '' on the server and while
+ * hydrating, so the HTML matches what the client first renders, then the real one.
+ */
+export function useOrigin(): string {
+  return useSyncExternalStore(never, () => window.location.origin, () => '')
 }
 
 export function useAccount(accountId: string) {
