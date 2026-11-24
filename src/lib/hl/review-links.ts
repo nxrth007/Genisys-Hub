@@ -29,7 +29,7 @@ async function one(clientId: string, client: string): Promise<ReviewLinkRow> {
     const board = await gbpBoard(clientId)
     if (!board) return { ...row, why: 'client not found' }
     if (board.state.reviewUrl) return { ...row, link: board.state.reviewUrl, source: 'board', why: 'the Google profile board has it (profile marked verified)' }
-    const found = await searchMapsListings({ ...board.prefill, ...board.state.values })
+    const found = await searchMapsListings({ ...board.prefill, ...board.state.values }, board)
     if (found.error) return { ...row, why: found.error }
     const pick = pickReviewListing(found.candidates, found.query)
     const listing = pick.best ? { name: pick.best.name, address: pick.best.address, matches: pick.best.matches, mapsUrl: pick.best.mapsUrl } : null

@@ -1,4 +1,7 @@
-import { formatPhone, hostOnly, splitCities } from './a2p'
+import { emailIn, hostOnly, phoneIn, splitCities } from './a2p'
+import { hasStreet, isPoBox, looksLikeAddress } from './address-parse'
+import { firstName, type ListingKind } from './gbp-plan'
+import { cleanWebsite, isBusinessName, isPersonName } from './intake-tidy-plan'
 import { inferTrade } from './trade'
 
 /**
@@ -91,6 +94,13 @@ export type GbpSource = {
     hours?: string | null
     differentiators?: string[]
   } | null
+  /** Their Genisys OS Business Profile: fills what the form and the engine don't know (older clients have no email on the form). */
+  hl?: {
+    ownerFirstName?: string | null
+    phone?: string | null
+    email?: string | null
+    serviceArea?: string | null
+  } | null
 }
 
 const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -180,13 +190,17 @@ const titleCity = (c: string) => c.replace(/\b\w/g, (m) => m.toUpperCase())
 export function gbpPrefill(src: GbpSource): GbpInputs {
   const i = src.intake
   const f = src.facts
-  const businessName = clean(f?.businessName) || clean(i?.businessName) || clean(src.name)
+  const hl = src.hl ?? null
+  // Older submissions have the name and address answers crossed ("Post office box 82" as the business name).
+  const businessName = clean(f?.businessName) || (isBusinessName(i?.businessName) ? clean(i?.businessName) : '') || clean(src.name)
   const fullName = clean(i?.fullName) || clean(src.contactName) || clean(f?.owner)
   const services = f?.services?.length ? f.services.map((s) => clean(s.name)).filter(Boolean) : splitCities(clean(i?.mainServices))
-  const areas = f?.serviceAreas?.length ? f.serviceAreas.map(clean).filter(Boolean) : splitCities(clean(i?.cities)).map(titleCity)
-  const address = clean(f?.address) || clean(i?.businessAddress)
+  const areas = (f?.serviceAreas?.length ? f.serviceAreas.map(clean).filter(Boolean) : splitCities(clean(i?.cities) || clean(hl?.serviceArea)).map(titleCity)).filter((a) => !NOT_A_PLACE.test(a))
+  const crossed = looksLikeAddress(i?.businessName) && !looksLikeAddress(i?.businessAddress)
+  const address = clean(f?.address) || clean(crossed ? i?.businessName : i?.businessAddress)
   const categories = suggestCategories(clean(f?.trade), services, { businessName, about: clean(i?.aboutBusiness) })
-  const website = clean(src.siteUrl) || clean(src.website)
+  // "no website yet" and a Facebook page aren't a website.
+  const website = cleanWebsite(src.siteUrl) || cleanWebsite(src.website)
   return {
     businessName,
     primaryCategory: categories[0] ?? '',
@@ -195,7 +209,7 @@ export function gbpPrefill(src: GbpSource): GbpInputs {
     address,
     serviceAreas: areas.join('\n'),
     // The profile's number must match the site exactly: the SEO facts hold what the site shows.
-    phone: formatPhone(f?.phone || i?.customerPhone || src.contactPhone),
+    phone: phoneIn(f?.phone, i?.customerPhone, src.contactPhone, hl?.phone),
     website: website ? `https://${hostOnly(website)}` : '',
     hours: clean(f?.hours),
     services: services.join('\n'),
@@ -209,16 +223,20 @@ export function gbpPrefill(src: GbpSource): GbpInputs {
       state: clean(f?.state),
       areas,
       services,
-      owner: fullName,
+      owner: isPersonName(fullName) ? fullName : '',
       established: f?.established ?? null,
       licensed: !!(clean(f?.license) || clean(f?.insurance)),
       differentiators: (f?.differentiators ?? []).map(clean).filter(Boolean),
     }),
-    ownerFirstName: fullName.split(' ')[0] ?? '',
-    ownerEmail: clean(i?.leadEmail) || clean(src.contactEmail) || clean(f?.email),
-    ownerPhone: formatPhone(i?.customerPhone || src.contactPhone),
+    ownerFirstName: firstName(fullName) || firstName(hl?.ownerFirstName),
+    // Some records hold a phone number in the email box.
+    ownerEmail: emailIn(i?.leadEmail, src.contactEmail, f?.email, hl?.email),
+    ownerPhone: phoneIn(i?.customerPhone, src.contactPhone, hl?.phone),
   }
 }
+
+/** What ends up among the service areas and isn't a place ("Central Time Zone", "Eastern"). */
+const NOT_A_PLACE = /time\s*zone|^(?:eastern|central|mountain|pacific)(?:\s+(?:standard|daylight))?(?:\s+time)?$/i
 
 /** Google's limit for the "from the business" description. */
 export const GBP_DESCRIPTION_LIMIT = 750
@@ -352,22 +370,31 @@ export function reminderMessage(x: GbpInputs, setupLink?: string | null): string
     : `Hi ${first}, quick reminder from Genisys: your Google Business Profile for ${v(x.businessName, 'BUSINESS NAME')} still needs the short verification video. Go to business.google.com, tap Verify, then Video. Reply here if you want help.`
 }
 
-/** The text with the client's setup page: they create the profile themselves, from our answers. Plain characters only. */
-export function instructionsText(x: GbpInputs, setupLink: string): string {
+/**
+ * The text with the client's setup page: they create the profile themselves, from our answers, or claim
+ * the listing Google already has. Plain characters only.
+ */
+export function instructionsText(x: GbpInputs, setupLink: string, kind: ListingKind = 'create'): string {
   const first = clean(x.ownerFirstName) || 'there'
-  return `Hi ${first}, it's Genisys. Next step for ${v(x.businessName, 'BUSINESS NAME')}: getting you on Google Maps with a Google Business Profile. It takes about 10 minutes and we filled in every answer for you. Start here: ${setupLink}`
+  const B = v(x.businessName, 'BUSINESS NAME')
+  return kind === 'claim'
+    ? `Hi ${first}, it's Genisys. Next step for ${B}: taking over your Google Maps listing. Google already lists you, so you just claim it. It takes about 10 minutes and we filled in every answer for you. Start here: ${setupLink}`
+    : `Hi ${first}, it's Genisys. Next step for ${B}: getting you on Google Maps with a Google Business Profile. It takes about 10 minutes and we filled in every answer for you. Start here: ${setupLink}`
 }
 
 /** The same as an email (markdown; the Hub's mailer turns it into HTML). */
-export function instructionsEmail(x: GbpInputs, setupLink: string): { subject: string; body: string } {
+export function instructionsEmail(x: GbpInputs, setupLink: string, kind: ListingKind = 'create'): { subject: string; body: string } {
   const first = clean(x.ownerFirstName) || 'there'
   const B = v(x.businessName, 'BUSINESS NAME')
+  const claim = kind === 'claim'
   return {
-    subject: `Set up your Google Business Profile for ${B}`,
+    subject: claim ? `Claim your Google listing for ${B}` : `Set up your Google Business Profile for ${B}`,
     body: [
       `Hi ${first},`,
       '',
-      `The next step for ${B} is a Google Business Profile. It's what puts you on Google Maps and in the local results when people search for your services nearby, and it's where customers leave reviews.`,
+      claim
+        ? `Google Maps already lists ${B}. The next step is to claim that listing as your Google Business Profile. It's what people see on Google Maps and in the local results, and it's where customers leave reviews. Claiming it keeps you from ending up with two.`
+        : `The next step for ${B} is a Google Business Profile. It's what puts you on Google Maps and in the local results when people search for your services nearby, and it's where customers leave reviews.`,
       '',
       'It takes about 10 minutes, and we have already written every answer Google asks for. Open your setup page and copy each one in:',
       '',
@@ -375,7 +402,9 @@ export function instructionsEmail(x: GbpInputs, setupLink: string): { subject: s
       '',
       'The page walks you through it:',
       '',
-      '1. Start the profile at business.google.com/create, signed in with your own Google account, so you own it.',
+      claim
+        ? '1. Open your listing on Google Maps and tap "Claim this business", signed in with your own Google account, so you own it.'
+        : '1. Start the profile at business.google.com/create, signed in with your own Google account, so you own it.',
       '2. Copy in each answer we prepared: your business name, category, service areas, phone, website, services and description.',
       '3. Add Genisys as a manager, so we can keep it up to date for you.',
       '4. Verify the profile: Google usually asks for a short video showing your business.',
@@ -386,6 +415,76 @@ export function instructionsEmail(x: GbpInputs, setupLink: string): { subject: s
       'Genisys',
     ].join('\n'),
   }
+}
+
+/** Markdown and bullets out of an answer ("- **Epoxy Flooring:** Garage floors" → "Epoxy Flooring: Garage floors"). */
+const plainLine = (s: string) => clean(s.replace(/\*\*|__|`/g, '').replace(/^\s*[-*•]\s+/, ''))
+
+export type OwnerField = GbpField & {
+  /** Nothing to copy: just what to do. */
+  guide?: boolean
+}
+
+/**
+ * The answers on the client's own setup page, in the order Google asks, with notes written for them.
+ * A detail we don't have is left out or becomes guidance: they never see a blank to fill. Where they work
+ * is given both ways, because only they know whether customers come to them, and publishing a home
+ * address by mistake is worse than typing a town.
+ */
+export function ownerFields(x: GbpInputs, o: { claim?: boolean } = {}): OwnerField[] {
+  const lines = (s: string) => s.split('\n').map(plainLine).filter(Boolean)
+  const name = clean(x.businessName)
+  const category = clean(x.primaryCategory)
+  const areas = lines(x.serviceAreas)
+  const address = clean(x.address)
+  const services = lines(x.services)
+  const extra = lines(x.extraCategories)
+  return [
+    ...(name
+      ? [
+          {
+            id: 'name',
+            label: 'Business name',
+            text: name,
+            note: `${o.claim ? '' : 'If Google shows your business as you type, pick it: that claims the one it has, so you don’t end up with two. '}Exactly as it appears on your truck, invoices and website. Don’t add a city or services to it: Google suspends profiles that do.`,
+          },
+        ]
+      : []),
+    category
+      ? { id: 'category', label: 'Business category', text: category, note: 'Start typing it and pick the closest match from Google’s list. If your main work is something else, pick that instead.' }
+      : { id: 'category', label: 'Business category', text: 'Start typing your main work and pick the closest match from Google’s list.', guide: true },
+    areas.length
+      ? {
+          id: 'areas',
+          label: 'If you go to your customers (most contractors)',
+          text: areas.join('\n'),
+          note: o.claim
+            ? 'Under Edit profile, then Location: hide your address, and add where you work as service areas one place at a time, picking each from Google’s list: cities, counties or ZIP codes, up to 20.'
+            : 'When Google asks about a location customers can visit, choose No. Then add where you work one place at a time, picking each from Google’s list: cities, counties or ZIP codes, up to 20. Your address stays private.',
+        }
+      : {
+          id: 'areas',
+          label: 'If you go to your customers (most contractors)',
+          text: o.claim
+            ? 'Under Edit profile, then Location: hide your address, and add the cities, counties or ZIP codes you work in as service areas, up to 20.'
+            : 'When Google asks about a location customers can visit, choose No. Then add the cities, counties or ZIP codes you work in, up to 20. Your address stays private.',
+          guide: true,
+        },
+    // A shop or office customers visit: only a street address works, and only when it isn't kept private on the site.
+    ...(x.locationMode === 'address' && hasStreet(address) && !isPoBox(address)
+      ? [{ id: 'address', label: 'Only if customers come to your shop or office', text: address, note: `Then ${o.claim ? 'show this address instead' : 'choose Yes instead and use this address'}. It shows on Google Maps, so never do this with a home address you want kept private.` }]
+      : []),
+    ...(clean(x.phone) ? [{ id: 'phone', label: 'Phone', text: clean(x.phone), note: 'Use this number exactly, so Google sees one consistent business.', mono: true }] : []),
+    clean(x.website)
+      ? { id: 'website', label: 'Website', text: clean(x.website), mono: true }
+      : { id: 'website', label: 'Website', text: 'Skip this for now. We add it when your website goes live.', guide: true },
+    clean(x.hours)
+      ? { id: 'hours', label: 'Hours', text: clean(x.hours), note: 'Under Edit profile, then Hours.' }
+      : { id: 'hours', label: 'Hours', text: 'Under Edit profile, then Hours: add the hours you answer the phone.', guide: true },
+    ...(services.length ? [{ id: 'services', label: 'Services', text: services.join('\n'), note: 'Under Edit profile, then Services.' }] : []),
+    ...(clean(x.description) ? [{ id: 'description', label: 'Business description', text: clean(x.description), limit: GBP_DESCRIPTION_LIMIT, note: 'Under Edit profile, then Description.' }] : []),
+    ...(extra.length ? [{ id: 'extra', label: 'More categories', text: extra.join('\n'), note: 'Once the profile exists: Edit profile, then Business category, then Add another category. Only the ones that fit.' }] : []),
+  ]
 }
 
 export const GBP_STATUSES = ['needed', 'existing', 'created', 'verifying', 'verified', 'has_profile'] as const

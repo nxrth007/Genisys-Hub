@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireStaff } from '@/lib/auth-helpers'
-import { gbpBoard, lookupExistingListing, markVerified, publicSetupLink, saveGbpBoard, sendSetupInstructions, sendVerificationChecklist } from '@/lib/gbp-setup'
+import { gbpBoard, lookupExistingListing, markVerified, publicSetupLink, saveGbpBoard, sendNowOrQueue, sendVerificationChecklist } from '@/lib/gbp-setup'
 
 /**
  * The Google Business Profile board for a client (src/lib/gbp-setup.ts).
@@ -10,7 +10,7 @@ import { gbpBoard, lookupExistingListing, markVerified, publicSetupLink, saveGbp
  *   POST → { action: 'lookup' } search Google Maps for an existing listing
  *          { action: 'text' } text the owner the verification checklist
  *          { action: 'verified', profileUrl?, reviewUrl? } record it and push the links
- *          { action: 'send_instructions' } text + email the owner their setup page link
+ *          { action: 'send_instructions' } text + email the owner their setup page link (queued for the morning at night)
  *          { action: 'public_link' } the client's setup page link (made once)
  * Staff only, like the A2P board.
  */
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (body.action === 'lookup') return NextResponse.json({ lookup: await lookupExistingListing(id) })
   if (body.action === 'text') return NextResponse.json(await sendVerificationChecklist(id, by))
   if (body.action === 'verified') return NextResponse.json(await markVerified(id, body, by))
-  if (body.action === 'send_instructions') return NextResponse.json(await sendSetupInstructions(id, by))
+  if (body.action === 'send_instructions') return NextResponse.json(await sendNowOrQueue(id, by))
   if (body.action === 'public_link') return NextResponse.json({ link: await publicSetupLink(id) })
   return NextResponse.json({ error: 'unknown action' }, { status: 400 })
 }

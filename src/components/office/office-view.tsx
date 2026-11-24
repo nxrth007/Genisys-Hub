@@ -60,7 +60,7 @@ function StatusPill({ status }: { status: OfficeStatus }) {
   )
 }
 
-type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy' | 'build' | 'publish' | 'connect'
+type Decision = 'hl' | 'ghl' | 'identified' | 'no' | 'submit' | 'hold' | 'retry' | 'buy' | 'build' | 'publish' | 'connect' | 'send'
 /** Answers that leave things as they are (shown quietly). */
 const quiet = (d: Decision) => d === 'no' || d === 'hold'
 type Answer = { decision: Decision; text: string }
@@ -227,6 +227,20 @@ function ApprovalCard({
                   {spin('no') || <X className="h-3.5 w-3.5" />} Not now
                 </button>
               </>
+            ) : a.kind === 'gbp' ? (
+              <>
+                <button type="button" onClick={() => answer('send')} disabled={locked} className={BTN_PRIMARY}>
+                  {spin('send') || <Send className="h-3.5 w-3.5" />} Send it
+                </button>
+                {a.reviewLink && (
+                  <a href={a.reviewLink} target="_blank" rel="noopener noreferrer" className={BTN_SECONDARY}>
+                    Their kit <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+                <button type="button" onClick={() => answer('no')} disabled={locked} className={BTN_GHOST}>
+                  {spin('no') || <X className="h-3.5 w-3.5" />} Not now
+                </button>
+              </>
             ) : a.kind === 'registration' && a.stage === 'review' ? (
               <>
                 <button type="button" onClick={() => answer('submit')} disabled={locked} className={BTN_PRIMARY}>
@@ -348,7 +362,7 @@ function RequestsPanel({
     <div className="flex-1 overflow-y-auto px-5 py-4">
       {error && <p className="mb-3 rounded bg-red-500/15 px-3 py-1.5 text-xs text-red-300">Couldn&apos;t load the office ({error}). Retrying…</p>}
       <section className="mb-6">
-        {heading('Waiting on your answer', approvals.length, 'Purchases and filings the bots won’t do without you')}
+        {heading('Waiting on your answer', approvals.length, 'Purchases, filings and client messages the bots won’t send without you')}
         {approvals.length ? <div className="flex flex-col gap-2">{approvals.map(renderApproval)}</div> : <p className="text-[12.5px] text-zinc-500">Nothing to answer right now.</p>}
       </section>
       <section className="mb-6">

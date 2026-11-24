@@ -15,6 +15,8 @@ export type ListingCandidate = {
   status: string | null
   matches: string[]
   mapsUrl: string | null
+  /** Its name shares a word that's theirs alone; false = only a number or site agrees. */
+  related?: boolean
 }
 
 export type ListingPick = {
@@ -28,7 +30,8 @@ export type ListingPick = {
 /** Google's "write a review" page for a Maps listing. */
 export const reviewLinkForPlace = (placeId: string) => `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`
 
-const strongMatch = (c: ListingCandidate) => c.matches.includes('same phone') || c.matches.includes('same website')
+// A phone or website on a listing with someone else's name isn't theirs: numbers get reused.
+const strongMatch = (c: ListingCandidate) => (c.matches.includes('same phone') || c.matches.includes('same website')) && c.related !== false
 
 export function pickReviewListing(candidates: ListingCandidate[], query: string): ListingPick {
   const open = candidates.filter((c) => c.placeId && c.status !== 'CLOSED_PERMANENTLY')

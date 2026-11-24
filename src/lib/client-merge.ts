@@ -109,7 +109,7 @@ export async function mergeClients(keepId: string, dropId: string, opts: { useOt
     if (siteToKeep) await tx.seoSite.update({ where: { id: siteToKeep.id }, data: { name } })
 
     // The copy boards' saved values: the kept client's win.
-    for (const [prefix, label] of [['a2p.client.', 'A2P board'], ['tollfree.client.', 'Toll-Free board']] as const) {
+    for (const [prefix, label] of [['a2p.client.', 'A2P board'], ['tollfree.client.', 'Toll-Free board'], ['gbp.client.', 'Google profile board']] as const) {
       const rows = await tx.appSetting.findMany({ where: { key: { in: [`${prefix}${keepId}`, `${prefix}${dropId}`] } } })
       if (rows.length === 1 && rows[0].key.endsWith(dropId)) {
         await tx.appSetting.update({ where: { id: rows[0].id }, data: { key: `${prefix}${keepId}` } })
@@ -118,6 +118,10 @@ export async function mergeClients(keepId: string, dropId: string, opts: { useOt
         await tx.appSetting.deleteMany({ where: { key: `${prefix}${dropId}` } })
       }
     }
+
+    // Their Google setup page's link keeps working, and a page asked about or queued for the other record goes.
+    await tx.appSetting.updateMany({ where: { key: { startsWith: 'gbp.public.' }, value: dropId }, data: { value: keepId } })
+    await tx.appSetting.deleteMany({ where: { key: `gbp.send.${dropId}` } })
 
     const k = keep as unknown as Record<string, unknown>
     const d = drop as unknown as Record<string, unknown>

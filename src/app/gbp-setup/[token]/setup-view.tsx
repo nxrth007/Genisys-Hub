@@ -1,14 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react'
-import type { GbpField } from '@/lib/gbp-kit'
+import { Check, Copy, ExternalLink, Loader2, MapPin } from 'lucide-react'
+import type { OwnerField } from '@/lib/gbp-kit'
 import type { PublicSetup } from '@/lib/gbp-setup'
 
-const BLANK = /⟦([^⟧]+)⟧/g
-const forCopy = (t: string) => t.replace(BLANK, (_m, l: string) => `[${l}]`)
+const CREATE_URL = 'https://business.google.com/create'
+const BIG = 'inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[14px] font-semibold text-white transition hover:bg-emerald-700'
 
-/** The client-facing page: plain, phone-friendly, every answer one tap to copy. */
+/**
+ * The client-facing page: plain, phone-friendly, every answer one tap to copy. Google's listing for them,
+ * when there is one, comes first: claim it instead of making a second.
+ */
 export function SetupView({ token, setup }: { token: string; setup: PublicSetup }) {
   const [url, setUrl] = useState('')
   const [state, setState] = useState<'idle' | 'sending' | 'done' | 'error'>(setup.done ? 'done' : 'idle')
@@ -33,34 +36,80 @@ export function SetupView({ token, setup }: { token: string; setup: PublicSetup 
   }
 
   const first = setup.ownerFirstName || 'there'
+  const claim = setup.mode === 'claim'
+  const one = setup.listings.length === 1
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         <header className="flex flex-col gap-2">
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Genisys</p>
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight">Set up your Google Business Profile</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight">{claim ? 'Claim your Google Business Profile' : 'Set up your Google Business Profile'}</h1>
           <p className="text-[14px] leading-relaxed text-muted-foreground">
-            Hi {first}. This puts {setup.businessName} on Google Maps and in local search, and it’s where customers leave reviews. It takes about 10
-            minutes. We’ve already written every answer Google asks for: tap Copy, then paste it into Google.
+            {claim
+              ? `Hi ${first}. Google Maps already lists ${setup.businessName}. Claim that listing and it’s yours to manage: it’s how people find you in local search, and where customers leave reviews. It takes about 10 minutes, and we’ve written every answer for you.`
+              : `Hi ${first}. This puts ${setup.businessName} on Google Maps and in local search, and it’s where customers leave reviews. It takes about 10 minutes. We’ve already written every answer Google asks for: tap Copy, then paste it into Google.`}
           </p>
         </header>
 
-        <Step n={1} title="Start your profile">
-          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-            Open Google’s setup page and sign in with your own Google account (create one if you don’t have it). The profile will belong to you.
-          </p>
-          <a
-            href="https://business.google.com/create"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex w-fit items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[14px] font-semibold text-white transition hover:bg-emerald-700"
-          >
-            Open Google Business Profile <ExternalLink className="h-4 w-4" />
-          </a>
-        </Step>
+        {setup.mode === 'create' ? (
+          <Step n={1} title="Start your profile">
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+              Open Google’s setup page and sign in with your own Google account (create one if you don’t have it). The profile will belong to you.
+            </p>
+            <a href={CREATE_URL} target="_blank" rel="noreferrer" className={BIG}>
+              Open Google Business Profile <ExternalLink className="h-4 w-4" />
+            </a>
+          </Step>
+        ) : (
+          <Step n={1} title={claim ? 'Claim your listing' : one ? 'First: is this you?' : 'First: is one of these you?'}>
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+              {claim ? 'This is what Google has. ' : `Google Maps lists ${one ? 'a business that may be yours. If it is' : 'businesses that may be yours. If one is'}, `}
+              {claim ? 'Open' : 'open'} it, tap <b>Claim this business</b> (it may say <b>Own this business?</b>) and sign in with your own Google account. The profile will belong to you.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {setup.listings.map((l) => (
+                <li key={l.mapsUrl} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-soft bg-surface p-3">
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 text-[14px] font-medium">
+                      <MapPin className="h-4 w-4 shrink-0" /> {l.name}
+                    </span>
+                    {l.address && <span className="block text-[12.5px] text-muted-foreground">{l.address}</span>}
+                  </span>
+                  <a href={l.mapsUrl} target="_blank" rel="noreferrer" className={BIG}>
+                    Open on Google Maps <ExternalLink className="h-4 w-4" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[12.5px] leading-snug text-muted-foreground">If Google says someone else already manages it, tap Request access, then text us and we’ll help.</p>
+            {claim ? (
+              <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+                Not your business?{' '}
+                <a href={CREATE_URL} target="_blank" rel="noreferrer" className="font-medium text-foreground underline underline-offset-2">
+                  Start a new profile
+                </a>{' '}
+                instead, signed in with your own Google account.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2 border-t border-border-soft pt-3">
+                <p className="text-[13.5px] leading-relaxed text-muted-foreground">Not you? Start a new profile, signed in with your own Google account. It will belong to you.</p>
+                <a
+                  href={CREATE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-fit items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[14px] font-semibold transition hover:bg-muted"
+                >
+                  Open Google Business Profile <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+            )}
+          </Step>
+        )}
 
-        <Step n={2} title="Copy in your answers">
-          <p className="text-[13.5px] leading-relaxed text-muted-foreground">Google asks these in about this order. Copy each one into the matching question.</p>
+        <Step n={2} title={claim ? 'Check your details' : 'Copy in your answers'}>
+          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+            {claim ? 'Open Edit profile and make each of these match.' : 'Google asks these in about this order. Copy each one into the matching question.'}
+          </p>
           <div className="flex flex-col gap-3">
             {setup.fields.map((f) => (
               <CopyBox key={f.id} field={f} />
@@ -131,9 +180,17 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   )
 }
 
-function CopyBox({ field }: { field: GbpField }) {
+function CopyBox({ field }: { field: OwnerField }) {
   const [copied, setCopied] = useState(false)
-  const text = forCopy(field.text)
+  const text = field.text
+  if (field.guide) {
+    return (
+      <div className="flex flex-col gap-1 rounded-lg border border-border-soft bg-surface p-3">
+        <p className="text-[13px] font-medium">{field.label}</p>
+        <p className="text-[13px] leading-snug text-muted-foreground">{text}</p>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-border-soft bg-surface p-3">
       <div className="flex items-center justify-between gap-3">

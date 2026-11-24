@@ -15,6 +15,7 @@ import {
   type GbpInputs,
   type GbpStatus,
 } from '@/lib/gbp-kit'
+import { listingVerdict } from '@/lib/gbp-plan'
 import type { GbpBoard } from '@/lib/gbp-setup'
 
 const BLANK = /⟦([^⟧]+)⟧/g
@@ -51,24 +52,28 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
     refetchOnWindowFocus: false,
   })
   const [sending, setSending] = useState(false)
-  const [sendResult, setSendResult] = useState<{ ok: boolean; sms: string; email: string; link: string | null } | null>(null)
+  // What's being typed on the left, saved before a send so it goes out with it.
+  const flush = useRef<() => Promise<void>>(async () => {})
+  const [sendResult, setSendResult] = useState<{ ok: boolean; sms: string; email: string; link: string | null; queuedFor: string | null } | null>(null)
 
   async function sendInstructions() {
-    if (!window.confirm('Text and email this client their Google Business Profile setup link?')) return
+    const sentAt = q.data?.state.sentAt
+    if (!window.confirm(`${sentAt ? `Their setup link already went out ${new Date(sentAt).toLocaleString()}. Send it again?` : 'Text and email this client their Google Business Profile setup link?'}`)) return
     setSending(true)
     setSendResult(null)
     try {
+      await flush.current()
       const res = await fetch(`/api/clients/${clientId}/gbp`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'send_instructions' }),
       })
-      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; sms?: string; email?: string; link?: string; error?: string }
+      const out = (await res.json().catch(() => ({}))) as { ok?: boolean; sms?: string; email?: string; link?: string | null; queuedFor?: string | null; error?: string }
       if (!res.ok) throw new Error(out.error || 'Couldn’t send the instructions')
-      setSendResult({ ok: !!out.ok, sms: out.sms ?? '', email: out.email ?? '', link: out.link ?? null })
+      setSendResult({ ok: !!out.ok, sms: out.sms ?? '', email: out.email ?? '', link: out.link ?? null, queuedFor: out.queuedFor ?? null })
       q.refetch()
     } catch (err) {
-      setSendResult({ ok: false, sms: err instanceof Error ? err.message : String(err), email: 'not sent', link: null })
+      setSendResult({ ok: false, sms: err instanceof Error ? err.message : String(err), email: 'not sent', link: null, queuedFor: null })
     } finally {
       setSending(false)
     }
@@ -106,7 +111,7 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
             sendResult.ok ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-amber-500/30 bg-amber-500/10',
           )}
         >
-          <p className="font-medium">{sendResult.ok ? 'Instructions sent.' : 'Nothing was sent.'}</p>
+          <p className="font-medium">{sendResult.queuedFor ? `Queued: goes out ${sendResult.queuedFor}.` : sendResult.ok ? 'Instructions sent.' : 'Nothing was sent.'}</p>
           <p className="text-muted-foreground">
             Text: {sendResult.sms}. Email: {sendResult.email}.
           </p>
@@ -127,13 +132,13 @@ export function GbpBoardView({ clientId }: { clientId: string }) {
       ) : q.error ? (
         <p className="text-sm text-destructive">{(q.error as Error).message}</p>
       ) : q.data ? (
-        <Board clientId={clientId} data={q.data} reload={() => q.refetch()} />
+        <Board clientId={clientId} data={q.data} reload={() => q.refetch()} flush={flush} />
       ) : null}
     </div>
   )
 }
 
-function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; reload: () => void }) {
+function Board({ clientId, data, reload, flush }: { clientId: string; data: GbpBoard; reload: () => void; flush: React.RefObject<() => Promise<void>> }) {
   const [edits, setEditsState] = useState<Partial<GbpInputs>>(data.state.values)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [busy, setBusy] = useState<string | null>(null)
@@ -159,15 +164,21 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
       setSaveState(res?.ok ? 'saved' : 'error')
     }, 700)
   }
+  /** Save a pending edit now, so the server works from what's on screen. */
+  async function savePending() {
+    if (!timer.current) return
+    clearTimeout(timer.current)
+    timer.current = null
+    await put({ values: latest.current })
+  }
+  useEffect(() => {
+    flush.current = savePending
+  })
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(action)
     setFlash(null)
     try {
-      // Flush a pending edit first so the server works from what's on screen.
-      if (timer.current) {
-        clearTimeout(timer.current)
-        await put({ values: latest.current })
-      }
+      await savePending()
       const res = await fetch(`/api/clients/${clientId}/gbp`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -193,6 +204,7 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
   const blanks = new Set(fields.flatMap((f) => blanksIn(f.text))).size
   const status = data.effectiveStatus
   const s = data.state
+  const verdict = listingVerdict(s.lookup)
 
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
@@ -341,9 +353,9 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
             )}
           </div>
           {s.lookup?.error && <p className="text-[12.5px] text-destructive">{s.lookup.error}</p>}
-          {s.lookup && !s.lookup.error && s.lookup.candidates.length === 0 && (
-            <p className="text-[12.5px] text-muted-foreground">Nothing on Google Maps matches this business by name, phone or website. Create a new profile.</p>
-          )}
+          {verdict.kind === 'create' && <p className="text-[12.5px] text-muted-foreground">Nothing on Google Maps has this business’s phone, website or name. Create a new profile.</p>}
+          {verdict.kind === 'claim' && <p className="text-[12.5px] text-emerald-700 dark:text-emerald-300">Google Maps already lists them. Claim that listing; their setup page has them do the same.</p>}
+          {verdict.kind === 'maybe' && <p className="text-[12.5px] text-muted-foreground">A listing has their name, theirs or not. Their setup page asks them before they make a new one.</p>}
           {s.lookup && s.lookup.candidates.length > 0 && (
             <ul className="flex flex-col gap-2">
               {s.lookup.candidates.map((c) => (
@@ -353,7 +365,7 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
                       <MapPin className="h-3.5 w-3.5" /> {c.name}
                     </span>
                     <span className="block text-muted-foreground">
-                      {c.address}
+                      {c.serviceArea ? 'No public address (goes to its customers)' : c.address}
                       {c.phone ? ` · ${c.phone}` : ''}
                       {c.status && c.status !== 'OPERATIONAL' ? ` · ${c.status.toLowerCase().replace(/_/g, ' ')}` : ''}
                     </span>
@@ -400,7 +412,7 @@ function Board({ clientId, data, reload }: { clientId: string; data: GbpBoard; r
         <Step
           n={3}
           title="Get the owner to verify"
-          hint="Google sends verification to the owner. This texts them the steps from the Genisys number, then reminds them every 3 days (up to 5 times, 10am–7pm Eastern) until it’s marked verified."
+          hint="Google sends verification to the owner. This texts them the steps from the Genisys number, then reminds them every 3 days (up to 5 times, 10am–7pm where they are) until it’s marked verified."
         >
           <CopyCard field={{ id: 'sms', label: `Text to ${values.ownerFirstName || 'the owner'}${values.ownerPhone ? ` at ${values.ownerPhone}` : ''}`, text: message }} wide />
           <div className="flex flex-wrap items-center gap-3">

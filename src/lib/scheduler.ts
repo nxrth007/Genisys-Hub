@@ -45,7 +45,7 @@ import { maybeCheckStalePublishes, maybeRunSeoWatch } from './seo/site-watch'
 import { reconcileOnboardingSheet } from './onboarding-sheet'
 import { backfillFromSheet, sheetSyncEnabled } from './tracker/sheet-sync'
 import { sweepLeadAlertInstalls } from './lead-alert-install'
-import { maybeSendGbpReminders } from './gbp-setup'
+import { maybeCheckListings, maybeSendGbpReminders, maybeSendQueuedSetups } from './gbp-setup'
 import { maybeAlertWhopSignups } from './whop-signup-alerts'
 import { maybePollStripeSignups } from './stripe-signup-alerts'
 import { maybeCheckStripeOnboarding } from './stripe-onboarding'
@@ -521,8 +521,20 @@ export function initScheduler() {
         if (r) console.log(`[scheduler] seo watch: ${r.sites} sites, ${r.problems.length} problems (${r.newCount} new)`)
       })
       .catch((err) => console.error('[scheduler] seo watch failed:', err))
+    // Google Business Profile: look on Google Maps for clients who need one (a few a
+    // minute until all are checked), and send the setup pages people queued (daytime there).
+    void maybeCheckListings()
+      .then((n) => {
+        if (n) console.log(`[scheduler] google profile: ${n} client(s) checked on Google Maps`)
+      })
+      .catch((err) => console.error('[scheduler] google profile Maps check failed:', err))
+    void maybeSendQueuedSetups()
+      .then((n) => {
+        if (n) console.log(`[scheduler] google profile: ${n} setup page(s) sent`)
+      })
+      .catch((err) => console.error('[scheduler] google profile setup pages failed:', err))
     // Google Business Profile: remind owners who were texted the verification
-    // checklist and still haven't verified (every 3 days, daytime Eastern only).
+    // checklist and still haven't verified (every 3 days, daytime where they are).
     void maybeSendGbpReminders()
       .then((n) => {
         if (n) console.log(`[scheduler] google profile: ${n} verification reminder(s) texted`)

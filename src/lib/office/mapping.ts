@@ -28,7 +28,7 @@ export const ROSTER: readonly RosterEntry[] = [
   { id: 'forge', name: 'Forge', role: 'Website build', color: '#fb923c', source: 'Journey stage "website", HlDomainRequest, HlSiteRequest' },
   { id: 'echo', name: 'Echo', role: 'A2P registration', color: '#f472b6', source: 'Journey stage "a2p", HlA2p, HlNumberRequest' },
   { id: 'tally', name: 'Tally', role: 'Tracker & QA', color: '#facc15', source: 'Journey stage "qa"' },
-  { id: 'scout', name: 'Scout', role: 'SEO engine', color: '#22d3ee', source: 'SeoRun' },
+  { id: 'scout', name: 'Scout', role: 'SEO engine', color: '#22d3ee', source: 'SeoRun, AppSetting "gbp.send.*"' },
   { id: 'sentinel', name: 'Sentinel', role: 'Render monitor', color: '#ef4444', source: 'AppSetting "render.monitor"' },
 ] as const
 
@@ -134,7 +134,8 @@ export type SubaccountJobIn = {
  */
 export type ApprovalIn = {
   id: string
-  kind: 'number' | 'registration' | 'domain' | 'site'
+  /** gbp: Scout asking whether to send a client their Google profile page; the id is then the client's. */
+  kind: 'number' | 'registration' | 'domain' | 'site' | 'gbp'
   clientName: string
   ringTo?: string | null
   at: Date
@@ -157,7 +158,11 @@ export type ApprovalIn = {
   domainsLink?: string | null
   /** site: the client's domain Forge would connect (managed = held in the Hub's Porkbun account, so the Hub sets its DNS). */
   siteDomain?: { name: string; managed: boolean } | null
+  /** gbp: what Google Maps shows, whether their site is live, how the page reaches them, and when it goes out (null = now). */
+  gbp?: { listing: 'create' | 'claim' | 'maybe' | 'unchecked'; listingName: string | null; siteLive: boolean; text: boolean; email: boolean; later: string | null }
 }
+/** A client's Google profile page that didn't go out (src/lib/gbp-setup.ts). */
+export type GbpFailedIn = { clientId: string; clientName: string; detail: string | null; at: Date }
 /** A domain Forge suggests: Porkbun's all-in first-year price and the renewal, in cents. */
 export type DomainChoiceView = { name: string; costCents: number; renewalCents: number | null }
 /** A client's domain question once answered (src/lib/hl/domain-request.ts). */
@@ -238,6 +243,7 @@ export type OfficeInput = {
   ghlRegistrations?: GhlRegistrationIn[]
   domainRequests?: DomainRequestIn[]
   siteRequests?: SiteRequestIn[]
+  gbpFailed?: GbpFailedIn[]
 }
 
 export const emptyInput = (): OfficeInput => ({
@@ -267,7 +273,7 @@ export type OfficeActivity = { id: string; at: string; botId: BotId; text: strin
 export type OfficeHandoff = { id: string; from: BotId; to: BotId; at: string; clientName: string }
 export type OfficeApproval = {
   id: string
-  kind: 'number' | 'registration' | 'domain' | 'site'
+  kind: 'number' | 'registration' | 'domain' | 'site' | 'gbp'
   botId: BotId
   /** What the bot asks, e.g. "Buy a toll-free number for Acme Roofing in Genisys OS?" */
   question: string
@@ -470,8 +476,8 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
 
   // Questions waiting for an answer: Echo asks where to get a new client's toll-free number,
   // and whether to send GHL's toll-free registration it filled (or says what stopped it).
-  // Forge's domain questions are mapped below.
-  const echoAsks = input.approvals.filter((a) => a.kind !== 'domain' && a.kind !== 'site')
+  // Forge's domain and website questions, and Scout's, are mapped below.
+  const echoAsks = input.approvals.filter((a) => a.kind === 'number' || a.kind === 'registration')
   /** Echo's stages: publishing is Forge's. */
   type EchoStage = Exclude<OfficeApproval['stage'], 'publish' | 'domain'>
   const echoApprovals = [...echoAsks]
@@ -734,6 +740,53 @@ export function deriveOffice(input: OfficeInput, now: Date, opts: { demo?: boole
     } else if (r.status === 'declined') {
       feed(`sb:${r.id}:declined`, r.updatedAt, 'forge', `Not building ${r.clientName}’s website for now`, 'thinking')
     }
+  }
+
+  // Scout asks whether to send a client their Google profile page (src/lib/gbp-setup.ts).
+  const profileAsks = input.approvals.filter((a) => a.kind === 'gbp').sort((a, b) => a.at.getTime() - b.at.getTime())
+  for (const a of profileAsks) {
+    const g = a.gbp
+    const listed = g?.listingName ? `“${g.listingName}”` : 'a listing'
+    const maps =
+      g?.listing === 'claim'
+        ? `Google Maps already lists them (${listed}), so the page has them claim that one instead of making a second.`
+        : g?.listing === 'maybe'
+          ? `Google Maps shows ${listed}; the page asks them whether it’s theirs before they make a new one.`
+          : g?.listing === 'create'
+            ? 'Google Maps shows nothing for them, so the page has them make one.'
+            : 'Google Maps isn’t checked for them yet.'
+    const how = g && !g.text ? 'Emails' : g && !g.email ? 'Texts' : 'Texts and emails'
+    approvals.push({
+      id: a.id,
+      kind: 'gbp',
+      botId: 'scout',
+      stage: 'ask',
+      question: `Send ${a.clientName} their Google profile page?`,
+      note: `They said they don’t have a Google profile. ${maps} ${how} the owner a page with every answer ready to copy, then reminds them every 3 days (up to 5).${g && !g.siteLive ? ' Their website isn’t live yet, so the page leaves it out; this question waits if you’d rather.' : ''}${g?.later ? ` Goes out ${g.later}.` : ''}`,
+      clientName: a.clientName,
+      ringTo: null,
+      ghlLink: null,
+      detail: a.detail ?? null,
+      reviewLink: a.reviewLink ?? null,
+      at: a.at.toISOString(),
+    })
+    feed(`gq:${a.id}:${a.at.getTime()}`, a.at, 'scout', `Asked whether to send ${a.clientName} their Google profile page`, 'needs_you')
+  }
+  if (profileAsks.length) {
+    const newest = profileAsks[profileAsks.length - 1]
+    add('scout', {
+      status: 'needs_you',
+      task: profileAsks.length === 1 ? `Asking: send ${newest.clientName} their Google profile page?` : `${profileAsks.length} Google profile pages to send`,
+      icon: 'alert',
+      at: newest.at,
+    })
+  }
+  for (const f of input.gbpFailed ?? []) {
+    if (age(f.at) > SUBACCOUNT_OPEN_MS) continue
+    const why = f.detail ? `: ${f.detail}` : ''
+    add('scout', { status: 'error', task: clip(`${f.clientName}’s Google profile page didn’t go out${why}`), icon: 'error', at: f.at })
+    request(`gp:${f.clientId}:failed`, 'scout', 'error', `${f.clientName}’s Google profile page didn’t go out${why}`, f.at, `/clients/${f.clientId}/gbp`)
+    feed(`gp:${f.clientId}:failed:${f.at.getTime()}`, f.at, 'scout', `${f.clientName}’s Google profile page didn’t go out${why}`, 'error')
   }
 
   // Sub-account worker jobs: creating, queued, needs a person, failed, stalled.

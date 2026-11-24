@@ -3,6 +3,7 @@
  * the pure mapping in ./mapping.ts. Read-only; no new tables.
  */
 import { prisma } from '@/lib/prisma'
+import { gbpOfficeItems } from '@/lib/gbp-setup'
 import { ghlPhoneSystemLink } from '@/lib/ghl-number/queue'
 import { readProfile } from '@/lib/hl/accounts'
 import { readChoices } from '@/lib/hl/domain-plan'
@@ -278,6 +279,23 @@ export async function buildOfficeState(now = new Date()): Promise<OfficeState> {
       finishedAt: s.finishedAt,
       updatedAt: s.updatedAt,
     }))
+  // Scout: new clients without a Google profile (send them their setup page?), and pages that didn't go out.
+  const profiles = await safe('google profiles', () => gbpOfficeItems(now), [])
+  for (const p of profiles) {
+    if (p.status !== 'ask') continue
+    input.approvals.push({
+      id: p.clientId,
+      kind: 'gbp',
+      clientName: p.clientName,
+      at: p.at,
+      stage: 'ask',
+      // What stops it (no contact details, a name that isn't one), when something does.
+      detail: p.block,
+      reviewLink: `/clients/${p.clientId}/gbp`,
+      gbp: { listing: p.listing, listingName: p.listingName, siteLive: p.siteLive, text: p.by.text, email: p.by.email, later: p.later },
+    })
+  }
+  input.gbpFailed = profiles.filter((p) => p.status === 'failed').map((p) => ({ clientId: p.clientId, clientName: p.clientName, detail: p.detail, at: p.at }))
   // Site forms made the client's own (src/lib/ghl-form): Atlas shows them like the workflow copy job.
   const formJobs = await safe('form jobs', () =>
     prisma.ghlFormJob.findMany({

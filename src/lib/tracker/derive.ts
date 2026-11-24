@@ -389,7 +389,7 @@ function gbp(f: ClientFacts): StepView {
     case 'created':
       return view('in_progress', 'Profile created, verification pending', null, href)
     case 'verifying':
-      return view('in_progress', 'Owner is verifying the new profile', null, href)
+      return view('in_progress', 'Waiting on the owner to finish and verify it', null, href)
     case 'needed':
       return view('pending', 'Needs a Google profile', null, href)
     default:

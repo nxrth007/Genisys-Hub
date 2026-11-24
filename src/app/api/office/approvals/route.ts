@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { decideGbpAsk } from '@/lib/gbp-setup'
 import { decideGhlRegistration } from '@/lib/ghl-number/queue'
 import { decideClientNumber } from '@/lib/hl/number-request'
 import { decideClientDomain } from '@/lib/hl/domain-request'
@@ -30,6 +31,10 @@ import { decideClientSite } from '@/lib/hl/site-request'
  * publishes the copy at a lovable.app address; 'no' leaves it unpublished.
  * Once it's live, Forge asks to connect their domain (same kind): 'connect'
  * has Lovable connect it and sets its DNS; 'no' leaves it on lovable.app.
+ *
+ * Scout asking whether to send a client their Google profile page (kind
+ * "gbp", id = the client's): 'send' texts and emails the owner, in daytime
+ * where they are; 'no' (Not now) drops the question.
  */
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +58,13 @@ export async function POST(req: Request) {
     const decision = SITE.find((d) => d === body?.decision) ?? null
     if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "site", "decision": "build" | "publish" | "connect" | "no" }' }, { status: 400 })
     const res = await decideClientSite(id, decision, by)
+    if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
+    return NextResponse.json(res)
+  }
+  if (body?.kind === 'gbp') {
+    const decision = body?.decision === 'send' || body?.decision === 'no' ? body.decision : null
+    if (!id || !decision) return NextResponse.json({ error: 'send { "id": "...", "kind": "gbp", "decision": "send" | "no" }' }, { status: 400 })
+    const res = await decideGbpAsk(id, decision, by)
     if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 409 })
     return NextResponse.json(res)
   }
