@@ -48,7 +48,7 @@
  * its own /privacy and /terms wherever it's shown (./legal-links.ts).
  */
 import { Prisma } from '@/generated/prisma/client'
-import { embedCode } from '@/components/genisys-os/embed'
+import { embedCode, workEmbedCode } from '@/components/genisys-os/embed'
 import { bestIntake, emailOrBlank, looksLikeAddress, notABusinessName } from '@/lib/automation-copy'
 import { textSiteEvent } from '@/lib/ghl-subaccount-worker/alerts'
 import { hubLink } from '@/lib/hub-alerts'
@@ -316,7 +316,7 @@ export async function gatherSite(clientId: string): Promise<Gathered | null> {
   const quote = native.find((f) => f.kind === 'form' && f.name === 'Website Quote Form') ?? native.find((f) => f.kind === 'form' && f.name !== REVIEW_REQUEST_FORM)
   const chat = native.find((f) => f.kind === 'chat')
   const origin = publicBase()
-  const embeds = quote && chat ? { formId: quote.id, formEmbed: embedCode(origin, quote), chatId: chat.id, chatEmbed: embedCode(origin, chat) } : null
+  const embeds = quote && chat ? { formId: quote.id, formEmbed: embedCode(origin, quote), chatId: chat.id, chatEmbed: embedCode(origin, chat), workEmbed: workEmbedCode(origin, account.id) } : null
 
   // Claude won't guess where a business works (Cnc transportation, 2026-11-13, stopped after its call):
   // with neither an address nor a service area, the build stops here before anything is spent.

@@ -124,6 +124,11 @@ The client's photos (after each link: what it shows). Save them into the project
 The client has not supplied photos. Generate realistic, photo-style images for every image slot as described above.
 [/IF]
 
+### Recent work feed
+Our recent-work feed shows photos the owner texts in after launch, and shows nothing until there are some, so keep the gallery photos below it. Two parts, exactly as given: the script goes once in index.html just before the closing body tag (next to our chat widget), and the placeholder div goes at the top of the Gallery page, above the gallery grid, with no fixed height:
+
+{{WORK_EMBED}}
+
 ### Why Choose Us (replace existing content only)
 {{WHY_CHOOSE_US}}
 
@@ -293,6 +298,7 @@ If we update this policy we will change the date above and post the new version 
 11. Exactly 9 blog posts are live.
 12. Buttons, banners, header, footer, icons, and accents all use the colors from the generated logo, defined once as design tokens and applied consistently.
 13. Test on desktop and mobile.
+14. Our recent-work feed: its script (hl/work.js) loads once in index.html, and its placeholder div is at the top of the Gallery page above the gallery photos, both exactly as given.
 `
 
 /** Every {{NAME}} the template uses. */
@@ -338,6 +344,7 @@ export const ONE_SHOT_VARIABLES = [
   'FORM_ID',
   'CHAT_WIDGET_CODE',
   'WIDGET_ID',
+  'WORK_EMBED',
 ] as const
 
 export type OneShotVariable = (typeof ONE_SHOT_VARIABLES)[number]
@@ -377,6 +384,7 @@ export const REQUIRED_VARIABLES: OneShotVariable[] = [
   'FORM_ID',
   'CHAT_WIDGET_CODE',
   'WIDGET_ID',
+  'WORK_EMBED',
 ]
 
 /** What a blank variable means to a person, for the "missing" message. */
@@ -400,6 +408,7 @@ const VARIABLE_WORDS: Partial<Record<OneShotVariable, string>> = {
   FORM_ID: 'Genisys OS quote form',
   CHAT_WIDGET_CODE: 'Genisys OS chat widget',
   WIDGET_ID: 'Genisys OS chat widget',
+  WORK_EMBED: 'Genisys OS recent-work feed',
 }
 
 /** The missing variables in plain words, once each ("city and state, service area"); the rest by name. */

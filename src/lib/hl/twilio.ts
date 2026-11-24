@@ -138,6 +138,45 @@ export async function sendTwilioSms(o: { from: string; to: string; body: string 
   return { sid: m.sid, status: m.status }
 }
 
+/**
+ * A photo (or other file) from an inbound MMS, which Twilio keeps behind the account's credentials
+ * and hands over through a short-lived redirect. Null when it isn't Twilio's, doesn't come, or is
+ * bigger than `maxBytes`.
+ */
+export async function fetchTwilioMedia(url: string, maxBytes: number): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:' || u.hostname !== 'api.twilio.com') return null
+  const { client, token } = await creds()
+  // The redirect goes to Twilio's storage, where the Authorization header isn't sent on (nor wanted).
+  const res = await fetch(u, { headers: { authorization: `Basic ${Buffer.from(`${client.accountSid}:${token}`).toString('base64')}` }, redirect: 'follow', signal: AbortSignal.timeout(20_000) })
+  if (!res.ok || !res.body) return null
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.length
+    if (total > maxBytes) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let at = 0
+  for (const c of chunks) {
+    bytes.set(c, at)
+    at += c.length
+  }
+  return { bytes, contentType: (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase() }
+}
+
 /** Trial or Full (null when Twilio can't be reached). */
 export async function twilioAccountType(): Promise<string | null> {
   const client = await twilioClient()

@@ -105,7 +105,7 @@ async function attempt(a: Loaded, n: HlNotification): Promise<Notice> {
     return done(r.ok, r.detail)
   }
   const { phones, emails } = await memberContacts(a)
-  const r = n.channel === 'sms' ? await sendInternalSms(a.accountId, phones, body) : await sendInternalEmail(a.accountId, emails, renderTemplate(n.subject?.trim() || 'Appointment: {{contact.name}}', data), body)
+  const r = n.channel === 'sms' ? await sendInternalSms(a.accountId, phones, body, a.contactId ? { contactId: a.contactId } : undefined) : await sendInternalEmail(a.accountId, emails, renderTemplate(n.subject?.trim() || 'Appointment: {{contact.name}}', data), body)
   return done(r.ok, r.detail)
 }
 

@@ -28,17 +28,25 @@ export async function genisysSender(): Promise<{ id: string; accountId: string; 
 }
 
 /**
- * Is this phone where a client hears from Genisys OS (their alert phone,
- * business phone, or where their calls and texts are forwarded)? A text from
- * it to Genisys's own number is them answering an alert, not a new lead.
+ * The client sub-accounts this phone belongs to: where the client hears from
+ * Genisys OS (their alert phone, business phone, or where their calls and
+ * texts are forwarded). Usually one; a phone on two clients' records is two.
  */
-export async function isClientOwnerPhone(phone: string): Promise<boolean> {
+export async function clientAccountsForOwnerPhone(phone: string): Promise<{ id: string; clientId: string; name: string; profile: HlProfile }[]> {
   const accounts = await prisma.hlAccount.findMany({
     where: { archivedAt: null, clientId: { not: null } },
-    select: { profile: true, numbers: { where: { status: 'active' }, select: { forwardTo: true, forwardTextsTo: true } } },
+    select: { id: true, clientId: true, name: true, profile: true, numbers: { where: { status: 'active' }, select: { forwardTo: true, forwardTextsTo: true } } },
   })
-  return accounts.some((a) => {
+  return accounts.flatMap((a) => {
     const p = (a.profile && typeof a.profile === 'object' && !Array.isArray(a.profile) ? a.profile : {}) as HlProfile
-    return (a.numbers.length ? a.numbers : [{}]).some((n) => ownerPhones(n, p).has(phone))
+    return (a.numbers.length ? a.numbers : [{}]).some((n) => ownerPhones(n, p).has(phone)) ? [{ id: a.id, clientId: a.clientId!, name: a.name, profile: p }] : []
   })
+}
+
+/**
+ * Is this phone where a client hears from Genisys OS? A text from it to
+ * Genisys's own number is them answering an alert, not a new lead.
+ */
+export async function isClientOwnerPhone(phone: string): Promise<boolean> {
+  return (await clientAccountsForOwnerPhone(phone)).length > 0
 }

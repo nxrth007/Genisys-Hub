@@ -33,7 +33,7 @@ const mapping = loadTs(join(root, 'src/lib/office/mapping.ts'))
 const ORIGIN = 'https://genisys-hub.onrender.com'
 const quote = { id: 'form_quote_1', kind: 'form', name: 'Website Quote Form' }
 const chat = { id: 'form_chat_1', kind: 'chat', name: 'Website Chat Widget' }
-const embeds = { formId: quote.id, formEmbed: embed.embedCode(ORIGIN, quote), chatId: chat.id, chatEmbed: embed.embedCode(ORIGIN, chat) }
+const embeds = { formId: quote.id, formEmbed: embed.embedCode(ORIGIN, quote), chatId: chat.id, chatEmbed: embed.embedCode(ORIGIN, chat), workEmbed: embed.workEmbedCode(ORIGIN, 'acc1') }
 
 const photo = (name) => `https://ebuayuxsfoiyxuxrvlfj.supabase.co/storage/v1/object/sign/intake-uploads/1794-ab/${name}?token=abc.def.ghi`
 

@@ -114,16 +114,17 @@ export function ownerPhones(n: { forwardTo?: string | null; forwardTextsTo?: str
 
 /**
  * The forwarded copy of a lead's text, sent to the owner from the Hub's own
- * number. It says who wrote and how to answer: a reply to the Hub's number
- * doesn't reach the lead.
+ * number. It says who wrote and how to answer: a reply here reaches them from
+ * the business number once it can text (owner-text.ts); until then the owner
+ * answers from their own phone.
  */
-export function forwardTextBody(o: { business: string; from: string; name?: string | null; body: string; media: number }): string {
+export function forwardTextBody(o: { business: string; from: string; name?: string | null; body: string; media: number; relay?: boolean }): string {
   const who = `${o.name?.trim() ? `${o.name.trim()} ` : ''}${prettyPhone(o.from)}`
   const flat = o.body.replace(/\s+/g, ' ').trim()
   const text = flat.length > 220 ? `${flat.slice(0, 219)}…` : flat
   const extra = o.media ? ` (+${o.media} photo${o.media === 1 ? '' : 's'})` : ''
   const said = text ? `"${text}"${extra}` : extra.trim() || '(empty text)'
-  return `${o.business}: new text from ${who}: ${said} Reply to them at ${prettyPhone(o.from)}.`
+  return `${o.business}: new text from ${who}: ${said} ${o.relay ? 'Reply here to answer them from your business number.' : `Reply to them at ${prettyPhone(o.from)}.`}`
 }
 
 export type FileCandidate = {

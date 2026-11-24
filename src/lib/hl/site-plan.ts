@@ -300,7 +300,7 @@ export type SiteFill = {
   notes: string[]
 }
 
-export type SiteEmbeds = { formId: string; formEmbed: string; chatId: string; chatEmbed: string }
+export type SiteEmbeds = { formId: string; formEmbed: string; chatId: string; chatEmbed: string; workEmbed: string }
 
 const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 const one = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
@@ -396,6 +396,7 @@ export function oneShotVars(facts: SiteFacts, fill: SiteFill, embeds: SiteEmbeds
     FORM_ID: embeds.formId,
     CHAT_WIDGET_CODE: embeds.chatEmbed,
     WIDGET_ID: embeds.chatId,
+    WORK_EMBED: embeds.workEmbed,
   }
 }
 

@@ -36,7 +36,7 @@ export default function MediaStoragePage() {
         title="Media Storage"
         description={
           !imported
-            ? 'Logos and images kept for this sub-account. Forms and the chat show the logo from here.'
+            ? 'Logos and images kept for this sub-account, and the photos the owner texts to their business number (their Recent Work feed). Forms and the chat show the logo from here; deleting a photo takes it off the feed.'
             : d
               ? `${d.total.toLocaleString('en-US')} files from GoHighLevel. They stay on GHL’s storage; copy anything you need to keep before cancelling GHL.`
               : ' '

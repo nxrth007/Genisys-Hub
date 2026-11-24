@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AppWindow, Check, Copy, ExternalLink, FileText, Folder, Globe, MessageCircle, Pencil, Plus } from 'lucide-react'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Spinner, copyText, hlFetch, timeAgo } from '@/components/genisys-os/ui'
-import { embedCode, lovablePrompt } from '@/components/genisys-os/embed'
+import { embedCode, lovablePrompt, workEmbedCode, workLovablePrompt } from '@/components/genisys-os/embed'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
 import { useAccount } from '@/components/genisys-os/bits'
 
@@ -47,6 +47,7 @@ function SitesSection() {
       <>
         {/* The client's own website (built in Lovable) first; GoHighLevel's websites, imported, below it. */}
         {tab === 'websites' && <ClientWebsite accountId={accountId} imported={imported} />}
+        {tab === 'websites' && <WorkFeedCard accountId={accountId} />}
         {(tab === 'funnels' || imported) && <RecordsTable
           accountId={accountId}
           kind={tab === 'funnels' ? 'funnel' : 'website'}
@@ -89,6 +90,52 @@ type ClientSite = {
 }
 
 /** The client's own website, built in Lovable: where it's live and where it stands (GET …/website). */
+/** Recent Work: photos the owner texts to their business number, shown on the site through one script (src/lib/hl/work-photos.ts). */
+function WorkFeedCard({ accountId }: { accountId: string }) {
+  const [copied, setCopied] = useState<string | null>(null)
+  const origin = typeof window === 'undefined' ? '' : window.location.origin
+  const copy = (what: string, text: string) => {
+    copyText(text)
+    setCopied(what)
+    setTimeout(() => setCopied(null), 1500)
+  }
+  return (
+    <div className="mx-auto flex w-full max-w-7xl flex-col px-6">
+      <Card>
+        <div className="flex flex-wrap items-center gap-4 border-b border-border px-5 py-4">
+          <span className="grid h-10 w-10 place-items-center rounded-lg bg-primary-soft text-primary">
+            <AppWindow className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-semibold text-foreground">Recent work feed</p>
+            <p className="text-[13px] text-muted-foreground">Photos the owner texts to their business number, on the website the moment they land. Each photo is resized and stripped of its location before it’s kept; delete one in Media Storage to take it down.</p>
+          </div>
+          <a href={`/hl/w/${accountId}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50">
+            <ExternalLink className="h-3.5 w-3.5" /> Preview
+          </a>
+        </div>
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-[13px] font-medium text-foreground/90">Embed code (the script once before the closing body tag, the div at the top of the Gallery page)</p>
+              <button type="button" onClick={() => copy('work-code', workEmbedCode(origin, accountId))} className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">
+                {copied === 'work-code' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied === 'work-code' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-background px-3 py-2.5 font-mono text-[12px] leading-relaxed text-muted-foreground">{workEmbedCode(origin, accountId)}</pre>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-muted px-3 py-2.5">
+            <p className="text-[13px] text-muted-foreground">New sites get it from the one-shot. For a site built before, paste this prompt into the client’s Lovable project.</p>
+            <Button size="sm" icon={copied === 'work-prompt' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={() => copy('work-prompt', workLovablePrompt(origin, accountId))}>
+              {copied === 'work-prompt' ? 'Copied' : 'Copy Lovable prompt'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
 function ClientWebsite({ accountId, imported }: { accountId: string; imported: boolean }) {
   const q = useQuery<{ site: ClientSite | null }>({ queryKey: ['hl', 'website', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/website`) })
   const s = q.data?.site ?? null

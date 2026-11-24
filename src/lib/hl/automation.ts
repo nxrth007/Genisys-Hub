@@ -403,7 +403,7 @@ async function runStep(step: HlStep, c: Ctx, index: number): Promise<StepResult>
     }
     case 'internal_sms': {
       const to = phoneList(cfg.to?.trim() ? render(cfg.to) : profile.notifyPhone)
-      const r = await sendInternalSms(c.accountId, to, render(cfg.body))
+      const r = await sendInternalSms(c.accountId, to, render(cfg.body), { contactId: c.contact.id })
       return { ok: r.ok, detail: r.detail }
     }
     case 'internal_email': {

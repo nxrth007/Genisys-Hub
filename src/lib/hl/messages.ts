@@ -6,6 +6,7 @@ import { readProfile } from './accounts'
 import { upsertContact } from './contacts'
 import { sendTwilioSms } from './twilio'
 import { genisysSender } from './genisys-sender'
+import { noteOwnerAlert } from './owner-alerts'
 
 /**
  * Texts and emails. Texts to contacts go out from the sub-account's own
@@ -127,24 +128,28 @@ export async function sendSmsToContact(o: { accountId: string; contactId: string
  * An owner notification text. From the sub-account's number once it can text;
  * until then from Genisys's own approved number (Lead Genisys's, see
  * genisys-sender.ts), so owners hear about leads even before verification
- * finishes, or before they have a number at all.
+ * finishes, or before they have a number at all. `about` is the lead it's
+ * about: a reply from the owner's phone then goes to them (owner-text.ts).
  */
-export async function sendInternalSms(accountId: string, to: string[], body: string): Promise<SendResult> {
+export async function sendInternalSms(accountId: string, to: string[], body: string, about?: { contactId: string }): Promise<SendResult> {
   if (!to.length) return { ok: false, detail: 'No notification phone on the sub-account (Settings → Business Profile)' }
   const number = await sendingNumber(accountId)
   const from = textingReady(number).ok && number ? number.number : (await genisysSender())?.number
   if (!from) return { ok: false, detail: 'No number to text from: this sub-account’s number can’t text yet, and Lead Genisys has no approved number either' }
   const results: string[] = []
+  const reached: string[] = []
   let ok = false
   for (const phone of to) {
     try {
       await sendTwilioSms({ from, to: phone, body })
       ok = true
+      reached.push(phone)
       results.push(`sent to ${phone}`)
     } catch (err) {
       results.push(`${phone}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
+  if (about && reached.length) await noteOwnerAlert(accountId, reached, about.contactId).catch((err) => console.warn('[genisys-os] owner alert not noted:', err instanceof Error ? err.message : err))
   return { ok, detail: results.join('; ') }
 }
 
@@ -171,18 +176,24 @@ export async function sendInternalEmail(accountId: string, to: string[], subject
 const STOP_WORDS = /^(stop|stopall|unsubscribe|cancel|end|quit|revoke|optout|opt out)$/i
 const START_WORDS = /^(start|unstop|yes|subscribe)$/i
 
+/** The owner's own opt-out and opt-in words on a Genisys OS number; "yes" is an answer to a lead, not an opt-in. */
+export const OWNER_STOP_WORDS = /^(stop|stopall|unsubscribe|optout|opt out)$/i
+export const OWNER_START_WORDS = /^(start|unstop)$/i
+
 /**
  * A text from a contact (Twilio's inbound webhook). Writing first counts as
  * consent to texts back; STOP and its synonyms opt them out, START opts them
- * back in. Returns the contact so the caller can fire automations.
+ * back in. Returns the contact so the caller can fire automations. The
+ * owner's own texts (`owner`) are kept too, but record no consent, flip no
+ * opt-out and don't count as unread: they aren't a lead's.
  */
-export async function recordInboundSms(o: { accountId: string; from: string; to: string; body: string; sid: string; media: string[] }) {
+export async function recordInboundSms(o: { accountId: string; from: string; to: string; body: string; sid: string; media: string[]; owner?: boolean }) {
   const word = o.body.trim().replace(/[.!]+$/, '')
-  const stop = STOP_WORDS.test(word)
-  const start = START_WORDS.test(word)
-  const { contact, created } = await upsertContact(o.accountId, { phone: o.from, source: 'sms', consent: !stop })
-  if (stop && !contact.dnd) await prisma.hlContact.update({ where: { id: contact.id }, data: { dnd: true } })
-  if (start && contact.dnd) await prisma.hlContact.update({ where: { id: contact.id }, data: { dnd: false, smsConsent: true, smsConsentAt: new Date() } })
+  const stop = o.owner ? OWNER_STOP_WORDS.test(word) : STOP_WORDS.test(word)
+  const start = o.owner ? OWNER_START_WORDS.test(word) : START_WORDS.test(word)
+  const { contact, created } = await upsertContact(o.accountId, { phone: o.from, source: 'sms', consent: !stop && !o.owner })
+  if (!o.owner && stop && !contact.dnd) await prisma.hlContact.update({ where: { id: contact.id }, data: { dnd: true } })
+  if (!o.owner && start && contact.dnd) await prisma.hlContact.update({ where: { id: contact.id }, data: { dnd: false, smsConsent: true, smsConsentAt: new Date() } })
   const existing = await prisma.hlMessage.findUnique({ where: { providerSid: o.sid } })
   if (!existing) {
     await prisma.hlMessage.create({
@@ -199,7 +210,7 @@ export async function recordInboundSms(o: { accountId: string; from: string; to:
         meta: (o.media.length ? { media: o.media } : {}) as Prisma.InputJsonValue,
       },
     })
-    await touch(contact.id, o.body || (o.media.length ? '📎 Attachment' : ''), true)
+    await touch(contact.id, o.body || (o.media.length ? '📎 Attachment' : ''), !o.owner)
   }
   return { contact, created, duplicate: !!existing, stop, start }
 }

@@ -26,6 +26,19 @@ export function bookingEmbedCode(origin: string, c: { id: string; name: string }
   ].join('\n')
 }
 
+/**
+ * The Recent Work feed on the client's site: photos the owner texts in (src/lib/hl/work-photos.ts). The
+ * script loads once (the site's index.html, like the chat widget); the placeholder goes where the feed
+ * shows (the top of the Gallery page). It renders nothing until there's a photo.
+ */
+export const workScriptCode = (origin: string, accountId: string) => `<script src="${origin}/hl/work.js" data-account="${accountId}" async></script>`
+export const workPlaceholderCode = (accountId: string) => `<div data-hl-work="${accountId}"></div>`
+export const workEmbedCode = (origin: string, accountId: string) => `${workScriptCode(origin, accountId)}\n${workPlaceholderCode(accountId)}`
+
+export function workLovablePrompt(origin: string, accountId: string): string {
+  return `Add our recent-work feed. Load this script once, in index.html just before the closing body tag (next to our chat widget):\n\n${workScriptCode(origin, accountId)}\n\nThen put this placeholder at the top of the Gallery page, above the gallery grid, exactly as given:\n\n${workPlaceholderCode(accountId)}\n\nThe feed fills the placeholder with photos the owner texts in after launch and shows nothing until there are some, so keep the gallery photos below it. Don't give the placeholder a fixed height.`
+}
+
 export function bookingLovablePrompt(origin: string, c: { id: string; name: string }): string {
   return `Add our booking calendar where visitors book an appointment (a "Book a call" / "Schedule" section or page). Embed this iframe full width, keep the surrounding heading and layout, and include the small script right after it so the iframe resizes to fit. Remove any old GoHighLevel calendar embed:\n\n${bookingEmbedCode(origin, c)}`
 }
