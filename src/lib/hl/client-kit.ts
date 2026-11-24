@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { REACTIVATION_COPY, REVIEW_FORM_TRIGGER_ID, REVIEW_GATE_STEPS, reviewStageTrigger } from './review-kit'
 import { CHAT_FIELDS, CHAT_SETTINGS, QUOTE_FORM_FIELDS, QUOTE_FORM_SETTINGS } from './templates'
+import { optoutReplyTrigger } from './optout-kit'
 import type { HlField, HlFormSettings, HlStage, HlStep, HlTrigger } from './types'
 
 /**
@@ -184,7 +185,8 @@ export function clientKitWorkflows(ids: KitIds): KitWorkflow[] {
       triggers: [
         // Like "Remove Interested Opportunity", GHL's stage trigger here watches a pipeline clients don't have.
         { id: 'kit_optout_stage', name: 'Opportunity Changed', type: 'opportunity_stage', active: false },
-        { id: 'kit_optout_reply', name: 'Customer Replied', type: 'inbound_sms', keywords: ['not interested', 'no', 'stop'], match: 'contains' },
+        // GHL's snapshot matched these words anywhere in a reply ("No problem" switched texting off): only a plain opt-out does now.
+        optoutReplyTrigger(),
       ],
       steps: [
         {

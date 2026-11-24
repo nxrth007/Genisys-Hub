@@ -6,6 +6,7 @@ import { addTags, removeTags } from './contacts'
 import { renderTemplate, type MergeAppointment, type MergeData } from './merge'
 import { sendEmailToContact } from './email'
 import { HlInputError } from './http'
+import { replyMatches } from './reply-match'
 import { sendInternalEmail, sendInternalSms, sendSmsToContact } from './messages'
 import { replyIntent } from './intent'
 import { trackedLink } from './links'
@@ -72,23 +73,8 @@ export function asTriggers(w: Pick<HlWorkflow, 'trigger' | 'triggers'>): HlTrigg
   return list.length ? list : [asTrigger(w.trigger)]
 }
 
-/** A reply as GHL compares it: lower case, no surrounding quotes or end punctuation. */
-const squash = (s: string) => s.trim().toLowerCase().replace(/^["'\u201c\u201d\u2018\u2019]+|["'\u201c\u201d\u2018\u2019.!?]+$/g, '').trim()
-
-/**
- * Does the reply match one of the trigger's phrases? "exact" = the whole reply
- * is the phrase; "contains" = the phrase appears as whole words, so "no"
- * catches "No thanks" but not "I know".
- */
-export function replyMatches(text: string, phrases: string[], match: 'contains' | 'exact' | undefined): boolean {
-  const reply = squash(text)
-  return phrases.some((p) => {
-    const want = squash(p)
-    if (!want) return false
-    if (match === 'exact') return reply === want
-    return new RegExp(`(^|[^a-z0-9])${want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(reply)
-  })
-}
+// How a reply is matched against a trigger's phrases lives in ./reply-match.ts (pure, so the tests can load it).
+export { replyMatches }
 
 function triggerMatches(t: HlTrigger, e: TriggerEvent): boolean {
   // Switched off in GHL, or a GHL trigger with no Genisys OS equivalent: never fires.

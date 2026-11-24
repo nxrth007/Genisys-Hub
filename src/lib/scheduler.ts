@@ -66,6 +66,7 @@ import { maybeResumeImports } from './hl/ghl-import'
 import { maybeFillGoogleProfileLinks, maybeHideQuoteFormLegalLinks, maybeUpgradeClientAccounts } from './hl/accounts'
 import { maybeRenameSavedNotes } from './hl/rename-notes'
 import { maybeFixReviewWorkflows } from './hl/review-fixes'
+import { maybeFixOptoutTriggers } from './hl/optout-fixes'
 import { maybeSyncLegalLinks } from './hl/legal-links'
 import { maybeUpgradeWebhookTriggers } from './hl/webhooks'
 import { maybeSyncGoogleCalendars } from './hl/google-sync'
@@ -592,6 +593,12 @@ export function initScheduler() {
         if (n) console.log(`[scheduler] genisys-os: ${n} review workflow(s) updated`)
       })
       .catch((err) => console.error('[scheduler] genisys-os review workflow update failed:', err))
+    // Once: the kit's opt-out workflow stops switching texting off on any reply with "no" in it (2026-11-24).
+    void maybeFixOptoutTriggers()
+      .then((n) => {
+        if (n) console.log(`[scheduler] genisys-os: ${n} opt-out workflow(s) updated`)
+      })
+      .catch((err) => console.error('[scheduler] genisys-os opt-out workflow update failed:', err))
     // Once: notes saved under the old name (Hell-level) read Genisys OS, and hidden Office items stay hidden.
     void maybeRenameSavedNotes()
       .then((n) => {
