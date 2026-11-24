@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Check, Folder, MessageSquareWarning, Phone, Search } from 'lucide-react'
+import { Check, Folder, MessageSquareWarning, Phone, Search, SearchX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import type { SiteFolder } from '@/lib/sites'
 import { siteHost, type SiteStatus } from '@/lib/site-status'
 
-type Filter = 'all' | 'needs' | 'live' | 'number' | 'texting'
+type Filter = 'all' | 'needs' | 'live' | 'number' | 'texting' | 'google'
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -16,6 +16,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'number', label: 'Need a number' },
   { id: 'texting', label: 'Can’t text yet' },
+  { id: 'google', label: 'Not on Google' },
 ]
 
 function matches(f: SiteFolder, filter: Filter): boolean {
@@ -24,6 +25,8 @@ function matches(f: SiteFolder, filter: Filter): boolean {
   if (filter === 'number') return f.phone === 'needs'
   // Their GHL number shows "Verification Required": no texts go out, replies included.
   if (filter === 'texting') return f.cantText
+  // Domain connected a week ago or more, and Google still hasn't indexed the site (src/lib/seo/google-verdict.ts).
+  if (filter === 'google') return !!f.google?.flagged
   return (filter === 'live') === (f.status === 'live')
 }
 
@@ -35,6 +38,7 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
   const q = query.trim().toLowerCase()
   const needNumber = folders.filter((f) => f.phone === 'needs').length
   const cantText = folders.filter((f) => f.cantText).length
+  const notOnGoogle = folders.filter((f) => f.google?.flagged).length
   const shown = folders.filter((f) => matches(f, filter) && (!q || f.name.toLowerCase().includes(q) || !!f.person?.toLowerCase().includes(q) || siteHost(f.siteUrl).includes(q)))
 
   return (
@@ -68,7 +72,7 @@ export function SitesGrid({ folders }: { folders: SiteFolder[] }) {
                 filter === f.id ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
-              {f.id === 'number' ? `${f.label} (${needNumber})` : f.id === 'texting' ? `${f.label} (${cantText})` : f.label}
+              {f.id === 'number' ? `${f.label} (${needNumber})` : f.id === 'texting' ? `${f.label} (${cantText})` : f.id === 'google' ? `${f.label} (${notOnGoogle})` : f.label}
             </button>
           ))}
         </div>
@@ -118,6 +122,16 @@ function FolderTile({ f }: { f: SiteFolder }) {
             title="Needs a phone number (GHL shows none)"
           >
             <Phone className="h-3 w-3" strokeWidth={2.5} />
+          </span>
+        )}
+        {f.google?.flagged && (
+          <span
+            className="absolute -left-1 top-1.5 grid h-6 w-6 place-items-center rounded-full border-2 border-background bg-red-500 text-white shadow-sm"
+            role="img"
+            aria-label="Not on Google"
+            title={`Not on Google ${f.google.daysConnected} days after its domain was connected. ${f.google.text}`}
+          >
+            <SearchX className="h-3 w-3" strokeWidth={2.5} />
           </span>
         )}
         {f.cantText && (

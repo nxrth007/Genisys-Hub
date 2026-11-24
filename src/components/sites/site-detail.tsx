@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Hammer, Loader2, Phone, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
+import type { GoogleVerdict } from '@/lib/seo/google-verdict'
 import { cantTextYet } from '@/lib/ghl-number/census-plan'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
@@ -269,12 +270,19 @@ const GOOGLE_STYLE: Record<NonNullable<SiteDetail['google']>['status'], string> 
   unchecked: STAGE_STYLE.pending,
 }
 
+const VERDICT_STYLE: Record<GoogleVerdict['tone'], string> = { good: STAGE_STYLE.done, wait: STAGE_STYLE.in_progress, bad: STAGE_STYLE.blocked, idle: STAGE_STYLE.pending }
+
+const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
 /**
- * Does the live site tell Google its own domain? The domain guard
- * (src/lib/seo/domain-guard.ts) looks twice a day and fixes the code and
- * publishes it when the canonical links or sitemap name another domain or none.
+ * Two questions, kept apart. Our side: does the live site tell Google its own domain? The domain
+ * guard (src/lib/seo/domain-guard.ts) looks twice a day and fixes the code and publishes it when the
+ * canonical links or sitemap name another domain or none. Google's side: has Google indexed it? The
+ * daily Search Console check (src/lib/seo/google-verdict.ts); a site still not indexed a week after its
+ * domain was connected is flagged here and on the Sites list.
  */
 function GoogleCard({ g, canCheck }: { g: NonNullable<SiteDetail['google']>; canCheck: boolean }) {
+  const v = g.verdict
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -298,6 +306,28 @@ function GoogleCard({ g, canCheck }: { g: NonNullable<SiteDetail['google']>; can
         <p className={cn('text-[12.5px] leading-snug', g.status === 'needs_person' ? 'text-foreground' : 'text-foreground/90')}>{line}</p>
         <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', GOOGLE_STYLE[g.status])}>{GOOGLE_WORD[g.status]}</span>
       </div>
+      {v && (
+        <div className="flex flex-col gap-1 border-t border-border/60 pt-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[12.5px] leading-snug text-foreground/90">
+              <span className="text-muted-foreground">Google’s answer: </span>
+              {v.text}
+            </p>
+            <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', VERDICT_STYLE[v.tone])}>{v.label}</span>
+          </div>
+          {v.flagged && (
+            <p className="text-[12px] font-medium text-destructive" suppressHydrationWarning>
+              Not indexed {v.daysConnected} days after its domain was connected{v.connectedAt ? ` (${day(v.connectedAt)})` : ''}.
+            </p>
+          )}
+          {(v.lastLooked || v.checkedAt) && (
+            <p className="text-[11.5px] text-muted-foreground" suppressHydrationWarning>
+              {v.lastLooked ? `Google last looked ${day(v.lastLooked)}. ` : ''}
+              {v.checkedAt ? `The Hub asked ${new Date(v.checkedAt).toLocaleString()}; it asks every day.` : ''}
+            </p>
+          )}
+        </div>
+      )}
       <ul className="flex flex-col gap-1 text-[12px] text-muted-foreground">
         <li>
           Search Console: {g.searchConsole ? <span className="text-foreground/90">added ({g.searchConsole.replace(/^https?:\/\//, '').replace(/\/$/, '')})</span> : 'not added yet (the Hub adds live sites on its own)'}

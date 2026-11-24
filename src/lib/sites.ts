@@ -18,6 +18,7 @@ import { SITE_STATUS_TEXT, siteDomainChoice, type SiteDomainChoice, type SiteSta
 import { readSavedPause, type SitePause } from '@/lib/hl/site-pause'
 import { domainStage, hellLevelStage, personName, siteHost, siteHref, siteStatus, sortFolders, stageView, tollFreeStage, type SiteStatus } from '@/lib/site-status'
 import { DOMAIN_GUARD_KEY_PREFIX } from '@/lib/seo/domain-guard-plan'
+import { GSC_CONNECT_KEY, GSC_HEALTH_KEY, connectReasons, connectedAt, googleVerdict, storedSites, type GoogleVerdict } from '@/lib/seo/google-verdict'
 import type { DomainGuardState } from '@/lib/seo/domain-guard'
 
 export type SiteFolder = {
@@ -33,6 +34,8 @@ export type SiteFolder = {
   phone: PhoneState
   /** A number in their GHL sub-account shows "Verification Required": it can't send texts yet. */
   cantText: boolean
+  /** Google's verdict on their site, for the list: `flagged` = its domain was connected a week ago and Google still hasn't indexed it. Null without a site. */
+  google: Pick<GoogleVerdict, 'state' | 'label' | 'text' | 'flagged' | 'daysConnected'> | null
 }
 
 const ON_ROSTER = {
@@ -42,21 +45,28 @@ const ON_ROSTER = {
 }
 
 export async function listSiteFolders(): Promise<SiteFolder[]> {
-  const clients = await prisma.client.findMany({
-    where: ON_ROSTER,
-    select: {
-      id: true,
-      name: true,
-      contactName: true,
-      color: true,
-      siteUrl: true,
-      ghlLocationId: true,
-      hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { kind: true, verificationStatus: true } } } },
-      hlNumberRequest: { select: { status: true, route: true } },
-      ghlNumberCensus: { select: { locationId: true, state: true, version: true, numbers: true } },
-      journeyStages: { where: { stage: 'website' }, select: { status: true } },
-    },
-  })
+  const [clients, google] = await Promise.all([
+    prisma.client.findMany({
+      where: ON_ROSTER,
+      select: {
+        id: true,
+        name: true,
+        contactName: true,
+        color: true,
+        siteUrl: true,
+        siteLiveAt: true,
+        ghlLocationId: true,
+        hlAccount: { select: { profile: true, numbers: { where: { status: 'active' }, select: { kind: true, verificationStatus: true } } } },
+        hlNumberRequest: { select: { status: true, route: true } },
+        ghlNumberCensus: { select: { locationId: true, state: true, version: true, numbers: true } },
+        journeyStages: { where: { stage: 'website' }, select: { status: true } },
+        seoSite: { select: { id: true, archivedAt: true, liveUrl: true, gscProperty: true, createdAt: true } },
+        hlSiteRequest: { select: { domainAt: true } },
+      },
+    }),
+    googleInputs(),
+  ])
+  const now = new Date()
   return sortFolders(
     clients.map((c) => {
       // What the Hub last read of their GHL sub-account's numbers (the daily read).
@@ -74,9 +84,56 @@ export async function listSiteFolders(): Promise<SiteFolder[]> {
         phone,
         // GHL's "Verification Required", or a Genisys OS toll-free number Twilio hasn't approved yet.
         cantText: (phone === 'ghl' && cantTextYet(readCensusNumbers(census?.numbers)).length > 0) || (phone === 'hell_level' && hlCantTextYet(hlNumbers)),
+        google: c.siteUrl?.trim() ? verdictFor({ site: c.seoSite, clientSiteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt, domainAt: c.hlSiteRequest?.domainAt ?? null }, google, now) : null,
       }
     }),
   )
+}
+
+/** The stored Search Console results and the domain guard's dates, read once for a page. */
+type GoogleInputs = { stored: ReturnType<typeof storedSites>; connectWhy: Map<string, string>; originSince: Map<string, string> }
+
+async function googleInputs(siteIds?: string[]): Promise<GoogleInputs> {
+  const [rows, guards] = await Promise.all([
+    prisma.appSetting.findMany({ where: { key: { in: [GSC_HEALTH_KEY, GSC_CONNECT_KEY] } }, select: { key: true, value: true } }).catch(() => []),
+    prisma.appSetting
+      .findMany({ where: siteIds ? { key: { in: siteIds.map((id) => `${DOMAIN_GUARD_KEY_PREFIX}${id}`) } } : { key: { startsWith: DOMAIN_GUARD_KEY_PREFIX } }, select: { key: true, value: true } })
+      .catch(() => []),
+  ])
+  const originSince = new Map<string, string>()
+  for (const g of guards) {
+    const since = readGuardState(g.value)?.originSince
+    if (since) originSince.set(g.key.slice(DOMAIN_GUARD_KEY_PREFIX.length), since)
+  }
+  const value = (key: string) => rows.find((r) => r.key === key)?.value ?? null
+  return { stored: storedSites(value(GSC_HEALTH_KEY)), connectWhy: connectReasons(value(GSC_CONNECT_KEY)), originSince }
+}
+
+/** Google's verdict on one client's site (src/lib/seo/google-verdict.ts). */
+function verdictFor(
+  c: {
+    site: { id: string; archivedAt: Date | null; liveUrl: string | null; gscProperty: string | null; createdAt: Date } | null
+    clientSiteUrl: string | null
+    siteLiveAt: Date | null
+    domainAt: Date | null
+  },
+  g: GoogleInputs,
+  now: Date,
+): GoogleVerdict | null {
+  if (!c.site || c.site.archivedAt) return null
+  return googleVerdict({
+    liveUrl: c.site.liveUrl ?? c.clientSiteUrl,
+    property: c.site.gscProperty,
+    stored: g.stored.get(c.site.id),
+    connectWhy: g.connectWhy.get(c.site.id),
+    connectedAt: connectedAt({
+      originSince: g.originSince.get(c.site.id),
+      domainAt: c.domainAt?.toISOString(),
+      siteLiveAt: c.siteLiveAt?.toISOString(),
+      siteCreatedAt: c.site.createdAt.toISOString(),
+    }),
+    now,
+  })
 }
 
 const STAGE_LABEL: Record<JourneyStage, string> = {
@@ -136,6 +193,8 @@ export type SiteDetail = {
     fixedAt: string | null
     submitted: string | null
     searchConsole: string | null
+    /** Google's side: has it indexed the homepage (the daily Search Console check)? */
+    verdict: GoogleVerdict | null
   } | null
   /** Forge's website build in Lovable (src/lib/hl/site-request.ts); null before it was ever asked. */
   build: {
@@ -226,18 +285,19 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
           shots: { orderBy: { createdAt: 'desc' }, take: 10, select: { id: true, step: true, createdAt: true } },
         },
       },
-      seoSite: { select: { id: true, repoFullName: true, lovableProjectId: true, archivedAt: true, gscProperty: true } },
+      seoSite: { select: { id: true, repoFullName: true, lovableProjectId: true, archivedAt: true, gscProperty: true, liveUrl: true, createdAt: true } },
       hlSiteRequest: {
-        select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, pause: true, updatedAt: true },
+        select: { status: true, detail: true, projectId: true, editorUrl: true, projectName: true, prompt: true, liveUrl: true, domain: true, domainStep: true, domainTxt: true, pause: true, domainAt: true, updatedAt: true },
       },
       hlDomainRequest: { select: { status: true, detail: true, name: true, suggestions: true } },
     },
   })
   if (!c) return null
-  const [journey, intakes, guardRow] = await Promise.all([
+  const [journey, intakes, guardRow, googleData] = await Promise.all([
     getJourney(clientId),
     prisma.clientIntake.count({ where: { clientId } }),
     c.seoSite ? prisma.appSetting.findUnique({ where: { key: `${DOMAIN_GUARD_KEY_PREFIX}${c.seoSite.id}` } }).catch(() => null) : null,
+    c.seoSite ? googleInputs([c.seoSite.id]) : null,
   ])
   const guard = readGuardState(guardRow?.value)
   const website = journey.stages.find((s) => s.stage === 'website')
@@ -374,6 +434,7 @@ export async function getSiteDetail(clientId: string): Promise<SiteDetail | null
             fixedAt: guard?.fixedAt ?? null,
             submitted: guard?.submitted ?? null,
             searchConsole: c.seoSite.gscProperty,
+            verdict: googleData ? verdictFor({ site: c.seoSite, clientSiteUrl: c.siteUrl, siteLiveAt: c.siteLiveAt, domainAt: c.hlSiteRequest?.domainAt ?? null }, googleData, new Date()) : null,
           }
         : null,
     build: c.hlSiteRequest

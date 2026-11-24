@@ -5,6 +5,7 @@ import { gscConfigured, gscSubmitSitemap } from './gsc'
 import { newIndexNowKey, pingIndexNow } from './indexnow'
 import { lovableChannel, lovableProjectInfo, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
+import { originSince } from './google-verdict'
 import { lovableHasMerge } from './pipeline'
 import { detectLovableProjectId } from './repo'
 import {
@@ -116,6 +117,11 @@ export type DomainGuardState = {
   fixedAt?: string | null
   /** What Google was told after the fix (sitemap submit, IndexNow). */
   submitted?: string | null
+  /**
+   * When the site's address became this one: the guard's first look at it, or its link moving to another
+   * domain (the day the domain was connected; ./google-verdict.ts). None on a state from before 2026-11-24.
+   */
+  originSince?: string | null
   nextAt: number
   leaseUntil?: number | null
 }
@@ -295,7 +301,7 @@ async function stepOne(site: GuardSite, st: DomainGuardState | undefined, now: n
       nextAt: now + (stuck ? PERSON_RECHECK_MS : Math.min(60, 2 ** failures) * MINUTE),
     }
   }
-  next = { ...next, leaseUntil: null }
+  next = { ...next, leaseUntil: null, originSince: originSince(st, next.servedOrigin, stamp(now)) }
   await save(site.id, next).catch((err) => console.warn(`[domain-guard] ${site.name}: couldn’t save: ${message(err)}`))
   return next
 }

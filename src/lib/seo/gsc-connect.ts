@@ -12,6 +12,7 @@ import {
   siteVerificationFileToken,
   siteVerificationVerify,
 } from './gsc'
+import { GSC_CONNECT_KEY } from './google-verdict'
 import { bareHost } from './html'
 import { lovableChannel, lovableProjectInfo, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
@@ -41,7 +42,7 @@ import { seoAlert } from './slack'
  * in case a person fixed it.
  */
 
-const STATE_KEY = 'seo.gsc.connect'
+const STATE_KEY = GSC_CONNECT_KEY
 const STEP_MS = 2 * 60_000
 const LOVABLE_QUIET_MS = 30 * 60_000
 const PUBLISH_RETRY_MS = 10 * 60_000

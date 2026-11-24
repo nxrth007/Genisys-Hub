@@ -10,6 +10,7 @@ import {
   type GscInspection,
   type GscSitemap,
 } from './gsc'
+import { GSC_HEALTH_KEY, readHome } from './google-verdict'
 
 /**
  * Is Search Console really working, beyond "Google gave us a token"?
@@ -21,7 +22,7 @@ import {
  * Read-only; the last result is kept so the dashboard can show it.
  */
 
-const RESULT_KEY = 'seo.gsc.health'
+const RESULT_KEY = GSC_HEALTH_KEY
 const DAY = 86_400_000
 /** Newest live posts inspected per site — enough to spot a pattern, cheap on Google's quota. */
 const POSTS_PER_SITE = 3
@@ -41,6 +42,8 @@ export type GscSiteHealth = {
   home: GscInspection | null
   posts: GscInspection[]
   last28: { clicks: number; impressions: number } | null
+  /** This site's own check time: a single-site refresh is newer than the daily run. */
+  checkedAt?: string
 }
 
 export type GscHealth = {
@@ -104,7 +107,7 @@ async function checkSite(
   const findings: GscSiteHealth['findings'] = []
   const result: GscSiteHealth = {
     siteId: site.id, name: site.name, property, level: 'ok', findings,
-    permission: null, sitemaps: [], home: null, posts: [], last28: null,
+    permission: null, sitemaps: [], home: null, posts: [], last28: null, checkedAt: new Date(now).toISOString(),
   }
   const done = () => {
     findings.sort((a, b) => ['fail', 'warn', 'ok'].indexOf(a.level) - ['fail', 'warn', 'ok'].indexOf(b.level))
@@ -169,7 +172,11 @@ async function checkSite(
   } else if (home.value) {
     result.home = home.value
     const h = home.value
-    if (h.verdict !== 'PASS') {
+    // Google filing it under the www spelling of the same domain isn’t a failure: the site is on Google.
+    const read = readHome(h)
+    if (read.state === 'settling') {
+      findings.push({ level: 'warn', text: read.text })
+    } else if (h.verdict !== 'PASS') {
       findings.push({ level: 'fail', text: `The homepage isn’t on Google: “${h.coverageState ?? h.verdict}”.` })
     } else if (h.googleCanonical && h.userCanonical && h.googleCanonical !== h.userCanonical) {
       findings.push({ level: 'warn', text: `Google picked ${h.googleCanonical} as the homepage, not ${h.userCanonical} — check the www/non-www redirect and canonical.` })
@@ -270,6 +277,23 @@ export async function checkGscHealth(): Promise<GscHealth> {
   if (!acct.length) acct.push({ level: 'ok', text: `Signed in as ${health.account.email}, with Search Console and Site Verification access.` })
   health.level = worst([...acct.map((f) => f.level), ...health.sites.map((s) => s.level)])
   return save(health)
+}
+
+/**
+ * One site's check, now, kept in the stored result (the Sites folder's Check now, right after a domain is
+ * connected). Read-only against Google. Null when the site has no Search Console property yet.
+ */
+export async function refreshGscSite(siteId: string): Promise<GscSiteHealth | null> {
+  const site = await prisma.seoSite.findUnique({ where: { id: siteId }, select: { id: true, name: true, gscProperty: true, liveUrl: true, archivedAt: true } })
+  if (!site?.gscProperty || site.archivedAt || !(await gscConfigured()).ok) return null
+  const listed = await gscListSites()
+  const one = await checkSite({ id: site.id, name: site.name, gscProperty: site.gscProperty, liveUrl: site.liveUrl }, listed, Date.now())
+  const last = await lastGscHealth()
+  const health: GscHealth = last ?? { checkedAt: new Date().toISOString(), level: 'ok', account: { email: null, kind: null, findings: [] }, sites: [], notConnected: [] }
+  health.sites = [...health.sites.filter((s) => s.siteId !== siteId), one]
+  health.level = worst([...health.account.findings.map((f) => f.level), ...health.sites.map((s) => s.level)])
+  await save(health)
+  return one
 }
 
 async function save(health: GscHealth): Promise<GscHealth> {
