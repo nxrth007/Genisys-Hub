@@ -330,9 +330,12 @@ function GoogleCard({ g, canCheck }: { g: NonNullable<SiteDetail['google']>; can
         </div>
       )}
       <ul className="flex flex-col gap-1 text-[12px] text-muted-foreground">
-        <li>
-          Search Console: {g.searchConsole ? <span className="text-foreground/90">added ({g.searchConsole.replace(/^https?:\/\//, '').replace(/\/$/, '')})</span> : 'not added yet (the Hub adds live sites on its own)'}
-        </li>
+        {/* Not added: Google's answer above already says so, and why. */}
+        {(g.searchConsole || v?.state !== 'not_added') && (
+          <li>
+            Search Console: {g.searchConsole ? <span className="text-foreground/90">added ({g.searchConsole.replace(/^https?:\/\//, '').replace(/\/$/, '')})</span> : 'not added yet (the Hub adds live sites on its own)'}
+          </li>
+        )}
         {g.fixedAt && (
           <li suppressHydrationWarning>
             Fixed {new Date(g.fixedAt).toLocaleDateString()}
