@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AppWindow, ArrowLeft, Check, Copy, ExternalLink, Folder, Hammer, Loader2, Phone, PhoneForwarded, MessageSquareShare, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GhlRegistrationView, SiteDetail } from '@/lib/sites'
-import type { GoogleVerdict } from '@/lib/seo/google-verdict'
+import { flagLine, type GoogleVerdict } from '@/lib/seo/google-verdict'
 import { cantTextYet } from '@/lib/ghl-number/census-plan'
 import { SITE_STATUS_LABEL, siteHost, siteHref, textingLine } from '@/lib/site-status'
 import { StatusBadge } from './sites-grid'
@@ -317,7 +317,8 @@ function GoogleCard({ g, canCheck }: { g: NonNullable<SiteDetail['google']>; can
           </div>
           {v.flagged && (
             <p className="text-[12px] font-medium text-destructive" suppressHydrationWarning>
-              Not indexed {v.daysConnected} days after its domain was connected{v.connectedAt ? ` (${day(v.connectedAt)})` : ''}.
+              {flagLine(v)}
+              {v.connectedAt ? ` (${day(v.connectedAt)})` : ''}.
             </p>
           )}
           {(v.lastLooked || v.checkedAt) && (

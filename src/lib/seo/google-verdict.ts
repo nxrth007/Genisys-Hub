@@ -76,17 +76,25 @@ export function connectedAt(o: { originSince?: string | null; domainAt?: string 
 }
 
 /**
- * When the site's address became this one, for the guard to keep: now on its first look or when it
- * moves to another domain (that's the day the domain was connected), else as it was. www and no-www are
- * the same address. A state from before 2026-11-24 has no date and keeps none: its site was connected
- * before this was tracked.
+ * When the site's address became this one, for the guard to keep: the day its link was first saved on
+ * the guard's first look (now, when that isn't known), now when it moves to another domain (that's the day
+ * the domain was connected), else as it was. www and no-www are the same address. A state from before
+ * 2026-11-24 has no date and keeps none: its site was connected before this was tracked.
  */
-export function originSince(prev: { servedOrigin?: string | null; originSince?: string | null } | null | undefined, servedOrigin: string | null | undefined, nowIso: string): string | null {
+export function originSince(
+  prev: { servedOrigin?: string | null; originSince?: string | null } | null | undefined,
+  servedOrigin: string | null | undefined,
+  nowIso: string,
+  firstLinkedIso?: string | null,
+): string | null {
   const was = bare(host(prev?.servedOrigin))
   const is = bare(host(servedOrigin))
   if (!is) return prev?.originSince ?? null
-  if (!prev || !was || was !== is) return nowIso
-  return prev.originSince ?? null
+  // Its first look (or one a deploy cut off). The site may have been live long before it got a seat
+  // (a client added by hand), so the look itself isn't day one.
+  if (!was) return firstLinkedIso && firstLinkedIso < nowIso ? firstLinkedIso : nowIso
+  if (was !== is) return nowIso
+  return prev?.originSince ?? null
 }
 
 /** "seo.gsc.health": one stored check per site. */
@@ -141,6 +149,12 @@ export type GoogleVerdict = {
   daysConnected: number | null
   /** Connected a week or more ago and still not indexed: shows on the Sites list. */
   flagged: boolean
+}
+
+/** The flag in words. Where Google hasn't been asked yet, the site isn't known to be missing from it. */
+export function flagLine(v: Pick<GoogleVerdict, 'state' | 'daysConnected'>): string {
+  const what = v.state === 'not_added' || v.state === 'unchecked' ? 'Not confirmed on Google' : 'Not indexed'
+  return `${what} ${v.daysConnected} days after its domain was connected`
 }
 
 const LABEL: Record<GoogleState, { label: string; tone: GoogleVerdict['tone'] }> = {

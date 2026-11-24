@@ -6,6 +6,7 @@ import { Check, Folder, MessageSquareWarning, Phone, Search, SearchX } from 'luc
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import type { SiteFolder } from '@/lib/sites'
+import { flagLine } from '@/lib/seo/google-verdict'
 import { siteHost, type SiteStatus } from '@/lib/site-status'
 
 type Filter = 'all' | 'needs' | 'live' | 'number' | 'texting' | 'google'
@@ -129,7 +130,7 @@ function FolderTile({ f }: { f: SiteFolder }) {
             className="absolute -left-1 top-1.5 grid h-6 w-6 place-items-center rounded-full border-2 border-background bg-red-500 text-white shadow-sm"
             role="img"
             aria-label="Not on Google"
-            title={`Not on Google ${f.google.daysConnected} days after its domain was connected. ${f.google.text}`}
+            title={`${flagLine(f.google)}. ${f.google.text}`}
           >
             <SearchX className="h-3 w-3" strokeWidth={2.5} />
           </span>

@@ -6,6 +6,7 @@ import { newIndexNowKey, pingIndexNow } from './indexnow'
 import { lovableChannel, lovableProjectInfo, lovableProjectMatchesRepo, publishLovableProject } from './lovable'
 import { lovableMcpDeploy } from './lovable-mcp'
 import { originSince } from './google-verdict'
+import { seatLiveSites } from './link-client'
 import { lovableHasMerge } from './pipeline'
 import { detectLovableProjectId } from './repo'
 import {
@@ -136,7 +137,7 @@ type GuardSite = {
   indexNowKey: string | null
   gscProperty: string | null
   mode: string
-  client: { name: string; hlSiteRequest: { projectId: string | null } | null } | null
+  client: { name: string; siteLiveAt: Date | null; hlSiteRequest: { projectId: string | null } | null } | null
 }
 
 const SITE_SELECT = {
@@ -149,7 +150,7 @@ const SITE_SELECT = {
   indexNowKey: true,
   gscProperty: true,
   mode: true,
-  client: { select: { name: true, hlSiteRequest: { select: { projectId: true } } } },
+  client: { select: { name: true, siteLiveAt: true, hlSiteRequest: { select: { projectId: true } } } },
 } as const
 
 /** "acme.org" or "https://acme.org/x" → "https://acme.org"; null when it isn't a web address. */
@@ -210,7 +211,7 @@ async function save(siteId: string, s: DomainGuardState): Promise<void> {
 // Running it
 // ---------------------------------------------------------------------------
 
-const g = globalThis as unknown as { __domainGuardAt?: number; __domainGuardBusy?: Promise<unknown> | null }
+const g = globalThis as unknown as { __domainGuardAt?: number; __domainGuardSeatsAt?: number; __domainGuardBusy?: Promise<unknown> | null }
 
 /** One site's step, never two at once in this process. */
 async function serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -233,6 +234,11 @@ export async function maybeRunDomainGuard(now = Date.now()): Promise<{ stepped: 
   if (g.__domainGuardBusy) return null
   g.__domainGuardAt = now
   return serial(async () => {
+    // A live site with no seat would never be looked at (hourly; the onboarding form makes the seat as a rule).
+    if (!g.__domainGuardSeatsAt || now - g.__domainGuardSeatsAt >= HOUR) {
+      g.__domainGuardSeatsAt = now
+      await seatLiveSites().catch((err) => console.warn(`[domain-guard] seats: ${message(err)}`))
+    }
     const sites: GuardSite[] = await prisma.seoSite.findMany({
       where: { archivedAt: null, enabled: true, AND: [{ liveUrl: { not: null } }, { liveUrl: { not: '' } }] },
       select: SITE_SELECT,
@@ -301,7 +307,7 @@ async function stepOne(site: GuardSite, st: DomainGuardState | undefined, now: n
       nextAt: now + (stuck ? PERSON_RECHECK_MS : Math.min(60, 2 ** failures) * MINUTE),
     }
   }
-  next = { ...next, leaseUntil: null, originSince: originSince(st, next.servedOrigin, stamp(now)) }
+  next = { ...next, leaseUntil: null, originSince: originSince(st, next.servedOrigin, stamp(now), site.client?.siteLiveAt?.toISOString()) }
   await save(site.id, next).catch((err) => console.warn(`[domain-guard] ${site.name}: couldn’t save: ${message(err)}`))
   return next
 }

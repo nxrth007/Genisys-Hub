@@ -136,9 +136,22 @@ test('the day a domain was connected: first look, or the address moving', () => 
   assert.equal(v.originSince({ servedOrigin: 'https://acme.lovable.app', originSince: ago(9) }, 'https://acme.org', now), now)
   // Same address (www or not): kept.
   assert.equal(v.originSince({ servedOrigin: 'https://acme.org', originSince: ago(9) }, 'https://www.acme.org', now), ago(9))
+  // Live long before it got a seat (a client added by hand): the day its link was first saved, also when a
+  // deploy cut the first look off. A link saved "later" than now (clock) is now; a move is always now.
+  assert.equal(v.originSince(undefined, 'https://acme.org', now, ago(58)), ago(58))
+  assert.equal(v.originSince({ servedOrigin: null }, 'https://acme.org', now, ago(58)), ago(58))
+  assert.equal(v.originSince(undefined, 'https://acme.org', now, ago(-1)), now)
+  assert.equal(v.originSince({ servedOrigin: 'https://acme.lovable.app' }, 'https://acme.org', now, ago(58)), now)
   // A state from before this was tracked stays blank.
   assert.equal(v.originSince({ servedOrigin: 'https://acme.org' }, 'https://acme.org', now), null)
   assert.equal(v.originSince({ servedOrigin: 'https://acme.org', originSince: ago(3) }, null, now), ago(3))
+})
+
+test('the flag says "not indexed" only when Google said so', () => {
+  const line = (o) => v.flagLine(verdict({ connectedAt: ago(58), ...o }))
+  assert.equal(line({ healthJson: health(insp('https://acme.org/', 'NEUTRAL', 'Discovered - currently not indexed')) }), 'Not indexed 58 days after its domain was connected')
+  assert.equal(line({ property: null, healthJson: null }), 'Not confirmed on Google 58 days after its domain was connected')
+  assert.equal(line({ healthJson: health(null) }), 'Not confirmed on Google 58 days after its domain was connected')
 })
 
 test('a single-site refresh is newer than the daily run', () => {
