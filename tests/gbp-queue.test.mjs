@@ -600,6 +600,16 @@ test('queued, and then the form says they have one: not sent, Maps checked or no
   assert.match(open(db, 'a').detail, /already have a profile/)
 })
 
+test('a listing that already shows the site we built isn’t a one-tap send', async () => {
+  const h = hub(db)
+  const listing = { placeId: 'p', name: 'A Roofing', address: 'Boston, MA 02108, USA', phone: '(603) 555-0142', website: 'https://www.acmeroof.com/', mapsUrl: 'https://maps.google.com/?cid=1', status: 'OPERATIONAL', matches: ['same phone', 'same website', 'same name'], related: true }
+  addClient(db, 'a', { status: 'existing', lookup: { ...checked, candidates: [listing] } })
+  assert.match((await h.queueSetupSends(['a'], null)).left[0].why, /already shows their website/)
+  const row = (await h.gbpRows(DAY))[0]
+  assert.equal(row.managed, true)
+  assert.match(row.block, /someone looks after it/)
+})
+
 test('reminders: once between two processes, never to a gone client, and not while it’s night there', async () => {
   const one = hub(db)
   const two = hub(db)

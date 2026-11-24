@@ -15,7 +15,7 @@ import {
   type GbpInputs,
   type GbpStatus,
 } from '@/lib/gbp-kit'
-import { listingVerdict } from '@/lib/gbp-plan'
+import { listingVerdict, showsTheirSite } from '@/lib/gbp-plan'
 import type { GbpBoard } from '@/lib/gbp-setup'
 
 const BLANK = /⟦([^⟧]+)⟧/g
@@ -354,8 +354,14 @@ function Board({ clientId, data, reload, flush }: { clientId: string; data: GbpB
           </div>
           {s.lookup?.error && <p className="text-[12.5px] text-destructive">{s.lookup.error}</p>}
           {verdict.kind === 'create' && <p className="text-[12.5px] text-muted-foreground">Nothing on Google Maps has this business’s phone, website or name. Create a new profile.</p>}
-          {verdict.kind === 'claim' && <p className="text-[12.5px] text-emerald-700 dark:text-emerald-300">Google Maps already lists them. Claim that listing; their setup page has them do the same.</p>}
-          {verdict.kind === 'maybe' && <p className="text-[12.5px] text-muted-foreground">A listing has their name, theirs or not. Their setup page asks them before they make a new one.</p>}
+          {verdict.kind === 'claim' && (
+            <p className="text-[12.5px] text-emerald-700 dark:text-emerald-300">
+              {showsTheirSite(verdict.listings, data.client.siteUrl)
+                ? 'Google Maps already lists them with their website on it, so someone looks after it. Check with them, then mark it verified in step 4.'
+                : 'Google Maps already lists them. Claim that listing; their setup page has them do the same.'}
+            </p>
+          )}
+          {verdict.kind === 'maybe' && <p className="text-[12.5px] text-muted-foreground">A listing has their name or number, theirs or not. Their setup page asks them before they make a new one.</p>}
           {s.lookup && s.lookup.candidates.length > 0 && (
             <ul className="flex flex-col gap-2">
               {s.lookup.candidates.map((c) => (

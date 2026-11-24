@@ -63,8 +63,12 @@ export function SetupView({ token, setup }: { token: string; setup: PublicSetup 
         ) : (
           <Step n={1} title={claim ? 'Claim your listing' : one ? 'First: is this you?' : 'First: is one of these you?'}>
             <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-              {claim ? 'This is what Google has. ' : `Google Maps lists ${one ? 'a business that may be yours. If it is' : 'businesses that may be yours. If one is'}, `}
-              {claim ? 'Open' : 'open'} it, tap <b>Claim this business</b> (it may say <b>Own this business?</b>) and sign in with your own Google account. The profile will belong to you.
+              {claim
+                ? one
+                  ? 'This is what Google has. Open it, '
+                  : 'Google lists you more than once. Open the first one, or whichever is right, '
+                : `Google Maps lists ${one ? 'a business that may be yours. If it is' : 'businesses that may be yours. If one is'}, open it, `}
+              tap <b>Claim this business</b> (it may say <b>Own this business?</b>) and sign in with your own Google account. The profile will belong to you.
             </p>
             <ul className="flex flex-col gap-2">
               {setup.listings.map((l) => (
@@ -81,7 +85,10 @@ export function SetupView({ token, setup }: { token: string; setup: PublicSetup 
                 </li>
               ))}
             </ul>
-            <p className="text-[12.5px] leading-snug text-muted-foreground">If Google says someone else already manages it, tap Request access, then text us and we’ll help.</p>
+            <p className="text-[12.5px] leading-snug text-muted-foreground">
+              If Google says someone else already manages it, tap Request access, then text us and we’ll help.
+              {claim && !one && ' Claim just one: once it’s yours, text us and we’ll help get the extras removed.'}
+            </p>
             {claim ? (
               <p className="text-[13.5px] leading-relaxed text-muted-foreground">
                 Not your business?{' '}

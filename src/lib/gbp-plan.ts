@@ -287,6 +287,12 @@ export const strongListing = (c: Pick<MapsCandidate, 'matches'>) => c.matches.in
  */
 export const theirListing = (c: Pick<MapsCandidate, 'matches' | 'related'>) => strongListing(c) && (c.related === true || c.matches.includes('same name'))
 
+/** Their listing already shows the site we built: someone looks after it (Google doesn't find that link by itself). */
+export function showsTheirSite(listings: Pick<MapsCandidate, 'matches' | 'related' | 'website'>[], siteUrl: string | null | undefined): boolean {
+  const site = ownHost(siteUrl)
+  return !!site && listings.some((l) => theirListing(l) && ownHost(l.website) === site)
+}
+
 /** create = nothing on Maps; claim = theirs is there; maybe = a listing with their name or number, theirs or not; unchecked = not looked at (or Google didn't answer). */
 export type ListingKind = 'create' | 'claim' | 'maybe' | 'unchecked'
 export type ListingVerdict = { kind: ListingKind; listings: MapsCandidate[] }
@@ -324,6 +330,8 @@ export type SendFacts = {
   category: string
   siteLive: boolean
   listing: ListingKind
+  /** Their listing already shows the site we built (showsTheirSite). */
+  managed: boolean
   /** The onboarding form's "Do you have a Google Business Profile?". */
   says: 'yes' | 'no' | null
   /** The Hub checks Google Maps for them on its own (they need a profile); otherwise a person does on their board. */
@@ -349,7 +357,13 @@ export function sendCheck(f: SendFacts): { content: string | null; hold: string 
       : !cell && !email
         ? 'No owner cell or email. Add one on their board first.'
         : null
-  const hold = content ?? (f.says === 'yes' ? 'The form says they already have a profile. Check with them, or mark it on their board.' : null)
+  const hold =
+    content ??
+    (f.says === 'yes'
+      ? 'The form says they already have a profile. Check with them, or mark it on their board.'
+      : f.managed
+        ? 'Their Google listing already shows their website, so someone looks after it. Check with them, then mark it on their board.'
+        : null)
   const block =
     hold ??
     (f.listing === 'unchecked'

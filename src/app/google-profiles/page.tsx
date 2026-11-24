@@ -280,7 +280,7 @@ function Maps({ r }: { r: GbpRow }) {
   if (!l) return <span className="text-muted-foreground">Nothing there</span>
   return (
     <span className="block" title={r.listings.map((x) => `${x.name}${x.address ? `, ${x.address}` : ''} (${x.why})`).join('\n')}>
-      <span className="text-[12px] text-muted-foreground">{r.listing === 'claim' ? 'Claim ' : 'Maybe '}</span>
+      <span className="text-[12px] text-muted-foreground">{r.managed ? 'Set up? ' : r.listing === 'claim' ? 'Claim ' : 'Maybe '}</span>
       {l.mapsUrl ? <Out href={l.mapsUrl}>{l.name}</Out> : <span>{l.name}</span>}
       <span className="block text-[12px] text-muted-foreground">
         {[l.address ? listingTown(l.address) : 'no public address', l.why, r.listings.length > 1 ? `${r.listings.length - 1} more` : null].filter(Boolean).join(' · ')}

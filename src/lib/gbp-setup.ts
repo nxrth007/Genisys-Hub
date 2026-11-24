@@ -45,6 +45,7 @@ import {
   readOpenSend,
   sendCheck,
   SENDING_LOST_MS,
+  showsTheirSite,
   STALE_LOOKUP_MS,
   strongListing,
   theirListing,
@@ -728,6 +729,7 @@ function sendView(board: GbpBoard) {
   const done = status === 'verified' || status === 'has_profile' || !!board.state.clientDoneAt
   // Being made by us, waiting on the owner to verify, or their page is out: a page telling them to make one would be a second.
   const underway = done || status === 'created' || status === 'verifying' || !!board.state.sentAt
+  const managed = showsTheirSite(verdict.listings, board.client.siteUrl)
   const check = sendCheck({
     businessName: x.businessName,
     ownerFirstName: x.ownerFirstName,
@@ -736,10 +738,11 @@ function sendView(board: GbpBoard) {
     category: x.primaryCategory,
     siteLive: !!board.client.siteUrl?.trim(),
     listing: verdict.kind,
+    managed,
     says: board.intake.says,
     autoChecked: status === 'needed' || status === 'existing',
   })
-  return { x, verdict, done, underway, check }
+  return { x, verdict, done, underway, managed, check }
 }
 
 /**
@@ -908,6 +911,8 @@ export type GbpRow = {
   answer: string | null
   profileUrl: string | null
   listing: ListingKind
+  /** Their listing already shows their website: probably set up. */
+  managed: boolean
   listings: { name: string; address: string; mapsUrl: string | null; why: string }[]
   checkedAt: string | null
   lookupError: string | null
@@ -948,6 +953,7 @@ export async function gbpRows(at = new Date()): Promise<GbpRow[]> {
         answer: board.intake.answer,
         profileUrl: s.profileUrl ?? board.intake.link,
         listing: v.verdict.kind,
+        managed: v.managed,
         listings: v.verdict.listings.map((l) => ({ name: l.name, address: l.serviceArea ? '' : l.address, mapsUrl: l.mapsUrl, why: l.matches.join(', ') })),
         checkedAt: s.lookup?.at ?? null,
         lookupError: s.lookup?.error ?? null,

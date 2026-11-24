@@ -112,6 +112,14 @@ test('claim what is theirs, ask about a shared name or number, else create; a cl
   for (const l of [null, undefined, lookup([], { error: 'denied' }), lookup([], { v: undefined }), lookup([], { v: 1 })]) assert.equal(plan.listingVerdict(l).kind, 'unchecked')
 })
 
+test('a listing that already shows the site we built is looked after by someone', () => {
+  const l = (website, o = {}) => ({ matches: ['same phone', 'same website'], related: true, website, ...o })
+  assert.equal(plan.showsTheirSite([l('https://www.acmeroof.com/')], 'https://acmeroof.com'), true)
+  assert.equal(plan.showsTheirSite([l('https://other.com')], 'https://acmeroof.com'), false)
+  assert.equal(plan.showsTheirSite([l('https://acmeroof.com', { related: false, matches: ['same website'] })], 'https://acmeroof.com'), false)
+  assert.equal(plan.showsTheirSite([l(null)], null), false)
+})
+
 test('checks: the old way once more, a failure every 6 hours then daily, a good one never', () => {
   assert.equal(plan.lookupDue(null, NOW), true)
   assert.equal(plan.lookupDue(lookup([], { v: undefined, error: 'denied', at: ago(30 * 24 * HOUR) }), NOW), true)
@@ -147,7 +155,7 @@ test('the search asks Google for businesses without an address, and by phone', (
 })
 
 test('what stops a one-tap send: no real name, no way to reach them, or Google Maps not checked', () => {
-  const ok = { businessName: 'Acme Roofing', ownerFirstName: 'Sam', ownerPhone: '(603) 555-0142', ownerEmail: 'sam@acme.com', category: 'Roofing contractor', siteLive: true, listing: 'create', says: 'no', autoChecked: true }
+  const ok = { businessName: 'Acme Roofing', ownerFirstName: 'Sam', ownerPhone: '(603) 555-0142', ownerEmail: 'sam@acme.com', category: 'Roofing contractor', siteLive: true, listing: 'create', managed: false, says: 'no', autoChecked: true }
   assert.deepEqual(plan.sendCheck(ok), { content: null, hold: null, block: null, notes: [] })
   for (const businessName of ['No', 'none', '', 'Post office box 82', '123 Main St', '(603) 555-0142', 'AB', 'acme.com', 'sam@acme.com']) {
     assert.match(plan.sendCheck({ ...ok, businessName }).content ?? '', /isn’t a business name/, businessName)
@@ -157,6 +165,8 @@ test('what stops a one-tap send: no real name, no way to reach them, or Google M
   assert.match(plan.sendCheck({ ...ok, ownerPhone: '', ownerEmail: '' }).content, /No owner cell or email/)
   // These stop one tap, not a person sending it from the client's own board.
   for (const o of [{ says: 'yes' }, { listing: 'unchecked' }]) assert.equal(plan.sendCheck({ ...ok, ...o }).content, null)
+  assert.match(plan.sendCheck({ ...ok, listing: 'claim', managed: true }).hold, /already shows their website/)
+  assert.equal(plan.sendCheck({ ...ok, listing: 'claim', managed: true }).content, null)
   // Maps not checked clears itself; the form saying yes doesn't, checked or not.
   assert.equal(plan.sendCheck({ ...ok, listing: 'unchecked' }).hold, null)
   assert.match(plan.sendCheck({ ...ok, says: 'yes', listing: 'unchecked' }).hold, /already have a profile/)
