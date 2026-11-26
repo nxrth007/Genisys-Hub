@@ -126,6 +126,21 @@ export async function inviteLogin(o: {
   return { link, sent }
 }
 
+/**
+ * The owner's row on My Staff with this email, made when there's none (a login hangs off a staff
+ * row): what the client report and the site update text hang their login link on.
+ */
+export async function ownerStaffId(accountId: string, email: string, name: string, addedBy: string): Promise<string> {
+  const staff = await prisma.hlRecord.findMany({ where: { accountId, kind: 'user' }, select: { id: true, data: true } })
+  const same = staff.find((s) => {
+    const d = staffData(s.data)
+    return typeof d.email === 'string' && d.email.trim().toLowerCase() === email
+  })
+  if (same) return same.id
+  const row = await prisma.hlRecord.create({ data: { accountId, kind: 'user', name, data: { email, addedBy } } })
+  return row.id
+}
+
 /** Take someone's login off this sub-account; with none left, the login itself goes (and its session ends). */
 export async function removeLogin(accountId: string, userId: string): Promise<void> {
   await prisma.hlMember.deleteMany({ where: { accountId, userId } })

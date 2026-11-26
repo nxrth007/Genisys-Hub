@@ -15,6 +15,7 @@ import { BuilderWindow, DomainCodeBox } from './builder-window'
 import { ConfirmDialog, postAction } from './confirm-dialog'
 import { DomainCard } from './domain-card'
 import { ClientReportCard } from './client-report-card'
+import { SiteUpdateButton } from './site-update-button'
 import { RepoSelect, SiteLink, useRepoGuesses, type PickerClient, type RepoMatchClient } from '@/components/clients/site-repo-pickers'
 import { StripeStatus } from '@/components/clients/subscriptions-panel'
 
@@ -831,7 +832,7 @@ export function SiteDetailView({
         </div>
       </header>
 
-      {/* Where the site lives (the Clients page's Site and Repo columns) and where they stand in Stripe. */}
+      {/* Where the site lives (the Clients page's Site and Repo columns), where they stand in Stripe, and Send Site Update. */}
       <section aria-label="Site, repo and Stripe" className="flex flex-wrap items-start gap-x-8 gap-y-3 rounded-xl border border-border bg-card px-4 py-3">
         <div className="flex items-start gap-3">
           <span className="eyebrow flex h-9 w-10 shrink-0 items-center text-muted-foreground">Site</span>
@@ -851,6 +852,8 @@ export function SiteDetailView({
             <StripeStatus clientId={d.client.id} />
           </div>
         </div>
+        {/* Once the site is live on their own domain: text the owner the first draft and their Genisys OS login. */}
+        <SiteUpdateButton clientId={d.client.id} />
       </section>
 
       {d.builder && (

@@ -12,7 +12,7 @@ import { readProfile } from './accounts'
 import { REVIEW_REQUEST_FORM } from './client-kit'
 import { reportEmail, reportReadiness, type ReadyItem, type ReportNumbers } from './client-report-plan'
 import { HlInputError } from './http'
-import { inviteLogin } from './logins'
+import { inviteLogin, ownerStaffId } from './logins'
 import { publicBase } from './twilio'
 import { liveCode } from './widget-swap'
 import { liveState, liveSwapped } from './widget-swap-plan'
@@ -178,18 +178,6 @@ export async function clientReportView(clientId: string): Promise<ClientReportVi
   return { ready: r.ready, items: r.items, to: defaultTo(c), logins: a?.members.map((m) => m.user.email) ?? [], draft, last: log[log.length - 1] ?? null }
 }
 
-/** The owner on their My Staff with this email, made when there's none (a login hangs off a staff row). */
-async function ownerStaffId(accountId: string, email: string, name: string): Promise<string> {
-  const staff = await prisma.hlRecord.findMany({ where: { accountId, kind: 'user' }, select: { id: true, data: true } })
-  const same = staff.find((s) => {
-    const d = s.data && typeof s.data === 'object' ? (s.data as Record<string, unknown>) : {}
-    return typeof d.email === 'string' && d.email.trim().toLowerCase() === email
-  })
-  if (same) return same.id
-  const row = await prisma.hlRecord.create({ data: { accountId, kind: 'user', name, data: { email, addedBy: 'client report' } } })
-  return row.id
-}
-
 export type SendResult = { ok: true; to: string; login: boolean } | { ok: false; reason: string }
 
 /** Email the client their report (an admin's press in their folder): checked again, then sent once. */
@@ -206,7 +194,7 @@ export async function sendClientReport(clientId: string, o: { to: string; includ
   let login: { link: string; email: string } | null = null
   if (o.includeLogin) {
     try {
-      const staffId = await ownerStaffId(a.id, to, p.ownerName || c.contactName?.trim() || business)
+      const staffId = await ownerStaffId(a.id, to, p.ownerName || c.contactName?.trim() || business, 'client report')
       login = { link: (await inviteLogin({ accountId: a.id, staffId, email: to, by: o.by, quiet: true })).link, email: to }
     } catch (err) {
       if (err instanceof HlInputError) return { ok: false, reason: err.message }
