@@ -69,6 +69,36 @@ const SPECS = {
       }
     },
   },
+  mwapi: {
+    label: 'MWAPI key',
+    exact: ['MWAPI API Key', 'MWAPI', 'MWAPI Key', 'MWAPI_API_KEY'],
+    contains: ['mwapi'],
+    // The endpoint speaks the Anthropic Messages API, but its key is NOT an
+    // sk-ant- key, so this shape check must not overlap `anthropic`'s.
+    looksRight: (v) => /^sk-[A-Za-z0-9_-]{20,}$/.test(v) && !v.startsWith('sk-ant-'),
+    env: 'MWAPI_API_KEY',
+  },
+  braveSearch: {
+    label: 'Brave Search API key',
+    exact: ['Brave Search API Key', 'Brave Search', 'Brave API Key', 'BRAVE_API_KEY'],
+    contains: ['brave'],
+    looksRight: (v) => /^BSA[A-Za-z0-9_-]{10,}$/.test(v) || (v.length >= 20 && !v.includes(' ')),
+    env: 'BRAVE_API_KEY',
+  },
+  serper: {
+    label: 'Serper.dev API key',
+    exact: ['Serper API Key', 'Serper', 'Serper.dev API Key', 'SERPER_API_KEY'],
+    contains: ['serper'],
+    looksRight: (v) => /^[a-f0-9]{20,}$/i.test(v) || (v.length >= 24 && !v.includes(' ')),
+    env: 'SERPER_API_KEY',
+  },
+  googleCse: {
+    label: 'Google Programmable Search engine ID',
+    exact: ['Google CSE ID', 'Google Custom Search ID', 'Programmable Search Engine ID', 'GOOGLE_CSE_ID'],
+    contains: ['cse', 'custom search', 'programmable search'],
+    looksRight: (v) => /^[a-z0-9:_-]{8,}$/i.test(v) && !v.startsWith('AIza'),
+    env: 'GOOGLE_CSE_ID',
+  },
   lovable: {
     label: 'Lovable API key',
     exact: ['Lovable API Key', 'Lovable'],

@@ -187,6 +187,7 @@ export class RunContext {
   async session(): Promise<ClaudeSession> {
     return ClaudeSession.open({
       model: this.settings.model,
+      provider: this.settings.provider,
       budgetUsd: this.settings.maxCostPerRunUsd,
       usage: (this.run.usage as unknown as ClaudeUsage | null) ?? null,
     })

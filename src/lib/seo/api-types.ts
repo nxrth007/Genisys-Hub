@@ -75,6 +75,8 @@ export type SeoSettings = {
   /** 0–23, in `timeZone`. */
   hour: number
   timeZone: string
+  /** Which Claude surface serves the engine: the first-party API (hosted web tools + enforced schemas) or MWAPI (model only, retrieval done in-process). */
+  provider: 'anthropic' | 'mwapi'
   model: string
   /** New posts per site per week while a site builds its base (0–8). The engine writes fewer when the business's facts can't support more. */
   postsPerWeek: number

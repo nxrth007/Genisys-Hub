@@ -20,6 +20,10 @@ export const SEO_DEFAULTS: SeoSettings = {
   weekday: 1, // Monday
   hour: 6,
   timeZone: 'America/New_York',
+  // `anthropic` = first-party API, hosted web search/fetch + enforced schemas.
+  // `mwapi` = the subscription-backed pipe: model only, so research is done
+  // in-process and structured output goes through a forced tool call.
+  provider: 'anthropic',
   // The claude-api reference's default model. Change here (or in the stored
   // setting) — every call reads it per run.
   model: 'claude-opus-5',
@@ -50,6 +54,7 @@ function normalize(raw: Partial<SeoSettings>): SeoSettings {
     weekday: clamp(raw.weekday, 0, 6, SEO_DEFAULTS.weekday),
     hour: clamp(raw.hour, 0, 23, SEO_DEFAULTS.hour),
     timeZone: validTimeZone(raw.timeZone) ? raw.timeZone : SEO_DEFAULTS.timeZone,
+    provider: raw.provider === 'mwapi' ? 'mwapi' : 'anthropic',
     model: typeof raw.model === 'string' && /^claude-[a-z0-9-]+$/.test(raw.model) ? raw.model : SEO_DEFAULTS.model,
     postsPerWeek: clamp(raw.postsPerWeek, 0, MAX_POSTS_PER_RUN, SEO_DEFAULTS.postsPerWeek),
     rampTargetPosts: clamp(raw.rampTargetPosts, 0, 60, SEO_DEFAULTS.rampTargetPosts),
