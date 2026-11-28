@@ -49,9 +49,9 @@ function Change({ now, before }: { now: number; before: number }) {
 /** One result: what it is, the number, and a quiet line under it. */
 function Result({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1 border-b border-r border-border-soft px-5 py-4">
+    <div className="flex min-w-0 flex-col gap-1 border-b border-r border-border-soft px-3.5 py-3 sm:px-5 sm:py-4">
       <p className="eyebrow text-muted-foreground">{label}</p>
-      <p className="text-[24px] font-semibold leading-none tabular-nums text-foreground">{value}</p>
+      <p className="text-[22px] font-semibold leading-none tabular-nums text-foreground sm:text-[24px]">{value}</p>
       <p className="min-h-[18px] text-[12px] text-muted-foreground">{note}</p>
     </div>
   )
@@ -73,7 +73,7 @@ export default function DashboardPage() {
   const vs = `vs the ${days} days before`
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <PageHeader
         title="Dashboard"
         description="What Genisys OS did for the business."
@@ -236,7 +236,7 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          <Card className="p-5">
+          <Card className="p-4 sm:p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <p className="eyebrow text-muted-foreground">Pipeline · {s.pipeline?.name ?? 'Pipeline'}</p>
               <p className="text-[12.5px] text-muted-foreground">
@@ -251,7 +251,7 @@ export default function DashboardPage() {
               {(s.pipeline?.stages ?? []).map((st) => {
                 const top = Math.max(1, ...(s.pipeline?.stages ?? []).map((x) => x.count))
                 return (
-                  <div key={st.id} className="grid grid-cols-[150px_1fr_110px] items-center gap-3 text-[13px]">
+                  <div key={st.id} className="grid grid-cols-[96px_1fr_auto] items-center gap-2 text-[13px] sm:grid-cols-[150px_1fr_110px] sm:gap-3">
                     <span className="truncate text-foreground/90">{st.name}</span>
                     <div className="h-6 rounded bg-muted">
                       <div className="flex h-full items-center rounded bg-primary/70 px-2 font-mono text-[11px] text-primary-foreground" style={{ width: `${Math.max(st.count ? 6 : 0, (st.count / top) * 100)}%` }}>

@@ -62,8 +62,9 @@ function Settings() {
     </Link>
   )
   return (
-    <div className="flex min-h-full">
-      <aside className="w-[232px] shrink-0 border-r border-border px-3 py-5">
+    // On a phone the settings menu sits above the page instead of beside it.
+    <div className="flex min-h-full flex-col md:flex-row">
+      <aside className="w-full shrink-0 border-b border-border px-3 py-4 md:w-[232px] md:border-b-0 md:border-r md:py-5">
         <p className="eyebrow px-2.5 pb-2 text-muted-foreground">Settings</p>
         <nav className="flex flex-col gap-px">
           {(extra ? [...shown, extra] : shown).map(link)}
@@ -101,7 +102,7 @@ function Settings() {
 
 function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5 px-6 py-6">
+    <div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-6">
       <PageHeader title={title} description={description} />
       {children}
     </div>

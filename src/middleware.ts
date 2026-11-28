@@ -92,6 +92,11 @@ const PUBLIC_PATHS = [
   '/hl',
   '/api/hl/twilio',
   '/api/hl/public',
+  // Genisys OS as a phone app: its manifest and service worker (public/). Browsers fetch the
+  // manifest without the sign-in cookie, so behind the login check "Add to Home Screen" gets the
+  // sign-in page instead and the app has no name or icon. Neither file holds anything private.
+  '/genisys-os.webmanifest',
+  '/genisys-os-sw.js',
   // External API for separately-hosted frontends (the Lovable Vite SPA).
   // Those callers are on another domain and have no session cookie, so
   // middleware would 401 them before the handler runs. Every route under

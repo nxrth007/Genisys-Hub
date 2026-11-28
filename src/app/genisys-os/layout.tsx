@@ -4,8 +4,11 @@ import { canAccessHellLevel } from '@/lib/hl/access'
 import { memberAccountIds } from '@/lib/hl/logins'
 import { HL_MEMBER_ROLE } from '@/lib/hl/member-access'
 import { HellShell } from '@/components/genisys-os/shell'
+import { APP_METADATA, APP_VIEWPORT } from '@/components/genisys-os/app-meta'
 
-export const metadata = { title: 'Genisys OS' }
+// "Add to Home Screen" makes it an app (src/components/genisys-os/app-meta.ts).
+export const metadata = { title: 'Genisys OS', ...APP_METADATA }
+export const viewport = APP_VIEWPORT
 
 /**
  * Genisys OS: the agency's own GoHighLevel, inside the Hub. Its own

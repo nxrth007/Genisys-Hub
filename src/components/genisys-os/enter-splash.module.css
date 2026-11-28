@@ -984,6 +984,17 @@
   .loginRoot {
     overflow-y: auto;
   }
+  /* Opened from the home screen the page runs under the status bar (app-meta.ts): keep clear of it and the home bar. */
+  .loginRoot .hud {
+    top: max(clamp(18px, 4vh, 36px), calc(env(safe-area-inset-top) + 10px));
+  }
+  .loginRoot .credit {
+    bottom: calc(26px + env(safe-area-inset-bottom));
+  }
+  /* 16px: iPhones zoom the page in on a smaller field when it's tapped. */
+  .input {
+    font-size: 16px;
+  }
   .loginRoot .art {
     height: 44vh;
   }
@@ -998,7 +1009,7 @@
     justify-content: flex-end;
     width: auto;
     min-height: 100%;
-    padding: 34vh 24px 80px;
+    padding: 34vh 24px calc(80px + env(safe-area-inset-bottom));
   }
   .loginRoot .title,
   .loginRoot .ghost {

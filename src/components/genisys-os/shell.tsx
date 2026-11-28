@@ -14,6 +14,8 @@ import { ArrivalGate, EnterSplashGate } from './enter-splash'
 import { SECTIONS, SETTINGS_SECTION, activeTab, defaultTab, laterTabs, sectionOf, shownTabs, type Section, type SectionTab } from './nav'
 import { ConfirmHost } from './confirm'
 import { ViewerContext, type HlViewer } from './viewer'
+import { MobileDrawer, MobileTabBar, MobileTopBar } from './mobile-nav'
+import { InstallHint, PhoneAppEffects, PhoneAppWorker } from './phone-app'
 
 /** A section as a sub-account login sees it: only their tabs (null when it isn't theirs). */
 function memberSection(s: Section): Section | null {
@@ -72,6 +74,11 @@ const agencyTitle = (pathname: string) => AGENCY_TITLES.find((n) => n.href === p
 /**
  * Genisys OS's frame: GoHighLevel's sub-account structure (the left menu in
  * GHL's order, section tabs across the top) in the Hub's own look.
+ *
+ * On a phone (under 768px) it's laid out as an app instead (mobile-nav.tsx):
+ * a top bar, the five everyday screens along the bottom and this same menu
+ * sliding in from the left. Contractors add it to their home screen
+ * (app-meta.ts, phone-app.tsx) and it opens full screen.
  */
 export function HellShell({ children, viewer }: { children: React.ReactNode; viewer: HlViewer }) {
   const params = useParams<{ accountId?: string }>()
@@ -82,6 +89,7 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
   const sectionKey = accountId ? pathname.split('/')[3] : undefined
   const found = sectionOf(sectionKey)
   const section = found && !viewer.admin ? memberSection(found) : found
+  const [menu, setMenu] = useState(false)
 
   useEffect(() => {
     if (!accountId) return
@@ -95,77 +103,26 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
   }, [accountId])
 
   const base = accountId ? `/genisys-os/${accountId}` : null
-  // Sections with nothing built fold away under "Not built yet" (Genisys staff only; logins never see them).
-  const top = viewer.admin ? SECTIONS.filter((s) => s.group === 'top' && !s.later) : SECTIONS.filter((s) => s.key in MEMBER_SECTIONS)
-  const grow = viewer.admin ? SECTIONS.filter((s) => s.group === 'grow' && !s.later) : []
-  const folded = viewer.admin ? SECTIONS.filter((s) => s.later) : []
   // GoHighLevel-import lists only show where an import filled them (Lead Genisys).
   const imported = !!current?.ghlLocationId
+  const title = section?.label ?? (accountId ? '' : agencyTitle(pathname))
 
   return (
-    <div className="fixed inset-0 flex overflow-hidden bg-background text-foreground">
-      <aside className="flex w-[232px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-        <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
-          <span className="grid h-7 w-7 place-items-center rounded-md border border-border bg-surface text-foreground">
-            <Flame className="h-3.5 w-3.5" />
-          </span>
-          <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground">Genisys OS</span>
-        </div>
-
-        <AccountSwitcher accounts={accounts.data?.accounts ?? []} defaultId={accounts.data?.defaultAccountId ?? null} current={current} loading={accounts.isLoading} admin={viewer.admin} />
-        {base && <QuickSearch base={base} />}
-
-        <nav className="mt-3 flex flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
-          {!base ? (
-            AGENCY_NAV.map((n) => <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={pathname === n.href} />)
-          ) : (
-            <>
-              {top.map((s) => (
-                <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} badge={s.key === 'conversations' ? current?.unread : undefined} tag={s.badge} />
-              ))}
-              {grow.length > 0 && <div className="my-2 h-px bg-border-soft" />}
-              {grow.map((s) => (
-                <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} tag={s.badge} />
-              ))}
-              {folded.length > 0 && <NotBuiltGroup base={base} sections={folded} active={sectionKey} />}
-            </>
-          )}
-        </nav>
-
-        {viewer.admin ? (
-          <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
-            {base ? (
-              <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} />
-            ) : (
-              <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} />
-            )}
-            <Link href="/home" className="flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/60 transition hover:bg-foreground/[0.04] hover:text-foreground">
-              <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
-              Back to the Hub
-            </Link>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2.5 border-t border-border-soft px-4 py-3">
-            <Avatar name={viewer.name || viewer.email} size={26} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-medium text-foreground">{viewer.name || viewer.email}</span>
-              {viewer.name && <span className="block truncate text-[11px] text-muted-foreground">{viewer.email}</span>}
-            </span>
-            <button
-              type="button"
-              onClick={() => void signOut({ callbackUrl: '/login' })}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground"
-              title="Sign out"
-            >
-              <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
-            </button>
-          </div>
-        )}
+    <div className="gos-app fixed inset-0 flex overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
+      <aside className="hidden w-[232px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+        <SidebarBody viewer={viewer} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[54px] shrink-0 items-center gap-6 border-b border-border px-5">
-          <p className="shrink-0 text-[15px] font-semibold text-foreground">{section?.label ?? (accountId ? '' : agencyTitle(pathname))}</p>
+        <MobileTopBar
+          title={title || current?.name || 'Genisys OS'}
+          subtitle={title && current ? current.name : null}
+          unread={current?.unread ?? 0}
+          unreadHref={base ? `${base}/conversations?filter=unread` : null}
+          onMenu={() => setMenu(true)}
+        />
+        <header className="hidden h-[54px] shrink-0 items-center gap-6 border-b border-border px-5 md:flex">
+          <p className="shrink-0 text-[15px] font-semibold text-foreground">{title}</p>
           {section?.tabs && base && (
             <Suspense fallback={null}>
               <SectionTabs section={section} href={`${base}/${section.key}`} imported={imported} admin={viewer.admin} />
@@ -188,26 +145,130 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
             )}
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        {/* On a phone the section's tabs get their own row under the top bar. */}
+        {section?.tabs && base && (
+          <Suspense fallback={null}>
+            <SectionTabs section={section} href={`${base}/${section.key}`} imported={imported} admin={viewer.admin} strip />
+          </Suspense>
+        )}
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+          {/* Where a contractor lands after signing in: how to put the app on their home screen (phones only, until done or hidden). */}
+          {base && sectionKey === 'dashboard' && <InstallHint />}
           <ViewerContext.Provider value={viewer}>{children}</ViewerContext.Provider>
         </main>
+        {base && (
+          <Suspense fallback={null}>
+            <MobileTabBar base={base} active={sectionKey} unread={current?.unread ?? 0} />
+          </Suspense>
+        )}
       </div>
+      <MobileDrawer open={menu} onClose={() => setMenu(false)}>
+        <SidebarBody viewer={viewer} roomy />
+      </MobileDrawer>
       {/* The entrance (Hub sidebar → /genisys-os?enter=1), over the CRM loading underneath; and the white fading off after /login. */}
       <Suspense fallback={null}>
         {viewer.admin && <EnterSplashGate />}
         <ArrivalGate />
       </Suspense>
       <ConfirmHost />
+      <PhoneAppEffects />
+      <PhoneAppWorker />
     </div>
+  )
+}
+
+/**
+ * The menu: the logo, the account switcher, search, the sections and the
+ * foot (Settings and the way back to the Hub for Genisys; who's signed in and
+ * Sign out for a sub-account's own login). The desktop sidebar, and the
+ * phone's slide-in menu (`roomy`: rows big enough for a thumb).
+ */
+function SidebarBody({ viewer, roomy }: { viewer: HlViewer; roomy?: boolean }) {
+  const params = useParams<{ accountId?: string }>()
+  const pathname = usePathname()
+  const accountId = params?.accountId ?? null
+  const accounts = useAccounts()
+  const current = accounts.data?.accounts.find((a) => a.id === accountId) ?? null
+  const sectionKey = accountId ? pathname.split('/')[3] : undefined
+  const base = accountId ? `/genisys-os/${accountId}` : null
+  // Sections with nothing built fold away under "Not built yet" (Genisys staff only; logins never see them).
+  const top = viewer.admin ? SECTIONS.filter((s) => s.group === 'top' && !s.later) : SECTIONS.filter((s) => s.key in MEMBER_SECTIONS)
+  const grow = viewer.admin ? SECTIONS.filter((s) => s.group === 'grow' && !s.later) : []
+  const folded = viewer.admin ? SECTIONS.filter((s) => s.later) : []
+
+  return (
+    <>
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+        <span className="grid h-7 w-7 place-items-center rounded-md border border-border bg-surface text-foreground">
+          <Flame className="h-3.5 w-3.5" />
+        </span>
+        <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground">Genisys OS</span>
+      </div>
+
+      <AccountSwitcher accounts={accounts.data?.accounts ?? []} defaultId={accounts.data?.defaultAccountId ?? null} current={current} loading={accounts.isLoading} admin={viewer.admin} />
+      {base && <QuickSearch base={base} roomy={roomy} />}
+
+      <nav className="mt-3 flex flex-1 flex-col gap-px overflow-y-auto px-3 pb-3">
+        {!base ? (
+          AGENCY_NAV.map((n) => <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={pathname === n.href} roomy={roomy} />)
+        ) : (
+          <>
+            {top.map((s) => (
+              <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} badge={s.key === 'conversations' ? current?.unread : undefined} tag={s.badge} roomy={roomy} />
+            ))}
+            {grow.length > 0 && <div className="my-2 h-px bg-border-soft" />}
+            {grow.map((s) => (
+              <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={sectionKey === s.key} tag={s.badge} roomy={roomy} />
+            ))}
+            {folded.length > 0 && <NotBuiltGroup base={base} sections={folded} active={sectionKey} roomy={roomy} />}
+          </>
+        )}
+      </nav>
+
+      {viewer.admin ? (
+        <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
+          {base ? (
+            <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} roomy={roomy} />
+          ) : (
+            <NavLink href={AGENCY_SETTINGS.href} label={AGENCY_SETTINGS.label} icon={AGENCY_SETTINGS.icon} active={pathname === AGENCY_SETTINGS.href} roomy={roomy} />
+          )}
+          <Link
+            href="/home"
+            className={cn('flex items-center gap-2.5 rounded-md px-2.5 font-mono text-foreground/60 transition hover:bg-foreground/[0.04] hover:text-foreground', roomy ? 'h-11 text-[14px]' : 'h-8 text-[12.5px]')}
+          >
+            <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+            Back to the Hub
+          </Link>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5 border-t border-border-soft px-4 py-3">
+          <Avatar name={viewer.name || viewer.email} size={roomy ? 32 : 26} />
+          <span className="min-w-0 flex-1">
+            <span className={cn('block truncate font-medium text-foreground', roomy ? 'text-[14px]' : 'text-[12.5px]')}>{viewer.name || viewer.email}</span>
+            {viewer.name && <span className={cn('block truncate text-muted-foreground', roomy ? 'text-[12px]' : 'text-[11px]')}>{viewer.email}</span>}
+          </span>
+          <button
+            type="button"
+            onClick={() => void signOut({ callbackUrl: '/login' })}
+            className={cn('grid shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground', roomy ? 'h-11 w-11' : 'h-8 w-8')}
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 
 /**
  * A section's tabs across the top: the built ones (and the GHL-import lists
  * on an imported sub-account), then, for Genisys staff, a "not built" menu
- * holding the section's "Not in Genisys OS yet" tabs.
+ * holding the section's "Not in Genisys OS yet" tabs. `strip`: the phone's
+ * row of them under the top bar, swiped sideways when they don't fit.
  */
-function SectionTabs({ section, href, imported, admin }: { section: Section; href: string; imported: boolean; admin: boolean }) {
+function SectionTabs({ section, href, imported, admin, strip }: { section: Section; href: string; imported: boolean; admin: boolean; strip?: boolean }) {
   const sp = useSearchParams()
   const pathname = usePathname()
   // On a page under the section (a workflow, a form), the default tab stays lit.
@@ -220,15 +281,16 @@ function SectionTabs({ section, href, imported, admin }: { section: Section; hre
   const tabs = extra ? [...shown, extra] : shown
   const home = defaultTab(section)
   if (tabs.length < 2 && !later.length) return null
-  return (
+  const bar = (
     <div className="flex min-w-0 items-stretch gap-1 self-stretch">
-      <nav className="-mb-px flex min-w-0 items-stretch gap-1 overflow-x-auto">
+      <nav className={cn('-mb-px flex min-w-0 items-stretch gap-1 overflow-x-auto', strip && 'no-scrollbar')}>
         {tabs.map((t) => (
           <Link
             key={t.key}
             href={t.key === home ? href : `${href}?tab=${t.key}`}
             className={cn(
               'flex shrink-0 items-center border-b-2 px-2.5 text-[13px] transition',
+              strip && 'px-3 text-[13.5px]',
               current === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >
@@ -239,6 +301,8 @@ function SectionTabs({ section, href, imported, admin }: { section: Section; hre
       {later.length > 0 && <LaterTabsMenu tabs={later} href={href} current={current} />}
     </div>
   )
+  if (!strip) return bar
+  return <div className="flex h-11 shrink-0 items-stretch border-b border-border bg-sidebar px-1 md:hidden">{bar}</div>
 }
 
 /** The section's unbuilt tabs, one click away (it reads as the tab while one is open). */
@@ -275,7 +339,8 @@ function LaterTabsMenu({ tabs, href, current }: { tabs: SectionTab[]; href: stri
         <ChevronDown className={cn('h-3 w-3 transition', open && 'rotate-180')} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-pop">
+        // On a phone the menu sits at the row's right end, so it opens leftwards.
+        <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-popover p-1 shadow-pop md:left-0 md:right-auto">
           <p className="eyebrow px-2.5 pb-1 pt-1.5 text-muted-foreground">Not built yet</p>
           {tabs.map((t) => (
             <Link
@@ -294,7 +359,7 @@ function LaterTabsMenu({ tabs, href, current }: { tabs: SectionTab[]; href: stri
 }
 
 /** The sections with nothing built (Payments, AI Agents, Marketing), folded at the foot of the menu; open while you're in one. */
-function NotBuiltGroup({ base, sections, active }: { base: string; sections: Section[]; active: string | undefined }) {
+function NotBuiltGroup({ base, sections, active, roomy }: { base: string; sections: Section[]; active: string | undefined; roomy?: boolean }) {
   const [open, setOpen] = useState(false)
   // Always open while you're in one of them.
   const shown = open || sections.some((s) => s.key === active)
@@ -306,13 +371,16 @@ function NotBuiltGroup({ base, sections, active }: { base: string; sections: Sec
         onClick={() => setOpen((o) => !o)}
         aria-expanded={shown}
         title="GoHighLevel has these; Genisys OS doesn't yet. Folded away, nothing switched off."
-        className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] text-foreground/45 transition hover:bg-foreground/[0.04] hover:text-foreground/80"
+        className={cn(
+          'flex w-full items-center gap-2.5 rounded-md px-2.5 font-mono text-foreground/45 transition hover:bg-foreground/[0.04] hover:text-foreground/80',
+          roomy ? 'h-11 text-[14px]' : 'h-8 text-[12.5px]',
+        )}
       >
         <EyeOff className="h-[15px] w-[15px] shrink-0" strokeWidth={1.75} />
         <span className="flex-1 text-left">Not built yet</span>
         <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition', shown && 'rotate-180')} />
       </button>
-      {shown && sections.map((s) => <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={active === s.key} muted />)}
+      {shown && sections.map((s) => <NavLink key={s.key} href={`${base}/${s.key}`} label={s.label} icon={s.icon} active={active === s.key} muted roomy={roomy} />)}
     </>
   )
 }
@@ -325,6 +393,7 @@ function NavLink({
   badge,
   tag,
   muted,
+  roomy,
 }: {
   href: string
   label: string
@@ -334,12 +403,15 @@ function NavLink({
   tag?: string
   /** A folded section's link: quieter than the rest of the menu. */
   muted?: boolean
+  /** The phone's menu: a row a thumb can hit. */
+  roomy?: boolean
 }) {
   return (
     <Link
       href={href}
       className={cn(
-        'relative flex h-8 items-center gap-2.5 rounded-md px-2.5 font-mono text-[12.5px] transition',
+        'relative flex items-center gap-2.5 rounded-md px-2.5 font-mono transition',
+        roomy ? 'h-11 text-[14px]' : 'h-8 text-[12.5px]',
         active
           ? 'bg-foreground/[0.06] text-foreground before:absolute before:bottom-1.5 before:left-0 before:top-1.5 before:w-[2px] before:rounded-full before:bg-primary'
           : muted
@@ -478,7 +550,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
   )
 
   return (
-    <div className="absolute left-3 top-full z-50 mt-1.5 flex w-[330px] flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-pop">
+    <div className="absolute left-3 top-full z-50 mt-1.5 flex w-[min(330px,calc(100vw-24px))] flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-pop">
       <div className="p-3 pb-2">
         <label className="flex h-9 items-center gap-2 rounded-md border border-primary/50 bg-surface px-2.5 text-[13px] text-muted-foreground">
           <Search className="h-3.5 w-3.5 shrink-0" />
@@ -508,7 +580,7 @@ function SwitcherPanel({ accounts, defaultId, current, section, admin, onClose }
   )
 }
 
-function QuickSearch({ base }: { base: string }) {
+function QuickSearch({ base, roomy }: { base: string; roomy?: boolean }) {
   const router = useRouter()
   const [q, setQ] = useState('')
   return (
@@ -519,9 +591,21 @@ function QuickSearch({ base }: { base: string }) {
         router.push(`${base}/contacts?q=${encodeURIComponent(q.trim())}`)
       }}
     >
-      <label className="flex h-8 items-center gap-2 rounded-md border border-border bg-surface px-2.5 font-mono text-[12px] text-muted-foreground focus-within:border-primary/50">
+      <label
+        className={cn(
+          'flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 font-mono text-[12px] text-muted-foreground focus-within:border-primary/50',
+          roomy ? 'h-10' : 'h-8',
+        )}
+      >
         <Search className="h-3.5 w-3.5 shrink-0" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground" />
+        <input
+          type="search"
+          enterKeyHint="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search"
+          className="w-full bg-transparent text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
+        />
       </label>
     </form>
   )

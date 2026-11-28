@@ -37,7 +37,7 @@ export function TasksView({ accountId }: { accountId: string }) {
   // Read once: what counts as overdue doesn't need to tick while the page is open.
   const [now] = useState(() => Date.now())
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <PageHeader
         title="Tasks"
         description="To-dos for the team."
@@ -64,7 +64,38 @@ export function TasksView({ accountId }: { accountId: string }) {
         ) : !q.data?.tasks.length ? (
           <Empty icon={<CheckSquare className="h-5 w-5" />} title={status === 'done' ? 'Nothing completed yet' : 'No pending tasks'} />
         ) : (
-          <Table head={['', 'Task', 'Contact', 'Due', 'Assigned to']}>
+          <>
+          {/* A phone: the checkbox, the task, and who and when under it. */}
+          <ul className="divide-y divide-border-soft md:hidden">
+            {q.data.tasks.map((t) => {
+              const overdue = !t.completed && t.dueDate && new Date(t.dueDate).getTime() < now
+              return (
+                <li key={t.id} className="flex items-start gap-3 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={t.completed}
+                    onChange={(e) => save.mutate({ id: t.id, completed: e.target.checked })}
+                    aria-label={t.completed ? `Mark “${t.title}” not done` : `Mark “${t.title}” done`}
+                    className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--primary)]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('text-[15px] font-medium text-foreground', t.completed && 'text-muted-foreground line-through')}>{t.title}</p>
+                    {t.body && <p className="line-clamp-2 text-[13px] text-muted-foreground">{t.body}</p>}
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+                      {t.contact && (
+                        <Link href={`/genisys-os/${accountId}/conversations?contact=${t.contact.id}`} className="font-medium text-primary">
+                          {contactLabel(t.contact)}
+                        </Link>
+                      )}
+                      {t.dueDate && (overdue ? <Badge color="red">Due {fmtDateTime(t.dueDate)}</Badge> : <span>Due {fmtDateTime(t.dueDate)}</span>)}
+                      {t.assignedTo && <span>{t.assignedTo}</span>}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <Table head={['', 'Task', 'Contact', 'Due', 'Assigned to']} className="hidden md:block">
             {q.data.tasks.map((t) => {
               const overdue = !t.completed && t.dueDate && new Date(t.dueDate).getTime() < now
               return (
@@ -91,6 +122,7 @@ export function TasksView({ accountId }: { accountId: string }) {
               )
             })}
           </Table>
+          </>
         )}
       </Card>
       <ErrorNote error={q.error || save.error} />

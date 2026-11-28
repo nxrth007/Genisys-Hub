@@ -121,9 +121,9 @@ export function Badge({ color = 'gray', children, className, dot }: { color?: ke
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
       <div className="min-w-0">
-        <h1 className="text-[24px] font-semibold tracking-tight text-foreground">{title}</h1>
+        <h1 className="text-[20px] font-semibold tracking-tight text-foreground sm:text-[24px]">{title}</h1>
         {description && <p className="mt-1 text-[13px] text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -155,20 +155,35 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
   if (!open) return null
+  // A phone (under 640px) gets a sheet from the bottom: the fields scroll, the buttons stay in reach,
+  // and on a touch screen it fits above the keyboard (gos-fit, globals.css). Wider: the centred dialog.
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[8vh] backdrop-blur-sm" onMouseDown={onClose}>
-      <div className={cn('w-full rounded-xl border border-border bg-popover shadow-pop', width)} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4 px-5 pt-4">
-          <div>
+    <div
+      className="gos-fit fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/70 backdrop-blur-sm sm:items-start sm:p-4 sm:pt-[8vh]"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={cn(
+          'flex max-h-[94%] w-full flex-col rounded-t-2xl border border-b-0 border-border bg-popover shadow-pop sm:block sm:max-h-none sm:rounded-xl sm:border-b',
+          width,
+        )}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-4 px-5 pt-4">
+          <div className="min-w-0">
             <h2 className="text-[16px] font-semibold text-foreground">{title}</h2>
             {description && <p className="mt-1 text-[13px] text-muted-foreground">{description}</p>}
           </div>
-          <button type="button" onClick={onClose} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close">
+          <button type="button" onClick={onClose} className="-mr-1.5 grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:mr-0 sm:h-8 sm:w-8" aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:overflow-visible">{children}</div>
+        {footer && (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:pb-3">{footer}</div>
+        )}
       </div>
     </div>
   )

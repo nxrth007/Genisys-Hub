@@ -4,7 +4,7 @@ import { Suspense, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { DndContext, MouseSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { MessagesSquare, Phone, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
@@ -75,7 +75,10 @@ function Board() {
   const [status, setStatus] = useState<'open' | 'all' | 'won' | 'lost'>('open')
   const [editing, setEditing] = useState<Opp | null>(null)
   const [adding, setAdding] = useState<string | null>(null)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  // A mouse drags at once; a finger presses and holds first, so a swipe still scrolls the board.
+  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }))
+  // While a card is held, the board stops snapping to columns so it can scroll under the finger.
+  const [dragging, setDragging] = useState(false)
 
   // Otherwise the busiest one, not whichever was made first.
   const busiest = useMemo(() => [...(q.data?.pipelines ?? [])].sort((a, b) => b.opportunities.length - a.opportunities.length)[0], [q.data])
@@ -84,11 +87,12 @@ function Board() {
 
   // After a job lands in Job Completed and the review campaign started: when the text goes, and how to stop it.
   const [notice, setNotice] = useState<string | null>(null)
+  const reviewNotice = (stageId: string, started: number | undefined, name: string) =>
+    setNotice(stageId === 'job_completed' && (started ?? 0) > 0 ? `${name} gets a review request in 20 minutes. Move the job back out of Job Completed before then to stop it.` : null)
   const move = useMutation({
     mutationFn: (v: { id: string; stageId: string; name: string }) =>
       hlFetch<{ started?: number }>(`/api/hl/accounts/${accountId}/opportunities/${v.id}`, { method: 'PATCH', json: { stageId: v.stageId, position: Date.now() / 1000 } }),
-    onSuccess: (r, v) =>
-      setNotice(v.stageId === 'job_completed' && (r.started ?? 0) > 0 ? `${v.name} gets a review request in 20 minutes. Move the job back out of Job Completed before then to stop it.` : null),
+    onSuccess: (r, v) => reviewNotice(v.stageId, r.started, v.name),
     onMutate: async (v) => {
       await qc.cancelQueries({ queryKey: ['hl', 'pipelines', accountId] })
       const prev = qc.getQueryData<{ pipelines: Pipeline[] }>(['hl', 'pipelines', accountId])
@@ -102,6 +106,7 @@ function Board() {
   })
 
   function onDragEnd(e: DragEndEvent) {
+    setDragging(false)
     const stageId = e.over?.id ? String(e.over.id) : null
     const opp = shown.find((o) => o.id === e.active.id)
     if (stageId && opp && opp.stageId !== stageId) move.mutate({ id: opp.id, stageId, name: opp.name })
@@ -110,12 +115,20 @@ function Board() {
   const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 px-6 py-7">
-      <PageHeader title="Opportunities" description="Drag a lead to the next stage as the job moves. Moving one to the completed stage starts the review request (when the review workflow is on)." />
+    <div className="flex h-full min-h-0 flex-col gap-3 px-4 py-4 sm:gap-4 sm:px-6 sm:py-7">
+      <PageHeader
+        title="Opportunities"
+        description={
+          <>
+            <span className="sm:hidden">Swipe across the stages. Tap a job to change its stage, or press and hold to drag it.</span>
+            <span className="hidden sm:inline">Drag a lead to the next stage as the job moves. Moving one to the completed stage starts the review request (when the review workflow is on).</span>
+          </>
+        }
+      />
       {/* GHL's toolbar: the pipeline and how many are in it on the left, the rest on the right. */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {(q.data?.pipelines.length ?? 0) > 1 && (
-          <Select value={pipeline?.id ?? ''} onChange={(e) => pickPipeline(e.target.value)} className="w-56">
+          <Select value={pipeline?.id ?? ''} onChange={(e) => pickPipeline(e.target.value)} className="w-full sm:w-56">
             {q.data!.pipelines.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -129,14 +142,15 @@ function Board() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className="w-36">
+          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className="w-28 sm:w-36">
             <option value="open">Open</option>
             <option value="won">Won</option>
             <option value="lost">Lost</option>
             <option value="all">All</option>
           </Select>
-          <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!pipeline} onClick={() => setAdding(pipeline?.stages[0]?.id ?? null)}>
-            Add opportunity
+          <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!pipeline} onClick={() => setAdding(pipeline?.stages[0]?.id ?? null)} aria-label="Add opportunity">
+            <span className="hidden sm:inline">Add opportunity</span>
+            <span className="sm:hidden">Add</span>
           </Button>
         </div>
       </div>
@@ -147,8 +161,9 @@ function Board() {
       ) : !pipeline ? (
         <ErrorNote error={q.error ?? 'No pipeline yet.'} />
       ) : (
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-2">
+        <DndContext sensors={sensors} onDragStart={() => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={onDragEnd}>
+          {/* On a phone a column is most of the screen wide and the board settles on one at a time. */}
+          <div className={cn('-mx-4 flex min-h-0 flex-1 scroll-px-4 gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:gap-4 sm:px-0', dragging ? 'snap-none' : 'snap-x snap-mandatory sm:snap-none')}>
             {pipeline.stages.map((s) => {
               // Newest first, as GHL sorts its board by default.
               const cards = shown.filter((o) => o.stageId === s.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -188,7 +203,7 @@ function Board() {
           </button>
         </p>
       )}
-      {editing && pipeline && <EditOpp accountId={accountId} opp={editing} stages={pipeline.stages} onClose={() => setEditing(null)} />}
+      {editing && pipeline && <EditOpp accountId={accountId} opp={editing} stages={pipeline.stages} onClose={() => setEditing(null)} onMoved={reviewNotice} />}
       {adding !== null && pipeline && <AddOpp accountId={accountId} pipeline={pipeline} stageId={adding} onClose={() => setAdding(null)} />}
     </div>
   )
@@ -197,7 +212,13 @@ function Board() {
 function Column({ id, children }: { id: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <div ref={setNodeRef} className={cn('flex w-[290px] shrink-0 flex-col overflow-y-auto rounded-xl bg-muted p-3 transition', isOver && 'bg-primary-soft ring-2 ring-primary/50')}>
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex w-[82vw] max-w-[300px] shrink-0 snap-start flex-col overflow-y-auto overscroll-contain rounded-xl bg-muted p-3 transition sm:w-[290px] sm:max-w-none',
+        isOver && 'bg-primary-soft ring-2 ring-primary/50',
+      )}
+    >
       {children}
     </div>
   )
@@ -212,7 +233,8 @@ function OppCard({ o, accountId, onOpen }: { o: Opp; accountId: string; onOpen: 
       {...listeners}
       onClick={onOpen}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      className={cn('cursor-grab rounded-lg border border-border bg-card p-3 active:cursor-grabbing', isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-primary/50')}
+      // No text selection or iPhone link menu on the press-and-hold that picks a card up.
+      className={cn('cursor-grab touch-manipulation select-none rounded-lg border border-border bg-card p-3 [-webkit-touch-callout:none] active:cursor-grabbing', isDragging && 'z-10 opacity-90 shadow-lg ring-2 ring-primary/50')}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-[14px] font-semibold text-foreground">{o.name}</p>
@@ -237,14 +259,28 @@ function OppCard({ o, accountId, onOpen }: { o: Opp; accountId: string; onOpen: 
   )
 }
 
-function EditOpp({ accountId, opp, stages, onClose }: { accountId: string; opp: Opp; stages: HlStage[]; onClose: () => void }) {
+function EditOpp({
+  accountId,
+  opp,
+  stages,
+  onClose,
+  onMoved,
+}: {
+  accountId: string
+  opp: Opp
+  stages: HlStage[]
+  onClose: () => void
+  /** A new stage saved here (how a phone moves a job): the board says when a review request is on its way, as after a drag. */
+  onMoved: (stageId: string, started: number | undefined, name: string) => void
+}) {
   const qc = useQueryClient()
   const { admin } = useHlViewer()
   const [form, setForm] = useState({ name: opp.name, value: String(opp.value || ''), stageId: opp.stageId, status: opp.status })
   const save = useMutation({
-    mutationFn: () => hlFetch(`/api/hl/accounts/${accountId}/opportunities/${opp.id}`, { method: 'PATCH', json: { ...form, value: Number(form.value) || 0 } }),
-    onSuccess: () => {
+    mutationFn: () => hlFetch<{ started?: number }>(`/api/hl/accounts/${accountId}/opportunities/${opp.id}`, { method: 'PATCH', json: { ...form, value: Number(form.value) || 0 } }),
+    onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['hl', 'pipelines', accountId] })
+      if (form.stageId !== opp.stageId) onMoved(form.stageId, r.started, form.name || opp.name)
       onClose()
     },
   })

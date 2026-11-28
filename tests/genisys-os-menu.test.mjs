@@ -128,3 +128,17 @@ test('a folded section shows its whole GHL structure once opened', () => {
   assert.equal(shownTabs(payments.tabs, { imported: false, folded: true }).length, payments.tabs.length)
   assert.equal(laterTabs(payments.tabs, { folded: true }).length, 0)
 })
+
+test('the phone\'s bottom tab bar: five contractor screens, in the menu\'s order', () => {
+  // Every tab is a section a contractor login may open (the middleware would bounce anything else).
+  assert.deepEqual(
+    nav.MOBILE_TABS.map((t) => t.key),
+    ['dashboard', 'conversations', 'calendars', 'contacts', 'opportunities'],
+  )
+  for (const t of nav.MOBILE_TABS) {
+    assert.ok(t.key in access.MEMBER_SECTIONS, `${t.key} isn't a contractor section`)
+    assert.ok(!sectionOf(t.key).later, `${t.key} is folded`)
+    // A fifth of a 360px phone.
+    assert.ok(t.label.length <= 10, `"${t.label}" is too long for the tab bar`)
+  }
+})

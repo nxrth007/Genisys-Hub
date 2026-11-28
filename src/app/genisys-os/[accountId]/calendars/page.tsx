@@ -42,7 +42,7 @@ function AppointmentList({ accountId }: { accountId: string }) {
   const list = when === 'past' ? [...rows].reverse() : rows
   const tz = prefs.data?.me.timezone || q.data?.timezone || 'America/New_York'
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <PageHeader
         title="Appointments"
         actions={
@@ -65,7 +65,27 @@ function AppointmentList({ accountId }: { accountId: string }) {
             Bookings from the calendars’ pages, and appointments made in the calendar, show up here.
           </Empty>
         ) : (
-          <Table head={['When', 'Title', 'Contact', 'Calendar', 'Status', 'With']}>
+          <>
+          {/* A phone: when, who, and the status, one tappable row each. */}
+          <ul className="divide-y divide-border-soft md:hidden">
+            {list.map((a) => (
+              <li key={a.id}>
+                <button type="button" onClick={() => setOpen(a)} className="flex w-full items-start gap-3 px-4 py-3 text-left transition active:bg-muted/60">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-medium text-foreground">{a.contact ? contactLabel(a.contact) : a.title}</span>
+                    <span className="block text-[13px] text-foreground/80">{fmtDateTime(a.startTime)}</span>
+                    <span className="block truncate text-[12.5px] text-muted-foreground">
+                      {[...new Set([a.contact ? a.title.trim() : null, a.calendar?.name.trim(), a.assignedTo])].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <Badge color={STATUS_COLOR[a.status] ?? 'gray'} className="mt-0.5 shrink-0">
+                    {a.status}
+                  </Badge>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <Table head={['When', 'Title', 'Contact', 'Calendar', 'Status', 'With']} className="hidden md:block">
             {list.map((a) => (
               <tr key={a.id} onClick={() => setOpen(a)} className="cursor-pointer border-b border-border-soft last:border-0 hover:bg-muted/40">
                 <td className="whitespace-nowrap px-4 py-2.5 text-foreground/90">{fmtDateTime(a.startTime)}</td>
@@ -87,6 +107,7 @@ function AppointmentList({ accountId }: { accountId: string }) {
               </tr>
             ))}
           </Table>
+          </>
         )}
       </Card>
       <ErrorNote error={q.error} />

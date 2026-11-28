@@ -236,6 +236,20 @@ export const SECTIONS: Section[] = [
 
 export const SETTINGS_SECTION: Section = { key: 'settings', label: 'Settings', icon: Settings, group: 'grow' }
 
+/**
+ * The phone's bottom tab bar (shell.tsx, under 768px wide): the five screens a contractor uses day
+ * to day, in the menu's order, with labels short enough to fit five across. Each is a contractor
+ * section (src/lib/hl/member-access.ts), so a login never taps into a page it gets bounced from.
+ * Everything else is in the menu behind the top bar's button.
+ */
+export const MOBILE_TABS: { key: string; label: string }[] = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'conversations', label: 'Messages' },
+  { key: 'calendars', label: 'Calendar' },
+  { key: 'contacts', label: 'Contacts' },
+  { key: 'opportunities', label: 'Pipeline' },
+]
+
 /** GHL's Settings menu (a list down the left of the Settings page). */
 export const SETTINGS_PAGES: SectionTab[] = [
   { key: 'business-profile', label: 'Business Profile' },

@@ -436,3 +436,44 @@
 nextjs-portal {
   display: none !important;
 }
+
+/*
+ * Genisys OS as a phone app (src/components/genisys-os/shell.tsx, phone-app.tsx). Outside any
+ * layer on purpose, so these win over the Tailwind utilities they adjust.
+ */
+html.gos-root,
+html.gos-root body {
+  /* The app doesn't rubber-band past its edges; the lists inside it still scroll. */
+  overscroll-behavior: none;
+}
+.gos-app {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Touch screens: the app (and its pop-up sheets, .gos-fit) fill exactly what the keyboard leaves visible; iPhones don't shrink the page for it. */
+@media (pointer: coarse) {
+  .gos-app,
+  .gos-fit {
+    top: var(--gos-vt, 0px);
+    bottom: auto;
+    height: var(--gos-vh, 100%);
+  }
+}
+@media (max-width: 767px) {
+  /* 16px in fields: iPhones zoom the whole page in on anything smaller when it's tapped. */
+  .gos-app input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  .gos-app select,
+  .gos-app textarea {
+    font-size: 16px;
+  }
+  /* While typing, the bottom tab bar steps aside for the keyboard. */
+  html.gos-typing .gos-tabbar {
+    display: none;
+  }
+}
+/* A row that scrolls sideways with no scrollbar (the phone's tab strip). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

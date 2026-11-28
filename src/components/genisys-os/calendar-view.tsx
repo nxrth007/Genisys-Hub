@@ -11,6 +11,7 @@ import type { StaffRow } from '@/lib/hl/staff'
 import { contactLabel, useAccount } from './bits'
 import { useHlViewer } from './viewer'
 import { confirmAction } from './confirm'
+import { usePhoneWidth } from './phone-app'
 import { Badge, Button, ErrorNote, Field, Input, Modal, Select, Spinner, Tabs, Textarea, copyText, hlFetch } from './ui'
 
 /**
@@ -81,7 +82,10 @@ type Prefs = { prefs: { weekStartsOn: number }; me: { timezone?: string } }
 
 export function CalendarView({ accountId }: { accountId: string }) {
   const prefs = useQuery<Prefs>({ queryKey: ['hl', 'calendar-prefs', accountId], queryFn: () => hlFetch(`/api/hl/accounts/${accountId}/calendar-preferences`) })
-  const [view, setView] = useState<'day' | 'week' | 'month'>('week')
+  // A phone opens on the day (a week's seven columns don't fit); the view picked stays picked.
+  const phone = usePhoneWidth()
+  const [picked, setView] = useState<'day' | 'week' | 'month' | null>(null)
+  const view = picked ?? (phone ? 'day' : 'week')
   const [anchor, setAnchor] = useState<string | null>(null)
   const [calFilter, setCalFilter] = useState('')
   const [userFilter, setUserFilter] = useState('')
@@ -126,9 +130,16 @@ export function CalendarView({ accountId }: { accountId: string }) {
       : view === 'week'
         ? `${dateLabel(dates[0], { month: 'short', day: 'numeric' })} – ${dateLabel(dates[6], { month: 'short', day: 'numeric', year: 'numeric' })}`
         : dateLabel(`${at.slice(0, 7)}-15`, { month: 'long', year: 'numeric' })
+  // The same, short enough for a phone's toolbar.
+  const shortTitle =
+    view === 'day'
+      ? dateLabel(at, { weekday: 'short', month: 'short', day: 'numeric' })
+      : view === 'week'
+        ? `${dateLabel(dates[0], { month: 'short', day: 'numeric' })} – ${dateLabel(dates[6], { month: 'short', day: 'numeric' })}`
+        : dateLabel(`${at.slice(0, 7)}-15`, { month: 'short', year: 'numeric' })
 
   return (
-    <div className="flex flex-col gap-4 px-6 py-6">
+    <div className="flex flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => setAnchor(null)}>
           Today
@@ -139,12 +150,16 @@ export function CalendarView({ accountId }: { accountId: string }) {
         <Button size="sm" aria-label="Next" onClick={() => step(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>
-        <h1 className="ml-1 text-[18px] font-semibold text-foreground">{title}</h1>
-        <span className="font-mono text-[11px] text-muted-foreground">{tz.replace(/_/g, ' ')}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <h1 className="ml-1 min-w-0 truncate text-[16px] font-semibold text-foreground sm:text-[18px]">
+          <span className="sm:hidden">{shortTitle}</span>
+          <span className="hidden sm:inline">{title}</span>
+        </h1>
+        <span className="hidden font-mono text-[11px] text-muted-foreground sm:inline">{tz.replace(/_/g, ' ')}</span>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           {!noCalendars && (
           <>
-          <Select className="h-8 w-auto text-[12.5px]" value={calFilter} onChange={(e) => setCalFilter(e.target.value)}>
+          {/* On a phone a filter with nothing to choose between (one calendar, one person) gives its row back. */}
+          <Select className={cn('h-8 w-auto text-[12.5px]', cals.length < 2 && !calFilter && 'hidden sm:block')} value={calFilter} onChange={(e) => setCalFilter(e.target.value)}>
             <option value="">All calendars</option>
             {cals.map((c) => (
               <option key={c.id} value={c.id}>
@@ -152,7 +167,7 @@ export function CalendarView({ accountId }: { accountId: string }) {
               </option>
             ))}
           </Select>
-          <Select className="h-8 w-auto text-[12.5px]" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+          <Select className={cn('h-8 w-auto text-[12.5px]', staff.length < 2 && !userFilter && 'hidden sm:block')} value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
             <option value="">All users</option>
             {staff.map((s) => (
               <option key={s.id} value={s.ghlId ?? s.id}>
@@ -171,11 +186,20 @@ export function CalendarView({ accountId }: { accountId: string }) {
           </div>
           {!noCalendars && (
             <>
-              <Button size="sm" icon={<Ban className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'block', date: view === 'month' ? today : at })}>
-                Block time
+              <Button size="sm" icon={<Ban className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'block', date: view === 'month' ? today : at })} aria-label="Block time">
+                <span className="hidden sm:inline">Block time</span>
+                <span className="sm:hidden">Block</span>
               </Button>
-              <Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setCreating({ kind: 'appointment', date: view === 'month' ? today : at })}>
-                New appointment
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="h-3.5 w-3.5" />}
+                onClick={() => setCreating({ kind: 'appointment', date: view === 'month' ? today : at })}
+                aria-label="New appointment"
+                className="ml-auto sm:ml-0"
+              >
+                <span className="hidden sm:inline">New appointment</span>
+                <span className="sm:hidden">New</span>
               </Button>
             </>
           )}
@@ -250,11 +274,20 @@ function MonthGrid({ dates, month, today, tz, appts, cals, onOpen, onDay }: { da
         {dates.map((d) => {
           const list = byDay.get(d) ?? []
           return (
-            <div key={d} className={cn('min-h-[110px] border-b border-r border-border-soft p-1.5 [&:nth-child(7n)]:border-r-0', !d.startsWith(month) && 'bg-surface-muted/40')}>
+            <div key={d} className={cn('min-h-[58px] border-b border-r border-border-soft p-1 sm:min-h-[110px] sm:p-1.5 [&:nth-child(7n)]:border-r-0', !d.startsWith(month) && 'bg-surface-muted/40')}>
               <button type="button" onClick={() => onDay(d)} className={cn('mb-1 w-fit rounded px-1.5 font-mono text-[11px] hover:bg-muted', d === today ? 'bg-primary text-primary-foreground hover:bg-primary' : d.startsWith(month) ? 'text-foreground/80' : 'text-muted-foreground/50')}>
                 {Number(d.slice(8))}
               </button>
-              <div className="flex flex-col gap-0.5">
+              {/* A phone: a dot per booking (a day's seventh of the screen has no room for names); the day opens on a tap. */}
+              {list.length > 0 && (
+                <button type="button" onClick={() => onDay(d)} aria-label={`${list.length} on ${dateLabel(d, { month: 'long', day: 'numeric' })}`} className="flex w-full flex-wrap items-center gap-[3px] px-1 py-0.5 sm:hidden">
+                  {list.slice(0, 4).map((a) => (
+                    <span key={a.id} className="h-1.5 w-1.5 rounded-full" style={{ background: a.source === 'block' ? '#98A2B3' : colorOf(a, cals), opacity: a.status === 'cancelled' ? 0.4 : 1 }} />
+                  ))}
+                  {list.length > 4 && <span className="font-mono text-[9.5px] leading-none text-muted-foreground">+{list.length - 4}</span>}
+                </button>
+              )}
+              <div className="hidden flex-col gap-0.5 sm:flex">
                 {list.slice(0, 3).map((a) => (
                   <button
                     key={a.id}
@@ -368,7 +401,10 @@ function TimeGrid({
   })
   const pxPerMs = HOUR_PX / 3_600_000
   return (
+    // A week on a phone keeps readable columns and scrolls sideways; a day fits as it is.
     <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-x-auto">
+      <div className={cn(dates.length > 1 && 'min-w-[620px] sm:min-w-0')}>
       <div className="grid border-b border-border" style={{ gridTemplateColumns: `56px repeat(${dates.length}, minmax(0, 1fr))` }}>
         <span />
         {dates.map((d) => (
@@ -377,7 +413,7 @@ function TimeGrid({
           </p>
         ))}
       </div>
-      <div ref={scroller} className="relative max-h-[640px] overflow-y-auto">
+      <div ref={scroller} className="relative max-h-[62dvh] overflow-y-auto overscroll-contain sm:max-h-[640px]">
         <div className="grid" style={{ gridTemplateColumns: `56px repeat(${dates.length}, minmax(0, 1fr))`, height: 24 * HOUR_PX }}>
           <div className="relative">
             {Array.from({ length: 24 }, (_, h) => (
@@ -443,6 +479,8 @@ function TimeGrid({
             </div>
           ))}
         </div>
+      </div>
+      </div>
       </div>
     </div>
   )
@@ -792,11 +830,13 @@ export function AppointmentDrawer({ accountId, a, data, tz, onClose }: { account
               Cancel the rest of the series
             </Button>
           )}
-          <span className="ml-auto" />
-          <Button onClick={onClose}>Close</Button>
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate({})}>
-            Save
-          </Button>
+          {/* Together at the right, also when a phone wraps them onto their own row. */}
+          <span className="ml-auto flex gap-2">
+            <Button onClick={onClose}>Close</Button>
+            <Button variant="primary" loading={save.isPending} onClick={() => save.mutate({})}>
+              Save
+            </Button>
+          </span>
         </div>
       }
     >

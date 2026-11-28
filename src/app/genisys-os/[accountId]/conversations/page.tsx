@@ -3,14 +3,18 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Mail, MessagesSquare, Phone, PhoneIncoming, PhoneMissed, Search, Send, Star, StickyNote, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, FileText, Info, Mail, MessagesSquare, Phone, PhoneIncoming, PhoneMissed, Search, Send, Star, StickyNote, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { prettyPhone } from '@/lib/hl/merge'
 import { contactLabel, useAccount, useEmailSetup } from '@/components/genisys-os/bits'
 import { ContactPanel, type ContactDetail } from '@/components/genisys-os/contact-panel'
-import { Avatar, Button, Empty, ErrorNote, Input, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/genisys-os/ui'
+import { Avatar, Button, Empty, ErrorNote, Input, Modal, Spinner, Textarea, fmtDateTime, hlFetch, timeAgo } from '@/components/genisys-os/ui'
 import { NotYet, RecordsTable, rv, useSectionTab } from '@/components/genisys-os/section'
 import { useHlViewer } from '@/components/genisys-os/viewer'
+import { useTouchScreen } from '@/components/genisys-os/phone-app'
+
+/** Below 1024px the list and a conversation take turns on the screen (a phone, or a narrow window). */
+const oneAtATime = () => window.matchMedia('(max-width: 1023px)').matches
 
 type Conversation = {
   id: string
@@ -99,7 +103,22 @@ function Conversations() {
     refetchInterval: 10_000,
   })
 
-  const open = (id: string) => router.replace(`/genisys-os/${accountId}/conversations?contact=${id}&filter=${filter}`)
+  // On a phone opening one is a step forward, so the phone's own back gesture returns to the list.
+  const pushed = useRef(false)
+  const open = (id: string) => {
+    const url = `/genisys-os/${accountId}/conversations?contact=${id}&filter=${filter}`
+    pushed.current = oneAtATime()
+    if (pushed.current) router.push(url)
+    else router.replace(url)
+  }
+  const backToList = () => {
+    if (pushed.current) {
+      pushed.current = false
+      router.back()
+    } else router.replace(`/genisys-os/${accountId}/conversations?filter=${filter}`)
+  }
+  // The contact card (consent, tags, pipeline): beside the thread on a wide screen, a sheet from the thread's header otherwise.
+  const [info, setInfo] = useState(false)
 
   // Opening a conversation marks it read.
   const unread = detail.data?.contact.unread ?? 0
@@ -113,7 +132,7 @@ function Conversations() {
 
   return (
     <div className="flex h-full min-h-0">
-      <section className="flex w-[340px] shrink-0 flex-col border-r border-border bg-card">
+      <section className={cn('w-full shrink-0 flex-col border-border bg-card lg:flex lg:w-[340px] lg:border-r', selected ? 'hidden' : 'flex')}>
         <div className="border-b border-border px-4 pb-3 pt-4">
           <div className="flex gap-1 border-b border-border">
             {FILTERS.map((f) => (
@@ -163,7 +182,7 @@ function Conversations() {
         </div>
       </section>
 
-      <section className="flex min-w-0 flex-1 flex-col bg-surface-muted">
+      <section className={cn('min-w-0 flex-1 flex-col bg-surface-muted lg:flex', selected ? 'flex' : 'hidden')}>
         {!selected ? (
           <Empty icon={<MessagesSquare className="h-5 w-5" />} title="Pick a conversation">
             Every text, call and website lead for this sub-account lands here.
@@ -173,11 +192,14 @@ function Conversations() {
             <Spinner />
           </div>
         ) : !detail.data ? (
-          <div className="p-6">
+          <div className="flex flex-col items-start gap-3 p-4 sm:p-6">
+            <button type="button" onClick={backToList} className="flex items-center gap-1.5 text-[13px] font-medium text-primary lg:hidden">
+              <ArrowLeft className="h-4 w-4" /> Conversations
+            </button>
             <ErrorNote error={detail.error} />
           </div>
         ) : (
-          <Thread accountId={accountId} detail={detail.data} />
+          <Thread accountId={accountId} detail={detail.data} onBack={backToList} onInfo={() => setInfo(true)} />
         )}
       </section>
 
@@ -186,11 +208,26 @@ function Conversations() {
           <ContactPanel key={detail.data.contact.id} accountId={accountId} detail={detail.data} onDeleted={() => router.replace(`/genisys-os/${accountId}/conversations`)} />
         </aside>
       )}
+      {info && selected && detail.data && (
+        <Modal open onClose={() => setInfo(false)} title="Contact details" width="max-w-md">
+          <div className="-mx-5 -my-4">
+            <ContactPanel
+              key={detail.data.contact.id}
+              accountId={accountId}
+              detail={detail.data}
+              onDeleted={() => {
+                setInfo(false)
+                router.replace(`/genisys-os/${accountId}/conversations`)
+              }}
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
 
-function Thread({ accountId, detail }: { accountId: string; detail: ContactDetail }) {
+function Thread({ accountId, detail, onBack, onInfo }: { accountId: string; detail: ContactDetail; onBack: () => void; onInfo: () => void }) {
   const qc = useQueryClient()
   const account = useAccount(accountId)
   const c = detail.contact
@@ -251,11 +288,16 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
   const blocked = mode !== 'note' && !!warning
   // Email shows once the sub-account can send it (Settings → Email Services); until then the tab would only say no.
   const emailLive = setup?.status === 'active'
+  // On a touch screen Return makes a new line, as in any texting app; Send sends.
+  const touch = useTouchScreen()
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-2 py-2 sm:gap-3 sm:px-5 sm:py-3">
+        <button type="button" onClick={onBack} aria-label="Back to conversations" className="grid h-10 w-9 shrink-0 place-items-center rounded-md text-foreground/80 active:bg-muted lg:hidden">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <Avatar name={contactLabel(c)} size={36} />
           <div className="min-w-0">
             <p className="truncate text-[15px] font-semibold text-foreground">{contactLabel(c)}</p>
@@ -265,19 +307,33 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
         <button
           type="button"
           onClick={() => star.mutate(!c.starred)}
-          className="ml-auto grid h-9 w-9 place-items-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-muted"
+          className="ml-auto grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-muted"
           title={c.starred ? 'Unstar' : 'Star'}
+          aria-label={c.starred ? 'Unstar' : 'Star'}
         >
           <Star className={cn('h-4 w-4', c.starred && 'fill-warning text-warning')} />
         </button>
         {c.phone && (
-          <a href={`tel:${c.phone}`} className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50">
-            <Phone className="h-4 w-4" /> Call
+          <a
+            href={`tel:${c.phone}`}
+            aria-label={`Call ${contactLabel(c)}`}
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-[13px] font-semibold text-foreground/90 hover:bg-muted/50 sm:px-3"
+          >
+            <Phone className="h-4 w-4" /> <span className="hidden sm:inline">Call</span>
           </a>
         )}
+        <button
+          type="button"
+          onClick={onInfo}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border bg-surface text-muted-foreground hover:bg-muted xl:hidden"
+          title="Contact details"
+          aria-label="Contact details"
+        >
+          <Info className="h-4 w-4" />
+        </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-5">
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
           {detail.messages.map((m) => (
             <MessageRow key={m.id} m={m} />
@@ -286,7 +342,7 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
         </div>
       </div>
 
-      <div className="border-t border-border bg-card px-5 pb-4 pt-3">
+      <div className="border-t border-border bg-card px-3 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 sm:px-5 sm:pb-4 sm:pt-3">
         <div className="mx-auto max-w-3xl">
           <div className="mb-2 flex gap-4 text-[13px] font-semibold">
             <button type="button" onClick={() => setMode('sms')} className={cn('flex items-center gap-1.5 pb-1', mode === 'sms' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground')}>
@@ -320,14 +376,16 @@ function Thread({ accountId, detail }: { accountId: string; detail: ContactDetai
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                // An email is written over several lines: Enter only sends texts and notes.
-                if (mode !== 'email' && e.key === 'Enter' && !e.shiftKey) {
+                // An email is written over several lines: Enter only sends texts and notes (and never on a touch screen's keyboard).
+                if (!touch && mode !== 'email' && e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   if (text.trim() && !blocked) send.mutate()
                 }
               }}
               rows={mode === 'email' ? 5 : 2}
-              placeholder={mode === 'sms' ? 'Type a text message (Enter to send, Shift+Enter for a new line)' : mode === 'email' ? 'Write the email' : 'Write a note only your team sees'}
+              placeholder={
+                mode === 'sms' ? (touch ? 'Text message' : 'Type a text message (Enter to send, Shift+Enter for a new line)') : mode === 'email' ? 'Write the email' : 'Write a note only your team sees'
+              }
               className={cn('min-h-[44px] flex-1 resize-none border-0 bg-transparent shadow-none focus:ring-0', mode === 'email' ? 'max-h-72' : 'max-h-40')}
             />
             <Button type="submit" variant="primary" loading={send.isPending} disabled={!text.trim() || blocked}>
@@ -386,7 +444,7 @@ function MessageRow({ m }: { m: ContactDetail['messages'][number] }) {
     const subject = typeof m.meta?.subject === 'string' ? m.meta.subject : '(no subject)'
     return (
       <div className={cn('flex flex-col', out ? 'items-end' : 'items-start')}>
-        <div className={cn('w-full max-w-[80%] rounded-2xl border px-4 py-3', out ? 'rounded-br-md border-primary/30 bg-primary-soft' : 'rounded-bl-md border-border bg-card', failed && 'border-destructive/40 bg-destructive/10')}>
+        <div className={cn('w-full max-w-[92%] rounded-2xl border px-4 py-3 sm:max-w-[80%]', out ? 'rounded-br-md border-primary/30 bg-primary-soft' : 'rounded-bl-md border-border bg-card', failed && 'border-destructive/40 bg-destructive/10')}>
           <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
             <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{subject}</span>
@@ -406,7 +464,7 @@ function MessageRow({ m }: { m: ContactDetail['messages'][number] }) {
     <div className={cn('flex flex-col', out ? 'items-end' : 'items-start')}>
       <div
         className={cn(
-          'max-w-[75%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-[14px] leading-relaxed',
+          'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-[14px] leading-relaxed sm:max-w-[75%]',
           out ? 'rounded-br-md bg-primary text-primary-foreground' : 'rounded-bl-md border border-border bg-card text-foreground',
           failed && 'bg-destructive/10 text-destructive ring-1 ring-destructive/30',
         )}

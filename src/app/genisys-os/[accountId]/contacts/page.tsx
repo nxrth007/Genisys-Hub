@@ -74,8 +74,10 @@ function Contacts() {
   const d = list.data
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1
 
+  const openContact = (id: string) => router.push(`/genisys-os/${accountId}/conversations?contact=${id}`)
+
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-7">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-7">
       <PageHeader
         title="Contacts"
         description={d ? `${d.total.toLocaleString('en-US')} contact${d.total === 1 ? '' : 's'}` : 'Everyone who filled a form, called or texted.'}
@@ -86,17 +88,19 @@ function Contacts() {
         }
       />
       <Card>
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <label className="flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50">
-            <Search className="h-4 w-4" />
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-4">
+          <label className="flex h-10 w-full flex-1 items-center gap-2 rounded-lg border border-border px-3 text-muted-foreground/70 focus-within:border-primary/50 sm:w-auto sm:min-w-[260px]">
+            <Search className="h-4 w-4 shrink-0" />
             <input
+              type="search"
+              enterKeyHint="search"
               value={q}
               onChange={(e) => {
                 setQ(e.target.value)
                 setPage(0)
               }}
               placeholder="Search by name, phone or email"
-              className="w-full bg-transparent text-[14px] text-foreground outline-none"
+              className="w-full bg-transparent text-[14px] text-foreground outline-none [&::-webkit-search-cancel-button]:hidden"
             />
           </label>
           <Select
@@ -105,7 +109,7 @@ function Contacts() {
               setTag(e.target.value)
               setPage(0)
             }}
-            className="w-48"
+            className="w-full sm:w-48"
           >
             <option value="">All tags</option>
             {(d?.tags ?? []).map((t) => (
@@ -124,7 +128,29 @@ function Contacts() {
             {q || tag ? 'Try another search.' : 'Contacts appear here when someone fills the website form, uses the chat widget, calls or texts the number.'}
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* A phone: one tappable row per contact. */}
+          <ul className="divide-y divide-border-soft md:hidden">
+            {d.contacts.map((c) => (
+              <li key={c.id}>
+                <button type="button" onClick={() => openContact(c.id)} className="flex w-full items-center gap-3 px-4 py-3 text-left transition active:bg-muted/60">
+                  <Avatar name={contactLabel(c)} size={40} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-[15px] font-medium text-foreground">{contactLabel(c)}</span>
+                      {c.dnd && <Badge color="red">DND</Badge>}
+                    </span>
+                    <span className="block truncate text-[13px] text-muted-foreground">{c.phone ? prettyPhone(c.phone) : (c.email ?? 'No phone or email')}</span>
+                  </span>
+                  <span className="shrink-0 text-right text-[11.5px] leading-snug text-muted-foreground">
+                    <span className="block">{SOURCE_LABEL[c.source ?? ''] ?? c.source ?? ''}</span>
+                    <span className="block">{timeAgo(c.createdAt)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left text-[14px]">
               <thead>
                 <tr className="border-b border-border bg-surface-muted text-[12px] font-medium text-muted-foreground">
@@ -138,7 +164,7 @@ function Contacts() {
               </thead>
               <tbody>
                 {d.contacts.map((c) => (
-                  <tr key={c.id} onClick={() => router.push(`/genisys-os/${accountId}/conversations?contact=${c.id}`)} className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50">
+                  <tr key={c.id} onClick={() => openContact(c.id)} className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50">
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-3">
                         <Avatar name={contactLabel(c)} size={32} />
@@ -165,9 +191,10 @@ function Contacts() {
               </tbody>
             </table>
           </div>
+          </>
         )}
         {d && d.total > d.pageSize && (
-          <div className="flex items-center justify-between border-t border-border px-5 py-3 text-[13px] text-muted-foreground">
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-[13px] text-muted-foreground sm:px-5">
             <span>
               Page {page + 1} of {pages}
             </span>

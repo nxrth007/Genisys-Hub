@@ -19,8 +19,8 @@ export function useSectionTab(sectionKey: string): string {
  */
 export function NotYet({ title, what, meanwhile }: { title: string; what: string; meanwhile?: ReactNode }) {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <Card className="flex flex-col items-center gap-3 px-8 py-12 text-center">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
+      <Card className="flex flex-col items-center gap-3 px-5 py-10 text-center sm:px-8 sm:py-12">
         <span className="grid h-11 w-11 place-items-center rounded-full border border-border bg-surface text-muted-foreground">
           <Construction className="h-5 w-5" />
         </span>
@@ -78,14 +78,14 @@ export function RecordsTable({
   const d = query.data
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-[24px] font-semibold tracking-tight text-foreground">{title}</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight text-foreground sm:text-[24px]">{title}</h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">{d ? `${d.total.toLocaleString('en-US')} imported from GoHighLevel` : ' '}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex h-9 w-64 items-center gap-2 rounded-md border border-border bg-surface px-3 text-muted-foreground focus-within:border-primary/50">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <label className="flex h-9 w-full items-center gap-2 rounded-md border border-border bg-surface px-3 text-muted-foreground focus-within:border-primary/50 sm:w-64">
             <Search className="h-3.5 w-3.5" />
             <input
               value={q}
