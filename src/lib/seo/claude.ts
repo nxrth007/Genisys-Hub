@@ -1,26 +1,50 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { requireSecret } from './secrets'
+import { gatherEvidence } from './retrieval'
 import type { ClaudeUsage, ResearchResult } from './types'
 
 /**
  * Claude API plumbing for the SEO engine.
  *
- * Every call goes through the beta Messages API so it can carry
- * `fallbacks: 'default'`: if Opus's safety classifiers decline a request
+ * Two providers can serve this engine, and the difference is not just the
+ * base URL — it is which *services* exist behind it:
+ *
+ *  - `anthropic` hits api.anthropic.com and gets Claude's hosted server tools
+ *    (`web_search_20260209`, `web_fetch_20260209`) plus enforced JSON-schema
+ *    output. Research runs server-side; structured calls are decoded into the
+ *    schema for us.
+ *  - `mwapi` hits an Anthropic-compatible proxy that serves the MODEL ONLY.
+ *    Hosted web search/fetch silently no-op there (the call returns 200 with
+ *    no `server_tool_use` block, so the model answers from memory), and
+ *    `output_config.format` is not enforced. So on this path research is done
+ *    in-process by `retrieval.ts`, and structured output is obtained with a
+ *    forced `tool_choice` tool call, which the proxy does honor.
+ *
+ * Every call goes through the beta Messages API so the anthropic path can
+ * carry `fallbacks: 'default'`: if Opus's safety classifiers decline a request
  * (rare for contractor SEO, but "security headers" talk can trip the cyber
  * classifier), the API re-runs it on a fallback model inside the same call
- * instead of failing the week's run. Everything is streamed — research
- * turns and long posts run for minutes and would otherwise hit the SDK's
+ * instead of failing the week's run. Everything is streamed — research turns
+ * and long posts run for minutes and would otherwise hit the SDK's
  * non-streaming guard.
  *
- * Research (web search/fetch) and structured output never share a call:
- * web search always returns citations, and citations + a JSON schema is a
- * documented 400. Research returns prose with sources; a separate call
- * turns that into schema-valid JSON.
+ * Research (web search/fetch) and structured output never share a call on the
+ * anthropic path: web search always returns citations, and citations + a JSON
+ * schema is a documented 400.
  */
 
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
+
+/** Provider surface. `mwapi` = model only, no hosted tools, no schema enforcement. */
+export type LlmProvider = 'anthropic' | 'mwapi'
+
+/** MWAPI's Anthropic-compatible root. NO `/v1` — the SDK appends `/v1/messages`. */
+const MWAPI_BASE_URL = 'https://api.mwapi.dev'
+
+/** The tool the MWAPI path forces the model to call to produce structured output. */
+const EMIT_TOOL = 'emit_result'
+
 
 /** Per-MTok prices; the fallback model bills at its own (equal) rate. */
 const PRICES: Record<string, { in: number; out: number; w5m: number; w1h: number; read: number }> = {
@@ -63,19 +87,37 @@ export class ClaudeSession {
     readonly model: string,
     private readonly budgetUsd: number,
     startingUsage: ClaudeUsage,
+    readonly provider: LlmProvider = 'anthropic',
+    /** Model to retry on when a safety classifier declines. Null = server handles it. */
+    private readonly fallbackModel: string | null = null,
   ) {
     this.usage = { ...startingUsage }
   }
 
-  static async open(o: { model: string; budgetUsd: number; usage?: ClaudeUsage | null }): Promise<ClaudeSession> {
+  static async open(o: {
+    model: string
+    budgetUsd: number
+    usage?: ClaudeUsage | null
+    provider?: LlmProvider
+    fallbackModel?: string
+  }): Promise<ClaudeSession> {
+    const provider = o.provider ?? 'anthropic'
+    const apiKey = provider === 'mwapi' ? await requireSecret('mwapi') : await requireSecret('anthropic')
     const client = new Anthropic({
-      apiKey: await requireSecret('anthropic'),
+      apiKey,
       // An ANTHROPIC_AUTH_TOKEN in the environment alongside a key is a 401.
       authToken: null,
+      // Only override for MWAPI; undefined leaves the SDK on api.anthropic.com.
+      baseURL: provider === 'mwapi' ? MWAPI_BASE_URL : undefined,
       maxRetries: 3,
       timeout: 15 * 60_000,
     })
-    return new ClaudeSession(client, o.model, o.budgetUsd, o.usage ?? emptyUsage())
+    // The first-party API re-runs a declined request on a fallback model inside
+    // the same call (`fallbacks: 'default'`). The proxy doesn't implement that
+    // beta, so there we must do the retry ourselves — otherwise a classifier
+    // decline fails the whole weekly run.
+    const fallbackModel = provider === 'mwapi' ? (o.fallbackModel ?? 'claude-sonnet-5-5') : null
+    return new ClaudeSession(client, o.model, o.budgetUsd, o.usage ?? emptyUsage(), provider, fallbackModel)
   }
 
   get spentUsd(): number {
@@ -83,6 +125,20 @@ export class ClaudeSession {
   }
 
   private assertBudget(label: string) {
+    // On MWAPI the per-token dollars are notional — the account is prepaid
+    // subscription credits, so a "$8 cap" would abort runs over money nobody is
+    // spending. The scarce resource there is tokens, and the absence of prompt
+    // caching means every call re-sends the whole dossier. Cap that instead.
+    if (this.provider === 'mwapi') {
+      const tokenCap = Math.round(this.budgetUsd * 250_000)
+      const used = this.usage.inputTokens + this.usage.outputTokens
+      if (used >= tokenCap) {
+        throw new BudgetExceededError(
+          `Stopped before "${label}": this run has used ${used.toLocaleString()} of its ${tokenCap.toLocaleString()}-token allowance.`,
+        )
+      }
+      return
+    }
     if (this.usage.costUsd >= this.budgetUsd) {
       throw new BudgetExceededError(
         `Stopped before "${label}": this run has spent $${this.usage.costUsd.toFixed(2)} of its $${this.budgetUsd.toFixed(2)} cap.`,
@@ -117,13 +173,15 @@ export class ClaudeSession {
   private async stream(
     label: string,
     body: Omit<Anthropic.Beta.MessageCreateParamsNonStreaming, 'model' | 'betas' | 'fallbacks' | 'stream'>,
+    /** Override the session model — used for the refusal retry. */
+    model?: string,
   ): Promise<Anthropic.Beta.BetaMessage> {
     this.assertBudget(label)
     for (let attempt = 0; ; attempt++) {
       try {
         const message = await this.client.beta.messages
           .stream(
-            { ...body, model: this.model, betas: [FALLBACK_BETA], fallbacks: 'default' },
+            { ...body, model: model ?? this.model, ...(this.provider === 'mwapi' ? {} : { betas: [FALLBACK_BETA], fallbacks: 'default' as const }) },
             // Wall-clock cap per call; streams aren't bounded by the SDK timeout once headers arrive.
             { signal: AbortSignal.timeout(25 * 60_000) },
           )
@@ -173,6 +231,8 @@ export class ClaudeSession {
     maxSearches: number
     maxFetches: number
   }): Promise<ResearchResult> {
+    // No hosted web tools on the proxy, so do the search and reading here.
+    if (this.provider === 'mwapi') return this.researchViaRetrieval(o)
     const tools: Anthropic.Beta.BetaToolUnion[] = [
       {
         type: 'web_search_20260209',
@@ -221,7 +281,126 @@ export class ClaudeSession {
     return result
   }
 
-  /** A schema-constrained answer, validated with zod. No tools. Images (by URL, each after its label) go between the context and the task. */
+  /**
+   * Research on a provider with no hosted web tools: plan queries, retrieve
+   * evidence in-process, then have the model write the same prose digest the
+   * hosted-tools path returns. Same return type, so the pipeline is unchanged.
+   *
+   * Three cheap steps instead of one expensive agentic one — and the model is
+   * told to say when the evidence is thin, because the biggest failure mode of
+   * a model without live search is confidently inventing last year's prices.
+   */
+  private async researchViaRetrieval(o: {
+    label: string
+    system: string
+    context: string
+    task: string
+    location: { city: string | null; region: string | null; timezone: string | null }
+    maxSearches: number
+    maxFetches: number
+  }): Promise<ResearchResult> {
+    const toolErrors: string[] = []
+    const place = o.location.city ? ` in ${o.location.city}${o.location.region ? `, ${o.location.region}` : ''}` : ''
+
+    let queries: string[] = []
+    try {
+      const plan = await this.structured({
+        label: `${o.label} (queries)`,
+        system: 'You plan web research for a local SEO campaign. You return only search queries.',
+        context: o.context,
+        task:
+          `${o.task}\n\n---\n` +
+          `Write the ${Math.min(o.maxSearches, 10)} web search queries that would surface the most useful evidence for the above. ` +
+          `Mix three kinds: (1) what a person types when shopping for this service${place}; ` +
+          `(2) competitor and directory pages that currently rank for it; ` +
+          `(3) authoritative or first-party sources with real figures — government, industry bodies, manufacturers. ` +
+          `Each query is 3-8 words, no site: operators.`,
+        schema: z.object({ queries: z.array(z.string().min(3).max(120)).min(1).max(10) }),
+        effort: 'low',
+        maxTokens: 4_000,
+      })
+      queries = plan.queries.map((q) => q.trim()).filter(Boolean)
+    } catch (err) {
+      toolErrors.push(`query planning failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    // Even with no plan, one broad query beats a wasted week.
+    if (!queries.length) queries = [`best ${o.location.city ?? ''} local service providers`.trim()]
+
+    const evidence = await gatherEvidence({
+      queries,
+      maxPages: Math.min(o.maxFetches, 10),
+      location: { city: o.location.city, region: o.location.region },
+      perQuery: 10,
+    })
+    toolErrors.push(...evidence.errors.slice(0, 8))
+    // Retrieval happens in-process, so it has to be counted by hand or the run's
+    // usage panel reports "0 web searches" and looks like research never ran.
+    if (evidence.usedProvider) this.usage.webSearches += queries.length
+    this.usage.webFetches += evidence.pages.length
+    // A silent fallback to the keyless scraper looks like "research just got
+    // worse"; say which provider actually answered so a mis-named Vault entry
+    // is diagnosable from the run log.
+    if (evidence.usedProvider === 'bing') {
+      toolErrors.push('search fell back to the keyless Bing scraper (low fidelity) — check the Serper Vault entry name and key shape')
+    }
+
+    if (!evidence.pages.length) {
+      return {
+        digest: '(research unavailable this week — no pages could be retrieved, so rely on Search Console data and the existing posts)',
+        sources: [],
+        toolErrors,
+      }
+    }
+
+    const pack = evidence.pages
+      .map((p, i) => `### [${i + 1}] ${p.title || p.url}\nURL: ${p.url}\n\n${p.text.slice(0, 6_000)}`)
+      .join('\n\n')
+
+    const synthBody = {
+      max_tokens: 16_000,
+      thinking: { type: 'adaptive' as const, display: 'omitted' as const },
+      output_config: { effort: 'high' as const },
+      system: [{ type: 'text' as const, text: o.system, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } }],
+      messages: [
+        {
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: o.context, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } },
+            {
+              type: 'text' as const,
+              text:
+                `${o.task}\n\n---\nEVIDENCE — pages retrieved from the live web during this run:\n\n${pack}\n\n---\n` +
+                (evidence.questions.length
+                  ? `QUESTIONS GOOGLE RETURNS FOR THESE SEARCHES (peopleAlsoAsk — real demand, not a model guess):\n` +
+                    evidence.questions.map((q) => `- ${q}`).join('\n') +
+                    `\n\n`
+                  : '') +
+                (evidence.related.length
+                  ? `RELATED SEARCHES GOOGLE SUGGESTS:\n` +
+                    evidence.related.map((q) => `- ${q}`).join('\n') +
+                    `\n\n`
+                  : '') +
+                `---\nWrite the findings digest. Rules: state a fact only if it appears in the evidence above, and cite the page you took it from by its URL in brackets. ` +
+                `Treat the question and related-search lists as evidence of real demand even where the fetched pages are thin — they come from Google itself. ` +
+                `Where the evidence is silent or thin, say so plainly instead of filling the gap from memory. ` +
+                `Give dollar figures, local specifics and competitor names only where the evidence supports them.`,
+            },
+          ],
+        },
+      ],
+    }
+    const m = await this.withRefusalRetry(`${o.label} (synthesis)`, synthBody)
+    assertUsable(m)
+    const digest = m.content
+      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim()
+    return { digest, sources: evidence.sources, toolErrors }
+  }
+
+  /** A schema-constrained answer, validated with zod. No tools. */
   async structured<T>(o: {
     label: string
     system: string
@@ -230,13 +409,13 @@ export class ClaudeSession {
     schema: z.ZodType<T>
     effort: 'low' | 'medium' | 'high'
     maxTokens?: number
+    /** Images (by URL, each after its label) go between the context and the task. */
     images?: { label: string; url: string }[]
   }): Promise<T> {
+    // The proxy doesn't enforce output_config.format, so decode through a
+    // forced tool call there instead. Callers see no difference.
+    if (this.provider === 'mwapi') return this.structuredViaTool(o)
     const format = { type: 'json_schema' as const, schema: structuredSchema(o.schema) }
-    const images: Anthropic.Beta.BetaContentBlockParam[] = (o.images ?? []).flatMap((img) => [
-      { type: 'text' as const, text: img.label },
-      { type: 'image' as const, source: { type: 'url' as const, url: img.url } },
-    ])
     const m = await this.stream(o.label, {
       max_tokens: o.maxTokens ?? 32_000,
       thinking: { type: 'adaptive', display: 'omitted' },
@@ -245,12 +424,124 @@ export class ClaudeSession {
       messages: [
         {
           role: 'user',
-          content: [{ type: 'text', text: o.context, cache_control: { type: 'ephemeral', ttl: '1h' } }, ...images, { type: 'text', text: o.task }],
+          content: [
+            { type: 'text', text: o.context, cache_control: { type: 'ephemeral', ttl: '1h' } },
+            { type: 'text', text: o.task },
+          ],
         },
       ],
     })
     assertUsable(m)
     return parseStructured(m, o.schema)
+  }
+
+  /**
+   * Structured output on a provider without schema enforcement, via a forced
+   * tool call. The proxy streams thinking blocks before the tool_use, so
+   * `max_tokens` must cover the reasoning AND the payload — a small budget
+   * truncates before the tool call ever appears.
+   *
+   * The proxy also doesn't *enforce* the tool's `input_schema`; it only
+   * describes it. zod is therefore the real gate, and a shape miss is retried
+   * with the validation issues fed back rather than failing the run.
+   */
+  private async structuredViaTool<T>(o: {
+    label: string
+    system: string
+    context: string
+    task: string
+    schema: z.ZodType<T>
+    effort: 'low' | 'medium' | 'high'
+    maxTokens?: number
+    /** Images (by URL, each after its label) go between the context and the task. */
+    images?: { label: string; url: string }[]
+  }): Promise<T> {
+    // Upstream `structured()` accepts images by URL. Keep parity here, or the
+    // MWAPI path would silently drop a site's photos that the Anthropic path sends.
+    const images: Anthropic.Beta.BetaContentBlockParam[] = (o.images ?? []).flatMap((img) => [
+      { type: 'text' as const, text: img.label },
+      { type: 'image' as const, source: { type: 'url' as const, url: img.url } },
+    ])
+    let lastIssue = ''
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const task =
+        attempt === 0
+          ? o.task
+          : `${o.task}\n\n---\nYour previous answer was rejected: ${lastIssue}\nReturn the corrected object through the ${EMIT_TOOL} tool. Include every required field.`
+      const body = {
+        max_tokens: o.maxTokens ?? 32_000,
+        thinking: { type: 'adaptive' as const, display: 'omitted' as const },
+        output_config: { effort: o.effort },
+        system: [{ type: 'text' as const, text: o.system, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } }],
+        // The schema is generated, so its `type: 'object'` is `string` at the
+        // type level while the SDK wants the literal. Cast at the boundary.
+        tools: [
+          {
+            name: EMIT_TOOL,
+            description: 'Return the finished result. Call this exactly once.',
+            input_schema: structuredSchema(o.schema),
+          } as unknown as Anthropic.Beta.BetaToolUnion,
+        ],
+        tool_choice: { type: 'tool' as const, name: EMIT_TOOL },
+        messages: [
+          {
+            role: 'user' as const,
+            content: [
+              { type: 'text' as const, text: o.context, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } },
+              ...images,
+              { type: 'text' as const, text: task },
+            ],
+          },
+        ],
+      }
+      const m = await this.withRefusalRetry(attempt === 0 ? o.label : `${o.label} (retry ${attempt})`, body)
+      assertUsable(m)
+      const block = m.content.find((b) => b.type === 'tool_use' && b.name === EMIT_TOOL)
+      if (!block || block.type !== 'tool_use') {
+        lastIssue = 'the response contained no tool call (the answer may have been cut off)'
+        continue
+      }
+      // A proxy may hand the arguments back as a JSON string instead of an object.
+      let input: unknown = block.input
+      if (typeof input === 'string') {
+        try {
+          input = JSON.parse(input)
+        } catch {
+          lastIssue = 'the tool arguments were not valid JSON'
+          continue
+        }
+      }
+      const parsed = o.schema.safeParse(input)
+      if (parsed.success) return parsed.data
+      lastIssue = parsed.error.issues
+        .slice(0, 5)
+        .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('; ')
+    }
+    throw new Error(`Claude returned output that doesn't match the expected shape (${lastIssue}).`)
+  }
+
+  /**
+   * A safety-classifier decline is not a content bug — the first-party API
+   * re-runs such a request on a fallback model inside the same call. The proxy
+   * doesn't implement that beta, and `engine.ts` treats a refusal with no
+   * `recommendedModel` as fatal, so without this retry a single declined
+   * paragraph would kill the whole week's run.
+   */
+  private async withRefusalRetry(
+    label: string,
+    body: Omit<Anthropic.Beta.MessageCreateParamsNonStreaming, 'model' | 'betas' | 'fallbacks' | 'stream'>,
+  ): Promise<Anthropic.Beta.BetaMessage> {
+    try {
+      const m = await this.stream(label, body)
+      assertUsable(m)
+      return m
+    } catch (err) {
+      if (!(err instanceof RefusalError) || !this.fallbackModel) throw err
+      const m = await this.stream(`${label} → ${this.fallbackModel}`, body, this.fallbackModel)
+      assertUsable(m)
+      return m
+    }
   }
 }
 

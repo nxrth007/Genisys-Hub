@@ -246,7 +246,7 @@ export async function reseedFacts(siteId: string): Promise<void> {
     site.repoFullName ? snapshotRepo(site.repoFullName).catch(() => null) : Promise.resolve(null),
     site.liveUrl ? fetchPage(site.liveUrl).catch(() => null) : Promise.resolve(null),
   ])
-  const session = await ClaudeSession.open({ model: settings.model, budgetUsd: 2 })
+  const session = await ClaudeSession.open({ model: settings.model, provider: settings.provider, budgetUsd: 2 })
   const facts = await deriveFacts({ site, session, repo, homepageText: home?.textSample ?? null })
   // A fresh read starts the provenance over, then the client's answers are folded in on top.
   const meta = { ...emptyMeta(), changes: readMeta(site.factsMeta).changes }

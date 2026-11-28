@@ -258,7 +258,20 @@ export async function driveRun(runId: string, lease: Date): Promise<'advanced' |
       const fn = STAGES[stage]
       if (!fn) throw new FatalRunError(`Unknown stage "${stage}"`)
       await ctx.renewLease(LEASE_MS)
-      const out = await fn(ctx)
+      // A long stage (write, research) can outlive the lease on a slow provider.
+      // The lease used to be renewed only *between* stages, so another tick could
+      // re-claim the run mid-stage and two workers would drive it at once —
+      // double-committing to the client's repo. Keep it warm while the stage runs.
+      const live = ctx
+      const heartbeat = setInterval(() => {
+        void live.renewLease(LEASE_MS).catch(() => {})
+      }, Math.floor(LEASE_MS / 3))
+      let out: Awaited<ReturnType<typeof fn>>
+      try {
+        out = await fn(live)
+      } finally {
+        clearInterval(heartbeat)
+      }
       const waiting = out.status !== 'running'
       await ctx.save({
         stage: out.stage,
