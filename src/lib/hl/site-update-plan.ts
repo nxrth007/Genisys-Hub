@@ -108,8 +108,6 @@ export type SiteUpdateView = {
   /** Emails that already have a login there. */
   logins: string[]
   signInUrl: string
-  /** When a text pressed now would go out instead (9 AM to 7 PM where they are); null = now. */
-  goesOutAt: string | null
   last: SiteUpdateSent | null
 }
 

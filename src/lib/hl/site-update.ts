@@ -3,12 +3,12 @@
  * live on its own domain. Texts the owner from Lead Genisys's GHL sub-account (the line the team's
  * client texts go out on): the first draft is up at their link, text us the changes, and their
  * Genisys OS login (a link to choose a password, as the client report sends it). Nothing goes out
- * without the press; each send is kept in AppSetting hl.siteUpdate:<clientId>. Owners are texted
- * 9 AM to 7 PM where they are, as every client text is: outside that, the press says when to try.
+ * without the press; each send is kept in AppSetting hl.siteUpdate:<clientId>. It goes out at any
+ * hour (Alex, 2026-11-27: the 9 AM to 7 PM wait was taken off this text; whoever presses decides).
  */
 import { prisma } from '@/lib/prisma'
 import { sendSmsToPhone } from '@/lib/ghl'
-import { EMAIL_RE, digits10, goesOutAt, ownerZone } from '@/lib/gbp-plan'
+import { EMAIL_RE, digits10 } from '@/lib/gbp-plan'
 import { TEAM_ALERT_PHONES } from '@/lib/team-sms'
 import { siteHref } from '@/lib/site-status'
 import { readProfile } from './accounts'
@@ -64,8 +64,7 @@ function facts(c: Client) {
     intake,
     notOwner: [...TEAM_ALERT_PHONES.map((t) => t.phone), ...(a?.numbers.map((n) => n.number) ?? [])],
   })
-  const zone = ownerZone(a?.timezone, [p.address, c.address, intake?.businessAddress])
-  return { a, p, owner, zone, business: p.businessName || c.name }
+  return { a, p, owner, business: p.businessName || c.name }
 }
 
 async function sentLog(clientId: string): Promise<SiteUpdateSent[]> {
@@ -73,10 +72,10 @@ async function sentLog(clientId: string): Promise<SiteUpdateSent[]> {
   return readSentLog(row?.value)
 }
 
-export async function siteUpdateView(clientId: string, at = new Date()): Promise<SiteUpdateView | null> {
+export async function siteUpdateView(clientId: string): Promise<SiteUpdateView | null> {
   const c = await gather(clientId)
   if (!c) return null
-  const { a, owner, zone, business } = facts(c)
+  const { a, owner, business } = facts(c)
   const r = siteUpdateReady(c)
   const log = await sentLog(clientId)
   return {
@@ -90,7 +89,6 @@ export async function siteUpdateView(clientId: string, at = new Date()): Promise
     canLogin: !!a,
     logins: a?.members.map((m) => m.user.email) ?? [],
     signInUrl: `${publicBase()}/login`,
-    goesOutAt: goesOutAt(zone, at),
     last: log[log.length - 1] ?? null,
   }
 }
@@ -128,14 +126,12 @@ export async function sendSiteUpdate(clientId: string, o: { to: string; email: s
   if (!live()) return { ok: false, reason: 'Only the live Hub texts clients.' }
   const r = siteUpdateReady(c)
   if (!r.ready) return { ok: false, reason: r.why ?? 'Not ready yet.' }
-  const { a, p, owner, zone, business } = facts(c)
+  const { a, p, owner, business } = facts(c)
   const to = digits10(o.to)
   if (to.length !== 10) return { ok: false, reason: 'That isn’t a 10-digit phone number.' }
   if (TEAM_ALERT_PHONES.some((t) => digits10(t.phone) === to) || a?.numbers.some((n) => digits10(n.number) === to)) {
     return { ok: false, reason: 'That number is Genisys’s own or the business’s line, not the owner’s.' }
   }
-  const later = goesOutAt(zone, at)
-  if (later) return { ok: false, reason: `Not sent: owners are texted 9 AM to 7 PM where they are. Try again at ${later}.` }
   let login: SiteUpdateLogin | null = null
   if (o.includeLogin) {
     if (!a) return { ok: false, reason: 'They have no Genisys OS sub-account yet, so there’s no login to send. Untick the login, or set the sub-account up first.' }

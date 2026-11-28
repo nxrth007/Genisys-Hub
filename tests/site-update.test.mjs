@@ -155,9 +155,9 @@ const DAY = new Date('2026-11-25T18:00:00Z') // 11 AM in Denver
 const NIGHT = new Date('2026-11-25T05:00:00Z') // 10 PM in Denver the evening before
 process.env.NODE_ENV = 'production'
 
-test('the view: ready, who it goes to, and when a press would go out', async () => {
+test('the view: ready and who it goes to (no waiting for daytime: Alex, 2026-11-27)', async () => {
   const h = handler()
-  const v = await h.mod.siteUpdateView('cli1', DAY)
+  const v = await h.mod.siteUpdateView('cli1')
   assert.equal(v.ready, true)
   assert.equal(v.to, '7199744712')
   assert.equal(v.email, 'chris@example.com')
@@ -165,9 +165,8 @@ test('the view: ready, who it goes to, and when a press would go out', async () 
   assert.equal(v.siteUrl, 'https://a1mconstruction.org')
   assert.equal(v.canLogin, true)
   assert.equal(v.signInUrl, 'https://hub.example/login')
-  assert.equal(v.goesOutAt, null)
   assert.equal(v.last, null)
-  assert.match((await h.mod.siteUpdateView('cli1', NIGHT)).goesOutAt, /^9 AM Mountain/)
+  assert.equal('goesOutAt' in v, false, 'the 9 AM to 7 PM wait is gone')
   const notYet = handler({ client: { siteUrl: 'https://a1m.lovable.app' } })
   assert.equal((await notYet.mod.siteUpdateView('cli1', DAY)).ready, false)
 })
@@ -201,11 +200,15 @@ test('the press texts the owner from Lead Genisys’s line, with a fresh login l
   assert.ok(!plain.calls.sms[0].message.includes('login'))
 })
 
-test('the press refuses at night, a bad or our own number, a login with no email or no sub-account, and says when a text failed', async () => {
+test('the press goes out at night too (Alex, 2026-11-27: whoever presses decides)', async () => {
   const h = handler()
   const night = await h.mod.sendSiteUpdate('cli1', { to: '7199744712', email: null, includeLogin: false, by: 'Alex' }, NIGHT)
-  assert.equal(night.ok, false)
-  assert.match(night.reason, /9 AM to 7 PM where they are\. Try again at 9 AM Mountain/)
+  assert.equal(night.ok, true)
+  assert.equal(h.calls.sms.length, 1)
+})
+
+test('the press refuses a bad or our own number, a login with no email or no sub-account, and says when a text failed', async () => {
+  const h = handler()
   assert.match((await h.mod.sendSiteUpdate('cli1', { to: '555-1234', email: null, includeLogin: false, by: 'Alex' }, DAY)).reason, /10-digit/)
   assert.match((await h.mod.sendSiteUpdate('cli1', { to: '603-555-0199', email: null, includeLogin: false, by: 'Alex' }, DAY)).reason, /Genisys’s own/)
   assert.match((await h.mod.sendSiteUpdate('cli1', { to: '866-555-0100', email: null, includeLogin: false, by: 'Alex' }, DAY)).reason, /Genisys’s own/)

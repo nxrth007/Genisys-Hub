@@ -135,7 +135,6 @@ function SendDialog({ clientId, view, onClose, onSent }: { clientId: string; vie
             </label>
           )}
           <pre className="max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-card px-3 py-2.5 font-sans text-[12.5px] leading-relaxed text-foreground/90">{text}</pre>
-          {view.goesOutAt && <p className="text-[12px] text-amber-600 dark:text-amber-400">It’s outside 9 AM to 7 PM where they are, so it can’t go out now. Try again at {view.goesOutAt}.</p>}
         </div>
         {error && <p className="mx-5 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12.5px] leading-snug text-foreground">{error}</p>}
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
@@ -145,7 +144,7 @@ function SendDialog({ clientId, view, onClose, onSent }: { clientId: string; vie
           <button
             type="button"
             onClick={send}
-            disabled={busy || !to.trim() || !!view.goesOutAt || (withLogin && !email.trim())}
+            disabled={busy || !to.trim() || (withLogin && !email.trim())}
             className="inline-flex items-center gap-1.5 rounded-lg border border-foreground/20 bg-foreground px-3 py-1.5 text-[12.5px] font-medium text-background transition hover:opacity-90 disabled:opacity-50"
           >
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Send the text
